@@ -1,0 +1,16 @@
+[workspace]
+members = ["crates/sentinel-core", "crates/sentinel-cli"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+rust-version = "1.94.0"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+panic = "abort"
+opt-level = 3

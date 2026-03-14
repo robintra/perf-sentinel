@@ -1,0 +1,67 @@
+//! Correlation stage: groups spans by trace ID into trace windows.
+
+use crate::event::SpanEvent;
+use std::collections::HashMap;
+
+/// A correlated trace containing all spans sharing the same trace ID.
+#[derive(Debug, Clone)]
+pub struct Trace {
+    pub trace_id: String,
+    pub spans: Vec<SpanEvent>,
+}
+
+/// Group a flat list of span events into traces by trace_id.
+pub fn correlate(events: Vec<SpanEvent>) -> Vec<Trace> {
+    let mut map: HashMap<String, Vec<SpanEvent>> = HashMap::new();
+    for event in events {
+        map.entry(event.trace_id.clone()).or_default().push(event);
+    }
+    map.into_iter()
+        .map(|(trace_id, spans)| Trace { trace_id, spans })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::OperationType;
+
+    fn make_span(trace_id: &str, span_id: &str) -> SpanEvent {
+        SpanEvent {
+            span_id: span_id.to_string(),
+            trace_id: trace_id.to_string(),
+            parent_span_id: None,
+            service_name: "test".to_string(),
+            operation_type: OperationType::Sql,
+            operation: "SELECT 1".to_string(),
+            http_method: None,
+            http_status_code: None,
+            start_time_us: 0,
+            duration_us: 100,
+            attributes: Default::default(),
+        }
+    }
+
+    #[test]
+    fn empty_input_gives_empty_output() {
+        let traces = correlate(vec![]);
+        assert!(traces.is_empty());
+    }
+
+    #[test]
+    fn groups_spans_by_trace_id() {
+        let events = vec![
+            make_span("trace-1", "span-1"),
+            make_span("trace-2", "span-2"),
+            make_span("trace-1", "span-3"),
+        ];
+        let traces = correlate(events);
+        assert_eq!(traces.len(), 2);
+
+        let t1 = traces.iter().find(|t| t.trace_id == "trace-1").unwrap();
+        assert_eq!(t1.spans.len(), 2);
+
+        let t2 = traces.iter().find(|t| t.trace_id == "trace-2").unwrap();
+        assert_eq!(t2.spans.len(), 1);
+    }
+}
