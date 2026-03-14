@@ -31,6 +31,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - name: Clippy report for SonarCloud
+        run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
+
       - name: Build
         run: cargo build --workspace
 
@@ -50,7 +53,7 @@ jobs:
         run: cargo audit
 
       - name: SonarCloud Scan
-        uses: SonarSource/sonarqube-scan-action@v4
+        uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
