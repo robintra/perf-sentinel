@@ -4,6 +4,21 @@ Lightweight, polyglot performance anti-pattern detector.
 
 Analyzes runtime traces (SQL queries, HTTP calls) to detect N+1 queries, redundant calls, and scores I/O intensity per endpoint (GreenOps).
 
+## Why perf-sentinel?
+
+Performance anti-patterns like N+1 queries exist in any application that does I/O — monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
+
+perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core, or SeaORM — it sees the queries they generate.
+
+## GreenOps: built-in carbon-aware scoring
+
+Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O operations generated per user request for a given endpoint. Reducing unnecessary I/O (N+1 queries, redundant calls) improves response times *and* reduces energy consumption — these are not competing goals.
+
+- **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
+- **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
+
+Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](https://github.com/Green-Software-Foundation/sci) from the Green Software Foundation.
+
 ## Getting Started
 
 > Coming soon.
