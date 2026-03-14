@@ -3,8 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
+      - 'sonar-project.properties'
   pull_request:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
+      - 'sonar-project.properties'
 
 env:
   CARGO_TERM_COLOR: always
