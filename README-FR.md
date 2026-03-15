@@ -1,6 +1,15 @@
-# perf-sentinel
+<p align="center">
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-stable-orange?logo=rust" alt="Rust" /></a>
+  <a href="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml"><img src="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://sonarcloud.io/summary/overall?id=robintrassard_perf-sentinel"><img src="https://sonarcloud.io/api/project_badges/measure?project=robintrassard_perf-sentinel&metric=coverage" alt="Coverage" /></a>
+  <a href="https://sonarcloud.io/summary/overall?id=robintrassard_perf-sentinel"><img src="https://sonarcloud.io/api/project_badges/measure?project=robintrassard_perf-sentinel&metric=alert_status" alt="Quality Gate" /></a>
+  <a href="https://github.com/robintra/perf-sentinel/blob/main/LICENSE"><img src="https://img.shields.io/github/license/robintra/perf-sentinel?color=blue" alt="Licence" /></a>
+</p>
 
-Détecteur léger et polyglotte d'anti-patterns de performance.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-dark-horizontal.svg">
+  <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
+</picture>
 
 Analyse les traces d'exécution (requêtes SQL, appels HTTP) pour détecter les requêtes N+1, les appels redondants, et évalue l'intensité I/O par endpoint (GreenOps).
 
@@ -28,10 +37,11 @@ Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](http
 | Phase | Description                                          | Statut       |
 |-------|------------------------------------------------------|--------------|
 | **0** | Scaffolding — workspace compilable, CI, stubs        | ✅ Terminé    |
-| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation | Non commencé |
+| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation | ⏳ En cours   |
 | **2** | Scoring GreenOps, ingestion OTLP, quality gate CI    | Non commencé |
 | **3** | Polish, benchmarks, release v0.1.0                   | Non commencé |
 
 ## Licence
 
 Ce projet est sous licence [GNU Affero General Public License v3.0](LICENSE).
+
