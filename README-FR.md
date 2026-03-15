@@ -1,6 +1,5 @@
 <p align="center">
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-stable-orange?logo=rust" alt="Rust" /></a>
-  <a href="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml"><img src="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust_2024-1.94.0_stable-orange?logo=rust" alt="Rust" /></a>  <a href="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml"><img src="https://github.com/robintra/perf-sentinel/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://sonarcloud.io/summary/overall?id=robintrassard_perf-sentinel"><img src="https://sonarcloud.io/api/project_badges/measure?project=robintrassard_perf-sentinel&metric=coverage" alt="Coverage" /></a>
   <a href="https://sonarcloud.io/summary/overall?id=robintrassard_perf-sentinel"><img src="https://sonarcloud.io/api/project_badges/measure?project=robintrassard_perf-sentinel&metric=alert_status" alt="Quality Gate" /></a>
 </p>
