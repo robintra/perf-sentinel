@@ -1,20 +1,24 @@
-//! Correlation stage: groups spans by trace ID into trace windows.
+//! Correlation stage: groups normalized events by trace ID into traces.
 
-use crate::event::SpanEvent;
+pub mod window;
+
+use crate::normalize::NormalizedEvent;
 use std::collections::HashMap;
 
-/// A correlated trace containing all spans sharing the same trace ID.
+/// A correlated trace containing all normalized events sharing the same trace ID.
 #[derive(Debug, Clone)]
 pub struct Trace {
     pub trace_id: String,
-    pub spans: Vec<SpanEvent>,
+    pub spans: Vec<NormalizedEvent>,
 }
 
-/// Group a flat list of span events into traces by trace_id.
-pub fn correlate(events: Vec<SpanEvent>) -> Vec<Trace> {
-    let mut map: HashMap<String, Vec<SpanEvent>> = HashMap::new();
+/// Group normalized events into traces by trace_id.
+pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
+    let mut map: HashMap<String, Vec<NormalizedEvent>> = HashMap::new();
     for event in events {
-        map.entry(event.trace_id.clone()).or_default().push(event);
+        map.entry(event.event.trace_id.clone())
+            .or_default()
+            .push(event);
     }
     map.into_iter()
         .map(|(trace_id, spans)| Trace { trace_id, spans })
@@ -24,21 +28,24 @@ pub fn correlate(events: Vec<SpanEvent>) -> Vec<Trace> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::OperationType;
+    use crate::event::{EventSource, EventType, SpanEvent};
+    use crate::normalize;
 
-    fn make_span(trace_id: &str, span_id: &str) -> SpanEvent {
+    fn make_event(trace_id: &str, span_id: &str) -> SpanEvent {
         SpanEvent {
-            span_id: span_id.to_string(),
+            timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: trace_id.to_string(),
-            parent_span_id: None,
-            service_name: "test".to_string(),
-            operation_type: OperationType::Sql,
-            operation: "SELECT 1".to_string(),
-            http_method: None,
-            http_status_code: None,
-            start_time_us: 0,
+            span_id: span_id.to_string(),
+            service: "test".to_string(),
+            event_type: EventType::Sql,
+            operation: "SELECT".to_string(),
+            target: "SELECT 1".to_string(),
             duration_us: 100,
-            attributes: Default::default(),
+            source: EventSource {
+                endpoint: "GET /test".to_string(),
+                method: "Test::test".to_string(),
+            },
+            status_code: None,
         }
     }
 
@@ -51,11 +58,12 @@ mod tests {
     #[test]
     fn groups_spans_by_trace_id() {
         let events = vec![
-            make_span("trace-1", "span-1"),
-            make_span("trace-2", "span-2"),
-            make_span("trace-1", "span-3"),
+            make_event("trace-1", "span-1"),
+            make_event("trace-2", "span-2"),
+            make_event("trace-1", "span-3"),
         ];
-        let traces = correlate(events);
+        let normalized = normalize::normalize_all(events);
+        let traces = correlate(normalized);
         assert_eq!(traces.len(), 2);
 
         let t1 = traces.iter().find(|t| t.trace_id == "trace-1").unwrap();

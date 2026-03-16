@@ -1,0 +1,47 @@
+[
+  {
+    "timestamp": "2025-07-10T14:32:01.000Z",
+    "trace_id": "trace-clean-1",
+    "span_id": "span-1",
+    "service": "user-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM users WHERE id = 1",
+    "duration_us": 500,
+    "source": { "endpoint": "GET /api/users/1", "method": "UserService::get_user" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.050Z",
+    "trace_id": "trace-clean-1",
+    "span_id": "span-2",
+    "service": "user-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM orders WHERE user_id = 1",
+    "duration_us": 600,
+    "source": { "endpoint": "GET /api/users/1", "method": "UserService::get_user" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.000Z",
+    "trace_id": "trace-clean-2",
+    "span_id": "span-3",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://payment-svc:8080/api/payment/status",
+    "duration_us": 8000,
+    "status_code": 200,
+    "source": { "endpoint": "POST /api/orders", "method": "OrderService::create_order" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.100Z",
+    "trace_id": "trace-clean-2",
+    "span_id": "span-4",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "INSERT",
+    "target": "INSERT INTO orders (user_id, amount) VALUES (42, 99.99)",
+    "duration_us": 300,
+    "source": { "endpoint": "POST /api/orders", "method": "OrderService::create_order" }
+  }
+]

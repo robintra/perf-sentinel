@@ -14,6 +14,14 @@ pub struct Config {
     pub listen_addr: String,
     /// Port for the daemon to listen on.
     pub listen_port: u16,
+    /// Sliding window duration in milliseconds for N+1 detection.
+    pub window_duration_ms: u64,
+    /// Trace TTL in milliseconds for streaming mode eviction.
+    pub trace_ttl_ms: u64,
+    /// Maximum number of active traces in streaming mode.
+    pub max_active_traces: usize,
+    /// Maximum events kept per trace (ring buffer size).
+    pub max_events_per_trace: usize,
 }
 
 impl Default for Config {
@@ -23,6 +31,10 @@ impl Default for Config {
             n_plus_one_threshold: 5,
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
+            window_duration_ms: 500,
+            trace_ttl_ms: 30_000,
+            max_active_traces: 10_000,
+            max_events_per_trace: 1_000,
         }
     }
 }
@@ -42,6 +54,10 @@ mod tests {
         assert_eq!(config.max_payload_size, 1_048_576);
         assert_eq!(config.listen_addr, "127.0.0.1");
         assert_eq!(config.n_plus_one_threshold, 5);
+        assert_eq!(config.window_duration_ms, 500);
+        assert_eq!(config.trace_ttl_ms, 30_000);
+        assert_eq!(config.max_active_traces, 10_000);
+        assert_eq!(config.max_events_per_trace, 1_000);
     }
 
     #[test]
@@ -55,5 +71,16 @@ mod tests {
         let config = load_from_str("n_plus_one_threshold = 10").unwrap();
         assert_eq!(config.n_plus_one_threshold, 10);
         assert_eq!(config.max_payload_size, 1_048_576); // default preserved
+    }
+
+    #[test]
+    fn parse_window_config() {
+        let config = load_from_str(
+            "window_duration_ms = 1000\ntrace_ttl_ms = 60000\nmax_active_traces = 5000",
+        )
+        .unwrap();
+        assert_eq!(config.window_duration_ms, 1000);
+        assert_eq!(config.trace_ttl_ms, 60_000);
+        assert_eq!(config.max_active_traces, 5000);
     }
 }
