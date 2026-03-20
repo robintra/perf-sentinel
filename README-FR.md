@@ -28,6 +28,19 @@ Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations
 
 Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](https://github.com/Green-Software-Foundation/sci) de la Green Software Foundation.
 
+## Positionnement
+
+| Critère              | [Hypersistence Utils](https://github.com/vladmihalcea/hypersistence-utils) | [Datadog APM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Digma](https://digma.ai/) | **perf-sentinel** |
+|----------------------|----------------------------------------------------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------|----------------------------|-------------------|
+| Détection N+1 SQL    | ✅ JPA uniquement                                                           | ✅ (runtime)                                           | ✅ (runtime)                                                           | ✅ (JVM)                    | ✅ Polyglotte      |
+| Détection N+1 HTTP   | ❌                                                                          | ✅                                                     | ✅                                                                     | ⚠️ Partiel                 | ✅                 |
+| Polyglotte           | ❌ Java/JPA                                                                 | ✅ (agents par langage)                                | ✅ (agents par langage)                                                | ❌ JVM                      | ✅ Protocol-level  |
+| Cross-service        | ❌                                                                          | ✅                                                     | ✅                                                                     | ⚠️ Partiel                 | ✅ Trace ID        |
+| Angle GreenOps / SCI | ❌                                                                          | ❌                                                     | ❌                                                                     | ❌                          | ✅ Natif           |
+| Léger                | N/A (lib)                                                                  | ❌ (~150 Mo)                                           | ❌ (~150 Mo)                                                           | ❌ (~100 Mo)                | ✅ (<10 Mo RSS)    |
+| Open-source          | ✅ MIT                                                                      | ❌                                                     | ⚠️ Free tier limité                                                   | ⚠️ Freemium                | ✅ AGPL v3         |
+| CI/CD quality gate   | ⚠️ (assertions manuelles)                                                  | ❌                                                     | ⚠️ (alertes, pas de gate natif)                                       | ⚠️                         | ✅ Natif           |
+
 ## Démarrage rapide
 
 > Bientôt disponible.
@@ -37,8 +50,8 @@ Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](http
 | Phase | Description                                          | Statut       |
 |-------|------------------------------------------------------|--------------|
 | **0** | Scaffolding — workspace compilable, CI, stubs        | ✅ Terminé    |
-| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation | ⏳ En cours   |
-| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI    | Non commencé |
+| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation | ✅ Terminé    |
+| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI    | ⏳ En cours   |
 | **3** | Polish, benchmarks, release v0.1.0                   | Non commencé |
 
 ## Licence

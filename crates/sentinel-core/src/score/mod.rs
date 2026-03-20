@@ -1,9 +1,9 @@
-//! Scoring stage: computes GreenOps I/O intensity scores.
+//! Scoring stage: computes `GreenOps` I/O intensity scores.
 
 use crate::correlate::Trace;
-use crate::detect::Detection;
+use crate::detect::Finding;
 
-/// GreenOps score for an endpoint.
+/// `GreenOps` score for an endpoint.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GreenScore {
     /// Endpoint identifier (service + path).
@@ -14,8 +14,9 @@ pub struct GreenScore {
     pub waste_ratio: f64,
 }
 
-/// Compute GreenOps scores for a set of traces and their detections (stub).
-pub fn score(_traces: &[Trace], _detections: &[Detection]) -> Vec<GreenScore> {
+/// Compute `GreenOps` scores for a set of traces and their findings (stub).
+#[must_use]
+pub fn score(_traces: &[Trace], _findings: &[Finding]) -> Vec<GreenScore> {
     // TODO: implement IIS and waste ratio computation
     Vec::new()
 }

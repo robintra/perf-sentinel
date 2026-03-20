@@ -10,5 +10,9 @@ pub trait IngestSource {
     type Error: std::error::Error;
 
     /// Ingest events from the source and return them.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the raw input cannot be parsed or exceeds size limits.
     fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error>;
 }

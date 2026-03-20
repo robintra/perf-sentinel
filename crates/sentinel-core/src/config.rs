@@ -40,6 +40,10 @@ impl Default for Config {
 }
 
 /// Load configuration from a TOML string.
+///
+/// # Errors
+///
+/// Returns an error if the TOML content cannot be parsed into a `Config`.
 pub fn load_from_str(content: &str) -> Result<Config, toml::de::Error> {
     toml::from_str(content)
 }

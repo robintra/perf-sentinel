@@ -2,6 +2,7 @@
 
 use sentinel_core::config::Config;
 use sentinel_core::correlate;
+use sentinel_core::detect::FindingType;
 use sentinel_core::event::SpanEvent;
 use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
@@ -19,8 +20,9 @@ fn load_fixture(name: &str) -> Vec<SpanEvent> {
 fn empty_input_produces_empty_report() {
     let config = Config::default();
     let report = pipeline::analyze(vec![], &config);
-    assert!(report.detections.is_empty());
-    assert!(report.scores.is_empty());
+    assert!(report.findings.is_empty());
+    assert_eq!(report.analysis.events_processed, 0);
+    assert_eq!(report.analysis.traces_analyzed, 0);
 }
 
 #[test]
@@ -29,7 +31,6 @@ fn n_plus_one_sql_fixture_normalizes_to_same_template() {
     assert_eq!(events.len(), 6);
 
     let normalized = normalize::normalize_all(events);
-    // All 6 events should have the same normalized template
     let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_str()).collect();
     assert!(
         templates.iter().all(|t| *t == templates[0]),
@@ -37,7 +38,6 @@ fn n_plus_one_sql_fixture_normalizes_to_same_template() {
     );
     assert_eq!(templates[0], "SELECT * FROM player WHERE game_id = ?");
 
-    // Each should have a different param
     let params: Vec<&str> = normalized.iter().map(|n| n.params[0].as_str()).collect();
     assert_eq!(params, vec!["1", "2", "3", "4", "5", "6"]);
 }
@@ -63,7 +63,6 @@ fn clean_traces_fixture_has_diverse_templates() {
 
     let normalized = normalize::normalize_all(events);
     let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_str()).collect();
-    // All 4 should be different templates
     let unique: std::collections::HashSet<&&str> = templates.iter().collect();
     assert_eq!(
         unique.len(),
@@ -90,17 +89,92 @@ fn clean_traces_fixture_correlates_to_two_traces() {
     assert_eq!(traces.len(), 2);
 }
 
+// --- Detection-level integration tests ---
+
 #[test]
-fn full_pipeline_runs_on_fixtures() {
+fn n_plus_one_sql_detected() {
+    let config = Config::default();
+    let events = load_fixture("n_plus_one_sql.json");
+    let report = pipeline::analyze(events, &config);
+
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].finding_type, FindingType::NPlusOneSql);
+    assert_eq!(report.findings[0].pattern.occurrences, 6);
+    assert_eq!(report.findings[0].pattern.distinct_params, 6);
+    assert_eq!(report.findings[0].trace_id, "trace-n1-sql");
+    assert_eq!(report.findings[0].service, "game");
+}
+
+#[test]
+fn n_plus_one_http_detected() {
+    let config = Config::default();
+    let events = load_fixture("n_plus_one_http.json");
+    let report = pipeline::analyze(events, &config);
+
+    assert_eq!(report.findings.len(), 1);
+    assert_eq!(report.findings[0].finding_type, FindingType::NPlusOneHttp);
+    assert_eq!(report.findings[0].pattern.occurrences, 6);
+    assert_eq!(report.findings[0].trace_id, "trace-n1-http");
+}
+
+#[test]
+fn clean_traces_no_findings() {
+    let config = Config::default();
+    let events = load_fixture("clean_traces.json");
+    let report = pipeline::analyze(events, &config);
+
+    assert!(
+        report.findings.is_empty(),
+        "expected no findings for clean traces, got: {:?}",
+        report.findings
+    );
+}
+
+#[test]
+fn mixed_fixture_detects_all_patterns() {
+    let config = Config::default();
+    let events = load_fixture("mixed.json");
+    let report = pipeline::analyze(events, &config);
+
+    // Should detect: N+1 SQL, N+1 HTTP, redundant SQL
+    let n1_sql = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .count();
+    let n1_http = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneHttp)
+        .count();
+    let redundant_sql = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::RedundantSql)
+        .count();
+
+    assert_eq!(n1_sql, 1, "expected 1 N+1 SQL finding");
+    assert_eq!(n1_http, 1, "expected 1 N+1 HTTP finding");
+    assert_eq!(redundant_sql, 1, "expected 1 redundant SQL finding");
+
+    // Green summary should reflect avoidable ops
+    assert!(report.green_summary.avoidable_io_ops > 0);
+    assert!(report.green_summary.io_waste_ratio > 0.0);
+}
+
+#[test]
+fn full_pipeline_runs_on_all_fixtures() {
     let config = Config::default();
     for fixture in [
         "n_plus_one_sql.json",
         "n_plus_one_http.json",
         "clean_traces.json",
+        "mixed.json",
     ] {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
-        // Detection is still a stub, so no findings yet
-        assert!(report.detections.is_empty(), "fixture: {fixture}");
+        // Verify report structure is valid
+        assert!(report.quality_gate.passed, "fixture: {fixture}");
+        assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
     }
 }

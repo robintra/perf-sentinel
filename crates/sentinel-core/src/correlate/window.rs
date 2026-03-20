@@ -1,6 +1,6 @@
 //! Sliding window correlator for streaming mode.
 //!
-//! Accumulates normalized events by trace_id with ring buffer, TTL eviction,
+//! Accumulates normalized events by `trace_id` with ring buffer, TTL eviction,
 //! and LRU eviction when max active traces is exceeded.
 
 use crate::normalize::NormalizedEvent;
@@ -34,7 +34,7 @@ struct TraceBuffer {
     last_seen_ms: u64,
 }
 
-/// Sliding window that accumulates events by trace_id.
+/// Sliding window that accumulates events by `trace_id`.
 #[derive(Debug)]
 pub struct TraceWindow {
     config: WindowConfig,
@@ -42,6 +42,7 @@ pub struct TraceWindow {
 }
 
 impl TraceWindow {
+    #[must_use]
     pub fn new(config: WindowConfig) -> Self {
         Self {
             config,
@@ -93,7 +94,7 @@ impl TraceWindow {
             .retain(|_, buf| now_ms.saturating_sub(buf.last_seen_ms) <= ttl);
     }
 
-    /// Drain all traces, returning their events grouped by trace_id.
+    /// Drain all traces, returning their events grouped by `trace_id`.
     pub fn drain_all(&mut self) -> Vec<(String, Vec<NormalizedEvent>)> {
         self.traces
             .drain()
@@ -102,6 +103,7 @@ impl TraceWindow {
     }
 
     /// Number of active traces.
+    #[must_use]
     pub fn active_traces(&self) -> usize {
         self.traces.len()
     }

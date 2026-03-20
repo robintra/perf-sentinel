@@ -14,6 +14,7 @@ pub struct NormalizedEvent {
 }
 
 /// Normalize a single event by dispatching on its type.
+#[must_use]
 pub fn normalize(event: SpanEvent) -> NormalizedEvent {
     match event.event_type {
         EventType::Sql => {

@@ -12,7 +12,8 @@ pub struct Trace {
     pub spans: Vec<NormalizedEvent>,
 }
 
-/// Group normalized events into traces by trace_id.
+/// Group normalized events into traces by `trace_id`.
+#[must_use]
 pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
     let mut map: HashMap<String, Vec<NormalizedEvent>> = HashMap::new();
     for event in events {

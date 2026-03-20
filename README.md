@@ -28,6 +28,19 @@ Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O opera
 
 Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](https://github.com/Green-Software-Foundation/sci) from the Green Software Foundation.
 
+## How does it compare?
+
+| Criteria           | [Hypersistence Utils](https://github.com/vladmihalcea/hypersistence-utils) | [Datadog APM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Digma](https://digma.ai/) | **perf-sentinel** |
+|--------------------|----------------------------------------------------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------|----------------------------|-------------------|
+| N+1 SQL detection  | ✅ JPA only                                                                 | ✅ (runtime)                                           | ✅ (runtime)                                                           | ✅ (JVM)                    | ✅ Polyglot        |
+| N+1 HTTP detection | ❌                                                                          | ✅                                                     | ✅                                                                     | ⚠️ Partial                 | ✅                 |
+| Polyglot           | ❌ Java/JPA                                                                 | ✅ (per-language agents)                               | ✅ (per-language agents)                                               | ❌ JVM                      | ✅ Protocol-level  |
+| Cross-service      | ❌                                                                          | ✅                                                     | ✅                                                                     | ⚠️ Partial                 | ✅ Trace ID        |
+| GreenOps / SCI     | ❌                                                                          | ❌                                                     | ❌                                                                     | ❌                          | ✅ Built-in        |
+| Lightweight        | N/A (lib)                                                                  | ❌ (~150 MB)                                           | ❌ (~150 MB)                                                           | ❌ (~100 MB)                | ✅ (<10 MB RSS)    |
+| Open-source        | ✅ MIT                                                                      | ❌                                                     | ⚠️ Limited free tier                                                  | ⚠️ Freemium                | ✅ AGPL v3         |
+| CI/CD quality gate | ⚠️ (manual assertions)                                                     | ❌                                                     | ⚠️ (alerts, no native gate)                                           | ⚠️                         | ✅ Native          |
+
 ## Getting Started
 
 > Coming soon.
@@ -37,8 +50,8 @@ Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](ht
 | Phase | Description                                          | Status        |
 |-------|------------------------------------------------------|---------------|
 | **0** | Scaffolding — compilable workspace, CI, stubs        | ✅ Done        |
-| **1** | N+1 SQL + HTTP detection, normalization, correlation | ⏳ In progress |
-| **2** | GreenOps scoring, OTLP ingestion, CI quality gate    | Not started   |
+| **1** | N+1 SQL + HTTP detection, normalization, correlation | ✅ Done        |
+| **2** | GreenOps scoring, OTLP ingestion, CI quality gate    | ⏳ In progress |
 | **3** | Polish, benchmarks, v0.1.0 release                   | Not started   |
 
 ## License
