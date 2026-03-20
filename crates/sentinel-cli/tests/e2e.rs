@@ -11,7 +11,7 @@ fn cli_demo_runs_successfully() {
         .output()
         .expect("failed to execute perf-sentinel");
 
-    assert!(output.status.success(), "demo command failed: {:?}", output);
+    assert!(output.status.success(), "demo command failed: {output:?}");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("perf-sentinel demo"),
