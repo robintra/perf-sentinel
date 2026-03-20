@@ -330,7 +330,7 @@ mod tests {
     fn parse_timestamp_ms_basic() {
         assert_eq!(
             parse_timestamp_ms("2025-07-10T14:32:01.123Z"),
-            Some(14 * 3_600_000 + 32 * 60_000 + 1 * 1_000 + 123)
+            Some(14 * 3_600_000 + 32 * 60_000 + 1_000 + 123)
         );
     }
 

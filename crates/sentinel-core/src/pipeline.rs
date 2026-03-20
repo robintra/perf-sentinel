@@ -114,7 +114,7 @@ mod tests {
     fn zero_events_waste_ratio_is_zero() {
         let config = Config::default();
         let report = analyze(vec![], &config);
-        assert_eq!(report.green_summary.io_waste_ratio, 0.0);
+        assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
         assert_eq!(report.green_summary.total_io_ops, 0);
         assert_eq!(report.green_summary.avoidable_io_ops, 0);
     }
@@ -156,7 +156,7 @@ mod tests {
         assert!(report.findings.is_empty());
         assert_eq!(report.green_summary.total_io_ops, 4);
         assert_eq!(report.green_summary.avoidable_io_ops, 0);
-        assert_eq!(report.green_summary.io_waste_ratio, 0.0);
+        assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]

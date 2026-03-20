@@ -155,7 +155,10 @@ mod tests {
         };
         let mut w = TraceWindow::new(config);
         for i in 0..5 {
-            w.push(make_event("t1", &format!("SELECT {i}")), i as u64);
+            w.push(
+                make_event("t1", &format!("SELECT {i}")),
+                u64::try_from(i).unwrap(),
+            );
         }
 
         let drained = w.drain_all();
