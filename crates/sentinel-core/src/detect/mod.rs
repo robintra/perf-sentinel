@@ -18,6 +18,12 @@ pub struct Finding {
     pub source_endpoint: String,
     pub pattern: Pattern,
     pub suggestion: String,
+    /// Earliest timestamp among spans in the detected group.
+    pub first_timestamp: String,
+    /// Latest timestamp among spans in the detected group.
+    pub last_timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub green_impact: Option<GreenImpact>,
 }
 
 /// Types of performance anti-patterns.
@@ -46,6 +52,15 @@ pub struct Pattern {
     pub occurrences: usize,
     pub window_ms: u64,
     pub distinct_params: usize,
+}
+
+/// `GreenOps` impact for a single finding.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct GreenImpact {
+    /// Extra I/O operations caused by this anti-pattern (occurrences - 1).
+    pub estimated_extra_io_ops: usize,
+    /// I/O Intensity Score of the endpoint where this finding occurs.
+    pub io_intensity_score: f64,
 }
 
 impl FindingType {

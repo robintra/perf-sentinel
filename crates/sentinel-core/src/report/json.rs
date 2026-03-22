@@ -80,6 +80,9 @@ mod tests {
                     distinct_params: 6,
                 },
                 suggestion: "Use WHERE ... IN (?) to batch 6 queries into one".to_string(),
+                first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+                last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
+                green_impact: None,
             }],
             green_summary: GreenSummary {
                 total_io_ops: 10,
@@ -99,5 +102,7 @@ mod tests {
         assert!(json.contains("game_id"));
         assert!(json.contains("\"occurrences\": 6"));
         assert!(json.contains("\"io_waste_ratio\": 0.5"));
+        assert!(json.contains("\"first_timestamp\""));
+        assert!(json.contains("\"last_timestamp\""));
     }
 }

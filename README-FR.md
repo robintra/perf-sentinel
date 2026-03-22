@@ -41,6 +41,111 @@ Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](http
 | Open-source          | ✅ MIT                                                                      | ❌                                                     | ⚠️ Free tier limité                                                   | ⚠️ Freemium                | ✅ AGPL v3         |
 | CI/CD quality gate   | ⚠️ (assertions manuelles)                                                  | ❌                                                     | ⚠️ (alertes, pas de gate natif)                                       | ⚠️                         | ✅ Natif           |
 
+## Que remonte-t-il ?
+
+Pour chaque anti-pattern détecté, perf-sentinel remonte :
+
+- **Type :** N+1 SQL, N+1 HTTP, ou requête redondante
+- **Template normalisé :** la requête ou l'URL avec les paramètres remplacés par des placeholders (`?`, `{id}`)
+- **Occurrences :** combien de fois le pattern s'est déclenché dans la fenêtre de détection
+- **Endpoint source :** quel endpoint applicatif l'a généré (ex : `GET /api/orders`)
+- **Suggestion :** par exemple *"batch cette requête"* ou *"utilise un batch endpoint"*
+- **Impact GreenOps :** estimation des I/O évitables et I/O Intensity Score
+
+```
+$ perf-sentinel demo
+
+=== perf-sentinel demo ===
+Analyzed 14 events across 2 traces in 1ms
+
+Found 2 issue(s):
+
+  [WARNING] #1 N+1 SQL
+    Trace:    trace-demo-game
+    Service:  game
+    Endpoint: POST /api/game/42/start
+    Template: SELECT * FROM player WHERE game_id = ?
+    Hits:     6 occurrences, 6 distinct params, 250ms window
+    Suggestion: Use WHERE ... IN (?) to batch 6 queries into one
+    Extra I/O: 5 avoidable ops
+    IIS:      12.0
+
+  [WARNING] #2 N+1 HTTP
+    Trace:    trace-demo-game
+    Service:  game
+    Endpoint: POST /api/game/42/start
+    Template: GET /api/account/{id}
+    Hits:     6 occurrences, 6 distinct params, 250ms window
+    Suggestion: Use batch endpoint with ?ids=... to batch 6 calls into one
+    Extra I/O: 5 avoidable ops
+    IIS:      12.0
+
+--- GreenOps Summary ---
+  Total I/O ops:     14
+  Avoidable I/O ops: 10
+  I/O waste ratio:   71.4%
+
+  Top offenders:
+    - POST /api/game/42/start: IIS 12.0, 12.0 I/O ops/req (service: game)
+    - GET /api/users/1: IIS 2.0, 2.0 I/O ops/req (service: user-svc)
+
+Quality gate: PASSED
+```
+
+En mode batch/CI (`perf-sentinel analyze`), la sortie est un rapport JSON structuré :
+
+<details>
+<summary>Exemple de rapport JSON</summary>
+
+```json
+{
+  "analysis": {
+    "duration_ms": 1,
+    "events_processed": 6,
+    "traces_analyzed": 1
+  },
+  "findings": [
+    {
+      "type": "n_plus_one_sql",
+      "severity": "warning",
+      "trace_id": "trace-n1-sql",
+      "service": "game",
+      "source_endpoint": "POST /api/game/42/start",
+      "pattern": {
+        "template": "SELECT * FROM player WHERE game_id = ?",
+        "occurrences": 6,
+        "window_ms": 250,
+        "distinct_params": 6
+      },
+      "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+      "green_impact": {
+        "estimated_extra_io_ops": 5,
+        "io_intensity_score": 6.0
+      }
+    }
+  ],
+  "green_summary": {
+    "total_io_ops": 6,
+    "avoidable_io_ops": 5,
+    "io_waste_ratio": 0.833,
+    "top_offenders": [
+      {
+        "endpoint": "POST /api/game/42/start",
+        "service": "game",
+        "io_intensity_score": 6.0,
+        "io_ops_per_request": 6.0
+      }
+    ]
+  },
+  "quality_gate": {
+    "passed": true,
+    "rules": []
+  }
+}
+```
+
+</details>
+
 ## Démarrage rapide
 
 > Bientôt disponible.
@@ -49,7 +154,7 @@ Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](http
 
 | Phase | Description                                          | Statut       |
 |-------|------------------------------------------------------|--------------|
-| **0** | Scaffolding — workspace compilable, CI, stubs        | ✅ Terminé    |
+| **0** | Scaffolding : workspace compilable, CI, stubs        | ✅ Terminé    |
 | **1** | Détection N+1 SQL + HTTP, normalisation, corrélation | ✅ Terminé    |
 | **2** | Scoring GreenOps, ingestion OTLP, quality gate CI    | ⏳ En cours   |
 | **3** | Polish, benchmarks, release v0.1.0                   | Non commencé |

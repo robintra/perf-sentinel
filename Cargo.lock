@@ -441,6 +441,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "sentinel-core",
+ "serde_json",
  "tempfile",
  "tokio",
  "tracing",

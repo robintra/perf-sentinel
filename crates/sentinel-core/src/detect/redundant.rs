@@ -39,12 +39,12 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
             Severity::Info
         };
 
-        // Compute window
+        // Compute window and timestamp bounds in a single pass
         let timestamps: Vec<&str> = indices
             .iter()
             .map(|&i| trace.spans[i].event.timestamp.as_str())
             .collect();
-        let window_ms = super::n_plus_one::compute_window_ms(&timestamps);
+        let (window_ms, min_ts, max_ts) = super::n_plus_one::compute_window_and_bounds(&timestamps);
 
         findings.push(Finding {
             finding_type: FindingType::from_event_type_redundant(event_type),
@@ -62,6 +62,9 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
                 "Identical operation executed {} times — cache result or deduplicate",
                 indices.len()
             ),
+            first_timestamp: min_ts.to_string(),
+            last_timestamp: max_ts.to_string(),
+            green_impact: None,
         });
     }
 
@@ -241,5 +244,26 @@ mod tests {
         let trace = make_trace(events);
         let findings = detect_redundant(&trace);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn redundant_finding_has_first_last_timestamps() {
+        let events: Vec<SpanEvent> = (1..=3)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM player WHERE game_id = 42",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+
+        let trace = make_trace(events);
+        let findings = detect_redundant(&trace);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
+        assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.150Z");
     }
 }

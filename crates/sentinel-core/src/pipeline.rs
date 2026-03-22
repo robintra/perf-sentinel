@@ -1,13 +1,12 @@
 //! Pipeline: wires all stages together.
 
-use std::collections::HashMap;
-
 use crate::config::Config;
 use crate::correlate;
 use crate::detect;
 use crate::event::SpanEvent;
 use crate::normalize;
-use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+use crate::report::{Analysis, QualityGate, Report};
+use crate::score;
 
 /// Run the full analysis pipeline on a batch of events.
 #[must_use]
@@ -24,26 +23,7 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
         config.window_duration_ms,
     );
 
-    // Compute green summary from findings, deduplicating by (trace_id, template)
-    // to avoid double-counting when N+1 and redundant overlap on the same spans.
-    let mut dedup: HashMap<(&str, &str), usize> = HashMap::new();
-    for f in &findings {
-        let avoidable = f.pattern.occurrences.saturating_sub(1);
-        let entry = dedup.entry((&f.trace_id, &f.pattern.template)).or_insert(0);
-        *entry = (*entry).max(avoidable);
-    }
-    let avoidable: usize = dedup.values().sum();
-
-    let green_summary = GreenSummary {
-        total_io_ops: event_count,
-        avoidable_io_ops: avoidable,
-        io_waste_ratio: if event_count > 0 {
-            avoidable as f64 / event_count as f64
-        } else {
-            0.0
-        },
-        top_offenders: vec![],
-    };
+    let (findings, green_summary) = score::score_green(&traces, findings);
 
     let quality_gate = QualityGate {
         passed: true,

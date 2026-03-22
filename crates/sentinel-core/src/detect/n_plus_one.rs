@@ -47,12 +47,12 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             continue;
         }
 
-        // Compute window from timestamps (lexicographic sort works for ISO 8601)
+        // Compute window and timestamp bounds in a single pass
         let timestamps: Vec<&str> = indices
             .iter()
             .map(|&i| trace.spans[i].event.timestamp.as_str())
             .collect();
-        let window_ms = compute_window_ms(&timestamps);
+        let (window_ms, min_ts, max_ts) = compute_window_and_bounds(&timestamps);
 
         // Filter out groups that span beyond the window limit
         if window_ms > window_limit {
@@ -91,19 +91,23 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
                 distinct_params: distinct_params.len(),
             },
             suggestion,
+            first_timestamp: min_ts.to_string(),
+            last_timestamp: max_ts.to_string(),
+            green_impact: None,
         });
     }
 
     findings
 }
 
-/// Compute the time window in milliseconds between the earliest and latest timestamps.
-/// Expects ISO 8601 format: `YYYY-MM-DDTHH:MM:SS.mmmZ`
-pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
-    if timestamps.len() < 2 {
-        return 0;
+/// Compute the time window in milliseconds and the (min, max) timestamps in a single pass.
+///
+/// Returns `(window_ms, min_timestamp, max_timestamp)`.
+/// ISO 8601 timestamps sort correctly lexicographically.
+pub(crate) fn compute_window_and_bounds<'a>(timestamps: &[&'a str]) -> (u64, &'a str, &'a str) {
+    if timestamps.is_empty() {
+        return (0, "", "");
     }
-
     let mut min_ts = timestamps[0];
     let mut max_ts = timestamps[0];
     for &ts in &timestamps[1..] {
@@ -114,14 +118,21 @@ pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
             max_ts = ts;
         }
     }
-
-    let min_ms = parse_timestamp_ms(min_ts);
-    let max_ms = parse_timestamp_ms(max_ts);
-
-    match (min_ms, max_ms) {
+    if timestamps.len() < 2 {
+        return (0, min_ts, max_ts);
+    }
+    let window_ms = match (parse_timestamp_ms(min_ts), parse_timestamp_ms(max_ts)) {
         (Some(a), Some(b)) => b.saturating_sub(a),
         _ => 0,
-    }
+    };
+    (window_ms, min_ts, max_ts)
+}
+
+/// Compute the time window in milliseconds between the earliest and latest timestamps.
+/// Expects ISO 8601 format: `YYYY-MM-DDTHH:MM:SS.mmmZ`
+#[cfg(test)]
+pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
+    compute_window_and_bounds(timestamps).0
 }
 
 /// Parse an ISO 8601 timestamp to milliseconds since midnight.
@@ -459,5 +470,57 @@ mod tests {
     fn parse_timestamp_ms_missing_parts() {
         // Only 2 colon-separated parts (HH:MM, no seconds) -> None
         assert_eq!(parse_timestamp_ms("2025-07-10T14:32Z"), None);
+    }
+
+    #[test]
+    fn n_plus_one_finding_has_first_last_timestamps() {
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
+        assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.300Z");
+    }
+
+    #[test]
+    fn n_plus_one_timestamps_unsorted_input() {
+        // Timestamps out of order — should still find correct min/max
+        let timestamps = [
+            "2025-07-10T14:32:01.200Z",
+            "2025-07-10T14:32:01.050Z",
+            "2025-07-10T14:32:01.300Z",
+            "2025-07-10T14:32:01.100Z",
+            "2025-07-10T14:32:01.150Z",
+        ];
+        let events: Vec<SpanEvent> = timestamps
+            .iter()
+            .enumerate()
+            .map(|(i, ts)| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {}", i + 1),
+                    ts,
+                )
+            })
+            .collect();
+
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500);
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
+        assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.300Z");
     }
 }
