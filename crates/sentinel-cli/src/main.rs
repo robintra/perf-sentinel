@@ -29,16 +29,19 @@ enum Commands {
         /// Path to a JSON trace file to analyze. If omitted, reads from stdin.
         #[arg(short, long)]
         input: Option<PathBuf>,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Enable CI quality gate mode (exit 1 if gate fails).
+        #[arg(long)]
+        ci: bool,
     },
 
     /// Watch for traces in real-time (daemon mode).
     Watch {
-        /// Address to listen on.
-        #[arg(long, default_value = "127.0.0.1")]
-        addr: String,
-        /// Port to listen on.
-        #[arg(long, default_value_t = 4318)]
-        port: u16,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
     },
 
     /// Run analysis on an embedded demo dataset.
@@ -57,14 +60,44 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Analyze { input } => cmd_analyze(input.as_deref()),
-        Commands::Watch { addr, port } => cmd_watch(&addr, port),
+        Commands::Analyze { input, config, ci } => {
+            cmd_analyze(input.as_deref(), config.as_deref(), ci);
+        }
+        Commands::Watch { config } => cmd_watch(config.as_deref()).await,
         Commands::Demo => cmd_demo(),
     }
 }
 
-fn cmd_analyze(input: Option<&std::path::Path>) {
-    let config = Config::default();
+fn load_config(path: Option<&std::path::Path>) -> Config {
+    let config_path = path.map_or_else(
+        || PathBuf::from(".perf-sentinel.toml"),
+        std::path::Path::to_path_buf,
+    );
+
+    match std::fs::read_to_string(&config_path) {
+        Ok(content) => match sentinel_core::config::load_from_str(&content) {
+            Ok(config) => return config,
+            Err(e) => {
+                if path.is_some() {
+                    eprintln!("Error parsing config {}: {e}", config_path.display());
+                    std::process::exit(1);
+                }
+                eprintln!("Warning: failed to parse {}: {e}", config_path.display());
+            }
+        },
+        Err(e) => {
+            if path.is_some() {
+                eprintln!("Error reading config {}: {e}", config_path.display());
+                std::process::exit(1);
+            }
+            // .perf-sentinel.toml not found in cwd, use defaults silently
+        }
+    }
+    Config::default()
+}
+
+fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::Path>, ci: bool) {
+    let config = load_config(config_path);
     let max_size = config.max_payload_size;
     let raw = if let Some(path) = input {
         info!("Analyzing trace file: {}", path.display());
@@ -122,12 +155,23 @@ fn cmd_analyze(input: Option<&std::path::Path>) {
         eprintln!("Error writing report: {e}");
         std::process::exit(1);
     }
+
+    if ci && !report.quality_gate.passed {
+        eprintln!("Quality gate FAILED");
+        std::process::exit(1);
+    }
 }
 
-fn cmd_watch(addr: &str, port: u16) {
-    info!("Starting daemon on {addr}:{port}");
-    // TODO: implement daemon mode with OTLP receiver
-    eprintln!("Watch mode is not yet implemented.");
+async fn cmd_watch(config_path: Option<&std::path::Path>) {
+    let config = load_config(config_path);
+    info!(
+        "Starting daemon: gRPC={}:{}, HTTP={}:{}",
+        config.listen_addr, config.listen_port_grpc, config.listen_addr, config.listen_port,
+    );
+    if let Err(e) = sentinel_core::daemon::run(config).await {
+        eprintln!("Daemon error: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn cmd_demo() {
@@ -419,5 +463,27 @@ mod tests {
             vec![],
         );
         format_colored_report(&report, true);
+    }
+
+    #[test]
+    fn load_config_returns_default_when_no_file() {
+        // No .perf-sentinel.toml in the test working directory
+        let config = load_config(None);
+        assert_eq!(config.n_plus_one_threshold, 5);
+        assert_eq!(config.max_payload_size, 1_048_576);
+    }
+
+    #[test]
+    fn load_config_reads_valid_file() {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let config_path = dir.path().join("test-config.toml");
+        std::fs::write(
+            &config_path,
+            "[detection]\nn_plus_one_min_occurrences = 15\n",
+        )
+        .expect("failed to write config");
+
+        let config = load_config(Some(&config_path));
+        assert_eq!(config.n_plus_one_threshold, 15);
     }
 }

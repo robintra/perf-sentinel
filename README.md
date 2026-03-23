@@ -56,27 +56,29 @@ For each detected anti-pattern, perf-sentinel reports:
 $ perf-sentinel demo
 
 === perf-sentinel demo ===
-Analyzed 14 events across 2 traces in 1ms
+Analyzed 14 events across 2 traces in 2ms
 
 Found 2 issue(s):
 
-  [WARNING] #1 N+1 SQL
-    Trace:    trace-demo-game
-    Service:  game
-    Endpoint: POST /api/game/42/start
-    Template: SELECT * FROM player WHERE game_id = ?
-    Hits:     6 occurrences, 6 distinct params, 250ms window
-    Suggestion: Use WHERE ... IN (?) to batch 6 queries into one
-    Extra I/O: 5 avoidable ops
-    IIS:      12.0
-
-  [WARNING] #2 N+1 HTTP
+  [WARNING] #1 N+1 HTTP
     Trace:    trace-demo-game
     Service:  game
     Endpoint: POST /api/game/42/start
     Template: GET /api/account/{id}
     Hits:     6 occurrences, 6 distinct params, 250ms window
+    Window:   2025-07-10T14:32:01.300Z → 2025-07-10T14:32:01.550Z
     Suggestion: Use batch endpoint with ?ids=... to batch 6 calls into one
+    Extra I/O: 5 avoidable ops
+    IIS:      12.0
+
+  [WARNING] #2 N+1 SQL
+    Trace:    trace-demo-game
+    Service:  game
+    Endpoint: POST /api/game/42/start
+    Template: SELECT * FROM player WHERE game_id = ?
+    Hits:     6 occurrences, 6 distinct params, 250ms window
+    Window:   2025-07-10T14:32:01.000Z → 2025-07-10T14:32:01.250Z
+    Suggestion: Use WHERE ... IN (?) to batch 6 queries into one
     Extra I/O: 5 avoidable ops
     IIS:      12.0
 
@@ -89,7 +91,7 @@ Found 2 issue(s):
     - POST /api/game/42/start: IIS 12.0, 12.0 I/O ops/req (service: game)
     - GET /api/users/1: IIS 2.0, 2.0 I/O ops/req (service: user-svc)
 
-Quality gate: PASSED
+Quality gate: FAILED
 ```
 
 In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON report:
@@ -118,6 +120,8 @@ In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON repo
         "distinct_params": 6
       },
       "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+      "first_timestamp": "2025-07-10T14:32:01.000Z",
+      "last_timestamp": "2025-07-10T14:32:01.250Z",
       "green_impact": {
         "estimated_extra_io_ops": 5,
         "io_intensity_score": 6.0
@@ -138,8 +142,12 @@ In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON repo
     ]
   },
   "quality_gate": {
-    "passed": true,
-    "rules": []
+    "passed": false,
+    "rules": [
+      { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 0.0, "passed": true },
+      { "rule": "n_plus_one_http_warning_max", "threshold": 3.0, "actual": 0.0, "passed": true },
+      { "rule": "io_waste_ratio_max", "threshold": 0.3, "actual": 0.833, "passed": false }
+    ]
   }
 }
 ```
@@ -156,8 +164,8 @@ In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON repo
 |-------|------------------------------------------------------|---------------|
 | **0** | Scaffolding: compilable workspace, CI, stubs         | ✅ Done        |
 | **1** | N+1 SQL + HTTP detection, normalization, correlation | ✅ Done        |
-| **2** | GreenOps scoring, OTLP ingestion, CI quality gate    | ⏳ In progress |
-| **3** | Polish, benchmarks, v0.1.0 release                   | Not started   |
+| **2** | GreenOps scoring, OTLP ingestion, CI quality gate    | ✅ Done        |
+| **3** | Polish, benchmarks, v0.1.0 release                   | ⏳ In progress |
 
 ## License
 

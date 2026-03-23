@@ -10,11 +10,13 @@
 
 pub mod config;
 pub mod correlate;
+pub mod daemon;
 pub mod detect;
 pub mod event;
 pub mod ingest;
 pub mod normalize;
 pub mod pipeline;
+pub mod quality_gate;
 pub mod report;
 pub mod score;
 

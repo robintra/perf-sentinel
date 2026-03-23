@@ -174,7 +174,25 @@ fn full_pipeline_runs_on_all_fixtures() {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
         // Verify report structure is valid
-        assert!(report.quality_gate.passed, "fixture: {fixture}");
         assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
+        // Quality gate rules are always populated
+        assert_eq!(report.quality_gate.rules.len(), 3, "fixture: {fixture}");
     }
+}
+
+#[test]
+fn clean_fixture_passes_quality_gate() {
+    let config = Config::default();
+    let events = load_fixture("clean_traces.json");
+    let report = pipeline::analyze(events, &config);
+    assert!(report.quality_gate.passed);
+}
+
+#[test]
+fn n_plus_one_fixture_fails_quality_gate() {
+    let config = Config::default();
+    let events = load_fixture("n_plus_one_sql.json");
+    let report = pipeline::analyze(events, &config);
+    // Waste ratio 5/6 > 0.30 default threshold
+    assert!(!report.quality_gate.passed);
 }

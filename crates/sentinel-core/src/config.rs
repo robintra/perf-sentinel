@@ -229,6 +229,15 @@ impl Config {
         if self.n_plus_one_threshold == 0 {
             return Err("n_plus_one_threshold must be >= 1".to_string());
         }
+        if self.window_duration_ms == 0 {
+            return Err("window_duration_ms must be >= 1".to_string());
+        }
+        if self.trace_ttl_ms < 100 {
+            return Err(format!(
+                "trace_ttl_ms must be >= 100, got {}",
+                self.trace_ttl_ms
+            ));
+        }
         if !(0.0..=1.0).contains(&self.sampling_rate) {
             return Err(format!(
                 "sampling_rate must be in [0.0, 1.0], got {}",

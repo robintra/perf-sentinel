@@ -51,7 +51,14 @@ impl TraceWindow {
     }
 
     /// Push a normalized event into the window.
-    pub fn push(&mut self, event: NormalizedEvent, now_ms: u64) {
+    ///
+    /// Returns the LRU-evicted trace (if any) so the caller can run detection
+    /// on it before discarding. Returns `None` if no eviction was needed.
+    pub fn push(
+        &mut self,
+        event: NormalizedEvent,
+        now_ms: u64,
+    ) -> Option<(String, Vec<NormalizedEvent>)> {
         let trace_id = event.event.trace_id.clone();
 
         if let Some(buf) = self.traces.get_mut(&trace_id) {
@@ -61,19 +68,22 @@ impl TraceWindow {
             if buf.events.len() > self.config.max_events_per_trace {
                 buf.events.pop_front();
             }
+            None
         } else {
-            // Evict before inserting if at capacity
-            if self.traces.len() >= self.config.max_active_traces {
-                // Find trace with minimum last_seen_ms
-                if let Some(oldest_id) = self
-                    .traces
+            // Evict LRU trace before inserting if at capacity
+            let evicted = if self.traces.len() >= self.config.max_active_traces {
+                self.traces
                     .iter()
                     .min_by_key(|(_, buf)| buf.last_seen_ms)
                     .map(|(id, _)| id.clone())
-                {
-                    self.traces.remove(&oldest_id);
-                }
-            }
+                    .and_then(|oldest_id| {
+                        self.traces
+                            .remove(&oldest_id)
+                            .map(|buf| (oldest_id, buf.events.into_iter().collect()))
+                    })
+            } else {
+                None
+            };
 
             let mut events = VecDeque::with_capacity(8);
             events.push_back(event);
@@ -84,6 +94,7 @@ impl TraceWindow {
                     last_seen_ms: now_ms,
                 },
             );
+            evicted
         }
     }
 
@@ -92,6 +103,24 @@ impl TraceWindow {
         let ttl = self.config.trace_ttl_ms;
         self.traces
             .retain(|_, buf| now_ms.saturating_sub(buf.last_seen_ms) <= ttl);
+    }
+
+    /// Evict expired traces and return them for processing.
+    ///
+    /// Unlike `evict()` which silently drops expired traces, this method
+    /// returns them so the daemon can run detection before discarding.
+    pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
+        let ttl = self.config.trace_ttl_ms;
+        let mut expired = Vec::new();
+        self.traces.retain(|id, buf| {
+            if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
+                expired.push((id.clone(), buf.events.drain(..).collect()));
+                false
+            } else {
+                true
+            }
+        });
+        expired
     }
 
     /// Drain all traces, returning their events grouped by `trace_id`.

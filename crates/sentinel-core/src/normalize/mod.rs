@@ -37,6 +37,7 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 
 /// Normalize a batch of events.
+#[must_use]
 pub fn normalize_all(events: Vec<SpanEvent>) -> Vec<NormalizedEvent> {
     events.into_iter().map(normalize).collect()
 }

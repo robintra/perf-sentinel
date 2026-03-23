@@ -5,7 +5,7 @@ use crate::correlate;
 use crate::detect;
 use crate::event::SpanEvent;
 use crate::normalize;
-use crate::report::{Analysis, QualityGate, Report};
+use crate::report::{Analysis, Report};
 use crate::score;
 
 /// Run the full analysis pipeline on a batch of events.
@@ -25,10 +25,7 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
 
     let (findings, green_summary) = score::score_green(&traces, findings);
 
-    let quality_gate = QualityGate {
-        passed: true,
-        rules: vec![],
-    };
+    let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
     Report {
         analysis: Analysis {

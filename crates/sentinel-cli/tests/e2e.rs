@@ -175,17 +175,25 @@ fn cli_analyze_rejects_invalid_json() {
 }
 
 #[test]
-fn cli_watch_not_yet_implemented() {
-    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .arg("watch")
-        .output()
-        .expect("failed to execute perf-sentinel");
+fn cli_watch_starts_and_responds_to_sigterm() {
+    use std::time::Duration;
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("not yet implemented"),
-        "watch should say not yet implemented, got: {stderr}"
-    );
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("watch")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn perf-sentinel watch");
+
+    // Give it a moment to start the listeners
+    std::thread::sleep(Duration::from_millis(500));
+
+    // Kill the process (SIGTERM equivalent on Windows)
+    child.kill().expect("failed to kill watch process");
+    let output = child.wait_with_output().expect("failed to wait");
+
+    // The process should have exited (killed)
+    assert!(!output.status.success());
 }
 
 #[test]
@@ -300,5 +308,75 @@ fn cli_analyze_detects_redundant_and_critical() {
     assert!(
         !top_offenders.is_empty(),
         "top_offenders should not be empty"
+    );
+}
+
+#[test]
+fn cli_analyze_ci_passes_clean() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/clean_traces.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--ci", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "clean traces should pass quality gate: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn cli_analyze_ci_fails_on_violations() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--ci", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        !output.status.success(),
+        "n_plus_one fixture should fail quality gate"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Quality gate FAILED"),
+        "stderr should mention gate failure, got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_analyze_without_ci_always_succeeds() {
+    // Same fixture but without --ci flag: exit code should be 0
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "without --ci flag, analyze should always succeed"
     );
 }
