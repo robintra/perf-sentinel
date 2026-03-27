@@ -2,6 +2,7 @@
 
 pub mod n_plus_one;
 pub mod redundant;
+pub mod slow;
 
 use crate::correlate::Trace;
 use crate::event::EventType;
@@ -34,6 +35,8 @@ pub enum FindingType {
     NPlusOneHttp,
     RedundantSql,
     RedundantHttp,
+    SlowSql,
+    SlowHttp,
 }
 
 /// Severity levels for findings.
@@ -46,7 +49,7 @@ pub enum Severity {
 }
 
 /// Pattern details for a finding.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Pattern {
     pub template: String,
     pub occurrences: usize,
@@ -65,29 +68,80 @@ pub struct GreenImpact {
 
 impl FindingType {
     #[must_use]
-    pub fn from_event_type_n_plus_one(event_type: &EventType) -> Self {
+    pub const fn from_event_type_n_plus_one(event_type: &EventType) -> Self {
         match event_type {
-            EventType::Sql => FindingType::NPlusOneSql,
-            EventType::HttpOut => FindingType::NPlusOneHttp,
+            EventType::Sql => Self::NPlusOneSql,
+            EventType::HttpOut => Self::NPlusOneHttp,
         }
     }
 
     #[must_use]
-    pub fn from_event_type_redundant(event_type: &EventType) -> Self {
+    pub const fn from_event_type_redundant(event_type: &EventType) -> Self {
         match event_type {
-            EventType::Sql => FindingType::RedundantSql,
-            EventType::HttpOut => FindingType::RedundantHttp,
+            EventType::Sql => Self::RedundantSql,
+            EventType::HttpOut => Self::RedundantHttp,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_event_type_slow(event_type: &EventType) -> Self {
+        match event_type {
+            EventType::Sql => Self::SlowSql,
+            EventType::HttpOut => Self::SlowHttp,
+        }
+    }
+
+    /// Returns the `snake_case` string representation of this finding type.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::NPlusOneSql => "n_plus_one_sql",
+            Self::NPlusOneHttp => "n_plus_one_http",
+            Self::RedundantSql => "redundant_sql",
+            Self::RedundantHttp => "redundant_http",
+            Self::SlowSql => "slow_sql",
+            Self::SlowHttp => "slow_http",
         }
     }
 }
 
+impl Severity {
+    /// Returns the `snake_case` string representation of this severity.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Critical => "critical",
+            Self::Warning => "warning",
+            Self::Info => "info",
+        }
+    }
+}
+
+/// Configuration for the detection stage.
+#[derive(Debug, Clone)]
+pub struct DetectConfig {
+    pub n_plus_one_threshold: u32,
+    pub window_ms: u64,
+    pub slow_threshold_ms: u64,
+    pub slow_min_occurrences: u32,
+}
+
 /// Run all detectors on a set of traces.
 #[must_use]
-pub fn detect(traces: &[Trace], threshold: u32, window_ms: u64) -> Vec<Finding> {
+pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
     for trace in traces {
-        findings.extend(n_plus_one::detect_n_plus_one(trace, threshold, window_ms));
+        findings.extend(n_plus_one::detect_n_plus_one(
+            trace,
+            config.n_plus_one_threshold,
+            config.window_ms,
+        ));
         findings.extend(redundant::detect_redundant(trace));
+        findings.extend(slow::detect_slow(
+            trace,
+            config.slow_threshold_ms,
+            config.slow_min_occurrences,
+        ));
     }
     findings
 }
@@ -96,9 +150,18 @@ pub fn detect(traces: &[Trace], threshold: u32, window_ms: u64) -> Vec<Finding> 
 mod tests {
     use super::*;
 
+    fn default_config() -> DetectConfig {
+        DetectConfig {
+            n_plus_one_threshold: 5,
+            window_ms: 500,
+            slow_threshold_ms: 500,
+            slow_min_occurrences: 3,
+        }
+    }
+
     #[test]
     fn empty_traces_produce_no_findings() {
-        let findings = detect(&[], 5, 500);
+        let findings = detect(&[], &default_config());
         assert!(findings.is_empty());
     }
 
@@ -109,6 +172,12 @@ mod tests {
 
         let json = serde_json::to_string(&FindingType::RedundantHttp).unwrap();
         assert_eq!(json, r#""redundant_http""#);
+
+        let json = serde_json::to_string(&FindingType::SlowSql).unwrap();
+        assert_eq!(json, r#""slow_sql""#);
+
+        let json = serde_json::to_string(&FindingType::SlowHttp).unwrap();
+        assert_eq!(json, r#""slow_http""#);
     }
 
     #[test]
@@ -141,7 +210,7 @@ mod tests {
         }
 
         let trace = make_trace(events);
-        let findings = detect(&[trace], 5, 500);
+        let findings = detect(&[trace], &default_config());
 
         let has_n_plus_one = findings
             .iter()
@@ -181,18 +250,29 @@ mod tests {
 
         let trace_a = make_trace(events_t1);
         let trace_b = make_trace(events_t2);
-        let findings = detect(&[trace_a, trace_b], 5, 500);
+        let findings = detect(&[trace_a, trace_b], &default_config());
 
         // Both traces have redundant queries
-        let trace_a_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.trace_id == "trace-A")
-            .collect();
-        let trace_b_findings: Vec<_> = findings
-            .iter()
-            .filter(|f| f.trace_id == "trace-B")
-            .collect();
-        assert!(!trace_a_findings.is_empty(), "trace-A should have findings");
-        assert!(!trace_b_findings.is_empty(), "trace-B should have findings");
+        assert!(
+            findings.iter().any(|f| f.trace_id == "trace-A"),
+            "trace-A should have findings"
+        );
+        assert!(
+            findings.iter().any(|f| f.trace_id == "trace-B"),
+            "trace-B should have findings"
+        );
+    }
+
+    #[test]
+    fn finding_type_as_str() {
+        assert_eq!(FindingType::NPlusOneSql.as_str(), "n_plus_one_sql");
+        assert_eq!(FindingType::SlowHttp.as_str(), "slow_http");
+    }
+
+    #[test]
+    fn severity_as_str() {
+        assert_eq!(Severity::Critical.as_str(), "critical");
+        assert_eq!(Severity::Warning.as_str(), "warning");
+        assert_eq!(Severity::Info.as_str(), "info");
     }
 }

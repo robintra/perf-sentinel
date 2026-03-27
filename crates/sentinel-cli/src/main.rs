@@ -1,5 +1,9 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::too_many_lines)] // print_colored_report is long but straightforward
+#![allow(clippy::cast_possible_truncation)]
+#![allow(clippy::cast_precision_loss)]
+#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::items_after_statements)] // bench report struct defined near its use
 
 use clap::{Parser, Subcommand};
 use sentinel_core::config::Config;
@@ -46,6 +50,16 @@ enum Commands {
 
     /// Run analysis on an embedded demo dataset.
     Demo,
+
+    /// Benchmark perf-sentinel on a trace file.
+    Bench {
+        /// Path to a JSON trace file. Reads from stdin if omitted.
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+        /// Number of iterations (default 10).
+        #[arg(long, default_value = "10")]
+        iterations: u32,
+    },
 }
 
 #[tokio::main]
@@ -65,6 +79,7 @@ async fn main() {
         }
         Commands::Watch { config } => cmd_watch(config.as_deref()).await,
         Commands::Demo => cmd_demo(),
+        Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
     }
 }
 
@@ -96,11 +111,10 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     Config::default()
 }
 
-fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::Path>, ci: bool) {
-    let config = load_config(config_path);
-    let max_size = config.max_payload_size;
-    let raw = if let Some(path) = input {
-        info!("Analyzing trace file: {}", path.display());
+#[allow(clippy::option_if_let_else)] // if/else with process::exit is clearer than map_or_else
+fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
+    if let Some(path) = input {
+        info!("Reading trace file: {}", path.display());
         match std::fs::metadata(path) {
             Ok(meta) if meta.len() > max_size as u64 => {
                 eprintln!(
@@ -138,7 +152,12 @@ fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::
             std::process::exit(1);
         }
         buf
-    };
+    }
+}
+
+fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::Path>, ci: bool) {
+    let config = load_config(config_path);
+    let raw = read_events(input, config.max_payload_size);
 
     let ingest = JsonIngest::new(config.max_payload_size);
     let events = match ingest.ingest(&raw) {
@@ -191,6 +210,140 @@ fn cmd_demo() {
     print_colored_report(&report);
 }
 
+fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
+    if iterations == 0 {
+        eprintln!("Error: iterations must be >= 1");
+        std::process::exit(1);
+    }
+
+    let config = Config::default();
+    let raw = read_events(input, config.max_payload_size);
+
+    let ingest = JsonIngest::new(config.max_payload_size);
+    let events = match ingest.ingest(&raw) {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error ingesting events: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let event_count = events.len();
+    if event_count == 0 {
+        eprintln!("Error: no events to benchmark");
+        std::process::exit(1);
+    }
+
+    // Pre-clone all batches so clone cost is excluded from timing
+    let batches: Vec<Vec<sentinel_core::event::SpanEvent>> =
+        (0..iterations).map(|_| events.clone()).collect();
+
+    let mut durations_ns: Vec<u64> = Vec::with_capacity(iterations as usize);
+    let mut rss_peak: Option<usize> = None;
+
+    for batch in batches {
+        let start = std::time::Instant::now();
+        let _ = pipeline::analyze(batch, &config);
+        let elapsed = start.elapsed();
+        durations_ns.push(elapsed.as_nanos() as u64);
+
+        if let Some(rss) = current_rss_bytes() {
+            rss_peak = Some(rss_peak.map_or(rss, |prev: usize| prev.max(rss)));
+        }
+    }
+
+    // Compute per-event latencies
+    let mut per_event_ns: Vec<f64> = durations_ns
+        .iter()
+        .map(|&d| d as f64 / event_count as f64)
+        .collect();
+    per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let p50_idx = (per_event_ns.len() as f64 * 0.50) as usize;
+    let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize).min(per_event_ns.len() - 1);
+    let p50_us = per_event_ns[p50_idx] / 1000.0;
+    let p99_us = per_event_ns[p99_idx] / 1000.0;
+
+    let total_elapsed_ms: u64 = durations_ns.iter().sum::<u64>() / 1_000_000;
+    let total_events = event_count as f64 * f64::from(iterations);
+    let total_seconds = total_elapsed_ms as f64 / 1000.0;
+    let throughput = if total_seconds > 0.0 {
+        total_events / total_seconds
+    } else {
+        0.0
+    };
+
+    #[derive(serde::Serialize)]
+    struct BenchReport {
+        iterations: u32,
+        events_per_iteration: usize,
+        throughput_events_per_sec: f64,
+        latency_per_event_us: LatencyPercentiles,
+        rss_peak_bytes: Option<usize>,
+        total_elapsed_ms: u64,
+    }
+
+    #[derive(serde::Serialize)]
+    struct LatencyPercentiles {
+        p50: f64,
+        p99: f64,
+    }
+
+    let report = BenchReport {
+        iterations,
+        events_per_iteration: event_count,
+        throughput_events_per_sec: throughput,
+        latency_per_event_us: LatencyPercentiles {
+            p50: p50_us,
+            p99: p99_us,
+        },
+        rss_peak_bytes: rss_peak,
+        total_elapsed_ms,
+    };
+
+    match serde_json::to_string_pretty(&report) {
+        Ok(json) => println!("{json}"),
+        Err(e) => {
+            eprintln!("Error serializing bench report: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
+#[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
+fn current_rss_bytes() -> Option<usize> {
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| {
+                    l.split_whitespace()
+                        .nth(1)?
+                        .parse::<usize>()
+                        .ok()
+                        .map(|kb| kb * 1024)
+                })
+            })
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: use GetProcessMemoryInfo via kernel32
+        // Best-effort — returns None if unavailable
+        None
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // macOS: could use mach_task_info but keeping it simple
+        None
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        None
+    }
+}
+
 fn print_colored_report(report: &Report) {
     format_colored_report(report, false);
 }
@@ -235,6 +388,8 @@ fn format_colored_report(report: &Report, force_color: bool) {
                 FindingType::NPlusOneHttp => "N+1 HTTP",
                 FindingType::RedundantSql => "Redundant SQL",
                 FindingType::RedundantHttp => "Redundant HTTP",
+                FindingType::SlowSql => "Slow SQL",
+                FindingType::SlowHttp => "Slow HTTP",
             };
 
             println!(
@@ -283,12 +438,21 @@ fn format_colored_report(report: &Report, force_color: bool) {
         "  I/O waste ratio:   {:.1}%",
         report.green_summary.io_waste_ratio * 100.0
     );
+    if let Some(co2) = report.green_summary.estimated_co2_grams {
+        println!("  Est. CO\u{2082}:          {co2:.6} g");
+    }
+    if let Some(co2) = report.green_summary.avoidable_co2_grams {
+        println!("  Avoidable CO\u{2082}:     {co2:.6} g");
+    }
     if !report.green_summary.top_offenders.is_empty() {
         println!();
         println!("  {bold}Top offenders:{reset}");
         for offender in &report.green_summary.top_offenders {
+            let co2_str = offender
+                .co2_grams
+                .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
             println!(
-                "    - {}: IIS {:.1}, {:.1} I/O ops/req (service: {})",
+                "    - {}: IIS {:.1}, {:.1} I/O ops/req (service: {}){co2_str}",
                 offender.endpoint,
                 offender.io_intensity_score,
                 offender.io_ops_per_request,
@@ -340,6 +504,8 @@ mod tests {
                 avoidable_io_ops: 0,
                 io_waste_ratio: 0.0,
                 top_offenders,
+                estimated_co2_grams: None,
+                avoidable_co2_grams: None,
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
@@ -412,6 +578,28 @@ mod tests {
     }
 
     #[test]
+    fn report_slow_sql_type() {
+        let report = make_report(
+            vec![make_finding(FindingType::SlowSql, Severity::Warning)],
+            vec![],
+            true,
+            vec![],
+        );
+        format_colored_report(&report, false);
+    }
+
+    #[test]
+    fn report_slow_http_type() {
+        let report = make_report(
+            vec![make_finding(FindingType::SlowHttp, Severity::Critical)],
+            vec![],
+            true,
+            vec![],
+        );
+        format_colored_report(&report, false);
+    }
+
+    #[test]
     fn report_quality_gate_failed() {
         let report = make_report(
             vec![make_finding(FindingType::NPlusOneSql, Severity::Critical)],
@@ -436,6 +624,7 @@ mod tests {
                 service: "game".to_string(),
                 io_intensity_score: 8.2,
                 io_ops_per_request: 8.2,
+                co2_grams: None,
             }],
             true,
             vec![],
@@ -458,11 +647,43 @@ mod tests {
                 service: "game".to_string(),
                 io_intensity_score: 8.2,
                 io_ops_per_request: 8.2,
+                co2_grams: None,
             }],
             false,
             vec![],
         );
         format_colored_report(&report, true);
+    }
+
+    #[test]
+    fn report_with_co2_data() {
+        let report = Report {
+            analysis: Analysis {
+                duration_ms: 1,
+                events_processed: 10,
+                traces_analyzed: 1,
+            },
+            findings: vec![],
+            green_summary: GreenSummary {
+                total_io_ops: 10,
+                avoidable_io_ops: 5,
+                io_waste_ratio: 0.5,
+                top_offenders: vec![TopOffender {
+                    endpoint: "POST /api/game/{id}/start".to_string(),
+                    service: "game".to_string(),
+                    io_intensity_score: 8.2,
+                    io_ops_per_request: 8.2,
+                    co2_grams: Some(0.001),
+                }],
+                estimated_co2_grams: Some(0.002),
+                avoidable_co2_grams: Some(0.001),
+            },
+            quality_gate: QualityGate {
+                passed: true,
+                rules: vec![],
+            },
+        };
+        format_colored_report(&report, false);
     }
 
     #[test]

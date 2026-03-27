@@ -380,3 +380,232 @@ fn cli_analyze_without_ci_always_succeeds() {
         "without --ci flag, analyze should always succeed"
     );
 }
+
+#[test]
+fn cli_help_shows_bench() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("--help")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("bench"),
+        "help should list bench subcommand"
+    );
+}
+
+#[test]
+fn cli_bench_runs_on_fixture() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["bench", "--input", &fixture_path, "--iterations", "3"])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "bench should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("bench output should be valid JSON: {e}\nstdout: {stdout}"));
+
+    assert_eq!(report["iterations"], 3);
+    assert_eq!(report["events_per_iteration"], 6);
+    assert!(
+        report["throughput_events_per_sec"].as_f64().unwrap() > 0.0,
+        "throughput should be positive"
+    );
+    assert!(
+        report["latency_per_event_us"]["p50"].as_f64().unwrap() > 0.0,
+        "p50 latency should be positive"
+    );
+    assert!(
+        report["latency_per_event_us"]["p99"].as_f64().unwrap() > 0.0,
+        "p99 latency should be positive"
+    );
+    assert!(
+        report["total_elapsed_ms"].is_number(),
+        "total_elapsed_ms should be present"
+    );
+}
+
+#[test]
+fn cli_bench_default_iterations() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/clean_traces.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["bench", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    assert_eq!(report["iterations"], 10, "default iterations should be 10");
+}
+
+#[test]
+fn cli_demo_output_contains_slow_findings() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("demo")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success(), "demo command failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Slow SQL"),
+        "demo should show Slow SQL finding, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("CRITICAL") || stdout.contains("WARNING"),
+        "demo should show severity for slow finding"
+    );
+    assert!(
+        stdout.contains("Consider adding an index"),
+        "demo should show slow query suggestion"
+    );
+}
+
+#[test]
+fn cli_analyze_slow_fixture_json_output() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/slow_queries.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+    let findings = report["findings"].as_array().expect("findings array");
+
+    let slow_sql = findings.iter().any(|f| f["type"] == "slow_sql");
+    let slow_http = findings.iter().any(|f| f["type"] == "slow_http");
+    assert!(slow_sql, "should detect slow_sql");
+    assert!(slow_http, "should detect slow_http");
+
+    // Verify severity of the critical slow SQL (2600ms > 5x500ms)
+    let critical_slow = findings
+        .iter()
+        .find(|f| f["type"] == "slow_sql" && f["severity"] == "critical");
+    assert!(
+        critical_slow.is_some(),
+        "slow SQL with 2600ms should be critical"
+    );
+}
+
+#[test]
+fn cli_analyze_with_config_region_shows_co2() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let config_path = dir.path().join("config.toml");
+    fs::write(
+        &config_path,
+        "[green]\nenabled = true\nregion = \"eu-west-3\"\n",
+    )
+    .expect("failed to write config");
+
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--input",
+            &fixture_path,
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "analyze with config should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
+
+    assert!(
+        report["green_summary"]["estimated_co2_grams"].is_number(),
+        "should have estimated_co2_grams in JSON output"
+    );
+    assert!(
+        report["green_summary"]["avoidable_co2_grams"].is_number(),
+        "should have avoidable_co2_grams in JSON output"
+    );
+}
+
+#[test]
+fn cli_analyze_invalid_config_explicit_path_fails() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--config", "nonexistent-config.toml"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(!output.status.success(), "should fail with missing config");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Error reading config"),
+        "stderr should mention config error, got: {stderr}"
+    );
+}
+
+#[test]
+fn cli_analyze_malformed_config_explicit_path_fails() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let config_path = dir.path().join("bad-config.toml");
+    fs::write(&config_path, "not valid toml {{{").expect("failed to write");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--config", config_path.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        !output.status.success(),
+        "should fail with malformed config"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Error parsing config"),
+        "stderr should mention parse error, got: {stderr}"
+    );
+}

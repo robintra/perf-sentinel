@@ -1,10 +1,14 @@
 //! Sliding window correlator for streaming mode.
 //!
 //! Accumulates normalized events by `trace_id` with ring buffer, TTL eviction,
-//! and LRU eviction when max active traces is exceeded.
+//! and O(1) LRU eviction when max active traces is exceeded.
+
+use std::collections::VecDeque;
+use std::num::NonZeroUsize;
+
+use lru::LruCache;
 
 use crate::normalize::NormalizedEvent;
-use std::collections::{HashMap, VecDeque};
 
 /// Configuration for the trace window.
 #[derive(Debug, Clone)]
@@ -28,25 +32,32 @@ impl Default for WindowConfig {
 }
 
 /// Buffer for a single trace.
-#[derive(Debug)]
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
+    /// Absolute timestamp (ms since epoch) of the last event pushed to this trace.
+    /// Used for TTL eviction — the LRU cache handles relative access ordering.
     last_seen_ms: u64,
 }
 
 /// Sliding window that accumulates events by `trace_id`.
-#[derive(Debug)]
+///
+/// Uses an LRU cache for O(1) amortized eviction when at capacity.
 pub struct TraceWindow {
     config: WindowConfig,
-    traces: HashMap<String, TraceBuffer>,
+    traces: LruCache<String, TraceBuffer>,
 }
 
 impl TraceWindow {
+    /// # Panics
+    ///
+    /// Panics if `max_active_traces` is 0.
     #[must_use]
     pub fn new(config: WindowConfig) -> Self {
+        let cap =
+            NonZeroUsize::new(config.max_active_traces).expect("max_active_traces must be >= 1");
         Self {
             config,
-            traces: HashMap::new(),
+            traces: LruCache::new(cap),
         }
     }
 
@@ -59,50 +70,46 @@ impl TraceWindow {
         event: NormalizedEvent,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
-        let trace_id = event.event.trace_id.clone();
-
-        if let Some(buf) = self.traces.get_mut(&trace_id) {
+        // Fast path: trace already exists — get_mut auto-promotes to MRU.
+        if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
             buf.events.push_back(event);
             // Ring buffer: drop oldest if over capacity
             if buf.events.len() > self.config.max_events_per_trace {
                 buf.events.pop_front();
             }
-            None
-        } else {
-            // Evict LRU trace before inserting if at capacity
-            let evicted = if self.traces.len() >= self.config.max_active_traces {
-                self.traces
-                    .iter()
-                    .min_by_key(|(_, buf)| buf.last_seen_ms)
-                    .map(|(id, _)| id.clone())
-                    .and_then(|oldest_id| {
-                        self.traces
-                            .remove(&oldest_id)
-                            .map(|buf| (oldest_id, buf.events.into_iter().collect()))
-                    })
-            } else {
-                None
-            };
+            return None;
+        }
 
-            let mut events = VecDeque::with_capacity(8);
-            events.push_back(event);
-            self.traces.insert(
+        // Slow path: new trace — clone trace_id, push evicts LRU if at cap.
+        let trace_id = event.event.trace_id.clone();
+        let mut events = VecDeque::with_capacity(8);
+        events.push_back(event);
+
+        self.traces
+            .push(
                 trace_id,
                 TraceBuffer {
                     events,
                     last_seen_ms: now_ms,
                 },
-            );
-            evicted
-        }
+            )
+            .map(|(id, buf)| (id, buf.events.into_iter().collect()))
     }
 
     /// Evict traces that have not been updated within the TTL.
+    ///
+    /// Iterates from the LRU end (oldest access). Since access order tracks
+    /// `last_seen_ms`, once a non-expired entry is found we can stop early.
     pub fn evict(&mut self, now_ms: u64) {
         let ttl = self.config.trace_ttl_ms;
-        self.traces
-            .retain(|_, buf| now_ms.saturating_sub(buf.last_seen_ms) <= ttl);
+        while let Some((_, buf)) = self.traces.peek_lru() {
+            if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
+                self.traces.pop_lru();
+            } else {
+                break;
+            }
+        }
     }
 
     /// Evict expired traces and return them for processing.
@@ -112,23 +119,25 @@ impl TraceWindow {
     pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
         let ttl = self.config.trace_ttl_ms;
         let mut expired = Vec::new();
-        self.traces.retain(|id, buf| {
+        while let Some((_, buf)) = self.traces.peek_lru() {
             if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
-                expired.push((id.clone(), buf.events.drain(..).collect()));
-                false
+                if let Some((id, buf)) = self.traces.pop_lru() {
+                    expired.push((id, buf.events.into_iter().collect()));
+                }
             } else {
-                true
+                break;
             }
-        });
+        }
         expired
     }
 
     /// Drain all traces, returning their events grouped by `trace_id`.
     pub fn drain_all(&mut self) -> Vec<(String, Vec<NormalizedEvent>)> {
-        self.traces
-            .drain()
-            .map(|(id, buf)| (id, buf.events.into_iter().collect()))
-            .collect()
+        let mut result = Vec::with_capacity(self.traces.len());
+        while let Some((id, buf)) = self.traces.pop_lru() {
+            result.push((id, buf.events.into_iter().collect()));
+        }
+        result
     }
 
     /// Number of active traces.
@@ -225,13 +234,15 @@ mod tests {
         let mut w = TraceWindow::new(config);
         w.push(make_event("t1", "SELECT 1"), 0);
         w.push(make_event("t2", "SELECT 2"), 10);
-        // This should evict t1 (oldest last_seen_ms)
-        w.push(make_event("t3", "SELECT 3"), 20);
+        // This should evict t1 (LRU — oldest access)
+        let evicted = w.push(make_event("t3", "SELECT 3"), 20);
 
+        assert!(evicted.is_some());
+        assert_eq!(evicted.unwrap().0, "t1");
         assert_eq!(w.active_traces(), 2);
-        assert!(w.traces.contains_key("t2"));
-        assert!(w.traces.contains_key("t3"));
-        assert!(!w.traces.contains_key("t1"));
+        assert!(w.traces.peek(&"t2".to_string()).is_some());
+        assert!(w.traces.peek(&"t3".to_string()).is_some());
+        assert!(w.traces.peek(&"t1".to_string()).is_none());
     }
 
     #[test]
@@ -252,15 +263,17 @@ mod tests {
         let mut w = TraceWindow::new(config);
         w.push(make_event("t1", "SELECT 1"), 0);
         w.push(make_event("t2", "SELECT 2"), 10);
-        // Touch t1 so it becomes more recent than t2
+        // Touch t1 so it becomes more recent than t2 (get_mut promotes to MRU)
         w.push(make_event("t1", "SELECT 1b"), 20);
-        // Insert t3 — should evict t2 (oldest last_seen_ms=10), not t1 (last_seen_ms=20)
-        w.push(make_event("t3", "SELECT 3"), 30);
+        // Insert t3 — should evict t2 (LRU), not t1 (MRU)
+        let evicted = w.push(make_event("t3", "SELECT 3"), 30);
 
+        assert!(evicted.is_some());
+        assert_eq!(evicted.unwrap().0, "t2");
         assert_eq!(w.active_traces(), 2);
-        assert!(w.traces.contains_key("t1"));
-        assert!(w.traces.contains_key("t3"));
-        assert!(!w.traces.contains_key("t2"));
+        assert!(w.traces.peek(&"t1".to_string()).is_some());
+        assert!(w.traces.peek(&"t3".to_string()).is_some());
+        assert!(w.traces.peek(&"t2".to_string()).is_none());
     }
 
     #[test]
@@ -298,15 +311,61 @@ mod tests {
             ..Default::default()
         };
         let mut w = TraceWindow::new(config);
-        w.push(make_event("t1", "SELECT 1"), 0);
-        w.push(make_event("t2", "SELECT 2"), 10);
-        // t1 evicted, only t2 remains
-        assert_eq!(w.active_traces(), 1);
-        assert!(w.traces.contains_key("t2"));
 
-        w.push(make_event("t3", "SELECT 3"), 20);
-        // t2 evicted, only t3 remains
+        let evicted1 = w.push(make_event("t1", "SELECT 1"), 0);
+        assert!(evicted1.is_none()); // first insert, no eviction
+
+        let evicted2 = w.push(make_event("t2", "SELECT 2"), 10);
+        // t1 evicted, only t2 remains
+        assert!(evicted2.is_some());
+        assert_eq!(evicted2.unwrap().0, "t1");
         assert_eq!(w.active_traces(), 1);
-        assert!(w.traces.contains_key("t3"));
+        assert!(w.traces.peek(&"t2".to_string()).is_some());
+
+        let evicted3 = w.push(make_event("t3", "SELECT 3"), 20);
+        // t2 evicted, only t3 remains
+        assert!(evicted3.is_some());
+        assert_eq!(evicted3.unwrap().0, "t2");
+        assert_eq!(w.active_traces(), 1);
+        assert!(w.traces.peek(&"t3".to_string()).is_some());
+    }
+
+    #[test]
+    fn evict_expired_returns_traces() {
+        let config = WindowConfig {
+            trace_ttl_ms: 100,
+            ..Default::default()
+        };
+        let mut w = TraceWindow::new(config);
+        w.push(make_event("t1", "SELECT 1"), 0);
+        w.push(make_event("t2", "SELECT 2"), 50);
+
+        // Not yet expired
+        let expired = w.evict_expired(50);
+        assert!(expired.is_empty());
+        assert_eq!(w.active_traces(), 2);
+
+        // t1 expired (150 - 0 = 150 > 100), t2 not (150 - 50 = 100 <= 100)
+        let expired = w.evict_expired(150);
+        assert_eq!(expired.len(), 1);
+        assert_eq!(expired[0].0, "t1");
+        assert_eq!(w.active_traces(), 1);
+    }
+
+    #[test]
+    fn push_returns_evicted_events() {
+        let config = WindowConfig {
+            max_active_traces: 1,
+            ..Default::default()
+        };
+        let mut w = TraceWindow::new(config);
+        w.push(make_event("t1", "SELECT 1"), 0);
+        w.push(make_event("t1", "SELECT 2"), 5);
+
+        let evicted = w.push(make_event("t2", "SELECT 3"), 10);
+        assert!(evicted.is_some());
+        let (id, events) = evicted.unwrap();
+        assert_eq!(id, "t1");
+        assert_eq!(events.len(), 2); // both events from t1
     }
 }

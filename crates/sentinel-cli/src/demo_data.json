@@ -138,6 +138,39 @@
     "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
   },
   {
+    "timestamp": "2025-07-10T14:32:01.600Z",
+    "trace_id": "trace-demo-game",
+    "span_id": "span-slow-1",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 42",
+    "duration_us": 750000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.700Z",
+    "trace_id": "trace-demo-game",
+    "span_id": "span-slow-2",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 43",
+    "duration_us": 800000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.800Z",
+    "trace_id": "trace-demo-game",
+    "span_id": "span-slow-3",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 44",
+    "duration_us": 2600000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
     "timestamp": "2025-07-10T14:32:02.000Z",
     "trace_id": "trace-demo-clean",
     "span_id": "span-20",

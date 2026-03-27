@@ -12,7 +12,7 @@ static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Result of HTTP URL normalization.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HttpNormalized {
     pub template: String,
     pub params: Vec<String>,
@@ -76,20 +76,12 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
 
 /// Strip scheme and authority from a URL, returning just the path (+ query).
 fn strip_origin(target: &str) -> &str {
-    // Handle scheme://authority/path
-    if let Some(rest) = target
+    target
         .strip_prefix("http://")
         .or_else(|| target.strip_prefix("https://"))
-    {
-        // Find the first `/` after the authority
-        match rest.find('/') {
-            Some(idx) => &rest[idx..],
-            None => "/",
-        }
-    } else {
-        // Already a path
-        target
-    }
+        .map_or(target, |rest| {
+            rest.find('/').map_or("/", |idx| &rest[idx..])
+        })
 }
 
 #[cfg(test)]

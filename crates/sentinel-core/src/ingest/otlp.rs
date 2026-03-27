@@ -205,7 +205,7 @@ pub struct OtlpGrpcService {
 
 impl OtlpGrpcService {
     #[must_use]
-    pub fn new(sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>) -> Self {
+    pub const fn new(sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>) -> Self {
         Self { sender }
     }
 }

@@ -3,6 +3,7 @@
 use crate::config::Config;
 use crate::correlate;
 use crate::detect;
+use crate::detect::DetectConfig;
 use crate::event::SpanEvent;
 use crate::normalize;
 use crate::report::{Analysis, Report};
@@ -17,13 +18,17 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
     let normalized = normalize::normalize_all(events);
     let traces = correlate::correlate(normalized);
     let trace_count = traces.len();
-    let findings = detect::detect(
-        &traces,
-        config.n_plus_one_threshold,
-        config.window_duration_ms,
-    );
 
-    let (findings, green_summary) = score::score_green(&traces, findings);
+    let detect_config = DetectConfig {
+        n_plus_one_threshold: config.n_plus_one_threshold,
+        window_ms: config.window_duration_ms,
+        slow_threshold_ms: config.slow_query_threshold_ms,
+        slow_min_occurrences: config.slow_query_min_occurrences,
+    };
+    let findings = detect::detect(&traces, &detect_config);
+
+    let (findings, green_summary) =
+        score::score_green(&traces, findings, config.green_region.as_deref());
 
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
@@ -188,5 +193,38 @@ mod tests {
         // Each trace has 3 redundant -> avoidable = 2 each -> total = 4
         assert_eq!(report.green_summary.avoidable_io_ops, 4);
         assert_eq!(report.green_summary.total_io_ops, 6);
+    }
+
+    #[test]
+    fn pipeline_with_green_region_produces_co2() {
+        use crate::test_helpers::make_sql_event;
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+
+        let config = Config {
+            green_region: Some("eu-west-3".to_string()),
+            ..Config::default()
+        };
+        let report = analyze(events, &config);
+
+        assert!(report.green_summary.estimated_co2_grams.is_some());
+        assert!(report.green_summary.avoidable_co2_grams.is_some());
+        assert!(report.green_summary.estimated_co2_grams.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn pipeline_without_region_no_co2() {
+        let config = Config::default();
+        let report = analyze(vec![], &config);
+        assert!(report.green_summary.estimated_co2_grams.is_none());
+        assert!(report.green_summary.avoidable_co2_grams.is_none());
     }
 }

@@ -1,10 +1,12 @@
 //! Scoring stage: computes `GreenOps` I/O intensity scores.
 
+pub mod carbon;
+
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
-use crate::detect::{Finding, GreenImpact};
+use crate::detect::{Finding, FindingType, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 
 /// Per-endpoint statistics accumulated during scoring.
@@ -27,7 +29,11 @@ struct EndpointStats {
 /// 4. Populate `green_impact` on each finding
 /// 5. Build top offenders ranking sorted by IIS descending
 #[must_use]
-pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, GreenSummary) {
+pub fn score_green(
+    traces: &[Trace],
+    findings: Vec<Finding>,
+    region: Option<&str>,
+) -> (Vec<Finding>, GreenSummary) {
     // Phase 1: Count I/O ops per endpoint and invocations (distinct traces).
     // We iterate by trace first to count each trace as one invocation per endpoint,
     // avoiding unnecessary String clones in the inner loop.
@@ -55,9 +61,14 @@ pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, G
         }
     }
 
-    // Phase 2: Dedup avoidable I/O ops by (trace_id, template), taking max
+    // Phase 2: Dedup avoidable I/O ops by (trace_id, template), taking max.
+    // Slow findings are excluded: slow queries are not "avoidable" I/O — they are
+    // necessary operations that happen to be slow.
     let mut dedup: HashMap<(&str, &str), usize> = HashMap::with_capacity(findings.len());
     for f in &findings {
+        if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
+            continue;
+        }
         let avoidable = f.pattern.occurrences.saturating_sub(1);
         let entry = dedup.entry((&f.trace_id, &f.pattern.template)).or_insert(0);
         *entry = (*entry).max(avoidable);
@@ -81,8 +92,14 @@ pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, G
             .copied()
             .unwrap_or(0.0);
 
+        // Slow findings have no "extra" I/O ops — they are necessary but slow.
+        let extra = if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
+            0
+        } else {
+            f.pattern.occurrences.saturating_sub(1)
+        };
         f.green_impact = Some(GreenImpact {
-            estimated_extra_io_ops: f.pattern.occurrences.saturating_sub(1),
+            estimated_extra_io_ops: extra,
             io_intensity_score: iis,
         });
     }
@@ -92,11 +109,13 @@ pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, G
         .into_iter()
         .map(|(endpoint, stats)| {
             let iis = iis_map.get(endpoint).copied().unwrap_or(0.0);
+            let co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(stats.total_io_ops, r));
             TopOffender {
                 endpoint: endpoint.to_string(),
                 service: stats.service,
                 io_intensity_score: iis,
                 io_ops_per_request: iis,
+                co2_grams,
             }
         })
         .collect();
@@ -107,6 +126,9 @@ pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, G
             .then_with(|| a.endpoint.cmp(&b.endpoint))
     });
 
+    let estimated_co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(total_io_ops, r));
+    let avoidable_co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(avoidable_io_ops, r));
+
     let green_summary = GreenSummary {
         total_io_ops,
         avoidable_io_ops,
@@ -116,6 +138,8 @@ pub fn score_green(traces: &[Trace], findings: Vec<Finding>) -> (Vec<Finding>, G
             0.0
         },
         top_offenders,
+        estimated_co2_grams,
+        avoidable_co2_grams,
     };
 
     (enriched, green_summary)
@@ -130,7 +154,7 @@ mod tests {
 
     #[test]
     fn empty_input_returns_empty_summary() {
-        let (findings, summary) = score_green(&[], vec![]);
+        let (findings, summary) = score_green(&[], vec![], None);
         assert!(findings.is_empty());
         assert_eq!(summary.total_io_ops, 0);
         assert_eq!(summary.avoidable_io_ops, 0);
@@ -171,7 +195,7 @@ mod tests {
             green_impact: None,
         };
 
-        let (findings, summary) = score_green(&[trace], vec![finding]);
+        let (findings, summary) = score_green(&[trace], vec![finding], None);
 
         assert_eq!(summary.total_io_ops, 6);
         assert_eq!(summary.avoidable_io_ops, 5);
@@ -212,7 +236,7 @@ mod tests {
         let trace_a = make_trace(events_t1);
         let trace_b = make_trace(events_t2);
 
-        let (_, summary) = score_green(&[trace_a, trace_b], vec![]);
+        let (_, summary) = score_green(&[trace_a, trace_b], vec![], None);
         assert_eq!(summary.total_io_ops, 6);
         assert_eq!(summary.top_offenders.len(), 1);
         assert!((summary.top_offenders[0].io_intensity_score - 3.0).abs() < f64::EPSILON);
@@ -250,7 +274,7 @@ mod tests {
         all_events.append(&mut events_b);
         let trace = make_trace(all_events);
 
-        let (_, summary) = score_green(&[trace], vec![]);
+        let (_, summary) = score_green(&[trace], vec![], None);
 
         assert_eq!(summary.top_offenders.len(), 2);
         assert_eq!(summary.top_offenders[0].endpoint, "POST /api/game/42/start");
@@ -293,7 +317,7 @@ mod tests {
             green_impact: None,
         };
 
-        let (findings, _) = score_green(&[trace], vec![finding]);
+        let (findings, _) = score_green(&[trace], vec![finding], None);
 
         let impact = findings[0].green_impact.as_ref().unwrap();
         assert_eq!(impact.estimated_extra_io_ops, 5);
@@ -354,7 +378,7 @@ mod tests {
             },
         ];
 
-        let (_, summary) = score_green(&[trace], findings);
+        let (_, summary) = score_green(&[trace], findings, None);
         // max(5, 2) = 5
         assert_eq!(summary.avoidable_io_ops, 5);
     }
@@ -390,12 +414,227 @@ mod tests {
         ];
         let trace = make_trace(events);
 
-        let (findings, summary) = score_green(&[trace], vec![]);
+        let (findings, summary) = score_green(&[trace], vec![], None);
 
         assert!(findings.is_empty());
         assert_eq!(summary.total_io_ops, 4);
         assert_eq!(summary.avoidable_io_ops, 0);
         assert!((summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
         assert_eq!(summary.top_offenders.len(), 1); // 1 endpoint
+    }
+
+    #[test]
+    fn co2_computed_when_region_set() {
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+
+        let finding = Finding {
+            finding_type: FindingType::NPlusOneSql,
+            severity: Severity::Warning,
+            trace_id: "trace-1".to_string(),
+            service: "game".to_string(),
+            source_endpoint: "POST /api/game/42/start".to_string(),
+            pattern: Pattern {
+                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                occurrences: 6,
+                window_ms: 250,
+                distinct_params: 6,
+            },
+            suggestion: "batch".to_string(),
+            first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+            green_impact: None,
+        };
+
+        let (_, summary) = score_green(&[trace], vec![finding], Some("eu-west-3"));
+
+        assert!(summary.estimated_co2_grams.is_some());
+        assert!(summary.avoidable_co2_grams.is_some());
+        assert!(summary.estimated_co2_grams.unwrap() > 0.0);
+        assert!(summary.avoidable_co2_grams.unwrap() > 0.0);
+        // Top offender should also have CO2
+        assert_eq!(summary.top_offenders.len(), 1);
+        assert!(summary.top_offenders[0].co2_grams.is_some());
+        assert!(summary.top_offenders[0].co2_grams.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn co2_none_when_no_region() {
+        let events: Vec<SpanEvent> = (1..=3)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+
+        let (_, summary) = score_green(&[trace], vec![], None);
+
+        assert!(summary.estimated_co2_grams.is_none());
+        assert!(summary.avoidable_co2_grams.is_none());
+        for offender in &summary.top_offenders {
+            assert!(offender.co2_grams.is_none());
+        }
+    }
+
+    #[test]
+    fn co2_none_for_unknown_region() {
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let trace = make_trace(events);
+
+        let (_, summary) = score_green(&[trace], vec![], Some("mars-1"));
+
+        assert!(summary.estimated_co2_grams.is_none());
+        assert!(summary.avoidable_co2_grams.is_none());
+        for offender in &summary.top_offenders {
+            assert!(offender.co2_grams.is_none());
+        }
+    }
+
+    #[test]
+    fn slow_findings_do_not_inflate_waste_ratio() {
+        // 3 slow SQL events (same template) -> slow_sql finding with 3 occurrences
+        // These should NOT count as avoidable I/O.
+        use crate::test_helpers::make_sql_event_with_duration;
+        let events: Vec<SpanEvent> = (1..=3)
+            .map(|i| {
+                make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM t WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                    600_000,
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+
+        let slow_finding = Finding {
+            finding_type: FindingType::SlowSql,
+            severity: Severity::Warning,
+            trace_id: "trace-1".to_string(),
+            service: "game".to_string(),
+            source_endpoint: "POST /api/game/42/start".to_string(),
+            pattern: Pattern {
+                template: "SELECT * FROM t WHERE id = ?".to_string(),
+                occurrences: 3,
+                window_ms: 100,
+                distinct_params: 3,
+            },
+            suggestion: "Consider adding an index".to_string(),
+            first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:01.150Z".to_string(),
+            green_impact: None,
+        };
+
+        let (findings, summary) = score_green(&[trace], vec![slow_finding], None);
+
+        // Slow findings should NOT contribute to avoidable ops
+        assert_eq!(summary.avoidable_io_ops, 0, "slow ops are not avoidable");
+        assert!((summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
+
+        // green_impact.estimated_extra_io_ops should be 0 for slow findings
+        let impact = findings[0].green_impact.as_ref().unwrap();
+        assert_eq!(impact.estimated_extra_io_ops, 0);
+    }
+
+    #[test]
+    fn slow_and_n_plus_one_waste_separate() {
+        // Mix: 6 N+1 events + 3 slow events on same trace, different templates
+        // Only N+1 should contribute to waste, not slow.
+        use crate::test_helpers::make_sql_event_with_duration;
+        let mut events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        for i in 7..=9 {
+            events.push(make_sql_event_with_duration(
+                "trace-1",
+                &format!("span-{i}"),
+                &format!("SELECT * FROM slow_table WHERE id = {}", i - 6),
+                &format!("2025-07-10T14:32:02.{:03}Z", (i - 6) * 50),
+                600_000,
+            ));
+        }
+        let trace = make_trace(events);
+
+        let n1_finding = Finding {
+            finding_type: FindingType::NPlusOneSql,
+            severity: Severity::Warning,
+            trace_id: "trace-1".to_string(),
+            service: "game".to_string(),
+            source_endpoint: "POST /api/game/42/start".to_string(),
+            pattern: Pattern {
+                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                occurrences: 6,
+                window_ms: 250,
+                distinct_params: 6,
+            },
+            suggestion: "batch".to_string(),
+            first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
+            green_impact: None,
+        };
+        let slow_finding = Finding {
+            finding_type: FindingType::SlowSql,
+            severity: Severity::Warning,
+            trace_id: "trace-1".to_string(),
+            service: "game".to_string(),
+            source_endpoint: "POST /api/game/42/start".to_string(),
+            pattern: Pattern {
+                template: "SELECT * FROM slow_table WHERE id = ?".to_string(),
+                occurrences: 3,
+                window_ms: 100,
+                distinct_params: 3,
+            },
+            suggestion: "Consider adding an index".to_string(),
+            first_timestamp: "2025-07-10T14:32:02.050Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:02.150Z".to_string(),
+            green_impact: None,
+        };
+
+        let (findings, summary) = score_green(&[trace], vec![n1_finding, slow_finding], None);
+
+        // Only the N+1 finding's occurrences - 1 = 5 should be avoidable
+        assert_eq!(summary.avoidable_io_ops, 5);
+        // N+1 finding should have extra_io_ops = 5
+        let n1 = findings
+            .iter()
+            .find(|f| f.finding_type == FindingType::NPlusOneSql)
+            .unwrap();
+        assert_eq!(n1.green_impact.as_ref().unwrap().estimated_extra_io_ops, 5);
+        // Slow finding should have extra_io_ops = 0
+        let slow = findings
+            .iter()
+            .find(|f| f.finding_type == FindingType::SlowSql)
+            .unwrap();
+        assert_eq!(
+            slow.green_impact.as_ref().unwrap().estimated_extra_io_ops,
+            0
+        );
     }
 }

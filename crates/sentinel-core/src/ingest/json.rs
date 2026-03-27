@@ -10,7 +10,7 @@ pub struct JsonIngest {
 
 impl JsonIngest {
     #[must_use]
-    pub fn new(max_size: usize) -> Self {
+    pub const fn new(max_size: usize) -> Self {
         Self { max_size }
     }
 }

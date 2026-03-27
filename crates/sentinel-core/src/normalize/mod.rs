@@ -6,7 +6,7 @@ pub mod sql;
 use crate::event::{EventType, SpanEvent};
 
 /// A span event enriched with its normalized template and extracted parameters.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedEvent {
     pub event: SpanEvent,
     pub template: String,

@@ -11,7 +11,7 @@ static IN_LIST_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)IN\s*\(\s*\?(?:\s*,\s*\?)*\s*\)").unwrap());
 
 /// Result of SQL normalization.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SqlNormalized {
     pub template: String,
     pub params: Vec<String>,
@@ -44,18 +44,16 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
                     // Start of string literal
                     state = State::InString;
                     current_value.clear();
-                    i += 1;
                 } else if b.is_ascii_digit() && !is_identifier_byte_before(i, bytes) {
                     // Start of numeric literal
                     state = State::InNumber;
                     seen_dot = false;
                     current_value.clear();
                     current_value.push(b as char);
-                    i += 1;
                 } else {
                     template.push(b as char);
-                    i += 1;
                 }
+                i += 1;
             }
             State::InString => {
                 let b = bytes[i];

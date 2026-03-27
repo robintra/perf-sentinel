@@ -21,10 +21,16 @@ pub struct Config {
     pub n_plus_one_threshold: u32,
     /// Sliding window duration in milliseconds for N+1 detection.
     pub window_duration_ms: u64,
+    /// Threshold in milliseconds above which an operation is considered slow.
+    pub slow_query_threshold_ms: u64,
+    /// Minimum occurrences of a slow template to flag as a finding.
+    pub slow_query_min_occurrences: u32,
 
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
     pub green_enabled: bool,
+    /// Optional region for gCO₂eq conversion (e.g. "eu-west-3", "FR", "us-east-1").
+    pub green_region: Option<String>,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -57,8 +63,11 @@ impl Default for Config {
             // Detection
             n_plus_one_threshold: 5,
             window_duration_ms: 500,
+            slow_query_threshold_ms: 500,
+            slow_query_min_occurrences: 3,
             // Green
             green_enabled: true,
+            green_region: None,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -109,12 +118,15 @@ struct ThresholdsSection {
 struct DetectionSection {
     window_duration_ms: Option<u64>,
     n_plus_one_min_occurrences: Option<u32>,
+    slow_query_threshold_ms: Option<u64>,
+    slow_query_min_occurrences: Option<u32>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct GreenSection {
     enabled: Option<bool>,
+    region: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -133,10 +145,10 @@ struct DaemonSection {
 
 impl From<RawConfig> for Config {
     fn from(raw: RawConfig) -> Self {
-        let defaults = Config::default();
+        let defaults = Self::default();
 
         // Sections take priority over flat fields, flat fields over defaults.
-        Config {
+        Self {
             // Thresholds
             n_plus_one_sql_critical_max: raw
                 .thresholds
@@ -162,9 +174,18 @@ impl From<RawConfig> for Config {
                 .window_duration_ms
                 .or(raw.window_duration_ms)
                 .unwrap_or(defaults.window_duration_ms),
+            slow_query_threshold_ms: raw
+                .detection
+                .slow_query_threshold_ms
+                .unwrap_or(defaults.slow_query_threshold_ms),
+            slow_query_min_occurrences: raw
+                .detection
+                .slow_query_min_occurrences
+                .unwrap_or(defaults.slow_query_min_occurrences),
 
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
+            green_region: raw.green.region.or(defaults.green_region),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -231,6 +252,12 @@ impl Config {
         }
         if self.window_duration_ms == 0 {
             return Err("window_duration_ms must be >= 1".to_string());
+        }
+        if self.slow_query_threshold_ms == 0 {
+            return Err("slow_query_threshold_ms must be >= 1".to_string());
+        }
+        if self.slow_query_min_occurrences == 0 {
+            return Err("slow_query_min_occurrences must be >= 1".to_string());
         }
         if self.trace_ttl_ms < 100 {
             return Err(format!(
@@ -447,6 +474,49 @@ n_plus_one_min_occurrences = 12
     #[test]
     fn rejects_zero_max_events_per_trace() {
         let result = load_from_str("max_events_per_trace = 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn slow_query_defaults() {
+        let config = Config::default();
+        assert_eq!(config.slow_query_threshold_ms, 500);
+        assert_eq!(config.slow_query_min_occurrences, 3);
+        assert!(config.green_region.is_none());
+    }
+
+    #[test]
+    fn parse_slow_query_config() {
+        let toml = r"
+[detection]
+slow_query_threshold_ms = 1000
+slow_query_min_occurrences = 5
+";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.slow_query_threshold_ms, 1000);
+        assert_eq!(config.slow_query_min_occurrences, 5);
+    }
+
+    #[test]
+    fn parse_green_region() {
+        let toml = r#"
+[green]
+enabled = true
+region = "eu-west-3"
+"#;
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.green_region.as_deref(), Some("eu-west-3"));
+    }
+
+    #[test]
+    fn rejects_zero_slow_query_threshold() {
+        let result = load_from_str("[detection]\nslow_query_threshold_ms = 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_zero_slow_query_min_occurrences() {
+        let result = load_from_str("[detection]\nslow_query_min_occurrences = 0");
         assert!(result.is_err());
     }
 }

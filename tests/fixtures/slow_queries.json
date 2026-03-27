@@ -1,0 +1,82 @@
+[
+  {
+    "timestamp": "2025-07-10T14:32:01.000Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s1",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 1",
+    "duration_us": 750000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.050Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s2",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 2",
+    "duration_us": 800000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.100Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s3",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM game_state WHERE game_id = 3",
+    "duration_us": 2600000,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.200Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s4",
+    "service": "game",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM users WHERE id = 1",
+    "duration_us": 500,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.250Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s5",
+    "service": "game",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://svc:5000/api/status/1",
+    "duration_us": 600000,
+    "status_code": 200,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.300Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s6",
+    "service": "game",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://svc:5000/api/status/2",
+    "duration_us": 700000,
+    "status_code": 200,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.350Z",
+    "trace_id": "trace-slow",
+    "span_id": "span-s7",
+    "service": "game",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://svc:5000/api/status/3",
+    "duration_us": 650000,
+    "status_code": 200,
+    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+  }
+]

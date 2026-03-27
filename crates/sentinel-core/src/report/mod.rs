@@ -1,6 +1,7 @@
 //! Report stage: outputs analysis results.
 
 pub mod json;
+pub mod metrics;
 
 use crate::detect::Finding;
 use serde::Serialize;
@@ -29,6 +30,10 @@ pub struct GreenSummary {
     pub avoidable_io_ops: usize,
     pub io_waste_ratio: f64,
     pub top_offenders: Vec<TopOffender>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_co2_grams: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avoidable_co2_grams: Option<f64>,
 }
 
 /// A top offender endpoint ranked by I/O Intensity Score.
@@ -38,6 +43,8 @@ pub struct TopOffender {
     pub service: String,
     pub io_intensity_score: f64,
     pub io_ops_per_request: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub co2_grams: Option<f64>,
 }
 
 /// Quality gate result.

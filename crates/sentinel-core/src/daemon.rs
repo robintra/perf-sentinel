@@ -13,8 +13,10 @@ use crate::config::Config;
 use crate::correlate::Trace;
 use crate::correlate::window::{TraceWindow, WindowConfig};
 use crate::detect;
+use crate::detect::DetectConfig;
 use crate::event::SpanEvent;
 use crate::normalize;
+use crate::report::metrics::MetricsState;
 use crate::score;
 
 /// Errors that can occur when running the daemon.
@@ -36,6 +38,7 @@ pub enum DaemonError {
 /// # Errors
 ///
 /// Returns an error if the configured addresses are invalid or a listener fails to bind.
+#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
 
@@ -46,6 +49,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     })));
 
     let max_payload = config.max_payload_size;
+
+    // Create Prometheus metrics state
+    let metrics = Arc::new(MetricsState::new());
 
     // Parse and validate addresses before spawning
     let grpc_addr: std::net::SocketAddr =
@@ -76,8 +82,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         }
     });
 
-    // Spawn OTLP HTTP server (listener already bound)
-    let http_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
+    // Spawn OTLP HTTP server with metrics endpoint merged
+    let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
+    let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
+    let http_router = otlp_router.merge(metrics_router);
     tokio::spawn(async move {
         tracing::info!("OTLP HTTP listening on {http_addr}");
         if let Err(e) = axum::serve(http_listener, http_router).await {
@@ -100,8 +108,13 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         tracing::warn!("JSON socket ingestion not available on this platform; use OTLP HTTP/gRPC");
     }
 
-    let n_plus_one_threshold = config.n_plus_one_threshold;
-    let window_duration_ms = config.window_duration_ms;
+    let detect_config = DetectConfig {
+        n_plus_one_threshold: config.n_plus_one_threshold,
+        window_ms: config.window_duration_ms,
+        slow_threshold_ms: config.slow_query_threshold_ms,
+        slow_min_occurrences: config.slow_query_min_occurrences,
+    };
+    let green_region = config.green_region.clone();
     let evict_ms = config.trace_ttl_ms / 2;
 
     // Main event loop
@@ -110,7 +123,12 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     loop {
         tokio::select! {
             Some(events) = rx.recv() => {
-                let normalized = normalize::normalize_all(events);
+                let event_count = events.len();
+                // Normalize OUTSIDE the lock to minimize lock hold time.
+                let normalized: Vec<_> = events
+                    .into_iter()
+                    .map(normalize::normalize)
+                    .collect();
                 let now_ms = current_time_ms();
                 let mut lru_evicted = Vec::new();
                 {
@@ -120,19 +138,33 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                             lru_evicted.push(evicted);
                         }
                     }
+                    metrics.active_traces.set(w.active_traces() as f64);
                 }
+                metrics.events_processed_total.inc_by(event_count as f64);
                 // Process LRU-evicted traces so their findings are not lost
                 if !lru_evicted.is_empty() {
-                    process_traces(lru_evicted, n_plus_one_threshold, window_duration_ms);
+                    process_traces(
+                        lru_evicted,
+                        &detect_config,
+                        green_region.as_deref(),
+                        &metrics,
+                    );
                 }
             }
             _ = ticker.tick() => {
                 let now_ms = current_time_ms();
                 let expired = {
                     let mut w = window.lock().await;
-                    w.evict_expired(now_ms)
+                    let expired = w.evict_expired(now_ms);
+                    metrics.active_traces.set(w.active_traces() as f64);
+                    expired
                 };
-                process_traces(expired, n_plus_one_threshold, window_duration_ms);
+                process_traces(
+                    expired,
+                    &detect_config,
+                    green_region.as_deref(),
+                    &metrics,
+                );
             }
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Shutting down daemon, processing remaining traces...");
@@ -140,7 +172,12 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     let mut w = window.lock().await;
                     w.drain_all()
                 };
-                process_traces(remaining, n_plus_one_threshold, window_duration_ms);
+                process_traces(
+                    remaining,
+                    &detect_config,
+                    green_region.as_deref(),
+                    &metrics,
+                );
                 break;
             }
         }
@@ -152,20 +189,43 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 /// Process a batch of completed/expired traces: detect, score, emit NDJSON.
 fn process_traces(
     traces: Vec<(String, Vec<crate::normalize::NormalizedEvent>)>,
-    threshold: u32,
-    window_ms: u64,
+    detect_config: &DetectConfig,
+    green_region: Option<&str>,
+    metrics: &MetricsState,
 ) {
     if traces.is_empty() {
         return;
     }
 
+    let trace_count = traces.len();
     let trace_structs: Vec<Trace> = traces
         .into_iter()
         .map(|(trace_id, spans)| Trace { trace_id, spans })
         .collect();
 
-    let findings = detect::detect(&trace_structs, threshold, window_ms);
-    let (findings, _) = score::score_green(&trace_structs, findings);
+    let findings = detect::detect(&trace_structs, detect_config);
+    let (findings, green_summary) = score::score_green(&trace_structs, findings, green_region);
+
+    // Update Prometheus metrics
+    metrics.traces_analyzed_total.inc_by(trace_count as f64);
+    metrics
+        .total_io_ops
+        .inc_by(green_summary.total_io_ops as f64);
+    metrics
+        .avoidable_io_ops
+        .inc_by(green_summary.avoidable_io_ops as f64);
+    let cumulative_total = metrics.total_io_ops.get();
+    if cumulative_total > 0.0 {
+        metrics
+            .io_waste_ratio
+            .set(metrics.avoidable_io_ops.get() / cumulative_total);
+    }
+    for finding in &findings {
+        metrics
+            .findings_total
+            .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+            .inc();
+    }
 
     for finding in &findings {
         if let Ok(json) = serde_json::to_string(finding) {
@@ -207,7 +267,11 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
             Ok((stream, _)) => {
                 let tx = tx.clone();
                 tokio::spawn(async move {
-                    let reader = tokio::io::BufReader::new(stream);
+                    use tokio::io::AsyncReadExt;
+                    // Bound total bytes per connection to prevent OOM from
+                    // a single huge line without a newline.
+                    let limited = stream.take(max_payload_size as u64 * 16);
+                    let reader = tokio::io::BufReader::new(limited);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
                         if line.len() > max_payload_size {
@@ -258,10 +322,19 @@ mod tests {
         })
     }
 
+    fn default_detect_config() -> DetectConfig {
+        DetectConfig {
+            n_plus_one_threshold: 5,
+            window_ms: 500,
+            slow_threshold_ms: 500,
+            slow_min_occurrences: 3,
+        }
+    }
+
     #[test]
     fn process_traces_empty_does_nothing() {
-        // Should not panic on empty input
-        process_traces(vec![], 5, 500);
+        let metrics = MetricsState::new();
+        process_traces(vec![], &default_detect_config(), None, &metrics);
     }
 
     #[test]
@@ -270,8 +343,13 @@ mod tests {
         let events: Vec<_> = (1..=6)
             .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
             .collect();
-        // Should not panic, findings go to stdout
-        process_traces(vec![("t1".to_string(), events)], 5, 500);
+        let metrics = MetricsState::new();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            &default_detect_config(),
+            None,
+            &metrics,
+        );
     }
 
     #[test]
@@ -281,7 +359,13 @@ mod tests {
             make_normalized("t1", "SELECT * FROM users WHERE id = 1"),
             make_normalized("t1", "SELECT * FROM orders WHERE id = 2"),
         ];
-        process_traces(vec![("t1".to_string(), events)], 5, 500);
+        let metrics = MetricsState::new();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            &default_detect_config(),
+            None,
+            &metrics,
+        );
     }
 
     #[test]
@@ -328,5 +412,23 @@ mod tests {
         assert_eq!(expired[0].0, "t1");
         assert_eq!(expired[0].1.len(), 1);
         assert_eq!(w.active_traces(), 0);
+    }
+
+    #[test]
+    fn process_traces_updates_metrics() {
+        let events: Vec<_> = (1..=6)
+            .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
+            .collect();
+        let metrics = MetricsState::new();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            &default_detect_config(),
+            None,
+            &metrics,
+        );
+
+        let output = metrics.render();
+        assert!(output.contains("perf_sentinel_traces_analyzed_total"));
+        assert!(output.contains("perf_sentinel_findings_total"));
     }
 }

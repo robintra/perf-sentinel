@@ -15,11 +15,15 @@ pub struct Trace {
 /// Group normalized events into traces by `trace_id`.
 #[must_use]
 pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
-    let mut map: HashMap<String, Vec<NormalizedEvent>> = HashMap::new();
+    let mut map: HashMap<String, Vec<NormalizedEvent>> =
+        HashMap::with_capacity(events.len() / 10 + 1);
     for event in events {
-        map.entry(event.event.trace_id.clone())
-            .or_default()
-            .push(event);
+        if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {
+            vec.push(event);
+        } else {
+            let key = event.event.trace_id.clone();
+            map.insert(key, vec![event]);
+        }
     }
     map.into_iter()
         .map(|(trace_id, spans)| Trace { trace_id, spans })

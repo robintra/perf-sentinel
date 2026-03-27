@@ -5,6 +5,20 @@ use crate::event::{EventSource, EventType, SpanEvent};
 use crate::normalize;
 
 pub fn make_sql_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> SpanEvent {
+    make_sql_event_with_duration(trace_id, span_id, target, ts, 800)
+}
+
+pub fn make_http_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> SpanEvent {
+    make_http_event_with_duration(trace_id, span_id, target, ts, 12000)
+}
+
+pub fn make_sql_event_with_duration(
+    trace_id: &str,
+    span_id: &str,
+    target: &str,
+    ts: &str,
+    duration_us: u64,
+) -> SpanEvent {
     SpanEvent {
         timestamp: ts.to_string(),
         trace_id: trace_id.to_string(),
@@ -13,7 +27,7 @@ pub fn make_sql_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> 
         event_type: EventType::Sql,
         operation: "SELECT".to_string(),
         target: target.to_string(),
-        duration_us: 800,
+        duration_us,
         source: EventSource {
             endpoint: "POST /api/game/42/start".to_string(),
             method: "GameService::start_game".to_string(),
@@ -22,7 +36,13 @@ pub fn make_sql_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> 
     }
 }
 
-pub fn make_http_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> SpanEvent {
+pub fn make_http_event_with_duration(
+    trace_id: &str,
+    span_id: &str,
+    target: &str,
+    ts: &str,
+    duration_us: u64,
+) -> SpanEvent {
     SpanEvent {
         timestamp: ts.to_string(),
         trace_id: trace_id.to_string(),
@@ -31,7 +51,7 @@ pub fn make_http_event(trace_id: &str, span_id: &str, target: &str, ts: &str) ->
         event_type: EventType::HttpOut,
         operation: "GET".to_string(),
         target: target.to_string(),
-        duration_us: 12000,
+        duration_us,
         source: EventSource {
             endpoint: "POST /api/game/42/start".to_string(),
             method: "GameService::start_game".to_string(),
