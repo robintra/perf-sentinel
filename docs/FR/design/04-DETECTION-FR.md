@@ -1,0 +1,168 @@
+# Algorithmes de détection
+
+La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier trois types d'anti-patterns : les requêtes N+1, les appels redondants et les opérations lentes.
+
+## Pattern partagé : clés HashMap empruntées
+
+Les trois détecteurs regroupent les spans par une clé composite. Un point clé est que les spans vivent dans la struct `Trace`, qui survit à la fonction de détection. Cela signifie que nous pouvons **emprunter** depuis les spans au lieu de cloner :
+
+```rust
+// N+1 : grouper par (event_type, template)
+HashMap<(&EventType, &str), Vec<usize>>
+
+// Redondant : grouper par (event_type, template, params)
+HashMap<(&EventType, &str, &[String]), Vec<usize>>
+
+// Lent : grouper par (event_type, template)
+HashMap<(&EventType, &str), Vec<usize>>
+```
+
+Les valeurs sont des `Vec<usize>` : des indices dans `trace.spans` plutôt que des spans clonés. Cela garde le HashMap petit et évite de copier les données d'événements.
+
+Pour une trace avec 50 spans, chacun ayant un template de 40 caractères, les clés empruntées économisent 50 × 40 = 2 000 octets d'allocations de String par passe de groupement.
+
+## Détection N+1
+
+### Algorithme
+
+1. Grouper les spans par `(&EventType, &str template)`
+2. Ignorer les groupes avec moins de `threshold` occurrences (défaut 5)
+3. Compter les **jeux de paramètres distincts** via `HashSet<&[String]>`
+4. Ignorer les groupes avec moins de `threshold` paramètres distincts (mêmes paramètres = redondant, pas N+1)
+5. Calculer la fenêtre temporelle entre le plus ancien et le plus récent timestamp
+6. Ignorer les groupes où la fenêtre dépasse `window_limit_ms` (défaut 500ms)
+7. Assigner la sévérité : Critical si >= 10 occurrences, Warning sinon
+
+### Paramètres distincts via slices empruntés
+
+```rust
+let distinct_params: HashSet<&[String]> = indices
+    .iter()
+    .map(|&i| trace.spans[i].params.as_slice())
+    .collect();
+```
+
+Utiliser `&[String]` comme clé de HashSet est un choix de conception critique :
+- **Pas d'allocation :** emprunte le Vec existant comme référence de slice
+- **Pas de bug de collision :** compare directement le contenu complet du Vec, contrairement à une approche `join(",")` où `["a,b"]` et `["a", "b"]` produiraient la même chaîne jointe
+
+La bibliothèque standard de Rust implémente `Hash` et `Eq` pour `&[T]` quand `T: Hash + Eq`, rendant cela à coût zéro.
+
+### Calcul de fenêtre basé sur les itérateurs
+
+```rust
+pub fn compute_window_and_bounds_iter<'a>(
+    mut iter: impl Iterator<Item = &'a str>,
+) -> (u64, &'a str, &'a str) {
+    let Some(first) = iter.next() else {
+        return (0, "", "");
+    };
+    let mut min_ts = first;
+    let mut max_ts = first;
+    let mut has_second = false;
+    for ts in iter {
+        has_second = true;
+        if ts < min_ts { min_ts = ts; }
+        if ts > max_ts { max_ts = ts; }
+    }
+    // ...
+}
+```
+
+**Pourquoi un itérateur au lieu de `&[&str]` ?** L'appelant devrait d'abord collecter les timestamps dans un Vec :
+
+```rust
+// Ancien (alloue) :
+let timestamps: Vec<&str> = indices.iter().map(|&i| ...).collect();
+let (w, min, max) = compute_window_and_bounds(&timestamps);
+
+// Nouveau (zéro allocation) :
+let (w, min, max) = compute_window_and_bounds_iter(
+    indices.iter().map(|&i| trace.spans[i].event.timestamp.as_str())
+);
+```
+
+La version basée sur les itérateurs élimine une allocation `Vec<&str>` par groupe de détection. Avec 3 détecteurs × plusieurs groupes par trace × milliers de traces, cela s'accumule.
+
+Le booléen `has_second` remplace une variable `count` qui n'était utilisée que pour vérifier `count < 2`. Cela évite d'incrémenter un compteur à chaque itération.
+
+### Parseur de timestamp ISO 8601
+
+```rust
+fn parse_timestamp_ms(ts: &str) -> Option<u64> {
+    let time_part = ts.split('T').nth(1)?;
+    let time_part = time_part.trim_end_matches('Z');
+    let mut colon_parts = time_part.split(':');
+    let hours: u64 = colon_parts.next()?.parse().ok()?;
+    let minutes: u64 = colon_parts.next()?.parse().ok()?;
+    let sec_str = colon_parts.next()?;
+    // ... parser les secondes et la partie fractionnaire
+}
+```
+
+**Pourquoi pas [chrono](https://docs.rs/chrono/) ?** chrono ajoute ~150 Ko au binaire et parse ~200ns par timestamp. Ce parseur artisanal gère le format fixe (`YYYY-MM-DDTHH:MM:SS.mmmZ`) en ~5ns en découpant sur des délimiteurs connus et en utilisant des appels itérateurs `.next()` au lieu de collecter dans des Vecs.
+
+Le parseur utilise des itérateurs partout (`split(':')` -> `.next()`, `split('.')` -> `.next()`) pour éviter d'allouer des collections `Vec<&str>` intermédiaires.
+
+**Limitation :** le parseur calcule les millisecondes depuis minuit, pas depuis l'epoch. Les traces traversant minuit peuvent calculer des durées de fenêtre incorrectes. C'est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md).
+
+### Comparaison lexicographique des timestamps
+
+Les timestamps min/max sont trouvés via comparaison de chaînes : `if ts < min_ts { min_ts = ts; }`. Cela fonctionne car les timestamps ISO 8601 avec des champs de largeur fixe (`2025-07-10T14:32:01.123Z`) se trient chronologiquement lorsqu'ils sont comparés lexicographiquement. C'est garanti par le [standard ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html), Section 5.3.3.
+
+## Détection redondante
+
+### Clés de slice empruntées
+
+```rust
+HashMap<(&EventType, &str, &[String]), Vec<usize>>
+```
+
+La clé en trois parties inclut le slice complet des paramètres, garantissant que deux spans avec le même template mais des paramètres différents sont dans des groupes différents. C'est le comportement correct : la détection redondante signale les **doublons exacts** (même template ET mêmes paramètres).
+
+L'utilisation de `&[String]` au lieu de joindre les paramètres en une seule chaîne prévient un bug subtil de collision : `["a,b"]` (un paramètre contenant une virgule) et `["a", "b"]` (deux paramètres) produiraient la même clé jointe `"a,b"` mais sont des jeux de paramètres sémantiquement différents.
+
+### Sévérité
+
+- **Info** (< 5 occurrences) : courant pour les consultations de config, les health checks
+- **Warning** (>= 5 occurrences) : probablement un bug de boucle ou un cache manquant
+
+Le seuil de 2 (minimum pour signaler) attrape tout doublon exact. Contrairement au N+1 qui nécessite 5+ occurrences, même 2 requêtes identiques dans une seule requête sont suspectes et méritent d'être signalées au niveau Info.
+
+### Paramètres bindés des ORM
+
+Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL ou les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car perf-sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
+
+## Détection lente
+
+### Arithmétique saturante
+
+```rust
+let threshold_us = threshold_ms.saturating_mul(1000);
+// ...
+if max_duration_us > threshold_us.saturating_mul(5) {
+    Severity::Critical
+}
+```
+
+[`saturating_mul`](https://doc.rust-lang.org/std/primitive.u64.html#method.saturating_mul) retourne `u64::MAX` en cas de dépassement au lieu de revenir à zéro. Cela empêche un `threshold_ms = u64::MAX` malveillant ou mal configuré de désactiver les seuils de sévérité.
+
+### Ne fait pas partie du ratio de gaspillage
+
+Les findings lents ont `green_impact.estimated_extra_io_ops = 0`. Ce sont des opérations **nécessaires** qui se trouvent être lentes : elles ont besoin d'optimisation (indexation, cache), pas d'élimination. Les inclure dans le ratio de gaspillage confondrait "I/O évitables" (N+1, redondant) avec "I/O lentes" (qui nécessitent une solution différente).
+
+## Orchestration de la détection
+
+```rust
+pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for trace in traces {
+        findings.extend(detect_n_plus_one(trace, ...));
+        findings.extend(detect_redundant(trace));
+        findings.extend(detect_slow(trace, ...));
+    }
+    findings
+}
+```
+
+Les trois détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, trois passes O(n) sont négligeables.

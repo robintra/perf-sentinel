@@ -10,10 +10,10 @@ use crate::detect::{Finding, FindingType, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 
 /// Per-endpoint statistics accumulated during scoring.
-struct EndpointStats {
+struct EndpointStats<'a> {
     total_io_ops: usize,
     invocation_count: usize,
-    service: String,
+    service: &'a str,
 }
 
 /// Compute `GreenOps` scores: enrich findings with `green_impact` and produce a `GreenSummary`.
@@ -37,24 +37,26 @@ pub fn score_green(
     // Phase 1: Count I/O ops per endpoint and invocations (distinct traces).
     // We iterate by trace first to count each trace as one invocation per endpoint,
     // avoiding unnecessary String clones in the inner loop.
-    let mut endpoint_stats: HashMap<&str, EndpointStats> = HashMap::with_capacity(traces.len());
+    let mut endpoint_stats: HashMap<&str, EndpointStats<'_>> =
+        HashMap::with_capacity(traces.len().min(64));
     let mut total_io_ops: usize = 0;
 
+    let mut seen_endpoints: HashSet<&str> = HashSet::new();
     for trace in traces {
         // Collect unique endpoints in this trace to count invocations
-        let mut seen_endpoints: HashSet<&str> = HashSet::new();
+        seen_endpoints.clear();
         for span in &trace.spans {
             total_io_ops += 1;
             let key = span.event.source.endpoint.as_str();
             let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
                 total_io_ops: 0,
                 invocation_count: 0,
-                service: span.event.service.clone(),
+                service: span.event.service.as_str(),
             });
             stats.total_io_ops += 1;
             seen_endpoints.insert(key);
         }
-        for ep in seen_endpoints {
+        for &ep in &seen_endpoints {
             if let Some(stats) = endpoint_stats.get_mut(ep) {
                 stats.invocation_count += 1;
             }
@@ -64,13 +66,15 @@ pub fn score_green(
     // Phase 2: Dedup avoidable I/O ops by (trace_id, template), taking max.
     // Slow findings are excluded: slow queries are not "avoidable" I/O — they are
     // necessary operations that happen to be slow.
-    let mut dedup: HashMap<(&str, &str), usize> = HashMap::with_capacity(findings.len());
+    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
     for f in &findings {
         if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
             continue;
         }
         let avoidable = f.pattern.occurrences.saturating_sub(1);
-        let entry = dedup.entry((&f.trace_id, &f.pattern.template)).or_insert(0);
+        let entry = dedup
+            .entry((&f.trace_id, &f.pattern.template, &f.source_endpoint))
+            .or_insert(0);
         *entry = (*entry).max(avoidable);
     }
     let avoidable_io_ops: usize = dedup.values().sum();
@@ -105,14 +109,18 @@ pub fn score_green(
     }
 
     // Phase 5: Build top offenders sorted by IIS descending, with alphabetical tiebreaker
+    // Pre-lowercase region once to avoid repeated allocation in lookup_region
+    let region_lower = region.map(str::to_ascii_lowercase);
+    let region_lower_ref = region_lower.as_deref();
     let mut top_offenders: Vec<TopOffender> = endpoint_stats
         .into_iter()
         .map(|(endpoint, stats)| {
             let iis = iis_map.get(endpoint).copied().unwrap_or(0.0);
-            let co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(stats.total_io_ops, r));
+            let co2_grams =
+                region_lower_ref.and_then(|r| carbon::io_ops_to_co2_grams(stats.total_io_ops, r));
             TopOffender {
                 endpoint: endpoint.to_string(),
-                service: stats.service,
+                service: stats.service.to_string(),
                 io_intensity_score: iis,
                 io_ops_per_request: iis,
                 co2_grams,
@@ -126,8 +134,10 @@ pub fn score_green(
             .then_with(|| a.endpoint.cmp(&b.endpoint))
     });
 
-    let estimated_co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(total_io_ops, r));
-    let avoidable_co2_grams = region.and_then(|r| carbon::io_ops_to_co2_grams(avoidable_io_ops, r));
+    let estimated_co2_grams =
+        region_lower_ref.and_then(|r| carbon::io_ops_to_co2_grams(total_io_ops, r));
+    let avoidable_co2_grams =
+        region_lower_ref.and_then(|r| carbon::io_ops_to_co2_grams(avoidable_io_ops, r));
 
     let green_summary = GreenSummary {
         total_io_ops,

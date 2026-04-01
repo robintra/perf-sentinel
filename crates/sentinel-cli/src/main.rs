@@ -1,8 +1,8 @@
 #![warn(clippy::pedantic)]
 #![allow(clippy::too_many_lines)] // print_colored_report is long but straightforward
-#![allow(clippy::cast_possible_truncation)]
-#![allow(clippy::cast_precision_loss)]
-#![allow(clippy::cast_sign_loss)]
+#![allow(clippy::cast_possible_truncation)] // u128 -> u64 for elapsed_ms, f64 -> usize for percentile index
+#![allow(clippy::cast_precision_loss)] // usize -> f64 for throughput and latency computation
+#![allow(clippy::cast_sign_loss)] // i64 (libc::ru_maxrss) -> usize for RSS bytes on macOS
 #![allow(clippy::items_after_statements)] // bench report struct defined near its use
 
 use clap::{Parser, Subcommand};
@@ -49,7 +49,11 @@ enum Commands {
     },
 
     /// Run analysis on an embedded demo dataset.
-    Demo,
+    Demo {
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
 
     /// Benchmark perf-sentinel on a trace file.
     Bench {
@@ -65,6 +69,7 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
@@ -78,7 +83,7 @@ async fn main() {
             cmd_analyze(input.as_deref(), config.as_deref(), ci);
         }
         Commands::Watch { config } => cmd_watch(config.as_deref()).await,
-        Commands::Demo => cmd_demo(),
+        Commands::Demo { config } => cmd_demo(config.as_deref()),
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
     }
 }
@@ -169,15 +174,21 @@ fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::
     };
 
     let report = pipeline::analyze(events, &config);
-    let sink = JsonReportSink;
-    if let Err(e) = sink.emit(&report) {
-        eprintln!("Error writing report: {e}");
-        std::process::exit(1);
-    }
 
-    if ci && !report.quality_gate.passed {
-        eprintln!("Quality gate FAILED");
-        std::process::exit(1);
+    if ci {
+        // CI mode: JSON output for machine consumption + exit code on gate failure
+        let sink = JsonReportSink;
+        if let Err(e) = sink.emit(&report) {
+            eprintln!("Error writing report: {e}");
+            std::process::exit(1);
+        }
+        if !report.quality_gate.passed {
+            eprintln!("Quality gate FAILED");
+            std::process::exit(1);
+        }
+    } else {
+        // Interactive mode: colored terminal report
+        print_colored_report(&report);
     }
 }
 
@@ -193,10 +204,14 @@ async fn cmd_watch(config_path: Option<&std::path::Path>) {
     }
 }
 
-fn cmd_demo() {
+fn cmd_demo(config_path: Option<&std::path::Path>) {
     const DEMO_DATA: &str = include_str!("demo_data.json");
 
-    let config = Config::default();
+    let mut config = load_config(config_path);
+    // Default to eu-west-3 for demo CO2 display if no region configured
+    if config.green_region.is_none() {
+        config.green_region = Some("eu-west-3".to_string());
+    }
     let ingest = JsonIngest::new(config.max_payload_size);
     let events = match ingest.ingest(DEMO_DATA.as_bytes()) {
         Ok(events) => events,
@@ -259,14 +274,16 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
         .collect();
     per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
-    let p50_idx = (per_event_ns.len() as f64 * 0.50) as usize;
-    let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize).min(per_event_ns.len() - 1);
+    let len = per_event_ns.len();
+    let p50_idx = ((len as f64 * 0.50).ceil() as usize).saturating_sub(1);
+    let p99_idx = ((len as f64 * 0.99).ceil() as usize).min(len.saturating_sub(1));
     let p50_us = per_event_ns[p50_idx] / 1000.0;
     let p99_us = per_event_ns[p99_idx] / 1000.0;
 
-    let total_elapsed_ms: u64 = durations_ns.iter().sum::<u64>() / 1_000_000;
+    let elapsed_nanos: u64 = durations_ns.iter().sum();
+    let total_elapsed_ms: u64 = elapsed_nanos / 1_000_000;
     let total_events = event_count as f64 * f64::from(iterations);
-    let total_seconds = total_elapsed_ms as f64 / 1000.0;
+    let total_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
     let throughput = if total_seconds > 0.0 {
         total_events / total_seconds
     } else {
@@ -335,8 +352,18 @@ fn current_rss_bytes() -> Option<usize> {
     }
     #[cfg(target_os = "macos")]
     {
-        // macOS: could use mach_task_info but keeping it simple
-        None
+        use std::mem;
+        // SAFETY: libc::rusage is a C struct of numeric fields, zeroing it is valid initialization.
+        let mut usage: libc::rusage = unsafe { mem::zeroed() };
+        // SAFETY: getrusage is a POSIX syscall that writes into the provided rusage pointer.
+        // The pointer is valid (stack-allocated) and the return value is checked below.
+        let ret = unsafe { libc::getrusage(libc::RUSAGE_SELF, std::ptr::addr_of_mut!(usage)) };
+        if ret == 0 {
+            // On macOS, ru_maxrss is in bytes
+            Some(usage.ru_maxrss as usize)
+        } else {
+            None
+        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
@@ -412,7 +439,7 @@ fn format_colored_report(report: &Report, force_color: bool) {
                 finding.pattern.window_ms
             );
             println!(
-                "    {dim}Window:{reset}   {} → {}",
+                "    {dim}Window:{reset}   {} -> {}",
                 finding.first_timestamp, finding.last_timestamp
             );
             println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);

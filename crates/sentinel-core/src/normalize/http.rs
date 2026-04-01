@@ -3,13 +3,21 @@
 //! Replaces numeric path segments with `{id}`, UUID segments with `{uuid}`,
 //! strips query parameters, and prepends the HTTP method.
 
-use regex::Regex;
-use std::sync::LazyLock;
-
-static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
-        .unwrap()
-});
+/// Check if a string is a UUID (8-4-4-4-12 hex with dashes).
+/// Hand-coded for performance — avoids regex engine overhead on the hot path.
+fn is_uuid(s: &str) -> bool {
+    if s.len() != 36 {
+        return false;
+    }
+    let b = s.as_bytes();
+    b[8] == b'-'
+        && b[13] == b'-'
+        && b[18] == b'-'
+        && b[23] == b'-'
+        && b.iter()
+            .enumerate()
+            .all(|(i, &c)| matches!(i, 8 | 13 | 18 | 23) || c.is_ascii_hexdigit())
+}
 
 /// Result of HTTP URL normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +35,7 @@ fn is_numeric(seg: &str) -> bool {
 ///
 /// Strips scheme+authority, replaces numeric segments with `{id}`,
 /// UUID segments with `{uuid}`, strips query params, and prepends the method.
+#[must_use]
 pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
     let mut params = Vec::new();
 
@@ -57,7 +66,7 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
             }
             if seg.is_empty() {
                 // leading or trailing slash — nothing to push
-            } else if seg.len() == 36 && UUID_RE.is_match(seg) {
+            } else if is_uuid(seg) {
                 params.push(seg.to_string());
                 result.push_str("{uuid}");
             } else if is_numeric(seg) {
@@ -201,5 +210,28 @@ mod tests {
         );
         assert_eq!(r.template, "PUT /api/org/{uuid}/user/{id}");
         assert_eq!(r.params, vec!["a1b2c3d4-e5f6-7890-abcd-ef1234567890", "99"]);
+    }
+
+    #[test]
+    fn is_uuid_valid() {
+        assert!(is_uuid("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+        assert!(is_uuid("00000000-0000-0000-0000-000000000000"));
+        assert!(is_uuid("AAAABBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF"));
+    }
+
+    #[test]
+    fn is_uuid_invalid() {
+        assert!(!is_uuid("not-a-uuid-at-all"));
+        assert!(!is_uuid("")); // too short
+        assert!(!is_uuid("a1b2c3d4-e5f6-7890-abcd-ef123456789")); // 35 chars
+        assert!(!is_uuid("a1b2c3d4-e5f6-7890-abcd-ef12345678901")); // 37 chars
+        assert!(!is_uuid("a1b2c3d4xe5f6-7890-abcd-ef1234567890")); // wrong dash pos
+        assert!(!is_uuid("g1b2c3d4-e5f6-7890-abcd-ef1234567890")); // 'g' not hex
+    }
+
+    #[test]
+    fn uppercase_uuid_detected() {
+        let r = normalize_http("GET", "/api/item/A1B2C3D4-E5F6-7890-ABCD-EF1234567890");
+        assert_eq!(r.template, "GET /api/item/{uuid}");
     }
 }

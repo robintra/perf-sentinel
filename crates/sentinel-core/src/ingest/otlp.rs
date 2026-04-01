@@ -15,14 +15,17 @@ use crate::event::{EventSource, EventType, SpanEvent};
 
 // ── Conversion helpers ──────────────────────────────────────────────
 
-/// Convert bytes to a lowercase hex string.
+/// Convert bytes to a lowercase hex string using a lookup table.
 fn bytes_to_hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut hex = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        let _ = write!(hex, "{b:02x}");
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut buf = Vec::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        buf.push(HEX[(b >> 4) as usize]);
+        buf.push(HEX[(b & 0x0f) as usize]);
     }
-    hex
+    // SAFETY: all pushed bytes come from HEX which only contains ASCII hex digits (0-9, a-f).
+    // The output is guaranteed valid UTF-8 because every byte is in the ASCII range.
+    unsafe { String::from_utf8_unchecked(buf) }
 }
 
 /// Convert nanoseconds since epoch to an ISO 8601 timestamp string.
@@ -85,6 +88,10 @@ fn get_int_attribute(attrs: &[KeyValue], key: &str) -> Option<i64> {
 
 /// Convert an OTLP `ExportTraceServiceRequest` into `SpanEvent`s.
 ///
+/// Uses a two-pass design per resource: the first pass builds a span index
+/// for parent lookup (needed to resolve `source.endpoint` from parent
+/// attributes), and the second pass converts I/O spans into events.
+///
 /// Spans without `db.statement` or `http.url` attributes are skipped.
 /// Parent span lookup is done within the same request; if the parent is not
 /// found, `source.endpoint` defaults to `"unknown"`.
@@ -130,36 +137,47 @@ fn convert_span(
 ) -> Option<SpanEvent> {
     let attrs = &span.attributes;
 
-    // Determine event type: SQL if db.statement present, HTTP if http.url present
-    let (event_type, target, operation) =
-        if let Some(statement) = get_str_attribute(attrs, "db.statement") {
-            let op = get_str_attribute(attrs, "db.system")
-                .unwrap_or("sql")
-                .to_string();
-            (EventType::Sql, statement.to_string(), op)
-        } else if let Some(url) = get_str_attribute(attrs, "http.url") {
-            let method = get_str_attribute(attrs, "http.method")
-                .unwrap_or("GET")
-                .to_string();
-            (EventType::HttpOut, url.to_string(), method)
-        } else {
-            // Not an I/O span, skip
-            return None;
-        };
+    // Determine event type: SQL if db.statement/db.query.text present, HTTP if http.url/url.full present.
+    // Supports both legacy (pre-1.21) and stable (1.21+) OTel semantic conventions.
+    let (event_type, target, operation) = if let Some(statement) =
+        get_str_attribute(attrs, "db.statement")
+            .or_else(|| get_str_attribute(attrs, "db.query.text"))
+    {
+        let op = get_str_attribute(attrs, "db.system")
+            .unwrap_or("sql")
+            .to_string();
+        (EventType::Sql, statement.to_string(), op)
+    } else if let Some(url) =
+        get_str_attribute(attrs, "http.url").or_else(|| get_str_attribute(attrs, "url.full"))
+    {
+        let method = get_str_attribute(attrs, "http.method")
+            .or_else(|| get_str_attribute(attrs, "http.request.method"))
+            .unwrap_or("GET")
+            .to_string();
+        (EventType::HttpOut, url.to_string(), method)
+    } else {
+        // Not an I/O span, skip
+        return None;
+    };
 
     // Timestamps and duration
     let start_nanos = span.start_time_unix_nano;
     let end_nanos = span.end_time_unix_nano;
     let timestamp = nanos_to_iso8601(start_nanos);
+    if end_nanos < start_nanos {
+        tracing::trace!("Span has end_time < start_time (clock skew?), duration forced to 0");
+    }
     let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
     // IDs
     let trace_id = bytes_to_hex(&span.trace_id);
     let span_id = bytes_to_hex(&span.span_id);
 
-    // Status code (HTTP only)
+    // Status code (HTTP only, supports both legacy and stable conventions)
     let status_code = if event_type == EventType::HttpOut {
-        get_int_attribute(attrs, "http.status_code").and_then(|c| u16::try_from(c).ok())
+        get_int_attribute(attrs, "http.status_code")
+            .or_else(|| get_int_attribute(attrs, "http.response.status_code"))
+            .and_then(|c| u16::try_from(c).ok())
     } else {
         None
     };
@@ -170,6 +188,7 @@ fn convert_span(
     } else if let Some(parent) = span_index.get(span.parent_span_id.as_slice()) {
         let endpoint = get_str_attribute(&parent.attributes, "http.route")
             .or_else(|| get_str_attribute(&parent.attributes, "http.url"))
+            .or_else(|| get_str_attribute(&parent.attributes, "url.full"))
             .unwrap_or("unknown")
             .to_string();
         let method = get_str_attribute(&parent.attributes, "code.function")
@@ -314,7 +333,7 @@ mod tests {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // test helper builds a full OTLP Span with all required fields
     fn make_http_span(
         trace_id: &[u8],
         span_id: &[u8],
@@ -539,5 +558,63 @@ mod tests {
         let req = make_request("my-service", vec![span]);
         let events = convert_otlp_request(&req);
         assert_eq!(events[0].service, "my-service");
+    }
+
+    #[test]
+    fn span_with_both_db_and_http_prefers_sql() {
+        use opentelemetry_proto::tonic::common::v1::{AnyValue, KeyValue, any_value};
+        let mut span = make_sql_span(
+            &[1; 16],
+            &[2; 8],
+            &[],
+            "SELECT 1",
+            1_000_000_000,
+            1_001_000_000,
+        );
+        // Add http.url attribute too
+        span.attributes.push(KeyValue {
+            key: "http.url".to_string(),
+            value: Some(AnyValue {
+                value: Some(any_value::Value::StringValue("http://svc/api".to_string())),
+            }),
+        });
+        let req = make_request("test", vec![span]);
+        let events = convert_otlp_request(&req);
+        // db.statement takes precedence
+        assert_eq!(events[0].event_type, crate::event::EventType::Sql);
+    }
+
+    #[test]
+    fn clock_skew_duration_is_zero() {
+        // end < start -> saturating_sub gives 0
+        let span = make_sql_span(
+            &[1; 16],
+            &[2; 8],
+            &[],
+            "SELECT 1",
+            2_000_000_000, // start = 2s
+            1_000_000_000, // end = 1s (before start)
+        );
+        let req = make_request("test", vec![span]);
+        let events = convert_otlp_request(&req);
+        assert_eq!(events[0].duration_us, 0);
+    }
+
+    #[test]
+    fn bytes_to_hex_empty() {
+        assert_eq!(bytes_to_hex(&[]), "");
+    }
+
+    #[test]
+    fn bytes_to_hex_all_values() {
+        assert_eq!(bytes_to_hex(&[0x00, 0xff, 0xab]), "00ffab");
+    }
+
+    #[test]
+    fn nanos_to_iso8601_leap_year() {
+        // 2024-02-29T00:00:00.000Z (2024 is a leap year)
+        let nanos: u64 = 1_709_164_800_000_000_000;
+        let iso = nanos_to_iso8601(nanos);
+        assert_eq!(iso, "2024-02-29T00:00:00.000Z");
     }
 }

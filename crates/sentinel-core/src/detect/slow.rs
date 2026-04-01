@@ -51,12 +51,12 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             Severity::Warning
         };
 
-        // Compute timestamps and window
-        let timestamps: Vec<&str> = indices
-            .iter()
-            .map(|&i| trace.spans[i].event.timestamp.as_str())
-            .collect();
-        let (window_ms, min_ts, max_ts) = super::n_plus_one::compute_window_and_bounds(&timestamps);
+        // Compute timestamps and window (no allocation)
+        let (window_ms, min_ts, max_ts) = super::n_plus_one::compute_window_and_bounds_iter(
+            indices
+                .iter()
+                .map(|&i| trace.spans[i].event.timestamp.as_str()),
+        );
 
         // Count distinct params
         let distinct_params: HashSet<&[String]> = indices

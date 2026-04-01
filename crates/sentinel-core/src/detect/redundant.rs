@@ -39,12 +39,12 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
             Severity::Info
         };
 
-        // Compute window and timestamp bounds in a single pass
-        let timestamps: Vec<&str> = indices
-            .iter()
-            .map(|&i| trace.spans[i].event.timestamp.as_str())
-            .collect();
-        let (window_ms, min_ts, max_ts) = super::n_plus_one::compute_window_and_bounds(&timestamps);
+        // Compute window and timestamp bounds in a single pass (no allocation)
+        let (window_ms, min_ts, max_ts) = super::n_plus_one::compute_window_and_bounds_iter(
+            indices
+                .iter()
+                .map(|&i| trace.spans[i].event.timestamp.as_str()),
+        );
 
         findings.push(Finding {
             finding_type: FindingType::from_event_type_redundant(event_type),

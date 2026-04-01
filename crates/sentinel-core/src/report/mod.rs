@@ -36,6 +36,21 @@ pub struct GreenSummary {
     pub avoidable_co2_grams: Option<f64>,
 }
 
+impl GreenSummary {
+    /// Create a `GreenSummary` with only `total_io_ops` set (green scoring disabled).
+    #[must_use]
+    pub fn disabled(total_io_ops: usize) -> Self {
+        Self {
+            total_io_ops,
+            avoidable_io_ops: 0,
+            io_waste_ratio: 0.0,
+            top_offenders: vec![],
+            estimated_co2_grams: None,
+            avoidable_co2_grams: None,
+        }
+    }
+}
+
 /// A top offender endpoint ranked by I/O Intensity Score.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct TopOffender {

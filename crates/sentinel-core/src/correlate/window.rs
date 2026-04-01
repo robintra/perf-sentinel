@@ -94,7 +94,7 @@ impl TraceWindow {
                     last_seen_ms: now_ms,
                 },
             )
-            .map(|(id, buf)| (id, buf.events.into_iter().collect()))
+            .map(|(id, buf)| (id, Vec::from(buf.events)))
     }
 
     /// Evict traces that have not been updated within the TTL.
@@ -122,7 +122,7 @@ impl TraceWindow {
         while let Some((_, buf)) = self.traces.peek_lru() {
             if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
                 if let Some((id, buf)) = self.traces.pop_lru() {
-                    expired.push((id, buf.events.into_iter().collect()));
+                    expired.push((id, Vec::from(buf.events)));
                 }
             } else {
                 break;
@@ -135,7 +135,7 @@ impl TraceWindow {
     pub fn drain_all(&mut self) -> Vec<(String, Vec<NormalizedEvent>)> {
         let mut result = Vec::with_capacity(self.traces.len());
         while let Some((id, buf)) = self.traces.pop_lru() {
-            result.push((id, buf.events.into_iter().collect()));
+            result.push((id, Vec::from(buf.events)));
         }
         result
     }

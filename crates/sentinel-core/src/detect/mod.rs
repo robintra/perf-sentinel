@@ -28,7 +28,7 @@ pub struct Finding {
 }
 
 /// Types of performance anti-patterns.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingType {
     NPlusOneSql,
@@ -40,7 +40,7 @@ pub enum FindingType {
 }
 
 /// Severity levels for findings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Critical,
@@ -274,5 +274,94 @@ mod tests {
         assert_eq!(Severity::Critical.as_str(), "critical");
         assert_eq!(Severity::Warning.as_str(), "warning");
         assert_eq!(Severity::Info.as_str(), "info");
+    }
+
+    #[test]
+    fn finding_type_from_event_type_n_plus_one() {
+        use crate::event::EventType;
+        assert_eq!(
+            FindingType::from_event_type_n_plus_one(&EventType::Sql),
+            FindingType::NPlusOneSql
+        );
+        assert_eq!(
+            FindingType::from_event_type_n_plus_one(&EventType::HttpOut),
+            FindingType::NPlusOneHttp
+        );
+    }
+
+    #[test]
+    fn finding_type_from_event_type_redundant() {
+        use crate::event::EventType;
+        assert_eq!(
+            FindingType::from_event_type_redundant(&EventType::Sql),
+            FindingType::RedundantSql
+        );
+        assert_eq!(
+            FindingType::from_event_type_redundant(&EventType::HttpOut),
+            FindingType::RedundantHttp
+        );
+    }
+
+    #[test]
+    fn finding_type_from_event_type_slow() {
+        use crate::event::EventType;
+        assert_eq!(
+            FindingType::from_event_type_slow(&EventType::Sql),
+            FindingType::SlowSql
+        );
+        assert_eq!(
+            FindingType::from_event_type_slow(&EventType::HttpOut),
+            FindingType::SlowHttp
+        );
+    }
+
+    #[test]
+    fn detect_all_three_types_on_one_trace() {
+        use crate::test_helpers::{make_sql_event, make_sql_event_with_duration, make_trace};
+        let mut events = Vec::new();
+        // 5 different params -> N+1
+        for i in 1..=5 {
+            events.push(make_sql_event(
+                "trace-1",
+                &format!("span-n{i}"),
+                &format!("SELECT * FROM player WHERE game_id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            ));
+        }
+        // 3 identical queries -> redundant
+        for i in 1..=3 {
+            events.push(make_sql_event(
+                "trace-1",
+                &format!("span-r{i}"),
+                "SELECT * FROM config WHERE key = 'timeout'",
+                &format!("2025-07-10T14:32:02.{:03}Z", i * 30),
+            ));
+        }
+        // 3 slow queries -> slow
+        for i in 1..=3 {
+            events.push(make_sql_event_with_duration(
+                "trace-1",
+                &format!("span-s{i}"),
+                &format!("SELECT * FROM big_table WHERE id = {}", i + 100),
+                &format!("2025-07-10T14:32:03.{:03}Z", i * 30),
+                600_000,
+            ));
+        }
+        let trace = make_trace(events);
+        let findings = detect(&[trace], &default_config());
+
+        let has_n1 = findings
+            .iter()
+            .any(|f| f.finding_type == FindingType::NPlusOneSql);
+        let has_redundant = findings
+            .iter()
+            .any(|f| f.finding_type == FindingType::RedundantSql);
+        let has_slow = findings
+            .iter()
+            .any(|f| f.finding_type == FindingType::SlowSql);
+
+        assert!(has_n1, "should detect N+1");
+        assert!(has_redundant, "should detect redundant");
+        assert!(has_slow, "should detect slow");
     }
 }

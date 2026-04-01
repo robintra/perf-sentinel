@@ -6,7 +6,11 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 license = "AGPL-3.0-only"
-rust-version = "1.94.0"
+rust-version = "1.94.1"
+repository = "https://github.com/robintra/perf-sentinel"
+homepage = "https://github.com/robintra/perf-sentinel"
+keywords = ["performance", "n-plus-one", "greenops", "observability", "opentelemetry"]
+categories = ["development-tools::profiling", "command-line-utilities"]
 
 [profile.release]
 codegen-units = 1

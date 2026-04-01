@@ -38,7 +38,7 @@ pub enum DaemonError {
 /// # Errors
 ///
 /// Returns an error if the configured addresses are invalid or a listener fails to bind.
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines)] // daemon orchestration: server setup + event loop must stay in one function
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
 
@@ -72,6 +72,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         tracing::info!("OTLP gRPC listening on {grpc_addr}");
         if let Err(e) = tonic::transport::Server::builder()
+            .timeout(Duration::from_secs(60))
             .add_service(
                 TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
             )
@@ -85,7 +86,14 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // Spawn OTLP HTTP server with metrics endpoint merged
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
     let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
-    let http_router = otlp_router.merge(metrics_router);
+    let http_router = otlp_router.merge(metrics_router).layer(
+        tower::ServiceBuilder::new()
+            .layer(axum::error_handling::HandleErrorLayer::new(|_| async {
+                tracing::debug!("HTTP request timed out");
+                axum::http::StatusCode::REQUEST_TIMEOUT
+            }))
+            .layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60))),
+    );
     tokio::spawn(async move {
         tracing::info!("OTLP HTTP listening on {http_addr}");
         if let Err(e) = axum::serve(http_listener, http_router).await {
@@ -115,6 +123,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         slow_min_occurrences: config.slow_query_min_occurrences,
     };
     let green_region = config.green_region.clone();
+    let green_enabled = config.green_enabled;
+    let sampling_rate = config.sampling_rate;
     let evict_ms = config.trace_ttl_ms / 2;
 
     // Main event loop
@@ -123,6 +133,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     loop {
         tokio::select! {
             Some(events) = rx.recv() => {
+                let events = apply_sampling(events, sampling_rate);
                 let event_count = events.len();
                 // Normalize OUTSIDE the lock to minimize lock hold time.
                 let normalized: Vec<_> = events
@@ -146,6 +157,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     process_traces(
                         lru_evicted,
                         &detect_config,
+                        green_enabled,
                         green_region.as_deref(),
                         &metrics,
                     );
@@ -162,6 +174,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 process_traces(
                     expired,
                     &detect_config,
+                    green_enabled,
                     green_region.as_deref(),
                     &metrics,
                 );
@@ -175,6 +188,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 process_traces(
                     remaining,
                     &detect_config,
+                    green_enabled,
                     green_region.as_deref(),
                     &metrics,
                 );
@@ -190,6 +204,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 fn process_traces(
     traces: Vec<(String, Vec<crate::normalize::NormalizedEvent>)>,
     detect_config: &DetectConfig,
+    green_enabled: bool,
     green_region: Option<&str>,
     metrics: &MetricsState,
 ) {
@@ -204,7 +219,15 @@ fn process_traces(
         .collect();
 
     let findings = detect::detect(&trace_structs, detect_config);
-    let (findings, green_summary) = score::score_green(&trace_structs, findings, green_region);
+    let (findings, green_summary) = if green_enabled {
+        score::score_green(&trace_structs, findings, green_region)
+    } else {
+        let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
+        (
+            findings,
+            crate::report::GreenSummary::disabled(total_io_ops),
+        )
+    };
 
     // Update Prometheus metrics
     metrics.traces_analyzed_total.inc_by(trace_count as f64);
@@ -214,24 +237,69 @@ fn process_traces(
     metrics
         .avoidable_io_ops
         .inc_by(green_summary.avoidable_io_ops as f64);
+    // Note: io_waste_ratio is a cumulative all-time ratio, not windowed.
+    // Users can compute a windowed rate from the raw counters using Prometheus rate().
     let cumulative_total = metrics.total_io_ops.get();
     if cumulative_total > 0.0 {
         metrics
             .io_waste_ratio
             .set(metrics.avoidable_io_ops.get() / cumulative_total);
     }
-    for finding in &findings {
-        metrics
-            .findings_total
-            .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
-            .inc();
-    }
-
-    for finding in &findings {
-        if let Ok(json) = serde_json::to_string(finding) {
-            println!("{json}");
+    {
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut lock = stdout.lock();
+        for finding in &findings {
+            metrics
+                .findings_total
+                .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+                .inc();
+            if serde_json::to_writer(&mut lock, finding).is_ok() {
+                let _ = writeln!(lock);
+            }
         }
     }
+}
+
+/// Apply trace-level sampling: cache decisions per `trace_id` to avoid
+/// redundant hashing for events sharing a trace. Only clones `trace_id`
+/// for the first event of each trace (cache miss), not on hits.
+fn apply_sampling(events: Vec<SpanEvent>, rate: f64) -> Vec<SpanEvent> {
+    if rate >= 1.0 {
+        return events;
+    }
+    let mut cache = std::collections::HashMap::<String, bool>::new();
+    events
+        .into_iter()
+        .filter(|e| {
+            if let Some(&decision) = cache.get(e.trace_id.as_str()) {
+                return decision;
+            }
+            let decision = should_sample(&e.trace_id, rate);
+            cache.insert(e.trace_id.clone(), decision);
+            decision
+        })
+        .collect()
+}
+
+/// Deterministic per-trace sampling using a simple hash.
+///
+/// Returns `true` if the trace should be processed, `false` if dropped.
+/// Uses a fast hash of the `trace_id` to produce a value in `[0.0, 1.0)`.
+fn should_sample(trace_id: &str, rate: f64) -> bool {
+    if rate >= 1.0 {
+        return true;
+    }
+    if rate <= 0.0 {
+        return false;
+    }
+    // FNV-1a inspired hash for speed
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in trace_id.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    (hash as f64 / u64::MAX as f64) < rate
 }
 
 /// Get current time in milliseconds since epoch.
@@ -260,17 +328,34 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
             return;
         }
     };
+
+    // Restrict socket permissions to owner-only (prevent other local users from injecting events)
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::warn!("Failed to set socket permissions: {e}");
+        }
+    }
+
     tracing::info!("JSON socket listening on {path}");
+
+    // Limit concurrent connections to prevent local DoS via connection flooding
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(128));
 
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
                 let tx = tx.clone();
+                let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                    break; // semaphore closed
+                };
                 tokio::spawn(async move {
                     use tokio::io::AsyncReadExt;
                     // Bound total bytes per connection to prevent OOM from
                     // a single huge line without a newline.
-                    let limited = stream.take(max_payload_size as u64 * 16);
+                    // Allows up to 16 max-payload-sized lines per connection.
+                    const CONNECTION_LIMIT_FACTOR: u64 = 16;
+                    let limited = stream.take(max_payload_size as u64 * CONNECTION_LIMIT_FACTOR);
                     let reader = tokio::io::BufReader::new(limited);
                     let mut lines = reader.lines();
                     while let Ok(Some(line)) = lines.next_line().await {
@@ -279,15 +364,20 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
                             continue;
                         }
                         let ingest = crate::ingest::json::JsonIngest::new(max_payload_size);
-                        if let Ok(events) =
-                            crate::ingest::IngestSource::ingest(&ingest, line.as_bytes())
-                            && !events.is_empty()
-                            && tx.send(events).await.is_err()
-                        {
-                            tracing::warn!("JSON socket: event channel closed");
-                            break;
+                        match crate::ingest::IngestSource::ingest(&ingest, line.as_bytes()) {
+                            Ok(events) if !events.is_empty() => {
+                                if tx.send(events).await.is_err() {
+                                    tracing::warn!("JSON socket: event channel closed");
+                                    break;
+                                }
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::debug!("JSON socket: failed to parse line: {e}");
+                            }
                         }
                     }
+                    drop(permit);
                 });
             }
             Err(e) => {
@@ -334,7 +424,7 @@ mod tests {
     #[test]
     fn process_traces_empty_does_nothing() {
         let metrics = MetricsState::new();
-        process_traces(vec![], &default_detect_config(), None, &metrics);
+        process_traces(vec![], &default_detect_config(), true, None, &metrics);
     }
 
     #[test]
@@ -347,6 +437,7 @@ mod tests {
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
+            true,
             None,
             &metrics,
         );
@@ -363,6 +454,7 @@ mod tests {
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
+            true,
             None,
             &metrics,
         );
@@ -423,6 +515,7 @@ mod tests {
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
+            true,
             None,
             &metrics,
         );
@@ -430,5 +523,57 @@ mod tests {
         let output = metrics.render();
         assert!(output.contains("perf_sentinel_traces_analyzed_total"));
         assert!(output.contains("perf_sentinel_findings_total"));
+    }
+
+    #[test]
+    fn process_traces_green_disabled() {
+        let events: Vec<_> = (1..=6)
+            .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
+            .collect();
+        let metrics = MetricsState::new();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            &default_detect_config(),
+            false, // green_enabled = false
+            None,
+            &metrics,
+        );
+        // avoidable_io_ops counter should stay at 0 when green is disabled
+        assert!((metrics.avoidable_io_ops.get() - 0.0).abs() < f64::EPSILON);
+        // but total_io_ops should still be counted
+        assert!(metrics.total_io_ops.get() > 0.0);
+    }
+
+    #[test]
+    fn should_sample_deterministic() {
+        // Same trace_id always produces the same result
+        let r1 = should_sample("trace-abc-123", 0.5);
+        let r2 = should_sample("trace-abc-123", 0.5);
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn should_sample_rate_zero_drops_all() {
+        assert!(!should_sample("any-trace", 0.0));
+        assert!(!should_sample("another-trace", 0.0));
+    }
+
+    #[test]
+    fn should_sample_rate_one_keeps_all() {
+        assert!(should_sample("any-trace", 1.0));
+        assert!(should_sample("another-trace", 1.0));
+    }
+
+    #[test]
+    fn should_sample_rate_half_splits() {
+        // With enough distinct trace IDs, roughly half should be sampled
+        let sampled = (0..1000)
+            .filter(|i| should_sample(&format!("trace-{i}"), 0.5))
+            .count();
+        // Allow wide margin: between 30% and 70%
+        assert!(
+            (300..=700).contains(&sampled),
+            "expected ~500 sampled, got {sampled}"
+        );
     }
 }

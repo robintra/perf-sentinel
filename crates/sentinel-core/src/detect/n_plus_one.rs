@@ -47,12 +47,12 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             continue;
         }
 
-        // Compute window and timestamp bounds in a single pass
-        let timestamps: Vec<&str> = indices
-            .iter()
-            .map(|&i| trace.spans[i].event.timestamp.as_str())
-            .collect();
-        let (window_ms, min_ts, max_ts) = compute_window_and_bounds(&timestamps);
+        // Compute window and timestamp bounds in a single pass (no allocation)
+        let (window_ms, min_ts, max_ts) = compute_window_and_bounds_iter(
+            indices
+                .iter()
+                .map(|&i| trace.spans[i].event.timestamp.as_str()),
+        );
 
         // Filter out groups that span beyond the window limit
         if window_ms > window_limit {
@@ -100,17 +100,28 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
     findings
 }
 
+/// Slice-based variant used in tests.
+#[cfg(test)]
+pub(crate) fn compute_window_and_bounds<'a>(timestamps: &[&'a str]) -> (u64, &'a str, &'a str) {
+    compute_window_and_bounds_iter(timestamps.iter().copied())
+}
+
 /// Compute the time window in milliseconds and the (min, max) timestamps in a single pass.
 ///
 /// Returns `(window_ms, min_timestamp, max_timestamp)`.
 /// ISO 8601 timestamps sort correctly lexicographically.
-pub(crate) fn compute_window_and_bounds<'a>(timestamps: &[&'a str]) -> (u64, &'a str, &'a str) {
-    if timestamps.is_empty() {
+/// Uses an iterator to avoid intermediate Vec allocation.
+pub(crate) fn compute_window_and_bounds_iter<'a>(
+    mut iter: impl Iterator<Item = &'a str>,
+) -> (u64, &'a str, &'a str) {
+    let Some(first) = iter.next() else {
         return (0, "", "");
-    }
-    let mut min_ts = timestamps[0];
-    let mut max_ts = timestamps[0];
-    for &ts in &timestamps[1..] {
+    };
+    let mut min_ts = first;
+    let mut max_ts = first;
+    let mut has_second = false;
+    for ts in iter {
+        has_second = true;
         if ts < min_ts {
             min_ts = ts;
         }
@@ -118,7 +129,7 @@ pub(crate) fn compute_window_and_bounds<'a>(timestamps: &[&'a str]) -> (u64, &'a
             max_ts = ts;
         }
     }
-    if timestamps.len() < 2 {
+    if !has_second {
         return (0, min_ts, max_ts);
     }
     let window_ms = match (parse_timestamp_ms(min_ts), parse_timestamp_ms(max_ts)) {
@@ -143,19 +154,15 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
     // Strip trailing 'Z' or timezone
     let time_part = time_part.trim_end_matches('Z');
 
-    let parts: Vec<&str> = time_part.split(':').collect();
-    if parts.len() < 3 {
-        return None;
-    }
-
-    let hours: u64 = parts[0].parse().ok()?;
-    let minutes: u64 = parts[1].parse().ok()?;
+    let mut colon_parts = time_part.split(':');
+    let hours: u64 = colon_parts.next()?.parse().ok()?;
+    let minutes: u64 = colon_parts.next()?.parse().ok()?;
+    let sec_str = colon_parts.next()?;
 
     // Seconds may have fractional part
-    let sec_parts: Vec<&str> = parts[2].split('.').collect();
-    let seconds: u64 = sec_parts[0].parse().ok()?;
-    let millis: u64 = if sec_parts.len() > 1 {
-        let frac = sec_parts[1];
+    let mut dot_parts = sec_str.split('.');
+    let seconds: u64 = dot_parts.next()?.parse().ok()?;
+    let millis: u64 = if let Some(frac) = dot_parts.next() {
         match frac.len() {
             0 => 0,
             1 => frac.parse::<u64>().unwrap_or(0) * 100,

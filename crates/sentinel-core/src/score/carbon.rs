@@ -97,26 +97,44 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("fi", 8.0, Provider::Generic),
 ];
 
+/// Pre-built map for O(1) region lookup (keys are lowercase).
+static REGION_MAP: std::sync::LazyLock<std::collections::HashMap<&'static str, (f64, Provider)>> =
+    std::sync::LazyLock::new(|| {
+        CARBON_TABLE
+            .iter()
+            .map(|&(key, intensity, provider)| (key, (intensity, provider)))
+            .collect()
+    });
+
 /// Look up carbon intensity for a region string.
 ///
 /// Returns `(carbon_intensity_gco2_per_kwh, pue)` if the region is found.
-/// Matching is case-insensitive.
+/// Matching is case-insensitive (input is lowercased before lookup).
 #[must_use]
 pub fn lookup_region(region: &str) -> Option<(f64, f64)> {
-    CARBON_TABLE
-        .iter()
-        .find(|(key, _, _)| key.eq_ignore_ascii_case(region))
-        .map(|(_, intensity, provider)| (*intensity, provider.pue()))
+    let lower = region.to_ascii_lowercase();
+    lookup_region_lower(&lower)
 }
 
-/// Convert I/O operations to estimated gCO₂eq for a given region.
+/// Look up carbon intensity for a **pre-lowercased** region string.
+///
+/// Use this when the caller has already lowercased the region to avoid
+/// a redundant allocation.
+#[must_use]
+fn lookup_region_lower(region: &str) -> Option<(f64, f64)> {
+    REGION_MAP
+        .get(region)
+        .map(|(intensity, provider)| (*intensity, provider.pue()))
+}
+
+/// Convert I/O operations to estimated gCO₂eq for a **pre-lowercased** region.
 ///
 /// Formula: `gCO₂eq = io_ops × ENERGY_PER_IO_OP_KWH × carbon_intensity × PUE`
 ///
 /// Returns `None` if the region is not recognized.
 #[must_use]
 pub fn io_ops_to_co2_grams(io_ops: usize, region: &str) -> Option<f64> {
-    let (intensity, pue) = lookup_region(region)?;
+    let (intensity, pue) = lookup_region_lower(region)?;
     Some(io_ops as f64 * ENERGY_PER_IO_OP_KWH * intensity * pue)
 }
 

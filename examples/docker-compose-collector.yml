@@ -1,0 +1,53 @@
+# Central collector topology
+#
+# Applications send OTLP traces to the OpenTelemetry Collector,
+# which forwards them to perf-sentinel for analysis.
+#
+#   app-1 --\
+#   app-2 ---+--> otel-collector --> perf-sentinel (watch)
+#   app-3 --/
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC (apps send traces here)
+      - "127.0.0.1:4318:4318"   # OTLP HTTP (apps send traces here)
+    volumes:
+      - ./otel-collector-config.yml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - perf-sentinel
+
+  perf-sentinel:
+    image: ghcr.io/robintra/perf-sentinel:latest
+    # Equivalent to: perf-sentinel watch
+    ports:
+      - "127.0.0.1:14318:4318"  # Prometheus /metrics + OTLP HTTP from collector
+      - "127.0.0.1:14317:4317"  # OTLP gRPC from collector
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+# Create otel-collector-config.yml alongside this file:
+#
+# receivers:
+#   otlp:
+#     protocols:
+#       grpc:
+#         endpoint: 0.0.0.0:4317
+#       http:
+#         endpoint: 0.0.0.0:4318
+#
+# exporters:
+#   otlp/perf-sentinel:
+#     endpoint: perf-sentinel:4317
+#     tls:
+#       insecure: true
+#
+# service:
+#   pipelines:
+#     traces:
+#       receivers: [otlp]
+#       exporters: [otlp/perf-sentinel]

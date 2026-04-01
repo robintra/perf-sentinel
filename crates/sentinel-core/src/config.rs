@@ -106,7 +106,7 @@ struct RawConfig {
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-#[allow(clippy::struct_field_names)]
+#[allow(clippy::struct_field_names)] // fields like `n_plus_one_sql_critical_max` repeat the struct context but match the TOML keys
 struct ThresholdsSection {
     n_plus_one_sql_critical_max: Option<u32>,
     n_plus_one_http_warning_max: Option<u32>,
@@ -233,7 +233,8 @@ impl Config {
     ///
     /// # Errors
     ///
-    /// Returns a description of the first invalid value found.
+    /// Returns a `String` description of the first invalid value found.
+    /// The caller (`load_from_str`) wraps this in `ConfigError::Validation`.
     pub fn validate(&self) -> Result<(), String> {
         if self.max_payload_size < 1024 {
             return Err(format!(
@@ -241,11 +242,29 @@ impl Config {
                 self.max_payload_size
             ));
         }
+        if self.max_payload_size > 100 * 1024 * 1024 {
+            return Err(format!(
+                "max_payload_size must be <= 104857600 (100 MB), got {}",
+                self.max_payload_size
+            ));
+        }
         if self.max_active_traces == 0 {
             return Err("max_active_traces must be >= 1".to_string());
         }
+        if self.max_active_traces > 1_000_000 {
+            return Err(format!(
+                "max_active_traces must be <= 1000000, got {}",
+                self.max_active_traces
+            ));
+        }
         if self.max_events_per_trace == 0 {
             return Err("max_events_per_trace must be >= 1".to_string());
+        }
+        if self.max_events_per_trace > 100_000 {
+            return Err(format!(
+                "max_events_per_trace must be <= 100000, got {}",
+                self.max_events_per_trace
+            ));
         }
         if self.n_plus_one_threshold == 0 {
             return Err("n_plus_one_threshold must be >= 1".to_string());
@@ -279,7 +298,9 @@ impl Config {
         }
         if self.listen_addr != "127.0.0.1" && self.listen_addr != "::1" {
             tracing::warn!(
-                "Daemon configured to listen on non-loopback address: {}",
+                "Daemon configured to listen on non-loopback address: {}. \
+                 Endpoints have no authentication — use a reverse proxy or \
+                 network policy for security.",
                 self.listen_addr
             );
         }
@@ -518,5 +539,65 @@ region = "eu-west-3"
     fn rejects_zero_slow_query_min_occurrences() {
         let result = load_from_str("[detection]\nslow_query_min_occurrences = 0");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_max_payload_size_over_100mb() {
+        let result = load_from_str("[daemon]\nmax_payload_size = 104857601");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max_payload_size"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_max_payload_size_at_100mb() {
+        let result = load_from_str("[daemon]\nmax_payload_size = 104857600");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_max_active_traces_over_1m() {
+        let result = load_from_str("[daemon]\nmax_active_traces = 1000001");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max_active_traces"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_max_active_traces_at_1m() {
+        let result = load_from_str("[daemon]\nmax_active_traces = 1000000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_max_events_per_trace_over_100k() {
+        let result = load_from_str("[daemon]\nmax_events_per_trace = 100001");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max_events_per_trace"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_max_events_per_trace_at_100k() {
+        let result = load_from_str("[daemon]\nmax_events_per_trace = 100000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn rejects_trace_ttl_below_100() {
+        let result = load_from_str("[daemon]\ntrace_ttl_ms = 50");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_zero_window_duration() {
+        let result = load_from_str("[detection]\nwindow_duration_ms = 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn green_disabled_parses() {
+        let config = load_from_str("[green]\nenabled = false").unwrap();
+        assert!(!config.green_enabled);
     }
 }

@@ -45,56 +45,29 @@ Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](ht
 
 For each detected anti-pattern, perf-sentinel reports:
 
-- **Type:** N+1 SQL, N+1 HTTP, or redundant query
+- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, or slow HTTP
 - **Normalized template:** the query or URL with parameters replaced by placeholders (`?`, `{id}`)
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
-- **Suggestion:** e.g. "batch this query" or "use a batch endpoint"
-- **GreenOps impact:** estimated avoidable I/O ops and I/O Intensity Score
+- **Suggestion:** e.g. "batch this query", "use a batch endpoint", "consider adding an index"
+- **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, and optional gCO2eq conversion (when a cloud region is configured)
 
-```
-$ perf-sentinel demo
+![demo](docs/img/demo.gif)
 
-=== perf-sentinel demo ===
-Analyzed 14 events across 2 traces in 2ms
+<details>
+<summary>Still frames</summary>
 
-Found 2 issue(s):
+**Configuration** (`.perf-sentinel.toml`):
 
-  [WARNING] #1 N+1 HTTP
-    Trace:    trace-demo-game
-    Service:  game
-    Endpoint: POST /api/game/42/start
-    Template: GET /api/account/{id}
-    Hits:     6 occurrences, 6 distinct params, 250ms window
-    Window:   2025-07-10T14:32:01.300Z → 2025-07-10T14:32:01.550Z
-    Suggestion: Use batch endpoint with ?ids=... to batch 6 calls into one
-    Extra I/O: 5 avoidable ops
-    IIS:      12.0
+![config](docs/img/demo-config.png)
 
-  [WARNING] #2 N+1 SQL
-    Trace:    trace-demo-game
-    Service:  game
-    Endpoint: POST /api/game/42/start
-    Template: SELECT * FROM player WHERE game_id = ?
-    Hits:     6 occurrences, 6 distinct params, 250ms window
-    Window:   2025-07-10T14:32:01.000Z → 2025-07-10T14:32:01.250Z
-    Suggestion: Use WHERE ... IN (?) to batch 6 queries into one
-    Extra I/O: 5 avoidable ops
-    IIS:      12.0
+**Analysis report:**
 
---- GreenOps Summary ---
-  Total I/O ops:     14
-  Avoidable I/O ops: 10
-  I/O waste ratio:   71.4%
+![report](docs/img/demo-report.png)
 
-  Top offenders:
-    - POST /api/game/42/start: IIS 12.0, 12.0 I/O ops/req (service: game)
-    - GET /api/users/1: IIS 2.0, 2.0 I/O ops/req (service: user-svc)
+</details>
 
-Quality gate: FAILED
-```
-
-In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON report:
+In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON report:
 
 <details>
 <summary>Example JSON report</summary>
@@ -156,16 +129,58 @@ In batch/CI mode (`perf-sentinel analyze`), the output is a structured JSON repo
 
 ## Getting Started
 
-> Coming soon.
+### Install from crates.io
+
+```bash
+cargo install sentinel-cli
+```
+
+### Download a prebuilt binary
+
+Binaries for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page.
+
+```bash
+# Example: Linux amd64
+curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
+chmod +x perf-sentinel-linux-amd64
+sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+```
+
+### Run with Docker
+
+```bash
+docker run --rm -p 4317:4317 -p 4318:4318 ghcr.io/robintra/perf-sentinel:latest
+```
+
+### Quick demo
+
+```bash
+perf-sentinel demo
+```
+
+### Batch analysis (CI)
+
+```bash
+perf-sentinel analyze --input traces.json --ci
+```
+
+### Streaming mode (daemon)
+
+```bash
+perf-sentinel watch
+```
+
+See [docs/INTEGRATION.md](docs/INTEGRATION.md) for language-specific OTLP setup (Java, .NET, Rust), [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full configuration reference, and [docs/design/](docs/design/00-INDEX.md) for in-depth design documentation explaining every architectural decision and micro-optimization.
 
 ## Roadmap
 
-| Phase | Description                                          | Status        |
-|-------|------------------------------------------------------|---------------|
-| **0** | Scaffolding: compilable workspace, CI, stubs         | ✅ Done        |
-| **1** | N+1 SQL + HTTP detection, normalization, correlation | ✅ Done        |
-| **2** | GreenOps scoring, OTLP ingestion, CI quality gate    | ✅ Done        |
-| **3** | Polish, benchmarks, v0.1.0 release                   | ⏳ In progress |
+| Phase | Description                                                                                                                         | Status        |
+|-------|-------------------------------------------------------------------------------------------------------------------------------------|---------------|
+| **0** | Scaffolding: compilable workspace, CI, stubs                                                                                        | ✅ Done        |
+| **1** | N+1 SQL + HTTP detection, normalization, correlation                                                                                | ✅ Done        |
+| **2** | GreenOps scoring, OTLP ingestion, CI quality gate                                                                                   | ✅ Done        |
+| **3** | Polish, benchmarks, v0.1.0 release                                                                                                  | ✅ Done        |
+| **4** | `explain` trace viewer, SARIF export, `pg_stat_statements` ingestion, Jaeger/Zipkin import, Grafana Exemplars, TUI interactive mode | ⏳ In progress |
 
 ## License
 

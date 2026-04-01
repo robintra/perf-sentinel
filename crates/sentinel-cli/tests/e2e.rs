@@ -56,7 +56,7 @@ fn cli_analyze_reads_from_file() {
     fs::write(&file_path, b"[]").expect("failed to write fixture");
 
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", file_path.to_str().unwrap()])
+        .args(["analyze", "--input", file_path.to_str().unwrap(), "--ci"])
         .output()
         .expect("failed to execute perf-sentinel");
 
@@ -88,8 +88,8 @@ fn cli_analyze_reads_fixture_with_findings() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("n_plus_one_sql"),
-        "expected N+1 SQL finding in output"
+        stdout.contains("N+1 SQL"),
+        "expected N+1 SQL finding in colored output"
     );
 }
 
@@ -264,18 +264,14 @@ fn cli_analyze_detects_redundant_and_critical() {
     fs::write(&file_path, json).expect("failed to write fixture");
 
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", file_path.to_str().unwrap()])
+        .args(["analyze", "--input", file_path.to_str().unwrap(), "--ci"])
         .env("RUST_LOG", "error")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .expect("failed to execute perf-sentinel");
 
-    assert!(
-        output.status.success(),
-        "analyze should succeed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // With --ci, the process may exit 1 if quality gate fails, but JSON is still on stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
 
     // Parse the JSON output and verify finding types and severities
@@ -361,7 +357,7 @@ fn cli_analyze_ci_fails_on_violations() {
 
 #[test]
 fn cli_analyze_without_ci_always_succeeds() {
-    // Same fixture but without --ci flag: exit code should be 0
+    // Same fixture but without --ci flag: exit code should be 0 (colored output, no gate check)
     let fixture_path = format!(
         "{}/../../tests/fixtures/n_plus_one_sql.json",
         env!("CARGO_MANIFEST_DIR")
@@ -493,7 +489,7 @@ fn cli_analyze_slow_fixture_json_output() {
     );
 
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", &fixture_path])
+        .args(["analyze", "--input", &fixture_path, "--ci"])
         .env("RUST_LOG", "error")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -542,6 +538,7 @@ fn cli_analyze_with_config_region_shows_co2() {
             &fixture_path,
             "--config",
             config_path.to_str().unwrap(),
+            "--ci",
         ])
         .env("RUST_LOG", "error")
         .stdout(Stdio::piped())
@@ -549,11 +546,7 @@ fn cli_analyze_with_config_region_shows_co2() {
         .output()
         .expect("failed to execute perf-sentinel");
 
-    assert!(
-        output.status.success(),
-        "analyze with config should succeed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    // With --ci, the process may exit 1 if quality gate fails, but JSON is still on stdout
     let stdout = String::from_utf8_lossy(&output.stdout);
     let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
 

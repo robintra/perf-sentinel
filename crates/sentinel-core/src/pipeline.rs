@@ -27,8 +27,25 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
     };
     let findings = detect::detect(&traces, &detect_config);
 
-    let (findings, green_summary) =
-        score::score_green(&traces, findings, config.green_region.as_deref());
+    let (mut findings, green_summary) = if config.green_enabled {
+        score::score_green(&traces, findings, config.green_region.as_deref())
+    } else {
+        let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
+        (
+            findings,
+            crate::report::GreenSummary::disabled(total_io_ops),
+        )
+    };
+
+    // Sort findings for deterministic output (HashMap iteration order is random)
+    findings.sort_by(|a, b| {
+        a.finding_type
+            .cmp(&b.finding_type)
+            .then_with(|| a.severity.cmp(&b.severity))
+            .then_with(|| a.trace_id.cmp(&b.trace_id))
+            .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
+            .then_with(|| a.pattern.template.cmp(&b.pattern.template))
+    });
 
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
@@ -226,5 +243,53 @@ mod tests {
         let report = analyze(vec![], &config);
         assert!(report.green_summary.estimated_co2_grams.is_none());
         assert!(report.green_summary.avoidable_co2_grams.is_none());
+    }
+
+    #[test]
+    fn green_disabled_skips_scoring() {
+        use crate::test_helpers::make_sql_event;
+        // 6 events -> N+1 finding, but green scoring disabled
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+
+        let config = Config {
+            green_enabled: false,
+            ..Config::default()
+        };
+        let report = analyze(events, &config);
+
+        // Findings are still detected
+        assert!(!report.findings.is_empty());
+        // But green scoring is bypassed
+        assert_eq!(report.green_summary.avoidable_io_ops, 0);
+        assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
+        assert!(report.green_summary.top_offenders.is_empty());
+        assert!(report.green_summary.estimated_co2_grams.is_none());
+        assert!(report.green_summary.avoidable_co2_grams.is_none());
+        // total_io_ops still counted
+        assert_eq!(report.green_summary.total_io_ops, 6);
+        // green_impact on findings should be None
+        for f in &report.findings {
+            assert!(f.green_impact.is_none());
+        }
+    }
+
+    #[test]
+    fn green_disabled_with_region_still_no_co2() {
+        let config = Config {
+            green_enabled: false,
+            green_region: Some("eu-west-3".to_string()),
+            ..Config::default()
+        };
+        let report = analyze(vec![], &config);
+        assert!(report.green_summary.estimated_co2_grams.is_none());
     }
 }

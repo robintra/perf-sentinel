@@ -1,0 +1,30 @@
+# Sidecar topology
+#
+# perf-sentinel runs alongside a single service, sharing its network
+# namespace. The application sends OTLP traces to localhost.
+#
+#   +-----------------------------------+
+#   | pod / compose service group       |
+#   |                                   |
+#   |  app --> localhost:4317/4318       |
+#   |          perf-sentinel (watch)    |
+#   +-----------------------------------+
+
+services:
+  app:
+    image: your-app:latest
+    environment:
+      # Point OpenTelemetry SDK to localhost (perf-sentinel sidecar)
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:4318"
+      OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
+
+  perf-sentinel:
+    image: ghcr.io/robintra/perf-sentinel:latest
+    # Share the app's network namespace so localhost works
+    network_mode: "service:app"
+    # Prometheus /metrics available at app's IP on port 4318
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

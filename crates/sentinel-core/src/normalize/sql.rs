@@ -25,6 +25,8 @@ enum State {
 }
 
 /// Normalize a SQL query by replacing literal values with `?` placeholders.
+#[must_use]
+#[allow(clippy::too_many_lines)] // single-pass state machine with 3 states; splitting would hurt readability
 pub fn normalize_sql(query: &str) -> SqlNormalized {
     let bytes = query.as_bytes();
     let len = bytes.len();
@@ -35,23 +37,41 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
     let mut state = State::Normal;
     let mut current_value = String::new();
     let mut seen_dot = false;
+    let mut has_in_list = false;
+    // Track start of normal runs to batch-push into template
+    let mut normal_start = 0;
 
     while i < len {
         match state {
             State::Normal => {
                 let b = bytes[i];
                 if b == b'\'' {
-                    // Start of string literal
+                    // Flush normal run before entering string literal
+                    if i > normal_start {
+                        template.push_str(&query[normal_start..i]);
+                    }
                     state = State::InString;
                     current_value.clear();
                 } else if b.is_ascii_digit() && !is_identifier_byte_before(i, bytes) {
-                    // Start of numeric literal
+                    // Flush normal run before entering number
+                    if i > normal_start {
+                        template.push_str(&query[normal_start..i]);
+                    }
                     state = State::InNumber;
                     seen_dot = false;
                     current_value.clear();
                     current_value.push(b as char);
                 } else {
-                    template.push(b as char);
+                    // Track IN keyword to skip regex post-pass when absent
+                    if !has_in_list
+                        && (b == b'I' || b == b'i')
+                        && i + 1 < len
+                        && (bytes[i + 1] == b'N' || bytes[i + 1] == b'n')
+                        && (i == 0 || bytes[i - 1].is_ascii_whitespace())
+                        && (i + 2 >= len || !bytes[i + 2].is_ascii_alphanumeric())
+                    {
+                        has_in_list = true;
+                    }
                 }
                 i += 1;
             }
@@ -68,6 +88,7 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
                         template.push('?');
                         state = State::Normal;
                         i += 1;
+                        normal_start = i;
                     }
                 } else {
                     current_value.push(b as char);
@@ -88,6 +109,7 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
                     params.push(std::mem::take(&mut current_value));
                     template.push('?');
                     state = State::Normal;
+                    normal_start = i;
                 }
             }
         }
@@ -104,13 +126,22 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
             params.push(current_value);
             template.push('?');
         }
-        State::Normal => {}
+        State::Normal => {
+            // Flush remaining normal run
+            if len > normal_start {
+                template.push_str(&query[normal_start..len]);
+            }
+        }
     }
 
-    // Post-pass: collapse IN (?, ?, ?) -> IN (?)
-    let template = match IN_LIST_RE.replace_all(&template, "IN (?)") {
-        Cow::Borrowed(_) => template,
-        Cow::Owned(s) => s,
+    // Post-pass: collapse IN (?, ?, ?) -> IN (?) — skip when no IN keyword was seen
+    let template = if has_in_list {
+        match IN_LIST_RE.replace_all(&template, "IN (?)") {
+            Cow::Borrowed(_) => template,
+            Cow::Owned(s) => s,
+        }
+    } else {
+        template
     };
 
     SqlNormalized { template, params }
