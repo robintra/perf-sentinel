@@ -442,7 +442,12 @@ mod tests {
     fn process_traces_with_n_plus_one() {
         // 6 events with different params -> N+1 finding
         let events: Vec<_> = (1..=6)
-            .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
+            .map(|i| {
+                make_normalized(
+                    "t1",
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                )
+            })
             .collect();
         let metrics = MetricsState::new();
         process_traces(
@@ -521,7 +526,12 @@ mod tests {
     #[test]
     fn process_traces_updates_metrics() {
         let events: Vec<_> = (1..=6)
-            .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
+            .map(|i| {
+                make_normalized(
+                    "t1",
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                )
+            })
             .collect();
         let metrics = MetricsState::new();
         process_traces(
@@ -540,7 +550,12 @@ mod tests {
     #[test]
     fn process_traces_green_disabled() {
         let events: Vec<_> = (1..=6)
-            .map(|i| make_normalized("t1", &format!("SELECT * FROM player WHERE game_id = {i}")))
+            .map(|i| {
+                make_normalized(
+                    "t1",
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                )
+            })
             .collect();
         let metrics = MetricsState::new();
         process_traces(

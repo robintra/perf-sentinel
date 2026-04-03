@@ -371,16 +371,16 @@ mod tests {
 
     fn sample_csv() -> &'static str {
         "query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read\n\
-         SELECT * FROM player WHERE game_id = 42,1500,4500.50,3.000,1500,12000,150\n\
-         \"SELECT * FROM game WHERE id = 1 AND status = 'active'\",800,2400.00,3.000,800,6400,80\n\
+         SELECT * FROM order_item WHERE order_id = 42,1500,4500.50,3.000,1500,12000,150\n\
+         \"SELECT * FROM orders WHERE id = 1 AND status = 'active'\",800,2400.00,3.000,800,6400,80\n\
          INSERT INTO audit_log VALUES (1),200,600.00,3.000,200,0,200\n\
-         SELECT count(*) FROM player,50,250.00,5.000,50,500,10"
+         SELECT count(*) FROM order_item,50,250.00,5.000,50,500,10"
     }
 
     fn sample_json() -> &'static str {
         r#"[
             {
-                "query": "SELECT * FROM player WHERE game_id = 42",
+                "query": "SELECT * FROM order_item WHERE order_id = 42",
                 "calls": 1500,
                 "total_exec_time_ms": 4500.50,
                 "mean_exec_time_ms": 3.0,
@@ -389,7 +389,7 @@ mod tests {
                 "shared_blks_read": 150
             },
             {
-                "query": "SELECT * FROM game WHERE id = 1 AND status = 'active'",
+                "query": "SELECT * FROM orders WHERE id = 1 AND status = 'active'",
                 "calls": 800,
                 "total_exec_time_ms": 2400.0,
                 "mean_exec_time_ms": 3.0,
@@ -407,7 +407,7 @@ mod tests {
                 "shared_blks_read": 200
             },
             {
-                "query": "SELECT count(*) FROM player",
+                "query": "SELECT count(*) FROM order_item",
                 "calls": 50,
                 "total_exec_time_ms": 250.0,
                 "mean_exec_time_ms": 5.0,
@@ -471,10 +471,10 @@ mod tests {
     #[test]
     fn parse_csv_normalization_applied() {
         let entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
-        // game_id = 42 -> game_id = ?
+        // order_id = 42 -> order_id = ?
         assert_eq!(
             entries[0].normalized_template,
-            "SELECT * FROM player WHERE game_id = ?"
+            "SELECT * FROM order_item WHERE order_id = ?"
         );
     }
 
@@ -530,7 +530,7 @@ mod tests {
         let entries = parse_pg_stat(sample_json().as_bytes(), 1_048_576).unwrap();
         assert_eq!(
             entries[0].normalized_template,
-            "SELECT * FROM player WHERE game_id = ?"
+            "SELECT * FROM order_item WHERE order_id = ?"
         );
     }
 
@@ -618,8 +618,8 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: template.to_string(),
                 occurrences: 6,
@@ -636,7 +636,7 @@ mod tests {
     #[test]
     fn cross_reference_marks_matching_templates() {
         let mut entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
-        let findings = vec![make_finding("SELECT * FROM player WHERE game_id = ?")];
+        let findings = vec![make_finding("SELECT * FROM order_item WHERE order_id = ?")];
         cross_reference(&mut entries, &findings);
         assert!(entries[0].seen_in_traces);
         assert!(!entries[1].seen_in_traces);

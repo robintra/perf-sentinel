@@ -118,12 +118,12 @@ mod tests {
     fn normalize_all_processes_batch() {
         let events = vec![
             make_sql_event("SELECT 1"),
-            make_http_event("POST", "/api/game/99/start"),
+            make_http_event("POST", "/api/orders/99/submit"),
         ];
         let normalized = normalize_all(events);
         assert_eq!(normalized.len(), 2);
         assert_eq!(normalized[0].template, "SELECT ?");
-        assert_eq!(normalized[1].template, "POST /api/game/{id}/start");
+        assert_eq!(normalized[1].template, "POST /api/orders/{id}/submit");
     }
 
     #[test]

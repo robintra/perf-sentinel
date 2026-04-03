@@ -182,7 +182,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -193,10 +193,10 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
-                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
@@ -230,7 +230,7 @@ mod tests {
                 make_sql_event(
                     "trace-A",
                     &format!("span-a{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -240,7 +240,7 @@ mod tests {
                 make_sql_event(
                     "trace-B",
                     &format!("span-b{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {}", i + 10),
+                    &format!("SELECT * FROM order_item WHERE order_id = {}", i + 10),
                     &format!("2025-07-10T14:32:02.{:03}Z", i * 50),
                 )
             })
@@ -263,7 +263,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-a{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -289,7 +289,10 @@ mod tests {
         let (_, summary) = score_green(&[trace], vec![], None);
 
         assert_eq!(summary.top_offenders.len(), 2);
-        assert_eq!(summary.top_offenders[0].endpoint, "POST /api/game/42/start");
+        assert_eq!(
+            summary.top_offenders[0].endpoint,
+            "POST /api/orders/42/submit"
+        );
         assert_eq!(summary.top_offenders[1].endpoint, "GET /api/orders");
         assert!(
             summary.top_offenders[0].io_intensity_score
@@ -304,7 +307,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -315,10 +318,10 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
-                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
@@ -345,21 +348,21 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
             .collect();
         let trace = make_trace(events);
 
-        let template = "SELECT * FROM player WHERE game_id = ?".to_string();
+        let template = "SELECT * FROM order_item WHERE order_id = ?".to_string();
         let findings = vec![
             Finding {
                 finding_type: FindingType::NPlusOneSql,
                 severity: Severity::Warning,
                 trace_id: "trace-1".to_string(),
-                service: "game".to_string(),
-                source_endpoint: "POST /api/game/42/start".to_string(),
+                service: "order-svc".to_string(),
+                source_endpoint: "POST /api/orders/42/submit".to_string(),
                 pattern: Pattern {
                     template: template.clone(),
                     occurrences: 6,
@@ -375,8 +378,8 @@ mod tests {
                 finding_type: FindingType::RedundantSql,
                 severity: Severity::Info,
                 trace_id: "trace-1".to_string(),
-                service: "game".to_string(),
-                source_endpoint: "POST /api/game/42/start".to_string(),
+                service: "order-svc".to_string(),
+                source_endpoint: "POST /api/orders/42/submit".to_string(),
                 pattern: Pattern {
                     template,
                     occurrences: 3,
@@ -442,7 +445,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -453,10 +456,10 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
-                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
@@ -486,7 +489,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -543,8 +546,8 @@ mod tests {
             finding_type: FindingType::SlowSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM t WHERE id = ?".to_string(),
                 occurrences: 3,
@@ -578,7 +581,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -598,10 +601,10 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
-                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
@@ -615,8 +618,8 @@ mod tests {
             finding_type: FindingType::SlowSql,
             severity: Severity::Warning,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM slow_table WHERE id = ?".to_string(),
                 occurrences: 3,

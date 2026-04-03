@@ -73,10 +73,10 @@ mod tests {
                 finding_type: FindingType::NPlusOneSql,
                 severity: Severity::Warning,
                 trace_id: "trace-1".to_string(),
-                service: "game".to_string(),
-                source_endpoint: "POST /api/game/42/start".to_string(),
+                service: "order-svc".to_string(),
+                source_endpoint: "POST /api/orders/42/submit".to_string(),
                 pattern: Pattern {
-                    template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                    template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                     occurrences: 6,
                     window_ms: 250,
                     distinct_params: 6,
@@ -103,7 +103,7 @@ mod tests {
         let json = serde_json::to_string_pretty(&report).unwrap();
         assert!(json.contains("n_plus_one_sql"));
         assert!(json.contains("trace-1"));
-        assert!(json.contains("game_id"));
+        assert!(json.contains("order_id"));
         assert!(json.contains("\"occurrences\": 6"));
         assert!(json.contains("\"io_waste_ratio\": 0.5"));
         assert!(json.contains("\"first_timestamp\""));

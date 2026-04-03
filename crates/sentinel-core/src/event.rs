@@ -66,14 +66,14 @@ mod tests {
             "timestamp": "2025-07-10T14:32:01.123Z",
             "trace_id": "abc123-def456",
             "span_id": "span-789",
-            "service": "game",
+            "service": "order-svc",
             "type": "sql",
             "operation": "SELECT",
-            "target": "SELECT * FROM player WHERE game_id = 42",
+            "target": "SELECT * FROM order_item WHERE order_id = 42",
             "duration_us": 1200,
             "source": {
-                "endpoint": "POST /api/game/42/start",
-                "method": "GameService::start_game"
+                "endpoint": "POST /api/orders/42/submit",
+                "method": "OrderService::create_order"
             }
         }"#
     }
@@ -83,15 +83,15 @@ mod tests {
             "timestamp": "2025-07-10T14:32:01.456Z",
             "trace_id": "abc123-def456",
             "span_id": "span-790",
-            "service": "game",
+            "service": "order-svc",
             "type": "http_out",
             "operation": "GET",
-            "target": "http://account-chat:5000/api/account/player-123",
+            "target": "http://user-svc:5000/api/users/user-123",
             "duration_us": 15000,
             "status_code": 200,
             "source": {
-                "endpoint": "POST /api/game/42/start",
-                "method": "GameService::start_game"
+                "endpoint": "POST /api/orders/42/submit",
+                "method": "OrderService::create_order"
             }
         }"#
     }
@@ -101,8 +101,8 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         assert_eq!(event.event_type, EventType::Sql);
         assert_eq!(event.trace_id, "abc123-def456");
-        assert_eq!(event.service, "game");
-        assert_eq!(event.target, "SELECT * FROM player WHERE game_id = 42");
+        assert_eq!(event.service, "order-svc");
+        assert_eq!(event.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(event.duration_us, 1200);
         assert!(event.status_code.is_none());
     }
@@ -112,7 +112,7 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_http_json()).unwrap();
         assert_eq!(event.event_type, EventType::HttpOut);
         assert_eq!(event.status_code, Some(200));
-        assert_eq!(event.source.endpoint, "POST /api/game/42/start");
+        assert_eq!(event.source.endpoint, "POST /api/orders/42/submit");
     }
 
     #[test]

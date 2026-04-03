@@ -265,8 +265,8 @@ mod tests {
 
     #[test]
     fn numeric_literal() {
-        let r = normalize_sql("SELECT * FROM player WHERE game_id = 42");
-        assert_eq!(r.template, "SELECT * FROM player WHERE game_id = ?");
+        let r = normalize_sql("SELECT * FROM order_item WHERE order_id = 42");
+        assert_eq!(r.template, "SELECT * FROM order_item WHERE order_id = ?");
         assert_eq!(r.params, vec!["42"]);
     }
 
@@ -314,19 +314,19 @@ mod tests {
 
     #[test]
     fn table_names_with_digits_preserved() {
-        let r = normalize_sql("SELECT * FROM player2 WHERE id = 1");
-        assert_eq!(r.template, "SELECT * FROM player2 WHERE id = ?");
+        let r = normalize_sql("SELECT * FROM order_item2 WHERE id = 1");
+        assert_eq!(r.template, "SELECT * FROM order_item2 WHERE id = ?");
         assert_eq!(r.params, vec!["1"]);
     }
 
     #[test]
     fn join_query() {
         let r = normalize_sql(
-            "SELECT p.name FROM player p JOIN game g ON p.game_id = g.id WHERE g.id = 42",
+            "SELECT p.name FROM order_item p JOIN orders g ON p.order_id = g.id WHERE g.id = 42",
         );
         assert_eq!(
             r.template,
-            "SELECT p.name FROM player p JOIN game g ON p.game_id = g.id WHERE g.id = ?"
+            "SELECT p.name FROM order_item p JOIN orders g ON p.order_id = g.id WHERE g.id = ?"
         );
         assert_eq!(r.params, vec!["42"]);
     }

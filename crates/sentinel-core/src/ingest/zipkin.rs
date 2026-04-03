@@ -158,12 +158,12 @@ mod tests {
             {
                 "traceId": "abc123",
                 "id": "span-1",
-                "name": "GameService::start_game",
+                "name": "OrderService::create_order",
                 "timestamp": 1720621921123000,
                 "duration": 1200,
-                "localEndpoint": { "serviceName": "game" },
+                "localEndpoint": { "serviceName": "order-svc" },
                 "tags": {
-                    "db.statement": "SELECT * FROM player WHERE game_id = 42",
+                    "db.statement": "SELECT * FROM order_item WHERE order_id = 42",
                     "db.system": "postgresql"
                 }
             },
@@ -174,9 +174,9 @@ mod tests {
                 "name": "http-call",
                 "timestamp": 1720621921200000,
                 "duration": 15000,
-                "localEndpoint": { "serviceName": "game" },
+                "localEndpoint": { "serviceName": "order-svc" },
                 "tags": {
-                    "http.url": "http://account-svc:5000/api/account/123",
+                    "http.url": "http://user-svc:5000/api/users/123",
                     "http.method": "GET",
                     "http.status_code": "200"
                 }
@@ -187,7 +187,7 @@ mod tests {
                 "name": "internal-processing",
                 "timestamp": 1720621921300000,
                 "duration": 500,
-                "localEndpoint": { "serviceName": "game" },
+                "localEndpoint": { "serviceName": "order-svc" },
                 "tags": {
                     "internal.type": "processing"
                 }
@@ -213,9 +213,9 @@ mod tests {
 
         assert_eq!(sql.trace_id, "abc123");
         assert_eq!(sql.span_id, "span-1");
-        assert_eq!(sql.service, "game");
+        assert_eq!(sql.service, "order-svc");
         assert_eq!(sql.operation, "postgresql");
-        assert_eq!(sql.target, "SELECT * FROM player WHERE game_id = 42");
+        assert_eq!(sql.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(sql.duration_us, 1200);
         assert!(sql.parent_span_id.is_none());
         assert_eq!(sql.timestamp, "2024-07-10T14:32:01.123Z");
@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(http.trace_id, "abc123");
         assert_eq!(http.span_id, "span-2");
         assert_eq!(http.operation, "GET");
-        assert_eq!(http.target, "http://account-svc:5000/api/account/123");
+        assert_eq!(http.target, "http://user-svc:5000/api/users/123");
         assert_eq!(http.duration_us, 15000);
         assert_eq!(http.status_code, Some(200));
         assert_eq!(http.parent_span_id.as_deref(), Some("span-1"));

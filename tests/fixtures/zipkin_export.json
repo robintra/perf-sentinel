@@ -2,13 +2,13 @@
   {
     "traceId": "trace-zipkin-1",
     "id": "span-root",
-    "name": "GameService::start_game",
+    "name": "OrderService::create_order",
     "timestamp": 1720621921000000,
     "duration": 50000,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "http.route": "POST /api/game/42/start",
-      "code.function": "GameService::start_game"
+      "http.route": "POST /api/orders/42/submit",
+      "code.function": "OrderService::create_order"
     }
   },
   {
@@ -18,9 +18,9 @@
     "name": "db-query",
     "timestamp": 1720621921001000,
     "duration": 800,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 1",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 1",
       "db.system": "postgresql"
     }
   },
@@ -31,9 +31,9 @@
     "name": "db-query",
     "timestamp": 1720621921050000,
     "duration": 750,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 2",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 2",
       "db.system": "postgresql"
     }
   },
@@ -44,9 +44,9 @@
     "name": "db-query",
     "timestamp": 1720621921100000,
     "duration": 900,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 3",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 3",
       "db.system": "postgresql"
     }
   },
@@ -57,9 +57,9 @@
     "name": "db-query",
     "timestamp": 1720621921150000,
     "duration": 850,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 4",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 4",
       "db.system": "postgresql"
     }
   },
@@ -70,9 +70,9 @@
     "name": "db-query",
     "timestamp": 1720621921200000,
     "duration": 700,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 5",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 5",
       "db.system": "postgresql"
     }
   },
@@ -83,9 +83,9 @@
     "name": "db-query",
     "timestamp": 1720621921250000,
     "duration": 780,
-    "localEndpoint": { "serviceName": "game" },
+    "localEndpoint": { "serviceName": "order-svc" },
     "tags": {
-      "db.statement": "SELECT * FROM player WHERE game_id = 6",
+      "db.statement": "SELECT * FROM order_item WHERE order_id = 6",
       "db.system": "postgresql"
     }
   }

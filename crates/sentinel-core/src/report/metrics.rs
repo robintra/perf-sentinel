@@ -442,8 +442,8 @@ mod tests {
             finding_type,
             severity,
             trace_id: trace_id.to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM t WHERE id = ?".to_string(),
                 occurrences,

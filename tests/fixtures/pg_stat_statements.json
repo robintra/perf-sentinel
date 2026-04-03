@@ -1,6 +1,6 @@
 [
   {
-    "query": "SELECT * FROM player WHERE game_id = 42",
+    "query": "SELECT * FROM order_item WHERE order_id = 42",
     "calls": 1500,
     "total_exec_time": 4500.50,
     "mean_exec_time": 3.000,
@@ -9,7 +9,7 @@
     "shared_blks_read": 150
   },
   {
-    "query": "SELECT * FROM game WHERE id = 1 AND status = 'active'",
+    "query": "SELECT * FROM orders WHERE id = 1 AND status = 'active'",
     "calls": 800,
     "total_exec_time": 2400.00,
     "mean_exec_time": 3.000,
@@ -27,7 +27,7 @@
     "shared_blks_read": 200
   },
   {
-    "query": "SELECT count(*) FROM player",
+    "query": "SELECT count(*) FROM order_item",
     "calls": 50,
     "total_exec_time": 250.00,
     "mean_exec_time": 5.000,
@@ -36,7 +36,7 @@
     "shared_blks_read": 10
   },
   {
-    "query": "SELECT p.name, p.score FROM player p JOIN team t ON p.team_id = t.id WHERE t.game_id = 7",
+    "query": "SELECT p.name, p.quantity FROM order_item p JOIN category t ON p.category_id = t.id WHERE t.order_id = 7",
     "calls": 3000,
     "total_exec_time": 15000.00,
     "mean_exec_time": 5.000,
@@ -45,7 +45,7 @@
     "shared_blks_read": 300
   },
   {
-    "query": "UPDATE player SET score = 100 WHERE id = 55",
+    "query": "UPDATE order_item SET quantity = 100 WHERE id = 55",
     "calls": 400,
     "total_exec_time": 1200.00,
     "mean_exec_time": 3.000,
@@ -63,7 +63,7 @@
     "shared_blks_read": 50
   },
   {
-    "query": "SELECT * FROM chat_message WHERE game_id = 99 ORDER BY created_at DESC LIMIT 50",
+    "query": "SELECT * FROM notification WHERE order_id = 99 ORDER BY created_at DESC LIMIT 50",
     "calls": 600,
     "total_exec_time": 3600.00,
     "mean_exec_time": 6.000,
@@ -81,7 +81,7 @@
     "shared_blks_read": 25
   },
   {
-    "query": "INSERT INTO game (name, created_by, status) VALUES ('test', 'user-1', 'waiting')",
+    "query": "INSERT INTO orders (name, created_by, status) VALUES ('test', 'user-1', 'waiting')",
     "calls": 150,
     "total_exec_time": 450.00,
     "mean_exec_time": 3.000,
@@ -90,7 +90,7 @@
     "shared_blks_read": 150
   },
   {
-    "query": "SELECT * FROM player WHERE id IN (1, 2, 3, 4, 5)",
+    "query": "SELECT * FROM order_item WHERE id IN (1, 2, 3, 4, 5)",
     "calls": 2000,
     "total_exec_time": 8000.00,
     "mean_exec_time": 4.000,
@@ -108,7 +108,7 @@
     "shared_blks_read": 100
   },
   {
-    "query": "UPDATE game SET status = 'started' WHERE id = 42 AND status = 'waiting'",
+    "query": "UPDATE orders SET status = 'started' WHERE id = 42 AND status = 'waiting'",
     "calls": 300,
     "total_exec_time": 900.00,
     "mean_exec_time": 3.000,
@@ -117,7 +117,7 @@
     "shared_blks_read": 30
   },
   {
-    "query": "SELECT * FROM config WHERE key = 'max_players'",
+    "query": "SELECT * FROM config WHERE key = 'max_items'",
     "calls": 100,
     "total_exec_time": 200.00,
     "mean_exec_time": 2.000,
@@ -126,7 +126,7 @@
     "shared_blks_read": 10
   },
   {
-    "query": "SELECT g.id, g.name, COUNT(p.id) FROM game g LEFT JOIN player p ON p.game_id = g.id GROUP BY g.id",
+    "query": "SELECT g.id, g.name, COUNT(p.id) FROM orders g LEFT JOIN order_item p ON p.order_id = g.id GROUP BY g.id",
     "calls": 75,
     "total_exec_time": 750.00,
     "mean_exec_time": 10.000,

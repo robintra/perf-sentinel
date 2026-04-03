@@ -306,15 +306,15 @@ mod tests {
             finding_type: FindingType::NPlusOneSql,
             severity: Severity::Critical,
             trace_id: trace_id.to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/{id}/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/{id}/submit".to_string(),
             pattern: Pattern {
                 template: template.to_string(),
                 occurrences: 6,
                 window_ms: 200,
                 distinct_params: 6,
             },
-            suggestion: "Use WHERE game_id IN (?)".to_string(),
+            suggestion: "Use WHERE order_id IN (?)".to_string(),
             first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
             last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
             green_impact: None,
@@ -326,7 +326,7 @@ mod tests {
         let events = vec![make_sql_event(
             "trace-1",
             "span-1",
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             "2025-07-10T14:32:01.000Z",
         )];
         let trace = make_trace(events);
@@ -369,14 +369,14 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
             .collect();
         let trace = make_trace(events);
 
-        let finding = make_finding_for("trace-1", "SELECT * FROM player WHERE game_id = ?");
+        let finding = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
         let tree = build_tree(&trace, &[finding]);
 
         // All spans share the same template, so all should have the finding
@@ -392,7 +392,7 @@ mod tests {
         let events = vec![make_sql_event(
             "trace-1",
             "span-1",
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             "2025-07-10T14:32:01.000Z",
         )];
         let trace = make_trace(events);
@@ -400,7 +400,7 @@ mod tests {
 
         let text = format_tree_text(&tree, false);
         assert!(text.contains("trace-1"));
-        assert!(text.contains("SELECT * FROM player WHERE game_id = ?"));
+        assert!(text.contains("SELECT * FROM order_item WHERE order_id = ?"));
     }
 
     #[test]
@@ -431,13 +431,14 @@ mod tests {
         let events = vec![make_sql_event(
             "trace-1",
             "span-1",
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             "2025-07-10T14:32:01.000Z",
         )];
         let trace = make_trace(events);
 
         // Finding for a different trace
-        let finding = make_finding_for("trace-other", "SELECT * FROM player WHERE game_id = ?");
+        let finding =
+            make_finding_for("trace-other", "SELECT * FROM order_item WHERE order_id = ?");
         let tree = build_tree(&trace, &[finding]);
 
         assert!(tree.roots[0].findings.is_empty());

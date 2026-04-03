@@ -232,14 +232,14 @@ fn cli_analyze_detects_redundant_and_critical() {
             "timestamp": format!("2025-07-10T14:32:01.{:03}Z", i * 10),
             "trace_id": "trace-crit",
             "span_id": format!("span-{i}"),
-            "service": "game",
+            "service": "order-svc",
             "type": "sql",
             "operation": "SELECT",
-            "target": format!("SELECT * FROM player WHERE game_id = {i}"),
+            "target": format!("SELECT * FROM order_item WHERE order_id = {i}"),
             "duration_us": 800,
             "source": {
-                "endpoint": "POST /api/game/42/start",
-                "method": "GameService::start_game"
+                "endpoint": "POST /api/orders/42/submit",
+                "method": "OrderService::create_order"
             }
         }));
     }
@@ -248,7 +248,7 @@ fn cli_analyze_detects_redundant_and_critical() {
             "timestamp": format!("2025-07-10T14:32:02.{:03}Z", i * 50),
             "trace_id": "trace-dup",
             "span_id": format!("span-dup-{i}"),
-            "service": "game",
+            "service": "order-svc",
             "type": "sql",
             "operation": "SELECT",
             "target": "SELECT * FROM config WHERE key = 'timeout'",

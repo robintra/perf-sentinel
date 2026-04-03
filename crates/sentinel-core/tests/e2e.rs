@@ -36,7 +36,7 @@ fn n_plus_one_sql_fixture_normalizes_to_same_template() {
         templates.iter().all(|t| *t == templates[0]),
         "expected all templates to be the same, got: {templates:?}"
     );
-    assert_eq!(templates[0], "SELECT * FROM player WHERE game_id = ?");
+    assert_eq!(templates[0], "SELECT * FROM order_item WHERE order_id = ?");
 
     let params: Vec<&str> = normalized.iter().map(|n| n.params[0].as_str()).collect();
     assert_eq!(params, vec!["1", "2", "3", "4", "5", "6"]);
@@ -53,7 +53,7 @@ fn n_plus_one_http_fixture_normalizes_to_same_template() {
         templates.iter().all(|t| *t == templates[0]),
         "expected all templates to be the same, got: {templates:?}"
     );
-    assert_eq!(templates[0], "GET /api/account/{id}");
+    assert_eq!(templates[0], "GET /api/users/{id}");
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn n_plus_one_sql_detected() {
     assert_eq!(report.findings[0].pattern.occurrences, 6);
     assert_eq!(report.findings[0].pattern.distinct_params, 6);
     assert_eq!(report.findings[0].trace_id, "trace-n1-sql");
-    assert_eq!(report.findings[0].service, "game");
+    assert_eq!(report.findings[0].service, "order-svc");
 }
 
 #[test]

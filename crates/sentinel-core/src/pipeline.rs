@@ -97,24 +97,24 @@ mod tests {
         use crate::test_helpers::make_sql_event;
         // 5 different params + 2 duplicates of param 1 = 7 events, same template
         // N+1 sees 7 occurrences with 5 distinct params -> finding (avoidable = 6)
-        // Redundant sees 3 occurrences of game_id=1 -> finding (avoidable = 2)
+        // Redundant sees 3 occurrences of order_id=1 -> finding (avoidable = 2)
         // Without dedup: 6 + 2 = 8. With dedup: max(6, 2) = 6.
         let mut events: Vec<SpanEvent> = (1..=5)
             .map(|i| {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
             .collect();
-        // Add 2 more with game_id = 1 (duplicates)
+        // Add 2 more with order_id = 1 (duplicates)
         for i in 6..=7 {
             events.push(make_sql_event(
                 "trace-1",
                 &format!("span-{i}"),
-                "SELECT * FROM player WHERE game_id = 1",
+                "SELECT * FROM order_item WHERE order_id = 1",
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 40),
             ));
         }
@@ -183,7 +183,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -207,7 +207,7 @@ mod tests {
             events.push(make_sql_event(
                 "trace-A",
                 &format!("span-a{i}"),
-                "SELECT * FROM player WHERE game_id = 42",
+                "SELECT * FROM order_item WHERE order_id = 42",
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
             ));
         }
@@ -236,7 +236,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -270,7 +270,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    &format!("SELECT * FROM player WHERE game_id = {i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })

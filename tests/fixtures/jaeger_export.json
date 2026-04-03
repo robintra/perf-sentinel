@@ -5,14 +5,14 @@
       "spans": [
         {
           "spanID": "span-root",
-          "operationName": "GameService::start_game",
+          "operationName": "OrderService::create_order",
           "references": [],
           "startTime": 1720621921000000,
           "duration": 50000,
           "processID": "p1",
           "tags": [
-            { "key": "http.route", "value": "POST /api/game/42/start" },
-            { "key": "code.function", "value": "GameService::start_game" }
+            { "key": "http.route", "value": "POST /api/orders/42/submit" },
+            { "key": "code.function", "value": "OrderService::create_order" }
           ]
         },
         {
@@ -23,7 +23,7 @@
           "duration": 800,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 1" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 1" },
             { "key": "db.system", "value": "postgresql" }
           ]
         },
@@ -35,7 +35,7 @@
           "duration": 750,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 2" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 2" },
             { "key": "db.system", "value": "postgresql" }
           ]
         },
@@ -47,7 +47,7 @@
           "duration": 900,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 3" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 3" },
             { "key": "db.system", "value": "postgresql" }
           ]
         },
@@ -59,7 +59,7 @@
           "duration": 850,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 4" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 4" },
             { "key": "db.system", "value": "postgresql" }
           ]
         },
@@ -71,7 +71,7 @@
           "duration": 700,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 5" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 5" },
             { "key": "db.system", "value": "postgresql" }
           ]
         },
@@ -83,13 +83,13 @@
           "duration": 780,
           "processID": "p1",
           "tags": [
-            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 6" },
+            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 6" },
             { "key": "db.system", "value": "postgresql" }
           ]
         }
       ],
       "processes": {
-        "p1": { "serviceName": "game" }
+        "p1": { "serviceName": "order-svc" }
       }
     }
   ]

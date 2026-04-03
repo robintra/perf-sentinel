@@ -204,13 +204,13 @@ mod tests {
                 "spans": [
                     {
                         "spanID": "span-1",
-                        "operationName": "GameService::start_game",
+                        "operationName": "OrderService::create_order",
                         "references": [],
                         "startTime": 1720621921123000,
                         "duration": 1200,
                         "processID": "p1",
                         "tags": [
-                            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 42" },
+                            { "key": "db.statement", "value": "SELECT * FROM order_item WHERE order_id = 42" },
                             { "key": "db.system", "value": "postgresql" }
                         ]
                     },
@@ -222,7 +222,7 @@ mod tests {
                         "duration": 15000,
                         "processID": "p1",
                         "tags": [
-                            { "key": "http.url", "value": "http://account-svc:5000/api/account/123" },
+                            { "key": "http.url", "value": "http://user-svc:5000/api/users/123" },
                             { "key": "http.method", "value": "GET" },
                             { "key": "http.status_code", "value": "200" }
                         ]
@@ -240,7 +240,7 @@ mod tests {
                     }
                 ],
                 "processes": {
-                    "p1": { "serviceName": "game" }
+                    "p1": { "serviceName": "order-svc" }
                 }
             }]
         }"#
@@ -264,9 +264,9 @@ mod tests {
 
         assert_eq!(sql.trace_id, "abc123");
         assert_eq!(sql.span_id, "span-1");
-        assert_eq!(sql.service, "game");
+        assert_eq!(sql.service, "order-svc");
         assert_eq!(sql.operation, "postgresql");
-        assert_eq!(sql.target, "SELECT * FROM player WHERE game_id = 42");
+        assert_eq!(sql.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(sql.duration_us, 1200);
         assert!(sql.parent_span_id.is_none());
         assert!(sql.status_code.is_none());
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(http.trace_id, "abc123");
         assert_eq!(http.span_id, "span-2");
         assert_eq!(http.operation, "GET");
-        assert_eq!(http.target, "http://account-svc:5000/api/account/123");
+        assert_eq!(http.target, "http://user-svc:5000/api/users/123");
         assert_eq!(http.duration_us, 15000);
         assert_eq!(http.status_code, Some(200));
         assert_eq!(http.parent_span_id.as_deref(), Some("span-1"));

@@ -208,10 +208,10 @@ mod tests {
             finding_type: ft,
             severity: sev,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
-                template: "SELECT * FROM player WHERE game_id = ?".to_string(),
+                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
@@ -282,9 +282,12 @@ mod tests {
         assert_eq!(result.rule_id, "n_plus_one_sql");
         assert_eq!(result.level, "warning");
         assert_eq!(result.logical_locations.len(), 2);
-        assert_eq!(result.logical_locations[0].name, "game");
+        assert_eq!(result.logical_locations[0].name, "order-svc");
         assert_eq!(result.logical_locations[0].kind, "module");
-        assert_eq!(result.logical_locations[1].name, "POST /api/game/42/start");
+        assert_eq!(
+            result.logical_locations[1].name,
+            "POST /api/orders/42/submit"
+        );
         assert_eq!(result.logical_locations[1].kind, "function");
     }
 

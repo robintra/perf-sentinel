@@ -102,22 +102,22 @@ mod tests {
 
     #[test]
     fn simple_path_with_numeric_id() {
-        let r = normalize_http("GET", "/api/game/42/start");
-        assert_eq!(r.template, "GET /api/game/{id}/start");
+        let r = normalize_http("GET", "/api/orders/42/submit");
+        assert_eq!(r.template, "GET /api/orders/{id}/submit");
         assert_eq!(r.params, vec!["42"]);
     }
 
     #[test]
     fn uuid_segment() {
-        let r = normalize_http("GET", "/api/account/a1b2c3d4-e5f6-7890-abcd-ef1234567890");
-        assert_eq!(r.template, "GET /api/account/{uuid}");
+        let r = normalize_http("GET", "/api/users/a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        assert_eq!(r.template, "GET /api/users/{uuid}");
         assert_eq!(r.params, vec!["a1b2c3d4-e5f6-7890-abcd-ef1234567890"]);
     }
 
     #[test]
     fn full_url_strips_origin() {
-        let r = normalize_http("GET", "http://account-chat:5000/api/account/player-123");
-        assert_eq!(r.template, "GET /api/account/player-123");
+        let r = normalize_http("GET", "http://user-svc:5000/api/users/user-123");
+        assert_eq!(r.template, "GET /api/users/user-123");
     }
 
     #[test]
@@ -136,8 +136,8 @@ mod tests {
 
     #[test]
     fn multiple_numeric_segments() {
-        let r = normalize_http("DELETE", "/api/game/42/player/7");
-        assert_eq!(r.template, "DELETE /api/game/{id}/player/{id}");
+        let r = normalize_http("DELETE", "/api/orders/42/items/7");
+        assert_eq!(r.template, "DELETE /api/orders/{id}/items/{id}");
         assert_eq!(r.params, vec!["42", "7"]);
     }
 
@@ -177,10 +177,10 @@ mod tests {
     #[test]
     fn non_uuid_36_char_segment_not_replaced() {
         // 36 chars but not a valid UUID format
-        let r = normalize_http("GET", "/api/account/abcdefghijklmnopqrstuvwxyz1234567890");
+        let r = normalize_http("GET", "/api/users/abcdefghijklmnopqrstuvwxyz1234567890");
         assert_eq!(
             r.template,
-            "GET /api/account/abcdefghijklmnopqrstuvwxyz1234567890"
+            "GET /api/users/abcdefghijklmnopqrstuvwxyz1234567890"
         );
         assert!(r.params.is_empty());
     }

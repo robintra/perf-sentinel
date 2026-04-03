@@ -3,72 +3,72 @@
     "timestamp": "2025-07-10T14:32:01.000Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-1",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/101",
+    "target": "http://user-svc:5000/api/users/101",
     "duration_us": 12000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.050Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-2",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/102",
+    "target": "http://user-svc:5000/api/users/102",
     "duration_us": 11000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.100Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-3",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/103",
+    "target": "http://user-svc:5000/api/users/103",
     "duration_us": 13000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.150Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-4",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/104",
+    "target": "http://user-svc:5000/api/users/104",
     "duration_us": 14000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.150Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-5",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/105",
+    "target": "http://user-svc:5000/api/users/105",
     "duration_us": 10000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.200Z",
     "trace_id": "trace-n1-http",
     "span_id": "span-6",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/106",
+    "target": "http://user-svc:5000/api/users/106",
     "duration_us": 11500,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   }
 ]

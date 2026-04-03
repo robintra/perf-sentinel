@@ -1,174 +1,174 @@
 [
   {
     "timestamp": "2025-07-10T14:32:01.000Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-1",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 1",
+    "target": "SELECT * FROM order_item WHERE order_id = 1",
     "duration_us": 800,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.050Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-2",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 2",
+    "target": "SELECT * FROM order_item WHERE order_id = 2",
     "duration_us": 750,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.100Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-3",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 3",
+    "target": "SELECT * FROM order_item WHERE order_id = 3",
     "duration_us": 900,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.150Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-4",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 4",
+    "target": "SELECT * FROM order_item WHERE order_id = 4",
     "duration_us": 820,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.200Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-5",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 5",
+    "target": "SELECT * FROM order_item WHERE order_id = 5",
     "duration_us": 700,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.250Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-6",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM player WHERE game_id = 6",
+    "target": "SELECT * FROM order_item WHERE order_id = 6",
     "duration_us": 850,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.300Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-7",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/101",
+    "target": "http://user-svc:5000/api/users/101",
     "duration_us": 12000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.350Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-8",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/102",
+    "target": "http://user-svc:5000/api/users/102",
     "duration_us": 11000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.400Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-9",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/103",
+    "target": "http://user-svc:5000/api/users/103",
     "duration_us": 13000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.450Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-10",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/104",
+    "target": "http://user-svc:5000/api/users/104",
     "duration_us": 14000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.500Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-11",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/105",
+    "target": "http://user-svc:5000/api/users/105",
     "duration_us": 10000,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.550Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-12",
-    "service": "game",
+    "service": "order-svc",
     "type": "http_out",
     "operation": "GET",
-    "target": "http://account-svc:5000/api/account/106",
+    "target": "http://user-svc:5000/api/users/106",
     "duration_us": 11500,
     "status_code": 200,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.600Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-slow-1",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM game_state WHERE game_id = 42",
+    "target": "SELECT * FROM order_status WHERE order_id = 42",
     "duration_us": 750000,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.700Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-slow-2",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM game_state WHERE game_id = 43",
+    "target": "SELECT * FROM order_status WHERE order_id = 43",
     "duration_us": 800000,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:01.800Z",
-    "trace_id": "trace-demo-game",
+    "trace_id": "trace-demo-order",
     "span_id": "span-slow-3",
-    "service": "game",
+    "service": "order-svc",
     "type": "sql",
     "operation": "SELECT",
-    "target": "SELECT * FROM game_state WHERE game_id = 44",
+    "target": "SELECT * FROM order_status WHERE order_id = 44",
     "duration_us": 2600000,
-    "source": { "endpoint": "POST /api/game/42/start", "method": "GameService::start_game" }
+    "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService::create_order" }
   },
   {
     "timestamp": "2025-07-10T14:32:02.000Z",

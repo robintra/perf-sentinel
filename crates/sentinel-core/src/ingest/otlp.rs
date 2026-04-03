@@ -343,7 +343,7 @@ mod tests {
             end_time_unix_nano: 1_000_000_000,
             attributes: vec![
                 make_kv("http.route", route),
-                make_kv("code.function", "GameService::start_game"),
+                make_kv("code.function", "OrderService::create_order"),
             ],
             ..Default::default()
         }
@@ -379,18 +379,21 @@ mod tests {
             &[1; 16],
             &[2; 8],
             &[],
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             1_720_621_921_000_000_000, // 2024-07-10T14:32:01.000Z
             1_720_621_921_001_200_000, // +1.2ms
         );
-        let req = make_request("game", vec![span]);
+        let req = make_request("order-svc", vec![span]);
         let events = convert_otlp_request(&req);
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::Sql);
         assert_eq!(events[0].operation, "postgresql");
-        assert_eq!(events[0].target, "SELECT * FROM player WHERE game_id = 42");
-        assert_eq!(events[0].service, "game");
+        assert_eq!(
+            events[0].target,
+            "SELECT * FROM order_item WHERE order_id = 42"
+        );
+        assert_eq!(events[0].service, "order-svc");
         assert_eq!(events[0].duration_us, 1200);
         assert!(events[0].status_code.is_none());
     }
@@ -401,19 +404,19 @@ mod tests {
             &[1; 16],
             &[3; 8],
             &[],
-            "http://account-svc:5000/api/account/123",
+            "http://user-svc:5000/api/users/123",
             "GET",
             200,
             1_720_621_921_000_000_000,
             1_720_621_921_015_000_000, // +15ms
         );
-        let req = make_request("game", vec![span]);
+        let req = make_request("order-svc", vec![span]);
         let events = convert_otlp_request(&req);
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::HttpOut);
         assert_eq!(events[0].operation, "GET");
-        assert_eq!(events[0].target, "http://account-svc:5000/api/account/123");
+        assert_eq!(events[0].target, "http://user-svc:5000/api/users/123");
         assert_eq!(events[0].status_code, Some(200));
         assert_eq!(events[0].duration_us, 15000);
     }
@@ -429,28 +432,28 @@ mod tests {
             attributes: vec![make_kv("custom.attr", "value")],
             ..Default::default()
         };
-        let req = make_request("game", vec![span]);
+        let req = make_request("order-svc", vec![span]);
         assert!(convert_otlp_request(&req).is_empty());
     }
 
     #[test]
     fn parent_span_provides_source_endpoint() {
-        let parent = make_parent_span(&[10; 8], "POST /api/game/{id}/start");
+        let parent = make_parent_span(&[10; 8], "POST /api/orders/{id}/submit");
         let child = make_sql_span(
             &[1; 16],
             &[20; 8],
             &[10; 8], // parent_span_id
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             1_720_621_921_000_000_000,
             1_720_621_921_001_200_000,
         );
-        let req = make_request("game", vec![parent, child]);
+        let req = make_request("order-svc", vec![parent, child]);
         let events = convert_otlp_request(&req);
 
         // Only the child (SQL) should produce an event
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].source.endpoint, "POST /api/game/{id}/start");
-        assert_eq!(events[0].source.method, "GameService::start_game");
+        assert_eq!(events[0].source.endpoint, "POST /api/orders/{id}/submit");
+        assert_eq!(events[0].source.method, "OrderService::create_order");
     }
 
     #[test]
@@ -459,11 +462,11 @@ mod tests {
             &[1; 16],
             &[20; 8],
             &[99; 8], // parent not in batch
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             1_720_621_921_000_000_000,
             1_720_621_921_001_200_000,
         );
-        let req = make_request("game", vec![child]);
+        let req = make_request("order-svc", vec![child]);
         let events = convert_otlp_request(&req);
 
         assert_eq!(events.len(), 1);

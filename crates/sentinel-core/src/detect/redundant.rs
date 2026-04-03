@@ -84,7 +84,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "SELECT * FROM player WHERE game_id = 42",
+                    "SELECT * FROM order_item WHERE order_id = 42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -108,7 +108,7 @@ mod tests {
                 make_http_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "http://account-svc:5000/api/account/42",
+                    "http://user-svc:5000/api/users/42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -128,13 +128,13 @@ mod tests {
             make_sql_event(
                 "trace-1",
                 "span-1",
-                "SELECT * FROM player WHERE game_id = 1",
+                "SELECT * FROM order_item WHERE order_id = 1",
                 "2025-07-10T14:32:01.000Z",
             ),
             make_sql_event(
                 "trace-1",
                 "span-2",
-                "SELECT * FROM player WHERE game_id = 2",
+                "SELECT * FROM order_item WHERE order_id = 2",
                 "2025-07-10T14:32:01.050Z",
             ),
         ];
@@ -151,7 +151,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "SELECT * FROM player WHERE game_id = 42",
+                    "SELECT * FROM order_item WHERE order_id = 42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -197,7 +197,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "SELECT * FROM player WHERE game_id = 42",
+                    "SELECT * FROM order_item WHERE order_id = 42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -218,7 +218,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "SELECT * FROM player WHERE game_id = 42",
+                    "SELECT * FROM order_item WHERE order_id = 42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })
@@ -237,7 +237,7 @@ mod tests {
         let events = vec![make_sql_event(
             "trace-1",
             "span-1",
-            "SELECT * FROM player WHERE game_id = 42",
+            "SELECT * FROM order_item WHERE order_id = 42",
             "2025-07-10T14:32:01.000Z",
         )];
 
@@ -253,7 +253,7 @@ mod tests {
                 make_sql_event(
                     "trace-1",
                     &format!("span-{i}"),
-                    "SELECT * FROM player WHERE game_id = 42",
+                    "SELECT * FROM order_item WHERE order_id = 42",
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
                 )
             })

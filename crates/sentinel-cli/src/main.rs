@@ -892,8 +892,8 @@ mod tests {
             finding_type,
             severity,
             trace_id: "trace-1".to_string(),
-            service: "game".to_string(),
-            source_endpoint: "POST /api/game/42/start".to_string(),
+            service: "order-svc".to_string(),
+            source_endpoint: "POST /api/orders/42/submit".to_string(),
             pattern: Pattern {
                 template: "SELECT * FROM t WHERE id = ?".to_string(),
                 occurrences: 6,
@@ -993,8 +993,8 @@ mod tests {
         let report = make_report(
             vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)],
             vec![TopOffender {
-                endpoint: "POST /api/game/{id}/start".to_string(),
-                service: "game".to_string(),
+                endpoint: "POST /api/orders/{id}/submit".to_string(),
+                service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
                 io_ops_per_request: 8.2,
                 co2_grams: None,
@@ -1016,8 +1016,8 @@ mod tests {
                 make_finding(FindingType::RedundantHttp, Severity::Info),
             ],
             vec![TopOffender {
-                endpoint: "POST /api/game/{id}/start".to_string(),
-                service: "game".to_string(),
+                endpoint: "POST /api/orders/{id}/submit".to_string(),
+                service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
                 io_ops_per_request: 8.2,
                 co2_grams: None,
@@ -1042,8 +1042,8 @@ mod tests {
                 avoidable_io_ops: 5,
                 io_waste_ratio: 0.5,
                 top_offenders: vec![TopOffender {
-                    endpoint: "POST /api/game/{id}/start".to_string(),
-                    service: "game".to_string(),
+                    endpoint: "POST /api/orders/{id}/submit".to_string(),
+                    service: "order-svc".to_string(),
                     io_intensity_score: 8.2,
                     io_ops_per_request: 8.2,
                     co2_grams: Some(0.001),
