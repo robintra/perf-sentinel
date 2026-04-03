@@ -35,7 +35,7 @@ impl Default for WindowConfig {
 struct TraceBuffer {
     events: VecDeque<NormalizedEvent>,
     /// Absolute timestamp (ms since epoch) of the last event pushed to this trace.
-    /// Used for TTL eviction — the LRU cache handles relative access ordering.
+    /// Used for TTL eviction: the LRU cache handles relative access ordering.
     last_seen_ms: u64,
 }
 
@@ -70,7 +70,7 @@ impl TraceWindow {
         event: NormalizedEvent,
         now_ms: u64,
     ) -> Option<(String, Vec<NormalizedEvent>)> {
-        // Fast path: trace already exists — get_mut auto-promotes to MRU.
+        // Fast path: trace already exists: get_mut auto-promotes to MRU.
         if let Some(buf) = self.traces.get_mut(event.event.trace_id.as_str()) {
             buf.last_seen_ms = now_ms;
             buf.events.push_back(event);
@@ -81,7 +81,7 @@ impl TraceWindow {
             return None;
         }
 
-        // Slow path: new trace — clone trace_id, push evicts LRU if at cap.
+        // Slow path: new trace, clone trace_id; push evicts LRU if at cap.
         let trace_id = event.event.trace_id.clone();
         let mut events = VecDeque::with_capacity(8);
         events.push_back(event);
@@ -158,6 +158,7 @@ mod tests {
             timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: trace_id.to_string(),
             span_id: "span-1".to_string(),
+            parent_span_id: None,
             service: "test".to_string(),
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -234,7 +235,7 @@ mod tests {
         let mut w = TraceWindow::new(config);
         w.push(make_event("t1", "SELECT 1"), 0);
         w.push(make_event("t2", "SELECT 2"), 10);
-        // This should evict t1 (LRU — oldest access)
+        // This should evict t1 (LRU: oldest access)
         let evicted = w.push(make_event("t3", "SELECT 3"), 20);
 
         assert!(evicted.is_some());
@@ -265,7 +266,7 @@ mod tests {
         w.push(make_event("t2", "SELECT 2"), 10);
         // Touch t1 so it becomes more recent than t2 (get_mut promotes to MRU)
         w.push(make_event("t1", "SELECT 1b"), 20);
-        // Insert t3 — should evict t2 (LRU), not t1 (MRU)
+        // Insert t3: should evict t2 (LRU), not t1 (MRU)
         let evicted = w.push(make_event("t3", "SELECT 3"), 30);
 
         assert!(evicted.is_some());

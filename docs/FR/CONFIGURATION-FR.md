@@ -8,22 +8,23 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 
 Seuils du quality gate. Le quality gate échoue si une règle est violée.
 
-| Champ                         | Type    | Défaut | Description                                                                        |
-|-------------------------------|---------|--------|------------------------------------------------------------------------------------|
-| `n_plus_one_sql_critical_max` | entier  | `0`    | Nombre maximum de findings N+1 SQL **critiques** avant l'échec du gate             |
-| `n_plus_one_http_warning_max` | entier  | `3`    | Nombre maximum de findings N+1 HTTP **warning ou plus** avant l'échec du gate      |
-| `io_waste_ratio_max`          | flottant| `0.30` | Ratio maximum de gaspillage I/O (0.0 à 1.0) avant l'échec du gate                 |
+| Champ                         | Type     | Défaut | Description                                                                   |
+|-------------------------------|----------|--------|-------------------------------------------------------------------------------|
+| `n_plus_one_sql_critical_max` | entier   | `0`    | Nombre maximum de findings N+1 SQL **critiques** avant l'échec du gate        |
+| `n_plus_one_http_warning_max` | entier   | `3`    | Nombre maximum de findings N+1 HTTP **warning ou plus** avant l'échec du gate |
+| `io_waste_ratio_max`          | flottant | `0.30` | Ratio maximum de gaspillage I/O (0.0 à 1.0) avant l'échec du gate             |
 
 ### `[detection]`
 
 Paramètres des algorithmes de détection.
 
-| Champ                        | Type    | Défaut | Description                                                                                              |
-|------------------------------|---------|--------|----------------------------------------------------------------------------------------------------------|
-| `n_plus_one_min_occurrences` | entier  | `5`    | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                |
-| `window_duration_ms`         | entier  | `500`  | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1 |
-| `slow_query_threshold_ms`    | entier  | `500`  | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                |
-| `slow_query_min_occurrences` | entier  | `3`    | Nombre minimum d'occurrences lentes du même template pour générer un finding                             |
+| Champ                        | Type   | Défaut | Description                                                                                                     |
+|------------------------------|--------|--------|-----------------------------------------------------------------------------------------------------------------|
+| `n_plus_one_min_occurrences` | entier | `5`    | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                       |
+| `window_duration_ms`         | entier | `500`  | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1 |
+| `slow_query_threshold_ms`    | entier | `500`  | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                       |
+| `slow_query_min_occurrences` | entier | `3`    | Nombre minimum d'occurrences lentes du même template pour générer un finding                                    |
+| `max_fanout`                 | entier | `20`   | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)              |
 
 ### `[green]`
 
@@ -75,6 +76,7 @@ n_plus_one_min_occurrences = 5
 window_duration_ms = 500
 slow_query_threshold_ms = 500
 slow_query_min_occurrences = 3
+max_fanout = 20
 
 [green]
 enabled = true

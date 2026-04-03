@@ -48,6 +48,8 @@ For a 16-byte trace_id + 8-byte span_id, this saves ~600ns per span conversion. 
 
 ### `nanos_to_iso8601`: Howard Hinnant's Algorithm
 
+> **Note:** This function now lives in `time.rs` (shared module) and is reused by Jaeger and Zipkin ingestion via `micros_to_iso8601`.
+
 Converting Unix nanoseconds to `YYYY-MM-DDTHH:MM:SS.mmmZ` uses the civil date algorithm from [Howard Hinnant](https://howardhinnant.github.io/date_algorithms.html). The key steps:
 
 1. Convert nanoseconds to days since epoch + remaining milliseconds
@@ -86,6 +88,32 @@ pub fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
 ```
 
 The payload size is checked **before** deserialization. This prevents `serde_json` from allocating memory for a multi-gigabyte JSON payload before rejecting it.
+
+### Auto-format detection
+
+`JsonIngest` now auto-detects the input format using lightweight byte-level heuristics. It peeks at the first 1-4 KB of the payload:
+
+- Starts with `{` and contains `"data"` + `"spans"` in the first 4 KB: **Jaeger**
+- Starts with `[` and contains `"traceId"` + `"localEndpoint"` in the first 1 KB: **Zipkin**
+- Otherwise: **Native** perf-sentinel format
+
+This avoids parsing the full payload into a `serde_json::Value` for detection, eliminating a 2x parse cost. The heuristic operates on raw bytes (`std::str::from_utf8` on a bounded prefix), making it O(1) regardless of payload size.
+
+### Jaeger JSON ingestion
+
+`ingest/jaeger.rs` parses the Jaeger JSON export format (`{ "data": [{ "traceID": "...", "spans": [...], "processes": {...} }] }`). Key mappings:
+
+- `startTime` (microseconds) is converted via `micros_to_iso8601` from the shared `time.rs` module
+- `parent_span_id` is extracted from `references` where `refType = "CHILD_OF"`
+- Both legacy and stable OTel semantic conventions are supported in tags
+
+### Zipkin JSON v2 ingestion
+
+`ingest/zipkin.rs` parses the Zipkin JSON v2 format (flat array of span objects). Key differences from Jaeger:
+
+- `parentId` is a direct field (not in a references array)
+- Tags are a `HashMap<String, String>` (not an array of key-value objects)
+- `localEndpoint.serviceName` provides the service name
 
 ## Daemon event loop
 

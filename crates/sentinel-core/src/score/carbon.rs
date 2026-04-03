@@ -1,7 +1,7 @@
 //! `GreenOps` gCO₂eq conversion: static region-based carbon intensity table.
 //!
 //! Embeds carbon intensity values per region (gCO₂eq/kWh) and cloud provider PUE.
-//! No network calls — all data is embedded at compile time.
+//! No network calls, all data is embedded at compile time.
 //! Sources: Cloud Carbon Footprint (CCF), Electricity Maps annual averages.
 
 /// Estimated energy consumed per I/O operation in kWh.

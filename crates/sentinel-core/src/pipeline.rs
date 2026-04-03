@@ -24,8 +24,17 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
         window_ms: config.window_duration_ms,
         slow_threshold_ms: config.slow_query_threshold_ms,
         slow_min_occurrences: config.slow_query_min_occurrences,
+        max_fanout: config.max_fanout,
     };
-    let findings = detect::detect(&traces, &detect_config);
+    let mut findings = detect::detect(&traces, &detect_config);
+
+    // Cross-trace slow percentile analysis
+    let cross_trace = detect::slow::detect_slow_cross_trace(
+        &traces,
+        detect_config.slow_threshold_ms,
+        detect_config.slow_min_occurrences,
+    );
+    findings.extend(cross_trace);
 
     let (mut findings, green_summary) = if config.green_enabled {
         score::score_green(&traces, findings, config.green_region.as_deref())

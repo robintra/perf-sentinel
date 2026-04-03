@@ -25,6 +25,8 @@ pub struct Config {
     pub slow_query_threshold_ms: u64,
     /// Minimum occurrences of a slow template to flag as a finding.
     pub slow_query_min_occurrences: u32,
+    /// Maximum child spans per parent before flagging excessive fanout.
+    pub max_fanout: u32,
 
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
@@ -65,6 +67,7 @@ impl Default for Config {
             window_duration_ms: 500,
             slow_query_threshold_ms: 500,
             slow_query_min_occurrences: 3,
+            max_fanout: 20,
             // Green
             green_enabled: true,
             green_region: None,
@@ -120,6 +123,7 @@ struct DetectionSection {
     n_plus_one_min_occurrences: Option<u32>,
     slow_query_threshold_ms: Option<u64>,
     slow_query_min_occurrences: Option<u32>,
+    max_fanout: Option<u32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -182,6 +186,7 @@ impl From<RawConfig> for Config {
                 .detection
                 .slow_query_min_occurrences
                 .unwrap_or(defaults.slow_query_min_occurrences),
+            max_fanout: raw.detection.max_fanout.unwrap_or(defaults.max_fanout),
 
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
@@ -278,6 +283,15 @@ impl Config {
         if self.slow_query_min_occurrences == 0 {
             return Err("slow_query_min_occurrences must be >= 1".to_string());
         }
+        if self.max_fanout == 0 {
+            return Err("max_fanout must be >= 1".to_string());
+        }
+        if self.max_fanout > 100_000 {
+            return Err(format!(
+                "max_fanout must be <= 100000, got {}",
+                self.max_fanout
+            ));
+        }
         if self.trace_ttl_ms < 100 {
             return Err(format!(
                 "trace_ttl_ms must be >= 100, got {}",
@@ -299,7 +313,7 @@ impl Config {
         if self.listen_addr != "127.0.0.1" && self.listen_addr != "::1" {
             tracing::warn!(
                 "Daemon configured to listen on non-loopback address: {}. \
-                 Endpoints have no authentication — use a reverse proxy or \
+                 Endpoints have no authentication, use a reverse proxy or \
                  network policy for security.",
                 self.listen_addr
             );
@@ -316,6 +330,11 @@ impl Config {
 /// # Errors
 ///
 /// Returns an error if the TOML content cannot be parsed or contains invalid values.
+///
+/// # Errors
+///
+/// Returns `ConfigError::Parse` if the TOML is malformed, or
+/// `ConfigError::Validation` if a field value is out of bounds.
 pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     let raw: RawConfig = toml::from_str(content).map_err(ConfigError::Parse)?;
     let config = Config::from(raw);
@@ -539,6 +558,26 @@ region = "eu-west-3"
     fn rejects_zero_slow_query_min_occurrences() {
         let result = load_from_str("[detection]\nslow_query_min_occurrences = 0");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_zero_max_fanout() {
+        let result = load_from_str("[detection]\nmax_fanout = 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_max_fanout_over_100k() {
+        let result = load_from_str("[detection]\nmax_fanout = 100001");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max_fanout"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_max_fanout_at_100k() {
+        let result = load_from_str("[detection]\nmax_fanout = 100000");
+        assert!(result.is_ok());
     }
 
     #[test]

@@ -59,7 +59,7 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
                 distinct_params: 1, // always 1 for redundant (same params)
             },
             suggestion: format!(
-                "Identical operation executed {} times — cache result or deduplicate",
+                "Identical operation executed {} times: cache result or deduplicate",
                 indices.len()
             ),
             first_timestamp: min_ts.to_string(),

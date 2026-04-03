@@ -23,6 +23,8 @@ pub struct SpanEvent {
     pub timestamp: String,
     pub trace_id: String,
     pub span_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_span_id: Option<String>,
     pub service: String,
     #[serde(rename = "type")]
     pub event_type: EventType,

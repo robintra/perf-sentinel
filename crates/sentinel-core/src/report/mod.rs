@@ -2,6 +2,7 @@
 
 pub mod json;
 pub mod metrics;
+pub mod sarif;
 
 use crate::detect::Finding;
 use serde::Serialize;

@@ -13,12 +13,14 @@ pub mod correlate;
 pub mod daemon;
 pub mod detect;
 pub mod event;
+pub mod explain;
 pub mod ingest;
 pub mod normalize;
 pub mod pipeline;
 pub mod quality_gate;
 pub mod report;
 pub mod score;
+pub(crate) mod time;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;

@@ -15,13 +15,13 @@ Analyse les traces d'exécution (requêtes SQL, appels HTTP) pour détecter les 
 
 ## Pourquoi perf-sentinel ?
 
-Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O — monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n'a de visibilité sur le chemin complet. Les outils existants sont soit spécifiques à un runtime (Hypersistence Utils -> JPA uniquement), soit lourds et propriétaires (Datadog, New Relic), soit limités aux tests unitaires sans vision cross-service.
+Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n'a de visibilité sur le chemin complet. Les outils existants sont soit spécifiques à un runtime (Hypersistence Utils -> JPA uniquement), soit lourds et propriétaires (Datadog, New Relic), soit limités aux tests unitaires sans vision cross-service.
 
-perf-sentinel adopte une approche différente : **l'analyse au niveau protocole**. Il observe les traces produites par l'application (requêtes SQL, appels HTTP) quel que soit le langage ou l'ORM utilisé. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM — il voit les requêtes qu'ils génèrent.
+perf-sentinel adopte une approche différente : **l'analyse au niveau protocole**. Il observe les traces produites par l'application (requêtes SQL, appels HTTP) quel que soit le langage ou l'ORM utilisé. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
 ## GreenOps : scoring éco-conception intégré
 
-Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations I/O générées par requête utilisateur pour un endpoint donné. Réduire les I/O inutiles (N+1, appels redondants) améliore les temps de réponse *et* réduit la consommation énergétique — ce ne sont pas des objectifs concurrents.
+Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations I/O générées par requête utilisateur pour un endpoint donné. Réduire les I/O inutiles (N+1, appels redondants) améliore les temps de réponse *et* réduit la consommation énergétique : ce ne sont pas des objectifs concurrents.
 
 - **I/O Intensity Score** = opérations I/O totales pour un endpoint / nombre d'invocations
 - **I/O Waste Ratio** = opérations I/O évitables (issues des findings) / opérations I/O totales
@@ -45,7 +45,7 @@ Aligné avec la composante **Energy** du [modèle SCI (ISO/IEC 21031:2024)](http
 
 Pour chaque anti-pattern détecté, perf-sentinel remonte :
 
-- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, ou HTTP lent
+- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, ou fanout excessif
 - **Template normalisé :** la requête ou l'URL avec les paramètres remplacés par des placeholders (`?`, `{id}`)
 - **Occurrences :** combien de fois le pattern s'est déclenché dans la fenêtre de détection
 - **Endpoint source :** quel endpoint applicatif l'a généré (ex : `GET /api/orders`)
@@ -137,7 +137,7 @@ cargo install sentinel-cli
 
 ### Télécharger un binaire précompilé
 
-Des binaires pour Linux (amd64, arm64), macOS (amd64, arm64) et Windows (amd64) sont disponibles sur la page [GitHub Releases](https://github.com/robintra/perf-sentinel/releases).
+Des binaires pour Linux (amd64, arm64), macOS (arm64) et Windows (amd64) sont disponibles sur la page [GitHub Releases](https://github.com/robintra/perf-sentinel/releases). Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2.
 
 ```bash
 # Exemple : Linux amd64
@@ -162,6 +162,28 @@ perf-sentinel demo
 
 ```bash
 perf-sentinel analyze --input traces.json --ci
+```
+
+### Expliquer une trace
+
+```bash
+perf-sentinel explain --input traces.json --trace-id abc123
+```
+
+### Export SARIF (GitHub/GitLab code scanning)
+
+```bash
+perf-sentinel analyze --input traces.json --format sarif
+```
+
+### Import depuis Jaeger ou Zipkin
+
+```bash
+# Export Jaeger JSON (auto-détecté)
+perf-sentinel analyze --input jaeger-export.json
+
+# Zipkin JSON v2 (auto-détecté)
+perf-sentinel analyze --input zipkin-traces.json
 ```
 
 ### Mode streaming (daemon)

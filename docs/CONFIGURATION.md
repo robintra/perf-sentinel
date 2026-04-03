@@ -24,6 +24,7 @@ Detection algorithm parameters.
 | `window_duration_ms`         | integer | `500`   | Time window in milliseconds within which repeated operations are considered an N+1 pattern |
 | `slow_query_threshold_ms`    | integer | `500`   | Duration threshold in milliseconds above which an operation is considered slow             |
 | `slow_query_min_occurrences` | integer | `3`     | Minimum number of slow occurrences of the same template to generate a finding              |
+| `max_fanout`                 | integer | `20`    | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)       |
 
 ### `[green]`
 
@@ -75,6 +76,7 @@ n_plus_one_min_occurrences = 5
 window_duration_ms = 500
 slow_query_threshold_ms = 500
 slow_query_min_occurrences = 3
+max_fanout = 20
 
 [green]
 enabled = true

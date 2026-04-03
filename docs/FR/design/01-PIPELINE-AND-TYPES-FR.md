@@ -47,7 +47,7 @@ findings.sort_by(|a, b| {
 });
 ```
 
-Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp`.
+Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Les top offenders sont triés de manière similaire (IIS décroissant, ordre alphabétique en cas d'égalité) pour garantir le même rapport pour la même entrée.
 

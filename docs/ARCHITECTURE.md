@@ -32,7 +32,7 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
                         +------v------+
                         |   Detect    |
                         | n+1 / dup / |
-                        |    slow     |
+                        | slow/fanout |
                         +------+------+
                                |
                           Finding[]
@@ -45,11 +45,11 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
                                |
                    Finding[] + GreenSummary
                                |
-                        +------v------+
-                        |   Report    |
-                        | JSON / CLI  |
-                        | / Prometheus|
-                        +-------------+
+                        +------v-------+
+                        |   Report     |
+                        |JSON/CLI/SARIF|
+                        | / Prometheus |
+                        +--------------+
 ```
 
 ## Operating Modes
@@ -98,25 +98,27 @@ JSON unix socket       /                               |
 
 ## Module Responsibilities
 
-| Module           | Path              | Responsibility                                                                                                                                                                                                                          |
-|------------------|-------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **event**        | `event.rs`        | Core `SpanEvent` type (SQL and HTTP variants) with timestamp, trace/span IDs, service, operation, target, duration                                                                                                                      |
-| **ingest**       | `ingest/`         | Input sources: JSON parser (`json.rs`), OTLP gRPC+HTTP receiver (`otlp.rs`). Implements `IngestSource` trait                                                                                                                            |
-| **normalize**    | `normalize/`      | Produces `NormalizedEvent` with template + extracted params. SQL tokenizer (`sql.rs`): replaces literals, UUIDs, IN lists. HTTP normalizer (`http.rs`): replaces numeric/UUID path segments, strips query params                        |
-| **correlate**    | `correlate/`      | Groups events by `trace_id`. Batch mode (`mod.rs`): HashMap aggregation. Streaming mode (`window.rs`): LRU cache with per-trace ring buffer and TTL eviction                                                                            |
-| **detect**       | `detect/`         | Pattern detection on correlated traces. N+1 (`n_plus_one.rs`): same template, different params, within window. Redundant (`redundant.rs`): same template and params. Slow (`slow.rs`): duration above threshold with recurring template |
-| **score**        | `score/`          | GreenOps scoring (`mod.rs`): IIS per endpoint, waste ratio, top offenders, green_impact per finding. Carbon conversion (`carbon.rs`): optional gCO2eq based on region and embedded intensity table                                      |
-| **report**       | `report/`         | Output formatting. JSON report (`json.rs`), colored CLI output (`mod.rs`), Prometheus metrics (`metrics.rs`)                                                                                                                            |
-| **quality_gate** | `quality_gate.rs` | Evaluates configurable threshold rules against findings and green summary                                                                                                                                                               |
-| **pipeline**     | `pipeline.rs`     | Wires all stages together for batch mode: normalize -> correlate -> detect -> score -> quality_gate -> Report                                                                                                                           |
-| **daemon**       | `daemon.rs`       | Event loop for streaming mode: ingestion servers, mpsc channel, TraceWindow management, eviction processing                                                                                                                             |
-| **config**       | `config.rs`       | Parses `.perf-sentinel.toml` with sectioned format ([thresholds], [detection], [green], [daemon]) and legacy flat format backward compatibility                                                                                         |
+| Module           | Path              | Responsibility                                                                                                                                                                                                                                                                                     |
+|------------------|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **event**        | `event.rs`        | Core `SpanEvent` type (SQL and HTTP variants) with timestamp, trace/span IDs, service, operation, target, duration                                                                                                                                                                                 |
+| **ingest**       | `ingest/`         | Input sources: JSON parser with auto-format detection (`json.rs`), Jaeger JSON import (`jaeger.rs`), Zipkin JSON v2 import (`zipkin.rs`), OTLP gRPC+HTTP receiver (`otlp.rs`). Implements `IngestSource` trait                                                                                     |
+| **normalize**    | `normalize/`      | Produces `NormalizedEvent` with template + extracted params. SQL tokenizer (`sql.rs`): replaces literals, UUIDs, IN lists. HTTP normalizer (`http.rs`): replaces numeric/UUID path segments, strips query params                                                                                   |
+| **correlate**    | `correlate/`      | Groups events by `trace_id`. Batch mode (`mod.rs`): HashMap aggregation. Streaming mode (`window.rs`): LRU cache with per-trace ring buffer and TTL eviction                                                                                                                                       |
+| **detect**       | `detect/`         | Pattern detection on correlated traces. N+1 (`n_plus_one.rs`): same template, different params, within window. Redundant (`redundant.rs`): same template and params. Slow (`slow.rs`): duration above threshold with recurring template. Fanout (`fanout.rs`): parent span with excessive children |
+| **score**        | `score/`          | GreenOps scoring (`mod.rs`): IIS per endpoint, waste ratio, top offenders, green_impact per finding. Carbon conversion (`carbon.rs`): optional gCO2eq based on region and embedded intensity table                                                                                                 |
+| **report**       | `report/`         | Output formatting. JSON report (`json.rs`), SARIF v2.1.0 export (`sarif.rs`), colored CLI output (`mod.rs`), Prometheus metrics (`metrics.rs`)                                                                                                                                                     |
+| **quality_gate** | `quality_gate.rs` | Evaluates configurable threshold rules against findings and green summary                                                                                                                                                                                                                          |
+| **pipeline**     | `pipeline.rs`     | Wires all stages together for batch mode: normalize -> correlate -> detect -> score -> quality_gate -> Report                                                                                                                                                                                      |
+| **daemon**       | `daemon.rs`       | Event loop for streaming mode: ingestion servers, mpsc channel, TraceWindow management, eviction processing                                                                                                                                                                                        |
+| **config**       | `config.rs`       | Parses `.perf-sentinel.toml` with sectioned format ([thresholds], [detection], [green], [daemon]) and legacy flat format backward compatibility                                                                                                                                                    |
+| **time**         | `time.rs`         | Shared timestamp conversion helpers (`nanos_to_iso8601`, `micros_to_iso8601`). Used by OTLP, Jaeger, and Zipkin ingestion                                                                                                                                                                          |
+| **explain**      | `explain.rs`      | Trace tree viewer: builds span tree from `parent_span_id`, annotates findings inline. Text and JSON output                                                                                                                                                                                         |
 
 ## Key Types
 
 | Type              | Module           | Description                                                                              |
 |-------------------|------------------|------------------------------------------------------------------------------------------|
-| `SpanEvent`       | event            | Raw I/O event (SQL query or HTTP call) with metadata                                     |
+| `SpanEvent`       | event            | Raw I/O event (SQL query or HTTP call) with metadata and optional parent_span_id         |
 | `NormalizedEvent` | normalize        | SpanEvent enriched with normalized template and extracted parameters                     |
 | `Trace`           | correlate        | Collection of NormalizedEvents sharing the same trace_id                                 |
 | `Finding`         | detect           | Detected anti-pattern with type, severity, pattern details, timestamps, and green_impact |
@@ -131,7 +133,7 @@ JSON unix socket       /                               |
 ```
 sentinel-cli (binary)
   |
-  +-- clap CLI: analyze / watch / demo / bench subcommands
+  +-- clap CLI: analyze / explain / watch / demo / bench subcommands
   |
   +-- depends on sentinel-core (library)
         |

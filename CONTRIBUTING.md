@@ -42,8 +42,8 @@ cargo llvm-cov --workspace --html --open
 
 perf-sentinel is a Cargo workspace with two crates:
 
-- **sentinel-core** (`crates/sentinel-core/`) — library containing all pipeline logic
-- **sentinel-cli** (`crates/sentinel-cli/`) — binary providing the CLI
+- **sentinel-core** (`crates/sentinel-core/`): library containing all pipeline logic
+- **sentinel-cli** (`crates/sentinel-cli/`): binary providing the CLI
 
 The pipeline architecture is: `event -> normalize -> correlate -> detect -> score -> report`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
@@ -74,9 +74,9 @@ refactor: extract normalization into separate module
 
 ### Dependencies
 
-- Do **not** use the `sqlparser` crate — use the existing homemade tokenizer.
-- Do **not** vendor `.proto` files — use the `opentelemetry-proto` crate.
-- Do **not** make outbound network calls — all data (including carbon intensity tables) must be embedded.
+- Do **not** use the `sqlparser` crate, use the existing homemade tokenizer.
+- Do **not** vendor `.proto` files, use the `opentelemetry-proto` crate.
+- Do **not** make outbound network calls, all data (including carbon intensity tables) must be embedded.
 
 ### Prometheus Metrics
 
@@ -96,17 +96,21 @@ Each module has its own unit tests in a `#[cfg(test)] mod tests` block. Tests sh
 
 Integration tests live in:
 
-- `crates/sentinel-core/tests/e2e.rs` — tests the full pipeline with JSON fixtures
-- `crates/sentinel-cli/tests/e2e.rs` — tests the CLI binary behavior
+- `crates/sentinel-core/tests/e2e.rs`: tests the full pipeline with JSON fixtures
+- `crates/sentinel-cli/tests/e2e.rs`: tests the CLI binary behavior
 
 ### Fixtures
 
 Test fixtures are JSON files in `tests/fixtures/`:
 
-- `n_plus_one_sql.json` — N+1 SQL query pattern
-- `n_plus_one_http.json` — N+1 HTTP call pattern
-- `redundant_sql.json` — redundant query pattern
-- And others as needed
+- `n_plus_one_sql.json`: N+1 SQL query pattern
+- `n_plus_one_http.json`: N+1 HTTP call pattern
+- `clean_traces.json`: traces with no anti-patterns
+- `mixed.json`: multiple pattern types in one file
+- `slow_queries.json`: slow SQL and HTTP operations
+- `fanout.json`: excessive fanout pattern
+- `jaeger_export.json`: Jaeger JSON export format
+- `zipkin_export.json`: Zipkin JSON v2 format
 
 The demo dataset is embedded at `crates/sentinel-cli/src/demo_data.json`.
 

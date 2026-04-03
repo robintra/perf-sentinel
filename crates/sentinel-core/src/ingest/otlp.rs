@@ -28,41 +28,7 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
     unsafe { String::from_utf8_unchecked(buf) }
 }
 
-/// Convert nanoseconds since epoch to an ISO 8601 timestamp string.
-///
-/// Format: `YYYY-MM-DDTHH:MM:SS.mmmZ` (always UTC, 3 fractional digits).
-fn nanos_to_iso8601(nanos: u64) -> String {
-    const NANOS_PER_SEC: u64 = 1_000_000_000;
-    const SECS_PER_MIN: u64 = 60;
-    const SECS_PER_HOUR: u64 = 3600;
-    const SECS_PER_DAY: u64 = 86400;
-
-    let total_secs = nanos / NANOS_PER_SEC;
-    let millis = (nanos % NANOS_PER_SEC) / 1_000_000;
-
-    // Days since epoch
-    let mut days = total_secs / SECS_PER_DAY;
-    let day_secs = total_secs % SECS_PER_DAY;
-
-    let hours = day_secs / SECS_PER_HOUR;
-    let minutes = (day_secs % SECS_PER_HOUR) / SECS_PER_MIN;
-    let seconds = day_secs % SECS_PER_MIN;
-
-    // Convert days since epoch to year/month/day
-    // Algorithm from https://howardhinnant.github.io/date_algorithms.html
-    days += 719_468; // shift to 0000-03-01
-    let era = days / 146_097;
-    let doe = days - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-
-    format!("{y:04}-{m:02}-{d:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
-}
+use crate::time::nanos_to_iso8601;
 
 /// Extract a string attribute value from OTLP `KeyValue` pairs.
 fn get_str_attribute<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
@@ -198,10 +164,17 @@ fn convert_span(
         ("unknown".to_string(), span.name.clone())
     };
 
+    let parent_span_id = if span.parent_span_id.is_empty() {
+        None
+    } else {
+        Some(bytes_to_hex(&span.parent_span_id))
+    };
+
     Some(SpanEvent {
         timestamp,
         trace_id,
         span_id,
+        parent_span_id,
         service: service_name.to_string(),
         event_type,
         operation,
@@ -509,7 +482,7 @@ mod tests {
 
     #[test]
     fn timestamp_nanos_to_iso8601() {
-        // 2024-07-10T14:32:01.123Z
+        // 2024-07-10T14:32:01.123Z UTC
         let nanos: u64 = 1_720_621_921_123_000_000;
         let iso = nanos_to_iso8601(nanos);
         assert_eq!(iso, "2024-07-10T14:32:01.123Z");
@@ -581,7 +554,7 @@ mod tests {
         let req = make_request("test", vec![span]);
         let events = convert_otlp_request(&req);
         // db.statement takes precedence
-        assert_eq!(events[0].event_type, crate::event::EventType::Sql);
+        assert_eq!(events[0].event_type, EventType::Sql);
     }
 
     #[test]

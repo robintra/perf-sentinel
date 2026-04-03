@@ -93,6 +93,131 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
     findings
 }
 
+/// Nearest-rank percentile index: `ceil(p * n / 100) - 1`, clamped to `[0, n-1]`.
+fn percentile_index(n: usize, p: usize) -> usize {
+    let rank = (p * n).div_ceil(100);
+    rank.saturating_sub(1).min(n - 1)
+}
+
+/// Detect slow operations across multiple traces by computing percentiles.
+///
+/// Groups all spans across all traces by `(event_type, template)`, then computes
+/// p50/p95/p99 durations. Emits a finding for each template whose p99 exceeds
+/// the threshold. Only emits for templates that span at least 2 distinct traces
+/// (per-trace detection handles single-trace cases).
+///
+/// This function is designed for batch mode where multiple traces are available
+/// simultaneously. In daemon/streaming mode, traces are processed individually
+/// or in small eviction batches, limiting cross-trace visibility.
+#[must_use]
+pub fn detect_slow_cross_trace(
+    traces: &[Trace],
+    threshold_ms: u64,
+    min_occurrences: u32,
+) -> Vec<Finding> {
+    let threshold_us = threshold_ms.saturating_mul(1000);
+    let min_occ = min_occurrences as usize;
+
+    // Entries: (duration_us, trace_id, timestamp, service, endpoint)
+    // Pre-filter: only collect spans that exceed the threshold to avoid processing
+    // non-slow spans (reduces HashMap size from N to ~1% of N in typical workloads).
+    #[allow(clippy::type_complexity)]
+    let mut groups: HashMap<(&EventType, &str), Vec<(u64, &str, &str, &str, &str)>> =
+        HashMap::with_capacity(traces.len().min(256));
+    for trace in traces {
+        for span in &trace.spans {
+            if span.event.duration_us <= threshold_us {
+                continue;
+            }
+            groups
+                .entry((&span.event.event_type, &span.template))
+                .or_default()
+                .push((
+                    span.event.duration_us,
+                    trace.trace_id.as_str(),
+                    span.event.timestamp.as_str(),
+                    span.event.service.as_str(),
+                    span.event.source.endpoint.as_str(),
+                ));
+        }
+    }
+
+    let mut findings = Vec::new();
+    for ((event_type, template), mut entries) in groups {
+        if entries.len() < min_occ {
+            continue;
+        }
+
+        // Only emit for templates that span multiple traces (per-trace detection handles single-trace)
+        let distinct_traces: HashSet<&str> = entries.iter().map(|&(_, tid, _, _, _)| tid).collect();
+        if distinct_traces.len() < 2 {
+            continue;
+        }
+
+        // Sort by duration for percentile computation
+        entries.sort_by_key(|&(dur, _, _, _, _)| dur);
+        let n = entries.len();
+        let p50 = entries[percentile_index(n, 50)].0;
+        let p95 = entries[percentile_index(n, 95)].0;
+        let p99 = entries[percentile_index(n, 99)].0;
+
+        // Only emit if p99 exceeds threshold
+        if p99 <= threshold_us {
+            continue;
+        }
+
+        let max_dur = entries[n - 1].0;
+
+        // Use the worst-case span for metadata, timestamps by chronological order
+        let (_, worst_trace_id, _, worst_service, worst_endpoint) = entries[n - 1];
+        let (window_ms, first_ts, last_ts) =
+            super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
+
+        let severity = if max_dur > threshold_us.saturating_mul(5) {
+            Severity::Critical
+        } else {
+            Severity::Warning
+        };
+
+        let suggestion = match event_type {
+            EventType::Sql => format!(
+                "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {} occurrences. Consider adding an index or optimizing query",
+                p50 as f64 / 1000.0,
+                p95 as f64 / 1000.0,
+                p99 as f64 / 1000.0,
+                n
+            ),
+            EventType::HttpOut => format!(
+                "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {} occurrences. Consider caching or optimizing endpoint",
+                p50 as f64 / 1000.0,
+                p95 as f64 / 1000.0,
+                p99 as f64 / 1000.0,
+                n
+            ),
+        };
+
+        findings.push(Finding {
+            finding_type: FindingType::from_event_type_slow(event_type),
+            severity,
+            trace_id: worst_trace_id.to_string(),
+            service: worst_service.to_string(),
+            source_endpoint: worst_endpoint.to_string(),
+            pattern: Pattern {
+                template: (*template).to_string(),
+                occurrences: n,
+                window_ms,
+                distinct_params: 0,
+            },
+            suggestion,
+            first_timestamp: first_ts.to_string(),
+            last_timestamp: last_ts.to_string(),
+            green_impact: None,
+        });
+    }
+
+    findings
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -394,5 +519,112 @@ mod tests {
         };
         let findings = detect_slow(&trace, 500, 3);
         assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn cross_trace_detects_slow_across_traces() {
+        // 3 traces, each with 1 slow query of the same template
+        // Per-trace: only 1 occurrence each (below min_occurrences=3)
+        // Cross-trace: 3 occurrences total (meets threshold)
+        let traces: Vec<_> = (1..=3)
+            .map(|i| {
+                let events = vec![make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM big_table WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    600_000, // 600ms, above 500ms threshold
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::SlowSql);
+        assert_eq!(findings[0].pattern.occurrences, 3);
+        assert!(findings[0].suggestion.contains("Cross-trace"));
+        assert!(findings[0].suggestion.contains("p50="));
+    }
+
+    #[test]
+    fn cross_trace_below_threshold_no_finding() {
+        let traces: Vec<_> = (1..=3)
+            .map(|i| {
+                let events = vec![make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM t WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    300_000, // 300ms, below 500ms threshold
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn cross_trace_critical_severity_5x() {
+        let traces: Vec<_> = (1..=3)
+            .map(|i| {
+                let dur = if i == 3 { 3_000_000 } else { 600_000 }; // 3rd is 3000ms > 5x500ms
+                let events = vec![make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM t WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    dur,
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn percentile_index_small_n() {
+        // For n=3, p99 should return the max element (index 2), not the median
+        assert_eq!(percentile_index(3, 99), 2);
+        assert_eq!(percentile_index(3, 95), 2);
+        assert_eq!(percentile_index(3, 50), 1);
+        // Edge cases
+        assert_eq!(percentile_index(1, 99), 0);
+        assert_eq!(percentile_index(2, 99), 1);
+        assert_eq!(percentile_index(100, 99), 98);
+        assert_eq!(percentile_index(100, 50), 49);
+    }
+
+    #[test]
+    fn cross_trace_p99_is_max_for_small_n() {
+        // 3 traces, 1 slow span each: durations 600ms, 800ms, 1000ms
+        // p99 with n=3 should be 1000ms (the max), not 800ms (the median)
+        let traces: Vec<_> = vec![(1, 600_000u64), (2, 800_000), (3, 1_000_000)]
+            .into_iter()
+            .map(|(i, dur)| {
+                let events = vec![make_sql_event_with_duration(
+                    &format!("trace-{i}"),
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM t WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:0{i}.000Z"),
+                    dur,
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 1);
+        // The suggestion should include p99=1000.0ms (the max), not 800.0ms
+        assert!(
+            findings[0].suggestion.contains("p99=1000.0ms"),
+            "p99 should be max for n=3, got: {}",
+            findings[0].suggestion
+        );
     }
 }

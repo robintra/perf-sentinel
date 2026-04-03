@@ -2,13 +2,21 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Four subcommands are available: `analyze`, `watch`, `demo`, and `bench`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Five subcommands are available: `analyze`, `explain`, `watch`, `demo`, and `bench`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
 `perf-sentinel analyze` displays a colored terminal report when run interactively (without `--ci`). This is the output humans see when running the tool locally. With `--ci`, the output switches to structured JSON for machine consumption, and the process exits with code 1 if the quality gate fails.
 
 This follows the convention of tools like `cargo test` (colored output by default, `--format json` for CI).
+
+The `--format` flag provides explicit control over the output format: `text` (colored terminal, default), `json` (structured report), or `sarif` (SARIF v2.1.0 for code scanning). When `--ci` is used without `--format`, the output defaults to JSON for backward compatibility.
+
+### Explain: per-trace tree view
+
+`perf-sentinel explain --input FILE --trace-id ID` builds a tree from `parent_span_id` relationships and annotates findings inline. It runs per-trace detectors only (N+1, redundant, slow, fanout); cross-trace percentile findings are not included.
+
+Output formats: `--format text` (colored tree with Unicode box-drawing characters, default) or `--format json` (nested JSON structure). Both include a `MAX_TREE_DEPTH` guard of 256 levels to prevent stack overflow on deeply nested traces.
 
 ### Bench: pre-cloned batches
 
@@ -44,11 +52,11 @@ Throughput is computed from nanosecond precision (not millisecond) to avoid divi
 
 Platform-specific memory measurement:
 
-| Platform | Method                                       | Unit                    |
-|----------|----------------------------------------------|-------------------------|
+| Platform | Method                                        | Unit                    |
+|----------|-----------------------------------------------|-------------------------|
 | Linux    | `/proc/self/status` -> `VmRSS` line           | KB (converted to bytes) |
 | macOS    | `libc::getrusage(RUSAGE_SELF)` -> `ru_maxrss` | Bytes (on macOS)        |
-| Windows  | Not implemented                              | Returns `None`          |
+| Windows  | Not implemented                               | Returns `None`          |
 
 The macOS implementation uses `unsafe` for the `libc::getrusage` FFI call. This is justified: there is no safe Rust API for this syscall, and the function is well-documented in POSIX. The return value is checked (`if ret == 0`) before using the result.
 
@@ -112,6 +120,7 @@ Every numeric field has explicit bounds in `validate()`:
 | `window_duration_ms`         | 1     | *(none)*             | Non-zero window                    |
 | `slow_query_threshold_ms`    | 1     | *(none)*             | Non-zero threshold                 |
 | `slow_query_min_occurrences` | 1     | *(none)*             | At least 1 occurrence              |
+| `max_fanout`                 | 1     | 100,000              | Prevent disabling detection        |
 | `trace_ttl_ms`               | 100   | *(none)*             | Minimum eviction interval          |
 | `sampling_rate`              | 0.0   | 1.0                  | Valid probability                  |
 | `io_waste_ratio_max`         | 0.0   | 1.0                  | Valid ratio                        |
@@ -166,7 +175,7 @@ The alternative `opt-level = "s"` (optimize for size) was considered but rejecte
 
 ## Distribution strategy
 
-1. **GitHub Releases** (primary): cross-platform binaries for 5 targets (linux/amd64, linux/arm64, macOS/amd64, macOS/arm64, windows/amd64) with SHA256 checksums
+1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2
 2. **`cargo install sentinel-cli`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`): minimal image for Kubernetes deployments
 

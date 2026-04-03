@@ -24,117 +24,133 @@ enum State {
     InNumber,
 }
 
+/// Mutable tokenizer state carried between steps.
+struct Tokenizer<'a> {
+    query: &'a str,
+    bytes: &'a [u8],
+    template: String,
+    params: Vec<String>,
+    i: usize,
+    state: State,
+    current_value: String,
+    seen_dot: bool,
+    has_in_list: bool,
+    normal_start: usize,
+}
+
 /// Normalize a SQL query by replacing literal values with `?` placeholders.
 #[must_use]
-#[allow(clippy::too_many_lines)] // single-pass state machine with 3 states; splitting would hurt readability
 pub fn normalize_sql(query: &str) -> SqlNormalized {
-    let bytes = query.as_bytes();
-    let len = bytes.len();
-    let mut template = String::with_capacity(query.len());
-    let mut params: Vec<String> = Vec::new();
+    let mut t = Tokenizer {
+        query,
+        bytes: query.as_bytes(),
+        template: String::with_capacity(query.len()),
+        params: Vec::new(),
+        i: 0,
+        state: State::Normal,
+        current_value: String::new(),
+        seen_dot: false,
+        has_in_list: false,
+        normal_start: 0,
+    };
 
-    let mut i = 0;
-    let mut state = State::Normal;
-    let mut current_value = String::new();
-    let mut seen_dot = false;
-    let mut has_in_list = false;
-    // Track start of normal runs to batch-push into template
-    let mut normal_start = 0;
-
-    while i < len {
-        match state {
-            State::Normal => {
-                let b = bytes[i];
-                if b == b'\'' {
-                    // Flush normal run before entering string literal
-                    if i > normal_start {
-                        template.push_str(&query[normal_start..i]);
-                    }
-                    state = State::InString;
-                    current_value.clear();
-                } else if b.is_ascii_digit() && !is_identifier_byte_before(i, bytes) {
-                    // Flush normal run before entering number
-                    if i > normal_start {
-                        template.push_str(&query[normal_start..i]);
-                    }
-                    state = State::InNumber;
-                    seen_dot = false;
-                    current_value.clear();
-                    current_value.push(b as char);
-                } else {
-                    // Track IN keyword to skip regex post-pass when absent
-                    if !has_in_list
-                        && (b == b'I' || b == b'i')
-                        && i + 1 < len
-                        && (bytes[i + 1] == b'N' || bytes[i + 1] == b'n')
-                        && (i == 0 || bytes[i - 1].is_ascii_whitespace())
-                        && (i + 2 >= len || !bytes[i + 2].is_ascii_alphanumeric())
-                    {
-                        has_in_list = true;
-                    }
-                }
-                i += 1;
-            }
-            State::InString => {
-                let b = bytes[i];
-                if b == b'\'' {
-                    // Check for escaped quote ''
-                    if i + 1 < len && bytes[i + 1] == b'\'' {
-                        current_value.push('\'');
-                        i += 2;
-                    } else {
-                        // End of string
-                        params.push(std::mem::take(&mut current_value));
-                        template.push('?');
-                        state = State::Normal;
-                        i += 1;
-                        normal_start = i;
-                    }
-                } else {
-                    current_value.push(b as char);
-                    i += 1;
-                }
-            }
-            State::InNumber => {
-                let b = bytes[i];
-                if b.is_ascii_digit() {
-                    current_value.push(b as char);
-                    i += 1;
-                } else if b == b'.' && !seen_dot {
-                    seen_dot = true;
-                    current_value.push('.');
-                    i += 1;
-                } else {
-                    // End of number (second dot or non-digit)
-                    params.push(std::mem::take(&mut current_value));
-                    template.push('?');
-                    state = State::Normal;
-                    normal_start = i;
-                }
-            }
+    while t.i < t.bytes.len() {
+        match t.state {
+            State::Normal => step_normal(&mut t),
+            State::InString => step_in_string(&mut t),
+            State::InNumber => step_in_number(&mut t),
         }
     }
 
-    // Flush any pending state at end of input
-    match state {
-        State::InNumber => {
-            params.push(current_value);
-            template.push('?');
+    flush_pending(&mut t);
+    collapse_in_lists(t.template, t.has_in_list, t.params)
+}
+
+fn step_normal(t: &mut Tokenizer<'_>) {
+    let b = t.bytes[t.i];
+    if b == b'\'' {
+        flush_normal_run(t);
+        t.state = State::InString;
+        t.current_value.clear();
+    } else if b.is_ascii_digit() && !is_identifier_byte_before(t.i, t.bytes) {
+        flush_normal_run(t);
+        t.state = State::InNumber;
+        t.seen_dot = false;
+        t.current_value.clear();
+        t.current_value.push(b as char);
+    } else if !t.has_in_list {
+        t.has_in_list = is_in_keyword(t.i, t.bytes);
+    }
+    t.i += 1;
+}
+
+fn step_in_string(t: &mut Tokenizer<'_>) {
+    let b = t.bytes[t.i];
+    if b == b'\'' {
+        if t.i + 1 < t.bytes.len() && t.bytes[t.i + 1] == b'\'' {
+            t.current_value.push('\'');
+            t.i += 2;
+        } else {
+            t.params.push(std::mem::take(&mut t.current_value));
+            t.template.push('?');
+            t.state = State::Normal;
+            t.i += 1;
+            t.normal_start = t.i;
         }
-        State::InString => {
-            // Unterminated string literal — still emit placeholder
-            params.push(current_value);
-            template.push('?');
+    } else {
+        t.current_value.push(b as char);
+        t.i += 1;
+    }
+}
+
+fn step_in_number(t: &mut Tokenizer<'_>) {
+    let b = t.bytes[t.i];
+    if b.is_ascii_digit() {
+        t.current_value.push(b as char);
+        t.i += 1;
+    } else if b == b'.' && !t.seen_dot {
+        t.seen_dot = true;
+        t.current_value.push('.');
+        t.i += 1;
+    } else {
+        t.params.push(std::mem::take(&mut t.current_value));
+        t.template.push('?');
+        t.state = State::Normal;
+        t.normal_start = t.i;
+    }
+}
+
+fn flush_normal_run(t: &mut Tokenizer<'_>) {
+    if t.i > t.normal_start {
+        t.template.push_str(&t.query[t.normal_start..t.i]);
+    }
+}
+
+fn flush_pending(t: &mut Tokenizer<'_>) {
+    match t.state {
+        State::InNumber | State::InString => {
+            t.params.push(std::mem::take(&mut t.current_value));
+            t.template.push('?');
         }
         State::Normal => {
-            // Flush remaining normal run
-            if len > normal_start {
-                template.push_str(&query[normal_start..len]);
+            let len = t.bytes.len();
+            if len > t.normal_start {
+                t.template.push_str(&t.query[t.normal_start..len]);
             }
         }
     }
+}
 
-    // Post-pass: collapse IN (?, ?, ?) -> IN (?) — skip when no IN keyword was seen
+fn is_in_keyword(i: usize, bytes: &[u8]) -> bool {
+    let b = bytes[i];
+    (b == b'I' || b == b'i')
+        && i + 1 < bytes.len()
+        && (bytes[i + 1] == b'N' || bytes[i + 1] == b'n')
+        && (i == 0 || bytes[i - 1].is_ascii_whitespace())
+        && (i + 2 >= bytes.len() || !bytes[i + 2].is_ascii_alphanumeric())
+}
+
+fn collapse_in_lists(template: String, has_in_list: bool, params: Vec<String>) -> SqlNormalized {
     let template = if has_in_list {
         match IN_LIST_RE.replace_all(&template, "IN (?)") {
             Cow::Borrowed(_) => template,
@@ -143,7 +159,6 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
     } else {
         template
     };
-
     SqlNormalized { template, params }
 }
 

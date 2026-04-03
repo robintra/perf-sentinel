@@ -1,4 +1,4 @@
-# VHS script — generates docs/img/demo.gif
+# VHS script, generates docs/img/demo.gif
 # Install vhs: https://github.com/charmbracelet/vhs
 # Prerequisites: cargo build --release
 

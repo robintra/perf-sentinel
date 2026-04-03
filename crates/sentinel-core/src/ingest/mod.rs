@@ -1,7 +1,9 @@
 //! Ingestion stage: reads raw events from various sources.
 
+pub mod jaeger;
 pub mod json;
 pub mod otlp;
+pub mod zipkin;
 
 use crate::event::SpanEvent;
 

@@ -15,13 +15,13 @@ Analyzes runtime traces (SQL queries, HTTP calls) to detect N+1 queries, redunda
 
 ## Why perf-sentinel?
 
-Performance anti-patterns like N+1 queries exist in any application that does I/O — monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
+Performance anti-patterns like N+1 queries exist in any application that does I/O: monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
 
-perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core, or SeaORM — it sees the queries they generate.
+perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core, or SeaORM, it sees the queries they generate.
 
 ## GreenOps: built-in carbon-aware scoring
 
-Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O operations generated per user request for a given endpoint. Reducing unnecessary I/O (N+1 queries, redundant calls) improves response times *and* reduces energy consumption — these are not competing goals.
+Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O operations generated per user request for a given endpoint. Reducing unnecessary I/O (N+1 queries, redundant calls) improves response times *and* reduces energy consumption, these are not competing goals.
 
 - **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
 - **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
@@ -45,7 +45,7 @@ Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](ht
 
 For each detected anti-pattern, perf-sentinel reports:
 
-- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, or slow HTTP
+- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, or excessive fanout
 - **Normalized template:** the query or URL with parameters replaced by placeholders (`?`, `{id}`)
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
@@ -137,7 +137,7 @@ cargo install sentinel-cli
 
 ### Download a prebuilt binary
 
-Binaries for Linux (amd64, arm64), macOS (amd64, arm64), and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page.
+Binaries for Linux (amd64, arm64), macOS (arm64), and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page. macOS Intel users can run the arm64 binary via Rosetta 2.
 
 ```bash
 # Example: Linux amd64
@@ -162,6 +162,28 @@ perf-sentinel demo
 
 ```bash
 perf-sentinel analyze --input traces.json --ci
+```
+
+### Explain a trace
+
+```bash
+perf-sentinel explain --input traces.json --trace-id abc123
+```
+
+### SARIF export (GitHub/GitLab code scanning)
+
+```bash
+perf-sentinel analyze --input traces.json --format sarif
+```
+
+### Import from Jaeger or Zipkin
+
+```bash
+# Jaeger JSON export (auto-detected)
+perf-sentinel analyze --input jaeger-export.json
+
+# Zipkin JSON v2 (auto-detected)
+perf-sentinel analyze --input zipkin-traces.json
 ```
 
 ### Streaming mode (daemon)

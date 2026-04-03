@@ -2,13 +2,19 @@
 
 ## Conception du CLI
 
-Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Quatre sous-commandes sont disponibles : `analyze`, `watch`, `demo` et `bench`.
+Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Cinq sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo` et `bench`.
 
 ### Analyze : rapport coloré par défaut, JSON avec `--ci`
 
 `perf-sentinel analyze` affiche un rapport coloré dans le terminal en mode interactif (sans `--ci`). C'est la sortie que les humains voient en utilisant l'outil localement. Avec `--ci`, la sortie passe en JSON structuré pour la consommation par les machines, et le processus sort avec le code 1 si le quality gate échoue.
 
 Cela suit la convention d'outils comme `cargo test` (sortie colorée par défaut, `--format json` pour le CI).
+
+Le flag `--format` offre un contrôle explicite sur le format de sortie : `text` (terminal coloré, défaut), `json` (rapport structuré) ou `sarif` (SARIF v2.1.0 pour le code scanning). Avec `--ci` sans `--format`, la sortie est en JSON par défaut pour la rétrocompatibilité.
+
+### Explain : vue arborescente par trace
+
+`perf-sentinel explain --input FILE --trace-id ID` construit un arbre à partir des relations `parent_span_id` et annote les findings en ligne. Il exécute uniquement les détecteurs par trace (N+1, redondant, lent, fanout) ; les findings cross-trace ne sont pas inclus.
 
 ### Bench : lots pré-clonés
 
@@ -44,11 +50,11 @@ Le débit est calculé à partir de la précision nanoseconde (pas milliseconde)
 
 Mesure mémoire spécifique à la plateforme :
 
-| Plateforme | Méthode                                       | Unité                         |
-|------------|-----------------------------------------------|-------------------------------|
-| Linux      | `/proc/self/status` -> ligne `VmRSS`           | Ko (converti en octets)       |
-| macOS      | `libc::getrusage(RUSAGE_SELF)` -> `ru_maxrss`  | Octets (sur macOS)            |
-| Windows    | Non implémenté                                 | Retourne `None`               |
+| Plateforme | Méthode                                       | Unité                   |
+|------------|-----------------------------------------------|-------------------------|
+| Linux      | `/proc/self/status` -> ligne `VmRSS`          | Ko (converti en octets) |
+| macOS      | `libc::getrusage(RUSAGE_SELF)` -> `ru_maxrss` | Octets (sur macOS)      |
+| Windows    | Non implémenté                                | Retourne `None`         |
 
 L'implémentation macOS utilise `unsafe` pour l'appel FFI `libc::getrusage`. C'est justifié : il n'existe pas d'API Rust safe pour cet appel système, et la fonction est bien documentée dans POSIX. La valeur de retour est vérifiée (`if ret == 0`) avant d'utiliser le résultat.
 
@@ -103,18 +109,19 @@ n_plus_one_threshold: raw.detection.n_plus_one_min_occurrences
 
 Chaque champ numérique a des bornes explicites dans `validate()` :
 
-| Champ                        | Min     | Max                     | Raison                                       |
-|------------------------------|---------|-------------------------|----------------------------------------------|
-| `max_payload_size`           | 1 024   | 104 857 600 (100 Mo)    | Empêcher la désactivation de la protection    |
-| `max_active_traces`          | 1       | 1 000 000               | Empêcher la mémoire non bornée               |
-| `max_events_per_trace`       | 1       | 100 000                 | Empêcher l'OOM par trace                     |
-| `n_plus_one_threshold`       | 1       | *(aucun)*               | Au moins 1 occurrence pour détecter           |
-| `window_duration_ms`         | 1       | *(aucun)*               | Fenêtre non nulle                            |
-| `slow_query_threshold_ms`    | 1       | *(aucun)*               | Seuil non nul                                |
-| `slow_query_min_occurrences` | 1       | *(aucun)*               | Au moins 1 occurrence                        |
-| `trace_ttl_ms`               | 100     | *(aucun)*               | Intervalle d'éviction minimum                |
-| `sampling_rate`              | 0.0     | 1.0                     | Probabilité valide                           |
-| `io_waste_ratio_max`         | 0.0     | 1.0                     | Ratio valide                                 |
+| Champ                        | Min   | Max                  | Raison                                     |
+|------------------------------|-------|----------------------|--------------------------------------------|
+| `max_payload_size`           | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection |
+| `max_active_traces`          | 1     | 1 000 000            | Empêcher la mémoire non bornée             |
+| `max_events_per_trace`       | 1     | 100 000              | Empêcher l'OOM par trace                   |
+| `n_plus_one_threshold`       | 1     | *(aucun)*            | Au moins 1 occurrence pour détecter        |
+| `window_duration_ms`         | 1     | *(aucun)*            | Fenêtre non nulle                          |
+| `slow_query_threshold_ms`    | 1     | *(aucun)*            | Seuil non nul                              |
+| `slow_query_min_occurrences` | 1     | *(aucun)*            | Au moins 1 occurrence                      |
+| `max_fanout`                 | 1     | 100 000              | Empêcher la désactivation de la détection  |
+| `trace_ttl_ms`               | 100   | *(aucun)*            | Intervalle d'éviction minimum              |
+| `sampling_rate`              | 0.0   | 1.0                  | Probabilité valide                         |
+| `io_waste_ratio_max`         | 0.0   | 1.0                  | Ratio valide                               |
 
 La vérification de `listen_addr` non-loopback émet un avertissement mais ne rejette pas :
 
@@ -166,7 +173,7 @@ L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée ma
 
 ## Stratégie de distribution
 
-1. **GitHub Releases** (principal) : binaires multi-plateformes pour 5 cibles (linux/amd64, linux/arm64, macOS/amd64, macOS/arm64, windows/amd64) avec checksums SHA256
+1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2
 2. **`cargo install sentinel-cli`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`) : image minimale pour les déploiements Kubernetes
 

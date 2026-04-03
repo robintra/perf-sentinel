@@ -4,7 +4,7 @@
 //! strips query parameters, and prepends the HTTP method.
 
 /// Check if a string is a UUID (8-4-4-4-12 hex with dashes).
-/// Hand-coded for performance — avoids regex engine overhead on the hot path.
+/// Hand-coded for performance, avoids regex engine overhead on the hot path.
 fn is_uuid(s: &str) -> bool {
     if s.len() != 36 {
         return false;
@@ -55,32 +55,35 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
         }
     }
 
-    // Normalize path segments — build directly into a String
-    let normalized_path: String = if path.is_empty() || path == "/" {
-        "/".to_string()
-    } else {
-        let mut result = String::with_capacity(path.len() + 8);
-        for (idx, seg) in path.split('/').enumerate() {
-            if idx > 0 {
-                result.push('/');
-            }
-            if seg.is_empty() {
-                // leading or trailing slash — nothing to push
-            } else if is_uuid(seg) {
-                params.push(seg.to_string());
-                result.push_str("{uuid}");
-            } else if is_numeric(seg) {
-                params.push(seg.to_string());
-                result.push_str("{id}");
-            } else {
-                result.push_str(seg);
-            }
-        }
-        result
-    };
+    let normalized_path = normalize_path_segments(path, &mut params);
 
     let template = format!("{method} {normalized_path}");
     HttpNormalized { template, params }
+}
+
+/// Normalize path segments: replace numeric with `{id}`, UUIDs with `{uuid}`.
+fn normalize_path_segments(path: &str, params: &mut Vec<String>) -> String {
+    if path.is_empty() || path == "/" {
+        return "/".to_string();
+    }
+    let mut result = String::with_capacity(path.len() + 8);
+    for (idx, seg) in path.split('/').enumerate() {
+        if idx > 0 {
+            result.push('/');
+        }
+        if seg.is_empty() {
+            // leading or trailing slash
+        } else if is_uuid(seg) {
+            params.push(seg.to_string());
+            result.push_str("{uuid}");
+        } else if is_numeric(seg) {
+            params.push(seg.to_string());
+            result.push_str("{id}");
+        } else {
+            result.push_str(seg);
+        }
+    }
+    result
 }
 
 /// Strip scheme and authority from a URL, returning just the path (+ query).

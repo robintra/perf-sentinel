@@ -6,7 +6,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
-use crate::detect::{Finding, FindingType, GreenImpact};
+use crate::detect::{Finding, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 
 /// Per-endpoint statistics accumulated during scoring.
@@ -14,6 +14,36 @@ struct EndpointStats<'a> {
     total_io_ops: usize,
     invocation_count: usize,
     service: &'a str,
+}
+
+/// Count I/O ops per endpoint and invocations (distinct traces per endpoint).
+fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<&str, EndpointStats<'_>>, usize) {
+    let mut endpoint_stats: HashMap<&str, EndpointStats<'_>> =
+        HashMap::with_capacity(traces.len().min(64));
+    let mut total_io_ops: usize = 0;
+    let mut seen_endpoints: HashSet<&str> = HashSet::new();
+
+    for trace in traces {
+        seen_endpoints.clear();
+        for span in &trace.spans {
+            total_io_ops += 1;
+            let key = span.event.source.endpoint.as_str();
+            let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
+                total_io_ops: 0,
+                invocation_count: 0,
+                service: span.event.service.as_str(),
+            });
+            stats.total_io_ops += 1;
+            seen_endpoints.insert(key);
+        }
+        for &ep in &seen_endpoints {
+            if let Some(stats) = endpoint_stats.get_mut(ep) {
+                stats.invocation_count += 1;
+            }
+        }
+    }
+
+    (endpoint_stats, total_io_ops)
 }
 
 /// Compute `GreenOps` scores: enrich findings with `green_impact` and produce a `GreenSummary`.
@@ -34,41 +64,14 @@ pub fn score_green(
     findings: Vec<Finding>,
     region: Option<&str>,
 ) -> (Vec<Finding>, GreenSummary) {
-    // Phase 1: Count I/O ops per endpoint and invocations (distinct traces).
-    // We iterate by trace first to count each trace as one invocation per endpoint,
-    // avoiding unnecessary String clones in the inner loop.
-    let mut endpoint_stats: HashMap<&str, EndpointStats<'_>> =
-        HashMap::with_capacity(traces.len().min(64));
-    let mut total_io_ops: usize = 0;
-
-    let mut seen_endpoints: HashSet<&str> = HashSet::new();
-    for trace in traces {
-        // Collect unique endpoints in this trace to count invocations
-        seen_endpoints.clear();
-        for span in &trace.spans {
-            total_io_ops += 1;
-            let key = span.event.source.endpoint.as_str();
-            let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
-                total_io_ops: 0,
-                invocation_count: 0,
-                service: span.event.service.as_str(),
-            });
-            stats.total_io_ops += 1;
-            seen_endpoints.insert(key);
-        }
-        for &ep in &seen_endpoints {
-            if let Some(stats) = endpoint_stats.get_mut(ep) {
-                stats.invocation_count += 1;
-            }
-        }
-    }
+    let (endpoint_stats, total_io_ops) = count_endpoint_stats(traces);
 
     // Phase 2: Dedup avoidable I/O ops by (trace_id, template), taking max.
-    // Slow findings are excluded: slow queries are not "avoidable" I/O — they are
+    // Slow findings are excluded: slow queries are not "avoidable" I/O, they are
     // necessary operations that happen to be slow.
     let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
     for f in &findings {
-        if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
+        if !f.finding_type.is_avoidable_io() {
             continue;
         }
         let avoidable = f.pattern.occurrences.saturating_sub(1);
@@ -96,11 +99,10 @@ pub fn score_green(
             .copied()
             .unwrap_or(0.0);
 
-        // Slow findings have no "extra" I/O ops — they are necessary but slow.
-        let extra = if matches!(f.finding_type, FindingType::SlowSql | FindingType::SlowHttp) {
-            0
-        } else {
+        let extra = if f.finding_type.is_avoidable_io() {
             f.pattern.occurrences.saturating_sub(1)
+        } else {
+            0
         };
         f.green_impact = Some(GreenImpact {
             estimated_extra_io_ops: extra,

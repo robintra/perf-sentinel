@@ -1,6 +1,6 @@
 # Algorithmes de détection
 
-La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier trois types d'anti-patterns : les requêtes N+1, les appels redondants et les opérations lentes.
+La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier quatre types d'anti-patterns : les requêtes N+1, les appels redondants, les opérations lentes et le fanout excessif.
 
 ## Pattern partagé : clés HashMap empruntées
 
@@ -165,4 +165,21 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 }
 ```
 
-Les trois détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, trois passes O(n) sont négligeables.
+Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, quatre passes O(n) sont négligeables.
+
+## Détection de fanout
+
+### Algorithme
+
+1. Regrouper les spans par `parent_span_id`
+2. Ignorer les groupes où le parent a `max_fanout` ou moins d'enfants (défaut 20)
+3. Pour chaque parent dépassant le seuil, émettre un finding `ExcessiveFanout`
+4. Sévérité : Warning si > `max_fanout`, Critical si > 3x `max_fanout`
+
+### Pas dans le ratio de gaspillage
+
+Comme les findings lents, les findings de fanout ont `green_impact.estimated_extra_io_ops = 0`. Le fanout excessif est un problème structurel qui nécessite une optimisation architecturale, pas une élimination d'I/O.
+
+## Percentiles lents cross-trace
+
+En mode batch, `detect_slow_cross_trace` collecte les spans lents à travers toutes les traces et calcule les percentiles p50/p95/p99 par template normalisé. Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés.

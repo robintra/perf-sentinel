@@ -22,7 +22,8 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
     let threshold = threshold as usize;
 
     // Group spans by (event_type, template) using borrowed keys
-    let mut groups: HashMap<(&EventType, &str), Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<(&EventType, &str), Vec<usize>> =
+        HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
         groups
             .entry((&span.event.event_type, &span.template))
@@ -100,7 +101,7 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
     findings
 }
 
-/// Slice-based variant used in tests.
+/// Slice-based variant for computing window from a slice of timestamps.
 #[cfg(test)]
 pub(crate) fn compute_window_and_bounds<'a>(timestamps: &[&'a str]) -> (u64, &'a str, &'a str) {
     compute_window_and_bounds_iter(timestamps.iter().copied())
@@ -317,7 +318,7 @@ mod tests {
 
     #[test]
     fn window_exceeded_no_finding() {
-        // 6 events spread over 10 seconds — exceeds 500ms window limit
+        // 6 events spread over 10 seconds: exceeds 500ms window limit
         let events: Vec<SpanEvent> = (1..=6)
             .map(|i| {
                 make_sql_event(
@@ -502,7 +503,7 @@ mod tests {
 
     #[test]
     fn n_plus_one_timestamps_unsorted_input() {
-        // Timestamps out of order — should still find correct min/max
+        // Timestamps out of order: should still find correct min/max
         let timestamps = [
             "2025-07-10T14:32:01.200Z",
             "2025-07-10T14:32:01.050Z",

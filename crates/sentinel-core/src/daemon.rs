@@ -16,6 +16,7 @@ use crate::detect;
 use crate::detect::DetectConfig;
 use crate::event::SpanEvent;
 use crate::normalize;
+use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
 
@@ -121,6 +122,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         window_ms: config.window_duration_ms,
         slow_threshold_ms: config.slow_query_threshold_ms,
         slow_min_occurrences: config.slow_query_min_occurrences,
+        max_fanout: config.max_fanout,
     };
     let green_region = config.green_region.clone();
     let green_enabled = config.green_enabled;
@@ -202,7 +204,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 
 /// Process a batch of completed/expired traces: detect, score, emit NDJSON.
 fn process_traces(
-    traces: Vec<(String, Vec<crate::normalize::NormalizedEvent>)>,
+    traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
     detect_config: &DetectConfig,
     green_enabled: bool,
     green_region: Option<&str>,
@@ -223,10 +225,7 @@ fn process_traces(
         score::score_green(&trace_structs, findings, green_region)
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
-        (
-            findings,
-            crate::report::GreenSummary::disabled(total_io_ops),
-        )
+        (findings, GreenSummary::disabled(total_io_ops))
     };
 
     // Update Prometheus metrics
@@ -315,7 +314,6 @@ fn current_time_ms() -> u64 {
 /// Reads newline-delimited JSON (NDJSON): each line is a JSON array of `SpanEvent`s.
 #[cfg(unix)]
 async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_payload_size: usize) {
-    use tokio::io::AsyncBufReadExt;
     use tokio::net::UnixListener;
 
     // Clean up stale socket file
@@ -350,38 +348,46 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
                     break; // semaphore closed
                 };
                 tokio::spawn(async move {
-                    use tokio::io::AsyncReadExt;
-                    // Bound total bytes per connection to prevent OOM from
-                    // a single huge line without a newline.
-                    // Allows up to 16 max-payload-sized lines per connection.
-                    const CONNECTION_LIMIT_FACTOR: u64 = 16;
-                    let limited = stream.take(max_payload_size as u64 * CONNECTION_LIMIT_FACTOR);
-                    let reader = tokio::io::BufReader::new(limited);
-                    let mut lines = reader.lines();
-                    while let Ok(Some(line)) = lines.next_line().await {
-                        if line.len() > max_payload_size {
-                            tracing::warn!("JSON socket: line exceeds max payload size, skipping");
-                            continue;
-                        }
-                        let ingest = crate::ingest::json::JsonIngest::new(max_payload_size);
-                        match crate::ingest::IngestSource::ingest(&ingest, line.as_bytes()) {
-                            Ok(events) if !events.is_empty() => {
-                                if tx.send(events).await.is_err() {
-                                    tracing::warn!("JSON socket: event channel closed");
-                                    break;
-                                }
-                            }
-                            Ok(_) => {}
-                            Err(e) => {
-                                tracing::debug!("JSON socket: failed to parse line: {e}");
-                            }
-                        }
-                    }
+                    handle_json_connection(stream, tx, max_payload_size).await;
                     drop(permit);
                 });
             }
             Err(e) => {
                 tracing::error!("Unix socket accept error: {e}");
+            }
+        }
+    }
+}
+
+/// Process a single JSON socket connection: read NDJSON lines and forward events.
+#[cfg(unix)]
+async fn handle_json_connection(
+    stream: tokio::net::UnixStream,
+    tx: mpsc::Sender<Vec<SpanEvent>>,
+    max_payload_size: usize,
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt};
+
+    const CONNECTION_LIMIT_FACTOR: u64 = 16;
+    let limited = stream.take(max_payload_size as u64 * CONNECTION_LIMIT_FACTOR);
+    let reader = tokio::io::BufReader::new(limited);
+    let mut lines = reader.lines();
+    let ingest = crate::ingest::json::JsonIngest::new(max_payload_size);
+    while let Ok(Some(line)) = lines.next_line().await {
+        if line.len() > max_payload_size {
+            tracing::warn!("JSON socket: line exceeds max payload size, skipping");
+            continue;
+        }
+        match crate::ingest::IngestSource::ingest(&ingest, line.as_bytes()) {
+            Ok(events) if !events.is_empty() => {
+                if tx.send(events).await.is_err() {
+                    tracing::warn!("JSON socket: event channel closed");
+                    break;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::debug!("JSON socket: failed to parse line: {e}");
             }
         }
     }
@@ -394,11 +400,12 @@ mod tests {
     use crate::event::{EventSource, EventType, SpanEvent};
     use crate::normalize;
 
-    fn make_normalized(trace_id: &str, target: &str) -> crate::normalize::NormalizedEvent {
+    fn make_normalized(trace_id: &str, target: &str) -> normalize::NormalizedEvent {
         normalize::normalize(SpanEvent {
             timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: trace_id.to_string(),
             span_id: "s1".to_string(),
+            parent_span_id: None,
             service: "test".to_string(),
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -418,6 +425,7 @@ mod tests {
             window_ms: 500,
             slow_threshold_ms: 500,
             slow_min_occurrences: 3,
+            max_fanout: 20,
         }
     }
 
@@ -474,16 +482,17 @@ mod tests {
         };
         let mut w = TraceWindow::new(config);
 
-        let event = crate::normalize::normalize(crate::event::SpanEvent {
+        let event = normalize::normalize(SpanEvent {
             timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: "t1".to_string(),
             span_id: "s1".to_string(),
+            parent_span_id: None,
             service: "test".to_string(),
-            event_type: crate::event::EventType::Sql,
+            event_type: EventType::Sql,
             operation: "SELECT".to_string(),
             target: "SELECT 1".to_string(),
             duration_us: 100,
-            source: crate::event::EventSource {
+            source: EventSource {
                 endpoint: "GET /test".to_string(),
                 method: "Test::test".to_string(),
             },

@@ -313,7 +313,7 @@ fn pipeline_unknown_region_no_co2() {
 fn slow_and_n_plus_one_coexist_in_mixed_fixture() {
     let config = Config::default();
     let events = load_fixture("mixed.json");
-    // mixed.json has N+1 SQL, N+1 HTTP, redundant SQL — no slow queries (durations are low)
+    // mixed.json has N+1 SQL, N+1 HTTP, redundant SQL, no slow queries (durations are low)
     let report = pipeline::analyze(events, &config);
 
     let slow_count = report
@@ -380,4 +380,85 @@ fn co2_absent_from_json_when_no_region() {
         !json.contains("co2_grams"),
         "JSON should not contain co2_grams when no region"
     );
+}
+
+// --- Jaeger/Zipkin auto-detection tests ---
+
+#[test]
+fn jaeger_fixture_auto_detected_and_analyzed() {
+    let config = Config::default();
+    let events = load_fixture("jaeger_export.json");
+    assert!(!events.is_empty(), "Jaeger fixture should produce events");
+    let report = pipeline::analyze(events, &config);
+    let n1 = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .count();
+    assert_eq!(n1, 1, "Jaeger fixture should detect N+1 SQL");
+}
+
+#[test]
+fn zipkin_fixture_auto_detected_and_analyzed() {
+    let config = Config::default();
+    let events = load_fixture("zipkin_export.json");
+    assert!(!events.is_empty(), "Zipkin fixture should produce events");
+    let report = pipeline::analyze(events, &config);
+    let n1 = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .count();
+    assert_eq!(n1, 1, "Zipkin fixture should detect N+1 SQL");
+}
+
+#[test]
+fn fanout_fixture_detects_excessive_fanout() {
+    let config = Config::default();
+    let events = load_fixture("fanout.json");
+    let report = pipeline::analyze(events, &config);
+    let fanout = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::ExcessiveFanout)
+        .count();
+    assert_eq!(fanout, 1, "fanout fixture should detect excessive fanout");
+}
+
+#[test]
+fn explain_tree_from_n_plus_one_fixture() {
+    let events = load_fixture("n_plus_one_sql.json");
+    let normalized = normalize::normalize_all(events);
+    let traces = correlate::correlate(normalized);
+    let trace = &traces[0];
+
+    let detect_config = sentinel_core::detect::DetectConfig {
+        n_plus_one_threshold: 5,
+        window_ms: 500,
+        slow_threshold_ms: 500,
+        slow_min_occurrences: 3,
+        max_fanout: 20,
+    };
+    let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
+    let tree = sentinel_core::explain::build_tree(trace, &findings);
+
+    assert_eq!(tree.trace_id, "trace-n1-sql");
+    assert!(!tree.roots.is_empty());
+
+    let text = sentinel_core::explain::format_tree_text(&tree, false);
+    assert!(text.contains("trace-n1-sql"));
+
+    let json = sentinel_core::explain::format_tree_json(&tree).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed["trace_id"], "trace-n1-sql");
+}
+
+#[test]
+fn full_pipeline_runs_on_new_fixtures() {
+    let config = Config::default();
+    for fixture in ["jaeger_export.json", "zipkin_export.json", "fanout.json"] {
+        let events = load_fixture(fixture);
+        let report = pipeline::analyze(events, &config);
+        assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
+    }
 }

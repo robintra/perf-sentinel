@@ -1,6 +1,6 @@
 # Detection algorithms
 
-Detection is the fourth pipeline stage. It analyzes correlated traces to identify three types of anti-patterns: N+1 queries, redundant calls, and slow operations.
+Detection is the fourth pipeline stage. It analyzes correlated traces to identify four types of anti-patterns: N+1 queries, redundant calls, slow operations, and excessive fanout.
 
 ## Shared pattern: borrowed HashMap keys
 
@@ -166,3 +166,43 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 ```
 
 The three detectors run sequentially on each trace. While they could theoretically share a single grouping pass, the key types differ (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), and the separate implementations are clearer and independently testable. With typical trace sizes of 10-50 spans, three O(n) passes are negligible.
+
+## Fanout detection
+
+### Algorithm
+
+1. Group spans by `parent_span_id`
+2. Skip groups where the parent has `max_fanout` or fewer children (default 20)
+3. For each parent exceeding the threshold, emit an `ExcessiveFanout` finding
+4. Severity: Warning if > `max_fanout`, Critical if > 3x `max_fanout`
+
+The fanout detector uses a `HashMap<&str, usize>` span index for O(1) parent lookup, and `compute_window_and_bounds` to compute the chronological span of child timestamps in a single pass.
+
+### Not part of waste ratio
+
+Like slow findings, fanout findings have `green_impact.estimated_extra_io_ops = 0`. Excessive fanout is a structural concern (too many child operations per parent) that needs architectural optimization, not I/O elimination. Both the dedup loop and the green_impact enrichment use `FindingType::is_avoidable_io()` to make this determination, ensuring a single source of truth.
+
+## Cross-trace slow percentiles
+
+In batch mode, `detect_slow_cross_trace` collects slow spans across all traces and computes p50/p95/p99 percentiles per normalized template. This complements the per-trace slow detection by identifying templates that are consistently slow across multiple requests.
+
+- Only spans exceeding the threshold are collected (pre-filter for performance)
+- Only templates appearing in at least 2 distinct traces are reported (single-trace cases are handled by per-trace detection)
+- Percentile computation uses the nearest-rank method via `div_ceil`
+
+## Detection orchestration (updated)
+
+```rust
+pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for trace in traces {
+        findings.extend(detect_n_plus_one(trace, ...));
+        findings.extend(detect_redundant(trace));
+        findings.extend(detect_slow(trace, ...));
+        findings.extend(detect_fanout(trace, config.max_fanout));
+    }
+    findings
+}
+```
+
+The four detectors run sequentially on each trace. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.

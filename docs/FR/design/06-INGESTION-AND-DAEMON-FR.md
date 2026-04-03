@@ -48,6 +48,8 @@ Pour un trace_id de 16 octets + un span_id de 8 octets, cela économise ~600ns p
 
 ### `nanos_to_iso8601` : algorithme de Howard Hinnant
 
+> **Note :** cette fonction vit dans le module partagé `time.rs` et est réutilisée par les ingestions Jaeger et Zipkin via `micros_to_iso8601`.
+
 La conversion de nanosecondes Unix vers `YYYY-MM-DDTHH:MM:SS.mmmZ` utilise l'algorithme de date civile de [Howard Hinnant](https://howardhinnant.github.io/date_algorithms.html). Les étapes clés :
 
 1. Convertir les nanosecondes en jours depuis l'epoch + millisecondes restantes
@@ -86,6 +88,18 @@ pub fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
 ```
 
 La taille du payload est vérifiée **avant** la désérialisation. Cela empêche `serde_json` d'allouer de la mémoire pour un payload JSON de plusieurs gigaoctets avant de le rejeter.
+
+### Auto-détection du format
+
+`JsonIngest` auto-détecte le format d'entrée en utilisant des heuristiques au niveau des octets. Il examine les premiers 1-4 Ko du payload pour déterminer s'il s'agit de Jaeger, Zipkin ou du format natif, évitant un double parsing coûteux.
+
+### Ingestion Jaeger JSON
+
+`ingest/jaeger.rs` parse le format d'export Jaeger JSON. Le `startTime` (microsecondes) est converti via `micros_to_iso8601` du module partagé `time.rs`. Le `parent_span_id` est extrait depuis les `references` où `refType = "CHILD_OF"`.
+
+### Ingestion Zipkin JSON v2
+
+`ingest/zipkin.rs` parse le format Zipkin JSON v2. Le `parentId` est un champ direct. Les tags sont un `HashMap<String, String>`.
 
 ## Boucle événementielle du daemon
 

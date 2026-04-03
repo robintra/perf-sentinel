@@ -1,0 +1,92 @@
+[
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-root",
+    "name": "GameService::start_game",
+    "timestamp": 1720621921000000,
+    "duration": 50000,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "http.route": "POST /api/game/42/start",
+      "code.function": "GameService::start_game"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-1",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921001000,
+    "duration": 800,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 1",
+      "db.system": "postgresql"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-2",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921050000,
+    "duration": 750,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 2",
+      "db.system": "postgresql"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-3",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921100000,
+    "duration": 900,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 3",
+      "db.system": "postgresql"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-4",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921150000,
+    "duration": 850,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 4",
+      "db.system": "postgresql"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-5",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921200000,
+    "duration": 700,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 5",
+      "db.system": "postgresql"
+    }
+  },
+  {
+    "traceId": "trace-zipkin-1",
+    "id": "span-6",
+    "parentId": "span-root",
+    "name": "db-query",
+    "timestamp": 1720621921250000,
+    "duration": 780,
+    "localEndpoint": { "serviceName": "game" },
+    "tags": {
+      "db.statement": "SELECT * FROM player WHERE game_id = 6",
+      "db.system": "postgresql"
+    }
+  }
+]

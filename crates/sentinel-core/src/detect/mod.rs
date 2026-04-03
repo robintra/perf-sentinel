@@ -1,5 +1,6 @@
 //! Detection stage: identifies performance anti-patterns in traces.
 
+pub mod fanout;
 pub mod n_plus_one;
 pub mod redundant;
 pub mod slow;
@@ -37,6 +38,7 @@ pub enum FindingType {
     RedundantHttp,
     SlowSql,
     SlowHttp,
+    ExcessiveFanout,
 }
 
 /// Severity levels for findings.
@@ -101,7 +103,23 @@ impl FindingType {
             Self::RedundantHttp => "redundant_http",
             Self::SlowSql => "slow_sql",
             Self::SlowHttp => "slow_http",
+            Self::ExcessiveFanout => "excessive_fanout",
         }
+    }
+
+    /// Whether this finding type represents avoidable I/O operations.
+    ///
+    /// N+1 and redundant patterns are avoidable (can be batched or cached).
+    /// Slow and fanout findings are not avoidable: slow operations need
+    /// optimization (indexing, caching), and fanout detection cannot distinguish
+    /// necessary parallel work from batchable sequential work, so it
+    /// conservatively excludes fanout from waste scoring.
+    #[must_use]
+    pub const fn is_avoidable_io(&self) -> bool {
+        matches!(
+            self,
+            Self::NPlusOneSql | Self::NPlusOneHttp | Self::RedundantSql | Self::RedundantHttp
+        )
     }
 }
 
@@ -124,9 +142,12 @@ pub struct DetectConfig {
     pub window_ms: u64,
     pub slow_threshold_ms: u64,
     pub slow_min_occurrences: u32,
+    pub max_fanout: u32,
 }
 
-/// Run all detectors on a set of traces.
+/// Run all per-trace detectors on a set of traces.
+///
+/// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`].
 #[must_use]
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
@@ -142,6 +163,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
             config.slow_threshold_ms,
             config.slow_min_occurrences,
         ));
+        findings.extend(fanout::detect_fanout(trace, config.max_fanout));
     }
     findings
 }
@@ -156,6 +178,7 @@ mod tests {
             window_ms: 500,
             slow_threshold_ms: 500,
             slow_min_occurrences: 3,
+            max_fanout: 20,
         }
     }
 
@@ -178,6 +201,9 @@ mod tests {
 
         let json = serde_json::to_string(&FindingType::SlowHttp).unwrap();
         assert_eq!(json, r#""slow_http""#);
+
+        let json = serde_json::to_string(&FindingType::ExcessiveFanout).unwrap();
+        assert_eq!(json, r#""excessive_fanout""#);
     }
 
     #[test]

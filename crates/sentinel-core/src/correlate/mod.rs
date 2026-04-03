@@ -41,6 +41,7 @@ mod tests {
             timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: trace_id.to_string(),
             span_id: span_id.to_string(),
+            parent_span_id: None,
             service: "test".to_string(),
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),

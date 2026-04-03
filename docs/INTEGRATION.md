@@ -12,10 +12,10 @@ By default, it listens on `127.0.0.1:4317` (gRPC) and `127.0.0.1:4318` (HTTP).
 
 ## Two integration paths
 
-| Scenario | Approach | Effort | Changes to services |
-|----------|----------|--------|---------------------|
-| **Production: services already send traces to a collector** | Add perf-sentinel as an exporter in the OTel Collector config | One line of YAML | None |
-| **Dev/staging: no collector in place** | Instrument each service to send traces directly to perf-sentinel | Per-language setup (see below) | Varies |
+| Scenario                                                    | Approach                                                         | Effort                         | Changes to services |
+|-------------------------------------------------------------|------------------------------------------------------------------|--------------------------------|---------------------|
+| **Production: services already send traces to a collector** | Add perf-sentinel as an exporter in the OTel Collector config    | One line of YAML               | None                |
+| **Dev/staging: no collector in place**                      | Instrument each service to send traces directly to perf-sentinel | Per-language setup (see below) | Varies              |
 
 If your services already export traces to Jaeger, Tempo, or any backend via an OpenTelemetry Collector, start with the collector approach: it requires zero changes to your application code.
 
@@ -55,15 +55,15 @@ This approach is the target for production deployments because:
 
 perf-sentinel detects I/O anti-patterns by looking at specific span attributes. Both the legacy and stable [OpenTelemetry semantic conventions](https://opentelemetry.io/docs/specs/semconv/) are supported.
 
-| Purpose | Legacy attribute (pre-1.21) | Stable attribute (1.21+) | Example |
-|---------|---------------------------|-------------------------|---------|
-| SQL query text | `db.statement` | `db.query.text` | `SELECT * FROM player WHERE game_id = 42` |
-| SQL system | `db.system` | `db.system` | `postgresql`, `mysql` |
-| HTTP target URL | `http.url` | `url.full` | `http://account-svc:5000/api/account/123` |
-| HTTP method | `http.method` | `http.request.method` | `GET`, `POST` |
-| HTTP status | `http.status_code` | `http.response.status_code` | `200`, `404` |
-| Source endpoint | `http.route` | `http.route` | `POST /api/game/{id}/start` |
-| Service name | `service.name` (resource) | `service.name` (resource) | `game`, `account-svc` |
+| Purpose         | Legacy attribute (pre-1.21) | Stable attribute (1.21+)    | Example                                   |
+|-----------------|-----------------------------|-----------------------------|-------------------------------------------|
+| SQL query text  | `db.statement`              | `db.query.text`             | `SELECT * FROM player WHERE game_id = 42` |
+| SQL system      | `db.system`                 | `db.system`                 | `postgresql`, `mysql`                     |
+| HTTP target URL | `http.url`                  | `url.full`                  | `http://account-svc:5000/api/account/123` |
+| HTTP method     | `http.method`               | `http.request.method`       | `GET`, `POST`                             |
+| HTTP status     | `http.status_code`          | `http.response.status_code` | `200`, `404`                              |
+| Source endpoint | `http.route`                | `http.route`                | `POST /api/game/{id}/start`               |
+| Service name    | `service.name` (resource)   | `service.name` (resource)   | `game`, `account-svc`                     |
 
 Spans that have neither a SQL attribute nor an HTTP attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
 
@@ -276,6 +276,48 @@ n_plus_one_sql_critical_max = 0
 n_plus_one_http_warning_max = 3
 io_waste_ratio_max = 0.30
 ```
+
+---
+
+## Ingestion formats
+
+perf-sentinel auto-detects the input format when using `perf-sentinel analyze --input`:
+
+| Format                          | Detection                                             | Example                 |
+|---------------------------------|-------------------------------------------------------|-------------------------|
+| **Native** (perf-sentinel JSON) | Array of objects with `"type"` field                  | Default format          |
+| **Jaeger JSON**                 | Object with `"data"` key containing `"spans"`         | Exported from Jaeger UI |
+| **Zipkin JSON v2**              | Array of objects with `"traceId"` + `"localEndpoint"` | Exported from Zipkin UI |
+
+No `--format` flag is needed for input: the format is detected automatically from the first few bytes of the file.
+
+```bash
+# Jaeger export
+perf-sentinel analyze --input jaeger-export.json --ci
+
+# Zipkin export
+perf-sentinel analyze --input zipkin-traces.json --ci
+```
+
+## Explain mode
+
+To debug a specific trace, use the `explain` subcommand:
+
+```bash
+perf-sentinel explain --input traces.json --trace-id abc123-def456
+```
+
+This produces a tree view of the trace with findings annotated inline. Use `--format json` for structured output.
+
+## SARIF export
+
+For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
+
+```bash
+perf-sentinel analyze --input traces.json --format sarif > results.sarif
+```
+
+Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level`, and `logicalLocations` (service + endpoint).
 
 ---
 

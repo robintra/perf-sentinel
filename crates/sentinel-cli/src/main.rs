@@ -26,6 +26,26 @@ struct Cli {
     command: Commands,
 }
 
+/// Output format for the explain command.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum ExplainFormat {
+    /// Colored terminal tree view (default).
+    Text,
+    /// Structured JSON tree.
+    Json,
+}
+
+/// Output format for the analyze command.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum OutputFormat {
+    /// Colored terminal report (default for interactive use).
+    Text,
+    /// Structured JSON report.
+    Json,
+    /// SARIF v2.1.0 for GitHub/GitLab code scanning.
+    Sarif,
+}
+
 #[derive(Subcommand)]
 enum Commands {
     /// Analyze trace files in batch mode. Reads from stdin if no --input is given.
@@ -36,9 +56,12 @@ enum Commands {
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
-        /// Enable CI quality gate mode (exit 1 if gate fails).
+        /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
         #[arg(long)]
         ci: bool,
+        /// Output format: text (colored, default), json, sarif.
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
     },
 
     /// Watch for traces in real-time (daemon mode).
@@ -53,6 +76,24 @@ enum Commands {
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
+    },
+
+    /// Explain a specific trace: tree view with findings annotated inline.
+    /// Shows per-trace detections only (N+1, redundant, slow, fanout).
+    /// Cross-trace percentile findings from `analyze` are not included.
+    Explain {
+        /// Path to a JSON trace file.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Trace ID to explain.
+        #[arg(long)]
+        trace_id: String,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (colored, default) or json.
+        #[arg(long, value_enum, default_value = "text")]
+        format: ExplainFormat,
     },
 
     /// Benchmark perf-sentinel on a trace file.
@@ -79,8 +120,21 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Analyze { input, config, ci } => {
-            cmd_analyze(input.as_deref(), config.as_deref(), ci);
+        Commands::Analyze {
+            input,
+            config,
+            ci,
+            format,
+        } => {
+            cmd_analyze(input.as_deref(), config.as_deref(), ci, format);
+        }
+        Commands::Explain {
+            input,
+            trace_id,
+            config,
+            format,
+        } => {
+            cmd_explain(&input, &trace_id, config.as_deref(), format);
         }
         Commands::Watch { config } => cmd_watch(config.as_deref()).await,
         Commands::Demo { config } => cmd_demo(config.as_deref()),
@@ -160,7 +214,12 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
     }
 }
 
-fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::Path>, ci: bool) {
+fn cmd_analyze(
+    input: Option<&std::path::Path>,
+    config_path: Option<&std::path::Path>,
+    ci: bool,
+    format: Option<OutputFormat>,
+) {
     let config = load_config(config_path);
     let raw = read_events(input, config.max_payload_size);
 
@@ -175,20 +234,107 @@ fn cmd_analyze(input: Option<&std::path::Path>, config_path: Option<&std::path::
 
     let report = pipeline::analyze(events, &config);
 
-    if ci {
-        // CI mode: JSON output for machine consumption + exit code on gate failure
-        let sink = JsonReportSink;
-        if let Err(e) = sink.emit(&report) {
-            eprintln!("Error writing report: {e}");
-            std::process::exit(1);
-        }
-        if !report.quality_gate.passed {
-            eprintln!("Quality gate FAILED");
-            std::process::exit(1);
-        }
+    // Determine output format: explicit --format takes priority, --ci defaults to json
+    let effective_format = format.unwrap_or(if ci {
+        OutputFormat::Json
     } else {
-        // Interactive mode: colored terminal report
-        print_colored_report(&report);
+        OutputFormat::Text
+    });
+
+    match effective_format {
+        OutputFormat::Text => {
+            print_colored_report(&report);
+        }
+        OutputFormat::Json => {
+            let sink = JsonReportSink;
+            if let Err(e) = sink.emit(&report) {
+                eprintln!("Error writing report: {e}");
+                std::process::exit(1);
+            }
+        }
+        OutputFormat::Sarif => {
+            if let Err(e) = sentinel_core::report::sarif::emit_sarif(&report) {
+                eprintln!("Error writing SARIF report: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // In CI mode, exit 1 if quality gate fails (regardless of format)
+    if ci && !report.quality_gate.passed {
+        eprintln!("Quality gate FAILED");
+        std::process::exit(1);
+    }
+}
+
+fn cmd_explain(
+    input: &std::path::Path,
+    trace_id: &str,
+    config_path: Option<&std::path::Path>,
+    format: ExplainFormat,
+) {
+    let config = load_config(config_path);
+    let raw = read_events(Some(input), config.max_payload_size);
+
+    let ingest = JsonIngest::new(config.max_payload_size);
+    let events = match ingest.ingest(&raw) {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error ingesting events: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let normalized = sentinel_core::normalize::normalize_all(events);
+    let traces = sentinel_core::correlate::correlate(normalized);
+
+    let Some(trace) = traces.iter().find(|t| t.trace_id == trace_id) else {
+        eprintln!("Error: trace ID '{trace_id}' not found");
+        let total = traces.len();
+        let ids: Vec<&str> = traces
+            .iter()
+            .take(20)
+            .map(|t| t.trace_id.as_str())
+            .collect();
+        if total > 20 {
+            eprintln!(
+                "Available trace IDs: {} ... and {} more",
+                ids.join(", "),
+                total - 20
+            );
+        } else {
+            eprintln!("Available trace IDs: {}", ids.join(", "));
+        }
+        std::process::exit(1);
+    };
+
+    let detect_config = sentinel_core::detect::DetectConfig {
+        n_plus_one_threshold: config.n_plus_one_threshold,
+        window_ms: config.window_duration_ms,
+        slow_threshold_ms: config.slow_query_threshold_ms,
+        slow_min_occurrences: config.slow_query_min_occurrences,
+        max_fanout: config.max_fanout,
+    };
+    let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
+
+    let tree = sentinel_core::explain::build_tree(trace, &findings);
+
+    match format {
+        ExplainFormat::Text => {
+            use std::io::IsTerminal;
+            let use_color = std::io::stdout().is_terminal();
+            print!(
+                "{}",
+                sentinel_core::explain::format_tree_text(&tree, use_color)
+            );
+        }
+        ExplainFormat::Json => match sentinel_core::explain::format_tree_json(&tree) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("Error serializing explain tree: {e}");
+                std::process::exit(1);
+            }
+        },
     }
 }
 
@@ -267,28 +413,8 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
         }
     }
 
-    // Compute per-event latencies
-    let mut per_event_ns: Vec<f64> = durations_ns
-        .iter()
-        .map(|&d| d as f64 / event_count as f64)
-        .collect();
-    per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-
-    let len = per_event_ns.len();
-    let p50_idx = ((len as f64 * 0.50).ceil() as usize).saturating_sub(1);
-    let p99_idx = ((len as f64 * 0.99).ceil() as usize).min(len.saturating_sub(1));
-    let p50_us = per_event_ns[p50_idx] / 1000.0;
-    let p99_us = per_event_ns[p99_idx] / 1000.0;
-
-    let elapsed_nanos: u64 = durations_ns.iter().sum();
-    let total_elapsed_ms: u64 = elapsed_nanos / 1_000_000;
-    let total_events = event_count as f64 * f64::from(iterations);
-    let total_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
-    let throughput = if total_seconds > 0.0 {
-        total_events / total_seconds
-    } else {
-        0.0
-    };
+    let (p50_us, p99_us) = compute_latency_percentiles(&durations_ns, event_count);
+    let (throughput, total_elapsed_ms) = compute_throughput(&durations_ns, event_count, iterations);
 
     #[derive(serde::Serialize)]
     struct BenchReport {
@@ -329,6 +455,35 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
 
 /// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
 #[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
+fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64, f64) {
+    let mut per_event_ns: Vec<f64> = durations_ns
+        .iter()
+        .map(|&d| d as f64 / event_count as f64)
+        .collect();
+    per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+    let len = per_event_ns.len();
+    let p50_idx = ((len as f64 * 0.50).ceil() as usize).saturating_sub(1);
+    let p99_idx = ((len as f64 * 0.99).ceil() as usize).min(len.saturating_sub(1));
+    (
+        per_event_ns[p50_idx] / 1000.0,
+        per_event_ns[p99_idx] / 1000.0,
+    )
+}
+
+fn compute_throughput(durations_ns: &[u64], event_count: usize, iterations: u32) -> (f64, u64) {
+    let elapsed_nanos: u64 = durations_ns.iter().sum();
+    let total_elapsed_ms: u64 = elapsed_nanos / 1_000_000;
+    let total_events = event_count as f64 * f64::from(iterations);
+    let total_seconds = elapsed_nanos as f64 / 1_000_000_000.0;
+    let throughput = if total_seconds > 0.0 {
+        total_events / total_seconds
+    } else {
+        0.0
+    };
+    (throughput, total_elapsed_ms)
+}
+
 fn current_rss_bytes() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
@@ -347,7 +502,7 @@ fn current_rss_bytes() -> Option<usize> {
     #[cfg(target_os = "windows")]
     {
         // Windows: use GetProcessMemoryInfo via kernel32
-        // Best-effort — returns None if unavailable
+        // Best-effort, returns None if unavailable
         None
     }
     #[cfg(target_os = "macos")]
@@ -417,6 +572,7 @@ fn format_colored_report(report: &Report, force_color: bool) {
                 FindingType::RedundantHttp => "Redundant HTTP",
                 FindingType::SlowSql => "Slow SQL",
                 FindingType::SlowHttp => "Slow HTTP",
+                FindingType::ExcessiveFanout => "Excessive Fanout",
             };
 
             println!(

@@ -47,7 +47,7 @@ findings.sort_by(|a, b| {
 });
 ```
 
-This requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp`.
+This requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Top offenders are similarly sorted (IIS descending, alphabetical tiebreaker) to ensure the same report for the same input.
 

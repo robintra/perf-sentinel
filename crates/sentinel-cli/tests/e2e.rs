@@ -579,6 +579,224 @@ fn cli_analyze_invalid_config_explicit_path_fails() {
 }
 
 #[test]
+fn cli_analyze_sarif_output() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "sarif"])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "sarif output should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let sarif: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("sarif should be valid JSON: {e}\nstdout: {stdout}"));
+    assert_eq!(sarif["version"], "2.1.0");
+    assert!(!sarif["runs"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cli_analyze_jaeger_fixture() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/jaeger_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "Jaeger fixture analysis should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("N+1 SQL"),
+        "should detect N+1 SQL from Jaeger"
+    );
+}
+
+#[test]
+fn cli_analyze_zipkin_fixture() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/zipkin_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "Zipkin fixture analysis should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("N+1 SQL"),
+        "should detect N+1 SQL from Zipkin"
+    );
+}
+
+#[test]
+fn cli_analyze_fanout_fixture() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/fanout.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "fanout fixture analysis should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Excessive Fanout"),
+        "should detect excessive fanout, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_explain_text_output() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "explain",
+            "--input",
+            &fixture_path,
+            "--trace-id",
+            "trace-n1-sql",
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "explain should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("trace-n1-sql"), "should show trace ID");
+}
+
+#[test]
+fn cli_explain_json_output() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "explain",
+            "--input",
+            &fixture_path,
+            "--trace-id",
+            "trace-n1-sql",
+            "--format",
+            "json",
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "explain --format json should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let tree: Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("explain JSON should be valid: {e}\nstdout: {stdout}"));
+    assert_eq!(tree["trace_id"], "trace-n1-sql");
+}
+
+#[test]
+fn cli_explain_unknown_trace_id_fails() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "explain",
+            "--input",
+            &fixture_path,
+            "--trace-id",
+            "nonexistent-trace",
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        !output.status.success(),
+        "should fail with unknown trace ID"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("not found"),
+        "should mention trace not found"
+    );
+}
+
+#[test]
+fn cli_help_shows_explain() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("--help")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("explain"),
+        "help should list explain subcommand"
+    );
+}
+
+#[test]
 fn cli_analyze_malformed_config_explicit_path_fails() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let config_path = dir.path().join("bad-config.toml");

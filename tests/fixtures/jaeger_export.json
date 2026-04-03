@@ -1,0 +1,96 @@
+{
+  "data": [
+    {
+      "traceID": "trace-jaeger-1",
+      "spans": [
+        {
+          "spanID": "span-root",
+          "operationName": "GameService::start_game",
+          "references": [],
+          "startTime": 1720621921000000,
+          "duration": 50000,
+          "processID": "p1",
+          "tags": [
+            { "key": "http.route", "value": "POST /api/game/42/start" },
+            { "key": "code.function", "value": "GameService::start_game" }
+          ]
+        },
+        {
+          "spanID": "span-1",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921001000,
+          "duration": 800,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 1" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        },
+        {
+          "spanID": "span-2",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921050000,
+          "duration": 750,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 2" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        },
+        {
+          "spanID": "span-3",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921100000,
+          "duration": 900,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 3" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        },
+        {
+          "spanID": "span-4",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921150000,
+          "duration": 850,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 4" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        },
+        {
+          "spanID": "span-5",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921200000,
+          "duration": 700,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 5" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        },
+        {
+          "spanID": "span-6",
+          "operationName": "db-query",
+          "references": [{ "refType": "CHILD_OF", "spanID": "span-root" }],
+          "startTime": 1720621921250000,
+          "duration": 780,
+          "processID": "p1",
+          "tags": [
+            { "key": "db.statement", "value": "SELECT * FROM player WHERE game_id = 6" },
+            { "key": "db.system", "value": "postgresql" }
+          ]
+        }
+      ],
+      "processes": {
+        "p1": { "serviceName": "game" }
+      }
+    }
+  ]
+}
