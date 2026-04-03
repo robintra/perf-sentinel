@@ -210,4 +210,15 @@ mod tests {
         let low = io_ops_to_co2_grams(1000, "eu-north-1").unwrap(); // Stockholm, 8
         assert!(high > low * 10.0, "India should be much higher than Sweden");
     }
+
+    #[test]
+    fn lookup_azure_region() {
+        let result = lookup_region("eastus");
+        assert!(result.is_some());
+        let (_, pue) = result.unwrap();
+        assert!(
+            (pue - 1.185).abs() < f64::EPSILON,
+            "Azure PUE should be 1.185"
+        );
+    }
 }

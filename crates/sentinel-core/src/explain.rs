@@ -427,6 +427,81 @@ mod tests {
     }
 
     #[test]
+    fn format_tree_text_with_color() {
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT * FROM order_item WHERE order_id = 42",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let trace = make_trace(events);
+        let finding = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        let tree = build_tree(&trace, &[finding]);
+
+        let text = format_tree_text(&tree, true);
+        // Should contain ANSI escape codes
+        assert!(text.contains("\x1b[1m"), "should contain bold ANSI code");
+        assert!(text.contains("\x1b[36m"), "should contain cyan ANSI code");
+    }
+
+    #[test]
+    fn cyclic_parent_reference_handled() {
+        use crate::event::{EventSource, EventType, SpanEvent};
+        use crate::normalize::NormalizedEvent;
+
+        // Create two spans that reference each other as parents
+        let span_a = NormalizedEvent {
+            event: SpanEvent {
+                timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+                trace_id: "trace-cycle".to_string(),
+                span_id: "span-a".to_string(),
+                parent_span_id: Some("span-b".to_string()),
+                service: "svc".to_string(),
+                event_type: EventType::Sql,
+                operation: "SELECT".to_string(),
+                target: "SELECT 1".to_string(),
+                duration_us: 100,
+                source: EventSource {
+                    endpoint: "GET /test".to_string(),
+                    method: "test".to_string(),
+                },
+                status_code: None,
+            },
+            template: "SELECT ?".to_string(),
+            params: vec!["1".to_string()],
+        };
+        let span_b = NormalizedEvent {
+            event: SpanEvent {
+                timestamp: "2025-07-10T14:32:01.001Z".to_string(),
+                trace_id: "trace-cycle".to_string(),
+                span_id: "span-b".to_string(),
+                parent_span_id: Some("span-a".to_string()),
+                service: "svc".to_string(),
+                event_type: EventType::Sql,
+                operation: "SELECT".to_string(),
+                target: "SELECT 2".to_string(),
+                duration_us: 100,
+                source: EventSource {
+                    endpoint: "GET /test".to_string(),
+                    method: "test".to_string(),
+                },
+                status_code: None,
+            },
+            template: "SELECT ?".to_string(),
+            params: vec!["2".to_string()],
+        };
+        let trace = crate::correlate::Trace {
+            trace_id: "trace-cycle".to_string(),
+            spans: vec![span_a, span_b],
+        };
+
+        // Should not panic despite cyclic parent references
+        let tree = build_tree(&trace, &[]);
+        let text = format_tree_text(&tree, false);
+        assert!(!text.is_empty());
+    }
+
+    #[test]
     fn findings_from_other_trace_ignored() {
         let events = vec![make_sql_event(
             "trace-1",

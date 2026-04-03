@@ -680,4 +680,18 @@ mod tests {
         let fields = parse_csv_row(row);
         assert_eq!(fields[0], "SELECT * FROM café WHERE naïve = 'résumé'");
     }
+
+    #[test]
+    fn parse_invalid_utf8_returns_error() {
+        let data: &[u8] = &[0xFF, 0xFE, 0x00, 0x01];
+        let result = parse_pg_stat(data, 1_048_576);
+        assert!(matches!(result, Err(PgStatError::CsvParse { line: 0, .. })));
+    }
+
+    #[test]
+    fn parse_csv_invalid_number_returns_error() {
+        let csv = "query,calls,total_exec_time,mean_exec_time\nSELECT 1,abc,500.0,5.0";
+        let result = parse_pg_stat(csv.as_bytes(), 1_048_576);
+        assert!(matches!(result, Err(PgStatError::CsvParse { line: 2, .. })));
+    }
 }

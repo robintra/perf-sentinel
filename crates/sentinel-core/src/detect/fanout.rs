@@ -168,6 +168,28 @@ mod tests {
     }
 
     #[test]
+    fn parent_not_in_trace_uses_child_metadata() {
+        // Parent ID references a span that doesn't exist in the trace
+        let mut events = Vec::new();
+        for i in 0..25 {
+            let mut child = make_sql_event(
+                "trace-1",
+                &format!("child-{i}"),
+                &format!("SELECT * FROM t WHERE id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", (i + 1) * 10),
+            );
+            child.parent_span_id = Some("nonexistent-parent".to_string());
+            events.push(child);
+        }
+        let trace = make_trace(events);
+        let findings = detect_fanout(&trace, 20);
+
+        assert_eq!(findings.len(), 1);
+        // Service and endpoint should come from the first child span
+        assert_eq!(findings[0].service, "order-svc");
+    }
+
+    #[test]
     fn no_finding_without_parent_ids() {
         // Events without parent_span_id set
         let events: Vec<_> = (1..=10)

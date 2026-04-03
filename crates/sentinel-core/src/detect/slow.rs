@@ -633,4 +633,53 @@ mod tests {
             findings[0].suggestion
         );
     }
+
+    #[test]
+    fn cross_trace_http_slow_uses_http_label() {
+        let traces: Vec<Trace> = (1..=3)
+            .map(|t| {
+                let events = vec![make_http_event_with_duration(
+                    &format!("trace-{t}"),
+                    "span-1",
+                    "http://user-svc:5000/api/users/1",
+                    "2025-07-10T14:32:01.000Z",
+                    600_000,
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert!(
+            findings[0]
+                .suggestion
+                .contains("caching or optimizing endpoint"),
+            "HTTP slow should suggest caching, got: {}",
+            findings[0].suggestion
+        );
+    }
+
+    #[test]
+    fn cross_trace_skipped_when_p99_below_threshold() {
+        // All spans just above threshold individually but we set threshold very high
+        let traces: Vec<Trace> = (1..=3)
+            .map(|t| {
+                let events = vec![make_sql_event_with_duration(
+                    &format!("trace-{t}"),
+                    "span-1",
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.000Z",
+                    100_000, // 100ms, well below 500ms threshold
+                )];
+                make_trace(events)
+            })
+            .collect();
+
+        let findings = detect_slow_cross_trace(&traces, 500, 3);
+        assert!(
+            findings.is_empty(),
+            "should produce no findings when p99 < threshold"
+        );
+    }
 }
