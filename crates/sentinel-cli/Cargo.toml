@@ -1,5 +1,5 @@
 [package]
-name = "sentinel-cli"
+name = "perf-sentinel"
 description = "CLI for perf-sentinel: polyglot performance anti-pattern detector"
 version.workspace = true
 edition.workspace = true
@@ -20,7 +20,7 @@ default = ["tui"]
 tui = ["ratatui", "crossterm"]
 
 [dependencies]
-sentinel-core = { version = "0.2.0", path = "../sentinel-core" }
+perf-sentinel-core = { version = "0.2.0", path = "../sentinel-core" }
 clap = { version = "4.6.0", features = ["derive"] }
 tokio = { version = "1.50.0", features = ["full"] }
 tracing = "0.1.44"

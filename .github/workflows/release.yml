@@ -107,21 +107,21 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Publish sentinel-core
-        run: cargo publish -p sentinel-core
+      - name: Publish perf-sentinel-core
+        run: cargo publish -p perf-sentinel-core
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
       - name: Wait for crates.io index update
         run: |
           for i in $(seq 1 30); do
-            cargo search sentinel-core 2>/dev/null | grep -q "^sentinel-core " && break
-            echo "Waiting for sentinel-core to appear in crates.io index... (attempt $i)"
+            cargo search perf-sentinel-core 2>/dev/null | grep -q "^perf-sentinel-core " && break
+            echo "Waiting for perf-sentinel-core to appear in crates.io index... (attempt $i)"
             sleep 10
           done
 
-      - name: Publish sentinel-cli
-        run: cargo publish -p sentinel-cli
+      - name: Publish perf-sentinel
+        run: cargo publish -p perf-sentinel
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 

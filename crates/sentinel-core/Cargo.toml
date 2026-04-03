@@ -1,5 +1,5 @@
 [package]
-name = "sentinel-core"
+name = "perf-sentinel-core"
 description = "Core library for perf-sentinel: polyglot performance anti-pattern detector"
 version.workspace = true
 edition.workspace = true
@@ -10,6 +10,9 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme = "../../README.md"
+
+[lib]
+name = "sentinel_core"
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
