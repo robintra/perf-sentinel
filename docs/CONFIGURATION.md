@@ -2,6 +2,18 @@
 
 perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are optional and have sensible defaults.
 
+## Subcommands
+
+| Subcommand  | Description                                                   |
+|-------------|---------------------------------------------------------------|
+| `analyze`   | Batch analysis of trace files. Reads from file or stdin       |
+| `explain`   | Tree view of a specific trace with findings annotated inline  |
+| `watch`     | Daemon mode: real-time OTLP ingestion and streaming detection |
+| `demo`      | Run analysis on an embedded demo dataset                      |
+| `bench`     | Benchmark throughput on a trace file                          |
+| `pg-stat`   | Analyze `pg_stat_statements` exports (CSV/JSON) for SQL hotspots |
+| `inspect`   | Interactive TUI to browse traces, findings, and span trees    |
+
 ## Sections
 
 ### `[thresholds]`

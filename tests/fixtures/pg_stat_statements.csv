@@ -1,0 +1,16 @@
+query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read
+SELECT * FROM player WHERE game_id = 42,1500,4500.50,3.000,1500,12000,150
+"SELECT * FROM game WHERE id = 1 AND status = 'active'",800,2400.00,3.000,800,6400,80
+"INSERT INTO audit_log VALUES (1, 'event', now())",200,600.00,3.000,200,0,200
+SELECT count(*) FROM player,50,250.00,5.000,50,500,10
+"SELECT p.name, p.score FROM player p JOIN team t ON p.team_id = t.id WHERE t.game_id = 7",3000,15000.00,5.000,3000,24000,300
+UPDATE player SET score = 100 WHERE id = 55,400,1200.00,3.000,400,3200,40
+DELETE FROM session WHERE expires_at < '2025-01-01',10,50.00,5.000,1000,100,50
+"SELECT * FROM chat_message WHERE game_id = 99 ORDER BY created_at DESC LIMIT 50",600,3600.00,6.000,600,4800,120
+SELECT DISTINCT service FROM trace_log,25,125.00,5.000,25,200,25
+"INSERT INTO game (name, created_by, status) VALUES ('test', 'user-1', 'waiting')",150,450.00,3.000,150,0,150
+"SELECT * FROM player WHERE id IN (1, 2, 3, 4, 5)",2000,8000.00,4.000,10000,16000,200
+SELECT * FROM account WHERE email = 'alice@example.com',500,2500.00,5.000,500,4000,100
+"UPDATE game SET status = 'started' WHERE id = 42 AND status = 'waiting'",300,900.00,3.000,300,2400,30
+SELECT * FROM config WHERE key = 'max_players',100,200.00,2.000,100,800,10
+"SELECT g.id, g.name, COUNT(p.id) FROM game g LEFT JOIN player p ON p.game_id = g.id GROUP BY g.id",75,750.00,10.000,75,1200,150

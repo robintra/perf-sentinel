@@ -230,3 +230,39 @@ if cumulative_total > 0.0 {
 ```
 
 This is an all-time average, not a windowed metric. Users who need a recent rate can use Prometheus `rate()` on the raw counters (`total_io_ops`, `avoidable_io_ops`).
+
+### Grafana Exemplars
+
+The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. Instead of adding a dependency, exemplar annotations are injected by post-processing the rendered Prometheus text output.
+
+**Tracking worst-case trace IDs:**
+
+`MetricsState` stores exemplar data in `RwLock`-protected fields:
+- `worst_finding_trace: HashMap<(String, String), ExemplarData>` -- keyed by (finding_type, severity), updated on each `record_batch()` call
+- `worst_waste_trace: Option<ExemplarData>` -- the trace_id of the finding with the most avoidable I/O
+
+`RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other.
+
+**Exemplar injection:**
+
+`inject_exemplars()` iterates over the rendered text line by line. For `perf_sentinel_findings_total{...}` lines, it parses the `type` and `severity` labels to look up the matching exemplar. For `perf_sentinel_io_waste_ratio` lines, it appends the waste trace exemplar.
+
+The exemplar format follows the OpenMetrics specification: `metric{labels} value # {trace_id="abc123"}`. When exemplars are present, the `Content-Type` header switches from `text/plain; version=0.0.4` (Prometheus) to `application/openmetrics-text; version=1.0.0` (OpenMetrics) so that Grafana's Prometheus data source can recognize and display exemplar links.
+
+**Grafana integration:** with exemplars enabled, users can click from a metric spike in Grafana directly to the worst-case trace in Tempo or Jaeger, provided the Prometheus data source has "Exemplars" enabled and a Tempo/Jaeger data source is configured as the trace backend.
+
+## pg_stat_statements Ingestion
+
+`ingest/pg_stat.rs` provides a standalone analysis path for PostgreSQL `pg_stat_statements` exports. Unlike trace-based ingestion, this data has no `trace_id` or `span_id` -- it cannot feed the N+1/redundant detection pipeline. Instead, it provides hotspot ranking and cross-referencing with trace findings.
+
+### Design decisions
+
+**Separate from `IngestSource`:** the `IngestSource` trait returns `Vec<SpanEvent>`, but `pg_stat_statements` data does not map to `SpanEvent` (no trace_id, span_id, or timestamp). It produces its own `PgStatReport` type with rankings.
+
+**Auto-format detection:** follows the same byte-level heuristic pattern as `json.rs`. If the first non-whitespace byte is `[` or `{`, parse as JSON; otherwise, parse as CSV. No external csv crate -- the CSV parser handles RFC 4180 quoting manually (double-quoted fields, escaped `""`).
+
+**SQL normalization reuse:** each query goes through `normalize::sql::normalize_sql()` to produce a template comparable with trace-based findings. PostgreSQL normalizes queries at the server level (e.g., `$1` placeholders), but perf-sentinel re-normalizes for consistency with its own template format.
+
+### Cross-referencing
+
+`cross_reference()` accepts `&mut [PgStatEntry]` and `&[Finding]`. It builds a `HashSet` of finding templates and marks entries whose `normalized_template` matches. This is O(n + m) where n = entries, m = findings. The `seen_in_traces` flag enables the CLI to highlight queries that appear in both data sources -- useful for validating OTLP trace capture fidelity against database-native ground truth.

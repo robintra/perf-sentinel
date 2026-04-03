@@ -3,7 +3,7 @@
 pub mod http;
 pub mod sql;
 
-use crate::event::{EventType, SpanEvent};
+use crate::event::{EventType, MAX_ID_LENGTH, SpanEvent, sanitize_id};
 
 /// A span event enriched with its normalized template and extracted parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,8 +14,22 @@ pub struct NormalizedEvent {
 }
 
 /// Normalize a single event by dispatching on its type.
+///
+/// Also sanitizes `trace_id` and `span_id` to enforce maximum length.
 #[must_use]
-pub fn normalize(event: SpanEvent) -> NormalizedEvent {
+pub fn normalize(mut event: SpanEvent) -> NormalizedEvent {
+    // Enforce ID length limits at the normalization boundary
+    if event.trace_id.len() > MAX_ID_LENGTH {
+        event.trace_id = sanitize_id(&event.trace_id);
+    }
+    if event.span_id.len() > MAX_ID_LENGTH {
+        event.span_id = sanitize_id(&event.span_id);
+    }
+    if let Some(ref pid) = event.parent_span_id
+        && pid.len() > MAX_ID_LENGTH
+    {
+        event.parent_span_id = Some(sanitize_id(pid));
+    }
     match event.event_type {
         EventType::Sql => {
             let result = sql::normalize_sql(&event.target);
@@ -110,5 +124,28 @@ mod tests {
         assert_eq!(normalized.len(), 2);
         assert_eq!(normalized[0].template, "SELECT ?");
         assert_eq!(normalized[1].template, "POST /api/game/{id}/start");
+    }
+
+    #[test]
+    fn normalize_truncates_oversized_trace_id() {
+        let mut event = make_sql_event("SELECT 1");
+        event.trace_id = "x".repeat(200);
+        event.span_id = "y".repeat(200);
+        event.parent_span_id = Some("z".repeat(200));
+        let normalized = normalize(event);
+        assert_eq!(normalized.event.trace_id.len(), MAX_ID_LENGTH);
+        assert_eq!(normalized.event.span_id.len(), MAX_ID_LENGTH);
+        assert_eq!(
+            normalized.event.parent_span_id.unwrap().len(),
+            MAX_ID_LENGTH
+        );
+    }
+
+    #[test]
+    fn normalize_preserves_normal_ids() {
+        let event = make_sql_event("SELECT 1");
+        let original_trace = event.trace_id.clone();
+        let normalized = normalize(event);
+        assert_eq!(normalized.event.trace_id, original_trace);
     }
 }

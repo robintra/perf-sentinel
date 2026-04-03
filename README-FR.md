@@ -186,23 +186,106 @@ perf-sentinel analyze --input jaeger-export.json
 perf-sentinel analyze --input zipkin-traces.json
 ```
 
+### Analyse pg_stat_statements
+
+```bash
+# Analyser un export pg_stat_statements pour détecter les requêtes coûteuses
+perf-sentinel pg-stat --input pg_stat.csv
+
+# Référence croisée avec les findings de traces
+perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
+```
+
+### Inspection interactive (TUI)
+
+```bash
+perf-sentinel inspect --input traces.json
+```
+
 ### Mode streaming (daemon)
 
 ```bash
 perf-sentinel watch
 ```
 
-Voir [docs/INTEGRATION.md](docs/INTEGRATION.md) pour la configuration OTLP par langage (Java, .NET, Rust), [docs/CONFIGURATION.md](docs/CONFIGURATION.md) pour la référence complète de la configuration, et [docs/design/](docs/design/00-INDEX.md) pour la documentation de conception détaillée expliquant chaque décision architecturale et micro-optimisation.
+## Topologies de déploiement
+
+perf-sentinel supporte trois modèles de déploiement. Choisissez celui qui correspond à votre environnement.
+
+### 1. Analyse batch CI (point de départ recommandé)
+
+Analysez des fichiers de traces pré-collectés dans votre pipeline CI/CD. Le processus retourne le code 1 si le quality gate échoue.
+
+```bash
+# Dans votre job CI :
+perf-sentinel analyze --ci --input traces.json --config .perf-sentinel.toml
+```
+
+Créez un `.perf-sentinel.toml` à la racine de votre projet :
+
+```toml
+[thresholds]
+n_plus_one_sql_critical_max = 0    # zéro tolérance pour les N+1 SQL
+io_waste_ratio_max = 0.30          # max 30% d'I/O évitables
+
+[detection]
+n_plus_one_min_occurrences = 5
+slow_query_threshold_ms = 500
+
+[green]
+enabled = true
+region = "eu-west-3"               # optionnel : active la conversion en gCO2eq
+```
+
+Formats de sortie : `--format text` (coloré, par défaut), `--format json` (structuré), `--format sarif` (GitHub/GitLab code scanning).
+
+### 2. Collector central (recommandé pour la production)
+
+Un [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) reçoit les traces de tous les services et les transmet à perf-sentinel. Zéro modification de code dans vos services.
+
+```
+app-1 --\
+app-2 ---+--> OTel Collector --> perf-sentinel (watch)
+app-3 --/
+```
+
+Des fichiers prêts à l'emploi sont fournis dans [`examples/`](examples/) :
+
+```bash
+# Démarrer le collector + perf-sentinel
+docker compose -f examples/docker-compose-collector.yml up -d
+
+# Pointez vos apps vers le collector :
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+```
+
+perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/INTEGRATION.md) sur `/metrics` (port 4318).
+
+Voir [`examples/otel-collector-config.yaml`](examples/otel-collector-config.yaml) pour la config complète du collector avec les options de sampling et filtrage.
+
+### 3. Sidecar (diagnostic par service)
+
+perf-sentinel tourne à côté d'un service unique, partageant son namespace réseau. Utile pour du debug isolé.
+
+```bash
+docker compose -f examples/docker-compose-sidecar.yml up -d
+```
+
+L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+
+---
+
+Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
 
 ## Feuille de route
 
-| Phase | Description                                                                                                                                | Statut     |
-|-------|--------------------------------------------------------------------------------------------------------------------------------------------|------------|
-| **0** | Scaffolding : workspace compilable, CI, stubs                                                                                              | ✅ Terminé  |
-| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation                                                                                       | ✅ Terminé  |
-| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI                                                                                          | ✅ Terminé  |
-| **3** | Polish, benchmarks, release v0.1.0                                                                                                         | ✅ Terminé  |
-| **4** | Visualiseur de trace `explain`, export SARIF, ingestion `pg_stat_statements`, import Jaeger/Zipkin, Grafana Exemplars, mode TUI interactif | ⏳ En cours |
+| Phase | Description                                                                                                                                | Statut   |
+|-------|--------------------------------------------------------------------------------------------------------------------------------------------|----------|
+| **0** | Scaffolding : workspace compilable, CI, stubs                                                                                              | Terminé  |
+| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation                                                                                       | Terminé  |
+| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI                                                                                          | Terminé  |
+| **3** | Polish, benchmarks, release v0.1.0                                                                                                         | Terminé  |
+| **4** | Visualiseur de trace `explain`, export SARIF, ingestion `pg_stat_statements`, import Jaeger/Zipkin, Grafana Exemplars, mode TUI interactif | Terminé  |
 
 ## Licence
 

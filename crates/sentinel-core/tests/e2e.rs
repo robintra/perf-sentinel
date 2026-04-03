@@ -462,3 +462,54 @@ fn full_pipeline_runs_on_new_fixtures() {
         assert!(report.analysis.events_processed > 0, "fixture: {fixture}");
     }
 }
+
+#[test]
+fn pg_stat_csv_fixture_parses_successfully() {
+    let path = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let entries =
+        sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, 1_048_576).expect("CSV parse failed");
+    assert_eq!(entries.len(), 15, "CSV fixture should have 15 entries");
+    // Verify normalization was applied
+    assert!(
+        entries[0].normalized_template.contains('?'),
+        "first entry should have normalized template"
+    );
+}
+
+#[test]
+fn pg_stat_json_fixture_parses_successfully() {
+    let path = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = std::fs::read(&path).unwrap_or_else(|e| panic!("failed to read {path}: {e}"));
+    let entries =
+        sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, 1_048_576).expect("JSON parse failed");
+    assert_eq!(entries.len(), 15, "JSON fixture should have 15 entries");
+}
+
+#[test]
+fn pg_stat_csv_and_json_fixtures_produce_same_entries() {
+    let csv_path = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let json_path = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let csv_raw = std::fs::read(&csv_path).unwrap();
+    let json_raw = std::fs::read(&json_path).unwrap();
+    let csv_entries = sentinel_core::ingest::pg_stat::parse_pg_stat(&csv_raw, 1_048_576).unwrap();
+    let json_entries = sentinel_core::ingest::pg_stat::parse_pg_stat(&json_raw, 1_048_576).unwrap();
+    assert_eq!(csv_entries.len(), json_entries.len());
+    // Verify same normalized templates in same order
+    for (csv, json) in csv_entries.iter().zip(json_entries.iter()) {
+        assert_eq!(csv.normalized_template, json.normalized_template);
+        assert_eq!(csv.calls, json.calls);
+    }
+}

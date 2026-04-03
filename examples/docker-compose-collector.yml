@@ -6,6 +6,16 @@
 #   app-1 --\
 #   app-2 ---+--> otel-collector --> perf-sentinel (watch)
 #   app-3 --/
+#
+# Usage:
+#   docker compose -f docker-compose-collector.yml up
+#
+# Then configure your applications to export traces to:
+#   gRPC: localhost:4317
+#   HTTP: localhost:4318
+#
+# perf-sentinel Prometheus metrics available at:
+#   http://localhost:14318/metrics
 
 services:
   otel-collector:
@@ -14,9 +24,15 @@ services:
       - "127.0.0.1:4317:4317"   # OTLP gRPC (apps send traces here)
       - "127.0.0.1:4318:4318"   # OTLP HTTP (apps send traces here)
     volumes:
-      - ./otel-collector-config.yml:/etc/otelcol/config.yaml:ro
+      - ./otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     depends_on:
-      - perf-sentinel
+      perf-sentinel:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   perf-sentinel:
     image: ghcr.io/robintra/perf-sentinel:latest
@@ -29,25 +45,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-
-# Create otel-collector-config.yml alongside this file:
-#
-# receivers:
-#   otlp:
-#     protocols:
-#       grpc:
-#         endpoint: 0.0.0.0:4317
-#       http:
-#         endpoint: 0.0.0.0:4318
-#
-# exporters:
-#   otlp/perf-sentinel:
-#     endpoint: perf-sentinel:4317
-#     tls:
-#       insecure: true
-#
-# service:
-#   pipelines:
-#     traces:
-#       receivers: [otlp]
-#       exporters: [otlp/perf-sentinel]
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

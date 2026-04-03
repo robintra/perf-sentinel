@@ -42,7 +42,10 @@ For user-facing documentation, see the parent `docs/` directory:
 | `ingest/mod.rs`                          | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/json.rs`                         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/otlp.rs`                         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `ingest/pg_stat.rs`                      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon.rs`                              | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `config.rs`                              | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
-| `report/mod.rs`, `json.rs`, `metrics.rs` | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
+| `report/mod.rs`, `json.rs`              | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
+| `report/metrics.rs`                      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `sentinel-cli/src/main.rs`               | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
+| `sentinel-cli/src/tui.rs`                | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |

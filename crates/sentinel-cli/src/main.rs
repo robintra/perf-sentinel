@@ -5,6 +5,9 @@
 #![allow(clippy::cast_sign_loss)] // i64 (libc::ru_maxrss) -> usize for RSS bytes on macOS
 #![allow(clippy::items_after_statements)] // bench report struct defined near its use
 
+#[cfg(feature = "tui")]
+mod tui;
+
 use clap::{Parser, Subcommand};
 use sentinel_core::config::Config;
 use sentinel_core::detect::{FindingType, Severity};
@@ -44,6 +47,15 @@ enum OutputFormat {
     Json,
     /// SARIF v2.1.0 for GitHub/GitLab code scanning.
     Sarif,
+}
+
+/// Output format for the pg-stat command.
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum PgStatOutputFormat {
+    /// Colored terminal table (default).
+    Text,
+    /// Structured JSON report.
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -105,6 +117,36 @@ enum Commands {
         #[arg(long, default_value = "10")]
         iterations: u32,
     },
+
+    /// Interactive TUI to inspect traces and findings.
+    #[cfg(feature = "tui")]
+    Inspect {
+        /// Path to a JSON trace file.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Path to a `.perf-sentinel.toml` config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+
+    /// Analyze `pg_stat_statements` data for SQL hotspot detection.
+    PgStat {
+        /// Path to `pg_stat_statements` CSV or JSON export.
+        #[arg(short, long)]
+        input: PathBuf,
+        /// Number of top queries per ranking (default 10).
+        #[arg(long, default_value = "10")]
+        top_n: usize,
+        /// Optional: path to a trace file for cross-referencing with trace findings.
+        #[arg(long)]
+        traces: Option<PathBuf>,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (colored, default) or json.
+        #[arg(long, value_enum, default_value = "text")]
+        format: PgStatOutputFormat,
+    },
 }
 
 #[tokio::main]
@@ -139,6 +181,15 @@ async fn main() {
         Commands::Watch { config } => cmd_watch(config.as_deref()).await,
         Commands::Demo { config } => cmd_demo(config.as_deref()),
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
+        #[cfg(feature = "tui")]
+        Commands::Inspect { input, config } => cmd_inspect(&input, config.as_deref()),
+        Commands::PgStat {
+            input,
+            top_n,
+            traces,
+            config,
+            format,
+        } => cmd_pg_stat(&input, top_n, traces.as_deref(), config.as_deref(), format),
     }
 }
 
@@ -453,6 +504,128 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
     }
 }
 
+#[cfg(feature = "tui")]
+fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
+    let config = load_config(config_path);
+    let raw = read_events(Some(input), config.max_payload_size);
+
+    let ingest = JsonIngest::new(config.max_payload_size);
+    let events = match ingest.ingest(&raw) {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error ingesting events: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let detect_config = sentinel_core::detect::DetectConfig {
+        n_plus_one_threshold: config.n_plus_one_threshold,
+        window_ms: config.window_duration_ms,
+        slow_threshold_ms: config.slow_query_threshold_ms,
+        slow_min_occurrences: config.slow_query_min_occurrences,
+        max_fanout: config.max_fanout,
+    };
+
+    let (report, traces) = pipeline::analyze_with_traces(events, &config);
+
+    let mut app = tui::App::new(report.findings, traces, detect_config);
+    if let Err(e) = tui::run(&mut app) {
+        eprintln!("TUI error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn cmd_pg_stat(
+    input: &std::path::Path,
+    top_n: usize,
+    traces: Option<&std::path::Path>,
+    config_path: Option<&std::path::Path>,
+    format: PgStatOutputFormat,
+) {
+    use sentinel_core::ingest::pg_stat;
+
+    let config = load_config(config_path);
+    let raw = read_events(Some(input), config.max_payload_size);
+
+    let mut entries = match pg_stat::parse_pg_stat(&raw, config.max_payload_size) {
+        Ok(entries) => entries,
+        Err(e) => {
+            eprintln!("Error parsing pg_stat_statements: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Cross-reference with trace findings if --traces is provided
+    if let Some(traces_path) = traces {
+        let traces_raw = read_events(Some(traces_path), config.max_payload_size);
+        let ingest = JsonIngest::new(config.max_payload_size);
+        match ingest.ingest(&traces_raw) {
+            Ok(events) => {
+                let report = pipeline::analyze(events, &config);
+                pg_stat::cross_reference(&mut entries, &report.findings);
+            }
+            Err(e) => {
+                eprintln!("Warning: failed to ingest trace file for cross-reference: {e}");
+            }
+        }
+    }
+
+    let report = pg_stat::rank_pg_stat(&entries, top_n);
+
+    match format {
+        PgStatOutputFormat::Json => match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("Error serializing pg_stat report: {e}");
+                std::process::exit(1);
+            }
+        },
+        PgStatOutputFormat::Text => print_pg_stat_report(&report),
+    }
+}
+
+fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
+    use std::io::IsTerminal;
+
+    let is_tty = std::io::stdout().is_terminal();
+    let (bold, cyan, yellow, dim, reset) = if is_tty {
+        ("\x1b[1m", "\x1b[36m", "\x1b[33m", "\x1b[2m", "\x1b[0m")
+    } else {
+        ("", "", "", "", "")
+    };
+
+    println!();
+    println!("{bold}{cyan}=== pg_stat_statements analysis ==={reset}");
+    println!("{dim}Total entries: {}{reset}", report.total_entries);
+    println!();
+
+    for ranking in &report.rankings {
+        println!("{bold}{cyan}--- {} ---{reset}", ranking.label);
+        println!();
+        for (i, entry) in ranking.entries.iter().enumerate() {
+            let trace_marker = if entry.seen_in_traces {
+                format!(" {yellow}[seen in traces]{reset}")
+            } else {
+                String::new()
+            };
+            println!(
+                "  {bold}#{}{reset} {}{trace_marker}",
+                i + 1,
+                entry.normalized_template
+            );
+            println!(
+                "    {dim}calls:{reset} {}  {dim}total:{reset} {:.2}ms  {dim}mean:{reset} {:.2}ms  {dim}rows:{reset} {}",
+                entry.calls, entry.total_exec_time_ms, entry.mean_exec_time_ms, entry.rows
+            );
+            println!(
+                "    {dim}blks_hit:{reset} {}  {dim}blks_read:{reset} {}",
+                entry.shared_blks_hit, entry.shared_blks_read
+            );
+            println!();
+        }
+    }
+}
+
 /// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
 #[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
 fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64, f64) {
@@ -530,17 +703,30 @@ fn print_colored_report(report: &Report) {
     format_colored_report(report, false);
 }
 
-fn format_colored_report(report: &Report, force_color: bool) {
-    use std::io::IsTerminal;
+/// ANSI color codes tuple: (bold, cyan, red, yellow, green, dim, reset).
+type AnsiColors = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
 
-    let is_tty = force_color || std::io::stdout().is_terminal();
-    let (bold, cyan, red, yellow, green, dim, reset) = if is_tty {
+fn ansi_colors(force_color: bool) -> AnsiColors {
+    use std::io::IsTerminal;
+    if force_color || std::io::stdout().is_terminal() {
         (
             "\x1b[1m", "\x1b[36m", "\x1b[31m", "\x1b[33m", "\x1b[32m", "\x1b[2m", "\x1b[0m",
         )
     } else {
         ("", "", "", "", "", "", "")
-    };
+    }
+}
+
+fn format_colored_report(report: &Report, force_color: bool) {
+    let (bold, cyan, _red, _yellow, green, dim, reset) = ansi_colors(force_color);
 
     println!();
     println!("{bold}{cyan}=== perf-sentinel demo ==={reset}");
@@ -555,82 +741,91 @@ fn format_colored_report(report: &Report, force_color: bool) {
     if report.findings.is_empty() {
         println!("{green}No performance anti-patterns detected.{reset}");
     } else {
-        println!("{bold}Found {} issue(s):{reset}", report.findings.len());
-        println!();
-
-        for (i, finding) in report.findings.iter().enumerate() {
-            let severity_color = match finding.severity {
-                Severity::Critical => red,
-                Severity::Warning => yellow,
-                Severity::Info => dim,
-            };
-
-            let type_label = match finding.finding_type {
-                FindingType::NPlusOneSql => "N+1 SQL",
-                FindingType::NPlusOneHttp => "N+1 HTTP",
-                FindingType::RedundantSql => "Redundant SQL",
-                FindingType::RedundantHttp => "Redundant HTTP",
-                FindingType::SlowSql => "Slow SQL",
-                FindingType::SlowHttp => "Slow HTTP",
-                FindingType::ExcessiveFanout => "Excessive Fanout",
-            };
-
-            println!(
-                "  {bold}{severity_color}[{severity}] #{num} {type_label}{reset}",
-                severity = match finding.severity {
-                    Severity::Critical => "CRITICAL",
-                    Severity::Warning => "WARNING",
-                    Severity::Info => "INFO",
-                },
-                num = i + 1,
-            );
-            println!("    {dim}Trace:{reset}    {}", finding.trace_id);
-            println!("    {dim}Service:{reset}  {}", finding.service);
-            println!("    {dim}Endpoint:{reset} {}", finding.source_endpoint);
-            println!("    {dim}Template:{reset} {}", finding.pattern.template);
-            println!(
-                "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
-                finding.pattern.occurrences,
-                finding.pattern.distinct_params,
-                finding.pattern.window_ms
-            );
-            println!(
-                "    {dim}Window:{reset}   {} -> {}",
-                finding.first_timestamp, finding.last_timestamp
-            );
-            println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
-            if let Some(ref impact) = finding.green_impact {
-                println!(
-                    "    {dim}Extra I/O:{reset} {} avoidable ops",
-                    impact.estimated_extra_io_ops
-                );
-                println!("    {dim}IIS:{reset}      {:.1}", impact.io_intensity_score);
-            }
-            println!();
-        }
+        print_findings(&report.findings, force_color);
     }
 
-    // Green summary
+    print_green_summary(&report.green_summary, force_color);
+    print_quality_gate(&report.quality_gate, force_color);
+}
+
+fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
+    let (bold, cyan, _red, _yellow, _green, dim, reset) = ansi_colors(force_color);
+
+    println!("{bold}Found {} issue(s):{reset}", findings.len());
+    println!();
+
+    for (i, finding) in findings.iter().enumerate() {
+        let (_bold, _cyan, red, yellow, _green, _dim, _reset) = ansi_colors(force_color);
+        let severity_color = match finding.severity {
+            Severity::Critical => red,
+            Severity::Warning => yellow,
+            Severity::Info => dim,
+        };
+
+        let type_label = match finding.finding_type {
+            FindingType::NPlusOneSql => "N+1 SQL",
+            FindingType::NPlusOneHttp => "N+1 HTTP",
+            FindingType::RedundantSql => "Redundant SQL",
+            FindingType::RedundantHttp => "Redundant HTTP",
+            FindingType::SlowSql => "Slow SQL",
+            FindingType::SlowHttp => "Slow HTTP",
+            FindingType::ExcessiveFanout => "Excessive Fanout",
+        };
+
+        let severity_label = match finding.severity {
+            Severity::Critical => "CRITICAL",
+            Severity::Warning => "WARNING",
+            Severity::Info => "INFO",
+        };
+
+        println!(
+            "  {bold}{severity_color}[{severity_label}] #{} {type_label}{reset}",
+            i + 1,
+        );
+        println!("    {dim}Trace:{reset}    {}", finding.trace_id);
+        println!("    {dim}Service:{reset}  {}", finding.service);
+        println!("    {dim}Endpoint:{reset} {}", finding.source_endpoint);
+        println!("    {dim}Template:{reset} {}", finding.pattern.template);
+        println!(
+            "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
+            finding.pattern.occurrences, finding.pattern.distinct_params, finding.pattern.window_ms
+        );
+        println!(
+            "    {dim}Window:{reset}   {} -> {}",
+            finding.first_timestamp, finding.last_timestamp
+        );
+        println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
+        if let Some(ref impact) = finding.green_impact {
+            println!(
+                "    {dim}Extra I/O:{reset} {} avoidable ops",
+                impact.estimated_extra_io_ops
+            );
+            println!("    {dim}IIS:{reset}      {:.1}", impact.io_intensity_score);
+        }
+        println!();
+    }
+}
+
+fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
+    let (bold, cyan, _red, _yellow, _green, _dim, reset) = ansi_colors(force_color);
+
     println!("{bold}{cyan}--- GreenOps Summary ---{reset}");
-    println!("  Total I/O ops:     {}", report.green_summary.total_io_ops);
-    println!(
-        "  Avoidable I/O ops: {}",
-        report.green_summary.avoidable_io_ops
-    );
+    println!("  Total I/O ops:     {}", summary.total_io_ops);
+    println!("  Avoidable I/O ops: {}", summary.avoidable_io_ops);
     println!(
         "  I/O waste ratio:   {:.1}%",
-        report.green_summary.io_waste_ratio * 100.0
+        summary.io_waste_ratio * 100.0
     );
-    if let Some(co2) = report.green_summary.estimated_co2_grams {
+    if let Some(co2) = summary.estimated_co2_grams {
         println!("  Est. CO\u{2082}:          {co2:.6} g");
     }
-    if let Some(co2) = report.green_summary.avoidable_co2_grams {
+    if let Some(co2) = summary.avoidable_co2_grams {
         println!("  Avoidable CO\u{2082}:     {co2:.6} g");
     }
-    if !report.green_summary.top_offenders.is_empty() {
+    if !summary.top_offenders.is_empty() {
         println!();
         println!("  {bold}Top offenders:{reset}");
-        for offender in &report.green_summary.top_offenders {
+        for offender in &summary.top_offenders {
             let co2_str = offender
                 .co2_grams
                 .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
@@ -644,18 +839,13 @@ fn format_colored_report(report: &Report, force_color: bool) {
         }
     }
     println!();
+}
 
-    // Quality gate
-    let gate_color = if report.quality_gate.passed {
-        green
-    } else {
-        red
-    };
-    let gate_label = if report.quality_gate.passed {
-        "PASSED"
-    } else {
-        "FAILED"
-    };
+fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bool) {
+    let (bold, _cyan, red, _yellow, green, _dim, reset) = ansi_colors(force_color);
+
+    let gate_color = if gate.passed { green } else { red };
+    let gate_label = if gate.passed { "PASSED" } else { "FAILED" };
     println!("{bold}Quality gate: {gate_color}{gate_label}{reset}");
     println!();
 }

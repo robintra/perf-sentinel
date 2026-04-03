@@ -17,6 +17,27 @@ pub struct EventSource {
     pub method: String,
 }
 
+/// Maximum allowed length for a `trace_id` or `span_id`.
+///
+/// OpenTelemetry specifies 32 hex chars for trace IDs and 16 for span IDs.
+/// We allow up to 128 chars to accommodate non-standard formats.
+pub const MAX_ID_LENGTH: usize = 128;
+
+/// Truncate an ID field (`trace_id`, `span_id`) to [`MAX_ID_LENGTH`].
+///
+/// Uses char-boundary-aware truncation to avoid panicking on multi-byte UTF-8.
+#[must_use]
+pub fn sanitize_id(id: &str) -> String {
+    if id.len() <= MAX_ID_LENGTH {
+        return id.to_string();
+    }
+    let mut end = MAX_ID_LENGTH;
+    while end > 0 && !id.is_char_boundary(end) {
+        end -= 1;
+    }
+    id[..end].to_string()
+}
+
 /// A single span event representing an I/O operation (SQL query, HTTP call).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanEvent {
@@ -115,5 +136,44 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         let json = serde_json::to_string(&event).unwrap();
         assert!(!json.contains("status_code"));
+    }
+
+    #[test]
+    fn sanitize_id_short_unchanged() {
+        assert_eq!(sanitize_id("abc-123"), "abc-123");
+    }
+
+    #[test]
+    fn sanitize_id_truncates_long() {
+        let long = "a".repeat(200);
+        let result = sanitize_id(&long);
+        assert_eq!(result.len(), MAX_ID_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_id_exact_length_unchanged() {
+        let exact = "b".repeat(MAX_ID_LENGTH);
+        assert_eq!(sanitize_id(&exact), exact);
+    }
+
+    #[test]
+    fn sanitize_id_multibyte_no_panic() {
+        // 4-byte emoji repeated to exceed MAX_ID_LENGTH (200 bytes total)
+        let id = "\u{1F600}".repeat(50);
+        assert!(id.len() > MAX_ID_LENGTH);
+        let result = sanitize_id(&id);
+        assert!(result.len() <= MAX_ID_LENGTH);
+        // Must be valid UTF-8 (would panic in .to_string() if not)
+        assert!(result.is_char_boundary(result.len()));
+    }
+
+    #[test]
+    fn sanitize_id_two_byte_chars_no_panic() {
+        // 2-byte UTF-8 chars: é is 2 bytes
+        let id = "é".repeat(100); // 200 bytes
+        let result = sanitize_id(&id);
+        assert!(result.len() <= MAX_ID_LENGTH);
+        // Result should contain whole chars only (even byte count for 2-byte chars)
+        assert_eq!(result.len() % 2, 0);
     }
 }

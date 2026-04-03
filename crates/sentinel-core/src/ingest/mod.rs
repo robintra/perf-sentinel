@@ -3,6 +3,7 @@
 pub mod jaeger;
 pub mod json;
 pub mod otlp;
+pub mod pg_stat;
 pub mod zipkin;
 
 use crate::event::SpanEvent;

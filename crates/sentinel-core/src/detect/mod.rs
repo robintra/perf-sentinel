@@ -168,6 +168,20 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     findings
 }
 
+/// Sort findings deterministically for stable output.
+///
+/// Orders by finding type, severity, trace ID, source endpoint, and template.
+pub fn sort_findings(findings: &mut [Finding]) {
+    findings.sort_by(|a, b| {
+        a.finding_type
+            .cmp(&b.finding_type)
+            .then_with(|| a.severity.cmp(&b.severity))
+            .then_with(|| a.trace_id.cmp(&b.trace_id))
+            .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
+            .then_with(|| a.pattern.template.cmp(&b.pattern.template))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

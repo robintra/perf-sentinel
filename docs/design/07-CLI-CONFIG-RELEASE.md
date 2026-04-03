@@ -2,7 +2,7 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Five subcommands are available: `analyze`, `explain`, `watch`, `demo`, and `bench`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Seven subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, and `inspect`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
@@ -72,6 +72,22 @@ let (bold, cyan, red, yellow, green, dim, reset) = if is_tty {
 ```
 
 ANSI escape codes are suppressed when stdout is not a terminal (e.g., piped to a file or `jq`). The `force_color` parameter allows tests to exercise the color path without a real TTY. This follows the convention of tools like `ls --color=auto` and [rustc's output](https://doc.rust-lang.org/rustc/command-line-arguments.html).
+
+### PgStat: pg_stat_statements hotspot analysis
+
+`perf-sentinel pg-stat --input FILE` parses PostgreSQL `pg_stat_statements` exports (CSV or JSON, auto-detected) and produces hotspot rankings by total execution time, call count, and mean execution time. The `--traces` flag enables cross-referencing with trace-based findings: the tool runs `pipeline::analyze()` on the trace file and marks `pg_stat_statements` entries whose normalized template also appears in trace findings.
+
+This subcommand is intentionally separate from `analyze` because `pg_stat_statements` data has no `trace_id` -- it cannot participate in the trace correlation pipeline. It is a complementary analysis mode.
+
+### Inspect: interactive TUI
+
+`perf-sentinel inspect --input FILE` launches a terminal UI built with [ratatui](https://ratatui.rs/) and [crossterm](https://docs.rs/crossterm/). These dependencies live in `sentinel-cli/Cargo.toml` only (not `sentinel-core`) because TUI is a presentation concern.
+
+**Layout:** 3-panel split -- traces list (top-left, 30%), findings for selected trace (top-right, 70%), finding detail with span tree (bottom, 50%). The detail panel reuses `explain::build_tree()` and `explain::format_tree_text()` for the span tree display.
+
+**State management:** the `App` struct holds pre-computed `findings_by_trace` (indexed at construction time) to avoid recomputing on every frame. Navigation state (selected_trace, selected_finding, active_panel, scroll_offset) is updated by key events.
+
+**Data loading:** events are ingested once, then cloned: one copy for `correlate()` (needed for tree building) and one for `pipeline::analyze()` (consumed by the pipeline). This avoids re-reading the file.
 
 ## Configuration parsing
 

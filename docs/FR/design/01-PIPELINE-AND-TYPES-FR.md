@@ -35,19 +35,21 @@ SpanEvent  ->  NormalizedEvent  ->  Trace  ->  Finding  ->  Report
 
 La détection utilise `HashMap` en interne pour le groupement. Le `HashMap` de Rust utilise un [hasher aléatoire](https://doc.rust-lang.org/std/collections/struct.HashMap.html) (SipHash par défaut), donc l'ordre d'itération varie entre les exécutions. Sans tri, la même entrée pourrait produire des findings dans des ordres différents entre les exécutions.
 
-Le pipeline trie les findings après le scoring avec une clé multi-niveaux :
+La fonction partagée `detect::sort_findings()` trie les findings après le scoring avec une clé multi-niveaux :
 
 ```rust
-findings.sort_by(|a, b| {
-    a.finding_type.cmp(&b.finding_type)
-        .then_with(|| a.severity.cmp(&b.severity))
-        .then_with(|| a.trace_id.cmp(&b.trace_id))
-        .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
-        .then_with(|| a.pattern.template.cmp(&b.pattern.template))
-});
+pub fn sort_findings(findings: &mut [Finding]) {
+    findings.sort_by(|a, b| {
+        a.finding_type.cmp(&b.finding_type)
+            .then_with(|| a.severity.cmp(&b.severity))
+            .then_with(|| a.trace_id.cmp(&b.trace_id))
+            .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
+            .then_with(|| a.pattern.template.cmp(&b.pattern.template))
+    });
+}
 ```
 
-Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
+Cette fonction est définie dans `detect/mod.rs` et réutilisée par `pipeline::analyze()` et `cmd_inspect` pour garantir un ordre cohérent partout. Cela nécessite que `FindingType` et `Severity` implémentent `Ord`. Le `Ord` dérivé utilise l'ordre de déclaration des variantes, donnant un tri stable : `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Les top offenders sont triés de manière similaire (IIS décroissant, ordre alphabétique en cas d'égalité) pour garantir le même rapport pour la même entrée.
 

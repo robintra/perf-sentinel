@@ -2,13 +2,35 @@
 //!
 //! Exposes a `/metrics` endpoint on the same axum HTTP server (port 4318)
 //! with counters and gauges for monitoring perf-sentinel in real time.
+//! Supports `OpenMetrics` exemplars for click-through from Grafana to traces.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
 use prometheus::{Counter, CounterVec, Encoder, Gauge, Opts, Registry, TextEncoder};
+
+use crate::report::Report;
+
+/// Data attached to a metric as an `OpenMetrics` exemplar.
+#[derive(Debug, Clone)]
+struct ExemplarData {
+    trace_id: String,
+}
+
+/// Sanitize a value for use in an `OpenMetrics` exemplar label.
+///
+/// Keeps only alphanumeric characters, `-`, and `_`. Truncates to 64 characters.
+/// Prevents injection into the Prometheus text exposition format.
+fn sanitize_exemplar_value(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(64)
+        .collect()
+}
 
 /// Shared metrics state for the daemon.
 #[derive(Clone)]
@@ -16,7 +38,8 @@ pub struct MetricsState {
     registry: Registry,
     /// Findings detected, labeled by type and severity.
     pub findings_total: CounterVec,
-    /// Current I/O waste ratio (updated on each trace batch).
+    /// Cumulative I/O waste ratio since daemon start.
+    /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
     pub io_waste_ratio: Gauge,
     /// Total traces analyzed since daemon start.
     pub traces_analyzed_total: Counter,
@@ -28,6 +51,10 @@ pub struct MetricsState {
     pub total_io_ops: Counter,
     /// Cumulative avoidable I/O ops (for computing rolling waste ratio).
     pub avoidable_io_ops: Counter,
+    /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
+    worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
+    /// Worst-case `trace_id` for io waste ratio.
+    worst_waste_trace: Arc<RwLock<Option<ExemplarData>>>,
 }
 
 impl MetricsState {
@@ -51,7 +78,7 @@ impl MetricsState {
 
         let io_waste_ratio = Gauge::new(
             "perf_sentinel_io_waste_ratio",
-            "Current I/O waste ratio from latest batch",
+            "Cumulative I/O waste ratio since daemon start",
         )
         .expect("metric creation should not fail");
 
@@ -116,10 +143,121 @@ impl MetricsState {
             active_traces,
             total_io_ops,
             avoidable_io_ops,
+            worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
+            worst_waste_trace: Arc::new(RwLock::new(None)),
         }
     }
 
+    /// Record analysis results from a batch report.
+    ///
+    /// Updates all counters/gauges and tracks worst-case `trace_id` values
+    /// for exemplar annotations on Prometheus metrics.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal lock is poisoned (should not happen).
+    pub fn record_batch(&self, report: &Report) {
+        self.traces_analyzed_total
+            .inc_by(report.analysis.traces_analyzed as f64);
+        self.events_processed_total
+            .inc_by(report.analysis.events_processed as f64);
+        self.total_io_ops
+            .inc_by(report.green_summary.total_io_ops as f64);
+        self.avoidable_io_ops
+            .inc_by(report.green_summary.avoidable_io_ops as f64);
+
+        let cumulative_total = self.total_io_ops.get();
+        if cumulative_total > 0.0 {
+            self.io_waste_ratio
+                .set(self.avoidable_io_ops.get() / cumulative_total);
+        }
+
+        for finding in &report.findings {
+            self.findings_total
+                .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+                .inc();
+        }
+
+        self.record_exemplars(&report.findings, &report.green_summary);
+    }
+
+    /// Update exemplar tracking from findings and green summary.
+    ///
+    /// Called by both `record_batch` (batch mode) and the daemon's `process_traces`.
+    /// Builds exemplar data in a local map, then takes the write lock only for the swap.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal lock is poisoned (should not happen).
+    pub fn record_exemplars(
+        &self,
+        findings: &[crate::detect::Finding],
+        green_summary: &crate::report::GreenSummary,
+    ) {
+        // Build exemplar updates locally to minimize lock hold time.
+        let mut new_exemplars: HashMap<(&'static str, &'static str), ExemplarData> = HashMap::new();
+        for finding in findings {
+            new_exemplars.insert(
+                (finding.finding_type.as_str(), finding.severity.as_str()),
+                ExemplarData {
+                    trace_id: finding.trace_id.clone(),
+                },
+            );
+        }
+
+        if !new_exemplars.is_empty() {
+            let mut worst_map = self
+                .worst_finding_trace
+                .write()
+                .expect("lock should not be poisoned");
+            worst_map.extend(new_exemplars);
+        }
+
+        // Track worst-case trace for waste ratio
+        if let Some(worst_finding) = (green_summary.io_waste_ratio > 0.0)
+            .then(|| {
+                findings
+                    .iter()
+                    .filter(|f| f.finding_type.is_avoidable_io())
+                    .max_by_key(|f| f.pattern.occurrences)
+            })
+            .flatten()
+        {
+            let mut waste_lock = self
+                .worst_waste_trace
+                .write()
+                .expect("lock should not be poisoned");
+            *waste_lock = Some(ExemplarData {
+                trace_id: worst_finding.trace_id.clone(),
+            });
+        }
+    }
+
+    /// Whether any exemplar data is available.
+    ///
+    /// # Panics
+    ///
+    /// Panics if an internal lock is poisoned (should not happen).
+    #[must_use]
+    pub fn has_exemplars(&self) -> bool {
+        let finding_lock = self
+            .worst_finding_trace
+            .read()
+            .expect("lock should not be poisoned");
+        if !finding_lock.is_empty() {
+            return true;
+        }
+        let waste_lock = self
+            .worst_waste_trace
+            .read()
+            .expect("lock should not be poisoned");
+        waste_lock.is_some()
+    }
+
     /// Render all metrics in Prometheus text exposition format.
+    ///
+    /// When exemplar data is available, injects `OpenMetrics` exemplar annotations
+    /// on `perf_sentinel_findings_total` and `perf_sentinel_io_waste_ratio` lines.
     ///
     /// # Panics
     ///
@@ -132,8 +270,111 @@ impl MetricsState {
         encoder
             .encode(&metric_families, &mut buffer)
             .expect("encoding should not fail");
-        String::from_utf8(buffer).expect("prometheus output should be valid UTF-8")
+        let base_output =
+            String::from_utf8(buffer).expect("prometheus output should be valid UTF-8");
+
+        self.inject_exemplars(base_output)
     }
+
+    /// Post-process rendered metrics text to inject exemplar annotations.
+    ///
+    /// Note: This relies on the prometheus crate 0.14.0 output format for line-prefix
+    /// matching. If the crate changes its label ordering or spacing, the matching
+    /// will silently stop injecting exemplars. The exemplar format follows the
+    /// `OpenMetrics` specification: `metric{labels} value # {trace_id="..."}`
+    fn inject_exemplars(&self, base: String) -> String {
+        use std::fmt::Write;
+
+        let finding_map = self
+            .worst_finding_trace
+            .read()
+            .expect("lock should not be poisoned");
+        let waste_exemplar = self
+            .worst_waste_trace
+            .read()
+            .expect("lock should not be poisoned");
+
+        if finding_map.is_empty() && waste_exemplar.is_none() {
+            return base;
+        }
+
+        let mut output = String::with_capacity(base.len() + 256);
+
+        for line in base.lines() {
+            output.push_str(line);
+
+            // Inject exemplar on findings_total lines
+            if let Some(exemplar) = line
+                .starts_with("perf_sentinel_findings_total{")
+                .then(|| extract_finding_exemplar(line, &finding_map))
+                .flatten()
+            {
+                let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
+                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}}");
+            }
+
+            // Inject exemplar on io_waste_ratio line
+            if let Some(exemplar) = waste_exemplar
+                .as_ref()
+                .filter(|_| line.starts_with("perf_sentinel_io_waste_ratio "))
+            {
+                let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
+                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}}");
+            }
+
+            output.push('\n');
+        }
+
+        output
+    }
+
+    /// Returns the appropriate `Content-Type` header value.
+    ///
+    /// Returns `OpenMetrics` content type when exemplars are present,
+    /// standard Prometheus text format otherwise.
+    #[must_use]
+    pub fn content_type(&self) -> &'static str {
+        if self.has_exemplars() {
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        } else {
+            "text/plain; version=0.0.4; charset=utf-8"
+        }
+    }
+}
+
+/// Extract the finding exemplar for a given `findings_total` metric line.
+///
+/// Parses the `type` and `severity` labels from the line and looks them up
+/// in the exemplar map. Since the map keys are `&'static str` (from `FindingType::as_str()`
+/// and `Severity::as_str()`), the lookup iterates the map to compare against
+/// the parsed label values without allocating.
+fn extract_finding_exemplar<'a>(
+    line: &str,
+    map: &'a HashMap<(&'static str, &'static str), ExemplarData>,
+) -> Option<&'a ExemplarData> {
+    // Line format: perf_sentinel_findings_total{severity="warning",type="n_plus_one_sql"} 1
+    let labels_start = line.find('{')?;
+    let labels_end = line.find('}')?;
+    let labels_str = &line[labels_start + 1..labels_end];
+
+    let mut finding_type = None;
+    let mut severity = None;
+
+    for part in labels_str.split(',') {
+        let part = part.trim();
+        if let Some(val) = part.strip_prefix("type=\"") {
+            finding_type = val.strip_suffix('"');
+        } else if let Some(val) = part.strip_prefix("severity=\"") {
+            severity = val.strip_suffix('"');
+        }
+    }
+
+    let ft = finding_type?;
+    let sev = severity?;
+    // Iterate the map to find a matching key without allocating Strings
+    map.iter()
+        .find(|((k_ft, k_sev), _)| *k_ft == ft && *k_sev == sev)
+        .map(|(_, v)| v)
 }
 
 impl Default for MetricsState {
@@ -147,11 +388,9 @@ pub fn metrics_route(state: Arc<MetricsState>) -> Router {
     async fn handle_metrics(
         State(metrics): State<Arc<MetricsState>>,
     ) -> ([(axum::http::header::HeaderName, &'static str); 1], String) {
+        let content_type = metrics.content_type();
         (
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; version=0.0.4; charset=utf-8",
-            )],
+            [(axum::http::header::CONTENT_TYPE, content_type)],
             metrics.render(),
         )
     }
@@ -164,6 +403,62 @@ pub fn metrics_route(state: Arc<MetricsState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::detect::{Finding, FindingType, GreenImpact, Pattern, Severity};
+    use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    fn make_test_report(findings: Vec<Finding>, waste_ratio: f64) -> Report {
+        let total = 10;
+        let avoidable = (total as f64 * waste_ratio) as usize;
+        Report {
+            analysis: Analysis {
+                duration_ms: 1,
+                events_processed: 100,
+                traces_analyzed: 2,
+            },
+            findings,
+            green_summary: GreenSummary {
+                total_io_ops: total,
+                avoidable_io_ops: avoidable,
+                io_waste_ratio: waste_ratio,
+                top_offenders: vec![],
+                estimated_co2_grams: None,
+                avoidable_co2_grams: None,
+            },
+            quality_gate: QualityGate {
+                passed: true,
+                rules: vec![],
+            },
+        }
+    }
+
+    fn make_finding(
+        finding_type: FindingType,
+        severity: Severity,
+        trace_id: &str,
+        occurrences: usize,
+    ) -> Finding {
+        Finding {
+            finding_type,
+            severity,
+            trace_id: trace_id.to_string(),
+            service: "game".to_string(),
+            source_endpoint: "POST /api/game/42/start".to_string(),
+            pattern: Pattern {
+                template: "SELECT * FROM t WHERE id = ?".to_string(),
+                occurrences,
+                window_ms: 200,
+                distinct_params: occurrences,
+            },
+            suggestion: "batch".to_string(),
+            first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
+            green_impact: Some(GreenImpact {
+                estimated_extra_io_ops: occurrences.saturating_sub(1),
+                io_intensity_score: 6.0,
+            }),
+        }
+    }
 
     #[test]
     fn default_creates_same_as_new() {
@@ -283,5 +578,284 @@ mod tests {
 
         let output = state.render();
         assert!(output.contains("100"));
+    }
+
+    // -- Exemplar tests --
+
+    #[test]
+    fn record_batch_tracks_worst_finding_trace() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Critical,
+                "trace-abc",
+                10,
+            )],
+            0.5,
+        );
+        state.record_batch(&report);
+
+        let map = state.worst_finding_trace.read().unwrap();
+        assert_eq!(
+            map.get(&("n_plus_one_sql", "critical")).unwrap().trace_id,
+            "trace-abc"
+        );
+    }
+
+    #[test]
+    fn record_batch_tracks_worst_waste_trace() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-waste",
+                8,
+            )],
+            0.4,
+        );
+        state.record_batch(&report);
+
+        let waste = state.worst_waste_trace.read().unwrap();
+        assert_eq!(waste.as_ref().unwrap().trace_id, "trace-waste");
+    }
+
+    #[test]
+    fn render_includes_exemplar_annotation() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-exemplar",
+                6,
+            )],
+            0.3,
+        );
+        state.record_batch(&report);
+
+        let output = state.render();
+        assert!(
+            output.contains(r#"# {trace_id="trace-exemplar"}"#),
+            "should contain exemplar annotation, got: {output}"
+        );
+    }
+
+    #[test]
+    fn render_no_exemplar_when_no_data() {
+        let state = MetricsState::new();
+        // Manually set some metrics without using record_batch
+        state.traces_analyzed_total.inc();
+        state
+            .findings_total
+            .with_label_values(&["n_plus_one_sql", "warning"])
+            .inc();
+
+        let output = state.render();
+        assert!(
+            !output.contains("# {trace_id="),
+            "should not contain exemplar when no record_batch called"
+        );
+    }
+
+    #[test]
+    fn exemplar_on_io_waste_ratio() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::RedundantSql,
+                Severity::Warning,
+                "trace-waste-ratio",
+                4,
+            )],
+            0.5,
+        );
+        state.record_batch(&report);
+
+        let output = state.render();
+        // The io_waste_ratio line should have an exemplar
+        for line in output.lines() {
+            if line.starts_with("perf_sentinel_io_waste_ratio ") {
+                assert!(
+                    line.contains(r#"# {trace_id="trace-waste-ratio"}"#),
+                    "waste ratio line should have exemplar: {line}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn content_type_is_openmetrics_with_exemplars() {
+        let state = MetricsState::new();
+        assert_eq!(
+            state.content_type(),
+            "text/plain; version=0.0.4; charset=utf-8"
+        );
+
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-1",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+        assert_eq!(
+            state.content_type(),
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        );
+    }
+
+    #[test]
+    fn multiple_batches_update_exemplars() {
+        let state = MetricsState::new();
+
+        let report1 = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-old",
+                5,
+            )],
+            0.3,
+        );
+        state.record_batch(&report1);
+
+        let report2 = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-new",
+                10,
+            )],
+            0.5,
+        );
+        state.record_batch(&report2);
+
+        let map = state.worst_finding_trace.read().unwrap();
+        assert_eq!(
+            map.get(&("n_plus_one_sql", "warning")).unwrap().trace_id,
+            "trace-new",
+            "should update to latest batch's worst finding"
+        );
+    }
+
+    #[tokio::test]
+    async fn metrics_route_returns_openmetrics_with_exemplars() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let state = Arc::new(MetricsState::new());
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-route-test",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+
+        let router = metrics_route(state);
+        let request = Request::builder()
+            .uri("/metrics")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            content_type.contains("openmetrics"),
+            "should use OpenMetrics content type: {content_type}"
+        );
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            body_str.contains(r#"trace_id="trace-route-test""#),
+            "should contain exemplar trace_id"
+        );
+    }
+
+    #[test]
+    fn sanitize_exemplar_value_strips_dangerous_chars() {
+        assert_eq!(sanitize_exemplar_value("abc-123_def"), "abc-123_def");
+        assert_eq!(
+            sanitize_exemplar_value("evil\"} 999\nfake_metric"),
+            "evil999fake_metric"
+        );
+        assert_eq!(sanitize_exemplar_value(""), "");
+        // Truncation to 64 chars
+        let long = "a".repeat(100);
+        assert_eq!(sanitize_exemplar_value(&long).len(), 64);
+    }
+
+    #[test]
+    fn exemplar_with_malicious_trace_id_is_sanitized() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "evil\"} 999\nmy_fake_metric",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+
+        let output = state.render();
+        // Should NOT contain the raw malicious string
+        assert!(
+            !output.contains("evil\""),
+            "malicious trace_id should be sanitized"
+        );
+        // Should contain the sanitized version
+        assert!(output.contains("evil999my_fake_metric"));
+    }
+
+    #[test]
+    fn prometheus_output_format_matches_expected_prefixes() {
+        // Regression test: validates that the prometheus crate (0.14.0) output
+        // format matches the line prefixes used by inject_exemplars().
+        // If this test fails after a prometheus crate upgrade, update inject_exemplars.
+        let state = MetricsState::new();
+        state
+            .findings_total
+            .with_label_values(&["n_plus_one_sql", "warning"])
+            .inc();
+        state.io_waste_ratio.set(0.5);
+
+        let output = state.render();
+
+        // Verify the line prefix format that inject_exemplars relies on
+        let has_findings_prefix = output
+            .lines()
+            .any(|l| l.starts_with("perf_sentinel_findings_total{"));
+        assert!(
+            has_findings_prefix,
+            "prometheus output must contain lines starting with 'perf_sentinel_findings_total{{': {output}"
+        );
+
+        let has_waste_prefix = output
+            .lines()
+            .any(|l| l.starts_with("perf_sentinel_io_waste_ratio "));
+        assert!(
+            has_waste_prefix,
+            "prometheus output must contain lines starting with 'perf_sentinel_io_waste_ratio ': {output}"
+        );
     }
 }

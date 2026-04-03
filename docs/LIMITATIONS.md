@@ -16,8 +16,11 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 
 - **No semantic parsing:** the tokenizer replaces literals and UUIDs positionally. It does not build an AST and cannot reason about query structure.
 - **ASCII only:** the tokenizer operates byte-by-byte and assumes ASCII SQL. Non-ASCII characters in identifiers, comments, or string literals (e.g., accented characters) may produce incorrect template or param values. SQL keywords and operators are always ASCII, so this only affects extracted parameter values for non-ASCII string literals.
-- **Edge cases:** deeply nested CTEs, non-standard SQL extensions, or unusual quoting styles may not normalize correctly.
-- **Stored procedures:** `CALL` statements with complex parameter expressions may not be fully normalized.
+- **CTEs:** Common Table Expressions (`WITH ... AS (...)`) are supported -- the tokenizer normalizes literals inside CTEs correctly, including nested CTEs.
+- **Double-quoted identifiers:** SQL-standard double-quoted identifiers (`"MyTable"`, `"Column"`) are preserved as-is. Digits inside double quotes are not mistaken for numeric literals.
+- **Dollar-quoted strings:** PostgreSQL dollar-quoted strings (`$$body$$`, `$tag$body$tag$`) are replaced with `?` placeholders, including in function bodies.
+- **`CALL` statements:** literal parameters in `CALL` are normalized (`CALL process(42, 'rush')` becomes `CALL process(?, ?)`). SQL expressions like `NOW()`, `INTERVAL '...'` are handled (the string inside `INTERVAL` is replaced, the function call is preserved).
+- **Backtick identifiers:** MySQL-style backtick identifiers (`` `table` ``) are not specifically handled. They pass through as-is without causing errors, but the backtick characters remain in the template.
 
 If you encounter a query that normalizes incorrectly, please open an issue with the raw SQL (anonymized).
 
@@ -91,3 +94,11 @@ Never expose perf-sentinel directly to untrusted networks without a security lay
 ## gCO2eq Energy Constant
 
 The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. This value is **not** a measured quantity : actual energy consumption depends on I/O type, hardware, query complexity, and infrastructure. The constant is intended to provide directional guidance (more I/O = more energy) rather than precise measurement. When comparing gCO2eq values across runs, the relative differences are meaningful even if absolute values are approximate.
+
+## pg_stat_statements Ingestion
+
+- **No trace correlation.** `pg_stat_statements` data has no `trace_id` or `span_id`. It cannot be used for per-trace anti-pattern detection (N+1, redundant). It provides complementary hotspot analysis and cross-referencing with trace-based findings.
+- **CSV parsing.** The CSV parser handles RFC 4180 quoting (double-quoted fields, escaped `""`), but assumes UTF-8 input. Non-UTF-8 files will fail to parse.
+- **Pre-normalized queries.** PostgreSQL normalizes `pg_stat_statements` queries at the server level. perf-sentinel applies its own normalization on top for cross-referencing, which may produce slightly different templates.
+- **No live connection.** perf-sentinel reads exported CSV or JSON files. It does not connect to PostgreSQL directly.
+- **Entry count.** The parser pre-allocates memory based on input size, capped at 100,000 entries. Files with more than 100,000 rows will still be parsed but without pre-allocation benefits.

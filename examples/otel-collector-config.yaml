@@ -1,0 +1,90 @@
+# OpenTelemetry Collector configuration for perf-sentinel
+#
+# This config receives OTLP traces from your applications, processes them
+# (optional batching, sampling), and forwards them to perf-sentinel for
+# performance anti-pattern detection.
+#
+# Usage:
+#   docker compose -f docker-compose-collector.yml up
+#
+# Your applications should send traces to the collector at:
+#   gRPC: otel-collector:4317
+#   HTTP: otel-collector:4318
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        # 0.0.0.0 is intentional for container use (collector accepts from app containers).
+        # For bare-metal deployments, restrict to 127.0.0.1 or use network policies.
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processor: reduces export overhead by grouping spans.
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+  # Tail-based sampling (optional): reduce volume in high-traffic environments.
+  # Uncomment and configure as needed.
+  #
+  # tail_sampling:
+  #   decision_wait: 10s
+  #   num_traces: 100000
+  #   policies:
+  #     # Keep all traces with errors
+  #     - name: errors
+  #       type: status_code
+  #       status_code:
+  #         status_codes: [ERROR]
+  #     # Keep all traces from specific services
+  #     - name: game-service
+  #       type: string_attribute
+  #       string_attribute:
+  #         key: service.name
+  #         values: [game, account, gateway]
+  #     # Probabilistic sampling for remaining traces
+  #     - name: probabilistic
+  #       type: probabilistic
+  #       probabilistic:
+  #         sampling_percentage: 10
+
+  # Filter processor (optional): drop traces from noisy services.
+  # Uncomment and configure as needed.
+  #
+  # filter:
+  #   error_mode: ignore
+  #   traces:
+  #     span:
+  #       - 'attributes["service.name"] == "health-check"'
+
+exporters:
+  # Forward traces to perf-sentinel for anti-pattern detection.
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+
+  # Forward traces to your observability backend (Jaeger, Tempo, etc.).
+  # Uncomment and configure as needed.
+  #
+  # otlp/jaeger:
+  #   endpoint: jaeger:4317
+  #   tls:
+  #     insecure: true
+  #
+  # otlp/tempo:
+  #   endpoint: tempo:4317
+  #   tls:
+  #     insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/perf-sentinel]
+      # To also forward to your backend, add it to exporters:
+      # exporters: [otlp/perf-sentinel, otlp/jaeger]

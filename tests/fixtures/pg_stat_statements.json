@@ -1,0 +1,137 @@
+[
+  {
+    "query": "SELECT * FROM player WHERE game_id = 42",
+    "calls": 1500,
+    "total_exec_time": 4500.50,
+    "mean_exec_time": 3.000,
+    "rows": 1500,
+    "shared_blks_hit": 12000,
+    "shared_blks_read": 150
+  },
+  {
+    "query": "SELECT * FROM game WHERE id = 1 AND status = 'active'",
+    "calls": 800,
+    "total_exec_time": 2400.00,
+    "mean_exec_time": 3.000,
+    "rows": 800,
+    "shared_blks_hit": 6400,
+    "shared_blks_read": 80
+  },
+  {
+    "query": "INSERT INTO audit_log VALUES (1, 'event', now())",
+    "calls": 200,
+    "total_exec_time": 600.00,
+    "mean_exec_time": 3.000,
+    "rows": 200,
+    "shared_blks_hit": 0,
+    "shared_blks_read": 200
+  },
+  {
+    "query": "SELECT count(*) FROM player",
+    "calls": 50,
+    "total_exec_time": 250.00,
+    "mean_exec_time": 5.000,
+    "rows": 50,
+    "shared_blks_hit": 500,
+    "shared_blks_read": 10
+  },
+  {
+    "query": "SELECT p.name, p.score FROM player p JOIN team t ON p.team_id = t.id WHERE t.game_id = 7",
+    "calls": 3000,
+    "total_exec_time": 15000.00,
+    "mean_exec_time": 5.000,
+    "rows": 3000,
+    "shared_blks_hit": 24000,
+    "shared_blks_read": 300
+  },
+  {
+    "query": "UPDATE player SET score = 100 WHERE id = 55",
+    "calls": 400,
+    "total_exec_time": 1200.00,
+    "mean_exec_time": 3.000,
+    "rows": 400,
+    "shared_blks_hit": 3200,
+    "shared_blks_read": 40
+  },
+  {
+    "query": "DELETE FROM session WHERE expires_at < '2025-01-01'",
+    "calls": 10,
+    "total_exec_time": 50.00,
+    "mean_exec_time": 5.000,
+    "rows": 1000,
+    "shared_blks_hit": 100,
+    "shared_blks_read": 50
+  },
+  {
+    "query": "SELECT * FROM chat_message WHERE game_id = 99 ORDER BY created_at DESC LIMIT 50",
+    "calls": 600,
+    "total_exec_time": 3600.00,
+    "mean_exec_time": 6.000,
+    "rows": 600,
+    "shared_blks_hit": 4800,
+    "shared_blks_read": 120
+  },
+  {
+    "query": "SELECT DISTINCT service FROM trace_log",
+    "calls": 25,
+    "total_exec_time": 125.00,
+    "mean_exec_time": 5.000,
+    "rows": 25,
+    "shared_blks_hit": 200,
+    "shared_blks_read": 25
+  },
+  {
+    "query": "INSERT INTO game (name, created_by, status) VALUES ('test', 'user-1', 'waiting')",
+    "calls": 150,
+    "total_exec_time": 450.00,
+    "mean_exec_time": 3.000,
+    "rows": 150,
+    "shared_blks_hit": 0,
+    "shared_blks_read": 150
+  },
+  {
+    "query": "SELECT * FROM player WHERE id IN (1, 2, 3, 4, 5)",
+    "calls": 2000,
+    "total_exec_time": 8000.00,
+    "mean_exec_time": 4.000,
+    "rows": 10000,
+    "shared_blks_hit": 16000,
+    "shared_blks_read": 200
+  },
+  {
+    "query": "SELECT * FROM account WHERE email = 'alice@example.com'",
+    "calls": 500,
+    "total_exec_time": 2500.00,
+    "mean_exec_time": 5.000,
+    "rows": 500,
+    "shared_blks_hit": 4000,
+    "shared_blks_read": 100
+  },
+  {
+    "query": "UPDATE game SET status = 'started' WHERE id = 42 AND status = 'waiting'",
+    "calls": 300,
+    "total_exec_time": 900.00,
+    "mean_exec_time": 3.000,
+    "rows": 300,
+    "shared_blks_hit": 2400,
+    "shared_blks_read": 30
+  },
+  {
+    "query": "SELECT * FROM config WHERE key = 'max_players'",
+    "calls": 100,
+    "total_exec_time": 200.00,
+    "mean_exec_time": 2.000,
+    "rows": 100,
+    "shared_blks_hit": 800,
+    "shared_blks_read": 10
+  },
+  {
+    "query": "SELECT g.id, g.name, COUNT(p.id) FROM game g LEFT JOIN player p ON p.game_id = g.id GROUP BY g.id",
+    "calls": 75,
+    "total_exec_time": 750.00,
+    "mean_exec_time": 10.000,
+    "rows": 75,
+    "shared_blks_hit": 1200,
+    "shared_blks_read": 150
+  }
+]

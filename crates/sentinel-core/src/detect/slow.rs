@@ -144,78 +144,84 @@ pub fn detect_slow_cross_trace(
 
     let mut findings = Vec::new();
     for ((event_type, template), mut entries) in groups {
-        if entries.len() < min_occ {
-            continue;
+        if let Some(finding) =
+            build_cross_trace_finding(event_type, template, &mut entries, min_occ, threshold_us)
+        {
+            findings.push(finding);
         }
-
-        // Only emit for templates that span multiple traces (per-trace detection handles single-trace)
-        let distinct_traces: HashSet<&str> = entries.iter().map(|&(_, tid, _, _, _)| tid).collect();
-        if distinct_traces.len() < 2 {
-            continue;
-        }
-
-        // Sort by duration for percentile computation
-        entries.sort_by_key(|&(dur, _, _, _, _)| dur);
-        let n = entries.len();
-        let p50 = entries[percentile_index(n, 50)].0;
-        let p95 = entries[percentile_index(n, 95)].0;
-        let p99 = entries[percentile_index(n, 99)].0;
-
-        // Only emit if p99 exceeds threshold
-        if p99 <= threshold_us {
-            continue;
-        }
-
-        let max_dur = entries[n - 1].0;
-
-        // Use the worst-case span for metadata, timestamps by chronological order
-        let (_, worst_trace_id, _, worst_service, worst_endpoint) = entries[n - 1];
-        let (window_ms, first_ts, last_ts) =
-            super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
-
-        let severity = if max_dur > threshold_us.saturating_mul(5) {
-            Severity::Critical
-        } else {
-            Severity::Warning
-        };
-
-        let suggestion = match event_type {
-            EventType::Sql => format!(
-                "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {} occurrences. Consider adding an index or optimizing query",
-                p50 as f64 / 1000.0,
-                p95 as f64 / 1000.0,
-                p99 as f64 / 1000.0,
-                n
-            ),
-            EventType::HttpOut => format!(
-                "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {} occurrences. Consider caching or optimizing endpoint",
-                p50 as f64 / 1000.0,
-                p95 as f64 / 1000.0,
-                p99 as f64 / 1000.0,
-                n
-            ),
-        };
-
-        findings.push(Finding {
-            finding_type: FindingType::from_event_type_slow(event_type),
-            severity,
-            trace_id: worst_trace_id.to_string(),
-            service: worst_service.to_string(),
-            source_endpoint: worst_endpoint.to_string(),
-            pattern: Pattern {
-                template: (*template).to_string(),
-                occurrences: n,
-                window_ms,
-                distinct_params: 0,
-            },
-            suggestion,
-            first_timestamp: first_ts.to_string(),
-            last_timestamp: last_ts.to_string(),
-            green_impact: None,
-        });
     }
 
     findings
+}
+
+/// Build a cross-trace slow finding from a group of entries for the same template.
+/// Returns `None` if the group doesn't meet the criteria (too few occurrences,
+/// single trace, or p99 below threshold).
+fn build_cross_trace_finding(
+    event_type: &EventType,
+    template: &str,
+    entries: &mut [(u64, &str, &str, &str, &str)],
+    min_occ: usize,
+    threshold_us: u64,
+) -> Option<Finding> {
+    if entries.len() < min_occ {
+        return None;
+    }
+
+    let distinct_traces: HashSet<&str> = entries.iter().map(|&(_, tid, _, _, _)| tid).collect();
+    if distinct_traces.len() < 2 {
+        return None;
+    }
+
+    entries.sort_by_key(|&(dur, _, _, _, _)| dur);
+    let n = entries.len();
+    let p50 = entries[percentile_index(n, 50)].0;
+    let p95 = entries[percentile_index(n, 95)].0;
+    let p99 = entries[percentile_index(n, 99)].0;
+
+    if p99 <= threshold_us {
+        return None;
+    }
+
+    let max_dur = entries[n - 1].0;
+    let (_, worst_trace_id, _, worst_service, worst_endpoint) = entries[n - 1];
+    let (window_ms, first_ts, last_ts) =
+        super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
+
+    let severity = if max_dur > threshold_us.saturating_mul(5) {
+        Severity::Critical
+    } else {
+        Severity::Warning
+    };
+
+    let label = match event_type {
+        EventType::Sql => "adding an index or optimizing query",
+        EventType::HttpOut => "caching or optimizing endpoint",
+    };
+    let suggestion = format!(
+        "Cross-trace analysis: p50={:.1}ms, p95={:.1}ms, p99={:.1}ms across {n} occurrences. Consider {label}",
+        p50 as f64 / 1000.0,
+        p95 as f64 / 1000.0,
+        p99 as f64 / 1000.0,
+    );
+
+    Some(Finding {
+        finding_type: FindingType::from_event_type_slow(event_type),
+        severity,
+        trace_id: worst_trace_id.to_string(),
+        service: worst_service.to_string(),
+        source_endpoint: worst_endpoint.to_string(),
+        pattern: Pattern {
+            template: template.to_string(),
+            occurrences: n,
+            window_ms,
+            distinct_params: 0,
+        },
+        suggestion,
+        first_timestamp: first_ts.to_string(),
+        last_timestamp: last_ts.to_string(),
+        green_impact: None,
+    })
 }
 
 #[cfg(test)]

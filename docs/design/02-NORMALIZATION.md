@@ -12,7 +12,7 @@ The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that buil
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
 - **Simplicity:** 120 lines of code vs a 50,000+ line dependency.
 
-The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only, may miss edge cases in deeply nested CTEs, and does not perform semantic analysis.
+The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings, and `CALL` statements.
 
 ## SQL Tokenizer: Single-Pass State Machine
 

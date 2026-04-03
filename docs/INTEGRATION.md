@@ -1,23 +1,419 @@
-# OTLP integration guide
+# Integration guide
 
-perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on port 4318).
+perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on port 4318). This guide walks you from zero to your first finding for each deployment topology.
 
-## Quick start
+## Choose your topology
+
+| Topology | Best for | Effort | Changes to services |
+|----------|----------|--------|---------------------|
+| **[CI batch](#quick-start-ci-batch-analysis)** | CI pipelines, pull request checks | Lowest | None (uses trace files) |
+| **[Central collector](#quick-start-central-collector)** | Production, multi-service | Low | None (YAML config only) |
+| **[Sidecar](#quick-start-sidecar)** | Dev/staging, single-service debug | Low | None (Docker only) |
+| **[Direct daemon](#quick-start-direct-daemon)** | Local dev, quick experiments | Medium | Per-language env vars |
+
+---
+
+## Quick start: CI batch analysis
+
+**Use case:** run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker -- just a binary that reads a trace file and exits with code 1 if the quality gate fails.
+
+### Step 1: Install
+
+```bash
+curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
+chmod +x perf-sentinel-linux-amd64
+sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+```
+
+### Step 2: Configure thresholds
+
+Create `.perf-sentinel.toml` at your project root:
+
+```toml
+[thresholds]
+n_plus_one_sql_critical_max = 0    # zero tolerance for N+1 SQL
+io_waste_ratio_max = 0.30          # max 30% avoidable I/O
+
+[detection]
+n_plus_one_min_occurrences = 5
+slow_query_threshold_ms = 500
+
+[green]
+enabled = true
+region = "eu-west-3"               # optional: enables gCO2eq estimates
+```
+
+### Step 3: Collect traces
+
+Export traces from your integration tests. If your tests run with OTel instrumentation, save the output to a JSON file. You can also export from Jaeger UI or Zipkin UI -- perf-sentinel auto-detects the format.
+
+### Step 4: Analyze
+
+```bash
+perf-sentinel analyze --ci --input traces.json --config .perf-sentinel.toml
+```
+
+The process prints a JSON report to stdout and exits with code 0 (pass) or 1 (fail). Add this to your CI job:
+
+```yaml
+# GitLab CI example
+perf:sentinel:
+  stage: quality
+  script:
+    - perf-sentinel analyze --ci --input traces.json --config .perf-sentinel.toml
+  artifacts:
+    paths: [perf-sentinel-report.json]
+    when: always
+  allow_failure: true   # start with warning-only, remove once thresholds are calibrated
+```
+
+### Step 5: Investigate findings
+
+```bash
+# Colored terminal report
+perf-sentinel analyze --input traces.json --config .perf-sentinel.toml
+
+# Tree view of a specific trace
+perf-sentinel explain --input traces.json --trace-id <trace-id>
+
+# Interactive TUI
+perf-sentinel inspect --input traces.json
+
+# SARIF for GitHub/GitLab code scanning
+perf-sentinel analyze --input traces.json --format sarif > results.sarif
+```
+
+---
+
+## Quick start: central collector
+
+**Use case:** production deployment where services already send traces to an OpenTelemetry Collector (or you want to add one). Zero code changes -- just YAML configuration.
+
+### Step 1: Start perf-sentinel + collector
+
+```bash
+docker compose -f examples/docker-compose-collector.yml up -d
+```
+
+This starts:
+- An **OTel Collector** listening on ports 4317 (gRPC) and 4318 (HTTP)
+- **perf-sentinel** in watch mode, receiving traces from the collector
+
+### Step 2: Point your services at the collector
+
+Set these environment variables in your application containers:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+```
+
+If your services already export to a collector, add perf-sentinel as an additional exporter in your existing `otel-collector-config.yaml`:
+
+```yaml
+exporters:
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/perf-sentinel, otlp/your-existing-backend]
+```
+
+### Step 3: Generate traffic
+
+Use your application normally. After the trace TTL expires (default 30 seconds), perf-sentinel emits findings as NDJSON to stdout:
+
+```bash
+docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
+```
+
+### Step 4: Monitor with Prometheus + Grafana
+
+perf-sentinel exposes Prometheus metrics at `http://localhost:14318/metrics` with OpenMetrics exemplars (click-through from Grafana to your trace backend):
+
+```bash
+curl -s http://localhost:14318/metrics | grep perf_sentinel
+```
+
+Add it as a Prometheus scrape target:
+
+```yaml
+# prometheus.yml
+scrape_configs:
+  - job_name: perf-sentinel
+    static_configs:
+      - targets: ['perf-sentinel:4318']
+```
+
+Key metrics:
+- `perf_sentinel_findings_total{type, severity}` -- findings with exemplar `trace_id` for click-through
+- `perf_sentinel_io_waste_ratio` -- current I/O waste ratio with exemplar `trace_id`
+- `perf_sentinel_events_processed_total` -- total spans ingested
+- `perf_sentinel_traces_analyzed_total` -- total traces completed
+
+See [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the full config with sampling and filtering options.
+
+---
+
+## Quick start: sidecar
+
+**Use case:** debug a single service in dev/staging. perf-sentinel runs alongside the service, sharing its network namespace.
+
+### Step 1: Start the sidecar
+
+```bash
+docker compose -f examples/docker-compose-sidecar.yml up -d
+```
+
+### Step 2: Configure your app
+
+Your app sends traces to `localhost:4317` -- no network hop since perf-sentinel shares the same network namespace:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+```
+
+### Step 3: View findings
+
+```bash
+docker compose -f examples/docker-compose-sidecar.yml logs -f perf-sentinel
+```
+
+See [`examples/docker-compose-sidecar.yml`](../examples/docker-compose-sidecar.yml) for the full configuration.
+
+---
+
+## Quick start: direct daemon
+
+**Use case:** local development. Run perf-sentinel on your host machine and point services at it.
+
+### Step 1: Start the daemon
 
 ```bash
 perf-sentinel watch
 ```
 
-By default, it listens on `127.0.0.1:4317` (gRPC) and `127.0.0.1:4318` (HTTP).
+By default, it listens on `127.0.0.1:4317` (gRPC) and `127.0.0.1:4318` (HTTP). For Docker containers to reach the host, use:
 
-## Two integration paths
+```toml
+# .perf-sentinel.toml
+[daemon]
+listen_address = "0.0.0.0"
+```
 
-| Scenario                                                    | Approach                                                         | Effort                         | Changes to services |
-|-------------------------------------------------------------|------------------------------------------------------------------|--------------------------------|---------------------|
-| **Production: services already send traces to a collector** | Add perf-sentinel as an exporter in the OTel Collector config    | One line of YAML               | None                |
-| **Dev/staging: no collector in place**                      | Instrument each service to send traces directly to perf-sentinel | Per-language setup (see below) | Varies              |
+### Step 2: Instrument your service
 
-If your services already export traces to Jaeger, Tempo, or any backend via an OpenTelemetry Collector, start with the collector approach: it requires zero changes to your application code.
+Set the OTLP endpoint in your service (see [per-language guides](#devstaging-per-language-instrumentation) below):
+
+```bash
+# For services running on the host
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
+
+# For services running in Docker
+OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
+```
+
+### Step 3: View findings
+
+Findings stream to stdout as NDJSON. Prometheus metrics are available at `http://localhost:4318/metrics`.
+
+---
+
+## Kubernetes deployment
+
+perf-sentinel runs as a standard Kubernetes Deployment behind a Service. The OTel Collector runs as a DaemonSet (per-node) or Deployment (centralized), forwarding traces to perf-sentinel.
+
+### Minimal manifests
+
+```yaml
+# perf-sentinel Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: perf-sentinel
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: perf-sentinel
+  template:
+    metadata:
+      labels:
+        app: perf-sentinel
+    spec:
+      containers:
+        - name: perf-sentinel
+          image: ghcr.io/robintra/perf-sentinel:latest
+          ports:
+            - containerPort: 4317   # OTLP gRPC
+            - containerPort: 4318   # OTLP HTTP + /metrics
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 4318
+            initialDelaySeconds: 5
+          resources:
+            requests:
+              memory: "16Mi"
+              cpu: "50m"
+            limits:
+              memory: "64Mi"
+              cpu: "200m"
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: perf-sentinel
+  namespace: monitoring
+spec:
+  selector:
+    app: perf-sentinel
+  ports:
+    - name: otlp-grpc
+      port: 4317
+    - name: otlp-http
+      port: 4318
+```
+
+### OTel Collector exporter config
+
+In your existing Collector config (DaemonSet or Deployment), add perf-sentinel as an exporter:
+
+```yaml
+exporters:
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel.monitoring:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      exporters: [otlp/perf-sentinel, otlp/your-backend]
+```
+
+### Application instrumentation
+
+Services send traces to the Collector via the standard `OTEL_EXPORTER_OTLP_ENDPOINT` env var. If using the OTel Operator, this is injected automatically. Otherwise, set it in your Deployment spec:
+
+```yaml
+env:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: "http://otel-collector.monitoring:4317"
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: "grpc"
+  - name: OTEL_SERVICE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: metadata.labels['app']
+```
+
+### Prometheus ServiceMonitor
+
+If you use the Prometheus Operator, scrape perf-sentinel metrics with a ServiceMonitor:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: perf-sentinel
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: perf-sentinel
+  endpoints:
+    - port: otlp-http
+      path: /metrics
+      interval: 15s
+```
+
+---
+
+## Cloud provider integrations
+
+perf-sentinel is cloud-agnostic: it receives standard OTLP traces. The key is to route a copy of your traces to perf-sentinel alongside your cloud-native trace backend.
+
+### AWS (X-Ray + OTel Collector)
+
+AWS X-Ray uses a proprietary format, but the [AWS Distro for OpenTelemetry (ADOT)](https://aws-otel.github.io/) Collector can export both to X-Ray and to perf-sentinel:
+
+```yaml
+# ADOT Collector config
+exporters:
+  awsxray:
+    region: eu-west-1
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [awsxray, otlp/perf-sentinel]
+```
+
+Deploy perf-sentinel as an ECS task or EKS Deployment. For ECS, use the `scratch`-based Docker image (`ghcr.io/robintra/perf-sentinel:latest`).
+
+### GCP (Cloud Trace + OTel Collector)
+
+GCP Cloud Trace supports OTLP ingestion natively. Use the standard OTel Collector with both the `googlecloud` exporter and the perf-sentinel exporter:
+
+```yaml
+exporters:
+  googlecloud:
+    project: my-gcp-project
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [googlecloud, otlp/perf-sentinel]
+```
+
+Deploy perf-sentinel as a Cloud Run service or GKE Deployment. For Cloud Run, expose port 4317 (gRPC) and 4318 (HTTP).
+
+### Azure (Application Insights + OTel Collector)
+
+Azure Monitor supports OTLP via the [Azure Monitor OpenTelemetry Exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-configuration). Route traces to both Azure and perf-sentinel:
+
+```yaml
+exporters:
+  azuremonitor:
+    connection_string: ${APPLICATIONINSIGHTS_CONNECTION_STRING}
+  otlp/perf-sentinel:
+    endpoint: perf-sentinel:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [azuremonitor, otlp/perf-sentinel]
+```
+
+Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.
+
+### Self-hosted (Jaeger, Tempo, Zipkin)
+
+If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`) -- formats are auto-detected.
 
 ---
 
@@ -40,14 +436,88 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # send to both
 ```
 
-This approach is the target for production deployments because:
+This approach is recommended for production deployments because:
 - Zero code changes in your services
 - No rebuild, no redeployment
 - Works regardless of language (Java, C#, Rust, Go, Python, Node.js)
 - Sampling and filtering happen at the collector level
 - perf-sentinel can be added or removed without touching application code
 
-> **Note:** this integration path has not been validated end-to-end yet. The per-language direct instrumentation described below has been tested and validated on real microservices.
+A full reference configuration is provided in [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) with a matching Docker Compose file in [`examples/docker-compose-collector.yml`](../examples/docker-compose-collector.yml).
+
+### End-to-end setup with Docker Compose
+
+1. Start the stack:
+
+```bash
+docker compose -f examples/docker-compose-collector.yml up -d
+```
+
+2. Configure your applications to export OTLP traces to the collector:
+   - gRPC: `localhost:4317`
+   - HTTP: `localhost:4318`
+
+3. Verify perf-sentinel is receiving spans:
+
+```bash
+curl -s http://localhost:14318/metrics | grep perf_sentinel_events_processed_total
+```
+
+4. View findings emitted by perf-sentinel on stdout:
+
+```bash
+docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
+```
+
+### Sampling and filtering
+
+For high-traffic environments, the OTel Collector supports tail-based sampling and filtering to reduce the volume of traces forwarded to perf-sentinel.
+
+**Tail-based sampling** keeps complete traces based on criteria evaluated after all spans arrive:
+
+```yaml
+processors:
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: specific-services
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: [game, account, gateway]
+      - name: probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+```
+
+**Filter processor** drops spans matching specific conditions:
+
+```yaml
+processors:
+  filter:
+    error_mode: ignore
+    traces:
+      span:
+        - 'attributes["service.name"] == "health-check"'
+```
+
+Add the processor to the pipeline:
+
+```yaml
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling, batch]
+      exporters: [otlp/perf-sentinel]
+```
+
+> **Note:** tail-based sampling requires the `otel/opentelemetry-collector-contrib` image (not the core image). Sampling below 100% will cause perf-sentinel to miss some anti-patterns in un-sampled traces.
 
 ---
 

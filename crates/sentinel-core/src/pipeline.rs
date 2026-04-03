@@ -12,6 +12,18 @@ use crate::score;
 /// Run the full analysis pipeline on a batch of events.
 #[must_use]
 pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
+    analyze_with_traces(events, config).0
+}
+
+/// Run the full analysis pipeline, returning both the report and the correlated traces.
+///
+/// Use this when you need the intermediate `Trace` structures (e.g., for tree building
+/// in the TUI inspect mode) without re-running normalization and correlation.
+#[must_use]
+pub fn analyze_with_traces(
+    events: Vec<SpanEvent>,
+    config: &Config,
+) -> (Report, Vec<correlate::Trace>) {
     let start = std::time::Instant::now();
     let event_count = events.len();
 
@@ -47,18 +59,11 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
     };
 
     // Sort findings for deterministic output (HashMap iteration order is random)
-    findings.sort_by(|a, b| {
-        a.finding_type
-            .cmp(&b.finding_type)
-            .then_with(|| a.severity.cmp(&b.severity))
-            .then_with(|| a.trace_id.cmp(&b.trace_id))
-            .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
-            .then_with(|| a.pattern.template.cmp(&b.pattern.template))
-    });
+    detect::sort_findings(&mut findings);
 
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
-    Report {
+    let report = Report {
         analysis: Analysis {
             duration_ms: start.elapsed().as_millis() as u64,
             events_processed: event_count,
@@ -67,7 +72,9 @@ pub fn analyze(events: Vec<SpanEvent>, config: &Config) -> Report {
         findings,
         green_summary,
         quality_gate,
-    }
+    };
+
+    (report, traces)
 }
 
 #[cfg(test)]

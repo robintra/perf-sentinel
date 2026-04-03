@@ -16,8 +16,11 @@ Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un
 
 - **Pas d'analyse sémantique :** le tokenizer remplace les littéraux et UUIDs de manière positionnelle. Il ne construit pas d'AST et ne peut pas raisonner sur la structure de la requête.
 - **ASCII uniquement :** le tokenizer opère octet par octet et suppose un SQL en ASCII. Les caractères non-ASCII dans les identifiants, commentaires ou littéraux de chaîne (ex. caractères accentués) peuvent produire des valeurs de template ou de paramètres incorrectes. Les mots-clés et opérateurs SQL sont toujours en ASCII, donc cela n'affecte que les valeurs de paramètres extraites pour les littéraux de chaîne non-ASCII.
-- **Cas limites :** les CTEs profondément imbriquées, les extensions SQL non standard ou les styles de guillemets inhabituels peuvent ne pas être normalisés correctement.
-- **Procédures stockées :** les instructions `CALL` avec des expressions de paramètres complexes peuvent ne pas être entièrement normalisées.
+- **CTEs :** les Common Table Expressions (`WITH ... AS (...)`) sont supportées -- le tokenizer normalise correctement les littéraux dans les CTEs, y compris les CTEs imbriquées.
+- **Identifiants double-quoted :** les identifiants SQL standard entre guillemets doubles (`"MyTable"`, `"Column"`) sont préservés tels quels. Les chiffres dans les guillemets doubles ne sont pas confondus avec des littéraux numériques.
+- **Chaînes dollar-quoted :** les chaînes dollar-quoted PostgreSQL (`$$body$$`, `$tag$body$tag$`) sont remplacées par des placeholders `?`, y compris dans les corps de fonctions.
+- **Instructions `CALL` :** les paramètres littéraux dans `CALL` sont normalisés (`CALL process(42, 'rush')` devient `CALL process(?, ?)`). Les expressions SQL comme `NOW()`, `INTERVAL '...'` sont gérées (la chaîne dans `INTERVAL` est remplacée, l'appel de fonction est préservé).
+- **Identifiants backtick :** les identifiants MySQL entre backticks (`` `table` ``) ne sont pas gérés spécifiquement. Ils passent tels quels sans provoquer d'erreur, mais les backticks restent dans le template.
 
 Si vous rencontrez une requête mal normalisée, veuillez ouvrir une issue avec le SQL brut (anonymisé).
 
@@ -91,3 +94,11 @@ N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans cou
 ## Constante énergétique gCO2eq
 
 L'estimation carbone utilise une constante énergétique fixe (`0,1 uWh par opération I/O`) comme approximation d'ordre de grandeur. Cette valeur n'est **pas** une quantité mesurée : la consommation réelle d'énergie dépend du type d'I/O, du matériel, de la complexité de la requête et de l'infrastructure. La constante vise à fournir une orientation directionnelle (plus d'I/O = plus d'énergie) plutôt qu'une mesure précise. Lors de la comparaison des valeurs gCO2eq entre les exécutions, les différences relatives sont significatives même si les valeurs absolues sont approximatives.
+
+## Ingestion pg_stat_statements
+
+- **Pas de corrélation par trace.** Les données `pg_stat_statements` n'ont pas de `trace_id` ni de `span_id`. Elles ne peuvent pas servir à la détection d'anti-patterns par trace (N+1, redondant). Elles fournissent une analyse complémentaire de hotspots et une référence croisée avec les findings basés sur les traces.
+- **Parsing CSV.** Le parseur CSV gère le quoting RFC 4180 (champs entre guillemets doubles, `""` échappé), mais suppose une entrée UTF-8. Les fichiers non-UTF-8 échoueront au parsing.
+- **Requêtes pré-normalisées.** PostgreSQL normalise les requêtes `pg_stat_statements` au niveau du serveur. perf-sentinel applique sa propre normalisation par-dessus pour la référence croisée, ce qui peut produire des templates légèrement différents.
+- **Pas de connexion live.** perf-sentinel lit des fichiers CSV ou JSON exportés. Il ne se connecte pas directement à PostgreSQL.
+- **Nombre d'entrées.** Le parseur pré-alloue la mémoire en fonction de la taille de l'entrée, plafonné à 100 000 entrées. Les fichiers avec plus de 100 000 lignes seront quand même parsés mais sans les bénéfices de la pré-allocation.

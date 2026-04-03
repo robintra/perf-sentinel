@@ -35,19 +35,21 @@ SpanEvent  ->  NormalizedEvent  ->  Trace  ->  Finding  ->  Report
 
 Detection uses `HashMap` internally for grouping. Rust's `HashMap` uses a [randomized hasher](https://doc.rust-lang.org/std/collections/struct.HashMap.html) (SipHash by default), so iteration order varies between runs. Without sorting, the same input could produce findings in different orders across runs.
 
-The pipeline sorts findings after scoring with a multi-level key:
+The shared `detect::sort_findings()` function sorts findings after scoring with a multi-level key:
 
 ```rust
-findings.sort_by(|a, b| {
-    a.finding_type.cmp(&b.finding_type)
-        .then_with(|| a.severity.cmp(&b.severity))
-        .then_with(|| a.trace_id.cmp(&b.trace_id))
-        .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
-        .then_with(|| a.pattern.template.cmp(&b.pattern.template))
-});
+pub fn sort_findings(findings: &mut [Finding]) {
+    findings.sort_by(|a, b| {
+        a.finding_type.cmp(&b.finding_type)
+            .then_with(|| a.severity.cmp(&b.severity))
+            .then_with(|| a.trace_id.cmp(&b.trace_id))
+            .then_with(|| a.source_endpoint.cmp(&b.source_endpoint))
+            .then_with(|| a.pattern.template.cmp(&b.pattern.template))
+    });
+}
 ```
 
-This requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
+This function is defined in `detect/mod.rs` and reused by `pipeline::analyze()` and `cmd_inspect` to guarantee consistent ordering everywhere. It requires `FindingType` and `Severity` to implement `Ord`. The derived `Ord` uses variant declaration order, giving a stable sort: `NPlusOneSql < NPlusOneHttp < RedundantSql < ... < SlowHttp < ExcessiveFanout`.
 
 Top offenders are similarly sorted (IIS descending, alphabetical tiebreaker) to ensure the same report for the same input.
 

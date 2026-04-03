@@ -15,6 +15,10 @@ readme = "../../README.md"
 name = "perf-sentinel"
 path = "src/main.rs"
 
+[features]
+default = ["tui"]
+tui = ["ratatui", "crossterm"]
+
 [dependencies]
 sentinel-core = { path = "../sentinel-core" }
 clap = { version = "4.6.0", features = ["derive"] }
@@ -23,6 +27,8 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
+ratatui = { version = "0.30.0", optional = true }
+crossterm = { version = "0.29.0", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2.183"

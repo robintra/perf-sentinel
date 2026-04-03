@@ -22,6 +22,10 @@ enum State {
     Normal,
     InString,
     InNumber,
+    /// Inside a double-quoted identifier (e.g., `"MyTable"`). Preserved as-is.
+    InDoubleQuote,
+    /// Inside a `PostgreSQL` dollar-quoted string (e.g., `$$body$$` or `$tag$body$tag$`).
+    InDollarQuote,
 }
 
 /// Mutable tokenizer state carried between steps.
@@ -36,6 +40,8 @@ struct Tokenizer<'a> {
     seen_dot: bool,
     has_in_list: bool,
     normal_start: usize,
+    /// The closing tag for dollar-quoted strings (e.g., `$$` or `$tag$`).
+    dollar_tag: Vec<u8>,
 }
 
 /// Normalize a SQL query by replacing literal values with `?` placeholders.
@@ -52,6 +58,7 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
         seen_dot: false,
         has_in_list: false,
         normal_start: 0,
+        dollar_tag: Vec::new(),
     };
 
     while t.i < t.bytes.len() {
@@ -59,6 +66,8 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
             State::Normal => step_normal(&mut t),
             State::InString => step_in_string(&mut t),
             State::InNumber => step_in_number(&mut t),
+            State::InDoubleQuote => step_in_double_quote(&mut t),
+            State::InDollarQuote => step_in_dollar_quote(&mut t),
         }
     }
 
@@ -72,6 +81,21 @@ fn step_normal(t: &mut Tokenizer<'_>) {
         flush_normal_run(t);
         t.state = State::InString;
         t.current_value.clear();
+    } else if b == b'"' {
+        // Double-quoted identifier: preserve as-is (don't replace literals inside)
+        t.state = State::InDoubleQuote;
+        t.i += 1;
+        return;
+    } else if b == b'$' && is_dollar_quote_start(t.i, t.bytes) {
+        // PostgreSQL dollar-quoted string: $$ or $tag$
+        let tag = extract_dollar_tag(t.i, t.bytes);
+        flush_normal_run(t);
+        let tag_len = tag.len();
+        t.dollar_tag = tag;
+        t.state = State::InDollarQuote;
+        t.current_value.clear();
+        t.i += tag_len;
+        return;
     } else if b.is_ascii_digit() && !is_identifier_byte_before(t.i, t.bytes) {
         flush_normal_run(t);
         t.state = State::InNumber;
@@ -120,6 +144,68 @@ fn step_in_number(t: &mut Tokenizer<'_>) {
     }
 }
 
+fn step_in_double_quote(t: &mut Tokenizer<'_>) {
+    let b = t.bytes[t.i];
+    if b == b'"' {
+        // End of double-quoted identifier; content stays in the template as-is
+        t.i += 1;
+    } else {
+        t.i += 1;
+    }
+    // Both branches advance; if we hit the closing quote, return to Normal
+    if b == b'"' {
+        t.state = State::Normal;
+        // normal_start is already correct (pointing before the opening ")
+    }
+}
+
+fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {
+    // Look for the closing dollar tag at current position
+    let remaining = &t.bytes[t.i..];
+    if remaining.starts_with(&t.dollar_tag) {
+        // Found closing tag -- replace entire dollar-quoted content with ?
+        t.params.push(std::mem::take(&mut t.current_value));
+        t.template.push('?');
+        t.i += t.dollar_tag.len();
+        t.state = State::Normal;
+        t.normal_start = t.i;
+    } else {
+        t.current_value.push(t.bytes[t.i] as char);
+        t.i += 1;
+    }
+}
+
+/// Check if position `i` starts a dollar-quote tag (`$$` or `$identifier$`).
+fn is_dollar_quote_start(i: usize, bytes: &[u8]) -> bool {
+    if i >= bytes.len() || bytes[i] != b'$' {
+        return false;
+    }
+    // $$ case
+    if i + 1 < bytes.len() && bytes[i + 1] == b'$' {
+        return true;
+    }
+    // $tag$ case: $ followed by identifier chars then $
+    let mut j = i + 1;
+    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+        j += 1;
+    }
+    j > i + 1 && j < bytes.len() && bytes[j] == b'$'
+}
+
+/// Extract the dollar-quote tag starting at position `i` (e.g., `$$` or `$tag$`).
+fn extract_dollar_tag(i: usize, bytes: &[u8]) -> Vec<u8> {
+    // $$ case
+    if i + 1 < bytes.len() && bytes[i + 1] == b'$' {
+        return vec![b'$', b'$'];
+    }
+    // $tag$ case
+    let mut j = i + 1;
+    while j < bytes.len() && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+        j += 1;
+    }
+    bytes[i..=j].to_vec()
+}
+
 fn flush_normal_run(t: &mut Tokenizer<'_>) {
     if t.i > t.normal_start {
         t.template.push_str(&t.query[t.normal_start..t.i]);
@@ -128,11 +214,11 @@ fn flush_normal_run(t: &mut Tokenizer<'_>) {
 
 fn flush_pending(t: &mut Tokenizer<'_>) {
     match t.state {
-        State::InNumber | State::InString => {
+        State::InNumber | State::InString | State::InDollarQuote => {
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
         }
-        State::Normal => {
+        State::Normal | State::InDoubleQuote => {
             let len = t.bytes.len();
             if len > t.normal_start {
                 t.template.push_str(&t.query[t.normal_start..len]);
@@ -339,5 +425,95 @@ mod tests {
         let r = normalize_sql("SELECT * FROM t WHERE x = -5");
         assert_eq!(r.template, "SELECT * FROM t WHERE x = -?");
         assert_eq!(r.params, vec!["5"]);
+    }
+
+    // -- CTE support --
+
+    #[test]
+    fn cte_basic() {
+        let r = normalize_sql(
+            "WITH active AS (SELECT id FROM users WHERE status = 'active') \
+             SELECT * FROM orders WHERE user_id IN (SELECT id FROM active) AND total > 100",
+        );
+        assert_eq!(
+            r.template,
+            "WITH active AS (SELECT id FROM users WHERE status = ?) \
+             SELECT * FROM orders WHERE user_id IN (SELECT id FROM active) AND total > ?"
+        );
+        assert_eq!(r.params, vec!["active", "100"]);
+    }
+
+    #[test]
+    fn cte_nested() {
+        let r = normalize_sql(
+            "WITH a AS (SELECT 1), b AS (SELECT * FROM a WHERE x = 'test') \
+             SELECT * FROM b WHERE id = 42",
+        );
+        assert_eq!(
+            r.template,
+            "WITH a AS (SELECT ?), b AS (SELECT * FROM a WHERE x = ?) \
+             SELECT * FROM b WHERE id = ?"
+        );
+        assert_eq!(r.params, vec!["1", "test", "42"]);
+    }
+
+    // -- Double-quoted identifiers --
+
+    #[test]
+    fn double_quoted_identifier_preserved() {
+        let r = normalize_sql(r#"SELECT * FROM "MyTable" WHERE "Column" = 42"#);
+        assert_eq!(r.template, r#"SELECT * FROM "MyTable" WHERE "Column" = ?"#);
+        assert_eq!(r.params, vec!["42"]);
+    }
+
+    #[test]
+    fn double_quoted_with_digits_preserved() {
+        // Digits inside double quotes should NOT be treated as literals
+        let r = normalize_sql(r#"SELECT * FROM "table_2" WHERE "col_3" = 'value'"#);
+        assert_eq!(r.template, r#"SELECT * FROM "table_2" WHERE "col_3" = ?"#);
+        assert_eq!(r.params, vec!["value"]);
+    }
+
+    // -- Dollar-quoted strings (PostgreSQL) --
+
+    #[test]
+    fn dollar_quote_basic() {
+        let r = normalize_sql("SELECT $$hello world$$ AS greeting");
+        assert_eq!(r.template, "SELECT ? AS greeting");
+        assert_eq!(r.params, vec!["hello world"]);
+    }
+
+    #[test]
+    fn dollar_quote_tagged() {
+        let r = normalize_sql("SELECT $tag$some body$tag$ AS body");
+        assert_eq!(r.template, "SELECT ? AS body");
+        assert_eq!(r.params, vec!["some body"]);
+    }
+
+    #[test]
+    fn dollar_quote_in_function() {
+        let r = normalize_sql(
+            "CREATE FUNCTION foo() RETURNS void AS $$ BEGIN RAISE NOTICE 'hi'; END; $$ LANGUAGE plpgsql",
+        );
+        assert_eq!(
+            r.template,
+            "CREATE FUNCTION foo() RETURNS void AS ? LANGUAGE plpgsql"
+        );
+    }
+
+    // -- CALL statements --
+
+    #[test]
+    fn call_with_params() {
+        let r = normalize_sql("CALL process_order(42, 'rush', NOW())");
+        assert_eq!(r.template, "CALL process_order(?, ?, NOW())");
+        assert_eq!(r.params, vec!["42", "rush"]);
+    }
+
+    #[test]
+    fn call_with_interval() {
+        let r = normalize_sql("CALL schedule_task(1, INTERVAL '2 days')");
+        assert_eq!(r.template, "CALL schedule_task(?, INTERVAL ?)");
+        assert_eq!(r.params, vec!["1", "2 days"]);
     }
 }

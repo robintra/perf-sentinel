@@ -244,6 +244,9 @@ fn process_traces(
             .io_waste_ratio
             .set(metrics.avoidable_io_ops.get() / cumulative_total);
     }
+    // Update exemplar tracking for Grafana click-through
+    metrics.record_exemplars(&findings, &green_summary);
+
     {
         use std::io::Write;
         let stdout = std::io::stdout();

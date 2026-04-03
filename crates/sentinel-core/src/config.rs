@@ -233,6 +233,32 @@ impl From<RawConfig> for Config {
     }
 }
 
+fn check_range<T: PartialOrd + std::fmt::Display>(
+    name: &str,
+    val: &T,
+    min: &T,
+    max: &T,
+) -> Result<(), String> {
+    if val < min {
+        return Err(format!("{name} must be >= {min}, got {val}"));
+    }
+    if val > max {
+        return Err(format!("{name} must be <= {max}, got {val}"));
+    }
+    Ok(())
+}
+
+fn check_min<T: PartialOrd + std::fmt::Display>(
+    name: &str,
+    val: &T,
+    min: &T,
+) -> Result<(), String> {
+    if val < min {
+        return Err(format!("{name} must be >= {min}, got {val}"));
+    }
+    Ok(())
+}
+
 impl Config {
     /// Validate that config values are within acceptable bounds.
     ///
@@ -241,63 +267,45 @@ impl Config {
     /// Returns a `String` description of the first invalid value found.
     /// The caller (`load_from_str`) wraps this in `ConfigError::Validation`.
     pub fn validate(&self) -> Result<(), String> {
-        if self.max_payload_size < 1024 {
-            return Err(format!(
-                "max_payload_size must be >= 1024, got {}",
-                self.max_payload_size
-            ));
-        }
-        if self.max_payload_size > 100 * 1024 * 1024 {
-            return Err(format!(
-                "max_payload_size must be <= 104857600 (100 MB), got {}",
-                self.max_payload_size
-            ));
-        }
-        if self.max_active_traces == 0 {
-            return Err("max_active_traces must be >= 1".to_string());
-        }
-        if self.max_active_traces > 1_000_000 {
-            return Err(format!(
-                "max_active_traces must be <= 1000000, got {}",
-                self.max_active_traces
-            ));
-        }
-        if self.max_events_per_trace == 0 {
-            return Err("max_events_per_trace must be >= 1".to_string());
-        }
-        if self.max_events_per_trace > 100_000 {
-            return Err(format!(
-                "max_events_per_trace must be <= 100000, got {}",
-                self.max_events_per_trace
-            ));
-        }
-        if self.n_plus_one_threshold == 0 {
-            return Err("n_plus_one_threshold must be >= 1".to_string());
-        }
-        if self.window_duration_ms == 0 {
-            return Err("window_duration_ms must be >= 1".to_string());
-        }
-        if self.slow_query_threshold_ms == 0 {
-            return Err("slow_query_threshold_ms must be >= 1".to_string());
-        }
-        if self.slow_query_min_occurrences == 0 {
-            return Err("slow_query_min_occurrences must be >= 1".to_string());
-        }
-        if self.max_fanout == 0 {
-            return Err("max_fanout must be >= 1".to_string());
-        }
-        if self.max_fanout > 100_000 {
-            return Err(format!(
-                "max_fanout must be <= 100000, got {}",
-                self.max_fanout
-            ));
-        }
-        if self.trace_ttl_ms < 100 {
-            return Err(format!(
-                "trace_ttl_ms must be >= 100, got {}",
-                self.trace_ttl_ms
-            ));
-        }
+        self.validate_daemon_limits()?;
+        self.validate_detection_params()?;
+        self.validate_rates()?;
+        self.validate_listen_addr();
+        Ok(())
+    }
+
+    fn validate_daemon_limits(&self) -> Result<(), String> {
+        check_range(
+            "max_payload_size",
+            &self.max_payload_size,
+            &1024,
+            &(100 * 1024 * 1024),
+        )?;
+        check_range("max_active_traces", &self.max_active_traces, &1, &1_000_000)?;
+        check_range(
+            "max_events_per_trace",
+            &self.max_events_per_trace,
+            &1,
+            &100_000,
+        )?;
+        check_min("trace_ttl_ms", &self.trace_ttl_ms, &100)?;
+        Ok(())
+    }
+
+    fn validate_detection_params(&self) -> Result<(), String> {
+        check_min("n_plus_one_threshold", &self.n_plus_one_threshold, &1)?;
+        check_min("window_duration_ms", &self.window_duration_ms, &1)?;
+        check_min("slow_query_threshold_ms", &self.slow_query_threshold_ms, &1)?;
+        check_min(
+            "slow_query_min_occurrences",
+            &self.slow_query_min_occurrences,
+            &1,
+        )?;
+        check_range("max_fanout", &self.max_fanout, &1, &100_000)?;
+        Ok(())
+    }
+
+    fn validate_rates(&self) -> Result<(), String> {
         if !(0.0..=1.0).contains(&self.sampling_rate) {
             return Err(format!(
                 "sampling_rate must be in [0.0, 1.0], got {}",
@@ -310,6 +318,10 @@ impl Config {
                 self.io_waste_ratio_max
             ));
         }
+        Ok(())
+    }
+
+    fn validate_listen_addr(&self) {
         if self.listen_addr != "127.0.0.1" && self.listen_addr != "::1" {
             tracing::warn!(
                 "Daemon configured to listen on non-loopback address: {}. \
@@ -318,7 +330,6 @@ impl Config {
                 self.listen_addr
             );
         }
-        Ok(())
     }
 }
 

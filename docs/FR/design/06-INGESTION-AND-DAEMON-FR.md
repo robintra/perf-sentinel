@@ -216,3 +216,37 @@ if cumulative_total > 0.0 {
 ```
 
 C'est une moyenne sur toute la durée, pas une métrique fenêtrée. Les utilisateurs qui ont besoin d'un taux récent peuvent utiliser `rate()` de Prometheus sur les compteurs bruts (`total_io_ops`, `avoidable_io_ops`).
+
+### Exemplars Grafana
+
+Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetrics. Plutôt que d'ajouter une dépendance, les annotations exemplars sont injectées par post-traitement du texte Prometheus rendu.
+
+**Suivi des trace_id worst-case :**
+
+`MetricsState` stocke les données d'exemplars dans des champs protégés par `RwLock` :
+- `worst_finding_trace: HashMap<(String, String), ExemplarData>` -- indexé par (finding_type, severity), mis à jour à chaque appel `record_batch()`
+- `worst_waste_trace: Option<ExemplarData>` -- le trace_id du finding avec le plus d'I/O évitables
+
+`RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent.
+
+**Injection d'exemplars :**
+
+`inject_exemplars()` itère sur le texte rendu ligne par ligne. Pour les lignes `perf_sentinel_findings_total{...}`, il parse les labels `type` et `severity` pour trouver l'exemplar correspondant. Pour les lignes `perf_sentinel_io_waste_ratio`, il ajoute l'exemplar de gaspillage.
+
+Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id="abc123"}`. Quand des exemplars sont présents, le header `Content-Type` passe de `text/plain; version=0.0.4` (Prometheus) à `application/openmetrics-text; version=1.0.0` (OpenMetrics) pour que la source de données Prometheus de Grafana puisse reconnaître et afficher les liens d'exemplars.
+
+## Ingestion pg_stat_statements
+
+`ingest/pg_stat.rs` fournit un chemin d'analyse autonome pour les exports `pg_stat_statements` de PostgreSQL. Contrairement à l'ingestion basée sur les traces, ces données n'ont pas de `trace_id` ni de `span_id` -- elles ne peuvent pas alimenter le pipeline de détection N+1/redondant. Elles fournissent un classement de hotspots et une référence croisée avec les findings de traces.
+
+### Décisions de conception
+
+**Séparé de `IngestSource` :** le trait `IngestSource` retourne `Vec<SpanEvent>`, mais les données `pg_stat_statements` ne correspondent pas à `SpanEvent` (pas de trace_id, span_id, ni timestamp). Elles produisent leur propre type `PgStatReport` avec des classements.
+
+**Auto-détection du format :** suit le même pattern d'heuristique byte-level que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON ; sinon, parse en CSV. Pas de crate csv externe -- le parseur CSV gère le quoting RFC 4180 manuellement (champs entre guillemets doubles, `""` échappé).
+
+**Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces.
+
+### Référence croisée
+
+`cross_reference()` accepte `&mut [PgStatEntry]` et `&[Finding]`. Il construit un `HashSet` des templates de findings et marque les entrées dont le `normalized_template` correspond. Complexité O(n + m) où n = entrées, m = findings. Le flag `seen_in_traces` permet à la CLI de mettre en évidence les requêtes présentes dans les deux sources de données.
