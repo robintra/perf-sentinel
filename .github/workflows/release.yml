@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -94,3 +95,84 @@ jobs:
         with:
           generate_release_notes: true
           files: artifacts/*
+
+  publish-crate:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
+        with:
+          toolchain: stable
+
+      - name: Publish sentinel-core
+        run: cargo publish -p sentinel-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+      - name: Wait for crates.io index update
+        run: |
+          for i in $(seq 1 30); do
+            cargo search sentinel-core 2>/dev/null | grep -q "^sentinel-core " && break
+            echo "Waiting for sentinel-core to appear in crates.io index... (attempt $i)"
+            sleep 10
+          done
+
+      - name: Publish sentinel-cli
+        run: cargo publish -p sentinel-cli
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+
+  docker:
+    name: Docker image
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Download Linux amd64 binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-sentinel-linux-amd64
+
+      - name: Download Linux arm64 binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: perf-sentinel-linux-arm64
+
+      - name: Prepare binaries
+        run: |
+          mkdir -p build/linux-amd64 build/linux-arm64
+          cp perf-sentinel-linux-amd64 build/linux-amd64/perf-sentinel
+          cp perf-sentinel-linux-arm64 build/linux-arm64/perf-sentinel
+          chmod +x build/linux-amd64/perf-sentinel build/linux-arm64/perf-sentinel
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1 # v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/robintra/perf-sentinel:${{ steps.version.outputs.tag }}
+            ghcr.io/robintra/perf-sentinel:latest
