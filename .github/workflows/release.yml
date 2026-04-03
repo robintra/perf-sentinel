@@ -52,11 +52,11 @@ jobs:
 
       - name: Build (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }} -p sentinel-cli
+        run: cross build --release --target ${{ matrix.target }} -p perf-sentinel
 
       - name: Build (native)
         if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }} -p sentinel-cli
+        run: cargo build --release --target ${{ matrix.target }} -p perf-sentinel
 
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'
