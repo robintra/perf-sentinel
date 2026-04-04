@@ -52,7 +52,10 @@ perf-sentinel est un détecteur polyglotte d'anti-patterns de performance, const
                         +--------------+
 ```
 
-![Architecture du pipeline](../diagrams/svg/pipeline.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/pipeline_dark.svg">
+  <img alt="Architecture du pipeline" src="../diagrams/svg/pipeline.svg">
+</picture>
 
 ## Modes de fonctionnement
 
@@ -74,7 +77,10 @@ En mode CI (`--ci`), le processus se termine avec le code 1 si le quality gate �
 
 ### Mode streaming (`perf-sentinel watch`)
 
-![Architecture du daemon](../diagrams/svg/daemon.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/daemon_dark.svg">
+  <img alt="Architecture du daemon" src="../diagrams/svg/daemon.svg">
+</picture>
 
 Fonctionne comme un daemon, recevant les événements en temps réel et émettant les findings au fur et à mesure de leur détection.
 
@@ -146,4 +152,4 @@ sentinel-cli (binaire)
         +-- Fonctions pures entre les étapes
 ```
 
-Le crate CLI est intentionnellement léger : il parse les arguments, charge la configuration, et délègue aux fonctions de sentinel-core. Toute la logique métier réside dans sentinel-core.
+Le crate CLI est intentionnellement léger : il parse les arguments, charge la configuration et délègue aux fonctions de sentinel-core. Toute la logique métier réside dans sentinel-core.

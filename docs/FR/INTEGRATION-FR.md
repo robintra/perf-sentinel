@@ -419,7 +419,7 @@ Si vous utilisez un backend de traces auto-hébergé, l'approche OTel Collector 
 
 ## Production : via OpenTelemetry Collector
 
-Si vous avez déjà un [OTel Collector](https://opentelemetry.io/docs/collector/), vous pourrez ajouter perf-sentinel comme exporteur OTLP supplémentaire. Votre pipeline de tracing existant (Jaeger, Tempo, etc.) continue de fonctionner ; perf-sentinel analyse une copie des mêmes spans.
+Si vous avez déjà un [OTel Collector](https://opentelemetry.io/docs/collector/), vous pourrez ajouter perf-sentinel comme exporteur OTLP supplémentaire. Votre pipeline de tracing existant (Jaeger, Tempo, etc.) continue de fonctionner, perf-sentinel analyse une copie des mêmes spans.
 
 ```yaml
 # otel-collector-config.yaml

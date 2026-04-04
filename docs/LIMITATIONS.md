@@ -1,6 +1,6 @@
-# Known Limitations and Trade-offs
+# Known limitations and trade-offs
 
-## OTLP Capture Reliability
+## OTLP capture reliability
 
 perf-sentinel is a **passive listener**: it receives traces forwarded by OpenTelemetry SDKs or collectors. Unlike an in-process agent (e.g., Hypersistence Utils), it cannot guarantee that every span is captured. Spans may be lost due to:
 
@@ -10,9 +10,9 @@ perf-sentinel is a **passive listener**: it receives traces forwarded by OpenTel
 
 **Mitigation:** For critical CI pipelines, use batch mode (`perf-sentinel analyze`) with pre-collected trace files instead of relying on live capture.
 
-## SQL Tokenizer
+## SQL tokenizer
 
-The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL parser. This is intentional: it keeps the binary small, avoids heavy dependencies, and works across SQL dialects. However, it has limitations:
+The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL parser. This is intentional: it keeps the binary small, avoids heavy dependencies and works across SQL dialects. However, it has limitations:
 
 - **No semantic parsing:** the tokenizer replaces literals and UUIDs positionally. It does not build an AST and cannot reason about query structure.
 - **Query length limit:** SQL queries exceeding 64 KB are truncated at a character boundary before normalization. This prevents unbounded memory allocation from adversarial or pathological inputs.
@@ -24,7 +24,7 @@ The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL 
 
 If you encounter a query that normalizes incorrectly, please open an issue with the raw SQL (anonymized).
 
-**Complementarity with pg_stat_statements:** perf-sentinel detects per-trace patterns (N+1, redundant calls) that pg_stat_statements cannot see. Conversely, pg_stat_statements provides aggregate server-side statistics (total calls, mean time) that perf-sentinel does not track. They complement each other ; use both for full visibility.
+**Complementarity with pg_stat_statements:** perf-sentinel detects per-trace patterns (N+1, redundant calls) that pg_stat_statements cannot see. Conversely, pg_stat_statements provides aggregate server-side statistics (total calls, mean time) that perf-sentinel does not track. They complement each other, use both for full visibility.
 
 ## ORM bind parameters and N+1 vs redundant classification
 
@@ -34,9 +34,9 @@ This means that N+1 patterns (same query, different values) may be classified as
 
 ORMs that inline literal values (SeaORM with raw statements, JDBC without prepared statements) produce spans with visible parameter values, enabling accurate N+1 vs redundant classification.
 
-## Slow Findings and Waste Ratio
+## Slow findings and waste ratio
 
-Slow findings (`slow_sql`, `slow_http`) represent operations that are **necessary but slow** : they are not avoidable I/O. Therefore, slow findings do **not** contribute to the I/O waste ratio or the `avoidable_io_ops` count in the GreenOps summary. They still appear in the findings list with `green_impact.estimated_extra_io_ops: 0`.
+Slow findings (`slow_sql`, `slow_http`) represent operations that are **necessary but slow**, they are not avoidable I/O. Therefore, slow findings do **not** contribute to the I/O waste ratio or the `avoidable_io_ops` count in the GreenOps summary. They still appear in the findings list with `green_impact.estimated_extra_io_ops: 0`.
 
 This is by design: the waste ratio measures how much I/O could be eliminated (N+1, redundant), while slow findings highlight operations that need optimization (indexing, caching) rather than elimination.
 
@@ -50,7 +50,7 @@ Fanout findings, like slow findings, are **not** counted as avoidable I/O in the
 
 The `perf-sentinel bench` command reports peak RSS (Resident Set Size) using platform-specific APIs. On Windows, this metric is reported as `null` because the current implementation uses Unix-only `getrusage()`. The throughput and latency metrics work on all platforms.
 
-## Sampling in Daemon Mode
+## Sampling in daemon mode
 
 When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, perf-sentinel randomly drops traces to reduce resource usage. This means:
 
@@ -60,7 +60,7 @@ When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, perf-sent
 
 For accurate detection, use `sampling_rate = 1.0` (the default) or sample at the collector level where you have more control.
 
-## Maximum Events Per Trace
+## Maximum events per trace
 
 In streaming mode, each trace holds at most `max_events_per_trace` events (default: 1000) in a ring buffer. If a trace generates more events, the oldest are dropped. This can cause:
 
@@ -69,9 +69,9 @@ In streaming mode, each trace holds at most `max_events_per_trace` events (defau
 
 For traces with very high event counts, increase `max_events_per_trace` or investigate why a single trace generates so many operations.
 
-## Binary Size
+## Binary size
 
-The release binary targets < 10 MB with `lto = "thin"`, `strip = true`, and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
+The release binary targets < 10 MB with `lto = "thin"`, `strip = true` and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
 
 ## No Authentication or TLS
 
@@ -81,15 +81,15 @@ If you expose perf-sentinel to a network:
 
 - Place it behind a reverse proxy that handles TLS and authentication
 - Use network policies (Kubernetes `NetworkPolicy`, Docker network isolation, firewall rules) to restrict access
-- Route traces through an OpenTelemetry Collector with its own auth extensions, and forward to perf-sentinel on a trusted internal network
+- Route traces through an OpenTelemetry Collector with its own auth extensions and forward to perf-sentinel on a trusted internal network
 
 Never expose perf-sentinel directly to untrusted networks without a security layer in front.
 
-## gCO2eq Energy Constant
+## gCO2eq energy constant
 
-The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. This value is **not** a measured quantity : actual energy consumption depends on I/O type, hardware, query complexity, and infrastructure. The constant is intended to provide directional guidance (more I/O = more energy) rather than precise measurement. When comparing gCO2eq values across runs, the relative differences are meaningful even if absolute values are approximate.
+The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. This value is **not** a measured quantity : actual energy consumption depends on I/O type, hardware, query complexity and infrastructure. The constant is intended to provide directional guidance (more I/O = more energy) rather than precise measurement. When comparing gCO2eq values across runs, the relative differences are meaningful even if absolute values are approximate.
 
-## pg_stat_statements Ingestion
+## pg_stat_statements ingestion
 
 - **No trace correlation.** `pg_stat_statements` data has no `trace_id` or `span_id`. It cannot be used for per-trace anti-pattern detection (N+1, redundant). It provides complementary hotspot analysis and cross-referencing with trace-based findings.
 - **CSV parsing.** The CSV parser handles RFC 4180 quoting (double-quoted fields, escaped `""`), but assumes UTF-8 input. Non-UTF-8 files will fail to parse.

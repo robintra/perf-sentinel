@@ -153,7 +153,10 @@ Les findings lents ont `green_impact.estimated_extra_io_ops = 0`. Ce sont des op
 
 ## Orchestration de la détection
 
-![Orchestration de la détection](../../diagrams/svg/detection.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/detection_dark.svg">
+  <img alt="Orchestration de la détection" src="../../diagrams/svg/detection.svg">
+</picture>
 
 ```rust
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
@@ -167,7 +170,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 }
 ```
 
-Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, quatre passes O(n) sont négligeables.
+Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'ils pourraient théoriquement partager une seule passe de groupement, les types de clés diffèrent (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) et les implémentations séparées sont plus claires et testables indépendamment. Avec des tailles de trace typiques de 10-50 spans, quatre passes O(n) sont négligeables.
 
 ## Détection de fanout
 

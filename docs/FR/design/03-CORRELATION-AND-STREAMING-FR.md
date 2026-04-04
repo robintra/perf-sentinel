@@ -27,7 +27,7 @@ C'est un pattern d'optimisation Rust bien connu documenté dans le [Rust Perform
 HashMap::with_capacity(events.len() / 10 + 1)
 ```
 
-L'heuristique suppose ~10 événements par trace en moyenne. Le `+ 1` empêche une map de capacité zéro quand `events.len() < 10`. Surestimer est peu coûteux (quelques centaines d'octets d'espace de buckets inutilisé) ; sous-estimer déclenche un rehashing.
+L'heuristique suppose ~10 événements par trace en moyenne. Le `+ 1` empêche une map de capacité zéro quand `events.len() < 10`. Surestimer est peu coûteux (quelques centaines d'octets d'espace de buckets inutilisé), sous-estimer déclenche un rehashing.
 
 ## Corrélation streaming : TraceWindow
 

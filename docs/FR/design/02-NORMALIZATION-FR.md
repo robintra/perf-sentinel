@@ -2,7 +2,10 @@
 
 La normalisation est la deuxième étape du pipeline. Elle transforme les `SpanEvent` bruts en `NormalizedEvent` en extrayant un template (requête paramétrée ou pattern d'URL) et les valeurs concrètes des paramètres.
 
-![Détection automatique de format](../../diagrams/svg/ingestion.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/ingestion_dark.svg">
+  <img alt="Détection automatique de format" src="../../diagrams/svg/ingestion.svg">
+</picture>
 
 ## Pourquoi ne pas utiliser `sqlparser` ?
 
@@ -115,7 +118,7 @@ fn is_uuid(s: &str) -> bool {
 }
 ```
 
-**Pourquoi codé à la main ?** Cette fonction est appelée sur chaque segment de chemin de chaque URL HTTP dans le pipeline. Une regex compilée (`Regex::is_match`) prend ~150ns par appel à cause du surcoût du moteur regex. La vérification codée à la main prend ~3ns : une vérification de longueur (rejet rapide pour >99% des segments), quatre comparaisons d'octets pour les positions des tirets, et une seule passe pour les chiffres hexadécimaux.
+**Pourquoi codé à la main ?** Cette fonction est appelée sur chaque segment de chemin de chaque URL HTTP dans le pipeline. Une regex compilée (`Regex::is_match`) prend ~150ns par appel à cause du surcoût du moteur regex. La vérification codée à la main prend ~3ns : une vérification de longueur (rejet rapide pour >99% des segments), quatre comparaisons d'octets pour les positions des tirets et une seule passe pour les chiffres hexadécimaux.
 
 À 100 000 événements/sec avec une moyenne de 4 segments de chemin par URL, cela économise ~60ms/sec de surcoût regex.
 
@@ -157,4 +160,4 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 ```
 
-`normalize_all()` est un simple `events.into_iter().map(normalize).collect()`. Le `into_iter()` consomme le vecteur d'entrée, et chaque `SpanEvent` est déplacé (pas cloné) dans le normaliseur.
+`normalize_all()` est un simple `events.into_iter().map(normalize).collect()`. Le `into_iter()` consomme le vecteur d'entrée et chaque `SpanEvent` est déplacé (pas cloné) dans le normaliseur.

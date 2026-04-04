@@ -419,7 +419,7 @@ If you use a self-hosted trace backend, the OTel Collector approach works identi
 
 ## Production: via OpenTelemetry Collector
 
-If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you will be able to add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working; perf-sentinel analyzes a copy of the same spans.
+If you already have an [OTel Collector](https://opentelemetry.io/docs/collector/), you will be able to add perf-sentinel as an additional OTLP exporter. Your existing tracing pipeline (Jaeger, Tempo, etc.) keeps working, perf-sentinel analyzes a copy of the same spans.
 
 ```yaml
 # otel-collector-config.yaml
@@ -545,7 +545,7 @@ When no OTel Collector is available, instrument services directly. The guides be
 
 ### Java (OpenTelemetry Java Agent)
 
-The [OTel Java Agent](https://opentelemetry.io/docs/zero-code/java/agent/) instruments JDBC, R2DBC, HTTP clients, Spring Web, and most frameworks automatically, with zero code changes. This is the closest to plug and play.
+The [OTel Java Agent](https://opentelemetry.io/docs/zero-code/java/agent/) instruments JDBC, R2DBC, HTTP clients, Spring Web and most frameworks automatically, with zero code changes. This is the closest to plug and play.
 
 #### 1. Download the agent
 
@@ -571,9 +571,9 @@ The agent automatically captures:
 - `db.query.text` from JDBC (Spring Data JPA, Hibernate) and R2DBC (Spring WebFlux reactive)
 - `url.full` from HTTP clients (WebClient, RestTemplate, HttpClient)
 - `http.route` from Spring MVC and Spring WebFlux incoming requests
-- Trace context propagation across async boundaries, reactive chains, and inter-service calls
+- Trace context propagation across async boundaries, reactive chains and inter-service calls
 
-This has been validated on Spring Boot 4 with WebFlux/R2DBC, Virtual Threads/JPA, and standard MVC/JDBC.
+This has been validated on Spring Boot 4 with WebFlux/R2DBC, Virtual Threads/JPA and standard MVC/JDBC.
 
 #### 3. Docker Compose example
 
@@ -787,7 +787,7 @@ For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
 ```
 
-Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level`, and `logicalLocations` (service + endpoint).
+Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level` and `logicalLocations` (service + endpoint).
 
 ---
 

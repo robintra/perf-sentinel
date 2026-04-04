@@ -1,8 +1,11 @@
 # Ingestion and daemon mode
 
-## OTLP Conversion
+## OTLP conversion
 
-![OTLP two-pass conversion](../diagrams/svg/otlp-conversion.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/otlp-conversion_dark.svg">
+  <img alt="OTLP two-pass conversion" src="../diagrams/svg/otlp-conversion.svg">
+</picture>
 
 ### Two-pass design
 
@@ -29,7 +32,7 @@ for span in &scope.spans {
 
 The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads.
 
-### `bytes_to_hex` Lookup Table
+### `bytes_to_hex` lookup table
 
 ```rust
 fn bytes_to_hex(bytes: &[u8]) -> String {
@@ -57,7 +60,7 @@ Converting Unix nanoseconds to `YYYY-MM-DDTHH:MM:SS.mmmZ` uses the civil date al
 1. Convert nanoseconds to days since epoch + remaining milliseconds
 2. Shift the epoch to March 1, year 0 (by adding 719,468 days)
 3. Compute the era (400-year cycle) and day-of-era
-4. Derive year-of-era, day-of-year, month, and day using a lookup-free formula
+4. Derive year-of-era, day-of-year, month and day using a lookup-free formula
 
 This avoids the [chrono](https://docs.rs/chrono/) crate (~150KB binary overhead) and its ~200ns parse overhead. The hand-rolled algorithm handles leap years correctly (verified by a test with `2024-02-29`).
 
@@ -78,7 +81,7 @@ let duration_us = end_nanos.saturating_sub(start_nanos) / 1000;
 
 `saturating_sub` returns 0 for negative durations instead of wrapping around. A trace-level log helps operators diagnose OTLP integration issues without flooding logs.
 
-## JSON Ingestion
+## JSON ingestion
 
 ```rust
 pub fn ingest(&self, raw: &[u8]) -> Result<Vec<SpanEvent>, Self::Error> {
@@ -119,7 +122,10 @@ This avoids parsing the full payload into a `serde_json::Value` for detection, e
 
 ## Daemon event loop
 
-![Daemon architecture](../diagrams/svg/daemon.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/daemon_dark.svg">
+  <img alt="Daemon architecture" src="../diagrams/svg/daemon.svg">
+</picture>
 
 ### Architecture
 
@@ -161,7 +167,7 @@ fn should_sample(trace_id: &str, rate: f64) -> bool {
 
 The [FNV-1a hash](https://en.wikipedia.org/wiki/Fowler%E2%80%93Noll%E2%80%93Vo_hash_function) is a fast, non-cryptographic hash that produces well-distributed output. The offset basis and prime are the standard 64-bit FNV-1a constants.
 
-**Why FNV-1a?** Simpler and faster (~2ns for a typical trace_id) than `std::hash::DefaultHasher` (SipHash, ~10ns). Cryptographic quality is not needed for sampling: only uniform distribution matters.
+**Why FNV-1a?** Simpler and faster (~2ns for a typical trace_id) than `std::hash::DefaultHasher` (SipHash, ~10ns). Cryptographic quality is not needed for sampling, only uniform distribution matters.
 
 **Deterministic:** the same `trace_id` always produces the same sampling decision, ensuring all events from a trace are either kept or dropped together.
 
@@ -206,7 +212,7 @@ Each connection is limited to 16 × max_payload_size bytes total (default 16 MB)
 
 These prevent slow/stalled connections from holding resources indefinitely. The HTTP timeout handler emits a `tracing::debug!` log before returning `408 REQUEST_TIMEOUT`, helping operators diagnose slow or stalled clients.
 
-### NDJSON Output
+### NDJSON output
 
 Findings are emitted as newline-delimited JSON to stdout using `serde_json::to_writer` with a locked stdout handle to avoid intermediate String allocations and reduce lock contention:
 
@@ -235,7 +241,7 @@ if cumulative_total > 0.0 {
 
 This is an all-time average, not a windowed metric. Users who need a recent rate can use Prometheus `rate()` on the raw counters (`total_io_ops`, `avoidable_io_ops`).
 
-### Grafana Exemplars
+### Grafana exemplars
 
 The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. Instead of adding a dependency, exemplar annotations are injected by post-processing the rendered Prometheus text output.
 
@@ -255,7 +261,7 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 
 **Grafana integration:** with exemplars enabled, users can click from a metric spike in Grafana directly to the worst-case trace in Tempo or Jaeger, provided the Prometheus data source has "Exemplars" enabled and a Tempo/Jaeger data source is configured as the trace backend.
 
-## pg_stat_statements Ingestion
+## pg_stat_statements ingestion
 
 `ingest/pg_stat.rs` provides a standalone analysis path for PostgreSQL `pg_stat_statements` exports. Unlike trace-based ingestion, this data has no `trace_id` or `span_id` -- it cannot feed the N+1/redundant detection pipeline. Instead, it provides hotspot ranking and cross-referencing with trace findings.
 

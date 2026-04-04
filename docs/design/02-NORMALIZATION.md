@@ -2,7 +2,10 @@
 
 Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into `NormalizedEvent`s by extracting a template (parameterized query or URL pattern) and the concrete parameter values.
 
-![Auto-format detection](../diagrams/svg/ingestion.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/ingestion_dark.svg">
+  <img alt="Auto-format detection" src="../diagrams/svg/ingestion.svg">
+</picture>
 
 ## Why not use `sqlparser`?
 
@@ -10,13 +13,13 @@ The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that buil
 
 - **Binary size:** sqlparser adds ~300KB to the release binary. perf-sentinel targets < 10 MB total.
 - **Dependency weight:** sqlparser pulls in additional crates and increases compile time.
-- **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals: it never needs to understand query structure.
+- **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals, it never needs to understand query structure.
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
 - **Simplicity:** 120 lines of code vs a 50,000+ line dependency.
 
-The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings, and `CALL` statements.
+The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenizer handles ASCII SQL only and does not perform semantic analysis. It supports CTEs, double-quoted identifiers, PostgreSQL dollar-quoted strings and `CALL` statements.
 
-## SQL Tokenizer: Single-Pass State Machine
+## SQL tokenizer: single-pass state machine
 
 `normalize_sql()` processes the query byte-by-byte through three states:
 
@@ -26,7 +29,7 @@ The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenize
 | **InString** | Opening `'`              | Accumulate into `current_value` | Closing `'` (not `''`)        |
 | **InNumber** | Standalone digit         | Accumulate digits/dot           | Non-digit or second dot       |
 
-### Batch `push_str` Optimization
+### Batch `push_str` optimization
 
 Instead of pushing characters one at a time with `template.push(b as char)`, the tokenizer tracks a `normal_start` index:
 
@@ -45,7 +48,7 @@ This batches contiguous Normal-state runs into a single `push_str` call. For a t
 
 The [Rust `String::push_str` implementation](https://doc.rust-lang.org/src/alloc/string.rs.html) copies bytes with `memcpy`, which is significantly faster than repeated `push` calls that each check capacity and potentially reallocate.
 
-### IN-List Regex Skip
+### IN-list regex skip
 
 Most SQL queries do not contain `IN (...)` clauses. The tokenizer tracks whether the `IN` keyword appears:
 
@@ -63,7 +66,7 @@ if !has_in_list
 
 If `has_in_list` is false after the main loop, the regex post-pass (`IN_LIST_RE.replace_all`) is skipped entirely. This avoids ~2us of regex overhead on the ~80% of queries that have no IN clause.
 
-### `Cow::Borrowed` Optimization
+### `Cow::Borrowed` optimization
 
 When the regex does run but makes no replacements (e.g., `IN (?)` is already collapsed), `Regex::replace_all` returns `Cow::Borrowed`. The code checks for this:
 
@@ -80,7 +83,7 @@ let template = if has_in_list {
 
 This three-tier approach ensures zero unnecessary allocations.
 
-### `LazyLock` for Regex
+### `LazyLock` for regex
 
 The `IN_LIST_RE` regex is compiled once via [`std::sync::LazyLock`](https://doc.rust-lang.org/std/sync/struct.LazyLock.html) (stable since Rust 1.80):
 
@@ -90,7 +93,7 @@ static IN_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 ```
 
-`LazyLock` is preferred over the `lazy_static!` macro because it is in `std`: no external dependency needed.
+`LazyLock` is preferred over the `lazy_static!` macro because it is in `std`, no external dependency needed.
 
 ### Other micro-optimizations
 
@@ -98,7 +101,7 @@ static IN_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
 - **`std::mem::take(&mut current_value)`**: moves the accumulated literal value into `params` without cloning, replacing `current_value` with an empty `String` in place. This is a zero-cost ownership transfer.
 - **`is_identifier_byte_before()`**: checks whether the byte before a digit is alphanumeric or underscore, preventing digits within identifiers (`player2`, `col_1`) from being misinterpreted as numeric literals.
 
-## HTTP Normalizer
+## HTTP normalizer
 
 ### Hand-coded UUID check
 
@@ -115,11 +118,11 @@ fn is_uuid(s: &str) -> bool {
 }
 ```
 
-**Why hand-coded?** This function is called on every path segment of every HTTP URL in the pipeline. A compiled regex (`Regex::is_match`) takes ~150ns per call due to the regex engine overhead. The hand-coded check takes ~3ns: a length check (fast rejection for >99% of segments), four byte comparisons for dash positions, and a single pass for hex digits.
+**Why hand-coded?** This function is called on every path segment of every HTTP URL in the pipeline. A compiled regex (`Regex::is_match`) takes ~150ns per call due to the regex engine overhead. The hand-coded check takes ~3ns, a length check (fast rejection for >99% of segments), four byte comparisons for dash positions and a single pass for hex digits.
 
 At 100,000 events/sec with an average of 4 path segments per URL, this saves ~60ms/sec of regex overhead.
 
-### `strip_origin` Without a URL Library
+### `strip_origin` without a URL library
 
 ```rust
 fn strip_origin(target: &str) -> &str {
@@ -130,7 +133,7 @@ fn strip_origin(target: &str) -> &str {
 }
 ```
 
-This extracts the path from a full URL without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://`, and bare paths (`/api/foo`). The `find('/')` locates the start of the path after the authority.
+This extracts the path from a full URL without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://` and bare paths (`/api/foo`). The `find('/')` locates the start of the path after the authority.
 
 ### Query parameter limit
 
@@ -157,4 +160,4 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 }
 ```
 
-`normalize_all()` is a simple `events.into_iter().map(normalize).collect()`. The `into_iter()` consumes the input vector, and each `SpanEvent` is moved (not cloned) into the normalizer.
+`normalize_all()` is a simple `events.into_iter().map(normalize).collect()`. The `into_iter()` consumes the input vector and each `SpanEvent` is moved (not cloned) into the normalizer.

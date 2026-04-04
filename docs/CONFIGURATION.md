@@ -1,8 +1,11 @@
-# Configuration Reference
+# Configuration reference
 
 perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are optional and have sensible defaults.
 
-![CLI commands overview](diagrams/svg/cli-commands.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/cli-commands_dark.svg">
+  <img alt="CLI commands overview" src="diagrams/svg/cli-commands.svg">
+</picture>
 
 ## Subcommands
 
@@ -14,7 +17,7 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 | `demo`     | Run analysis on an embedded demo dataset                         |
 | `bench`    | Benchmark throughput on a trace file                             |
 | `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON) for SQL hotspots |
-| `inspect`  | Interactive TUI to browse traces, findings, and span trees       |
+| `inspect`  | Interactive TUI to browse traces, findings and span trees       |
 
 ## Sections
 
@@ -67,7 +70,7 @@ Streaming mode (`perf-sentinel watch`) settings.
 | `max_events_per_trace` | integer | `1000`                      | Maximum events stored per trace (ring buffer, max 100000). Oldest events are dropped when exceeded                                                                                                                             |
 | `max_payload_size`     | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB, max 100 MB)                                                                                                                                                    |
 
-## Minimal Configuration
+## Minimal configuration
 
 An empty file or no file at all uses all defaults. A minimal configuration for CI might only set thresholds:
 
@@ -77,7 +80,7 @@ n_plus_one_sql_critical_max = 0
 io_waste_ratio_max = 0.25
 ```
 
-## Full Configuration Example
+## Full configuration example
 
 ```toml
 [thresholds]
@@ -108,7 +111,7 @@ max_events_per_trace = 1000
 max_payload_size = 1048576
 ```
 
-## Legacy Flat Format
+## Legacy flat format
 
 For backward compatibility, perf-sentinel also accepts a flat (non-sectioned) format:
 
@@ -122,6 +125,6 @@ io_waste_ratio_max = 0.30
 
 When both formats are present, sectioned values take priority over flat values. The sectioned format is recommended for new configurations.
 
-## Environment Variables
+## Environment variables
 
 Configuration files must never contain secrets. For sensitive values (API keys, tokens), use environment variables in your deployment tooling. perf-sentinel itself does not read environment variables for configuration.

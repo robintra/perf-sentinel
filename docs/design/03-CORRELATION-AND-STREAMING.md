@@ -4,7 +4,7 @@ Correlation groups normalized events by `trace_id` to form `Trace` objects for d
 
 ## Batch correlation
 
-### Manual `get_mut` / `insert` Pattern
+### Manual `get_mut` / `insert` pattern
 
 The batch correlator uses a deliberate pattern instead of the `HashMap::entry` API:
 
@@ -21,13 +21,13 @@ if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {
 
 This is a well-known Rust optimization pattern documented in the [Rust Performance Book](https://nnethercote.github.io/perf-book/hashing.html).
 
-### Capacity Hint
+### Capacity hint
 
 ```rust
 HashMap::with_capacity(events.len() / 10 + 1)
 ```
 
-The heuristic assumes ~10 events per trace on average. The `+ 1` prevents a zero-capacity map when `events.len() < 10`. Over-estimating is cheap (a few hundred bytes of unused bucket space); under-estimating triggers rehashing.
+The heuristic assumes ~10 events per trace on average. The `+ 1` prevents a zero-capacity map when `events.len() < 10`. Over-estimating is cheap (a few hundred bytes of unused bucket space), under-estimating triggers rehashing.
 
 ## Streaming correlation: TraceWindow
 
@@ -101,7 +101,7 @@ pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent
 
 The daemon always uses `evict_expired()` to ensure no trace data is lost without analysis.
 
-### `Vec::from(VecDeque)` for Eviction
+### `Vec::from(VecDeque)` for eviction
 
 When converting evicted trace events from `VecDeque` to `Vec`:
 

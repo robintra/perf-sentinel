@@ -4,7 +4,7 @@
 
 perf-sentinel traite les traces I/O à travers une séquence de transformations : `event -> normalize -> correlate -> detect -> score -> report`. C'est un **pipeline linéaire**, pas une architecture hexagonale (ports et adaptateurs).
 
-Le raisonnement est simple : les données circulent dans une seule direction. Les événements entrent, sont transformés à chaque étape, et produisent un rapport. Il n'y a pas de dépendances bidirectionnelles, pas d'événements de domaine, pas de patterns d'interaction complexes. Une architecture hexagonale introduirait de l'indirection par traits entre chaque étape : ajoutant de la charge cognitive, du coût à la compilation et du dispatch dynamique pour zéro bénéfice.
+Le raisonnement est simple : les données circulent dans une seule direction. Les événements entrent, sont transformés à chaque étape et produisent un rapport. Il n'y a pas de dépendances bidirectionnelles, pas d'événements de domaine, pas de patterns d'interaction complexes. Une architecture hexagonale introduirait de l'indirection par traits entre chaque étape : ajoutant de la charge cognitive, du coût à la compilation et du dispatch dynamique pour zéro bénéfice.
 
 Les traits ne sont utilisés qu'aux **frontières** du pipeline :
 - **Entrée :** trait `IngestSource` (JSON, OTLP)
@@ -108,4 +108,4 @@ Le projet utilise des erreurs typées partout :
 - `JsonIngestError` : échecs de taille de payload et de parsing JSON
 - `JsonReportError` : échecs d'écriture sur stdout
 
-Tous les types d'erreur utilisent [thiserror](https://docs.rs/thiserror/) pour la dérivation des traits `Display` et `Error`. Il n'y a aucun `Box<dyn Error>` ou `.unwrap()` dans le code de production de la bibliothèque. Les quelques appels `.expect()` (enregistrement de métriques Prometheus, création de `NonZeroUsize`) sont dans des chemins infaillibles protégés par une validation en amont, et sont documentés avec des commentaires doc `# Panics`.
+Tous les types d'erreur utilisent [thiserror](https://docs.rs/thiserror/) pour la dérivation des traits `Display` et `Error`. Il n'y a aucun `Box<dyn Error>` ou `.unwrap()` dans le code de production de la bibliothèque. Les quelques appels `.expect()` (enregistrement de métriques Prometheus, création de `NonZeroUsize`) sont dans des chemins infaillibles protégés par une validation en amont et sont documentés avec des commentaires doc `# Panics`.

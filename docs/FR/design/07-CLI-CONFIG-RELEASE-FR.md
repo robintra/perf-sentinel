@@ -6,7 +6,7 @@ Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments av
 
 ### Analyze : rapport coloré par défaut, JSON avec `--ci`
 
-`perf-sentinel analyze` affiche un rapport coloré dans le terminal en mode interactif (sans `--ci`). C'est la sortie que les humains voient en utilisant l'outil localement. Avec `--ci`, la sortie passe en JSON structuré pour la consommation par les machines, et le processus sort avec le code 1 si le quality gate échoue.
+`perf-sentinel analyze` affiche un rapport coloré dans le terminal en mode interactif (sans `--ci`). C'est la sortie que les humains voient en utilisant l'outil localement. Avec `--ci`, la sortie passe en JSON structuré pour la consommation par les machines et le processus sort avec le code 1 si le quality gate échoue.
 
 Cela suit la convention d'outils comme `cargo test` (sortie colorée par défaut, `--format json` pour le CI).
 
@@ -14,7 +14,7 @@ Le flag `--format` offre un contrôle explicite sur le format de sortie : `text`
 
 ### Explain : vue arborescente par trace
 
-`perf-sentinel explain --input FILE --trace-id ID` construit un arbre à partir des relations `parent_span_id` et annote les findings en ligne. Il exécute uniquement les détecteurs par trace (N+1, redondant, lent, fanout) ; les findings cross-trace ne sont pas inclus.
+`perf-sentinel explain --input FILE --trace-id ID` construit un arbre à partir des relations `parent_span_id` et annote les findings en ligne. Il exécute uniquement les détecteurs par trace (N+1, redondant, lent, fanout), les findings cross-trace ne sont pas inclus.
 
 ### Bench : lots pré-clonés
 
@@ -56,7 +56,7 @@ Mesure mémoire spécifique à la plateforme :
 | macOS      | `libc::getrusage(RUSAGE_SELF)` -> `ru_maxrss` | Octets (sur macOS)      |
 | Windows    | Non implémenté                                | Retourne `None`         |
 
-L'implémentation macOS utilise `unsafe` pour l'appel FFI `libc::getrusage`. C'est justifié : il n'existe pas d'API Rust safe pour cet appel système, et la fonction est bien documentée dans POSIX. La valeur de retour est vérifiée (`if ret == 0`) avant d'utiliser le résultat.
+L'implémentation macOS utilise `unsafe` pour l'appel FFI `libc::getrusage`. C'est justifié : il n'existe pas d'API Rust safe pour cet appel système et la fonction est bien documentée dans POSIX. La valeur de retour est vérifiée (`if ret == 0`) avant d'utiliser le résultat.
 
 ### Sortie colorée avec détection TTY
 

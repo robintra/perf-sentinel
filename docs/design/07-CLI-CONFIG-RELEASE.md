@@ -1,12 +1,12 @@
-# CLI, configuration, and release profile
+# CLI, configuration and release profile
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Seven subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, and `inspect`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Seven subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat` and `inspect`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
-`perf-sentinel analyze` displays a colored terminal report when run interactively (without `--ci`). This is the output humans see when running the tool locally. With `--ci`, the output switches to structured JSON for machine consumption, and the process exits with code 1 if the quality gate fails.
+`perf-sentinel analyze` displays a colored terminal report when run interactively (without `--ci`). This is the output humans see when running the tool locally. With `--ci`, the output switches to structured JSON for machine consumption and the process exits with code 1 if the quality gate fails.
 
 This follows the convention of tools like `cargo test` (colored output by default, `--format json` for CI).
 
@@ -14,7 +14,7 @@ The `--format` flag provides explicit control over the output format: `text` (co
 
 ### Explain: per-trace tree view
 
-`perf-sentinel explain --input FILE --trace-id ID` builds a tree from `parent_span_id` relationships and annotates findings inline. It runs per-trace detectors only (N+1, redundant, slow, fanout); cross-trace percentile findings are not included.
+`perf-sentinel explain --input FILE --trace-id ID` builds a tree from `parent_span_id` relationships and annotates findings inline. It runs per-trace detectors only (N+1, redundant, slow, fanout), cross-trace percentile findings are not included.
 
 Output formats: `--format text` (colored tree with Unicode box-drawing characters, default) or `--format json` (nested JSON structure). Both include a `MAX_TREE_DEPTH` guard of 256 levels to prevent stack overflow on deeply nested traces.
 
@@ -48,7 +48,7 @@ let throughput = if total_seconds > 0.0 { total_events / total_seconds } else { 
 
 Throughput is computed from nanosecond precision (not millisecond) to avoid division-by-zero when iterations complete in less than 1ms. The `total_elapsed_ms` field in the output is derived from nanoseconds for display purposes.
 
-### RSS Measurement
+### RSS measurement
 
 Platform-specific memory measurement:
 
@@ -58,7 +58,7 @@ Platform-specific memory measurement:
 | macOS    | `libc::getrusage(RUSAGE_SELF)` -> `ru_maxrss` | Bytes (on macOS)        |
 | Windows  | Not implemented                               | Returns `None`          |
 
-The macOS implementation uses `unsafe` for the `libc::getrusage` FFI call. This is justified: there is no safe Rust API for this syscall, and the function is well-documented in POSIX. The return value is checked (`if ret == 0`) before using the result.
+The macOS implementation uses `unsafe` for the `libc::getrusage` FFI call. This is justified, there is no safe Rust API for this syscall and the function is well-documented in POSIX. The return value is checked (`if ret == 0`) before using the result.
 
 ### Colored output with TTY detection
 
@@ -75,7 +75,7 @@ ANSI escape codes are suppressed when stdout is not a terminal (e.g., piped to a
 
 ### PgStat: pg_stat_statements hotspot analysis
 
-`perf-sentinel pg-stat --input FILE` parses PostgreSQL `pg_stat_statements` exports (CSV or JSON, auto-detected) and produces hotspot rankings by total execution time, call count, and mean execution time. The `--traces` flag enables cross-referencing with trace-based findings: the tool runs `pipeline::analyze()` on the trace file and marks `pg_stat_statements` entries whose normalized template also appears in trace findings.
+`perf-sentinel pg-stat --input FILE` parses PostgreSQL `pg_stat_statements` exports (CSV or JSON, auto-detected) and produces hotspot rankings by total execution time, call count and mean execution time. The `--traces` flag enables cross-referencing with trace-based findings: the tool runs `pipeline::analyze()` on the trace file and marks `pg_stat_statements` entries whose normalized template also appears in trace findings.
 
 This subcommand is intentionally separate from `analyze` because `pg_stat_statements` data has no `trace_id` -- it cannot participate in the trace correlation pipeline. It is a complementary analysis mode.
 
@@ -87,7 +87,7 @@ This subcommand is intentionally separate from `analyze` because `pg_stat_statem
 
 **State management:** the `App` struct holds pre-computed `findings_by_trace` (indexed at construction time) to avoid recomputing on every frame. Navigation state (selected_trace, selected_finding, active_panel, scroll_offset) is updated by key events.
 
-**Data loading:** events are ingested once, then cloned: one copy for `correlate()` (needed for tree building) and one for `pipeline::analyze()` (consumed by the pipeline). This avoids re-reading the file.
+**Data loading:** events are ingested once, then cloned. One copy for `correlate()` (needed for tree building) and one for `pipeline::analyze()` (consumed by the pipeline). This avoids re-reading the file.
 
 ## Configuration parsing
 
@@ -185,7 +185,7 @@ Eliminates the unwinding machinery (~200KB binary savings). Since perf-sentinel 
 
 ### `opt-level = 3`
 
-Maximum optimization: aggressive inlining, loop vectorization, and dead code elimination. perf-sentinel's hot path is data-processing (string matching, HashMap operations, iterator chains) that benefits from inlining. The [Cargo documentation](https://doc.rust-lang.org/cargo/reference/profiles.html) notes that the difference between `opt-level = 2` and `3` is primarily more aggressive inlining, which is exactly what a pipeline tool needs.
+Maximum optimization: aggressive inlining, loop vectorization and dead code elimination. perf-sentinel's hot path is data-processing (string matching, HashMap operations, iterator chains) that benefits from inlining. The [Cargo documentation](https://doc.rust-lang.org/cargo/reference/profiles.html) notes that the difference between `opt-level = 2` and `3` is primarily more aggressive inlining, which is exactly what a pipeline tool needs.
 
 The alternative `opt-level = "s"` (optimize for size) was considered but rejected: the binary size difference is marginal (~200KB), while the throughput difference can reach 10-30% on data-processing workloads.
 

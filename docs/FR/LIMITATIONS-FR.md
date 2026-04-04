@@ -24,7 +24,7 @@ Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un
 
 Si vous rencontrez une requête mal normalisée, veuillez ouvrir une issue avec le SQL brut (anonymisé).
 
-**Complémentarité avec pg_stat_statements :** perf-sentinel détecte les patterns par trace (N+1, appels redondants) que pg_stat_statements ne peut pas voir. Inversement, pg_stat_statements fournit des statistiques agrégées côté serveur (total d'appels, temps moyen) que perf-sentinel ne suit pas. Ils se complètent ; utilisez les deux pour une visibilité complète.
+**Complémentarité avec pg_stat_statements :** perf-sentinel détecte les patterns par trace (N+1, appels redondants) que pg_stat_statements ne peut pas voir. Inversement, pg_stat_statements fournit des statistiques agrégées côté serveur (total d'appels, temps moyen) que perf-sentinel ne suit pas. Ils se complètent, utilisez les deux pour une visibilité complète.
 
 ## Paramètres bindés des ORM et classification N+1 vs redundant
 
@@ -81,7 +81,7 @@ Si vous exposez perf-sentinel sur un réseau :
 
 - Placez-le derrière un reverse proxy qui gère le TLS et l'authentification
 - Utilisez des politiques réseau (Kubernetes `NetworkPolicy`, isolation réseau Docker, règles de pare-feu) pour restreindre l'accès
-- Acheminez les traces via un OpenTelemetry Collector avec ses propres extensions d'authentification, et transmettez à perf-sentinel sur un réseau interne de confiance
+- Acheminez les traces via un OpenTelemetry Collector avec ses propres extensions d'authentification et transmettez à perf-sentinel sur un réseau interne de confiance
 
 N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans couche de sécurité en amont.
 

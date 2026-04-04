@@ -5,7 +5,7 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
 - **sentinel-core** : library containing all pipeline logic
 - **sentinel-cli** : binary providing the CLI entry point (`perf-sentinel`)
 
-## Pipeline Overview
+## Pipeline overview
 
 ```
                          +-----------+
@@ -52,9 +52,12 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
                         +--------------+
 ```
 
-![Pipeline architecture](diagrams/svg/pipeline.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/pipeline_dark.svg">
+  <img alt="Pipeline architecture" src="diagrams/svg/pipeline.svg">
+</picture>
 
-## Operating Modes
+## Operating modes
 
 ### Batch mode (`perf-sentinel analyze`)
 
@@ -74,7 +77,10 @@ In CI mode (`--ci`), the process exits with code 1 if the quality gate fails.
 
 ### Streaming mode (`perf-sentinel watch`)
 
-![Daemon architecture](diagrams/svg/daemon.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/daemon_dark.svg">
+  <img alt="Daemon architecture" src="diagrams/svg/daemon.svg">
+</picture>
 
 Runs as a daemon, receiving events in real time and emitting findings as they are detected.
 
@@ -100,7 +106,7 @@ JSON unix socket       /                               |
 - Findings are emitted as newline-delimited JSON to stdout.
 - Prometheus metrics are exposed on the same HTTP port (4318) at `/metrics`.
 
-## Module Responsibilities
+## Module responsibilities
 
 | Module           | Path              | Responsibility                                                                                                                                                                                                                                                                                     |
 |------------------|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -115,24 +121,24 @@ JSON unix socket       /                               |
 | **pipeline**     | `pipeline.rs`     | Wires all stages together for batch mode: normalize -> correlate -> detect -> score -> quality_gate -> Report                                                                                                                                                                                      |
 | **daemon**       | `daemon.rs`       | Event loop for streaming mode: ingestion servers, mpsc channel, TraceWindow management, eviction processing                                                                                                                                                                                        |
 | **config**       | `config.rs`       | Parses `.perf-sentinel.toml` with sectioned format ([thresholds], [detection], [green], [daemon]) and legacy flat format backward compatibility                                                                                                                                                    |
-| **time**         | `time.rs`         | Shared timestamp conversion helpers (`nanos_to_iso8601`, `micros_to_iso8601`). Used by OTLP, Jaeger, and Zipkin ingestion                                                                                                                                                                          |
+| **time**         | `time.rs`         | Shared timestamp conversion helpers (`nanos_to_iso8601`, `micros_to_iso8601`). Used by OTLP, Jaeger and Zipkin ingestion                                                                                                                                                                          |
 | **explain**      | `explain.rs`      | Trace tree viewer: builds span tree from `parent_span_id`, annotates findings inline. Text and JSON output                                                                                                                                                                                         |
 
-## Key Types
+## Key types
 
 | Type              | Module           | Description                                                                              |
 |-------------------|------------------|------------------------------------------------------------------------------------------|
 | `SpanEvent`       | event            | Raw I/O event (SQL query or HTTP call) with metadata and optional parent_span_id         |
 | `NormalizedEvent` | normalize        | SpanEvent enriched with normalized template and extracted parameters                     |
 | `Trace`           | correlate        | Collection of NormalizedEvents sharing the same trace_id                                 |
-| `Finding`         | detect           | Detected anti-pattern with type, severity, pattern details, timestamps, and green_impact |
+| `Finding`         | detect           | Detected anti-pattern with type, severity, pattern details, timestamps and green_impact |
 | `GreenSummary`    | score            | Aggregate I/O stats: total ops, avoidable ops, waste ratio, top offenders, optional CO2  |
 | `QualityGate`     | quality_gate     | Pass/fail result with individual rule evaluations                                        |
 | `Report`          | report           | Complete analysis output: analysis metadata, findings, green summary, quality gate       |
 | `Config`          | config           | Parsed configuration with all sections and validated fields                              |
 | `TraceWindow`     | correlate/window | LRU cache of active traces for streaming mode with TTL eviction                          |
 
-## Crate Boundaries
+## Crate boundaries
 
 ```
 sentinel-cli (binary)
@@ -146,4 +152,4 @@ sentinel-cli (binary)
         +-- Pure functions between stages
 ```
 
-The CLI crate is intentionally thin: it parses arguments, loads config, and delegates to sentinel-core functions. All business logic lives in sentinel-core.
+The CLI crate is intentionally thin: it parses arguments, loads config and delegates to sentinel-core functions. All business logic lives in sentinel-core.

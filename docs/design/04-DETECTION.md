@@ -1,6 +1,6 @@
 # Detection algorithms
 
-Detection is the fourth pipeline stage. It analyzes correlated traces to identify four types of anti-patterns: N+1 queries, redundant calls, slow operations, and excessive fanout.
+Detection is the fourth pipeline stage. It analyzes correlated traces to identify four types of anti-patterns: N+1 queries, redundant calls, slow operations and excessive fanout.
 
 ## Shared pattern: borrowed HashMap keys
 
@@ -86,7 +86,7 @@ The iterator-based version eliminates one `Vec<&str>` allocation per detection g
 
 The `has_second` boolean replaces a `count` variable that was only used to check `count < 2`. This avoids incrementing a counter on every iteration.
 
-### ISO 8601 Timestamp Parser
+### ISO 8601 timestamp parser
 
 ```rust
 fn parse_timestamp_ms(ts: &str) -> Option<u64> {
@@ -153,7 +153,10 @@ Slow findings have `green_impact.estimated_extra_io_ops = 0`. They are **necessa
 
 ## Detection orchestration
 
-![Detection orchestration](../diagrams/svg/detection.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/detection_dark.svg">
+  <img alt="Detection orchestration" src="../diagrams/svg/detection.svg">
+</picture>
 
 ```rust
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
@@ -167,7 +170,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 }
 ```
 
-The three detectors run sequentially on each trace. While they could theoretically share a single grouping pass, the key types differ (`(&EventType, &str)` vs `(&EventType, &str, &[String])`), and the separate implementations are clearer and independently testable. With typical trace sizes of 10-50 spans, three O(n) passes are negligible.
+The three detectors run sequentially on each trace. While they could theoretically share a single grouping pass, the key types differ (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) and the separate implementations are clearer and independently testable. With typical trace sizes of 10-50 spans, three O(n) passes are negligible.
 
 ## Fanout detection
 
@@ -178,7 +181,7 @@ The three detectors run sequentially on each trace. While they could theoretical
 3. For each parent exceeding the threshold, emit an `ExcessiveFanout` finding
 4. Severity: Warning if > `max_fanout`, Critical if > 3x `max_fanout`
 
-The fanout detector uses a `HashMap<&str, usize>` span index for O(1) parent lookup, and `compute_window_and_bounds` to compute the chronological span of child timestamps in a single pass.
+The fanout detector uses a `HashMap<&str, usize>` span index for O(1) parent lookup and `compute_window_and_bounds` to compute the chronological span of child timestamps in a single pass.
 
 ### Not part of waste ratio
 

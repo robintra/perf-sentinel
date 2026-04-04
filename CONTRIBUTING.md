@@ -8,7 +8,7 @@ Thank you for your interest in contributing to perf-sentinel! This document cove
 - **cargo** (comes with Rust)
 - Optional: `cargo-llvm-cov` for code coverage
 
-## Development Setup
+## Development setup
 
 ```bash
 # Clone the repository
@@ -28,7 +28,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
-## Code Coverage
+## Code coverage
 
 ```bash
 # Install cargo-llvm-cov (once)
@@ -38,7 +38,7 @@ cargo install cargo-llvm-cov
 cargo llvm-cov --workspace --html --open
 ```
 
-## Project Structure
+## Project structure
 
 perf-sentinel is a Cargo workspace with two crates:
 
@@ -47,14 +47,14 @@ perf-sentinel is a Cargo workspace with two crates:
 
 The pipeline architecture is: `event -> normalize -> correlate -> detect -> score -> report`. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for details.
 
-## Coding Conventions
+## Coding conventions
 
 ### Language
 
 - All code, comments, doc comments, error messages, and CLI output must be in **English**.
 - French is used only in `README-FR.md`.
 
-### Commit Messages
+### Commit messages
 
 Use [Conventional Commits](https://www.conventionalcommits.org/) format, entirely in **English**:
 
@@ -78,13 +78,13 @@ refactor: extract normalization into separate module
 - Do **not** vendor `.proto` files, use the `opentelemetry-proto` crate.
 - Do **not** make outbound network calls, all data (including carbon intensity tables) must be embedded.
 
-### Prometheus Metrics
+### Prometheus metrics
 
 - Label values must always come from a **bounded, compile-time-known set** (enum variants, not user-controlled strings). This prevents label cardinality explosions that could crash the metrics endpoint.
 
-## Test Strategy
+## Test strategy
 
-### Unit Tests
+### Unit tests
 
 Each module has its own unit tests in a `#[cfg(test)] mod tests` block. Tests should cover:
 
@@ -92,7 +92,7 @@ Each module has its own unit tests in a `#[cfg(test)] mod tests` block. Tests sh
 - Edge cases (empty input, boundary values, malformed data)
 - Regression cases for bugs found in the past
 
-### End-to-End Tests
+### End-to-end tests
 
 Integration tests live in:
 
@@ -114,7 +114,7 @@ Test fixtures are JSON files in `tests/fixtures/`:
 
 The demo dataset is embedded at `crates/sentinel-cli/src/demo_data.json`.
 
-### Running Tests
+### Running tests
 
 ```bash
 # All tests
@@ -127,14 +127,14 @@ cargo test -p sentinel-core
 cargo test -p sentinel-core -- detect::slow::tests::test_slow_sql
 ```
 
-## Submitting Changes
+## Submitting changes
 
 1. Fork the repository and create a feature branch from `main`.
 2. Make your changes, ensuring all tests pass and clippy is clean.
 3. Write or update tests for any new functionality.
 4. Submit a pull request with a clear description of the change and its motivation.
 
-### Pull Request Checklist
+### Pull request checklist
 
 - [ ] `cargo test --workspace` passes
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes

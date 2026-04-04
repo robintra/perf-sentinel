@@ -11,11 +11,11 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-Analyzes runtime traces (SQL queries, HTTP calls) to detect N+1 queries, redundant calls, and scores I/O intensity per endpoint (GreenOps).
+Analyzes runtime traces (SQL queries, HTTP calls) to detect N+1 queries, redundant calls and scores I/O intensity per endpoint (GreenOps).
 
 ## Why perf-sentinel?
 
-Performance anti-patterns like N+1 queries exist in any application that does I/O: monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
+Performance anti-patterns like N+1 queries exist in any application that does I/O: monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
 
 perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core, or SeaORM, it sees the queries they generate.
 
@@ -50,7 +50,7 @@ For each detected anti-pattern, perf-sentinel reports:
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
 - **Suggestion:** e.g. "batch this query", "use a batch endpoint", "consider adding an index"
-- **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, and optional gCO2eq conversion (when a cloud region is configured)
+- **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score and optional gCO2eq conversion (when a cloud region is configured)
 
 ![demo](docs/img/demo.gif)
 
@@ -136,7 +136,7 @@ cargo install sentinel-cli
 
 ### Download a prebuilt binary
 
-Binaries for Linux (amd64, arm64), macOS (arm64), and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page. macOS Intel users can run the arm64 binary via Rosetta 2.
+Binaries for Linux (amd64, arm64), macOS (arm64) and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page. macOS Intel users can run the arm64 binary via Rosetta 2.
 
 ```bash
 # Example: Linux amd64
@@ -209,7 +209,10 @@ perf-sentinel watch
 
 ## Architecture
 
-![Pipeline architecture](docs/diagrams/svg/pipeline.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/svg/pipeline_dark.svg">
+  <img alt="Pipeline architecture" src="docs/diagrams/svg/pipeline.svg">
+</picture>
 
 ## Deployment topologies
 

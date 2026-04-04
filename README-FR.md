@@ -209,7 +209,10 @@ perf-sentinel watch
 
 ## Architecture
 
-![Architecture du pipeline](docs/diagrams/svg/pipeline.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/svg/pipeline_dark.svg">
+  <img alt="Architecture du pipeline" src="docs/diagrams/svg/pipeline.svg">
+</picture>
 
 ## Topologies de déploiement
 

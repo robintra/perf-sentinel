@@ -2,7 +2,10 @@
 
 perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs sont optionnels et ont des valeurs par défaut raisonnables.
 
-![Vue d'ensemble des commandes CLI](../diagrams/svg/cli-commands.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/cli-commands_dark.svg">
+  <img alt="Vue d'ensemble des commandes CLI" src="../diagrams/svg/cli-commands.svg">
+</picture>
 
 ## Sous-commandes
 

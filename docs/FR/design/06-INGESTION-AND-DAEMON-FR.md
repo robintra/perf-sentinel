@@ -2,7 +2,10 @@
 
 ## Conversion OTLP
 
-![Conversion OTLP deux passes](../../diagrams/svg/otlp-conversion.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/otlp-conversion_dark.svg">
+  <img alt="Conversion OTLP deux passes" src="../../diagrams/svg/otlp-conversion.svg">
+</picture>
 
 ### Conception en deux passes
 
@@ -105,7 +108,10 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 
 ## Boucle événementielle du daemon
 
-![Architecture du daemon](../../diagrams/svg/daemon.svg)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/daemon_dark.svg">
+  <img alt="Architecture du daemon" src="../../diagrams/svg/daemon.svg">
+</picture>
 
 ### Architecture
 
