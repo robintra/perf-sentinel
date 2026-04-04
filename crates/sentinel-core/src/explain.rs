@@ -490,7 +490,7 @@ mod tests {
             template: "SELECT ?".to_string(),
             params: vec!["2".to_string()],
         };
-        let trace = crate::correlate::Trace {
+        let trace = Trace {
             trace_id: "trace-cycle".to_string(),
             spans: vec![span_a, span_b],
         };
