@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(compute_window_ms(&timestamps), 250);
     }
 
-    /// Helper: days_from_civil(2025, 7, 10) * 86_400_000
+    /// Helper: `days_from_civil(2025, 7, 10) * 86_400_000`
     const JUL10_2025_MS: u64 = 20_279 * 86_400_000;
 
     #[test]
