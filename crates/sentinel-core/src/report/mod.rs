@@ -58,7 +58,6 @@ pub struct TopOffender {
     pub endpoint: String,
     pub service: String,
     pub io_intensity_score: f64,
-    pub io_ops_per_request: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub co2_grams: Option<f64>,
 }

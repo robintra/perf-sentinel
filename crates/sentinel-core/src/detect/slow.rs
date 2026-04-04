@@ -21,7 +21,8 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
     let min_occ = min_occurrences as usize;
 
     // Group slow spans by (event_type, template)
-    let mut groups: HashMap<(&EventType, &str), Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<(&EventType, &str), Vec<usize>> =
+        HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.duration_us > threshold_us {
             groups

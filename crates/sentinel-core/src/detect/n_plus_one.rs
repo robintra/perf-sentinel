@@ -147,14 +147,19 @@ pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
     compute_window_and_bounds(timestamps).0
 }
 
-/// Parse an ISO 8601 timestamp to milliseconds since midnight.
+/// Parse an ISO 8601 timestamp to milliseconds since Unix epoch.
 /// Format: `YYYY-MM-DDTHH:MM:SS.mmmZ`
 fn parse_timestamp_ms(ts: &str) -> Option<u64> {
-    // Find the 'T' separator
-    let time_part = ts.split('T').nth(1)?;
-    // Strip trailing 'Z' or timezone
+    let (date_part, time_part) = ts.split_once('T')?;
     let time_part = time_part.trim_end_matches('Z');
 
+    // Parse date
+    let mut date_parts = date_part.split('-');
+    let year: u64 = date_parts.next()?.parse().ok()?;
+    let month: u64 = date_parts.next()?.parse().ok()?;
+    let day: u64 = date_parts.next()?.parse().ok()?;
+
+    // Parse time
     let mut colon_parts = time_part.split(':');
     let hours: u64 = colon_parts.next()?.parse().ok()?;
     let minutes: u64 = colon_parts.next()?.parse().ok()?;
@@ -174,7 +179,22 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
         0
     };
 
-    Some(hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
+    let days = days_from_civil(year, month, day);
+    let time_ms = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
+    Some(days * 86_400_000 + time_ms)
+}
+
+/// Convert a civil date (year, month, day) to days since Unix epoch (1970-01-01).
+/// Uses the Howard Hinnant algorithm (public domain).
+/// Only valid for dates >= 1970-01-01 (returns `u64`).
+fn days_from_civil(y: u64, m: u64, d: u64) -> u64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y / 400;
+    let yoe = y - era * 400;
+    let m_adj = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * m_adj + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe - 719_468
 }
 
 #[cfg(test)]
@@ -345,24 +365,33 @@ mod tests {
         assert_eq!(compute_window_ms(&timestamps), 250);
     }
 
+    /// Helper: days_from_civil(2025, 7, 10) * 86_400_000
+    const JUL10_2025_MS: u64 = 20_279 * 86_400_000;
+
     #[test]
     fn parse_timestamp_ms_basic() {
         assert_eq!(
             parse_timestamp_ms("2025-07-10T14:32:01.123Z"),
-            Some(14 * 3_600_000 + 32 * 60_000 + 1_000 + 123)
+            Some(JUL10_2025_MS + 14 * 3_600_000 + 32 * 60_000 + 1_000 + 123)
         );
     }
 
     #[test]
     fn parse_timestamp_ms_single_frac_digit() {
         // "01.1Z" should be 100ms
-        assert_eq!(parse_timestamp_ms("2025-07-10T00:00:01.1Z"), Some(1_100));
+        assert_eq!(
+            parse_timestamp_ms("2025-07-10T00:00:01.1Z"),
+            Some(JUL10_2025_MS + 1_100)
+        );
     }
 
     #[test]
     fn parse_timestamp_ms_two_frac_digits() {
         // "01.12Z" should be 120ms
-        assert_eq!(parse_timestamp_ms("2025-07-10T00:00:01.12Z"), Some(1_120));
+        assert_eq!(
+            parse_timestamp_ms("2025-07-10T00:00:01.12Z"),
+            Some(JUL10_2025_MS + 1_120)
+        );
     }
 
     #[test]
@@ -465,8 +494,14 @@ mod tests {
         // No fractional part -> millis = 0
         assert_eq!(
             parse_timestamp_ms("2025-07-10T14:32:01Z"),
-            Some(14 * 3_600_000 + 32 * 60_000 + 1_000)
+            Some(JUL10_2025_MS + 14 * 3_600_000 + 32 * 60_000 + 1_000)
         );
+    }
+
+    #[test]
+    fn compute_window_ms_across_midnight() {
+        let timestamps = vec!["2025-07-10T23:59:59.900Z", "2025-07-11T00:00:00.100Z"];
+        assert_eq!(compute_window_ms(&timestamps), 200);
     }
 
     #[test]

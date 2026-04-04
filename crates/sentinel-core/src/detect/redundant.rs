@@ -16,7 +16,8 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
     // Use borrowed keys: (&EventType, &str, &[String]) avoids cloning and
     // eliminates the join-ambiguity bug (a param containing the separator
     // could cause two different param lists to collide).
-    let mut groups: HashMap<(&EventType, &str, &[String]), Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<(&EventType, &str, &[String]), Vec<usize>> =
+        HashMap::with_capacity(trace.spans.len().min(64));
 
     for (i, span) in trace.spans.iter().enumerate() {
         groups

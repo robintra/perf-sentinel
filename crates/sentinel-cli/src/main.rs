@@ -294,7 +294,7 @@ fn cmd_analyze(
 
     match effective_format {
         OutputFormat::Text => {
-            print_colored_report(&report);
+            print_colored_report(&report, "report");
         }
         OutputFormat::Json => {
             let sink = JsonReportSink;
@@ -419,7 +419,7 @@ fn cmd_demo(config_path: Option<&std::path::Path>) {
     };
 
     let report = pipeline::analyze(events, &config);
-    print_colored_report(&report);
+    print_colored_report(&report, "demo");
 }
 
 fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
@@ -699,8 +699,8 @@ fn current_rss_bytes() -> Option<usize> {
     }
 }
 
-fn print_colored_report(report: &Report) {
-    format_colored_report(report, false);
+fn print_colored_report(report: &Report, title: &str) {
+    format_colored_report(report, title, false);
 }
 
 /// ANSI color codes tuple: (bold, cyan, red, yellow, green, dim, reset).
@@ -725,11 +725,11 @@ fn ansi_colors(force_color: bool) -> AnsiColors {
     }
 }
 
-fn format_colored_report(report: &Report, force_color: bool) {
+fn format_colored_report(report: &Report, title: &str, force_color: bool) {
     let (bold, cyan, _red, _yellow, green, dim, reset) = ansi_colors(force_color);
 
     println!();
-    println!("{bold}{cyan}=== perf-sentinel demo ==={reset}");
+    println!("{bold}{cyan}=== perf-sentinel {title} ==={reset}");
     println!(
         "{dim}Analyzed {} events across {} traces in {}ms{reset}",
         report.analysis.events_processed,
@@ -830,11 +830,8 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
                 .co2_grams
                 .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
             println!(
-                "    - {}: IIS {:.1}, {:.1} I/O ops/req (service: {}){co2_str}",
-                offender.endpoint,
-                offender.io_intensity_score,
-                offender.io_ops_per_request,
-                offender.service,
+                "    - {}: IIS {:.1} (service: {}){co2_str}",
+                offender.endpoint, offender.io_intensity_score, offender.service,
             );
         }
     }
@@ -914,7 +911,7 @@ mod tests {
     fn report_no_findings() {
         let report = make_report(vec![], vec![], true, vec![]);
         // Should not panic and should print "No performance anti-patterns detected."
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -925,7 +922,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -936,7 +933,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -947,7 +944,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -958,7 +955,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -969,7 +966,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -985,7 +982,7 @@ mod tests {
                 passed: false,
             }],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -996,13 +993,12 @@ mod tests {
                 endpoint: "POST /api/orders/{id}/submit".to_string(),
                 service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
-                io_ops_per_request: 8.2,
                 co2_grams: None,
             }],
             true,
             vec![],
         );
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1019,13 +1015,12 @@ mod tests {
                 endpoint: "POST /api/orders/{id}/submit".to_string(),
                 service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
-                io_ops_per_request: 8.2,
                 co2_grams: None,
             }],
             false,
             vec![],
         );
-        format_colored_report(&report, true);
+        format_colored_report(&report, "report", true);
     }
 
     #[test]
@@ -1045,7 +1040,6 @@ mod tests {
                     endpoint: "POST /api/orders/{id}/submit".to_string(),
                     service: "order-svc".to_string(),
                     io_intensity_score: 8.2,
-                    io_ops_per_request: 8.2,
                     co2_grams: Some(0.001),
                 }],
                 estimated_co2_grams: Some(0.002),
@@ -1056,7 +1050,7 @@ mod tests {
                 rules: vec![],
             },
         };
-        format_colored_report(&report, false);
+        format_colored_report(&report, "report", false);
     }
 
     #[test]

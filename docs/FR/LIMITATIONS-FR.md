@@ -26,12 +26,6 @@ Si vous rencontrez une requête mal normalisée, veuillez ouvrir une issue avec 
 
 **Complémentarité avec pg_stat_statements :** perf-sentinel détecte les patterns par trace (N+1, appels redondants) que pg_stat_statements ne peut pas voir. Inversement, pg_stat_statements fournit des statistiques agrégées côté serveur (total d'appels, temps moyen) que perf-sentinel ne suit pas. Ils se complètent ; utilisez les deux pour une visibilité complète.
 
-## Timestamps traversant minuit
-
-La sélection min/max des timestamps pour les findings utilise une comparaison lexicographique ISO 8601, qui trie chronologiquement et fonctionne au-delà de minuit. Cependant, la **durée de fenêtre** (`window_ms`) est calculée à partir de l'heure du jour uniquement (heures, minutes, secondes, millisecondes depuis minuit). Les traces qui traversent minuit calculeront une fenêtre incorrecte de 0ms, ce qui peut causer des faux positifs de détection N+1 pour des événements qui sont en réalité espacés de ~24 heures.
-
-**Atténuation :** En pratique, c'est rare car les traces individuelles se terminent typiquement en quelques secondes. En mode daemon, le TTL par défaut (30s) empêche les traces de s'accumuler au-delà de minuit. En mode batch, assurez-vous que les traces analysées ne traversent pas la frontière de minuit, ou acceptez le risque de faux positifs sur les traces traversant minuit.
-
 ## Paramètres bindés des ORM et classification N+1 vs redundant
 
 Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL ou les valeurs des paramètres ne sont pas visibles dans l'attribut `db.statement`/`db.query.text`. perf-sentinel voit le template avec les placeholders mais pas les valeurs réelles.
