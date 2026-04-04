@@ -31,15 +31,15 @@ Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](ht
 ## How does it compare?
 
 | Criteria           | [Hypersistence Optimizer](https://vladmihalcea.com/hypersistence-optimizer/) | [Datadog APM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Digma](https://digma.ai/) | **perf-sentinel** |
-|--------------------|-----------------------------------------------------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------|----------------------------|-------------------|
-| N+1 SQL detection  | ✅ JPA only                                                                  | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ✅ (JVM)                    | ✅ Polyglot        |
-| N+1 HTTP detection | ❌                                                                           | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ⚠️ Partial                 | ✅                 |
-| Polyglot           | ❌ Java/JPA                                                                  | ✅ (per-language agents)                               | ✅ (per-language agents)                                               | ⚠️ JVM + .NET              | ✅ Protocol-level  |
-| Cross-service      | ❌                                                                           | ✅                                                     | ✅                                                                     | ⚠️ Partial                 | ✅ Trace ID        |
-| GreenOps / SCI     | ❌                                                                           | ❌                                                     | ❌                                                                     | ❌                          | ✅ Built-in        |
-| Lightweight        | N/A (lib)                                                                   | ❌ (~150 MB)                                           | ❌ (~150 MB)                                                           | ❌ (~100 MB)                | ✅ (<10 MB RSS)    |
-| Open-source        | ❌ Commercial                                                                | ❌                                                     | ⚠️ Limited free tier                                                  | ⚠️ Freemium                | ✅ AGPL v3         |
-| CI/CD quality gate | ⚠️ (manual assertions)                                                      | ❌                                                     | ⚠️ (alerts, no native gate)                                           | ⚠️                         | ✅ Native          |
+|--------------------|------------------------------------------------------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------|----------------------------|-------------------|
+| N+1 SQL detection  | ✅ JPA only                                                                   | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ✅ (JVM)                    | ✅ Polyglot        |
+| N+1 HTTP detection | ❌                                                                            | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ⚠️ Partial                 | ✅                 |
+| Polyglot           | ❌ Java/JPA                                                                   | ✅ (per-language agents)                               | ✅ (per-language agents)                                               | ⚠️ JVM + .NET              | ✅ Protocol-level  |
+| Cross-service      | ❌                                                                            | ✅                                                     | ✅                                                                     | ⚠️ Partial                 | ✅ Trace ID        |
+| GreenOps / SCI     | ❌                                                                            | ❌                                                     | ❌                                                                     | ❌                          | ✅ Built-in        |
+| Lightweight        | N/A (lib)                                                                    | ❌ (~150 MB)                                           | ❌ (~150 MB)                                                           | ❌ (~100 MB)                | ✅ (<10 MB RSS)    |
+| Open-source        | ❌ Commercial                                                                 | ❌                                                     | ⚠️ Limited free tier                                                  | ⚠️ Freemium                | ✅ AGPL v3         |
+| CI/CD quality gate | ⚠️ (manual assertions)                                                       | ❌                                                     | ⚠️ (alerts, no native gate)                                           | ⚠️                         | ✅ Native          |
 
 ## What does it report?
 
@@ -286,6 +286,7 @@ For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRA
 | **2** | GreenOps scoring, OTLP ingestion, CI quality gate                                                                                   | Done   |
 | **3** | Polish, benchmarks, v0.1.0 release                                                                                                  | Done   |
 | **4** | `explain` trace viewer, SARIF export, `pg_stat_statements` ingestion, Jaeger/Zipkin import, Grafana Exemplars, TUI interactive mode | Done   |
+| **5** | Multi-region carbon scoring, Tempo ingestion, IDE plugin, additional anti-patterns                                                  | Next   |
 
 ## License
 

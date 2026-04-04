@@ -279,13 +279,14 @@ Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATI
 
 ## Feuille de route
 
-| Phase | Description                                                                                                                                | Statut   |
-|-------|--------------------------------------------------------------------------------------------------------------------------------------------|----------|
-| **0** | Scaffolding : workspace compilable, CI, stubs                                                                                              | Terminé  |
-| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation                                                                                       | Terminé  |
-| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI                                                                                          | Terminé  |
-| **3** | Polish, benchmarks, release v0.1.0                                                                                                         | Terminé  |
-| **4** | Visualiseur de trace `explain`, export SARIF, ingestion `pg_stat_statements`, import Jaeger/Zipkin, Grafana Exemplars, mode TUI interactif | Terminé  |
+| Phase | Description                                                                                                                                | Statut  |
+|-------|--------------------------------------------------------------------------------------------------------------------------------------------|---------|
+| **0** | Scaffolding : workspace compilable, CI, stubs                                                                                              | Terminé |
+| **1** | Détection N+1 SQL + HTTP, normalisation, corrélation                                                                                       | Terminé |
+| **2** | Scoring GreenOps, ingestion OTLP, quality gate CI                                                                                          | Terminé |
+| **3** | Polish, benchmarks, release v0.1.0                                                                                                         | Terminé |
+| **4** | Visualiseur de trace `explain`, export SARIF, ingestion `pg_stat_statements`, import Jaeger/Zipkin, Grafana Exemplars, mode TUI interactif | Terminé |
+| **5** | Scoring carbone multi-région, ingestion Tempo, plugin IDE, anti-patterns supplémentaires                                                   | Suivant |
 
 ## Licence
 
