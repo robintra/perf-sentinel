@@ -117,13 +117,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         tracing::warn!("JSON socket ingestion not available on this platform; use OTLP HTTP/gRPC");
     }
 
-    let detect_config = DetectConfig {
-        n_plus_one_threshold: config.n_plus_one_threshold,
-        window_ms: config.window_duration_ms,
-        slow_threshold_ms: config.slow_query_threshold_ms,
-        slow_min_occurrences: config.slow_query_min_occurrences,
-        max_fanout: config.max_fanout,
-    };
+    let detect_config = DetectConfig::from(&config);
     let green_region = config.green_region.clone();
     let green_enabled = config.green_enabled;
     let sampling_rate = config.sampling_rate;
@@ -334,7 +328,11 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
     {
         use std::os::unix::fs::PermissionsExt;
         if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
-            tracing::warn!("Failed to set socket permissions: {e}");
+            tracing::error!(
+                "Failed to set socket permissions on {path}: {e} — refusing to listen on insecure socket"
+            );
+            let _ = std::fs::remove_file(path);
+            return;
         }
     }
 

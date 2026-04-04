@@ -74,11 +74,16 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             .unwrap_or("unknown")
             .to_string();
 
-        // Build a span index for parent lookup within this resource
+        // Build a span index for parent lookup within this resource (capped at 100k spans)
         let mut span_index: HashMap<&[u8], &Span> = HashMap::new();
-        for scope_spans in &resource_spans.scope_spans {
+        let mut span_count = 0usize;
+        'index: for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 span_index.insert(&span.span_id, span);
+                span_count += 1;
+                if span_count >= 100_000 {
+                    break 'index;
+                }
             }
         }
 

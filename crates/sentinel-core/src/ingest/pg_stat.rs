@@ -205,6 +205,8 @@ pub fn cross_reference(entries: &mut [PgStatEntry], findings: &[Finding]) {
 // CSV parsing (RFC 4180 subset)
 // ---------------------------------------------------------------------------
 
+const MAX_CSV_ROWS: usize = 1_000_000;
+
 fn parse_csv(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
     let mut lines = text.lines();
 
@@ -229,6 +231,12 @@ fn parse_csv(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
     let estimated = (text.len() / 100).min(100_000);
     let mut entries = Vec::with_capacity(estimated);
     for (line_num, line) in lines.enumerate() {
+        if entries.len() >= MAX_CSV_ROWS {
+            return Err(PgStatError::CsvParse {
+                line: line_num + 2,
+                detail: format!("CSV exceeds maximum of {MAX_CSV_ROWS} rows"),
+            });
+        }
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -341,6 +349,15 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 
     if raw_entries.is_empty() {
         return Err(PgStatError::EmptyInput);
+    }
+    if raw_entries.len() > MAX_CSV_ROWS {
+        return Err(PgStatError::CsvParse {
+            line: 0,
+            detail: format!(
+                "JSON array exceeds maximum of {MAX_CSV_ROWS} entries (got {})",
+                raw_entries.len()
+            ),
+        });
     }
 
     let entries = raw_entries

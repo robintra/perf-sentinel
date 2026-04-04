@@ -289,6 +289,8 @@ impl Config {
             &100_000,
         )?;
         check_min("trace_ttl_ms", &self.trace_ttl_ms, &100)?;
+        check_range("listen_port_http", &self.listen_port, &1, &65535)?;
+        check_range("listen_port_grpc", &self.listen_port_grpc, &1, &65535)?;
         Ok(())
     }
 

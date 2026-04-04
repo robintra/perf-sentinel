@@ -173,7 +173,10 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
             0 => 0,
             1 => frac.parse::<u64>().unwrap_or(0) * 100,
             2 => frac.parse::<u64>().unwrap_or(0) * 10,
-            _ => frac[..3].parse::<u64>().unwrap_or(0),
+            _ => frac
+                .get(..3)
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0),
         }
     } else {
         0

@@ -31,13 +31,7 @@ pub fn analyze_with_traces(
     let traces = correlate::correlate(normalized);
     let trace_count = traces.len();
 
-    let detect_config = DetectConfig {
-        n_plus_one_threshold: config.n_plus_one_threshold,
-        window_ms: config.window_duration_ms,
-        slow_threshold_ms: config.slow_query_threshold_ms,
-        slow_min_occurrences: config.slow_query_min_occurrences,
-        max_fanout: config.max_fanout,
-    };
+    let detect_config = DetectConfig::from(config);
     let mut findings = detect::detect(&traces, &detect_config);
 
     // Cross-trace slow percentile analysis

@@ -153,9 +153,7 @@ impl MetricsState {
     /// Updates all counters/gauges and tracks worst-case `trace_id` values
     /// for exemplar annotations on Prometheus metrics.
     ///
-    /// # Panics
-    ///
-    /// Panics if an internal lock is poisoned (should not happen).
+    /// Recovers gracefully if an internal lock is poisoned.
     pub fn record_batch(&self, report: &Report) {
         self.traces_analyzed_total
             .inc_by(report.analysis.traces_analyzed as f64);
@@ -186,9 +184,7 @@ impl MetricsState {
     /// Called by both `record_batch` (batch mode) and the daemon's `process_traces`.
     /// Builds exemplar data in a local map, then takes the write lock only for the swap.
     ///
-    /// # Panics
-    ///
-    /// Panics if an internal lock is poisoned (should not happen).
+    /// Recovers gracefully if an internal lock is poisoned.
     pub fn record_exemplars(
         &self,
         findings: &[crate::detect::Finding],
@@ -209,7 +205,7 @@ impl MetricsState {
             let mut worst_map = self
                 .worst_finding_trace
                 .write()
-                .expect("lock should not be poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             worst_map.extend(new_exemplars);
         }
 
@@ -226,7 +222,7 @@ impl MetricsState {
             let mut waste_lock = self
                 .worst_waste_trace
                 .write()
-                .expect("lock should not be poisoned");
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             *waste_lock = Some(ExemplarData {
                 trace_id: worst_finding.trace_id.clone(),
             });
@@ -235,22 +231,20 @@ impl MetricsState {
 
     /// Whether any exemplar data is available.
     ///
-    /// # Panics
-    ///
-    /// Panics if an internal lock is poisoned (should not happen).
+    /// Recovers gracefully if an internal lock is poisoned.
     #[must_use]
     pub fn has_exemplars(&self) -> bool {
         let finding_lock = self
             .worst_finding_trace
             .read()
-            .expect("lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if !finding_lock.is_empty() {
             return true;
         }
         let waste_lock = self
             .worst_waste_trace
             .read()
-            .expect("lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         waste_lock.is_some()
     }
 
@@ -267,11 +261,12 @@ impl MetricsState {
         let encoder = TextEncoder::new();
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();
-        encoder
-            .encode(&metric_families, &mut buffer)
-            .expect("encoding should not fail");
-        let base_output =
-            String::from_utf8(buffer).expect("prometheus output should be valid UTF-8");
+        if encoder.encode(&metric_families, &mut buffer).is_err() {
+            return "# error encoding metrics\n".to_string();
+        }
+        let Ok(base_output) = String::from_utf8(buffer) else {
+            return "# error encoding metrics\n".to_string();
+        };
 
         self.inject_exemplars(base_output)
     }
@@ -288,11 +283,11 @@ impl MetricsState {
         let finding_map = self
             .worst_finding_trace
             .read()
-            .expect("lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let waste_exemplar = self
             .worst_waste_trace
             .read()
-            .expect("lock should not be poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if finding_map.is_empty() && waste_exemplar.is_none() {
             return base;

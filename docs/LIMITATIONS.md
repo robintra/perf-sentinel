@@ -15,7 +15,7 @@ perf-sentinel is a **passive listener**: it receives traces forwarded by OpenTel
 The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL parser. This is intentional: it keeps the binary small, avoids heavy dependencies, and works across SQL dialects. However, it has limitations:
 
 - **No semantic parsing:** the tokenizer replaces literals and UUIDs positionally. It does not build an AST and cannot reason about query structure.
-- **ASCII only:** the tokenizer operates byte-by-byte and assumes ASCII SQL. Non-ASCII characters in identifiers, comments, or string literals (e.g., accented characters) may produce incorrect template or param values. SQL keywords and operators are always ASCII, so this only affects extracted parameter values for non-ASCII string literals.
+- **Query length limit:** SQL queries exceeding 64 KB are truncated at a character boundary before normalization. This prevents unbounded memory allocation from adversarial or pathological inputs.
 - **CTEs:** Common Table Expressions (`WITH ... AS (...)`) are supported -- the tokenizer normalizes literals inside CTEs correctly, including nested CTEs.
 - **Double-quoted identifiers:** SQL-standard double-quoted identifiers (`"MyTable"`, `"Column"`) are preserved as-is. Digits inside double quotes are not mistaken for numeric literals.
 - **Dollar-quoted strings:** PostgreSQL dollar-quoted strings (`$$body$$`, `$tag$body$tag$`) are replaced with `?` placeholders, including in function bodies.
@@ -95,4 +95,4 @@ The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`)
 - **CSV parsing.** The CSV parser handles RFC 4180 quoting (double-quoted fields, escaped `""`), but assumes UTF-8 input. Non-UTF-8 files will fail to parse.
 - **Pre-normalized queries.** PostgreSQL normalizes `pg_stat_statements` queries at the server level. perf-sentinel applies its own normalization on top for cross-referencing, which may produce slightly different templates.
 - **No live connection.** perf-sentinel reads exported CSV or JSON files. It does not connect to PostgreSQL directly.
-- **Entry count.** The parser pre-allocates memory based on input size, capped at 100,000 entries. Files with more than 100,000 rows will still be parsed but without pre-allocation benefits.
+- **Entry count.** The parser pre-allocates memory based on input size, capped at 100,000 entries. Files exceeding 1,000,000 entries (CSV rows or JSON array elements) are rejected with an error to prevent memory exhaustion.

@@ -145,6 +145,18 @@ pub struct DetectConfig {
     pub max_fanout: u32,
 }
 
+impl From<&crate::config::Config> for DetectConfig {
+    fn from(config: &crate::config::Config) -> Self {
+        Self {
+            n_plus_one_threshold: config.n_plus_one_threshold,
+            window_ms: config.window_duration_ms,
+            slow_threshold_ms: config.slow_query_threshold_ms,
+            slow_min_occurrences: config.slow_query_min_occurrences,
+            max_fanout: config.max_fanout,
+        }
+    }
+}
+
 /// Run all per-trace detectors on a set of traces.
 ///
 /// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`].

@@ -46,9 +46,19 @@ struct Tokenizer<'a> {
     dollar_tag: Vec<u8>,
 }
 
+/// Maximum query length accepted for normalization (64 KB).
+/// Queries exceeding this are truncated to prevent unbounded memory usage.
+const MAX_QUERY_LEN: usize = 65_536;
+
 /// Normalize a SQL query by replacing literal values with `?` placeholders.
 #[must_use]
 pub fn normalize_sql(query: &str) -> SqlNormalized {
+    // Truncate at a char boundary to prevent unbounded allocation from adversarial input
+    let query = if query.len() > MAX_QUERY_LEN {
+        &query[..query.floor_char_boundary(MAX_QUERY_LEN)]
+    } else {
+        query
+    };
     let mut t = Tokenizer {
         query,
         bytes: query.as_bytes(),
@@ -154,18 +164,10 @@ fn step_in_number(t: &mut Tokenizer<'_>) {
 }
 
 fn step_in_double_quote(t: &mut Tokenizer<'_>) {
-    let b = t.bytes[t.i];
-    if b == b'"' {
-        // End of double-quoted identifier; content stays in the template as-is
-        t.i += 1;
-    } else {
-        t.i += 1;
-    }
-    // Both branches advance; if we hit the closing quote, return to Normal
-    if b == b'"' {
+    if t.bytes[t.i] == b'"' {
         t.state = State::Normal;
-        // normal_start is already correct (pointing before the opening ")
     }
+    t.i += 1;
 }
 
 fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {

@@ -359,13 +359,7 @@ fn cmd_explain(
         std::process::exit(1);
     };
 
-    let detect_config = sentinel_core::detect::DetectConfig {
-        n_plus_one_threshold: config.n_plus_one_threshold,
-        window_ms: config.window_duration_ms,
-        slow_threshold_ms: config.slow_query_threshold_ms,
-        slow_min_occurrences: config.slow_query_min_occurrences,
-        max_fanout: config.max_fanout,
-    };
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
     let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
 
     let tree = sentinel_core::explain::build_tree(trace, &findings);
@@ -518,13 +512,7 @@ fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
         }
     };
 
-    let detect_config = sentinel_core::detect::DetectConfig {
-        n_plus_one_threshold: config.n_plus_one_threshold,
-        window_ms: config.window_duration_ms,
-        slow_threshold_ms: config.slow_query_threshold_ms,
-        slow_min_occurrences: config.slow_query_min_occurrences,
-        max_fanout: config.max_fanout,
-    };
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
     let (report, traces) = pipeline::analyze_with_traces(events, &config);
 

@@ -25,7 +25,7 @@ for span in &scope.spans {
 
 **Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` from the parent span's `http.route` attribute. A single-pass approach would miss parent spans defined later in the message.
 
-The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup.
+The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads.
 
 ### `bytes_to_hex` Lookup Table
 
@@ -179,7 +179,7 @@ use std::os::unix::fs::PermissionsExt;
 std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
 ```
 
-The `0o600` mode restricts read/write to the socket owner only, preventing other local users from injecting events.
+The `0o600` mode restricts read/write to the socket owner only, preventing other local users from injecting events. If `set_permissions` fails, the socket file is removed and the listener does not start (fatal error, not a warning).
 
 **Connection semaphore:**
 ```rust
@@ -241,7 +241,7 @@ The `prometheus` crate 0.14.0 does not support OpenMetrics exemplars natively. I
 - `worst_finding_trace: HashMap<(String, String), ExemplarData>` -- keyed by (finding_type, severity), updated on each `record_batch()` call
 - `worst_waste_trace: Option<ExemplarData>` -- the trace_id of the finding with the most avoidable I/O
 
-`RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other.
+`RwLock` is used instead of `Mutex` because `render()` (read path) is called frequently by Prometheus scrapes, while `record_batch()` (write path) is called less often. Multiple concurrent scrapes should not block each other. Lock poisoning is handled gracefully via `unwrap_or_else(PoisonError::into_inner)`, so a panic in one thread does not cascade into crashes on subsequent lock acquisitions.
 
 **Exemplar injection:**
 

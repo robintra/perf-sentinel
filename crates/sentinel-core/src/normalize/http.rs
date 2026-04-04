@@ -48,9 +48,9 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
         None => (path_and_query, None),
     };
 
-    // Collect query params as extracted values
+    // Collect query params as extracted values (capped to prevent unbounded allocation)
     if let Some(q) = query_params {
-        for pair in q.split('&') {
+        for pair in q.split('&').take(100) {
             params.push(pair.to_string());
         }
     }

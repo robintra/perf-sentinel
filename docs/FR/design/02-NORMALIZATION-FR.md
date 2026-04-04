@@ -130,6 +130,10 @@ fn strip_origin(target: &str) -> &str {
 
 Cela extrait le chemin d'une URL complète sans inclure le crate [url](https://docs.rs/url/) (~50 Ko de surcoût binaire). Gère `http://`, `https://` et les chemins nus (`/api/foo`). Le `find('/')` localise le début du chemin après l'autorité.
 
+### Limite de paramètres de requête
+
+Les paramètres de requête sont retirés du template URL et collectés dans `params`. La collection est plafonnée à 100 paramètres via `.take(100)` pour prévenir les allocations mémoire illimitées depuis des URLs avec des query strings adverses. Les paramètres de requête ne faisant pas partie du template normalisé, les paramètres au-delà de 100 ne sont simplement pas extraits.
+
 ### Pré-allocation
 
 ```rust

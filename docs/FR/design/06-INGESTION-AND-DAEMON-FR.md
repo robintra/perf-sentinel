@@ -25,7 +25,7 @@ for span in &scope.spans {
 
 **Pourquoi deux passes ?** Dans OTLP, un span parent peut apparaître après son enfant dans le message protobuf. La première passe construit une table de recherche pour que la seconde passe puisse résoudre `source.endpoint` depuis l'attribut `http.route` du span parent. Une approche en une seule passe manquerait les spans parents définis plus loin dans le message.
 
-L'index utilise des clés `&[u8]` (octets bruts du span_id), évitant l'encodage hexadécimal juste pour la recherche.
+L'index utilise des clés `&[u8]` (octets bruts du span_id), évitant l'encodage hexadécimal juste pour la recherche. L'index de spans est plafonné à 100 000 spans par resource pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques.
 
 ### Table de recherche `bytes_to_hex`
 
@@ -165,7 +165,7 @@ use std::os::unix::fs::PermissionsExt;
 std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
 ```
 
-Le mode `0o600` restreint la lecture/écriture au propriétaire du socket uniquement, empêchant d'autres utilisateurs locaux d'injecter des événements.
+Le mode `0o600` restreint la lecture/écriture au propriétaire du socket uniquement, empêchant d'autres utilisateurs locaux d'injecter des événements. Si `set_permissions` échoue, le fichier socket est supprimé et le listener ne démarre pas (erreur fatale, pas un simple avertissement).
 
 **Sémaphore de connexion :**
 ```rust
@@ -227,7 +227,7 @@ Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetric
 - `worst_finding_trace: HashMap<(String, String), ExemplarData>` -- indexé par (finding_type, severity), mis à jour à chaque appel `record_batch()`
 - `worst_waste_trace: Option<ExemplarData>` -- le trace_id du finding avec le plus d'I/O évitables
 
-`RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent.
+`RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent. L'empoisonnement de lock est géré gracieusement via `unwrap_or_else(PoisonError::into_inner)`, de sorte qu'un panic dans un thread ne cascade pas en crashs sur les acquisitions de lock suivantes.
 
 **Injection d'exemplars :**
 

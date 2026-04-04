@@ -15,7 +15,7 @@ perf-sentinel est un **écouteur passif** : il reçoit les traces transmises par
 Le normaliseur SQL utilise un tokenizer maison basé sur les regex plutôt qu'un parseur SQL complet. C'est intentionnel : cela maintient le binaire petit, évite les dépendances lourdes et fonctionne avec tous les dialectes SQL. Cependant, il a des limitations :
 
 - **Pas d'analyse sémantique :** le tokenizer remplace les littéraux et UUIDs de manière positionnelle. Il ne construit pas d'AST et ne peut pas raisonner sur la structure de la requête.
-- **ASCII uniquement :** le tokenizer opère octet par octet et suppose un SQL en ASCII. Les caractères non-ASCII dans les identifiants, commentaires ou littéraux de chaîne (ex. caractères accentués) peuvent produire des valeurs de template ou de paramètres incorrectes. Les mots-clés et opérateurs SQL sont toujours en ASCII, donc cela n'affecte que les valeurs de paramètres extraites pour les littéraux de chaîne non-ASCII.
+- **Limite de longueur de requête :** les requêtes SQL dépassant 64 Ko sont tronquées à une frontière de caractère avant la normalisation. Cela empêche les allocations mémoire illimitées depuis des entrées adverses ou pathologiques.
 - **CTEs :** les Common Table Expressions (`WITH ... AS (...)`) sont supportées -- le tokenizer normalise correctement les littéraux dans les CTEs, y compris les CTEs imbriquées.
 - **Identifiants double-quoted :** les identifiants SQL standard entre guillemets doubles (`"MyTable"`, `"Column"`) sont préservés tels quels. Les chiffres dans les guillemets doubles ne sont pas confondus avec des littéraux numériques.
 - **Chaînes dollar-quoted :** les chaînes dollar-quoted PostgreSQL (`$$body$$`, `$tag$body$tag$`) sont remplacées par des placeholders `?`, y compris dans les corps de fonctions.
@@ -95,4 +95,4 @@ L'estimation carbone utilise une constante énergétique fixe (`0,1 uWh par opé
 - **Parsing CSV.** Le parseur CSV gère le quoting RFC 4180 (champs entre guillemets doubles, `""` échappé), mais suppose une entrée UTF-8. Les fichiers non-UTF-8 échoueront au parsing.
 - **Requêtes pré-normalisées.** PostgreSQL normalise les requêtes `pg_stat_statements` au niveau du serveur. perf-sentinel applique sa propre normalisation par-dessus pour la référence croisée, ce qui peut produire des templates légèrement différents.
 - **Pas de connexion live.** perf-sentinel lit des fichiers CSV ou JSON exportés. Il ne se connecte pas directement à PostgreSQL.
-- **Nombre d'entrées.** Le parseur pré-alloue la mémoire en fonction de la taille de l'entrée, plafonné à 100 000 entrées. Les fichiers avec plus de 100 000 lignes seront quand même parsés mais sans les bénéfices de la pré-allocation.
+- **Nombre d'entrées.** Le parseur pré-alloue la mémoire en fonction de la taille de l'entrée, plafonné à 100 000 entrées. Les fichiers dépassant 1 000 000 d'entrées (lignes CSV ou éléments de tableau JSON) sont rejetés avec une erreur pour prévenir l'épuisement mémoire.

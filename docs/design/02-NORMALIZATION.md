@@ -130,6 +130,10 @@ fn strip_origin(target: &str) -> &str {
 
 This extracts the path from a full URL without pulling in the [url](https://docs.rs/url/) crate (~50KB binary overhead). It handles `http://`, `https://`, and bare paths (`/api/foo`). The `find('/')` locates the start of the path after the authority.
 
+### Query parameter limit
+
+Query parameters are stripped from the URL template and collected into `params`. The collection is capped at 100 parameters via `.take(100)` to prevent unbounded memory allocation from URLs with adversarially large query strings. Since query parameters are not part of the normalized template, excess parameters beyond 100 are simply not extracted.
+
 ### Pre-allocation
 
 ```rust
