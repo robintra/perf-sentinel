@@ -153,6 +153,8 @@ Slow findings have `green_impact.estimated_extra_io_ops = 0`. They are **necessa
 
 ## Detection orchestration
 
+![Detection orchestration](../diagrams/svg/detection.svg)
+
 ```rust
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();

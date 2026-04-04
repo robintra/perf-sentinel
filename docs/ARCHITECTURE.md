@@ -52,6 +52,8 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
                         +--------------+
 ```
 
+![Pipeline architecture](diagrams/svg/pipeline.svg)
+
 ## Operating Modes
 
 ### Batch mode (`perf-sentinel analyze`)
@@ -71,6 +73,8 @@ Vec<SpanEvent>
 In CI mode (`--ci`), the process exits with code 1 if the quality gate fails.
 
 ### Streaming mode (`perf-sentinel watch`)
+
+![Daemon architecture](diagrams/svg/daemon.svg)
 
 Runs as a daemon, receiving events in real time and emitting findings as they are detected.
 
@@ -101,7 +105,7 @@ JSON unix socket       /                               |
 | Module           | Path              | Responsibility                                                                                                                                                                                                                                                                                     |
 |------------------|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **event**        | `event.rs`        | Core `SpanEvent` type (SQL and HTTP variants) with timestamp, trace/span IDs, service, operation, target, duration                                                                                                                                                                                 |
-| **ingest**       | `ingest/`         | Input sources: JSON parser with auto-format detection (`json.rs`), Jaeger JSON import (`jaeger.rs`), Zipkin JSON v2 import (`zipkin.rs`), OTLP gRPC+HTTP receiver (`otlp.rs`). Implements `IngestSource` trait. PostgreSQL `pg_stat_statements` parser (`pg_stat.rs`) for hotspot analysis          |
+| **ingest**       | `ingest/`         | Input sources: JSON parser with auto-format detection (`json.rs`), Jaeger JSON import (`jaeger.rs`), Zipkin JSON v2 import (`zipkin.rs`), OTLP gRPC+HTTP receiver (`otlp.rs`). Implements `IngestSource` trait. PostgreSQL `pg_stat_statements` parser (`pg_stat.rs`) for hotspot analysis         |
 | **normalize**    | `normalize/`      | Produces `NormalizedEvent` with template + extracted params. SQL tokenizer (`sql.rs`): replaces literals, UUIDs, IN lists. HTTP normalizer (`http.rs`): replaces numeric/UUID path segments, strips query params                                                                                   |
 | **correlate**    | `correlate/`      | Groups events by `trace_id`. Batch mode (`mod.rs`): HashMap aggregation. Streaming mode (`window.rs`): LRU cache with per-trace ring buffer and TTL eviction                                                                                                                                       |
 | **detect**       | `detect/`         | Pattern detection on correlated traces. N+1 (`n_plus_one.rs`): same template, different params, within window. Redundant (`redundant.rs`): same template and params. Slow (`slow.rs`): duration above threshold with recurring template. Fanout (`fanout.rs`): parent span with excessive children |

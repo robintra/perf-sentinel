@@ -153,6 +153,8 @@ Les findings lents ont `green_impact.estimated_extra_io_ops = 0`. Ce sont des op
 
 ## Orchestration de la détection
 
+![Orchestration de la détection](../../diagrams/svg/detection.svg)
+
 ```rust
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();

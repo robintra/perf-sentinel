@@ -61,12 +61,29 @@ fn get_int_attribute(attrs: &[KeyValue], key: &str) -> Option<i64> {
 /// Spans without `db.statement` or `http.url` attributes are skipped.
 /// Parent span lookup is done within the same request; if the parent is not
 /// found, `source.endpoint` defaults to `"unknown"`.
+/// Build a span index for parent lookup within a single resource (capped at 100k spans).
+fn build_span_index(
+    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+) -> HashMap<&[u8], &Span> {
+    let mut index: HashMap<&[u8], &Span> = HashMap::new();
+    let mut count = 0usize;
+    'outer: for scope_spans in &resource_spans.scope_spans {
+        for span in &scope_spans.spans {
+            index.insert(&span.span_id, span);
+            count += 1;
+            if count >= 100_000 {
+                break 'outer;
+            }
+        }
+    }
+    index
+}
+
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
     let mut events = Vec::new();
 
     for resource_spans in &request.resource_spans {
-        // Extract service.name from resource attributes
         let service_name = resource_spans
             .resource
             .as_ref()
@@ -74,20 +91,8 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             .unwrap_or("unknown")
             .to_string();
 
-        // Build a span index for parent lookup within this resource (capped at 100k spans)
-        let mut span_index: HashMap<&[u8], &Span> = HashMap::new();
-        let mut span_count = 0usize;
-        'index: for scope_spans in &resource_spans.scope_spans {
-            for span in &scope_spans.spans {
-                span_index.insert(&span.span_id, span);
-                span_count += 1;
-                if span_count >= 100_000 {
-                    break 'index;
-                }
-            }
-        }
+        let span_index = build_span_index(resource_spans);
 
-        // Process each span
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
                 if let Some(event) = convert_span(span, &service_name, &span_index) {

@@ -2,6 +2,8 @@
 
 ## Conversion OTLP
 
+![Conversion OTLP deux passes](../../diagrams/svg/otlp-conversion.svg)
+
 ### Conception en deux passes
 
 `convert_otlp_request()` traite chaque bloc `resource_spans` en deux passes :
@@ -102,6 +104,8 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 `ingest/zipkin.rs` parse le format Zipkin JSON v2. Le `parentId` est un champ direct. Les tags sont un `HashMap<String, String>`.
 
 ## Boucle événementielle du daemon
+
+![Architecture du daemon](../../diagrams/svg/daemon.svg)
 
 ### Architecture
 

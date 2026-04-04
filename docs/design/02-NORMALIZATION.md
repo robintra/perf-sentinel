@@ -2,6 +2,8 @@
 
 Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into `NormalizedEvent`s by extracting a template (parameterized query or URL pattern) and the concrete parameter values.
 
+![Auto-format detection](../diagrams/svg/ingestion.svg)
+
 ## Why not use `sqlparser`?
 
 The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that builds an AST. We deliberately chose a homemade tokenizer instead:

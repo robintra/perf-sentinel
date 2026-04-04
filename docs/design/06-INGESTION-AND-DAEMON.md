@@ -2,6 +2,8 @@
 
 ## OTLP Conversion
 
+![OTLP two-pass conversion](../diagrams/svg/otlp-conversion.svg)
+
 ### Two-pass design
 
 `convert_otlp_request()` processes each `resource_spans` block in two passes:
@@ -116,6 +118,8 @@ This avoids parsing the full payload into a `serde_json::Value` for detection, e
 - `localEndpoint.serviceName` provides the service name
 
 ## Daemon event loop
+
+![Daemon architecture](../diagrams/svg/daemon.svg)
 
 ### Architecture
 

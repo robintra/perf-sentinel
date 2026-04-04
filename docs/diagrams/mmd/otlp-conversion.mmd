@@ -1,0 +1,30 @@
+---
+title: OTLP Span Conversion (Two-Pass)
+---
+sequenceDiagram
+    participant Req as ExportTraceServiceRequest
+    participant P1 as Pass 1 - Build Index
+    participant Idx as span_index HashMap
+    participant P2 as Pass 2 - Convert
+    participant Out as Vec of SpanEvent
+
+    Req->>P1: resource_spans[].scope_spans[].spans[]
+    loop Each span (cap 100k)
+        P1->>Idx: insert(span_id, span)
+    end
+
+    Req->>P2: resource_spans[].scope_spans[].spans[]
+    loop Each span
+        P2->>P2: Has db.statement / db.query.text?
+        alt SQL span
+            P2->>Idx: lookup parent_span_id
+            Idx-->>P2: parent attrs (http.route, code.function)
+            P2->>Out: SpanEvent type Sql
+        else Has http.url / url.full?
+            P2->>Idx: lookup parent_span_id
+            Idx-->>P2: parent attrs
+            P2->>Out: SpanEvent type HttpOut
+        else No I/O attributes
+            P2->>P2: skip
+        end
+    end

@@ -1,0 +1,29 @@
+---
+title: Detection Orchestration
+---
+flowchart TD
+    traces["Vec&lt;Trace&gt;"]
+
+    subgraph pertrace["Per-Trace Detection"]
+        direction TB
+        npo["N+1 Detection<br/><i>same template, different params<br/>within window_ms, &ge; threshold</i>"]
+        red["Redundant Detection<br/><i>same template AND same params<br/>&ge; 2 occurrences</i>"]
+        slow["Slow Detection<br/><i>duration &gt; threshold_ms<br/>&ge; min_occurrences</i>"]
+        fan["Fanout Detection<br/><i>children per parent &gt; max_fanout<br/>requires parent_span_id</i>"]
+        npo --> red --> slow --> fan
+    end
+
+    cross["Cross-Trace Slow Percentiles<br/><i>p50 / p95 / p99 per template<br/>&ge; 2 distinct traces</i>"]
+
+    sort["sort_findings()<br/><i>deterministic output order</i>"]
+
+    findings["Vec&lt;Finding&gt;"]
+
+    traces --> pertrace
+    traces --> cross
+    pertrace --> sort
+    cross --> sort
+    sort --> findings
+
+    style pertrace fill:#3b2d4a,stroke:#a78bfa
+    style cross fill:#4a3b2d,stroke:#fbbf24

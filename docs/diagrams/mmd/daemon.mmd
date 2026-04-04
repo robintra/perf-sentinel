@@ -1,0 +1,51 @@
+---
+title: Daemon Streaming Architecture
+---
+flowchart TB
+    grpc["OTLP gRPC<br/><i>:4317</i>"]
+    http["OTLP HTTP<br/><i>:4318 POST /v1/traces</i>"]
+    sock["JSON Unix Socket<br/><i>/tmp/perf-sentinel.sock</i>"]
+
+    channel["mpsc::channel(1024)<br/><i>Vec&lt;SpanEvent&gt; batches</i>"]
+
+    subgraph eventloop["tokio::select! Event Loop"]
+        recv["Receive batch"]
+        tick["Ticker<br/><i>every TTL/2</i>"]
+        ctrlc["Ctrl-C<br/><i>graceful shutdown</i>"]
+    end
+
+    sampling["Sampling<br/><i>FNV-1a hash per trace_id</i>"]
+    norm["Normalize<br/><i>outside lock</i>"]
+
+    subgraph window["TraceWindow"]
+        lru["LRU Cache<br/><i>max_active_traces</i>"]
+        ring["Ring Buffer<br/><i>max_events_per_trace</i>"]
+        ttl["TTL Eviction<br/><i>trace_ttl_ms</i>"]
+    end
+
+    process["process_traces()<br/><i>detect &rarr; score</i>"]
+
+    stdout["stdout<br/><i>NDJSON findings</i>"]
+    metrics_state["MetricsState<br/><i>counters &amp; gauges</i>"]
+    metrics_endpoint["GET /metrics<br/><i>Prometheus + Exemplars</i>"]
+
+    grpc --> channel
+    http --> channel
+    sock --> channel
+
+    channel --> recv
+    recv --> sampling --> norm --> window
+    tick --> ttl
+    ctrlc -- "drain_all()" --> window
+
+    lru -- "evicted traces" --> process
+    ttl -- "expired traces" --> process
+
+    process --> stdout
+    process -- "update" --> metrics_state
+    metrics_state -- "render on scrape" --> metrics_endpoint
+
+    http -. "serves on same port" .-> metrics_endpoint
+
+    style eventloop fill:#2d3b4a,stroke:#60a5fa
+    style window fill:#3b2d4a,stroke:#a78bfa

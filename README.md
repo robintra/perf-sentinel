@@ -207,6 +207,10 @@ perf-sentinel inspect --input traces.json
 perf-sentinel watch
 ```
 
+## Architecture
+
+![Pipeline architecture](docs/diagrams/svg/pipeline.svg)
+
 ## Deployment topologies
 
 perf-sentinel supports three deployment models. Pick the one that fits your environment.

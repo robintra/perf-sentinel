@@ -2,6 +2,8 @@
 
 La normalisation est la deuxième étape du pipeline. Elle transforme les `SpanEvent` bruts en `NormalizedEvent` en extrayant un template (requête paramétrée ou pattern d'URL) et les valeurs concrètes des paramètres.
 
+![Détection automatique de format](../../diagrams/svg/ingestion.svg)
+
 ## Pourquoi ne pas utiliser `sqlparser` ?
 
 Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui construit un AST. Nous avons délibérément choisi un tokenizer maison à la place :

@@ -1,0 +1,47 @@
+---
+title: Batch Pipeline Architecture
+---
+flowchart LR
+    input["Vec&lt;SpanEvent&gt;"]
+
+    subgraph normalize["1. Normalize"]
+        sql["SQL Tokenizer<br/><i>literals &rarr; ?</i>"]
+        http["HTTP Normalizer<br/><i>/users/42 &rarr; /users/{id}</i>"]
+    end
+
+    correlate["2. Correlate<br/><i>Group by trace_id</i>"]
+
+    subgraph detect["3. Detect (per-trace)"]
+        npo["N+1<br/>SQL &amp; HTTP"]
+        red["Redundant<br/>SQL &amp; HTTP"]
+        slow["Slow<br/>SQL &amp; HTTP"]
+        fan["Fanout<br/><i>parent &rarr; children</i>"]
+    end
+
+    cross["3b. Cross-trace<br/>Slow Percentiles<br/><i>p50 / p95 / p99</i>"]
+
+    subgraph score["4. Score"]
+        iis["I/O Intensity<br/>Score (IIS)"]
+        waste["Waste Ratio"]
+        co2["gCO2eq<br/><i>optional</i>"]
+    end
+
+    report["5. Report"]
+
+    input --> normalize
+    sql --> correlate
+    http --> correlate
+    correlate -- "Vec&lt;Trace&gt;" --> detect
+    correlate -- "Vec&lt;Trace&gt;" --> cross
+    npo --> score
+    red --> score
+    slow --> score
+    fan --> score
+    cross --> score
+    score -- "Vec&lt;Finding&gt;<br/>GreenSummary" --> report
+
+    style normalize fill:#2d4a3e,stroke:#4ade80
+    style detect fill:#3b2d4a,stroke:#a78bfa
+    style cross fill:#4a3b2d,stroke:#fbbf24
+    style score fill:#4a3b2d,stroke:#fbbf24
+    style report fill:#2d3b4a,stroke:#60a5fa

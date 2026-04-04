@@ -1,0 +1,43 @@
+---
+title: Auto-Format Detection
+---
+flowchart TD
+    raw["Raw bytes - file or stdin"]
+    size{"size > max_payload?"}
+    reject["PayloadTooLarge"]
+
+    peek["Peek first 1 KB"]
+
+    obj_check{"starts with curly brace\nAND contains data key"}
+    deeper["Peek first 4 KB"]
+    spans_check{"contains spans key"}
+
+    zipkin_check{"starts with bracket\nAND contains traceId\nAND contains localEndpoint"}
+
+    jaeger_parse["Jaeger JSON"]
+    zipkin_parse["Zipkin JSON v2"]
+    native_parse["Native JSON"]
+
+    output["Vec of SpanEvent"]
+
+    raw --> size
+    size -- "yes" --> reject
+    size -- "no" --> peek
+
+    peek --> obj_check
+    obj_check -- "yes" --> deeper
+    deeper --> spans_check
+    spans_check -- "yes" --> jaeger_parse
+    spans_check -- "no" --> zipkin_check
+    obj_check -- "no" --> zipkin_check
+    zipkin_check -- "yes" --> zipkin_parse
+    zipkin_check -- "no" --> native_parse
+
+    jaeger_parse --> output
+    zipkin_parse --> output
+    native_parse --> output
+
+    style reject fill:#4a2d2d,stroke:#f87171
+    style jaeger_parse fill:#4a3b2d,stroke:#fbbf24
+    style zipkin_parse fill:#2d4a3e,stroke:#4ade80
+    style native_parse fill:#2d3b4a,stroke:#60a5fa
