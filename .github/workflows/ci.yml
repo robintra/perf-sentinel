@@ -28,6 +28,10 @@ jobs:
   check:
     name: Check & Test
     runs-on: ubuntu-latest
+    # Skip CI on PRs from forks to prevent malicious code execution in runners.
+    # Fork PRs don't have access to secrets (pull_request event), but can still
+    # abuse compute. Maintainer can trigger CI manually after reviewing the code.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
