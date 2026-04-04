@@ -571,4 +571,91 @@ mod tests {
         assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
         assert_eq!(r.params, vec!["caf\u{00e9} d'or"]);
     }
+
+    // -- SQL comments (pass through as-is, no special handling) --
+
+    #[test]
+    fn line_comment_passes_through() {
+        let r = normalize_sql("SELECT 1 -- this is a comment");
+        assert_eq!(r.template, "SELECT ? -- this is a comment");
+        assert_eq!(r.params, vec!["1"]);
+    }
+
+    #[test]
+    fn block_comment_passes_through() {
+        let r = normalize_sql("SELECT /* comment */ 1 FROM t");
+        assert_eq!(r.template, "SELECT /* comment */ ? FROM t");
+    }
+
+    #[test]
+    fn comment_inside_string_not_treated_as_comment() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = 'value -- not a comment'");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["value -- not a comment"]);
+    }
+
+    // -- Unterminated constructs --
+
+    #[test]
+    fn unterminated_dollar_quote_flushed() {
+        let r = normalize_sql("SELECT $$incomplete");
+        assert_eq!(r.template, "SELECT ?");
+        assert_eq!(r.params, vec!["incomplete"]);
+    }
+
+    #[test]
+    fn unterminated_double_quote_flushed() {
+        let r = normalize_sql("SELECT \"unterminated");
+        assert_eq!(r.template, "SELECT \"unterminated");
+        assert!(r.params.is_empty());
+    }
+
+    // -- Double-quoted identifiers with escaped quotes --
+
+    #[test]
+    fn double_quoted_identifier_with_digits() {
+        let r = normalize_sql(r#"SELECT "col123" FROM "table456" WHERE id = 1"#);
+        assert_eq!(
+            r.template,
+            r#"SELECT "col123" FROM "table456" WHERE id = ?"#
+        );
+        assert_eq!(r.params, vec!["1"]);
+    }
+
+    // -- Empty dollar-quoted strings --
+
+    #[test]
+    fn empty_dollar_quoted_string() {
+        let r = normalize_sql("SELECT $$$$ AS empty");
+        assert_eq!(r.template, "SELECT ? AS empty");
+        assert_eq!(r.params, vec![""]);
+    }
+
+    // -- Query length truncation --
+
+    #[test]
+    fn long_query_truncated_at_max() {
+        let long_query = format!("SELECT * FROM t WHERE name = '{}'", "a".repeat(70_000));
+        let r = normalize_sql(&long_query);
+        // Template should be truncated, not the full 70k+ length
+        assert!(r.template.len() <= 65_536 + 10); // some overhead for template chars
+    }
+
+    // -- Whitespace-only string literal --
+
+    #[test]
+    fn whitespace_only_string_literal() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = '   '");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["   "]);
+    }
+
+    // -- Four consecutive quotes (escaped empty + close) --
+
+    #[test]
+    fn four_consecutive_quotes() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = ''''");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["'"]);
+    }
 }

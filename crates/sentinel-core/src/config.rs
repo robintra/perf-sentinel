@@ -288,7 +288,7 @@ impl Config {
             &1,
             &100_000,
         )?;
-        check_min("trace_ttl_ms", &self.trace_ttl_ms, &100)?;
+        check_range("trace_ttl_ms", &self.trace_ttl_ms, &100, &3_600_000)?;
         check_range("listen_port_http", &self.listen_port, &1, &65535)?;
         check_range("listen_port_grpc", &self.listen_port_grpc, &1, &65535)?;
         Ok(())
@@ -653,5 +653,65 @@ region = "eu-west-3"
     fn green_disabled_parses() {
         let config = load_from_str("[green]\nenabled = false").unwrap();
         assert!(!config.green_enabled);
+    }
+
+    // -- Port validation --
+
+    #[test]
+    fn rejects_port_zero() {
+        let result = load_from_str("[daemon]\nlisten_port_http = 0");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_port_one() {
+        let config = load_from_str("[daemon]\nlisten_port_http = 1").unwrap();
+        assert_eq!(config.listen_port, 1);
+    }
+
+    #[test]
+    fn accepts_port_65535() {
+        let config = load_from_str("[daemon]\nlisten_port_http = 65535").unwrap();
+        assert_eq!(config.listen_port, 65535);
+    }
+
+    #[test]
+    fn rejects_grpc_port_zero() {
+        let result = load_from_str("[daemon]\nlisten_port_grpc = 0");
+        assert!(result.is_err());
+    }
+
+    // -- trace_ttl_ms upper bound --
+
+    #[test]
+    fn rejects_trace_ttl_above_1h() {
+        let result = load_from_str("[daemon]\ntrace_ttl_ms = 3600001");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_trace_ttl_at_1h() {
+        let config = load_from_str("[daemon]\ntrace_ttl_ms = 3600000").unwrap();
+        assert_eq!(config.trace_ttl_ms, 3_600_000);
+    }
+
+    #[test]
+    fn accepts_trace_ttl_at_100ms() {
+        let config = load_from_str("[daemon]\ntrace_ttl_ms = 100").unwrap();
+        assert_eq!(config.trace_ttl_ms, 100);
+    }
+
+    // -- Sampling rate edge cases --
+
+    #[test]
+    fn accepts_sampling_rate_zero() {
+        let config = load_from_str("[daemon]\nsampling_rate = 0.0").unwrap();
+        assert!((config.sampling_rate - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn accepts_sampling_rate_one() {
+        let config = load_from_str("[daemon]\nsampling_rate = 1.0").unwrap();
+        assert!((config.sampling_rate - 1.0).abs() < f64::EPSILON);
     }
 }

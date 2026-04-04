@@ -299,6 +299,68 @@ mod tests {
     }
 
     #[test]
+    fn malformed_json_missing_data_key() {
+        let json = r#"{"traces": []}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn malformed_json_missing_trace_id() {
+        let json = r#"{"data": [{"spans": [], "processes": {}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn malformed_json_missing_spans() {
+        let json = r#"{"data": [{"traceID": "t1", "processes": {}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn malformed_json_missing_span_id() {
+        let json = r#"{"data": [{"traceID": "t1", "spans": [{"operationName": "op", "startTime": 0, "duration": 0, "processID": "p1", "tags": []}], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn empty_data_array_produces_no_events() {
+        let json = r#"{"data": []}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn empty_spans_array_produces_no_events() {
+        let json = r#"{"data": [{"traceID": "t1", "spans": [], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn unknown_process_id_produces_empty_service() {
+        let json = r#"{"data": [{"traceID": "t1", "spans": [{"spanID": "s1", "operationName": "op", "startTime": 0, "duration": 100, "processID": "unknown", "tags": [{"key": "db.statement", "value": "SELECT 1"}]}], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].service, "");
+    }
+
+    #[test]
+    fn numeric_tag_value_converted_to_string() {
+        let json = r#"{"data": [{"traceID": "t1", "spans": [{"spanID": "s1", "operationName": "op", "startTime": 0, "duration": 100, "processID": "p1", "tags": [{"key": "http.url", "value": "http://svc/api"}, {"key": "http.status_code", "value": 200}]}], "processes": {"p1": {"serviceName": "svc"}}}]}"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].status_code, Some(200));
+    }
+
+    #[test]
     fn stable_semconv_tags() {
         let json = r#"{
             "data": [{

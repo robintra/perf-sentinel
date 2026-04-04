@@ -683,4 +683,110 @@ mod tests {
             "should produce no findings when p99 < threshold"
         );
     }
+
+    // -- Boundary condition tests --
+
+    #[test]
+    fn exactly_at_threshold_not_slow() {
+        // duration_us == threshold_ms * 1000 exactly → NOT slow (uses strict >)
+        let events: Vec<_> = (0..3)
+            .map(|i| {
+                make_sql_event_with_duration(
+                    "t1",
+                    &format!("s{i}"),
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.000Z",
+                    500_000, // exactly 500ms threshold
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 3);
+        assert!(
+            findings.is_empty(),
+            "exactly at threshold should not be flagged"
+        );
+    }
+
+    #[test]
+    fn one_microsecond_above_threshold_is_slow() {
+        let events: Vec<_> = (0..3)
+            .map(|i| {
+                make_sql_event_with_duration(
+                    "t1",
+                    &format!("s{i}"),
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.000Z",
+                    500_001, // 1µs above threshold
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn exactly_5x_threshold_is_warning_not_critical() {
+        // 5x threshold exactly → still warning (uses strict >)
+        let events: Vec<_> = (0..3)
+            .map(|i| {
+                make_sql_event_with_duration(
+                    "t1",
+                    &format!("s{i}"),
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.000Z",
+                    2_500_000, // exactly 5x 500ms
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+
+    #[test]
+    fn above_5x_threshold_is_critical() {
+        let events: Vec<_> = (0..3)
+            .map(|i| {
+                make_sql_event_with_duration(
+                    "t1",
+                    &format!("s{i}"),
+                    "SELECT * FROM t WHERE id = 1",
+                    "2025-07-10T14:32:01.000Z",
+                    2_500_001, // 1µs above 5x
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 3);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn min_occurrences_one() {
+        let events = vec![make_sql_event_with_duration(
+            "t1",
+            "s1",
+            "SELECT * FROM t WHERE id = 1",
+            "2025-07-10T14:32:01.000Z",
+            600_000,
+        )];
+        let trace = make_trace(events);
+        let findings = detect_slow(&trace, 500, 1);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn empty_trace_no_slow_findings() {
+        let trace = Trace {
+            trace_id: "empty".to_string(),
+            spans: vec![],
+        };
+        let findings = detect_slow(&trace, 500, 3);
+        assert!(findings.is_empty());
+    }
 }

@@ -203,6 +203,22 @@ mod tests {
     use super::*;
     use crate::detect::{GreenImpact, Pattern};
 
+    fn make_report(findings: Vec<Finding>) -> Report {
+        Report {
+            analysis: crate::report::Analysis {
+                duration_ms: 1,
+                events_processed: 6,
+                traces_analyzed: 1,
+            },
+            findings,
+            green_summary: crate::report::GreenSummary::disabled(0),
+            quality_gate: crate::report::QualityGate {
+                passed: true,
+                rules: vec![],
+            },
+        }
+    }
+
     fn make_finding(ft: FindingType, sev: Severity) -> Finding {
         Finding {
             finding_type: ft,
@@ -228,19 +244,7 @@ mod tests {
 
     #[test]
     fn sarif_version_is_2_1_0() {
-        let report = Report {
-            analysis: crate::report::Analysis {
-                duration_ms: 1,
-                events_processed: 6,
-                traces_analyzed: 1,
-            },
-            findings: vec![],
-            green_summary: crate::report::GreenSummary::disabled(0),
-            quality_gate: crate::report::QualityGate {
-                passed: true,
-                rules: vec![],
-            },
-        };
+        let report = make_report(vec![]);
         let sarif = report_to_sarif(&report);
         assert_eq!(sarif.version, "2.1.0");
         assert!(sarif.schema.contains("sarif-schema-2.1.0"));
@@ -248,19 +252,7 @@ mod tests {
 
     #[test]
     fn sarif_has_all_rule_definitions() {
-        let report = Report {
-            analysis: crate::report::Analysis {
-                duration_ms: 0,
-                events_processed: 0,
-                traces_analyzed: 0,
-            },
-            findings: vec![],
-            green_summary: crate::report::GreenSummary::disabled(0),
-            quality_gate: crate::report::QualityGate {
-                passed: true,
-                rules: vec![],
-            },
-        };
+        let report = make_report(vec![]);
         let sarif = report_to_sarif(&report);
         let rules = &sarif.runs[0].tool.driver.rules;
         assert_eq!(rules.len(), 7);
@@ -293,25 +285,43 @@ mod tests {
 
     #[test]
     fn sarif_results_from_report() {
-        let report = Report {
-            analysis: crate::report::Analysis {
-                duration_ms: 1,
-                events_processed: 6,
-                traces_analyzed: 1,
-            },
-            findings: vec![
-                make_finding(FindingType::NPlusOneSql, Severity::Warning),
-                make_finding(FindingType::NPlusOneHttp, Severity::Critical),
-            ],
-            green_summary: crate::report::GreenSummary::disabled(6),
-            quality_gate: crate::report::QualityGate {
-                passed: false,
-                rules: vec![],
-            },
-        };
+        let report = make_report(vec![
+            make_finding(FindingType::NPlusOneSql, Severity::Warning),
+            make_finding(FindingType::NPlusOneHttp, Severity::Critical),
+        ]);
         let sarif = report_to_sarif(&report);
         assert_eq!(sarif.runs[0].results.len(), 2);
         assert_eq!(sarif.runs[0].results[0].level, "warning");
         assert_eq!(sarif.runs[0].results[1].level, "error");
+    }
+
+    #[test]
+    fn sarif_empty_findings_produces_valid_json() {
+        let report = make_report(vec![]);
+        let sarif = report_to_sarif(&report);
+        let json = serde_json::to_string(&sarif).unwrap();
+        assert!(json.contains("\"version\":\"2.1.0\""));
+        assert!(json.contains("\"results\":[]"));
+    }
+
+    #[test]
+    fn sarif_special_chars_in_service_and_endpoint() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.service = "svc-with-\"quotes\"".to_string();
+        finding.source_endpoint = "POST /api/items?a=1&b=<2>".to_string();
+        let result = finding_to_result(&finding);
+        // Should serialize without error
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains(r#"svc-with-\"quotes\""#));
+        assert!(json.contains("POST /api/items?a=1&b=<2>"));
+    }
+
+    #[test]
+    fn sarif_finding_without_green_impact() {
+        let mut finding = make_finding(FindingType::SlowSql, Severity::Warning);
+        finding.green_impact = None;
+        let result = finding_to_result(&finding);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("slow_sql"));
     }
 }

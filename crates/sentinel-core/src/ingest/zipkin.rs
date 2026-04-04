@@ -247,6 +247,71 @@ mod tests {
     }
 
     #[test]
+    fn malformed_json_not_array() {
+        let json = r#"{"traceId": "t1"}"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn malformed_json_missing_trace_id() {
+        let json = r#"[{"id": "s1"}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn malformed_json_missing_span_id() {
+        let json = r#"[{"traceId": "t1"}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        assert!(ingest.ingest(json.as_bytes()).is_err());
+    }
+
+    #[test]
+    fn empty_array_produces_no_events() {
+        let json = "[]";
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn missing_optional_fields_handled() {
+        let json = r#"[{"traceId": "t1", "id": "s1", "tags": {"db.statement": "SELECT 1"}}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].duration_us, 0);
+        assert_eq!(events[0].service, "");
+        assert!(events[0].parent_span_id.is_none());
+    }
+
+    #[test]
+    fn no_tags_skips_span() {
+        let json = r#"[{"traceId": "t1", "id": "s1"}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn empty_tags_skips_span() {
+        let json = r#"[{"traceId": "t1", "id": "s1", "tags": {}}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert!(events.is_empty());
+    }
+
+    #[test]
+    fn zero_timestamp_and_duration() {
+        let json = r#"[{"traceId": "t1", "id": "s1", "timestamp": 0, "duration": 0, "tags": {"db.statement": "SELECT 1"}}]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events[0].timestamp, "1970-01-01T00:00:00.000Z");
+        assert_eq!(events[0].duration_us, 0);
+    }
+
+    #[test]
     fn stable_semconv_tags() {
         let json = r#"[
             {

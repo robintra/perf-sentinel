@@ -171,7 +171,7 @@ docker compose -f examples/docker-compose-sidecar.yml up -d
 
 ### Étape 2 : Configurer votre app
 
-Votre app envoie les traces à `localhost:4317` -- pas de saut réseau puisque perf-sentinel partage le même namespace réseau :
+Votre app envoie les traces à `localhost:4318` (HTTP) -- pas de saut réseau puisque perf-sentinel partage le même namespace réseau :
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

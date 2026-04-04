@@ -598,4 +598,51 @@ mod tests {
         let iso = nanos_to_iso8601(nanos);
         assert_eq!(iso, "2024-02-29T00:00:00.000Z");
     }
+
+    #[test]
+    fn empty_trace_id_produces_empty_hex() {
+        assert_eq!(bytes_to_hex(&[]), "");
+    }
+
+    #[test]
+    fn short_span_id_produces_short_hex() {
+        assert_eq!(bytes_to_hex(&[0xab]), "ab");
+    }
+
+    #[test]
+    fn missing_service_name_defaults_to_unknown() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![], // no service.name
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![span],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        let events = convert_otlp_request(&req);
+        assert_eq!(events[0].service, "unknown");
+    }
+
+    #[test]
+    fn no_resource_defaults_to_unknown_service() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: None,
+                scope_spans: vec![ScopeSpans {
+                    spans: vec![span],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        };
+        let events = convert_otlp_request(&req);
+        assert_eq!(events[0].service, "unknown");
+    }
 }

@@ -171,7 +171,7 @@ docker compose -f examples/docker-compose-sidecar.yml up -d
 
 ### Step 2: Configure your app
 
-Your app sends traces to `localhost:4317` -- no network hop since perf-sentinel shares the same network namespace:
+Your app sends traces to `localhost:4318` (HTTP) -- no network hop since perf-sentinel shares the same network namespace:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318

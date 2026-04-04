@@ -237,4 +237,65 @@ mod tests {
         let r = normalize_http("GET", "/api/item/A1B2C3D4-E5F6-7890-ABCD-EF1234567890");
         assert_eq!(r.template, "GET /api/item/{uuid}");
     }
+
+    // -- Fragment handling --
+
+    #[test]
+    fn fragment_not_stripped_from_path() {
+        // Fragments are rare in server-side URLs; the segment "42#section" is not
+        // purely numeric so it passes through as-is (fragment is not separated)
+        let r = normalize_http("GET", "/api/users/42#section");
+        assert_eq!(r.template, "GET /api/users/42#section");
+    }
+
+    // -- Malformed/edge-case query params --
+
+    #[test]
+    fn trailing_question_mark_only() {
+        let r = normalize_http("GET", "/api/users?");
+        assert_eq!(r.template, "GET /api/users");
+        assert_eq!(r.params, vec![""]);
+    }
+
+    #[test]
+    fn empty_query_param_values() {
+        let r = normalize_http("GET", "/api/users?id=&name=");
+        assert_eq!(r.template, "GET /api/users");
+        assert_eq!(r.params, vec!["id=", "name="]);
+    }
+
+    #[test]
+    fn double_ampersand_in_query() {
+        let r = normalize_http("GET", "/api/users?a=1&&b=2");
+        assert_eq!(r.template, "GET /api/users");
+        assert_eq!(r.params, vec!["a=1", "", "b=2"]);
+    }
+
+    // -- Double slashes --
+
+    #[test]
+    fn double_slash_in_path_preserved() {
+        let r = normalize_http("GET", "/api//users/42");
+        assert_eq!(r.template, "GET /api//users/{id}");
+    }
+
+    // -- URL-encoded segments (pass through as-is) --
+
+    #[test]
+    fn url_encoded_numeric_not_detected() {
+        // %34%32 = "42" but URL-encoded, not decoded before detection
+        let r = normalize_http("GET", "/api/users/%34%32");
+        assert_eq!(r.template, "GET /api/users/%34%32");
+        assert!(r.params.is_empty());
+    }
+
+    // -- Query params capped at 100 --
+
+    #[test]
+    fn query_params_capped_at_100() {
+        let params: Vec<String> = (0..200).map(|i| format!("p{i}={i}")).collect();
+        let url = format!("/api/test?{}", params.join("&"));
+        let r = normalize_http("GET", &url);
+        assert_eq!(r.params.len(), 100);
+    }
 }
