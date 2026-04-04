@@ -104,7 +104,7 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 
 Le parseur utilise des itérateurs partout (`split(':')` -> `.next()`, `split('.')` -> `.next()`) pour éviter d'allouer des collections `Vec<&str>` intermédiaires.
 
-**Limitation :** le parseur calcule les millisecondes depuis minuit, pas depuis l'epoch. Les traces traversant minuit peuvent calculer des durées de fenêtre incorrectes. C'est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md).
+Le parseur calcule les millisecondes depuis l'epoch Unix en parsant les composantes date (`YYYY-MM-DD`) et heure. La conversion date-vers-jours utilise l'[algorithme de Howard Hinnant](http://howardhinnant.github.io/date_algorithms.html) (domaine public), sans dépendance externe.
 
 ### Comparaison lexicographique des timestamps
 

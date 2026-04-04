@@ -270,7 +270,7 @@ impl Config {
         self.validate_daemon_limits()?;
         self.validate_detection_params()?;
         self.validate_rates()?;
-        self.validate_listen_addr();
+        self.validate_listen_addr()?;
         Ok(())
     }
 
@@ -321,7 +321,8 @@ impl Config {
         Ok(())
     }
 
-    fn validate_listen_addr(&self) {
+    #[allow(clippy::unnecessary_wraps)]
+    fn validate_listen_addr(&self) -> Result<(), String> {
         if self.listen_addr != "127.0.0.1" && self.listen_addr != "::1" {
             tracing::warn!(
                 "Daemon configured to listen on non-loopback address: {}. \
@@ -330,6 +331,7 @@ impl Config {
                 self.listen_addr
             );
         }
+        Ok(())
     }
 }
 

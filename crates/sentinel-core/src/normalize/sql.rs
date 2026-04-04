@@ -40,6 +40,8 @@ struct Tokenizer<'a> {
     seen_dot: bool,
     has_in_list: bool,
     normal_start: usize,
+    /// Start of the current string/dollar-quote literal content being accumulated.
+    value_start: usize,
     /// The closing tag for dollar-quoted strings (e.g., `$$` or `$tag$`).
     dollar_tag: Vec<u8>,
 }
@@ -51,13 +53,14 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
         query,
         bytes: query.as_bytes(),
         template: String::with_capacity(query.len()),
-        params: Vec::new(),
+        params: Vec::with_capacity(4),
         i: 0,
         state: State::Normal,
         current_value: String::new(),
         seen_dot: false,
         has_in_list: false,
         normal_start: 0,
+        value_start: 0,
         dollar_tag: Vec::new(),
     };
 
@@ -81,6 +84,7 @@ fn step_normal(t: &mut Tokenizer<'_>) {
         flush_normal_run(t);
         t.state = State::InString;
         t.current_value.clear();
+        t.value_start = t.i + 1; // points after the opening '
     } else if b == b'"' {
         // Double-quoted identifier: preserve as-is (don't replace literals inside)
         t.state = State::InDoubleQuote;
@@ -95,6 +99,7 @@ fn step_normal(t: &mut Tokenizer<'_>) {
         t.state = State::InDollarQuote;
         t.current_value.clear();
         t.i += tag_len;
+        t.value_start = t.i; // points after the opening tag
         return;
     } else if b.is_ascii_digit() && !is_identifier_byte_before(t.i, t.bytes) {
         flush_normal_run(t);
@@ -112,9 +117,14 @@ fn step_in_string(t: &mut Tokenizer<'_>) {
     let b = t.bytes[t.i];
     if b == b'\'' {
         if t.i + 1 < t.bytes.len() && t.bytes[t.i + 1] == b'\'' {
+            // Escaped quote '': flush accumulated slice, push a single quote, reset start
+            t.current_value.push_str(&t.query[t.value_start..t.i]);
             t.current_value.push('\'');
             t.i += 2;
+            t.value_start = t.i;
         } else {
+            // Closing quote: flush remaining content as a proper &str slice
+            t.current_value.push_str(&t.query[t.value_start..t.i]);
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
             t.state = State::Normal;
@@ -122,7 +132,6 @@ fn step_in_string(t: &mut Tokenizer<'_>) {
             t.normal_start = t.i;
         }
     } else {
-        t.current_value.push(b as char);
         t.i += 1;
     }
 }
@@ -163,14 +172,14 @@ fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {
     // Look for the closing dollar tag at current position
     let remaining = &t.bytes[t.i..];
     if remaining.starts_with(&t.dollar_tag) {
-        // Found closing tag -- replace entire dollar-quoted content with ?
+        // Found closing tag -- flush content as a proper &str slice
+        t.current_value.push_str(&t.query[t.value_start..t.i]);
         t.params.push(std::mem::take(&mut t.current_value));
         t.template.push('?');
         t.i += t.dollar_tag.len();
         t.state = State::Normal;
         t.normal_start = t.i;
     } else {
-        t.current_value.push(t.bytes[t.i] as char);
         t.i += 1;
     }
 }
@@ -214,7 +223,14 @@ fn flush_normal_run(t: &mut Tokenizer<'_>) {
 
 fn flush_pending(t: &mut Tokenizer<'_>) {
     match t.state {
-        State::InNumber | State::InString | State::InDollarQuote => {
+        State::InString | State::InDollarQuote => {
+            // Flush remaining content from the unflushed &str slice
+            t.current_value
+                .push_str(&t.query[t.value_start..t.bytes.len()]);
+            t.params.push(std::mem::take(&mut t.current_value));
+            t.template.push('?');
+        }
+        State::InNumber => {
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
         }
@@ -515,5 +531,42 @@ mod tests {
         let r = normalize_sql("CALL schedule_task(1, INTERVAL '2 days')");
         assert_eq!(r.template, "CALL schedule_task(?, INTERVAL ?)");
         assert_eq!(r.params, vec!["1", "2 days"]);
+    }
+
+    // -- UTF-8 multi-byte support --
+
+    #[test]
+    fn utf8_in_string_literal() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = 'caf\u{00e9}'");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["caf\u{00e9}"]);
+    }
+
+    #[test]
+    fn utf8_emoji_in_string_literal() {
+        let r = normalize_sql("INSERT INTO t (msg) VALUES ('\u{1F600} hello')");
+        assert_eq!(r.template, "INSERT INTO t (msg) VALUES (?)");
+        assert_eq!(r.params, vec!["\u{1F600} hello"]);
+    }
+
+    #[test]
+    fn utf8_cjk_in_string_literal() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = '\u{4F60}\u{597D}'");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["\u{4F60}\u{597D}"]);
+    }
+
+    #[test]
+    fn utf8_in_dollar_quote() {
+        let r = normalize_sql("SELECT $$caf\u{00e9} au lait$$ AS drink");
+        assert_eq!(r.template, "SELECT ? AS drink");
+        assert_eq!(r.params, vec!["caf\u{00e9} au lait"]);
+    }
+
+    #[test]
+    fn utf8_with_escaped_quotes() {
+        let r = normalize_sql("SELECT * FROM t WHERE name = 'caf\u{00e9} d''or'");
+        assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
+        assert_eq!(r.params, vec!["caf\u{00e9} d'or"]);
     }
 }

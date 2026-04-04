@@ -109,8 +109,7 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
       {
         "endpoint": "POST /api/game/42/start",
         "service": "game",
-        "io_intensity_score": 6.0,
-        "io_ops_per_request": 6.0
+        "io_intensity_score": 6.0
       }
     ]
   },

@@ -124,7 +124,6 @@ pub fn score_green(
                 endpoint: endpoint.to_string(),
                 service: stats.service.to_string(),
                 io_intensity_score: iis,
-                io_ops_per_request: iis,
                 co2_grams,
             }
         })
@@ -214,7 +213,6 @@ mod tests {
         assert!((summary.io_waste_ratio - 5.0 / 6.0).abs() < f64::EPSILON);
         assert_eq!(summary.top_offenders.len(), 1);
         assert!((summary.top_offenders[0].io_intensity_score - 6.0).abs() < f64::EPSILON);
-        assert!((summary.top_offenders[0].io_ops_per_request - 6.0).abs() < f64::EPSILON);
 
         assert_eq!(findings.len(), 1);
         let impact = findings[0].green_impact.as_ref().unwrap();

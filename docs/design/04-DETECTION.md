@@ -104,7 +104,7 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 
 The parser uses iterators throughout (`split(':')` -> `.next()`, `split('.')` -> `.next()`) to avoid allocating intermediate `Vec<&str>` collections.
 
-**Limitation:** the parser computes milliseconds since midnight, not since epoch. Cross-midnight traces may compute incorrect window durations. This is documented in [LIMITATIONS.md](../LIMITATIONS.md).
+The parser computes milliseconds since Unix epoch by parsing both the date (`YYYY-MM-DD`) and time components. The date-to-days conversion uses the [Howard Hinnant algorithm](http://howardhinnant.github.io/date_algorithms.html) (public domain), which requires no external dependencies.
 
 ### Lexicographic timestamp comparison
 

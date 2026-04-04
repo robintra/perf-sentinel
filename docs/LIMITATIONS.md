@@ -26,12 +26,6 @@ If you encounter a query that normalizes incorrectly, please open an issue with 
 
 **Complementarity with pg_stat_statements:** perf-sentinel detects per-trace patterns (N+1, redundant calls) that pg_stat_statements cannot see. Conversely, pg_stat_statements provides aggregate server-side statistics (total calls, mean time) that perf-sentinel does not track. They complement each other ; use both for full visibility.
 
-## Cross-midnight Timestamps
-
-The min/max timestamp selection for findings uses lexicographic ISO 8601 comparison, which sorts chronologically and works across midnight. However, the **window duration** (`window_ms`) is computed from time-of-day only (hours, minutes, seconds, milliseconds since midnight). Traces that span midnight will compute an incorrect window of 0ms, which may cause false positive N+1 detections for events that are actually ~24 hours apart.
-
-**Mitigation:** In practice, this is rare because individual traces typically complete in seconds. In daemon mode, the default TTL (30s) prevents traces from accumulating across midnight. In batch mode, ensure traces being analyzed do not span midnight boundaries, or accept the potential for false positives on cross-midnight traces.
-
 ## ORM bind parameters and N+1 vs redundant classification
 
 ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where the parameter values are not visible in the `db.statement`/`db.query.text` attribute. perf-sentinel sees the template with the bind placeholders but not the actual values.
