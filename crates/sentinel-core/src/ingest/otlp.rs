@@ -72,6 +72,9 @@ fn build_span_index(
             index.insert(&span.span_id, span);
             count += 1;
             if count >= 100_000 {
+                tracing::warn!(
+                    "OTLP span index capped at 100k entries, parent lookup may be degraded for remaining spans"
+                );
                 break 'outer;
             }
         }

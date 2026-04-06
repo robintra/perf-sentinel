@@ -30,7 +30,7 @@ for span in &scope.spans {
 
 **Pourquoi deux passes ?** Dans OTLP, un span parent peut apparaître après son enfant dans le message protobuf. La première passe construit une table de recherche pour que la seconde passe puisse résoudre `source.endpoint` depuis l'attribut `http.route` du span parent. Une approche en une seule passe manquerait les spans parents définis plus loin dans le message.
 
-L'index utilise des clés `&[u8]` (octets bruts du span_id), évitant l'encodage hexadécimal juste pour la recherche. L'index de spans est plafonné à 100 000 spans par resource pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques.
+L'index utilise des clés `&[u8]` (octets bruts du span_id), évitant l'encodage hexadécimal juste pour la recherche. L'index de spans est plafonné à 100 000 spans par resource pour prévenir l'épuisement mémoire depuis des payloads OTLP pathologiques. Un `tracing::warn!` est émis quand le cap est atteint pour aider les opérateurs à diagnostiquer une résolution de parent dégradée.
 
 ### Table de recherche `bytes_to_hex`
 

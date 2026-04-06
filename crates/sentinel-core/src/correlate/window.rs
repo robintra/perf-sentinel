@@ -99,16 +99,19 @@ impl TraceWindow {
 
     /// Evict traces that have not been updated within the TTL.
     ///
-    /// Iterates from the LRU end (oldest access). Since access order tracks
-    /// `last_seen_ms`, once a non-expired entry is found we can stop early.
+    /// Scans the full LRU cache rather than stopping at the first non-expired
+    /// entry, because clock adjustments (NTP) can cause `last_seen_ms` and LRU
+    /// position to diverge, leaving expired traces behind non-expired ones.
     pub fn evict(&mut self, now_ms: u64) {
         let ttl = self.config.trace_ttl_ms;
-        while let Some((_, buf)) = self.traces.peek_lru() {
-            if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
-                self.traces.pop_lru();
-            } else {
-                break;
-            }
+        let expired_keys: Vec<String> = self
+            .traces
+            .iter()
+            .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for key in expired_keys {
+            self.traces.pop(&key);
         }
     }
 
@@ -116,16 +119,19 @@ impl TraceWindow {
     ///
     /// Unlike `evict()` which silently drops expired traces, this method
     /// returns them so the daemon can run detection before discarding.
+    /// Scans the full cache to handle clock skew (see `evict()`).
     pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
         let ttl = self.config.trace_ttl_ms;
-        let mut expired = Vec::new();
-        while let Some((_, buf)) = self.traces.peek_lru() {
-            if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
-                if let Some((id, buf)) = self.traces.pop_lru() {
-                    expired.push((id, Vec::from(buf.events)));
-                }
-            } else {
-                break;
+        let expired_keys: Vec<String> = self
+            .traces
+            .iter()
+            .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut expired = Vec::with_capacity(expired_keys.len());
+        for key in expired_keys {
+            if let Some((_id, buf)) = self.traces.pop_entry(&key) {
+                expired.push((key, Vec::from(buf.events)));
             }
         }
         expired

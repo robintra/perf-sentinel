@@ -30,7 +30,7 @@ for span in &scope.spans {
 
 **Why two passes?** In OTLP, a parent span may appear after its child in the protobuf message. The first pass builds a lookup table so that the second pass can resolve `source.endpoint` from the parent span's `http.route` attribute. A single-pass approach would miss parent spans defined later in the message.
 
-The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads.
+The index uses `&[u8]` keys (raw span_id bytes), avoiding hex encoding just for lookup. The span index is capped at 100,000 spans per resource to prevent memory exhaustion from pathological OTLP payloads. A `tracing::warn!` is emitted when the cap is reached to help operators diagnose degraded parent resolution.
 
 ### `bytes_to_hex` lookup table
 

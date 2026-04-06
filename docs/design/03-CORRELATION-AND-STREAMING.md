@@ -79,18 +79,18 @@ Traces that have not received events within `trace_ttl_ms` are expired:
 
 ```rust
 pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
-    while let Some((_, buf)) = self.traces.peek_lru() {
-        if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
-            self.traces.pop_lru();
-            // ... collect evicted trace
-        } else {
-            break; // early stop
-        }
+    let expired_keys: Vec<String> = self.traces.iter()
+        .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for key in expired_keys {
+        self.traces.pop_entry(&key);
+        // ... collect evicted trace
     }
 }
 ```
 
-**Early stop optimization:** since the LRU cache orders entries by access time, once a non-expired entry is found, all subsequent entries are also non-expired. This makes eviction O(k) where k is the number of expired traces, not O(n) for all active traces.
+**Full scan instead of early stop:** clock adjustments (NTP) can cause `last_seen_ms` and LRU position to diverge, leaving expired traces behind non-expired ones. A full scan of the cache ensures all expired traces are evicted regardless of ordering. The cache is bounded by `max_active_traces` (default 10k, max 1M), so the scan cost is negligible compared to detection and scoring.
 
 **`saturating_sub`** prevents underflow if `now_ms < last_seen_ms` (possible with clock skew or NTP adjustments).
 

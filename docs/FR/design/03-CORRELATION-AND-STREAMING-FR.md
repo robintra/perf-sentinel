@@ -79,18 +79,18 @@ Les traces n'ayant pas reçu d'événements dans le délai `trace_ttl_ms` sont e
 
 ```rust
 pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
-    while let Some((_, buf)) = self.traces.peek_lru() {
-        if now_ms.saturating_sub(buf.last_seen_ms) > ttl {
-            self.traces.pop_lru();
-            // ... collecter la trace évincée
-        } else {
-            break; // arrêt anticipé
-        }
+    let expired_keys: Vec<String> = self.traces.iter()
+        .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
+        .map(|(id, _)| id.clone())
+        .collect();
+    for key in expired_keys {
+        self.traces.pop_entry(&key);
+        // ... collecter la trace évincée
     }
 }
 ```
 
-**Optimisation d'arrêt anticipé :** puisque le cache LRU ordonne les entrées par temps d'accès, dès qu'une entrée non expirée est trouvée, toutes les entrées suivantes sont également non expirées. Cela rend l'éviction O(k) où k est le nombre de traces expirées, pas O(n) pour toutes les traces actives.
+**Scan complet au lieu d'arrêt anticipé :** les ajustements d'horloge (NTP) peuvent faire diverger `last_seen_ms` et la position LRU, laissant des traces expirées derrière des entrées non expirées. Un scan complet du cache garantit que toutes les traces expirées sont évincées quel que soit l'ordre. Le cache est borné par `max_active_traces` (défaut 10k, max 1M), donc le coût du scan est négligeable par rapport à la détection et au scoring.
 
 **`saturating_sub`** empêche le dépassement par le bas si `now_ms < last_seen_ms` (possible avec une dérive d'horloge ou des ajustements NTP).
 

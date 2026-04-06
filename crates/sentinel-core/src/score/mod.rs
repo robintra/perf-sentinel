@@ -66,7 +66,7 @@ pub fn score_green(
 ) -> (Vec<Finding>, GreenSummary) {
     let (endpoint_stats, total_io_ops) = count_endpoint_stats(traces);
 
-    // Phase 2: Dedup avoidable I/O ops by (trace_id, template), taking max.
+    // Phase 2: Dedup avoidable I/O ops by (trace_id, template, source_endpoint), taking max.
     // Slow findings are excluded: slow queries are not "avoidable" I/O, they are
     // necessary operations that happen to be slow.
     let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
