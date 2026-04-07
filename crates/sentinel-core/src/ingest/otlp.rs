@@ -94,11 +94,33 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             .unwrap_or("unknown")
             .to_string();
 
+        // Extract `cloud.region` once per resource. The OTel semantic
+        // convention places it on the resource, but some SDKs (older
+        // instrumentation, AWS X-Ray adapters) put it on individual spans;
+        // `convert_span` falls back to a span-level attribute when the
+        // resource attribute is absent.
+        //
+        // F9: sanitize the region string at the ingest boundary. Invalid
+        // values (empty, >64 chars, non-ASCII-alphanumeric/-/_) are
+        // silently dropped to prevent log-forging in text subscribers and
+        // unbounded string accumulation in downstream BTreeMap bucketing.
+        let resource_cloud_region = resource_spans
+            .resource
+            .as_ref()
+            .and_then(|r| get_str_attribute(&r.attributes, "cloud.region"))
+            .filter(|s| crate::score::carbon::is_valid_region_id(s))
+            .map(str::to_string);
+
         let span_index = build_span_index(resource_spans);
 
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
-                if let Some(event) = convert_span(span, &service_name, &span_index) {
+                if let Some(event) = convert_span(
+                    span,
+                    &service_name,
+                    resource_cloud_region.as_deref(),
+                    &span_index,
+                ) {
                     events.push(event);
                 }
             }
@@ -112,6 +134,7 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
 fn convert_span(
     span: &Span,
     service_name: &str,
+    resource_cloud_region: Option<&str>,
     span_index: &HashMap<&[u8], &Span>,
 ) -> Option<SpanEvent> {
     let attrs = &span.attributes;
@@ -183,12 +206,23 @@ fn convert_span(
         Some(bytes_to_hex(&span.parent_span_id))
     };
 
+    // cloud.region resolution chain (resource → span → None).
+    // Resource is the OTel semconv canonical location; span-level fallback
+    // accommodates SDKs that place cloud.region on individual spans.
+    // F9: sanitize span-level attribute the same way as the resource-level one.
+    let cloud_region = resource_cloud_region.map(str::to_string).or_else(|| {
+        get_str_attribute(attrs, "cloud.region")
+            .filter(|s| crate::score::carbon::is_valid_region_id(s))
+            .map(str::to_string)
+    });
+
     Some(SpanEvent {
         timestamp,
         trace_id,
         span_id,
         parent_span_id,
         service: service_name.to_string(),
+        cloud_region,
         event_type,
         operation,
         target,
@@ -652,5 +686,157 @@ mod tests {
         };
         let events = convert_otlp_request(&req);
         assert_eq!(events[0].service, "unknown");
+    }
+
+    // ----- Phase 5a: cloud.region extraction tests -----
+
+    fn make_request_with_resource_attrs(
+        attrs: Vec<KeyValue>,
+        spans: Vec<Span>,
+    ) -> ExportTraceServiceRequest {
+        ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: attrs,
+                    ..Default::default()
+                }),
+                scope_spans: vec![ScopeSpans {
+                    spans,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn cloud_region_extracted_from_resource_attributes() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", "eu-west-3"),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].cloud_region.as_deref(), Some("eu-west-3"));
+    }
+
+    #[test]
+    fn cloud_region_falls_back_to_span_attribute() {
+        // Resource has no cloud.region; span itself carries it.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        span.attributes.push(make_kv("cloud.region", "us-east-1"));
+        let req = make_request_with_resource_attrs(
+            vec![make_kv("service.name", "order-svc")],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].cloud_region.as_deref(), Some("us-east-1"));
+    }
+
+    #[test]
+    fn cloud_region_resource_wins_over_span() {
+        // When both are present, the resource value takes precedence
+        // (canonical OTel location, single source per service).
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        span.attributes.push(make_kv("cloud.region", "us-east-1"));
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", "eu-west-3"),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert_eq!(events[0].cloud_region.as_deref(), Some("eu-west-3"));
+    }
+
+    #[test]
+    fn no_cloud_region_yields_none() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request("order-svc", vec![span]);
+        let events = convert_otlp_request(&req);
+        assert!(events[0].cloud_region.is_none());
+    }
+
+    // ----- Phase 5a review fix (F9): sanitize cloud.region at OTLP boundary -----
+
+    #[test]
+    fn cloud_region_with_space_is_sanitized_to_none() {
+        // Invalid character (space) at the resource level → silently dropped.
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", "eu west 3"),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1);
+        assert!(
+            events[0].cloud_region.is_none(),
+            "region with space must be sanitized to None"
+        );
+    }
+
+    #[test]
+    fn oversized_cloud_region_is_sanitized_to_none() {
+        // 65 chars — exceeds the 64-char cap.
+        let long_region = "a".repeat(65);
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", &long_region),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert!(events[0].cloud_region.is_none());
+    }
+
+    #[test]
+    fn cloud_region_with_control_char_is_sanitized_to_none() {
+        // Log-forging payload: newline + fake log line.
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", "eu-west-3\n2026-04-07 ERROR fake"),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert!(events[0].cloud_region.is_none());
+    }
+
+    #[test]
+    fn cloud_region_span_level_fallback_also_sanitized() {
+        // Invalid cloud.region at the span level (resource has none) →
+        // silently dropped too.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        span.attributes.push(make_kv("cloud.region", "bad region!"));
+        let req = make_request("order-svc", vec![span]);
+        let events = convert_otlp_request(&req);
+        assert!(events[0].cloud_region.is_none());
+    }
+
+    #[test]
+    fn cloud_region_empty_string_is_sanitized_to_none() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request_with_resource_attrs(
+            vec![
+                make_kv("service.name", "order-svc"),
+                make_kv("cloud.region", ""),
+            ],
+            vec![span],
+        );
+        let events = convert_otlp_request(&req);
+        assert!(events[0].cloud_region.is_none());
     }
 }

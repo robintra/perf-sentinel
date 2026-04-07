@@ -166,6 +166,7 @@ mod tests {
             span_id: "span-1".to_string(),
             parent_span_id: None,
             service: "test".to_string(),
+            cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
             target: target.to_string(),

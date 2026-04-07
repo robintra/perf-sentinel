@@ -85,9 +85,85 @@ If you expose perf-sentinel to a network:
 
 Never expose perf-sentinel directly to untrusted networks without a security layer in front.
 
-## gCO2eq energy constant
+## Carbon estimates accuracy
 
-The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. This value is **not** a measured quantity : actual energy consumption depends on I/O type, hardware, query complexity and infrastructure. The constant is intended to provide directional guidance (more I/O = more energy) rather than precise measurement. When comparing gCO2eq values across runs, the relative differences are meaningful even if absolute values are approximate.
+perf-sentinel uses an **I/O → energy → CO₂ proxy model** to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:
+
+1. **I/O operations → energy**: each detected I/O op (SQL query, HTTP call) is multiplied by a fixed `ENERGY_PER_IO_OP_KWH` constant of `0.0000001 kWh` (~0.1 µWh). This is **not measured**, it is an order-of-magnitude approximation.
+2. **Energy → CO₂**: energy is multiplied by a per-region grid carbon intensity (gCO₂eq/kWh) sourced from Electricity Maps and Cloud Carbon Footprint annual averages (2023-2024), with a per-provider PUE applied (AWS 1.135, GCP 1.10, Azure 1.185, Generic 1.2).
+3. **Embodied carbon (`M` in SCI v1.0)**: hardware manufacturing emissions amortized at a configurable default of `0.001 gCO₂/request`. Region-independent.
+
+### Uncertainty: 2× multiplicative, not ±50%
+
+Every CO₂ estimate is reported as `{ low, mid, high }` where:
+
+```
+low  = mid × 0.5   (half the midpoint)
+high = mid × 2.0   (twice the midpoint)
+```
+
+This is a **log-symmetric multiplicative interval**, not an arithmetic ±50% window. The geometric mean of `low` and `high` equals `mid`; the arithmetic mean does not. The 2× framing is deliberate: the I/O proxy model has order-of-magnitude uncertainty (ENERGY_PER_IO_OP_KWH is rougher than half), so a symmetric ±50% window would understate the real model uncertainty. Read the bounds as "the true value is within a factor of 2 of `mid`, in either direction".
+
+The bounds reflect aggregate model uncertainty, not per-endpoint variance.
+
+**This bracket is a directional indicator of model uncertainty, not a statistical confidence interval.** The true value on unusual I/O workloads (mixed SQL + HTTP, cache-heavy paths, custom storage engines) may fall outside `[low, high]`. Use the range to gauge *order-of-magnitude* plausibility, not as a probabilistic bound.
+
+### SCI v1.0 semantics: numerator vs intensity
+
+The `co2.total` field holds the **SCI v1.0 numerator** `(E × I) + M`, summed over all analyzed traces. This is **not** the per-request intensity score that the SCI specification defines as "SCI". To get the per-request intensity, consumers compute:
+
+```
+sci_per_trace = co2.total.mid / analysis.traces_analyzed
+```
+
+This distinction matters: perf-sentinel reports a **footprint** (absolute emissions), not an **intensity** (emissions per functional unit). The `methodology` field on each `CarbonEstimate` tags the semantic:
+
+- `co2.total.methodology = "sci_v1_numerator"`: the `(E × I) + M` footprint over analyzed traces.
+- `co2.avoidable.methodology = "sci_v1_operational_ratio"`: `operational × (avoidable_io_ops / accounted_io_ops)`, a region-blind global ratio that excludes embodied carbon by design.
+
+### Positioning: directional waste counter
+
+perf-sentinel is a **directional waste counter** designed to:
+
+- **Detect performance anti-patterns** (N+1, redundant queries, fanout) and quantify their relative carbon impact.
+- **Compare runs** before/after optimization to validate that a fix actually reduces I/O.
+- **Catch carbon regressions** in CI as a guardrail.
+
+It is **NOT a regulatory carbon accounting tool**. Do **NOT** use it for:
+
+- CSRD (Corporate Sustainability Reporting Directive) reporting.
+- GHG Protocol Scope 3 disclosures.
+- Audit-grade compliance documents.
+- Comparing absolute CO₂ values across different infrastructures (the model assumes a uniform, average server profile).
+- Replacing real measured energy data (RAPL, Scaphandre, in-process power meters).
+
+### What works
+
+| Use case | Reliability |
+|---|---|
+| Detect waste (N+1, fanout, redundant) | ✅ deterministic counting |
+| Compare runs (baseline vs. fix) | ✅ relative deltas are meaningful |
+| Rank endpoints by relative impact | ✅ within a single deployment |
+| CI carbon regression guardrails | ✅ via `[thresholds] io_waste_ratio_max` |
+| Absolute CO₂ in compliance reports | ❌ 2× multiplicative uncertainty |
+| Cross-infrastructure comparison | ❌ assumes uniform server profile |
+| Replacing measured energy | ❌ proxy only |
+
+### Multi-region scoring (Phase 5a)
+
+When OTel spans carry the `cloud.region` resource attribute, perf-sentinel automatically buckets I/O ops per region and applies the correct grid intensity coefficient. The fallback chain is:
+
+1. `event.cloud_region` from the OTel attribute.
+2. `[green.service_regions]` per-service config mapping.
+3. `[green] default_region`.
+
+I/O ops with no resolvable region land in a synthetic `"unknown"` bucket and contribute zero operational CO₂ (a `tracing::warn!` is emitted). Embodied carbon is still emitted because hardware emissions are region-independent.
+
+See `docs/design/05-GREENOPS-AND-CARBON.md` for the full methodology, formula, and SCI v1.0 alignment notes.
+
+## gCO2eq energy constant (legacy section, kept for cross-references)
+
+The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. See **Carbon estimates accuracy** above for the complete methodology and disclaimer.
 
 ## pg_stat_statements ingestion
 

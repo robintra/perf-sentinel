@@ -43,7 +43,12 @@ pub fn analyze_with_traces(
     findings.extend(cross_trace);
 
     let (mut findings, green_summary) = if config.green_enabled {
-        score::score_green(&traces, findings, config.green_region.as_deref())
+        let carbon_ctx = score::carbon::CarbonContext {
+            default_region: config.green_default_region.clone(),
+            service_regions: config.green_service_regions.clone(),
+            embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
+        };
+        score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
         let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
         (
@@ -223,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_with_green_region_produces_co2() {
+    fn pipeline_with_green_default_region_produces_co2() {
         use crate::test_helpers::make_sql_event;
         let events: Vec<SpanEvent> = (1..=6)
             .map(|i| {
@@ -237,22 +242,32 @@ mod tests {
             .collect();
 
         let config = Config {
-            green_region: Some("eu-west-3".to_string()),
+            green_default_region: Some("eu-west-3".to_string()),
             ..Config::default()
         };
         let report = analyze(events, &config);
 
-        assert!(report.green_summary.estimated_co2_grams.is_some());
-        assert!(report.green_summary.avoidable_co2_grams.is_some());
-        assert!(report.green_summary.estimated_co2_grams.unwrap() > 0.0);
+        let co2 = report
+            .green_summary
+            .co2
+            .as_ref()
+            .expect("co2 should be Some when default_region is configured");
+        assert!(co2.total.mid > 0.0);
+        assert!(co2.avoidable.mid > 0.0);
     }
 
     #[test]
-    fn pipeline_without_region_no_co2() {
+    fn pipeline_empty_traces_no_co2() {
+        // F1: with 0 events, compute_carbon_report early-returns
+        // (None, vec![]) — nothing meaningful to report.
+        // Avoids emitting a noisy all-zeros co2 object for empty daemon ticks.
         let config = Config::default();
         let report = analyze(vec![], &config);
-        assert!(report.green_summary.estimated_co2_grams.is_none());
-        assert!(report.green_summary.avoidable_co2_grams.is_none());
+        assert!(
+            report.green_summary.co2.is_none(),
+            "co2 should be None for empty traces"
+        );
+        assert!(report.green_summary.regions.is_empty());
     }
 
     #[test]
@@ -282,8 +297,8 @@ mod tests {
         assert_eq!(report.green_summary.avoidable_io_ops, 0);
         assert!((report.green_summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
         assert!(report.green_summary.top_offenders.is_empty());
-        assert!(report.green_summary.estimated_co2_grams.is_none());
-        assert!(report.green_summary.avoidable_co2_grams.is_none());
+        assert!(report.green_summary.co2.is_none());
+        assert!(report.green_summary.regions.is_empty());
         // total_io_ops still counted
         assert_eq!(report.green_summary.total_io_ops, 6);
         // green_impact on findings should be None
@@ -296,10 +311,10 @@ mod tests {
     fn green_disabled_with_region_still_no_co2() {
         let config = Config {
             green_enabled: false,
-            green_region: Some("eu-west-3".to_string()),
+            green_default_region: Some("eu-west-3".to_string()),
             ..Config::default()
         };
         let report = analyze(vec![], &config);
-        assert!(report.green_summary.estimated_co2_grams.is_none());
+        assert!(report.green_summary.co2.is_none());
     }
 }

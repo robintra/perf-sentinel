@@ -3,7 +3,11 @@
 //! Supports both the new sectioned format (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`)
 //! and the legacy flat format for backward compatibility.
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
+
+use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 
 /// Top-level configuration for perf-sentinel.
 #[derive(Debug, Clone)]
@@ -31,8 +35,20 @@ pub struct Config {
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
     pub green_enabled: bool,
-    /// Optional region for gCO₂eq conversion (e.g. "eu-west-3", "FR", "us-east-1").
-    pub green_region: Option<String>,
+    /// Default region for gCO₂eq conversion (e.g. "eu-west-3", "FR", "us-east-1").
+    ///
+    /// Used as the fallback when neither the span's `cloud.region` attribute
+    /// nor the per-service mapping resolves a region. Renamed from `green_region`
+    /// in Phase 5a (v0.3.0); the previous `[green] region` TOML key is no
+    /// longer accepted. Update `.perf-sentinel.toml` when upgrading from v0.2.x.
+    pub green_default_region: Option<String>,
+    /// Per-service region overrides used when `OTel` `cloud.region` is absent
+    /// from spans (e.g. `Jaeger` / `Zipkin` ingestion). Maps service name → region key.
+    pub green_service_regions: HashMap<String, String>,
+    /// SCI v1.0 embodied carbon term `M`: hardware manufacturing emissions
+    /// amortized per request (per trace), in gCO₂eq. Region-independent.
+    /// Defaults to [`DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2`].
+    pub green_embodied_carbon_per_request_gco2: f64,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -70,7 +86,9 @@ impl Default for Config {
             max_fanout: 20,
             // Green
             green_enabled: true,
-            green_region: None,
+            green_default_region: None,
+            green_service_regions: HashMap::new(),
+            green_embodied_carbon_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -130,7 +148,9 @@ struct DetectionSection {
 #[serde(default)]
 struct GreenSection {
     enabled: Option<bool>,
-    region: Option<String>,
+    default_region: Option<String>,
+    service_regions: HashMap<String, String>,
+    embodied_carbon_per_request_gco2: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -190,7 +210,19 @@ impl From<RawConfig> for Config {
 
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
-            green_region: raw.green.region.or(defaults.green_region),
+            green_default_region: raw.green.default_region,
+            // D7: lowercase service_regions keys so resolve_region's
+            // lowercase lookup matches regardless of config casing.
+            green_service_regions: raw
+                .green
+                .service_regions
+                .into_iter()
+                .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                .collect(),
+            green_embodied_carbon_per_request_gco2: raw
+                .green
+                .embodied_carbon_per_request_gco2
+                .unwrap_or(defaults.green_embodied_carbon_per_request_gco2),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -271,6 +303,63 @@ impl Config {
         self.validate_detection_params()?;
         self.validate_rates()?;
         self.validate_listen_addr()?;
+        self.validate_green()?;
+        Ok(())
+    }
+
+    fn validate_green(&self) -> Result<(), String> {
+        /// N6: maximum number of entries in `[green.service_regions]`.
+        /// Bounds the config-load memory footprint against fat-finger or
+        /// malicious configs. 1024 is 4× `MAX_REGIONS` (256) and comfortably
+        /// above any realistic multi-cloud deployment size.
+        const MAX_SERVICE_REGIONS: usize = 1024;
+
+        let value = self.green_embodied_carbon_per_request_gco2;
+        if !value.is_finite() {
+            return Err(format!(
+                "embodied_carbon_per_request_gco2 must be finite, got {value}"
+            ));
+        }
+        if value < 0.0 {
+            return Err(format!(
+                "embodied_carbon_per_request_gco2 must be >= 0.0, got {value}"
+            ));
+        }
+        // F9: region ID validation. Config is trusted input — fail loud
+        // so typos surface at load time rather than silently producing
+        // zeroed CO₂ rows downstream. Same validator used at the OTLP
+        // ingestion boundary (there, invalid values are silently dropped).
+        if let Some(region) = &self.green_default_region
+            && !crate::score::carbon::is_valid_region_id(region)
+        {
+            return Err(format!(
+                "[green] default_region '{region}' contains invalid characters; \
+                 expected ASCII alphanumeric + '-' or '_', length 1-64"
+            ));
+        }
+        // N6: cardinality cap on service_regions (defense against fat-finger
+        // configs; AWS has ~33 regions, GCP ~40, Azure ~60, so 1024 leaves
+        // ample headroom).
+        if self.green_service_regions.len() > MAX_SERVICE_REGIONS {
+            return Err(format!(
+                "[green.service_regions] has {} entries; maximum is {MAX_SERVICE_REGIONS}",
+                self.green_service_regions.len()
+            ));
+        }
+        for (service, region) in &self.green_service_regions {
+            if !crate::score::carbon::is_valid_region_id(service) {
+                return Err(format!(
+                    "[green.service_regions] invalid service name '{service}'; \
+                     expected ASCII alphanumeric + '-' or '_', length 1-64"
+                ));
+            }
+            if !crate::score::carbon::is_valid_region_id(region) {
+                return Err(format!(
+                    "[green.service_regions] invalid region '{region}' for service '{service}'; \
+                     expected ASCII alphanumeric + '-' or '_', length 1-64"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -537,7 +626,14 @@ n_plus_one_min_occurrences = 12
         let config = Config::default();
         assert_eq!(config.slow_query_threshold_ms, 500);
         assert_eq!(config.slow_query_min_occurrences, 3);
-        assert!(config.green_region.is_none());
+        assert!(config.green_default_region.is_none());
+        assert!(config.green_service_regions.is_empty());
+        assert!(
+            (config.green_embodied_carbon_per_request_gco2
+                - DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2)
+                .abs()
+                < f64::EPSILON
+        );
     }
 
     #[test]
@@ -553,14 +649,225 @@ slow_query_min_occurrences = 5
     }
 
     #[test]
-    fn parse_green_region() {
+    fn parse_green_default_region() {
         let toml = r#"
 [green]
 enabled = true
-region = "eu-west-3"
+default_region = "eu-west-3"
 "#;
         let config = load_from_str(toml).unwrap();
-        assert_eq!(config.green_region.as_deref(), Some("eu-west-3"));
+        assert_eq!(config.green_default_region.as_deref(), Some("eu-west-3"));
+    }
+
+    #[test]
+    fn parse_green_service_regions() {
+        let toml = r#"
+[green]
+enabled = true
+default_region = "eu-west-3"
+
+[green.service_regions]
+"order-svc" = "us-east-1"
+"chat-svc" = "ap-southeast-1"
+"#;
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.green_service_regions.len(), 2);
+        assert_eq!(
+            config
+                .green_service_regions
+                .get("order-svc")
+                .map(String::as_str),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            config
+                .green_service_regions
+                .get("chat-svc")
+                .map(String::as_str),
+            Some("ap-southeast-1")
+        );
+    }
+
+    #[test]
+    fn parse_green_embodied_carbon_override() {
+        let toml = r"
+[green]
+enabled = true
+embodied_carbon_per_request_gco2 = 0.005
+";
+        let config = load_from_str(toml).unwrap();
+        assert!((config.green_embodied_carbon_per_request_gco2 - 0.005).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn rejects_negative_embodied_carbon() {
+        let result = load_from_str("[green]\nembodied_carbon_per_request_gco2 = -0.001");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("embodied_carbon_per_request_gco2"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn accepts_zero_embodied_carbon() {
+        let toml = r"
+[green]
+embodied_carbon_per_request_gco2 = 0.0
+";
+        let config = load_from_str(toml).unwrap();
+        assert!((config.green_embodied_carbon_per_request_gco2 - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn empty_service_regions_default() {
+        let toml = r#"
+[green]
+default_region = "eu-west-3"
+"#;
+        let config = load_from_str(toml).unwrap();
+        assert!(config.green_service_regions.is_empty());
+    }
+
+    // ----- Phase 5a review fixes: region validation + lowercase + both-set -----
+
+    #[test]
+    fn rejects_invalid_default_region_characters() {
+        // Space in region name — log-injection protection at config load.
+        let result = load_from_str("[green]\ndefault_region = \"eu west 3\"");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("default_region"),
+            "error should mention default_region, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_default_region() {
+        // 65 chars — just over the 64-char cap.
+        let long_region = "a".repeat(65);
+        let toml = format!("[green]\ndefault_region = \"{long_region}\"");
+        let result = load_from_str(&toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_default_region_with_newline_escape() {
+        // W2: in a TOML basic string, `\n` is an escape sequence for a real
+        // newline byte. The validator must reject the resulting control
+        // char to block log-forging via default_region.
+        let result = load_from_str("[green]\ndefault_region = \"eu-west-3\\n\"");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("default_region"),
+            "error should mention default_region"
+        );
+    }
+
+    #[test]
+    fn rejects_default_region_with_literal_newline() {
+        // W2: multi-line basic string with an actual newline byte in the
+        // value. Also rejected at load time.
+        let result = load_from_str("[green]\ndefault_region = \"\"\"eu-west-3\n\"\"\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn accepts_known_regions() {
+        // Sanity: all known region names pass the validator.
+        for region in ["eu-west-3", "us-east-1", "fr", "mars-1", "unknown"] {
+            let toml = format!("[green]\ndefault_region = \"{region}\"");
+            let config = load_from_str(&toml)
+                .unwrap_or_else(|e| panic!("region '{region}' should be accepted, got error: {e}"));
+            assert_eq!(config.green_default_region.as_deref(), Some(region));
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_service_regions_service_name() {
+        let toml = r#"
+[green.service_regions]
+"bad service" = "us-east-1"
+"#;
+        let result = load_from_str(toml);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("service_regions"),
+            "error should mention service_regions, got: {err}"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_service_regions_region_value() {
+        let toml = r#"
+[green.service_regions]
+"order-svc" = "us east 1"
+"#;
+        let result = load_from_str(toml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_service_regions_map() {
+        // N6: fat-finger or malicious config with too many entries gets
+        // rejected at load time with a clear error mentioning the cap.
+        use std::fmt::Write as _;
+        let mut toml = String::from("[green.service_regions]\n");
+        for i in 0..1025 {
+            let _ = writeln!(toml, "\"svc-{i:04}\" = \"eu-west-3\"");
+        }
+        let result = load_from_str(&toml);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("service_regions") && err.contains("1025"),
+            "error should mention service_regions and the count, got: {err}"
+        );
+    }
+
+    #[test]
+    fn accepts_service_regions_at_exactly_the_cap() {
+        // Boundary check: exactly 1024 entries should pass.
+        use std::fmt::Write as _;
+        let mut toml = String::from("[green.service_regions]\n");
+        for i in 0..1024 {
+            let _ = writeln!(toml, "\"svc-{i:04}\" = \"eu-west-3\"");
+        }
+        let config = load_from_str(&toml).expect("1024 entries should be accepted");
+        assert_eq!(config.green_service_regions.len(), 1024);
+    }
+
+    #[test]
+    fn service_regions_keys_are_lowercased_on_load() {
+        // D7: config loader lowercases keys so resolve_region's
+        // case-insensitive lookup works transparently.
+        let toml = r#"
+[green.service_regions]
+"Order-Svc" = "us-east-1"
+"CHAT-SVC" = "ap-southeast-1"
+"#;
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.green_service_regions.len(), 2);
+        // Keys are lowercased regardless of TOML casing.
+        assert_eq!(
+            config
+                .green_service_regions
+                .get("order-svc")
+                .map(String::as_str),
+            Some("us-east-1")
+        );
+        assert_eq!(
+            config
+                .green_service_regions
+                .get("chat-svc")
+                .map(String::as_str),
+            Some("ap-southeast-1")
+        );
+        // The original casings should NOT be present.
+        assert!(!config.green_service_regions.contains_key("Order-Svc"));
     }
 
     #[test]

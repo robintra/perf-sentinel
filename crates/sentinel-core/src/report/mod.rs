@@ -5,6 +5,7 @@ pub mod metrics;
 pub mod sarif;
 
 use crate::detect::Finding;
+use crate::score::carbon::{CarbonReport, RegionBreakdown};
 use serde::Serialize;
 
 /// A complete analysis report.
@@ -31,10 +32,15 @@ pub struct GreenSummary {
     pub avoidable_io_ops: usize,
     pub io_waste_ratio: f64,
     pub top_offenders: Vec<TopOffender>,
+    /// Structured CO₂ report. Includes 2× multiplicative uncertainty
+    /// bracket, SCI v1.0 methodology tags, and operational + embodied terms.
+    /// `None` when green scoring is disabled or when no events were analyzed.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_co2_grams: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub avoidable_co2_grams: Option<f64>,
+    pub co2: Option<CarbonReport>,
+    /// Per-region operational CO₂ breakdown sorted by `co2_gco2` descending.
+    /// Empty when green scoring is disabled or no events were analyzed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<RegionBreakdown>,
 }
 
 impl GreenSummary {
@@ -46,8 +52,8 @@ impl GreenSummary {
             avoidable_io_ops: 0,
             io_waste_ratio: 0.0,
             top_offenders: vec![],
-            estimated_co2_grams: None,
-            avoidable_co2_grams: None,
+            co2: None,
+            regions: vec![],
         }
     }
 }

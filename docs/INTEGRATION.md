@@ -40,8 +40,14 @@ slow_query_threshold_ms = 500
 
 [green]
 enabled = true
-region = "eu-west-3"               # optional: enables gCO2eq estimates
+default_region = "eu-west-3"       # optional: enables gCO2eq estimates (Phase 5a)
+# Phase 5a: per-service overrides for multi-region deployments
+# [green.service_regions]
+# "api-us"   = "us-east-1"
+# "api-asia" = "ap-southeast-1"
 ```
+
+> CO₂ output is structured: `green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, with a 2× multiplicative uncertainty interval (`low = mid/2`, `high = mid×2`). Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. See `docs/CONFIGURATION.md` and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for details.
 
 ### Step 3: Collect traces
 

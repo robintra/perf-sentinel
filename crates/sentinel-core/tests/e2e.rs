@@ -259,54 +259,88 @@ fn slow_finding_has_timestamps_and_green_impact() {
 #[test]
 fn pipeline_with_region_includes_co2_in_report() {
     let config = Config {
-        green_region: Some("eu-west-3".to_string()),
+        green_default_region: Some("eu-west-3".to_string()),
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
     let report = pipeline::analyze(events, &config);
 
+    let co2 = report
+        .green_summary
+        .co2
+        .as_ref()
+        .expect("co2 should be Some when default_region is configured");
+    assert!(co2.total.mid > 0.0, "total co2 should be positive");
     assert!(
-        report.green_summary.estimated_co2_grams.is_some(),
-        "should have estimated_co2_grams when region is set"
+        co2.avoidable.mid > 0.0,
+        "avoidable co2 should be positive when there are findings"
     );
-    assert!(
-        report.green_summary.avoidable_co2_grams.is_some(),
-        "should have avoidable_co2_grams when region is set"
-    );
-    let co2 = report.green_summary.estimated_co2_grams.unwrap();
-    assert!(co2 > 0.0, "co2 should be positive");
 
     for offender in &report.green_summary.top_offenders {
         assert!(
             offender.co2_grams.is_some(),
-            "top offender should have co2_grams"
+            "top offender should have co2_grams in mono-region mode"
         );
     }
 }
 
 #[test]
-fn pipeline_without_region_no_co2_in_report() {
+fn pipeline_without_region_emits_only_embodied_floor() {
+    // Phase 5a: with green enabled (default) and no region configured,
+    // operational CO₂ is 0 (events fall into the "unknown" bucket) but
+    // embodied CO₂ is still emitted as a floor estimate.
     let config = Config::default();
     let events = load_fixture("n_plus_one_sql.json");
     let report = pipeline::analyze(events, &config);
 
-    assert!(report.green_summary.estimated_co2_grams.is_none());
-    assert!(report.green_summary.avoidable_co2_grams.is_none());
+    let co2 = report
+        .green_summary
+        .co2
+        .as_ref()
+        .expect("co2 should be Some when green is enabled");
+    assert!((co2.operational_gco2 - 0.0).abs() < f64::EPSILON);
+    assert!(co2.embodied_gco2 > 0.0, "embodied is region-independent");
+    assert!(co2.total.mid > 0.0);
+    // Per-offender scalar uses default_region; without one set it stays None.
     for offender in &report.green_summary.top_offenders {
         assert!(offender.co2_grams.is_none());
     }
+    // Unknown region bucket present in the breakdown.
+    assert!(
+        report
+            .green_summary
+            .regions
+            .iter()
+            .any(|r| r.region == "unknown")
+    );
 }
 
 #[test]
-fn pipeline_unknown_region_no_co2() {
+fn pipeline_unknown_region_emits_zero_operational() {
+    // Phase 5a: a region not in the embedded carbon table (e.g. "mars-1")
+    // contributes 0 operational CO₂. Embodied is still emitted.
     let config = Config {
-        green_region: Some("mars-1".to_string()),
+        green_default_region: Some("mars-1".to_string()),
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
     let report = pipeline::analyze(events, &config);
 
-    assert!(report.green_summary.estimated_co2_grams.is_none());
+    let co2 = report
+        .green_summary
+        .co2
+        .as_ref()
+        .expect("co2 should be Some when green is enabled");
+    assert!((co2.operational_gco2 - 0.0).abs() < f64::EPSILON);
+    assert!(co2.embodied_gco2 > 0.0);
+    // mars-1 row exists in the breakdown with the user's name.
+    assert!(
+        report
+            .green_summary
+            .regions
+            .iter()
+            .any(|r| r.region == "mars-1")
+    );
 }
 
 #[test]
@@ -348,37 +382,38 @@ fn full_pipeline_runs_on_slow_fixture() {
 #[test]
 fn co2_serializes_correctly_in_json() {
     let config = Config {
-        green_region: Some("eu-west-3".to_string()),
+        green_default_region: Some("eu-west-3".to_string()),
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
     let report = pipeline::analyze(events, &config);
 
     let json = serde_json::to_string(&report).unwrap();
-    assert!(
-        json.contains("estimated_co2_grams"),
-        "JSON should contain estimated_co2_grams when region is set"
-    );
-    assert!(
-        json.contains("avoidable_co2_grams"),
-        "JSON should contain avoidable_co2_grams"
-    );
+    // Structured co2 object with methodology tags must appear in the report.
+    assert!(json.contains("\"co2\""));
+    assert!(json.contains("\"sci_v1_numerator\""));
+    assert!(json.contains("\"sci_v1_operational_ratio\""));
+    assert!(json.contains("\"methodology\""));
 }
 
 #[test]
-fn co2_absent_from_json_when_no_region() {
-    let config = Config::default();
+fn co2_absent_from_json_when_green_disabled() {
+    // With green disabled, no co2/regions are serialized.
+    let config = Config {
+        green_enabled: false,
+        ..Config::default()
+    };
     let events = load_fixture("clean_traces.json");
     let report = pipeline::analyze(events, &config);
 
     let json = serde_json::to_string(&report).unwrap();
     assert!(
-        !json.contains("estimated_co2_grams"),
-        "JSON should not contain estimated_co2_grams when no region"
+        !json.contains("\"co2\""),
+        "JSON should omit co2 object when green disabled"
     );
     assert!(
-        !json.contains("co2_grams"),
-        "JSON should not contain co2_grams when no region"
+        !json.contains("\"regions\""),
+        "JSON should omit regions array when green disabled"
     );
 }
 

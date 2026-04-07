@@ -400,8 +400,8 @@ fn cmd_demo(config_path: Option<&std::path::Path>) {
 
     let mut config = load_config(config_path);
     // Default to eu-west-3 for demo CO2 display if no region configured
-    if config.green_region.is_none() {
-        config.green_region = Some("eu-west-3".to_string());
+    if config.green_default_region.is_none() {
+        config.green_default_region = Some("eu-west-3".to_string());
     }
     let ingest = JsonIngest::new(config.max_payload_size);
     let events = match ingest.ingest(DEMO_DATA.as_bytes()) {
@@ -795,7 +795,7 @@ fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool
 }
 
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
-    let (bold, cyan, _red, _yellow, _green, _dim, reset) = ansi_colors(force_color);
+    let (bold, cyan, _red, _yellow, _green, dim, reset) = ansi_colors(force_color);
 
     println!("{bold}{cyan}--- GreenOps Summary ---{reset}");
     println!("  Total I/O ops:     {}", summary.total_io_ops);
@@ -804,12 +804,35 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         "  I/O waste ratio:   {:.1}%",
         summary.io_waste_ratio * 100.0
     );
-    if let Some(co2) = summary.estimated_co2_grams {
-        println!("  Est. CO\u{2082}:          {co2:.6} g");
+
+    // Render the structured CO₂ report when present.
+    if let Some(carbon) = summary.co2.as_ref() {
+        println!(
+            "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
+            carbon.total.mid, carbon.total.low, carbon.total.high, carbon.total.model,
+        );
+        println!(
+            "  Avoidable CO\u{2082}:     {:.6} g (low {:.6}, high {:.6})",
+            carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
+        );
+        println!(
+            "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
+            carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
+        );
     }
-    if let Some(co2) = summary.avoidable_co2_grams {
-        println!("  Avoidable CO\u{2082}:     {co2:.6} g");
+
+    // Per-region breakdown when more than one region was resolved.
+    if summary.regions.len() > 1 {
+        println!();
+        println!("  {bold}Per-region breakdown:{reset}");
+        for region in &summary.regions {
+            println!(
+                "    - {}: {} I/O ops, {:.6} gCO\u{2082}",
+                region.region, region.io_ops, region.co2_gco2,
+            );
+        }
     }
+
     if !summary.top_offenders.is_empty() {
         println!();
         println!("  {bold}Top offenders:{reset}");
@@ -823,6 +846,19 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
             );
         }
     }
+
+    // Mandatory disclaimer (Phase 5a): only shown when we actually emitted CO₂
+    // estimates, to avoid noise when green scoring is disabled.
+    // The "2× multiplicative uncertainty" framing matches the constants:
+    // low = mid/2, high = mid×2 (log-symmetric interval, geometric mean = mid).
+    if summary.co2.is_some() {
+        println!();
+        println!(
+            "  {dim}Note: CO\u{2082} estimates have ~2\u{00d7} multiplicative uncertainty \
+             (low = mid/2, high = mid\u{00d7}2). See docs/LIMITATIONS.md.{reset}"
+        );
+    }
+
     println!();
 }
 
@@ -862,8 +898,8 @@ mod tests {
                 avoidable_io_ops: 0,
                 io_waste_ratio: 0.0,
                 top_offenders,
-                estimated_co2_grams: None,
-                avoidable_co2_grams: None,
+                co2: None,
+                regions: vec![],
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
@@ -1030,8 +1066,8 @@ mod tests {
                     io_intensity_score: 8.2,
                     co2_grams: Some(0.001),
                 }],
-                estimated_co2_grams: Some(0.002),
-                avoidable_co2_grams: Some(0.001),
+                co2: None,
+                regions: vec![],
             },
             quality_gate: QualityGate {
                 passed: true,

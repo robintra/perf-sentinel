@@ -102,27 +102,182 @@ waste_ratio = avoidable_io_ops / total_io_ops
 
 When `total_io_ops == 0`, the ratio is `0.0` (not NaN). This is the fraction of I/O operations that could be eliminated by fixing detected anti-patterns. It aligns with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](https://sci-guide.greensoftware.foundation/) from the [Green Software Foundation](https://greensoftware.foundation/): reducing unnecessary computation reduces energy consumption.
 
-## Carbon conversion
+## Carbon conversion (Phase 5a SCI v1.0)
+
+### SCI v1.0 alignment
+
+perf-sentinel implements the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (later [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)) from the Green Software Foundation. The formula is:
+
+```
+SCI = ((E × I) + M) per R
+```
+
+Where:
+- **`E`** = energy consumed by the workload (kWh)
+- **`I`** = location-based carbon intensity of the grid (gCO₂eq/kWh)
+- **`M`** = embodied emissions from hardware manufacturing, amortized
+- **`R`** = functional unit (the "per X" denominator)
+
+In perf-sentinel:
+- **`R = 1 trace`**: one user-facing request. Each correlated trace is one functional unit.
+- **`E = io_ops × ENERGY_PER_IO_OP_KWH`**: proxy from I/O op count.
+- **`I = lookup_region(region).intensity`**: from the embedded carbon table.
+- **`M = traces.len() × embodied_per_request_gco2`**: configurable, default 0.001 g/req.
 
 ### Energy constant
 
 ```rust
-const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0.1 uWh per I/O op
+pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0.1 uWh per I/O op
 ```
 
 This is a rough order-of-magnitude approximation, not a measured value. It accounts for a typical database query or HTTP round-trip on cloud infrastructure. The [Cloud Carbon Footprint project](https://www.cloudcarbonfootprint.org/docs/methodology/) uses a similar approach of estimating energy from resource usage rather than direct measurement.
 
 The value must be disclosed as methodology per SCI requirements. It is documented in the code, in [LIMITATIONS.md](../LIMITATIONS.md) and here.
 
+### Embodied carbon (`M` term)
+
+```rust
+pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
+```
+
+The default of `0.001 gCO₂/request` is derived from typical server lifecycle assumptions:
+
+- A modern x86 server has an embodied carbon footprint of **~1000 kgCO₂eq** over a 4-year lifecycle (sources: [Boavizta API](https://doc.api.boavizta.org/) lifecycle assessments, [Cloud Carbon Footprint methodology](https://www.cloudcarbonfootprint.org/docs/methodology/)).
+- 4 years × 365 days × 86400 seconds × 1 request/sec ≈ 126 million requests amortized per server.
+- 1000 g per server / 126e6 requests ≈ **0.000008 gCO₂/req** (8e-6 g) at 1 req/sec, scaling to ~0.001 at lower request rates or larger / less amortized hardware.
+
+The `0.001 g/req` default is a **conservative upper bound for lightly-loaded microservice servers**. Users with measured infrastructure data (typical request volumes, real lifecycle assessments) should lower it to match their reality via `[green] embodied_carbon_per_request_gco2`. See the `carbon.rs` docstring on `DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2` for the derivation from Boavizta and Cloud Carbon Footprint lifecycle data.
+
+**Embodied is region-independent.** Hardware manufacturing emissions don't vary by deployment location. perf-sentinel emits embodied carbon unconditionally when green scoring is enabled, even when no region resolves, so users see at least a floor estimate.
+
 ### Conversion formula
 
+For each region bucket:
 ```
-gCO2eq = io_ops × ENERGY_PER_IO_OP_KWH × carbon_intensity × PUE
+operational_region = io_ops_in_region × ENERGY_PER_IO_OP_KWH × carbon_intensity × PUE
 ```
 
+Total operational across all regions:
+```
+operational_gco2 = Σ operational_region
+```
+
+Embodied:
+```
+embodied_gco2 = traces.len() × embodied_per_request_gco2
+```
+
+Total CO₂ midpoint:
+```
+total.mid = operational_gco2 + embodied_gco2
+```
+
+Avoidable CO₂ (via ratio, see "Avoidable via ratio" below):
+```
+accounted_io_ops = total_io_ops - unknown_ops
+avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
+```
+
+Note the denominator: `accounted_io_ops` excludes the synthetic `unknown` bucket so the ratio is consistent with `operational_gco2` (which also excludes it). This keeps the numerator and denominator on the same accounting basis.
+
+Uncertainty bracket (2× multiplicative, not arithmetic ±50%):
+```
+total.low  = total.mid × 0.5    // mid divided by 2
+total.high = total.mid × 2.0    // mid multiplied by 2
+(same for avoidable.low / avoidable.high)
+```
+
+This is a **log-symmetric interval**: the geometric mean of `low` and `high` equals `mid`. The 2× framing matches the order-of-magnitude uncertainty of the I/O proxy model better than a symmetric ±50% window would. See "Uncertainty framing" below.
+
 Where:
-- `carbon_intensity` = gCO2eq/kWh for the region's electricity grid
+- `carbon_intensity` = gCO₂eq/kWh for the region's electricity grid
 - `PUE` = Power Usage Effectiveness (datacenter overhead factor)
+
+### SCI v1.0 semantics: numerator vs intensity
+
+The SCI v1.0 specification defines `SCI = ((E × I) + M) / R`, an **intensity** expressed per functional unit R. perf-sentinel reports the **numerator** of this formula, summed over all analyzed traces:
+
+```
+co2.total.mid = Σ operational_gco2 + embodied_gco2
+              = (E × I) + M   (summed over analyzed traces)
+```
+
+This is a **footprint** (absolute gCO₂eq), not an intensity score. Consumers who want the per-request SCI intensity compute it downstream:
+
+```
+sci_per_trace = co2.total.mid / analysis.traces_analyzed
+```
+
+To tag this semantic distinction at the data layer, `CarbonEstimate` carries a `methodology` field with two possible values:
+
+- `"sci_v1_numerator"`: used on `co2.total`. The `(E × I) + M` footprint summed over traces.
+- `"sci_v1_operational_ratio"`: used on `co2.avoidable`. The region-blind global ratio `operational × (avoidable/accounted)`, excluding embodied carbon.
+
+The two distinct values signal to downstream consumers that `total` and `avoidable` are computed differently and should not be compared as if they were homogeneous quantities.
+
+### Avoidable via ratio (design choice)
+
+Computing avoidable CO₂ accurately per-region would require threading region resolution through the finding dedup phase (which currently aggregates avoidable I/O ops globally by `(trace_id, template, source_endpoint)`). This is complex and error-prone.
+
+Instead, perf-sentinel computes:
+
+```
+avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
+```
+
+This preserves the **relative scale** (a 50% waste reduction yields a 50% drop in avoidable CO₂) without requiring per-finding region attribution. The trade-off: when avoidable ops are concentrated in a high-intensity region, this ratio slightly under-attributes the savings. The simplification is documented as a known limitation and tagged at the data layer via `methodology: "sci_v1_operational_ratio"`.
+
+**Embodied carbon is excluded from avoidable.** You can't optimize away manufactured silicon by fixing N+1 queries: embodied emissions are fixed per request regardless of how efficient the application is. The avoidable estimate only considers the operational term.
+
+### Multi-region resolution
+
+Each span resolves to an effective region via a 3-level chain (first match wins):
+
+1. **`event.cloud_region`**: extracted from the OTel `cloud.region` resource attribute (with span-level fallback for SDKs that put it on individual spans). Most authoritative. Values are sanitized at the ingest boundary: invalid region strings (non-ASCII-alphanumeric-dash-underscore, length > 64, or empty) are silently dropped.
+2. **`[green.service_regions][event.service.to_lowercase()]`**: config override for environments where OTel doesn't provide it (e.g. Jaeger / Zipkin ingestion). Case-insensitive (config loader lowercases keys).
+3. **`[green] default_region`**: global fallback.
+
+Spans with no resolvable region land in a synthetic `"unknown"` bucket: zero operational CO₂ contribution. The `regions[]` breakdown still shows the bucket so users see the orphan I/O ops (the visible signal for troubleshooting; detailed `tracing::debug!` messages are available via `RUST_LOG=debug`).
+
+**Region cardinality cap.** The per-region BTreeMap is capped at 256 distinct regions in one scoring pass (`MAX_REGIONS` constant). Excess distinct region strings fold into the `unknown` bucket, preventing memory exhaustion from attacker-controlled or misconfigured OTLP `cloud.region` attributes.
+
+**TopOffender scalar CO₂ in multi-region mode.** When multi-region scoring is active (either `[green.service_regions]` is non-empty or any span carries `cloud.region`), the `top_offenders[].co2_grams` scalar is set to `None` across the board. Computing it from `default_region` only would be inconsistent with the per-region breakdown; users should rely on `green_summary.regions[]` for per-region attribution in multi-region deployments.
+
+### Uncertainty framing: 2× multiplicative, not ±50%
+
+Every CO₂ estimate is reported as `{ low, mid, high }`:
+
+```rust
+pub struct CarbonEstimate {
+    pub low: f64,           // mid × 0.5
+    pub mid: f64,           // best estimate
+    pub high: f64,          // mid × 2.0
+    pub model: &'static str,       // "io_proxy_v1"
+    pub methodology: &'static str, // "sci_v1_numerator" or "sci_v1_operational_ratio"
+}
+```
+
+The factors `0.5` and `2.0` encode a **2× multiplicative uncertainty bracket** around the midpoint:
+
+```
+geometric_mean(low, high) = sqrt(low × high) = sqrt(mid² × 0.5 × 2.0) = mid
+```
+
+This is a **log-symmetric interval**: the mid is the geometric center, not the arithmetic center. The spread between `low` and `high` is a factor of 4 (high/low = 4), which is wider than a symmetric ±50% window (which would give high/low = 3).
+
+**Why 2× and not ±50%?** The I/O proxy model has order-of-magnitude uncertainty at each step:
+- `ENERGY_PER_IO_OP_KWH = 0.1 µWh/op` is an order-of-magnitude approximation.
+- Grid intensity values from CCF/Electricity Maps are annual averages; real-time intensity varies 2-3× over a day.
+- PUE values are provider averages; individual datacenters vary.
+- Embodied carbon assumes a conservative server-lifecycle figure that may be off by an order of magnitude for specific hardware.
+
+A symmetric ±50% window (giving high = 1.5 × mid) would understate this real uncertainty. The 2× multiplicative framing is deliberately chosen to be honest: the true value is within a factor of 2 of `mid`, in either direction.
+
+The bounds reflect aggregate model uncertainty, **not** per-endpoint variance. The model doesn't have enough resolution to distinguish per-endpoint precision.
+
+### Model versioning
+
+The `model: "io_proxy_v1"` field versions the estimation methodology. Future improvements (per-operation weighting, hourly carbon profiles, RAPL integration) will bump this version, allowing downstream consumers to track which methodology produced a given report.
 
 ### Region lookup
 
@@ -135,7 +290,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 
 **Why `LazyLock<HashMap>` instead of a linear scan?** The original implementation scanned all 41 entries on every call. With the HashMap, lookup is O(1). The initialization cost is paid once on first access.
 
-**Case-insensitive lookup:** the public `lookup_region()` lowercases the input via `to_ascii_lowercase()` before lookup. All table keys are stored in lowercase. Internally, a private `lookup_region_lower()` skips the lowercasing for callers that have already normalized the region string (e.g., `score_green` pre-lowercases once and reuses the result across multiple calls to `io_ops_to_co2_grams`).
+**Case-insensitive lookup:** the public `lookup_region()` lowercases the input via `to_ascii_lowercase()` before lookup. All table keys are stored in lowercase. The multi-region scoring stage uses a `BTreeMap<String, usize>` (not `HashMap`) to bucket I/O ops per resolved region. This guarantees deterministic iteration order and stable floating-point sums across runs.
 
 ### PUE values
 

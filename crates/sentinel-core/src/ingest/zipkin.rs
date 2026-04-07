@@ -140,6 +140,10 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         span_id: span.id.clone(),
         parent_span_id: span.parent_id.clone(),
         service,
+        // Zipkin endpoint metadata does not carry cloud region. Users
+        // wanting multi-region scoring with Zipkin ingestion should set
+        // [green.service_regions] in the config to map service → region.
+        cloud_region: None,
         event_type,
         operation,
         target,

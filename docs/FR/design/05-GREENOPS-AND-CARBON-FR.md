@@ -102,27 +102,178 @@ ratio_gaspillage = avoidable_io_ops / total_io_ops
 
 Quand `total_io_ops == 0`, le ratio est `0.0` (pas NaN). C'est la fraction d'opérations I/O qui pourraient être éliminées en corrigeant les anti-patterns détectés. Cela s'aligne avec le composant **Énergie** du [modèle SCI (ISO/IEC 21031:2024)](https://sci-guide.greensoftware.foundation/) de la [Green Software Foundation](https://greensoftware.foundation/) : réduire les calculs inutiles réduit la consommation d'énergie.
 
-## Conversion carbone
+## Conversion carbone (Phase 5a SCI v1.0)
+
+### Alignement SCI v1.0
+
+perf-sentinel implémente la spécification [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) (devenue [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)) de la Green Software Foundation. La formule est :
+
+```
+SCI = ((E × I) + M) per R
+```
+
+Où :
+- **`E`** = énergie consommée par la charge de travail (kWh)
+- **`I`** = intensité carbone géographique du réseau (gCO₂eq/kWh)
+- **`M`** = émissions embodiées de fabrication matérielle, amorties
+- **`R`** = unité fonctionnelle (le dénominateur "par X")
+
+Dans perf-sentinel :
+- **`R = 1 trace`** : une requête utilisateur. Chaque trace corrélée est une unité fonctionnelle.
+- **`E = io_ops × ENERGY_PER_IO_OP_KWH`** : proxy à partir du compteur d'ops I/O.
+- **`I = lookup_region(region).intensity`** : depuis la table carbone embarquée.
+- **`M = traces.len() × embodied_per_request_gco2`** : configurable, défaut 0,001 g/req.
 
 ### Constante énergétique
 
 ```rust
-const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0,1 uWh par opération I/O
+pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1; // 0,1 uWh par opération I/O
 ```
 
 C'est une approximation d'ordre de grandeur, pas une valeur mesurée. Elle tient compte d'une requête de base de données ou d'un aller-retour HTTP typique sur une infrastructure cloud. Le [projet Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/) utilise une approche similaire d'estimation de l'énergie à partir de l'utilisation des ressources plutôt que d'une mesure directe.
 
 La valeur doit être divulguée comme méthodologie selon les exigences SCI. Elle est documentée dans le code, dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) et ici.
 
+### Carbone embodié (terme `M`)
+
+```rust
+pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
+```
+
+Le défaut de `0,001 gCO₂/requête` est dérivé d'hypothèses typiques sur le cycle de vie d'un serveur :
+
+- Un serveur x86 moderne a une empreinte carbone embodiée de **~1000 kgCO₂eq** sur un cycle de vie de 4 ans (sources : [API Boavizta](https://doc.api.boavizta.org/) lifecycle assessments, [méthodologie Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/docs/methodology/)).
+- 4 ans × 365 jours × 86400 secondes × 1 requête/sec ≈ 126 millions de requêtes amorties par serveur.
+- 1000 g par serveur / 126e6 requêtes ≈ **0,000008 gCO₂/req** (8e-6 g) à 1 req/sec, montant à ~0,001 à des taux de requêtes plus bas ou pour du matériel moins amorti.
+
+Le défaut `0,001 g/req` est une **borne supérieure conservatrice pour des serveurs microservices peu chargés**. Les utilisateurs avec des données d'infrastructure mesurées (volumes de requêtes typiques, analyses de cycle de vie réelles) devraient l'abaisser pour correspondre à leur réalité via `[green] embodied_carbon_per_request_gco2`. Voir la docstring sur `DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2` dans `carbon.rs` pour la dérivation à partir des données de cycle de vie Boavizta et Cloud Carbon Footprint.
+
+**L'embodié est indépendant de la région.** Les émissions de fabrication matérielle ne varient pas selon le lieu de déploiement. perf-sentinel émet le carbone embodié inconditionnellement quand le scoring vert est activé, même quand aucune région ne se résout, pour que les utilisateurs voient au moins une estimation plancher.
+
 ### Formule de conversion
 
+Pour chaque bucket de région :
 ```
-gCO2eq = io_ops × ENERGY_PER_IO_OP_KWH × intensité_carbone × PUE
+operational_region = io_ops_in_region × ENERGY_PER_IO_OP_KWH × carbon_intensity × PUE
 ```
 
-Où :
-- `intensité_carbone` = gCO2eq/kWh pour le réseau électrique de la région
-- `PUE` = Power Usage Effectiveness (facteur de surcoût du datacenter)
+Total opérationnel sur toutes les régions :
+```
+operational_gco2 = Σ operational_region
+```
+
+Embodié :
+```
+embodied_gco2 = traces.len() × embodied_per_request_gco2
+```
+
+Mid-point CO₂ total :
+```
+total.mid = operational_gco2 + embodied_gco2
+```
+
+CO₂ évitable (via ratio, voir "Évitable via ratio" ci-dessous) :
+```
+accounted_io_ops = total_io_ops - unknown_ops
+avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
+```
+
+Le dénominateur `accounted_io_ops` exclut le bucket synthétique `unknown` pour que le ratio soit cohérent avec `operational_gco2` (qui l'exclut aussi). Numérateur et dénominateur sur la même base comptable.
+
+Intervalle d'incertitude (multiplicatif 2×, pas arithmétique ±50%) :
+```
+total.low  = total.mid × 0,5    // mid divisé par 2
+total.high = total.mid × 2,0    // mid multiplié par 2
+(idem pour avoidable.low / avoidable.high)
+```
+
+C'est un **intervalle log-symétrique** : la moyenne géométrique de `low` et `high` vaut `mid`. Le cadrage 2× correspond mieux à l'incertitude d'ordre de grandeur du modèle proxy I/O qu'une fenêtre symétrique ±50%. Voir "Cadrage de l'incertitude" ci-dessous.
+
+### Sémantique SCI v1.0 : numérateur vs intensité
+
+La spécification SCI v1.0 définit `SCI = ((E × I) + M) / R`, une **intensité** exprimée par unité fonctionnelle R. perf-sentinel rapporte le **numérateur** de cette formule, sommé sur toutes les traces analysées :
+
+```
+co2.total.mid = Σ operational_gco2 + embodied_gco2
+              = (E × I) + M   (sommé sur les traces analysées)
+```
+
+C'est une **empreinte** (gCO₂eq absolus), pas un score d'intensité. Les consommateurs qui veulent l'intensité SCI par requête la calculent en aval :
+
+```
+sci_par_trace = co2.total.mid / analysis.traces_analyzed
+```
+
+Pour taguer cette distinction sémantique au niveau des données, `CarbonEstimate` porte un champ `methodology` avec deux valeurs possibles :
+
+- `"sci_v1_numerator"` : utilisé sur `co2.total`. L'empreinte `(E × I) + M` sommée sur les traces.
+- `"sci_v1_operational_ratio"` : utilisé sur `co2.avoidable`. Le ratio global aveugle à la région `operational × (avoidable/accounted)`, excluant le carbone embodié.
+
+Les deux valeurs distinctes signalent aux consommateurs aval que `total` et `avoidable` sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
+
+### Évitable via ratio (choix de design)
+
+Calculer le CO₂ évitable de manière précise par région nécessiterait de propager la résolution de région à travers la phase de dédup des findings (qui agrège actuellement les ops I/O évitables globalement par `(trace_id, template, source_endpoint)`). C'est complexe et sujet aux erreurs.
+
+À la place, perf-sentinel calcule :
+
+```
+avoidable.mid = operational_gco2 × (avoidable_io_ops / accounted_io_ops)
+```
+
+Cela préserve l'**échelle relative** (une réduction de 50% du gaspillage donne une chute de 50% du CO₂ évitable) sans nécessiter d'attribution par finding. Le compromis : quand les ops évitables sont concentrées dans une région à haute intensité, ce ratio sous-attribue légèrement les économies. La simplification est documentée comme limitation connue et taguée au niveau des données via `methodology: "sci_v1_operational_ratio"`.
+
+**Le carbone embodié est exclu de l'évitable.** Vous ne pouvez pas optimiser le silicium fabriqué en corrigeant des requêtes N+1 : les émissions embodiées sont fixes par requête peu importe l'efficacité de l'application. L'estimation évitable ne considère que le terme opérationnel.
+
+### Résolution multi-région
+
+Chaque span résout vers une région effective via une chaîne à 3 niveaux (premier match gagne) :
+
+1. **`event.cloud_region`** : extrait de l'attribut de ressource OTel `cloud.region` (avec fallback sur attribut de span pour les SDKs qui le mettent sur les spans individuels). Le plus autoritatif. Les valeurs sont assainies à la frontière d'ingestion : les chaînes invalides (non-ASCII-alphanumérique-tiret-underscore, longueur > 64, ou vides) sont silencieusement écartées.
+2. **`[green.service_regions][event.service.to_lowercase()]`** : surcharge config pour les environnements où OTel ne le fournit pas (ex. ingestion Jaeger / Zipkin). Insensible à la casse (le loader de config met les clés en minuscules).
+3. **`[green] default_region`** : fallback global.
+
+Les spans sans région résolvable atterrissent dans un bucket synthétique `"unknown"` : zéro contribution au CO₂ opérationnel. Le breakdown `regions[]` montre tout de même le bucket pour que les utilisateurs voient les ops I/O orphelines (signal visible pour le troubleshooting ; les messages `tracing::debug!` détaillés sont disponibles via `RUST_LOG=debug`).
+
+**Plafond de cardinalité des régions.** Le BTreeMap par région est plafonné à 256 régions distinctes en une passe de scoring (constante `MAX_REGIONS`). Les chaînes de région excédentaires tombent dans le bucket `unknown`, empêchant l'épuisement mémoire depuis des attributs OTLP `cloud.region` contrôlés par un attaquant ou mal configurés.
+
+**Scalaire CO₂ des TopOffender en mode multi-région.** Quand le scoring multi-région est actif (soit `[green.service_regions]` est non-vide, soit un span porte `cloud.region`), le scalaire `top_offenders[].co2_grams` est mis à `None` pour tous. Le calculer depuis `default_region` uniquement serait incohérent avec le breakdown par région ; les utilisateurs doivent se fier à `green_summary.regions[]` pour l'attribution par région dans les déploiements multi-région.
+
+### Cadrage de l'incertitude : multiplicatif 2×, pas ±50%
+
+Chaque estimation CO₂ est rapportée comme `{ low, mid, high }` :
+
+```rust
+pub struct CarbonEstimate {
+    pub low: f64,           // mid × 0,5
+    pub mid: f64,           // meilleure estimation
+    pub high: f64,          // mid × 2,0
+    pub model: &'static str,       // "io_proxy_v1"
+    pub methodology: &'static str, // "sci_v1_numerator" ou "sci_v1_operational_ratio"
+}
+```
+
+Les facteurs `0,5` et `2,0` encodent un **intervalle d'incertitude multiplicative 2×** autour du midpoint :
+
+```
+moyenne_géométrique(low, high) = sqrt(low × high) = sqrt(mid² × 0,5 × 2,0) = mid
+```
+
+C'est un **intervalle log-symétrique** : le mid est le centre géométrique, pas le centre arithmétique. L'écart entre `low` et `high` est un facteur 4 (high/low = 4), plus large qu'une fenêtre symétrique ±50% (qui donnerait high/low = 3).
+
+**Pourquoi 2× et pas ±50% ?** Le modèle proxy I/O a une incertitude d'ordre de grandeur à chaque étape :
+- `ENERGY_PER_IO_OP_KWH = 0,1 µWh/op` est une approximation d'ordre de grandeur.
+- Les valeurs d'intensité réseau de CCF/Electricity Maps sont des moyennes annuelles ; l'intensité en temps réel varie 2-3× sur une journée.
+- Les PUE sont des moyennes par fournisseur ; les datacenters individuels varient.
+- Le carbone embodié suppose une valeur conservatrice de cycle de vie serveur qui peut être décalée d'un ordre de grandeur pour du matériel spécifique.
+
+Une fenêtre symétrique ±50% (high = 1,5 × mid) sous-estimerait cette incertitude réelle. Le cadrage multiplicatif 2× est délibérément choisi pour être honnête : la valeur réelle est dans un facteur 2 de `mid`, dans un sens ou l'autre.
+
+Les bornes reflètent l'incertitude agrégée du modèle, **pas** la variance par endpoint. Le modèle n'a pas assez de résolution pour distinguer la précision par endpoint.
+
+### Versionnement du modèle
+
+Le champ `model: "io_proxy_v1"` versionne la méthodologie d'estimation. Les améliorations futures (pondération par opération, profils horaires de carbone, intégration RAPL) bumperont cette version, permettant aux consommateurs aval de tracer quelle méthodologie a produit un rapport donné.
 
 ### Recherche par région
 
@@ -135,7 +286,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 
 **Pourquoi `LazyLock<HashMap>` au lieu d'un scan linéaire ?** L'implémentation originale parcourait les 41 entrées à chaque appel. Avec le HashMap, la recherche est O(1). Le coût d'initialisation est payé une seule fois au premier accès.
 
-**Recherche insensible à la casse :** la fonction publique `lookup_region()` convertit l'entrée en minuscules via `to_ascii_lowercase()` avant la recherche. Toutes les clés de la table sont stockées en minuscules. En interne, une fonction privée `lookup_region_lower()` saute la conversion pour les appelants ayant déjà normalisé la région (ex. `score_green` pré-lowercase une seule fois et réutilise le résultat pour les appels multiples à `io_ops_to_co2_grams`).
+**Recherche insensible à la casse :** la fonction publique `lookup_region()` convertit l'entrée en minuscules via `to_ascii_lowercase()` avant la recherche. Toutes les clés de la table sont stockées en minuscules. L'étape de scoring multi-région utilise un `BTreeMap<String, usize>` (pas `HashMap`) pour répartir les ops I/O par région résolue. Cela garantit un ordre d'itération déterministe et des sommes flottantes stables entre exécutions.
 
 ### Valeurs PUE
 

@@ -47,6 +47,15 @@ pub struct SpanEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_span_id: Option<String>,
     pub service: String,
+    /// Cloud region this span was emitted from, sourced from the `OTel`
+    /// `cloud.region` resource attribute (or span attribute as fallback).
+    ///
+    /// Used by the carbon scoring stage to apply per-region carbon
+    /// intensity coefficients in multi-region deployments. `None` when
+    /// the attribute is absent or when ingesting from formats that don't
+    /// carry it (`Jaeger`, `Zipkin`, raw `JSON` without explicit field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_region: Option<String>,
     #[serde(rename = "type")]
     pub event_type: EventType,
     pub operation: String,
@@ -136,6 +145,44 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         let json = serde_json::to_string(&event).unwrap();
         assert!(!json.contains("status_code"));
+    }
+
+    #[test]
+    fn deserialize_event_without_cloud_region_defaults_to_none() {
+        let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        assert!(event.cloud_region.is_none());
+    }
+
+    #[test]
+    fn serde_roundtrip_with_cloud_region() {
+        let json = r#"{
+            "timestamp": "2025-07-10T14:32:01.123Z",
+            "trace_id": "abc123-def456",
+            "span_id": "span-789",
+            "service": "order-svc",
+            "cloud_region": "eu-west-3",
+            "type": "sql",
+            "operation": "SELECT",
+            "target": "SELECT 1",
+            "duration_us": 1200,
+            "source": {
+                "endpoint": "POST /api/orders/42/submit",
+                "method": "OrderService::create_order"
+            }
+        }"#;
+        let event: SpanEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.cloud_region.as_deref(), Some("eu-west-3"));
+        let serialized = serde_json::to_string(&event).unwrap();
+        assert!(serialized.contains("\"cloud_region\":\"eu-west-3\""));
+        let back: SpanEvent = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(event, back);
+    }
+
+    #[test]
+    fn cloud_region_omitted_when_none() {
+        let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("cloud_region"));
     }
 
     #[test]

@@ -118,7 +118,11 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     }
 
     let detect_config = DetectConfig::from(&config);
-    let green_region = config.green_region.clone();
+    let carbon_ctx = score::carbon::CarbonContext {
+        default_region: config.green_default_region.clone(),
+        service_regions: config.green_service_regions.clone(),
+        embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
+    };
     let green_enabled = config.green_enabled;
     let sampling_rate = config.sampling_rate;
     let evict_ms = config.trace_ttl_ms / 2;
@@ -154,7 +158,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                         lru_evicted,
                         &detect_config,
                         green_enabled,
-                        green_region.as_deref(),
+                        &carbon_ctx,
                         &metrics,
                     );
                 }
@@ -171,7 +175,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     expired,
                     &detect_config,
                     green_enabled,
-                    green_region.as_deref(),
+                    &carbon_ctx,
                     &metrics,
                 );
             }
@@ -185,7 +189,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     remaining,
                     &detect_config,
                     green_enabled,
-                    green_region.as_deref(),
+                    &carbon_ctx,
                     &metrics,
                 );
                 break;
@@ -201,7 +205,7 @@ fn process_traces(
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
     detect_config: &DetectConfig,
     green_enabled: bool,
-    green_region: Option<&str>,
+    carbon_ctx: &score::carbon::CarbonContext,
     metrics: &MetricsState,
 ) {
     if traces.is_empty() {
@@ -216,7 +220,7 @@ fn process_traces(
 
     let findings = detect::detect(&trace_structs, detect_config);
     let (findings, green_summary) = if green_enabled {
-        score::score_green(&trace_structs, findings, green_region)
+        score::score_green(&trace_structs, findings, Some(carbon_ctx))
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
         (findings, GreenSummary::disabled(total_io_ops))
@@ -408,6 +412,7 @@ mod tests {
             span_id: "s1".to_string(),
             parent_span_id: None,
             service: "test".to_string(),
+            cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
             target: target.to_string(),
@@ -430,10 +435,15 @@ mod tests {
         }
     }
 
+    fn empty_carbon_ctx() -> score::carbon::CarbonContext {
+        score::carbon::CarbonContext::default()
+    }
+
     #[test]
     fn process_traces_empty_does_nothing() {
         let metrics = MetricsState::new();
-        process_traces(vec![], &default_detect_config(), true, None, &metrics);
+        let ctx = empty_carbon_ctx();
+        process_traces(vec![], &default_detect_config(), true, &ctx, &metrics);
     }
 
     #[test]
@@ -448,11 +458,12 @@ mod tests {
             })
             .collect();
         let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
             true,
-            None,
+            &ctx,
             &metrics,
         );
     }
@@ -465,11 +476,12 @@ mod tests {
             make_normalized("t1", "SELECT * FROM orders WHERE id = 2"),
         ];
         let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
             true,
-            None,
+            &ctx,
             &metrics,
         );
     }
@@ -494,6 +506,7 @@ mod tests {
             span_id: "s1".to_string(),
             parent_span_id: None,
             service: "test".to_string(),
+            cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
             target: "SELECT 1".to_string(),
@@ -532,11 +545,12 @@ mod tests {
             })
             .collect();
         let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
             true,
-            None,
+            &ctx,
             &metrics,
         );
 
@@ -556,11 +570,12 @@ mod tests {
             })
             .collect();
         let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
         process_traces(
             vec![("t1".to_string(), events)],
             &default_detect_config(),
             false, // green_enabled = false
-            None,
+            &ctx,
             &metrics,
         );
         // avoidable_io_ops counter should stay at 0 when green is disabled

@@ -88,8 +88,8 @@ mod tests {
             avoidable_io_ops: 0,
             io_waste_ratio: 0.0,
             top_offenders: vec![],
-            estimated_co2_grams: None,
-            avoidable_co2_grams: None,
+            co2: None,
+            regions: vec![],
         }
     }
 
@@ -194,8 +194,8 @@ mod tests {
             avoidable_io_ops: 5,
             io_waste_ratio: 0.5,
             top_offenders: vec![],
-            estimated_co2_grams: None,
-            avoidable_co2_grams: None,
+            co2: None,
+            regions: vec![],
         };
         let gate = evaluate(&[], &summary, &config);
 
@@ -225,8 +225,8 @@ mod tests {
             avoidable_io_ops: 8,
             io_waste_ratio: 0.8,
             top_offenders: vec![],
-            estimated_co2_grams: None,
-            avoidable_co2_grams: None,
+            co2: None,
+            regions: vec![],
         };
         let gate = evaluate(&findings, &summary, &config);
 

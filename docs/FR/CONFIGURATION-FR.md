@@ -45,30 +45,62 @@ Paramètres des algorithmes de détection.
 
 ### `[green]`
 
-Configuration du scoring GreenOps.
+Configuration du scoring GreenOps. Phase 5a alignée sur [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (termes opérationnel + embodié, intervalles de confiance, multi-région).
 
-| Champ     | Type    | Défaut    | Description                                                                                                                                                                       |
-|-----------|---------|-----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled` | booléen | `true`    | Active le scoring GreenOps (IIS, ratio de gaspillage, top offenders)                                                                                                              |
-| `region`  | chaîne  | *(aucun)* | Région cloud ou code pays pour la conversion en gCO2eq. Lorsque défini, le rapport inclut les émissions carbone estimées. Exemples : `"eu-west-3"`, `"us-east-1"`, `"FR"`, `"DE"` |
+| Champ                              | Type     | Défaut    | Description                                                                                                                                                                                       |
+|------------------------------------|----------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`                          | booléen  | `true`    | Active le scoring GreenOps (IIS, ratio de gaspillage, top offenders, CO₂)                                                                                                                         |
+| `default_region`                   | chaîne   | *(aucun)* | Région cloud de fallback utilisée quand ni l'attribut `cloud.region` du span ni le mapping `service_regions` ne résout une région. Exemples : `"eu-west-3"`, `"us-east-1"`, `"FR"`                |
+| `embodied_carbon_per_request_gco2` | flottant | `0.001`   | Terme `M` SCI v1.0 : émissions de fabrication matérielle amorties par requête (par trace), en gCO₂eq. Indépendant de la région. Mettre à `0.0` pour désactiver le carbone embodié                 |
 
-Lorsque `region` n'est pas défini, le rapport affiche les compteurs d'opérations I/O bruts sans conversion carbone. La table d'intensité carbone est embarquée dans le binaire (aucun appel réseau).
+#### `[green.service_regions]`
+
+Surcharges de région par service utilisées quand `cloud.region` OTel est absent des spans (ex. ingestion Jaeger / Zipkin). Mappe nom de service → clé de région.
+
+```toml
+[green]
+default_region = "eu-west-3"
+embodied_carbon_per_request_gco2 = 0.001
+
+[green.service_regions]
+"order-svc" = "us-east-1"
+"chat-svc"  = "ap-southeast-1"
+```
+
+#### Chaîne de résolution de région
+
+Pour chaque span, l'étape de scoring carbone résout la région effective dans cet ordre (premier match gagne) :
+
+1. **`event.cloud_region`** : depuis l'attribut de ressource OTel `cloud.region` (ou attribut de span en fallback). Le plus autoritatif.
+2. **`[green.service_regions][event.service]`** : surcharge config par service.
+3. **`[green] default_region`** : fallback global.
+
+Les ops I/O sans région résolvable atterrissent dans un bucket synthétique `"unknown"` (zéro CO₂ opérationnel ; la ligne apparaît dans `regions[]` pour la visibilité). Le carbone embodié est tout de même émis car les émissions de fabrication matérielle sont indépendantes de la région. La cardinalité des régions est plafonnée à 256 buckets distincts ; le surplus tombe dans le bucket `unknown` pour éviter l'épuisement mémoire en cas d'ingestion mal configurée.
+
+#### Forme de sortie
+
+Quand le scoring vert est activé et qu'au moins un événement est analysé, le `green_summary` du rapport JSON inclut :
+
+- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model: "io_proxy_v1", methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié).
+- **`regions[]`** : breakdown par région avec `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2 }`, **trié par `co2_gco2` décroissant** (régions à plus fort impact en premier) avec tiebreak alphabétique.
+
+Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie, et `docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone` pour le disclaimer directionnel / non-réglementaire.
 
 ### `[daemon]`
 
 Paramètres du mode streaming (`perf-sentinel watch`).
 
-| Champ                  | Type     | Défaut                      | Description                                                                                                                                                                                                                                                               |
-|------------------------|----------|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `listen_address`       | chaîne   | `"127.0.0.1"`               | Adresse IP de liaison pour les endpoints OTLP et métriques. Utilisez `127.0.0.1` pour un accès local uniquement. **Attention :** définir une adresse non-loopback expose des endpoints non authentifiés sur le réseau : utilisez un reverse proxy ou une politique réseau |
-| `listen_port_http`     | entier   | `4318`                      | Port pour le récepteur OTLP HTTP et l'endpoint Prometheus `/metrics` (plage : 1-65535)                                                                                                                                                                                    |
-| `listen_port_grpc`     | entier   | `4317`                      | Port pour le récepteur OTLP gRPC (plage : 1-65535)                                                                                                                                                                                                                        |
-| `json_socket`          | chaîne   | `"/tmp/perf-sentinel.sock"` | Chemin du socket Unix pour l'ingestion d'événements JSON                                                                                                                                                                                                                  |
-| `max_active_traces`    | entier   | `10000`                     | Nombre maximum de traces conservées en mémoire. En cas de dépassement, la trace la plus ancienne est évincée (LRU)                                                                                                                                                        |
-| `trace_ttl_ms`         | entier   | `30000`                     | Durée de vie des traces en millisecondes. Les traces plus anciennes sont évincées et analysées                                                                                                                                                                            |
-| `sampling_rate`        | flottant | `1.0`                       | Fraction des traces à analyser (0.0 à 1.0). Réduire en dessous de 1.0 pour diminuer la charge dans les environnements à fort trafic                                                                                                                                       |
-| `max_events_per_trace` | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire, max 100000). Les événements les plus anciens sont supprimés en cas de dépassement                                                                                                                       |
-| `max_payload_size`     | entier   | `1048576`                   | Taille maximale en octets d'un payload JSON unique (défaut : 1 Mo, max 100 Mo)                                                                                                                                                                                            |
+| Champ                  | Type     | Défaut                      | Description                                                                                                                                                                                                                                                              |
+|------------------------|----------|-----------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `listen_address`       | chaîne   | `"127.0.0.1"`               | Adresse IP de liaison pour les endpoints OTLP et métriques. Utilisez `127.0.0.1` pour un accès local uniquement. **Attention :** définir une adresse non-loopback expose des endpoints non authentifiés sur le réseau, utilisez un reverse proxy ou une politique réseau |
+| `listen_port_http`     | entier   | `4318`                      | Port pour le récepteur OTLP HTTP et l'endpoint Prometheus `/metrics` (plage : 1-65535)                                                                                                                                                                                   |
+| `listen_port_grpc`     | entier   | `4317`                      | Port pour le récepteur OTLP gRPC (plage : 1-65535)                                                                                                                                                                                                                       |
+| `json_socket`          | chaîne   | `"/tmp/perf-sentinel.sock"` | Chemin du socket Unix pour l'ingestion d'événements JSON                                                                                                                                                                                                                 |
+| `max_active_traces`    | entier   | `10000`                     | Nombre maximum de traces conservées en mémoire. En cas de dépassement, la trace la plus ancienne est évincée (LRU)                                                                                                                                                       |
+| `trace_ttl_ms`         | entier   | `30000`                     | Durée de vie des traces en millisecondes. Les traces plus anciennes sont évincées et analysées                                                                                                                                                                           |
+| `sampling_rate`        | flottant | `1.0`                       | Fraction des traces à analyser (0.0 à 1.0). Réduire en dessous de 1.0 pour diminuer la charge dans les environnements à fort trafic                                                                                                                                      |
+| `max_events_per_trace` | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire, max 100000). Les événements les plus anciens sont supprimés en cas de dépassement                                                                                                                      |
+| `max_payload_size`     | entier   | `1048576`                   | Taille maximale en octets d'un payload JSON unique (défaut : 1 Mo, max 100 Mo)                                                                                                                                                                                           |
 
 ## Configuration minimale
 

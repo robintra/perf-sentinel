@@ -26,7 +26,9 @@ Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O opera
 - **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
 - **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
 
-Aligned with the **Energy** component of the [SCI model (ISO/IEC 21031:2024)](https://github.com/Green-Software-Foundation/sci) from the Green Software Foundation.
+Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute.
+
+> **Note:** CO₂ estimates are **directional**, not regulatory-grade. Every estimate carries a `~2×` multiplicative uncertainty bracket (`low = mid/2`, `high = mid×2`) because the I/O proxy model is rough. perf-sentinel is a **waste counter**, not a carbon-accounting tool. Do not use it for CSRD or GHG Protocol Scope 3 reporting. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology.
 
 ## How does it compare?
 
@@ -50,7 +52,7 @@ For each detected anti-pattern, perf-sentinel reports:
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
 - **Suggestion:** e.g. "batch this query", "use a batch endpoint", "consider adding an index"
-- **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score and optional gCO2eq conversion (when a cloud region is configured)
+- **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, structured `co2` object (`low`/`mid`/`high`, SCI v1.0 operational + embodied terms), per-region breakdown when multi-region scoring is active
 
 ![demo](docs/img/demo.gif)
 
@@ -109,8 +111,18 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
       {
         "endpoint": "POST /api/game/42/start",
         "service": "game",
-        "io_intensity_score": 6.0
+        "io_intensity_score": 6.0,
+        "co2_grams": 0.000054
       }
+    ],
+    "co2": {
+      "total":     { "low": 0.000519, "mid": 0.001038, "high": 0.002076, "model": "io_proxy_v1", "methodology": "sci_v1_numerator" },
+      "avoidable": { "low": 0.000016, "mid": 0.000032, "high": 0.000064, "model": "io_proxy_v1", "methodology": "sci_v1_operational_ratio" },
+      "operational_gco2": 0.000038,
+      "embodied_gco2":    0.001
+    },
+    "regions": [
+      { "region": "eu-west-3", "grid_intensity_gco2_kwh": 56.0, "pue": 1.135, "io_ops": 6, "co2_gco2": 0.000038 }
     ]
   },
   "quality_gate": {
@@ -240,7 +252,14 @@ slow_query_threshold_ms = 500
 
 [green]
 enabled = true
-region = "eu-west-3"               # optional: enables gCO2eq conversion
+default_region = "eu-west-3"                  # optional: enables gCO2eq conversion
+embodied_carbon_per_request_gco2 = 0.001      # SCI v1.0 M term, default 0.001 g/req
+
+# Optional per-service overrides for multi-region deployments
+# (used when OTel cloud.region is absent from spans):
+# [green.service_regions]
+# "order-svc" = "us-east-1"
+# "chat-svc"  = "ap-southeast-1"
 ```
 
 Output formats: `--format text` (colored, default), `--format json` (structured), `--format sarif` (GitHub/GitLab code scanning).
@@ -285,14 +304,15 @@ For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRA
 
 ## Roadmap
 
-| Phase | Description                                                                                                                         | Status |
-|-------|-------------------------------------------------------------------------------------------------------------------------------------|--------|
-| **0** | Scaffolding: compilable workspace, CI, stubs                                                                                        | Done   |
-| **1** | N+1 SQL + HTTP detection, normalization, correlation                                                                                | Done   |
-| **2** | GreenOps scoring, OTLP ingestion, CI quality gate                                                                                   | Done   |
-| **3** | Polish, benchmarks, v0.1.0 release                                                                                                  | Done   |
-| **4** | `explain` trace viewer, SARIF export, `pg_stat_statements` ingestion, Jaeger/Zipkin import, Grafana Exemplars, TUI interactive mode | Done   |
-| **5** | Multi-region carbon scoring, Tempo ingestion, IDE plugin, additional anti-patterns                                                  | Next   |
+| Phase   | Description                                                                                                                                            | Status |
+|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
+| **0**   | Scaffolding: compilable workspace, CI, stubs                                                                                                           | Done   |
+| **1**   | N+1 SQL + HTTP detection, normalization, correlation                                                                                                   | Done   |
+| **2**   | GreenOps scoring, OTLP ingestion, CI quality gate                                                                                                      | Done   |
+| **3**   | Polish, benchmarks, v0.1.0 release                                                                                                                     | Done   |
+| **4**   | `explain` trace viewer, SARIF export, `pg_stat_statements` ingestion, Jaeger/Zipkin import, Grafana Exemplars, TUI interactive mode                    | Done   |
+| **5a**  | Carbon reliability: SCI v1.0 alignment, confidence intervals, multi-region scoring via OTel `cloud.region`, embodied carbon term, mandatory disclaimer | Done   |
+| **5b+** | Hourly carbon-intensity profiles, Scaphandre opt-in (RAPL), Tempo ingestion, perf-lint interop, additional anti-patterns                               | Next   |
 
 ## License
 

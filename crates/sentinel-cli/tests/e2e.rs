@@ -522,7 +522,7 @@ fn cli_analyze_with_config_region_shows_co2() {
     let config_path = dir.path().join("config.toml");
     fs::write(
         &config_path,
-        "[green]\nenabled = true\nregion = \"eu-west-3\"\n",
+        "[green]\nenabled = true\ndefault_region = \"eu-west-3\"\n",
     )
     .expect("failed to write config");
 
@@ -550,13 +550,82 @@ fn cli_analyze_with_config_region_shows_co2() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
 
+    // Phase 5a: structured `co2` object with 2× multiplicative uncertainty
+    // interval and SCI methodology tags (review fix: sci_version → methodology
+    // with distinct values for total vs avoidable).
+    let co2 = &report["green_summary"]["co2"];
+    assert!(co2.is_object(), "co2 should be a structured object");
+    assert!(co2["total"]["mid"].is_number());
+    assert!(co2["total"]["low"].is_number());
+    assert!(co2["total"]["high"].is_number());
+    assert_eq!(co2["total"]["model"], "io_proxy_v1");
+    assert_eq!(co2["total"]["methodology"], "sci_v1_numerator");
+    assert_eq!(co2["avoidable"]["methodology"], "sci_v1_operational_ratio");
+    assert!(co2["operational_gco2"].is_number());
+    assert!(co2["embodied_gco2"].is_number());
+
+    // Per-region breakdown.
+    let regions = &report["green_summary"]["regions"];
+    assert!(regions.is_array());
+    assert!(!regions.as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cli_demo_shows_carbon_disclaimer() {
+    // Phase 5a: the GreenOps summary CLI output must include a one-line
+    // disclaimer when CO₂ estimates are emitted.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["demo"])
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel demo");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Phase 5a review fix: disclaimer reframed as 2× multiplicative
+    // uncertainty (matches the constants: low = mid/2, high = mid×2).
     assert!(
-        report["green_summary"]["estimated_co2_grams"].is_number(),
-        "should have estimated_co2_grams in JSON output"
+        stdout.contains("multiplicative uncertainty"),
+        "demo output should include CO2 disclaimer with new framing, got: {stdout}"
     );
     assert!(
-        report["green_summary"]["avoidable_co2_grams"].is_number(),
-        "should have avoidable_co2_grams in JSON output"
+        stdout.contains("docs/LIMITATIONS.md"),
+        "disclaimer should reference LIMITATIONS.md, got: {stdout}"
+    );
+}
+
+#[test]
+fn cli_analyze_no_disclaimer_when_green_disabled() {
+    // When green scoring is disabled, the CLI must NOT print the CO₂
+    // disclaimer (no estimates are produced).
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let config_path = dir.path().join("config.toml");
+    fs::write(&config_path, "[green]\nenabled = false\n").expect("failed to write config");
+
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--input",
+            &fixture_path,
+            "--config",
+            config_path.to_str().unwrap(),
+        ])
+        .env("NO_COLOR", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("multiplicative uncertainty"),
+        "disclaimer should be absent when green is disabled, got: {stdout}"
     );
 }
 

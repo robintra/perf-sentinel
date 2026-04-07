@@ -85,9 +85,85 @@ Si vous exposez perf-sentinel sur un réseau :
 
 N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans couche de sécurité en amont.
 
-## Constante énergétique gCO2eq
+## Précision des estimations carbone
 
-L'estimation carbone utilise une constante énergétique fixe (`0,1 uWh par opération I/O`) comme approximation d'ordre de grandeur. Cette valeur n'est **pas** une quantité mesurée : la consommation réelle d'énergie dépend du type d'I/O, du matériel, de la complexité de la requête et de l'infrastructure. La constante vise à fournir une orientation directionnelle (plus d'I/O = plus d'énergie) plutôt qu'une mesure précise. Lors de la comparaison des valeurs gCO2eq entre les exécutions, les différences relatives sont significatives même si les valeurs absolues sont approximatives.
+perf-sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :
+
+1. **Opérations I/O → énergie** : chaque opération I/O détectée (requête SQL, appel HTTP) est multipliée par une constante fixe `ENERGY_PER_IO_OP_KWH` de `0,0000001 kWh` (~0,1 µWh). Cette valeur n'est **pas mesurée**, c'est une approximation d'ordre de grandeur.
+2. **Énergie → CO₂** : l'énergie est multipliée par une intensité carbone réseau par région (gCO₂eq/kWh) issue d'Electricity Maps et Cloud Carbon Footprint (moyennes annuelles 2023-2024), avec un PUE par fournisseur (AWS 1,135, GCP 1,10, Azure 1,185, Generic 1,2).
+3. **Carbone embodié (`M` dans SCI v1.0)** : émissions de fabrication matérielle amorties à un défaut configurable de `0,001 gCO₂/requête`. Indépendant de la région.
+
+### Incertitude : multiplicative 2×, pas ±50%
+
+Chaque estimation CO₂ est rapportée comme `{ low, mid, high }` où :
+
+```
+low  = mid × 0,5   (moitié du midpoint)
+high = mid × 2,0   (double du midpoint)
+```
+
+C'est un **intervalle multiplicatif log-symétrique**, pas une fenêtre arithmétique ±50%. La moyenne géométrique de `low` et `high` est égale à `mid` ; la moyenne arithmétique ne l'est pas. Ce cadrage 2× est délibéré : le modèle proxy I/O a une incertitude d'ordre de grandeur (ENERGY_PER_IO_OP_KWH est plus approximatif que la moitié), donc une fenêtre ±50% symétrique sous-estimerait l'incertitude réelle du modèle. Interprétez les bornes comme "la valeur réelle est dans un facteur 2 de `mid`, dans un sens ou l'autre".
+
+Les bornes reflètent l'incertitude agrégée du modèle, pas la variance par endpoint.
+
+**Cet intervalle est un indicateur directionnel d'incertitude modèle, pas un intervalle de confiance statistique.** La valeur réelle sur des charges I/O atypiques (mix SQL + HTTP, lourds caches, moteurs de stockage custom) peut sortir de `[low, high]`. Utilisez la plage pour jauger la *plausibilité d'ordre de grandeur*, pas comme borne probabiliste.
+
+### Sémantique SCI v1.0 : numérateur vs intensité
+
+Le champ `co2.total` contient le **numérateur SCI v1.0** `(E × I) + M`, sommé sur toutes les traces analysées. Ce n'est **pas** le score d'intensité par requête que la spécification SCI définit comme "SCI". Pour obtenir l'intensité par requête, les consommateurs calculent :
+
+```
+sci_par_trace = co2.total.mid / analysis.traces_analyzed
+```
+
+Cette distinction compte : perf-sentinel rapporte une **empreinte** (émissions absolues), pas une **intensité** (émissions par unité fonctionnelle). Le champ `methodology` de chaque `CarbonEstimate` tague la sémantique :
+
+- `co2.total.methodology = "sci_v1_numerator"` : l'empreinte `(E × I) + M` sur les traces analysées.
+- `co2.avoidable.methodology = "sci_v1_operational_ratio"` : `operational × (avoidable_io_ops / accounted_io_ops)`, un ratio global aveugle à la région qui exclut le carbone embodié par design.
+
+### Positionnement : compteur de gaspillage directionnel
+
+perf-sentinel est un **compteur de gaspillage directionnel** conçu pour :
+
+- **Détecter les anti-patterns de performance** (N+1, requêtes redondantes, fanout) et quantifier leur impact carbone relatif.
+- **Comparer les exécutions** avant/après optimisation pour valider qu'un correctif réduit effectivement les I/O.
+- **Détecter les régressions carbone** en CI comme garde-fou.
+
+Ce n'est **PAS un outil de comptabilité carbone réglementaire**. **N'utilisez PAS** perf-sentinel pour :
+
+- Le reporting CSRD (Corporate Sustainability Reporting Directive).
+- Les déclarations GHG Protocol Scope 3.
+- Des documents de conformité à valeur d'audit.
+- Comparer des valeurs CO₂ absolues entre infrastructures différentes (le modèle suppose un profil serveur uniforme et moyen).
+- Remplacer des données d'énergie réellement mesurées (RAPL, Scaphandre, wattmètres in-process).
+
+### Ce qui fonctionne
+
+| Cas d'usage | Fiabilité |
+|---|---|
+| Détecter le gaspillage (N+1, fanout, redondant) | ✅ comptage déterministe |
+| Comparer les exécutions (baseline vs. correctif) | ✅ deltas relatifs significatifs |
+| Classer les endpoints par impact relatif | ✅ au sein d'un déploiement unique |
+| Garde-fous de régression carbone en CI | ✅ via `[thresholds] io_waste_ratio_max` |
+| CO₂ absolu pour rapports de conformité | ❌ incertitude multiplicative 2× |
+| Comparaison cross-infrastructure | ❌ profil serveur uniforme supposé |
+| Remplacer l'énergie mesurée | ❌ proxy uniquement |
+
+### Scoring multi-région (Phase 5a)
+
+Quand les spans OTel portent l'attribut de ressource `cloud.region`, perf-sentinel répartit automatiquement les ops I/O par région et applique le bon coefficient d'intensité réseau. La chaîne de fallback est :
+
+1. `event.cloud_region` depuis l'attribut OTel.
+2. `[green.service_regions]` mapping config par service.
+3. `[green] default_region`.
+
+Les ops I/O sans région résolvable atterrissent dans un bucket synthétique `"unknown"` et contribuent à zéro CO₂ opérationnel (un `tracing::warn!` est émis). Le carbone embodié est tout de même émis car les émissions matérielles sont indépendantes de la région.
+
+Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la méthodologie complète, la formule et les notes d'alignement SCI v1.0.
+
+## Constante énergétique gCO2eq (section legacy, conservée pour les références croisées)
+
+L'estimation carbone utilise une constante énergétique fixe (`0,1 uWh par opération I/O`) comme approximation d'ordre de grandeur. Voir **Précision des estimations carbone** ci-dessus pour la méthodologie complète et le disclaimer.
 
 ## Ingestion pg_stat_statements
 

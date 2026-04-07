@@ -177,6 +177,10 @@ fn convert_jaeger_span(
         span_id: span.span_id.clone(),
         parent_span_id,
         service,
+        // Jaeger process tags do not carry cloud region. Users wanting
+        // multi-region scoring with Jaeger ingestion should set
+        // [green.service_regions] in the config to map service → region.
+        cloud_region: None,
         event_type,
         operation,
         target,
