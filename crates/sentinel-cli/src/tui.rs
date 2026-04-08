@@ -495,7 +495,7 @@ fn finding_type_label(ft: &FindingType) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sentinel_core::detect::{GreenImpact, Pattern};
+    use sentinel_core::detect::{Confidence, GreenImpact, Pattern};
 
     fn make_test_app() -> App {
         let findings = vec![
@@ -518,6 +518,7 @@ mod tests {
                     estimated_extra_io_ops: 5,
                     io_intensity_score: 6.0,
                 }),
+                confidence: Confidence::default(),
             },
             Finding {
                 finding_type: FindingType::RedundantSql,
@@ -535,6 +536,7 @@ mod tests {
                 first_timestamp: "2025-07-10T14:32:02.000Z".to_string(),
                 last_timestamp: "2025-07-10T14:32:02.100Z".to_string(),
                 green_impact: None,
+                confidence: Confidence::default(),
             },
         ];
 

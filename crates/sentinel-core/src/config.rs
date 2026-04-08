@@ -7,7 +7,11 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
+use std::time::Duration;
+
+use crate::detect::Confidence;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
+use crate::score::scaphandre::ScaphandreConfig;
 
 /// Top-level configuration for perf-sentinel.
 #[derive(Debug, Clone)]
@@ -39,7 +43,7 @@ pub struct Config {
     ///
     /// Used as the fallback when neither the span's `cloud.region` attribute
     /// nor the per-service mapping resolves a region. Renamed from `green_region`
-    /// in Phase 5a (v0.3.0); the previous `[green] region` TOML key is no
+    /// (v0.3.0); the previous `[green] region` TOML key is no
     /// longer accepted. Update `.perf-sentinel.toml` when upgrading from v0.2.x.
     pub green_default_region: Option<String>,
     /// Per-service region overrides used when `OTel` `cloud.region` is absent
@@ -49,6 +53,27 @@ pub struct Config {
     /// amortized per request (per trace), in gCO₂eq. Region-independent.
     /// Defaults to [`DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2`].
     pub green_embodied_carbon_per_request_gco2: f64,
+    /// whether the scoring stage consults the embedded
+    /// `HOURLY_CARBON_TABLE` to use time-of-day-specific intensities
+    /// instead of the flat annual average. Defaults to `true`.
+    ///
+    /// Only 4 regions (eu-west-3, eu-central-1, eu-west-2, us-east-1)
+    /// have hourly profiles embedded; other regions always
+    /// use the flat annual value regardless of this toggle. Users who
+    /// want to pin their reports to the model (e.g. to
+    /// compare historical runs) can set this to `false`.
+    pub green_use_hourly_profiles: bool,
+    /// optional Scaphandre scraper configuration. When
+    /// `Some`, the daemon spawns a background task that scrapes the
+    /// configured Prometheus endpoint and feeds per-process power
+    /// readings into the per-service energy-per-op coefficient. When
+    /// `None`, the proxy model is used for everything.
+    ///
+    /// Parsed from `[green.scaphandre]` in the TOML config; see
+    /// [`ScaphandreConfig`] for field semantics. Ignored entirely in
+    /// `analyze` batch mode — only `watch` daemon mode spawns the
+    /// scraper.
+    pub green_scaphandre: Option<ScaphandreConfig>,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -69,6 +94,42 @@ pub struct Config {
     pub max_events_per_trace: usize,
     /// Maximum payload size in bytes for JSON deserialization.
     pub max_payload_size: usize,
+    /// Deployment environment label used by the daemon to stamp findings
+    /// with a [`Confidence`] value. Defaults to
+    /// [`DaemonEnvironment::Staging`]; set to
+    /// [`DaemonEnvironment::Production`] when running on production traffic
+    /// so downstream consumers (perf-lint) can boost severity. Ignored in
+    /// `analyze` batch mode, which always emits [`Confidence::CiBatch`].
+    pub daemon_environment: DaemonEnvironment,
+}
+
+/// Deployment environment for the daemon's `watch` mode.
+///
+/// Maps 1:1 to [`Confidence`] via [`Config::confidence`]:
+/// - [`Self::Staging`] → [`Confidence::DaemonStaging`]
+/// - [`Self::Production`] → [`Confidence::DaemonProduction`]
+///
+/// Parsed from the `[daemon] environment` TOML field as case-insensitive
+/// `"staging"` or `"production"`. Any other value is rejected at load time
+/// with a clear validation error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DaemonEnvironment {
+    /// Staging traffic — medium confidence. Default.
+    #[default]
+    Staging,
+    /// Production traffic — high confidence.
+    Production,
+}
+
+impl DaemonEnvironment {
+    /// Returns the lowercase string label used in the TOML config.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Staging => "staging",
+            Self::Production => "production",
+        }
+    }
 }
 
 impl Default for Config {
@@ -89,6 +150,8 @@ impl Default for Config {
             green_default_region: None,
             green_service_regions: HashMap::new(),
             green_embodied_carbon_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
+            green_use_hourly_profiles: true,
+            green_scaphandre: None,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -99,6 +162,22 @@ impl Default for Config {
             sampling_rate: 1.0,
             max_events_per_trace: 1_000,
             max_payload_size: 1_048_576, // 1 MB
+            daemon_environment: DaemonEnvironment::Staging,
+        }
+    }
+}
+
+impl Config {
+    /// Map the daemon environment to a [`Confidence`] value.
+    ///
+    /// Used by `daemon::run` to stamp findings after detection. `analyze`
+    /// batch mode does not call this — it hardcodes [`Confidence::CiBatch`]
+    /// in `pipeline::analyze_with_traces` instead.
+    #[must_use]
+    pub const fn confidence(&self) -> Confidence {
+        match self.daemon_environment {
+            DaemonEnvironment::Staging => Confidence::DaemonStaging,
+            DaemonEnvironment::Production => Confidence::DaemonProduction,
         }
     }
 }
@@ -151,6 +230,25 @@ struct GreenSection {
     default_region: Option<String>,
     service_regions: HashMap<String, String>,
     embodied_carbon_per_request_gco2: Option<f64>,
+    /// toggle for the hourly carbon intensity profile path.
+    /// Default `true`. Maps to `Config::green_use_hourly_profiles`.
+    use_hourly_profiles: Option<bool>,
+    /// Scaphandre scraper section. Absent when Scaphandre
+    /// is not configured.
+    scaphandre: ScaphandreSection,
+}
+
+/// Raw deserialization target for `[green.scaphandre]`.
+///
+/// Converted to a `ScaphandreConfig` during `RawConfig → Config` only
+/// when `endpoint` is set — an empty table (no fields) leaves
+/// `Config::green_scaphandre = None`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ScaphandreSection {
+    endpoint: Option<String>,
+    scrape_interval_secs: Option<u64>,
+    process_map: HashMap<String, String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -165,6 +263,10 @@ struct DaemonSection {
     sampling_rate: Option<f64>,
     max_events_per_trace: Option<usize>,
     max_payload_size: Option<usize>,
+    /// `"staging"` (default) or `"production"`. Validated
+    /// in `Config::validate`; invalid values fail at load time with a
+    /// clear error. Case-insensitive.
+    environment: Option<String>,
 }
 
 impl From<RawConfig> for Config {
@@ -223,6 +325,21 @@ impl From<RawConfig> for Config {
                 .green
                 .embodied_carbon_per_request_gco2
                 .unwrap_or(defaults.green_embodied_carbon_per_request_gco2),
+            green_use_hourly_profiles: raw
+                .green
+                .use_hourly_profiles
+                .unwrap_or(defaults.green_use_hourly_profiles),
+            green_scaphandre: raw.green.scaphandre.endpoint.as_ref().map(|endpoint| {
+                ScaphandreConfig {
+                    endpoint: endpoint.clone(),
+                    // Default scrape interval 5s; clamped in validate_green
+                    // to the [1, 3600] range.
+                    scrape_interval: Duration::from_secs(
+                        raw.green.scaphandre.scrape_interval_secs.unwrap_or(5),
+                    ),
+                    process_map: raw.green.scaphandre.process_map.clone(),
+                }
+            }),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -261,7 +378,30 @@ impl From<RawConfig> for Config {
                 .max_payload_size
                 .or(raw.max_payload_size)
                 .unwrap_or(defaults.max_payload_size),
+            // parse environment into the typed enum. Invalid
+            // strings are rejected later in Config::validate so parse
+            // errors surface at load time with a clear error. When the
+            // field is absent or parse fails here, we stash the raw string
+            // on the default env and let validate() catch it.
+            daemon_environment: match raw.daemon.environment.as_deref() {
+                None => defaults.daemon_environment,
+                Some(s) => parse_daemon_environment(s).unwrap_or(DaemonEnvironment::Staging),
+            },
         }
+    }
+}
+
+/// Parse a case-insensitive environment string into [`DaemonEnvironment`].
+///
+/// Returns `None` for any value that is not `"staging"` or `"production"`.
+/// Called from both [`Config::from`] (which falls back to default on error,
+/// deferring the real rejection to [`Config::validate`]) and
+/// [`Config::validate_daemon_environment`].
+fn parse_daemon_environment(value: &str) -> Option<DaemonEnvironment> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "staging" => Some(DaemonEnvironment::Staging),
+        "production" => Some(DaemonEnvironment::Production),
+        _ => None,
     }
 }
 
@@ -360,6 +500,99 @@ impl Config {
                 ));
             }
         }
+        // Delegate the Scaphandre-specific validation to a dedicated helper
+        // so `validate_green` stays under clippy's `too_many_lines` threshold
+        // and the two concerns (carbon + scaphandre) can evolve independently.
+        if let Some(cfg) = &self.green_scaphandre {
+            Self::validate_scaphandre(cfg)?;
+        }
+        Ok(())
+    }
+
+    /// Validate a parsed `[green.scaphandre]` config section.
+    ///
+    /// Called from [`Self::validate_green`] when the section is present.
+    /// Fails fast on:
+    /// - Empty endpoint or non-`http://` scheme (TLS not supported).
+    /// - URIs that fail to parse via `hyper::Uri`.
+    /// - URIs containing credentials in the authority (`user:pass@host`).
+    /// - `scrape_interval_secs` outside the 1-3600 range.
+    /// - `process_map` keys/values that are empty, >256 chars, or contain
+    ///   ASCII control characters (< 0x20, 0x7F) — the latter blocks
+    ///   Prometheus label injection and log forging via newlines.
+    fn validate_scaphandre(cfg: &ScaphandreConfig) -> Result<(), String> {
+        // Closure (not nested fn) to satisfy clippy's `items_after_statements`.
+        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
+
+        if cfg.endpoint.is_empty() {
+            return Err(
+                "[green.scaphandre] endpoint is required when the section is present".to_string(),
+            );
+        }
+        if !cfg.endpoint.starts_with("http://") {
+            return Err(format!(
+                "[green.scaphandre] endpoint '{}' must start with 'http://' \
+                 (HTTPS scraping is not supported)",
+                cfg.endpoint
+            ));
+        }
+        // Parse the URI at config load (fail-fast). The runtime scraper
+        // task re-parses the same URI but treats failure as a clean exit;
+        // rejecting it here means the operator sees the error before the
+        // daemon starts. Also rejects URIs containing credentials in the
+        // userinfo component — perf-sentinel does not support authenticated
+        // Scaphandre endpoints, and credentials in the URL would leak to
+        // logs even with the redaction helper.
+        let parsed = <hyper::Uri as std::str::FromStr>::from_str(&cfg.endpoint).map_err(|e| {
+            format!(
+                "[green.scaphandre] endpoint '{}' is not a valid URI: {e}",
+                cfg.endpoint
+            )
+        })?;
+        if let Some(authority) = parsed.authority()
+            && authority.as_str().contains('@')
+        {
+            return Err(format!(
+                "[green.scaphandre] endpoint must not contain credentials \
+                 (userinfo component): '{}'",
+                cfg.endpoint
+            ));
+        }
+        let secs = cfg.scrape_interval.as_secs();
+        if !(1..=3600).contains(&secs) {
+            return Err(format!(
+                "[green.scaphandre] scrape_interval_secs must be in [1, 3600], got {secs}"
+            ));
+        }
+        // process_map keys are perf-sentinel service names and values are
+        // Scaphandre `exe` labels. Validate both are non-empty and of
+        // reasonable length; don't run them through is_valid_region_id
+        // because service names may contain dots, slashes, etc.
+        for (service, exe) in &cfg.process_map {
+            if service.is_empty() || service.len() > 256 {
+                return Err(format!(
+                    "[green.scaphandre] process_map service name '{service}' must be 1-256 chars"
+                ));
+            }
+            if has_control_char(service) {
+                return Err(format!(
+                    "[green.scaphandre] process_map service name '{service}' \
+                     contains control characters"
+                ));
+            }
+            if exe.is_empty() || exe.len() > 256 {
+                return Err(format!(
+                    "[green.scaphandre] process_map exe for service '{service}' \
+                     must be 1-256 chars, got '{exe}'"
+                ));
+            }
+            if has_control_char(exe) {
+                return Err(format!(
+                    "[green.scaphandre] process_map exe for service '{service}' \
+                     contains control characters"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -441,6 +674,18 @@ impl Config {
 /// `ConfigError::Validation` if a field value is out of bounds.
 pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     let raw: RawConfig = toml::from_str(content).map_err(ConfigError::Parse)?;
+    // validate the daemon environment string BEFORE the lossy
+    // `Config::from` conversion collapses unknown values into the default.
+    // This way "envrionment = \"prod\"" (typo) is rejected with a clear
+    // error instead of silently downgrading to Staging.
+    if let Some(env_str) = raw.daemon.environment.as_deref()
+        && parse_daemon_environment(env_str).is_none()
+    {
+        return Err(ConfigError::Validation(format!(
+            "[daemon] environment '{env_str}' is invalid; \
+             expected 'staging' or 'production' (case-insensitive)"
+        )));
+    }
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
     Ok(config)
@@ -730,7 +975,7 @@ default_region = "eu-west-3"
         assert!(config.green_service_regions.is_empty());
     }
 
-    // ----- Phase 5a review fixes: region validation + lowercase + both-set -----
+    // ----- review fixes: region validation + lowercase + both-set -----
 
     #[test]
     fn rejects_invalid_default_region_characters() {
@@ -1020,5 +1265,230 @@ default_region = "eu-west-3"
     fn accepts_sampling_rate_one() {
         let config = load_from_str("[daemon]\nsampling_rate = 1.0").unwrap();
         assert!((config.sampling_rate - 1.0).abs() < f64::EPSILON);
+    }
+
+    // --- [daemon] environment parsing ---
+
+    #[test]
+    fn daemon_environment_defaults_to_staging() {
+        let config = Config::default();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Staging);
+        assert_eq!(config.confidence(), Confidence::DaemonStaging);
+    }
+
+    #[test]
+    fn daemon_environment_omitted_uses_default() {
+        let config = load_from_str("[daemon]\nmax_active_traces = 100").unwrap();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Staging);
+    }
+
+    #[test]
+    fn daemon_environment_staging() {
+        let config = load_from_str("[daemon]\nenvironment = \"staging\"").unwrap();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Staging);
+        assert_eq!(config.confidence(), Confidence::DaemonStaging);
+    }
+
+    #[test]
+    fn daemon_environment_production() {
+        let config = load_from_str("[daemon]\nenvironment = \"production\"").unwrap();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Production);
+        assert_eq!(config.confidence(), Confidence::DaemonProduction);
+    }
+
+    #[test]
+    fn daemon_environment_case_insensitive() {
+        let config = load_from_str("[daemon]\nenvironment = \"PRODUCTION\"").unwrap();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Production);
+        let config = load_from_str("[daemon]\nenvironment = \"Staging\"").unwrap();
+        assert_eq!(config.daemon_environment, DaemonEnvironment::Staging);
+    }
+
+    #[test]
+    fn daemon_environment_rejects_unknown() {
+        let result = load_from_str("[daemon]\nenvironment = \"prod\"");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("environment"), "got: {err}");
+        assert!(err.contains("staging"), "error should mention valid values");
+        assert!(
+            err.contains("production"),
+            "error should mention valid values"
+        );
+    }
+
+    #[test]
+    fn daemon_environment_rejects_empty() {
+        let result = load_from_str("[daemon]\nenvironment = \"\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn daemon_environment_rejects_dev() {
+        let result = load_from_str("[daemon]\nenvironment = \"dev\"");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn daemon_environment_as_str() {
+        assert_eq!(DaemonEnvironment::Staging.as_str(), "staging");
+        assert_eq!(DaemonEnvironment::Production.as_str(), "production");
+    }
+
+    // --- [green] use_hourly_profiles ---
+
+    #[test]
+    fn green_use_hourly_profiles_defaults_to_true() {
+        let config = Config::default();
+        assert!(config.green_use_hourly_profiles);
+    }
+
+    #[test]
+    fn green_use_hourly_profiles_omitted_uses_default() {
+        let config = load_from_str("[green]\nenabled = true\n").unwrap();
+        assert!(config.green_use_hourly_profiles);
+    }
+
+    #[test]
+    fn green_use_hourly_profiles_explicit_false() {
+        let config = load_from_str("[green]\nuse_hourly_profiles = false\n").unwrap();
+        assert!(!config.green_use_hourly_profiles);
+    }
+
+    #[test]
+    fn green_use_hourly_profiles_explicit_true() {
+        let config = load_from_str("[green]\nuse_hourly_profiles = true\n").unwrap();
+        assert!(config.green_use_hourly_profiles);
+    }
+
+    // --- [green.scaphandre] parsing ---
+
+    #[test]
+    fn scaphandre_absent_by_default() {
+        let config = Config::default();
+        assert!(config.green_scaphandre.is_none());
+    }
+
+    #[test]
+    fn scaphandre_empty_section_parses_to_none() {
+        // An empty [green.scaphandre] table (no endpoint) is treated
+        // as "Scaphandre not configured" — the scraper is not spawned.
+        let config = load_from_str("[green.scaphandre]\n").unwrap();
+        assert!(config.green_scaphandre.is_none());
+    }
+
+    #[test]
+    fn scaphandre_endpoint_only() {
+        let config =
+            load_from_str("[green.scaphandre]\nendpoint = \"http://localhost:8080/metrics\"\n")
+                .unwrap();
+        let cfg = config.green_scaphandre.unwrap();
+        assert_eq!(cfg.endpoint, "http://localhost:8080/metrics");
+        // Default interval is 5 s.
+        assert_eq!(cfg.scrape_interval.as_secs(), 5);
+        assert!(cfg.process_map.is_empty());
+    }
+
+    #[test]
+    fn scaphandre_full_config() {
+        let toml = r#"
+[green.scaphandre]
+endpoint = "http://localhost:9090/metrics"
+scrape_interval_secs = 10
+
+[green.scaphandre.process_map]
+"order-svc" = "java"
+"chat-svc" = "dotnet"
+"#;
+        let config = load_from_str(toml).unwrap();
+        let cfg = config.green_scaphandre.unwrap();
+        assert_eq!(cfg.endpoint, "http://localhost:9090/metrics");
+        assert_eq!(cfg.scrape_interval.as_secs(), 10);
+        assert_eq!(
+            cfg.process_map.get("order-svc").map(String::as_str),
+            Some("java")
+        );
+        assert_eq!(
+            cfg.process_map.get("chat-svc").map(String::as_str),
+            Some("dotnet")
+        );
+    }
+
+    #[test]
+    fn scaphandre_rejects_https_endpoint() {
+        // doesn't implement TLS — HTTPS endpoints are rejected
+        // at load time with a clear error.
+        let result =
+            load_from_str("[green.scaphandre]\nendpoint = \"https://secure:8080/metrics\"\n");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("http://"), "got: {err}");
+    }
+
+    #[test]
+    fn scaphandre_rejects_zero_interval() {
+        let result = load_from_str(
+            "[green.scaphandre]\nendpoint = \"http://localhost/metrics\"\nscrape_interval_secs = 0\n",
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("scrape_interval_secs"), "got: {err}");
+    }
+
+    #[test]
+    fn scaphandre_rejects_huge_interval() {
+        let result = load_from_str(
+            "[green.scaphandre]\nendpoint = \"http://localhost/metrics\"\nscrape_interval_secs = 99999\n",
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn scaphandre_rejects_empty_exe_in_process_map() {
+        let toml = r#"
+[green.scaphandre]
+endpoint = "http://localhost/metrics"
+
+[green.scaphandre.process_map]
+"order-svc" = ""
+"#;
+        let result = load_from_str(toml);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("process_map"), "got: {err}");
+    }
+
+    #[test]
+    fn scaphandre_accepts_interval_at_boundary_1s() {
+        let config = load_from_str(
+            "[green.scaphandre]\nendpoint = \"http://localhost/metrics\"\nscrape_interval_secs = 1\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config
+                .green_scaphandre
+                .as_ref()
+                .unwrap()
+                .scrape_interval
+                .as_secs(),
+            1
+        );
+    }
+
+    #[test]
+    fn scaphandre_accepts_interval_at_boundary_3600s() {
+        let config = load_from_str(
+            "[green.scaphandre]\nendpoint = \"http://localhost/metrics\"\nscrape_interval_secs = 3600\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config
+                .green_scaphandre
+                .as_ref()
+                .unwrap()
+                .scrape_interval
+                .as_secs(),
+            3600
+        );
     }
 }

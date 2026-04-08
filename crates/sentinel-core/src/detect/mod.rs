@@ -7,7 +7,7 @@ pub mod slow;
 
 use crate::correlate::Trace;
 use crate::event::EventType;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A detected performance anti-pattern.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -26,6 +26,17 @@ pub struct Finding {
     pub last_timestamp: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub green_impact: Option<GreenImpact>,
+    /// Source context of this finding: CI batch run, staging daemon, or
+    /// production daemon. Used by downstream consumers (perf-lint) to
+    /// boost or reduce severity based on how the finding was produced.
+    ///
+    /// ** contract:** detectors always emit
+    /// [`Confidence::default()`] (= `CiBatch`); the real value is stamped
+    /// by the pipeline caller (`pipeline::analyze_with_traces` for batch,
+    /// `daemon::process_traces` for the daemon) after detection returns.
+    /// This keeps the detector layer oblivious to runtime context.
+    #[serde(default)]
+    pub confidence: Confidence,
 }
 
 /// Types of performance anti-patterns.
@@ -48,6 +59,59 @@ pub enum Severity {
     Critical,
     Warning,
     Info,
+}
+
+/// Source context for a [`Finding`]: where and how it was produced.
+///
+/// perf-lint consumes this field via its runtime-findings import path and
+/// uses it to adjust severity in the IDE. A `daemon_production` finding
+/// (observed on real production traffic) is a much stronger signal than a
+/// `ci_batch` finding (observed on a controlled integration test run with
+/// limited traffic shapes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Confidence {
+    /// Batch `analyze` run on traces collected in CI (integration tests).
+    /// Lowest confidence: limited traffic shapes, controlled environment.
+    ///
+    /// Marked `#[default]` so detectors that emit `Confidence::default()`
+    /// get the safest fallback (lowest confidence) — a forgotten stamp
+    /// never inflates perf-lint's severity.
+    #[default]
+    CiBatch,
+    /// Daemon `watch` run on staging traffic. Medium confidence: real
+    /// patterns but not production scale.
+    DaemonStaging,
+    /// Daemon `watch` run on production traffic. Highest confidence:
+    /// real patterns at real scale.
+    DaemonProduction,
+}
+
+impl Confidence {
+    /// Returns the `snake_case` string representation.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::CiBatch => "ci_batch",
+            Self::DaemonStaging => "daemon_staging",
+            Self::DaemonProduction => "daemon_production",
+        }
+    }
+
+    /// Map confidence to a SARIF `rank` value (0-100).
+    ///
+    /// Rank is SARIF v2.1.0's standard "how much should this matter"
+    /// signal: 0 = low priority, 100 = highest. Populating it means
+    /// SARIF consumers that ignore the custom `properties` bag still
+    /// get a usable ordering.
+    #[must_use]
+    pub const fn sarif_rank(&self) -> u32 {
+        match self {
+            Self::CiBatch => 30,
+            Self::DaemonStaging => 60,
+            Self::DaemonProduction => 90,
+        }
+    }
 }
 
 /// Pattern details for a finding.
@@ -236,6 +300,82 @@ mod tests {
     fn severity_serializes_to_snake_case() {
         let json = serde_json::to_string(&Severity::Critical).unwrap();
         assert_eq!(json, r#""critical""#);
+    }
+
+    // --- Confidence field tests ---
+
+    #[test]
+    fn confidence_default_is_ci_batch() {
+        assert_eq!(Confidence::default(), Confidence::CiBatch);
+    }
+
+    #[test]
+    fn confidence_serializes_to_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&Confidence::CiBatch).unwrap(),
+            r#""ci_batch""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Confidence::DaemonStaging).unwrap(),
+            r#""daemon_staging""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Confidence::DaemonProduction).unwrap(),
+            r#""daemon_production""#
+        );
+    }
+
+    #[test]
+    fn confidence_deserializes_from_snake_case() {
+        let c: Confidence = serde_json::from_str(r#""ci_batch""#).unwrap();
+        assert_eq!(c, Confidence::CiBatch);
+        let c: Confidence = serde_json::from_str(r#""daemon_staging""#).unwrap();
+        assert_eq!(c, Confidence::DaemonStaging);
+        let c: Confidence = serde_json::from_str(r#""daemon_production""#).unwrap();
+        assert_eq!(c, Confidence::DaemonProduction);
+    }
+
+    #[test]
+    fn confidence_as_str_matches_serialization() {
+        assert_eq!(Confidence::CiBatch.as_str(), "ci_batch");
+        assert_eq!(Confidence::DaemonStaging.as_str(), "daemon_staging");
+        assert_eq!(Confidence::DaemonProduction.as_str(), "daemon_production");
+    }
+
+    #[test]
+    fn confidence_sarif_rank_increases_with_confidence() {
+        // Ordering must be strictly ascending so SARIF consumers that sort
+        // by rank produce the expected "production > staging > CI" order.
+        assert!(Confidence::CiBatch.sarif_rank() < Confidence::DaemonStaging.sarif_rank());
+        assert!(Confidence::DaemonStaging.sarif_rank() < Confidence::DaemonProduction.sarif_rank());
+        assert_eq!(Confidence::CiBatch.sarif_rank(), 30);
+        assert_eq!(Confidence::DaemonStaging.sarif_rank(), 60);
+        assert_eq!(Confidence::DaemonProduction.sarif_rank(), 90);
+    }
+
+    #[test]
+    fn detector_findings_default_to_ci_batch_confidence() {
+        // Detectors emit `Confidence::default()` — the pipeline/daemon
+        // caller is responsible for stamping the real value. Verify the
+        // default here so a regression that changes Confidence::default()
+        // surfaces loudly.
+        use crate::test_helpers::{make_sql_event, make_trace};
+        let events: Vec<crate::event::SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect(&[trace], &default_config());
+        assert!(!findings.is_empty());
+        for f in &findings {
+            assert_eq!(f.confidence, Confidence::CiBatch);
+        }
     }
 
     #[test]

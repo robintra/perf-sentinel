@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use crate::correlate::Trace;
 use crate::event::EventType;
 
-use super::{Finding, FindingType, Pattern, Severity};
+use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
 /// Detect N+1 patterns in a single trace.
 ///
@@ -95,6 +95,9 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             first_timestamp: min_ts.to_string(),
             last_timestamp: max_ts.to_string(),
             green_impact: None,
+            // detectors always emit the default (CiBatch);
+            // pipeline/daemon callers post-stamp the real confidence.
+            confidence: Confidence::default(),
         });
     }
 

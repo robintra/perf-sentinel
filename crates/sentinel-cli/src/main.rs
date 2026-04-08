@@ -847,7 +847,7 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         }
     }
 
-    // Mandatory disclaimer (Phase 5a): only shown when we actually emitted CO₂
+    // Mandatory disclaimer: only shown when we actually emitted CO₂
     // estimates, to avoid noise when green scoring is disabled.
     // The "2× multiplicative uncertainty" framing matches the constants:
     // low = mid/2, high = mid×2 (log-symmetric interval, geometric mean = mid).
@@ -874,7 +874,7 @@ fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sentinel_core::detect::{Finding, FindingType, GreenImpact, Pattern, Severity};
+    use sentinel_core::detect::{Confidence, Finding, FindingType, GreenImpact, Pattern, Severity};
     use sentinel_core::report::{
         Analysis, GreenSummary, QualityGate, QualityRule, Report, TopOffender,
     };
@@ -928,6 +928,7 @@ mod tests {
                 estimated_extra_io_ops: 5,
                 io_intensity_score: 6.0,
             }),
+            confidence: Confidence::default(),
         }
     }
 

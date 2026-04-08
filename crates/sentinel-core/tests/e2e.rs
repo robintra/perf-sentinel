@@ -286,7 +286,7 @@ fn pipeline_with_region_includes_co2_in_report() {
 
 #[test]
 fn pipeline_without_region_emits_only_embodied_floor() {
-    // Phase 5a: with green enabled (default) and no region configured,
+    // with green enabled (default) and no region configured,
     // operational CO₂ is 0 (events fall into the "unknown" bucket) but
     // embodied CO₂ is still emitted as a floor estimate.
     let config = Config::default();
@@ -317,7 +317,7 @@ fn pipeline_without_region_emits_only_embodied_floor() {
 
 #[test]
 fn pipeline_unknown_region_emits_zero_operational() {
-    // Phase 5a: a region not in the embedded carbon table (e.g. "mars-1")
+    // a region not in the embedded carbon table (e.g. "mars-1")
     // contributes 0 operational CO₂. Embodied is still emitted.
     let config = Config {
         green_default_region: Some("mars-1".to_string()),

@@ -51,6 +51,19 @@ pub struct MetricsState {
     pub total_io_ops: Counter,
     /// Cumulative avoidable I/O ops (for computing rolling waste ratio).
     pub avoidable_io_ops: Counter,
+    /// cumulative I/O ops per service. Labeled with the
+    /// `service` attribute from span `service.name`. Exposed so
+    /// Grafana dashboards can show per-service throughput, and used
+    /// by the Scaphandre scraper to compute per-service op deltas
+    /// without running a parallel counter (see
+    /// [`crate::score::scaphandre::OpsSnapshotDiff`]).
+    pub service_io_ops_total: CounterVec,
+    /// age in seconds since the last successful Scaphandre
+    /// scrape. Reset to 0 on each successful scrape and incremented
+    /// every scrape interval by the scraper task. Useful for
+    /// Grafana alerts that detect a hung scraper. Stays at 0 when
+    /// Scaphandre is not configured.
+    pub scaphandre_last_scrape_age_seconds: Gauge,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -112,6 +125,29 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        // per-service I/O op counter. Single source of
+        // truth for per-service op counts — the Scaphandre scraper
+        // reads this via snapshot-diff instead of maintaining a
+        // parallel counter that would drift under concurrent writes.
+        let service_io_ops_total = CounterVec::new(
+            Opts::new(
+                "perf_sentinel_service_io_ops_total",
+                "Cumulative I/O ops attributed to each service",
+            ),
+            &["service"],
+        )
+        .expect("metric creation should not fail");
+
+        // Scaphandre scrape freshness gauge. 0 when a
+        // successful scrape just completed; grows with wall-clock
+        // time until the next success. Always 0 when Scaphandre is
+        // not configured (the scraper task is the only writer).
+        let scaphandre_last_scrape_age_seconds = Gauge::new(
+            "perf_sentinel_scaphandre_last_scrape_age_seconds",
+            "Age in seconds since the last successful Scaphandre scrape",
+        )
+        .expect("metric creation should not fail");
+
         registry
             .register(Box::new(findings_total.clone()))
             .expect("registration should not fail");
@@ -133,6 +169,12 @@ impl MetricsState {
         registry
             .register(Box::new(avoidable_io_ops.clone()))
             .expect("registration should not fail");
+        registry
+            .register(Box::new(service_io_ops_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(scaphandre_last_scrape_age_seconds.clone()))
+            .expect("registration should not fail");
 
         Self {
             registry,
@@ -143,9 +185,59 @@ impl MetricsState {
             active_traces,
             total_io_ops,
             avoidable_io_ops,
+            service_io_ops_total,
+            scaphandre_last_scrape_age_seconds,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// snapshot the per-service I/O op counter.
+    ///
+    /// Returns a `HashMap<service_name, cumulative_count>` built by
+    /// iterating the Prometheus `CounterVec` metric families via the
+    /// registry's `gather()` method. The Scaphandre scraper calls
+    /// this once per tick and feeds it into
+    /// [`crate::score::scaphandre::OpsSnapshotDiff`] to compute the
+    /// per-service op delta for the current window.
+    ///
+    /// Returns an empty map when no services have been observed yet.
+    #[must_use]
+    pub fn snapshot_service_io_ops(&self) -> HashMap<String, u64> {
+        use prometheus::core::Collector;
+        let mut out = HashMap::new();
+        for family in Collector::collect(&self.service_io_ops_total) {
+            for metric in family.get_metric() {
+                // `metric.get_counter()` returns `MessageField<Counter>`
+                // (protobuf wrapper). Dereference to the inner Counter
+                // and call `.value()` which is the current accessor in
+                // prometheus 0.14.
+                let counter_value = metric.get_counter().value();
+                // Cumulative counts should always be representable as
+                // u64 — saturate to u64::MAX on overflow so the delta
+                // math still produces sane values.
+                // Saturate to u64 safely: clamp the float to the
+                // representable range first, then cast. Counter
+                // values should never be negative or overflow, but
+                // clippy's cast_sign_loss / cast_possible_truncation
+                // lints want the bounds to be explicit.
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let count = if counter_value <= 0.0 {
+                    0u64
+                } else if counter_value >= u64::MAX as f64 {
+                    u64::MAX
+                } else {
+                    counter_value as u64
+                };
+                for label in metric.get_label() {
+                    if label.name() == "service" {
+                        out.insert(label.value().to_string(), count);
+                        break;
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Record analysis results from a batch report.
@@ -398,7 +490,7 @@ pub fn metrics_route(state: Arc<MetricsState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{Finding, FindingType, GreenImpact, Pattern, Severity};
+    use crate::detect::{Confidence, Finding, FindingType, GreenImpact, Pattern, Severity};
     use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 
     #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
@@ -452,6 +544,7 @@ mod tests {
                 estimated_extra_io_ops: occurrences.saturating_sub(1),
                 io_intensity_score: 6.0,
             }),
+            confidence: Confidence::default(),
         }
     }
 

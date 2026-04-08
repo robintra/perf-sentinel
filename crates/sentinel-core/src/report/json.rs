@@ -85,6 +85,7 @@ mod tests {
                 first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
                 last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
                 green_impact: None,
+                confidence: crate::detect::Confidence::default(),
             }],
             green_summary: GreenSummary {
                 total_io_ops: 10,

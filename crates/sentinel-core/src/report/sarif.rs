@@ -63,6 +63,31 @@ pub struct SarifResult {
     pub level: String,
     pub message: SarifMessage,
     pub logical_locations: Vec<SarifLogicalLocation>,
+    /// SARIF v2.1.0 property bag. uses it to expose the
+    /// tool-specific `confidence` field for perf-lint interop.
+    /// Empty-by-default so pre-5b consumers are unaffected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<SarifProperties>,
+    /// SARIF v2.1.0 `rank` field (0-100). populates this from
+    /// the finding's [`Confidence`] so SARIF consumers that don't read
+    /// the custom `properties` bag still get a useful ordering signal.
+    /// Mapping: `ci_batch = 30`, `daemon_staging = 60`,
+    /// `daemon_production = 90`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rank: Option<u32>,
+}
+
+/// Custom properties attached to a [`SarifResult`].
+///
+/// perf-sentinel specific fields that don't fit the SARIF v2.1.0 schema
+/// natively. perf-lint reads this bag to boost / reduce severity in the IDE
+/// based on where the finding came from.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifProperties {
+    /// Source context of the finding: `"ci_batch"`, `"daemon_staging"`, or
+    /// `"daemon_production"`. See [`Confidence`] for semantics.
+    pub confidence: &'static str,
 }
 
 #[derive(Serialize)]
@@ -150,6 +175,11 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
                 kind: "function".to_string(),
             },
         ],
+        // expose the confidence for perf-lint interop.
+        properties: Some(SarifProperties {
+            confidence: finding.confidence.as_str(),
+        }),
+        rank: Some(finding.confidence.sarif_rank()),
     }
 }
 
@@ -201,7 +231,7 @@ pub enum SarifError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{GreenImpact, Pattern};
+    use crate::detect::{Confidence, GreenImpact, Pattern};
 
     fn make_report(findings: Vec<Finding>) -> Report {
         Report {
@@ -239,6 +269,7 @@ mod tests {
                 estimated_extra_io_ops: 5,
                 io_intensity_score: 6.0,
             }),
+            confidence: Confidence::default(),
         }
     }
 
@@ -323,5 +354,62 @@ mod tests {
         let result = finding_to_result(&finding);
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("slow_sql"));
+    }
+
+    // --- confidence exposure via properties + rank ---
+
+    #[test]
+    fn sarif_result_contains_ci_batch_confidence_by_default() {
+        // Default finding has CiBatch confidence (detector emits it).
+        let finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let result = finding_to_result(&finding);
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(
+            json.contains(r#""confidence":"ci_batch""#),
+            "SARIF should expose confidence in properties bag, got: {json}"
+        );
+        assert!(
+            json.contains(r#""rank":30"#),
+            "SARIF should populate rank=30 for CiBatch, got: {json}"
+        );
+    }
+
+    #[test]
+    fn sarif_result_daemon_staging_rank_60() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.confidence = Confidence::DaemonStaging;
+        let result = finding_to_result(&finding);
+        assert_eq!(result.rank, Some(60));
+        let props = result.properties.as_ref().unwrap();
+        assert_eq!(props.confidence, "daemon_staging");
+    }
+
+    #[test]
+    fn sarif_result_daemon_production_rank_90() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Critical);
+        finding.confidence = Confidence::DaemonProduction;
+        let result = finding_to_result(&finding);
+        assert_eq!(result.rank, Some(90));
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains(r#""confidence":"daemon_production""#));
+        assert!(json.contains(r#""rank":90"#));
+    }
+
+    #[test]
+    fn sarif_log_round_trip_with_mixed_confidence() {
+        // Full report → SARIF serialization should expose all three
+        // confidence values across a mixed batch of findings.
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f1.confidence = Confidence::CiBatch;
+        let mut f2 = make_finding(FindingType::RedundantSql, Severity::Info);
+        f2.confidence = Confidence::DaemonStaging;
+        let mut f3 = make_finding(FindingType::ExcessiveFanout, Severity::Critical);
+        f3.confidence = Confidence::DaemonProduction;
+        let report = make_report(vec![f1, f2, f3]);
+        let sarif = report_to_sarif(&report);
+        assert_eq!(sarif.runs[0].results.len(), 3);
+        assert_eq!(sarif.runs[0].results[0].rank, Some(30));
+        assert_eq!(sarif.runs[0].results[1].rank, Some(60));
+        assert_eq!(sarif.runs[0].results[2].rank, Some(90));
     }
 }

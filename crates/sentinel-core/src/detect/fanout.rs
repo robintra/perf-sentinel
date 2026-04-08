@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::correlate::Trace;
-use crate::detect::{Finding, FindingType, Pattern, Severity};
+use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
 
 /// Detect excessive fanout within a trace.
 ///
@@ -91,6 +91,7 @@ pub fn detect_fanout(trace: &Trace, max_fanout: u32) -> Vec<Finding> {
             first_timestamp: first_ts,
             last_timestamp: last_ts,
             green_impact: None,
+            confidence: Confidence::default(),
         });
     }
 

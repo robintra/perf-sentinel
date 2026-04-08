@@ -520,9 +520,13 @@ fn cli_analyze_slow_fixture_json_output() {
 fn cli_analyze_with_config_region_shows_co2() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let config_path = dir.path().join("config.toml");
+    // disable hourly profiles so this test still asserts the
+    // model tag (`io_proxy_v1`). The hourly path is
+    // exercised by dedicated tests in score/mod.rs and by e2e
+    // `cli_analyze_hourly_profiles_upgrades_model_tag` below.
     fs::write(
         &config_path,
-        "[green]\nenabled = true\ndefault_region = \"eu-west-3\"\n",
+        "[green]\nenabled = true\ndefault_region = \"eu-west-3\"\nuse_hourly_profiles = false\n",
     )
     .expect("failed to write config");
 
@@ -550,7 +554,7 @@ fn cli_analyze_with_config_region_shows_co2() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let report: Value = serde_json::from_str(&stdout).expect("should be valid JSON");
 
-    // Phase 5a: structured `co2` object with 2× multiplicative uncertainty
+    // structured `co2` object with 2× multiplicative uncertainty
     // interval and SCI methodology tags (review fix: sci_version → methodology
     // with distinct values for total vs avoidable).
     let co2 = &report["green_summary"]["co2"];
@@ -572,7 +576,7 @@ fn cli_analyze_with_config_region_shows_co2() {
 
 #[test]
 fn cli_demo_shows_carbon_disclaimer() {
-    // Phase 5a: the GreenOps summary CLI output must include a one-line
+    // the GreenOps summary CLI output must include a one-line
     // disclaimer when CO₂ estimates are emitted.
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args(["demo"])
@@ -583,7 +587,7 @@ fn cli_demo_shows_carbon_disclaimer() {
         .expect("failed to execute perf-sentinel demo");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    // Phase 5a review fix: disclaimer reframed as 2× multiplicative
+    // review fix: disclaimer reframed as 2× multiplicative
     // uncertainty (matches the constants: low = mid/2, high = mid×2).
     assert!(
         stdout.contains("multiplicative uncertainty"),

@@ -3,7 +3,7 @@
 use crate::config::Config;
 use crate::correlate;
 use crate::detect;
-use crate::detect::DetectConfig;
+use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
 use crate::normalize;
 use crate::report::{Analysis, Report};
@@ -47,6 +47,11 @@ pub fn analyze_with_traces(
             default_region: config.green_default_region.clone(),
             service_regions: config.green_service_regions.clone(),
             embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
+            // honour the [green] use_hourly_profiles toggle.
+            use_hourly_profiles: config.green_use_hourly_profiles,
+            // Scaphandre is a daemon-only feature; batch
+            // `analyze` never scrapes, so the snapshot is always None here.
+            scaphandre_snapshot: None,
         };
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
@@ -59,6 +64,16 @@ pub fn analyze_with_traces(
 
     // Sort findings for deterministic output (HashMap iteration order is random)
     detect::sort_findings(&mut findings);
+
+    // stamp confidence on every finding. `analyze` is the batch
+    // path — always CiBatch regardless of the daemon environment config.
+    // The real daemon path (daemon::process_traces) stamps Staging or
+    // Production from Config::confidence(). Detectors themselves never
+    // reason about confidence — they emit Confidence::default() and the
+    // pipeline caller overrides it here.
+    for finding in &mut findings {
+        finding.confidence = Confidence::CiBatch;
+    }
 
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
@@ -316,5 +331,35 @@ mod tests {
         };
         let report = analyze(vec![], &config);
         assert!(report.green_summary.co2.is_none());
+    }
+
+    // --- batch mode always stamps CiBatch ---
+
+    #[test]
+    fn batch_analyze_stamps_ci_batch_confidence() {
+        use crate::test_helpers::make_sql_event;
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                )
+            })
+            .collect();
+        // Even with a production environment in config, batch analyze
+        // must stamp CiBatch — confidence is mode-driven, not config-driven,
+        // for `analyze` (the config `daemon_environment` only affects
+        // `watch` daemon mode).
+        let config = Config {
+            daemon_environment: crate::config::DaemonEnvironment::Production,
+            ..Config::default()
+        };
+        let report = analyze(events, &config);
+        assert!(!report.findings.is_empty());
+        for f in &report.findings {
+            assert_eq!(f.confidence, Confidence::CiBatch);
+        }
     }
 }

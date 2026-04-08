@@ -688,7 +688,7 @@ mod tests {
         assert_eq!(events[0].service, "unknown");
     }
 
-    // ----- Phase 5a: cloud.region extraction tests -----
+    // ----- cloud.region extraction tests -----
 
     fn make_request_with_resource_attrs(
         attrs: Vec<KeyValue>,
@@ -763,7 +763,7 @@ mod tests {
         assert!(events[0].cloud_region.is_none());
     }
 
-    // ----- Phase 5a review fix (F9): sanitize cloud.region at OTLP boundary -----
+    // ----- review fix (F9): sanitize cloud.region at OTLP boundary -----
 
     #[test]
     fn cloud_region_with_space_is_sanitized_to_none() {

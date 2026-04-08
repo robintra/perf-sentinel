@@ -45,13 +45,14 @@ Detection algorithm parameters.
 
 ### `[green]`
 
-GreenOps scoring configuration. Phase 5a aligned with [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (operational + embodied terms, confidence intervals, multi-region).
+GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (operational + embodied terms, confidence intervals, multi-region).
 
-| Field                              | Type    | Default  | Description                                                                                                                                                                                       |
-|------------------------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                    |
-| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                   |
-| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                     |
+| Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                            |
+|------------------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                                                                                                                                                                         |
+| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                                                                                                                                                                        |
+| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                          |
+| `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for regions that have a 24-hour UTC profile embedded (FR, DE, GB, US-East). Reports that touched a profiled region are tagged `model = "io_proxy_v2"` instead of `"io_proxy_v1"`. Set to `false` to pin reports to the flat-annual model (useful for historical comparisons) |
 
 #### `[green.service_regions]`
 
@@ -81,26 +82,54 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model: "io_proxy_v1", methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied).
-- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2 }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` → `"io_proxy_v2"` → `"io_proxy_v1"`.
+- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"` or `"hourly"` depending on which carbon table was consulted for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology, and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
+
+#### `[green.scaphandre]` (optional, opt-in)
+
+Opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement on Linux hosts with Intel RAPL support. When configured, the `watch` daemon spawns a background task that scrapes the Scaphandre Prometheus endpoint every `scrape_interval_secs` and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` constant for each mapped service.
+
+| Field                  | Type    | Default  | Description                                                                                                                                       |
+|------------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoint`             | string  | *(none)* | Full URL of the Scaphandre Prometheus `/metrics` endpoint. Must start with `http://` (TLS is not supported). Required when the section is present |
+| `scrape_interval_secs` | integer | `5`      | How often to scrape, in seconds. Valid range: 1-3600                                                                                              |
+| `process_map`          | table   | `{}`     | Maps perf-sentinel service names (from span `service.name`) to Scaphandre `exe` labels                                                            |
+
+```toml
+[green.scaphandre]
+endpoint = "http://localhost:8080/metrics"
+scrape_interval_secs = 5
+
+[green.scaphandre.process_map]
+"order-svc" = "java"
+"chat-svc" = "dotnet"
+"game-svc" = "game"
+```
+
+**Ignored in `analyze` batch mode.** Only the `watch` daemon spawns the scraper. The `analyze` command always uses the proxy model regardless of this section.
+
+**Fallback behaviour.** When the endpoint is unreachable, a service is not present in `process_map`, or a service had zero ops in the current scrape window, the scoring stage falls back to the proxy model for those spans. The first failure logs at `warn` level; subsequent failures log at `debug` to avoid spam. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators detect a hung scraper.
+
+**Precision bounds (important).** Scaphandre improves the **per-service** energy coefficient but does NOT give per-finding attribution. RAPL is process-level, not span-level: two findings in the same process during the same scrape window share the same coefficient. See `docs/LIMITATIONS.md#scaphandre-precision-bounds` for the full discussion.
 
 ### `[daemon]`
 
 Streaming mode (`perf-sentinel watch`) settings.
 
-| Field                  | Type    | Default                     | Description                                                                                                                                                                                                                   |
-|------------------------|---------|-----------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `listen_address`       | string  | `"127.0.0.1"`               | IP address to bind for OTLP and metrics endpoints. Use `127.0.0.1` for local-only access. **Warning:** setting a non-loopback address exposes unauthenticated endpoints to the network, use a reverse proxy or network policy |
-| `listen_port_http`     | integer | `4318`                      | Port for OTLP HTTP receiver and Prometheus `/metrics` endpoint (range: 1-65535)                                                                                                                                               |
-| `listen_port_grpc`     | integer | `4317`                      | Port for OTLP gRPC receiver (range: 1-65535)                                                                                                                                                                                  |
-| `json_socket`          | string  | `"/tmp/perf-sentinel.sock"` | Unix socket path for JSON event ingestion                                                                                                                                                                                     |
-| `max_active_traces`    | integer | `10000`                     | Maximum number of traces held in memory. When exceeded, the oldest trace is evicted (LRU)                                                                                                                                     |
-| `trace_ttl_ms`         | integer | `30000`                     | Time-to-live for traces in milliseconds. Traces older than this are evicted and analyzed                                                                                                                                      |
-| `sampling_rate`        | float   | `1.0`                       | Fraction of traces to analyze (0.0 to 1.0). Set below 1.0 to reduce load in high-traffic environments                                                                                                                         |
-| `max_events_per_trace` | integer | `1000`                      | Maximum events stored per trace (ring buffer, max 100000). Oldest events are dropped when exceeded                                                                                                                            |
-| `max_payload_size`     | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB, max 100 MB)                                                                                                                                                   |
+| Field                  | Type    | Default                     | Description                                                                                                                                                                                                                                                                                    |
+|------------------------|---------|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `listen_address`       | string  | `"127.0.0.1"`               | IP address to bind for OTLP and metrics endpoints. Use `127.0.0.1` for local-only access. **Warning:** setting a non-loopback address exposes unauthenticated endpoints to the network, use a reverse proxy or network policy                                                                  |
+| `listen_port_http`     | integer | `4318`                      | Port for OTLP HTTP receiver and Prometheus `/metrics` endpoint (range: 1-65535)                                                                                                                                                                                                                |
+| `listen_port_grpc`     | integer | `4317`                      | Port for OTLP gRPC receiver (range: 1-65535)                                                                                                                                                                                                                                                   |
+| `json_socket`          | string  | `"/tmp/perf-sentinel.sock"` | Unix socket path for JSON event ingestion                                                                                                                                                                                                                                                      |
+| `max_active_traces`    | integer | `10000`                     | Maximum number of traces held in memory. When exceeded, the oldest trace is evicted (LRU)                                                                                                                                                                                                      |
+| `trace_ttl_ms`         | integer | `30000`                     | Time-to-live for traces in milliseconds. Traces older than this are evicted and analyzed                                                                                                                                                                                                       |
+| `sampling_rate`        | float   | `1.0`                       | Fraction of traces to analyze (0.0 to 1.0). Set below 1.0 to reduce load in high-traffic environments                                                                                                                                                                                          |
+| `max_events_per_trace` | integer | `1000`                      | Maximum events stored per trace (ring buffer, max 100000). Oldest events are dropped when exceeded                                                                                                                                                                                             |
+| `max_payload_size`     | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB, max 100 MB)                                                                                                                                                                                                                    |
+| `environment`          | string  | `"staging"`                 | Deployment environment label. Accepted values: `"staging"` (default, medium confidence) or `"production"` (high confidence). Stamps every finding with the corresponding `confidence` field for downstream consumers (perf-lint). Case-insensitive; any other value is rejected at config load |
 
 ## Minimal configuration
 

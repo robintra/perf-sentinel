@@ -40,8 +40,8 @@ slow_query_threshold_ms = 500
 
 [green]
 enabled = true
-default_region = "eu-west-3"       # optional: enables gCO2eq estimates (Phase 5a)
-# Phase 5a: per-service overrides for multi-region deployments
+default_region = "eu-west-3"       # optional: enables gCO2eq estimates
+# per-service overrides for multi-region deployments
 # [green.service_regions]
 # "api-us"   = "us-east-1"
 # "api-asia" = "ap-southeast-1"
@@ -793,7 +793,61 @@ For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
 ```
 
-Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level` and `logicalLocations` (service + endpoint).
+Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level`, `logicalLocations` (service + endpoint), a custom `properties.confidence` tag, and a standard SARIF `rank` value (0-100) derived from the confidence.
+
+## Finding confidence field
+
+Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. Downstream consumers — in particular [perf-lint](https://github.com/robintra/perf-lint) — use this field to boost or reduce the severity shown in the IDE depending on how much trust to place in the finding.
+
+Values:
+
+| Value                 | When emitted                                                            | SARIF `rank` | Interpretation                                                                      |
+|-----------------------|-------------------------------------------------------------------------|--------------|-------------------------------------------------------------------------------------|
+| `"ci_batch"`          | `perf-sentinel analyze` (batch mode, always)                            | `30`         | Low confidence: the trace came from a controlled CI run with limited traffic shapes |
+| `"daemon_staging"`    | `perf-sentinel watch` with `[daemon] environment = "staging"` (default) | `60`         | Medium confidence: real traffic patterns observed on a staging deployment           |
+| `"daemon_production"` | `perf-sentinel watch` with `[daemon] environment = "production"`        | `90`         | Highest confidence: real traffic, real scale, real users                            |
+
+**Example JSON finding:**
+
+```json
+{
+  "type": "n_plus_one_sql",
+  "severity": "warning",
+  "trace_id": "abc123",
+  "service": "order-svc",
+  "source_endpoint": "POST /api/orders/{id}/submit",
+  "pattern": { "template": "SELECT * FROM order_item WHERE order_id = ?", "occurrences": 6, "window_ms": 250, "distinct_params": 6 },
+  "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+  "first_timestamp": "2026-04-08T03:14:01.050Z",
+  "last_timestamp": "2026-04-08T03:14:01.300Z",
+  "confidence": "daemon_production"
+}
+```
+
+**Example SARIF result fragment:**
+
+```json
+{
+  "ruleId": "n_plus_one_sql",
+  "level": "warning",
+  "message": { "text": "n_plus_one_sql in order-svc on POST /api/orders/{id}/submit..." },
+  "properties": { "confidence": "daemon_production" },
+  "rank": 90
+}
+```
+
+**How to configure the value in the daemon:**
+
+```toml
+[daemon]
+# "staging" (default) → confidence = daemon_staging, rank = 60
+# "production"        → confidence = daemon_production, rank = 90
+environment = "production"
+```
+
+The value is stamped on every finding emitted by that daemon instance. Invalid values (anything other than `staging`/`production`, case-insensitive) are rejected at config load with a clear error. Batch `analyze` mode ignores this field and always emits `ci_batch`.
+
+**perf-lint interop.** perf-lint reads the `confidence` field on imported runtime findings and applies a severity multiplier: `ci_batch` findings are shown as hints, `daemon_staging` as warnings, `daemon_production` as errors. This way a finding that has been observed on real production traffic surfaces louder in the IDE than one observed only in a CI fixture.
 
 ---
 

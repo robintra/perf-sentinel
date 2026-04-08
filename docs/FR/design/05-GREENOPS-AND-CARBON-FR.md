@@ -12,9 +12,9 @@ Un endpoint appelé à travers 3 traces avec 18 opérations I/O au total a `IIS 
 
 Le dénominateur utilise `.max(1)` comme garde contre la division par zéro, bien que ce cas ne puisse pas se produire en pratique (un endpoint qui apparaît dans `endpoint_stats` a forcément été vu dans au moins une trace).
 
-## Algorithme de scoring : cinq phases
+## Algorithme de scoring : cinq étapes
 
-### Phase 1 : statistiques par endpoint
+### Étape 1 : statistiques par endpoint
 
 ```rust
 let mut seen_endpoints: HashSet<&str> = HashSet::new();
@@ -36,7 +36,7 @@ for trace in traces {
 
 **`EndpointStats<'a>` avec `service` emprunté :** le champ `service` emprunte `&'a str` depuis les événements span au lieu de cloner le String. Le clone ne se produit que plus tard lors de la construction des structs `TopOffender` pour la sortie. Cela évite un clone de String par endpoint unique dans la boucle interne.
 
-### Phase 2 : dédup des I/O évitables
+### Étape 2 : dédup des I/O évitables
 
 ```rust
 let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
@@ -56,7 +56,7 @@ for f in &findings {
 
 **Findings lents exclus :** les requêtes lentes sont des opérations nécessaires qui se trouvent être lentes. Elles ont besoin d'optimisation (indexation, cache), pas d'élimination. Les inclure dans le ratio de gaspillage confondrait "I/O gaspillées" avec "I/O lentes".
 
-### Phase 3 : calcul de l'IIS par endpoint
+### Étape 3 : calcul de l'IIS par endpoint
 
 ```rust
 let iis_map: HashMap<&str, f64> = endpoint_stats.iter()
@@ -67,9 +67,9 @@ let iis_map: HashMap<&str, f64> = endpoint_stats.iter()
     .collect();
 ```
 
-La map IIS est calculée une seule fois et réutilisée pour l'enrichissement des findings (Phase 4) et le classement des top offenders (Phase 5).
+La map IIS est calculée une seule fois et réutilisée pour l'enrichissement des findings (étape 4) et le classement des top offenders (étape 5).
 
-### Phase 4 : enrichir les findings
+### Étape 4 : enrichir les findings
 
 Chaque finding reçoit un `GreenImpact` :
 
@@ -80,7 +80,7 @@ GreenImpact {
 }
 ```
 
-### Phase 5 : top offenders
+### Étape 5 : top offenders
 
 Triés par IIS décroissant, avec un ordre alphabétique en cas d'égalité pour une sortie déterministe :
 
@@ -102,7 +102,7 @@ ratio_gaspillage = avoidable_io_ops / total_io_ops
 
 Quand `total_io_ops == 0`, le ratio est `0.0` (pas NaN). C'est la fraction d'opérations I/O qui pourraient être éliminées en corrigeant les anti-patterns détectés. Cela s'aligne avec le composant **Énergie** du [modèle SCI (ISO/IEC 21031:2024)](https://sci-guide.greensoftware.foundation/) de la [Green Software Foundation](https://greensoftware.foundation/) : réduire les calculs inutiles réduit la consommation d'énergie.
 
-## Conversion carbone (Phase 5a SCI v1.0)
+## Conversion carbone
 
 ### Alignement SCI v1.0
 
@@ -304,3 +304,98 @@ Le PUE (Power Usage Effectiveness) mesure le ratio entre l'énergie totale du da
 Les intensités carbone régionales du réseau électrique (gCO2eq/kWh) proviennent des moyennes annuelles [Electricity Maps](https://www.electricitymaps.com/) (2023-2024) et du projet [Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/). La table couvre 15 régions AWS, 8 régions GCP, 6 régions Azure et 14 codes pays ISO.
 
 Quand la région configurée n'est pas trouvée dans la table, les champs CO2 sont omis du rapport (aucune valeur par défaut n'est inventée).
+
+## Profils horaires d'intensité carbone
+
+La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque un profil UTC 24 valeurs par région pour quatre régions avec des formes diurnes bien documentées :
+
+- **France (`eu-west-3`)** — baseload nucléaire, forme plate-avec-pic-soir.
+- **Allemagne (`eu-central-1`)** — charbon + gaz + renouvelables variables, pics matin/soir prononcés.
+- **Royaume-Uni (`eu-west-2`)** — éolien + gaz, pics jumeaux modérés.
+- **US-East (`us-east-1`)** — gaz + charbon, plateau diurne 13h-18h UTC (9h-14h heure Est).
+
+La moyenne arithmétique de chaque profil approxime la valeur annuelle plate correspondante dans les ±5%, préservant la continuité méthodologique. Sources : rapports open-data annuels Electricity Maps, ENTSO-E Transparency Platform, études académiques.
+
+Le chemin de scoring parcourt chaque span une fois et dispatche entre trois sources d'intensité :
+
+```rust
+let intensity_used = if ctx.use_hourly_profiles
+    && hourly_profile_for_region_lower(region).is_some()
+    && let Some(hour) = time::parse_utc_hour(&span.event.timestamp)
+{
+    lookup_hourly_intensity_lower(region, hour).unwrap_or(annual_intensity)
+} else {
+    annual_intensity
+};
+```
+
+Quand le dispatch sélectionne le chemin horaire pour une région, la ligne `RegionBreakdown` est taguée `intensity_source: "hourly"` et le `CarbonEstimate.model` de niveau supérieur passe de `"io_proxy_v1"` à `"io_proxy_v2"`. Si le même rapport contient des régions passées par le chemin plat, ces régions restent taguées `intensity_source: "annual"` tandis que le modèle de niveau supérieur lit toujours `"io_proxy_v2"` — le tag enregistre "le modèle le plus précis utilisé quelque part dans le run".
+
+**Les timestamps doivent être en UTC.** `parse_utc_hour` rejette les formes d'offset non-UTC (`+02:00`, `-05:00`) plutôt que de les décaler silencieusement. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate pour la région.
+
+**Invariant somme-puis-divise (défense contre la dérive dedup).** Un helper unique `compute_operational_gco2(io_ops, intensity, pue)` empêche la formule d'être réimplémentée de façon incohérente entre chemins, étendu avec un helper de plus bas niveau `per_op_gco2(energy_kwh, intensity, pue)` qui est la source unique de vérité pour la multiplication `energy × intensity × pue`. Les trois chemins (proxy, horaire, Scaphandre) passent par ce helper.
+
+## Intégration énergétique par-processus Scaphandre
+
+Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 µWh par op). C'est une approximation à deux ordres de grandeur près. perf-sentinel offre un support opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
+
+**Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. perf-sentinel NE bundle PAS et NE fork PAS Scaphandre — il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre.rs` possède :
+
+- `ScaphandreConfig` — parsé depuis `[green.scaphandre]` dans `.perf-sentinel.toml`.
+- `ScaphandreState` — `Arc<RwLock<HashMap<String, ServiceEnergy>>>`, partagé entre la tâche scraper et le chemin de scoring.
+- `spawn_scraper()` — une tâche tokio qui s'exécute toutes les `scrape_interval_secs`.
+- `parse_scaphandre_metrics()` — un parser sensible aux échappements pour le format d'exposition texte Prometheus.
+- `OpsSnapshotDiff` — un helper de snapshot-diff qui lit les compteurs d'ops par service depuis `MetricsState::service_io_ops_total`.
+- `apply_scrape()` — applique les lectures de puissance parsées + les deltas d'ops à l'état.
+
+**La formule.** Pour chaque service mappé dans une fenêtre de scrape :
+
+```
+power_watts       = process_power_microwatts / 1_000_000
+joules            = power_watts × scrape_interval_secs
+kwh               = joules / 3_600_000
+energy_per_op_kwh = kwh / ops_observed_in_window
+```
+
+Quand `ops_observed_in_window == 0`, l'entrée d'état existante est **conservée** inchangée plutôt qu'effacée — cela évite le flapping du tag model pour les services idle.
+
+**Où le coefficient se branche.** Le daemon prend un snapshot synchrone de `ScaphandreState` au début de chaque tick `process_traces`. Cette map est attachée à `CarbonContext.scaphandre_snapshot` pour la durée du tick. Dans la boucle de spans de `compute_carbon_report`, l'énergie par op est résolue comme suit :
+
+```rust
+let (energy_kwh, is_scaphandre) = match &ctx.scaphandre_snapshot {
+    Some(snapshot) => match snapshot.get(&span.event.service) {
+        Some(&measured) => (measured, true),
+        None => (ENERGY_PER_IO_OP_KWH, false),
+    },
+    None => (ENERGY_PER_IO_OP_KWH, false),
+};
+let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
+```
+
+L'étape de scoring suit `any_scaphandre: bool` et, quand c'est vrai, met `CarbonEstimate.model` de niveau supérieur à `"scaphandre_rapl"` — qui a priorité sur `"io_proxy_v2"` et `"io_proxy_v1"`. Scaphandre et les profils horaires se composent naturellement : une op servie par Scaphandre en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
+
+**Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus) via `snapshot_service_io_ops()`. Le chemin d'intake d'événements du daemon incrémente ce compteur sur chaque événement normalisé.
+
+**Shutdown gracieux.** Le daemon capture le `JoinHandle` du scraper et appelle `.abort()` sur lui avant le drain `process_traces` final dans la branche Ctrl-C. Cela empêche les lignes de log "scrape failed" d'apparaître après le message "Shutting down daemon".
+
+**Ce que Scaphandre ne fait PAS.** Voir la section `Limites de précision Scaphandre` dans `docs/FR/LIMITATIONS-FR.md` pour la discussion complète. Version courte : Scaphandre donne des coefficients par service, pas d'attribution par finding. Deux findings N+1 dans la même JVM pendant la même fenêtre de scrape partagent le même coefficient par construction, car RAPL est au niveau processus, pas au niveau span.
+
+## Champ de confiance sur les findings (interop perf-lint)
+
+Un champ `confidence` est tamponné sur chaque `Finding` dans le rapport JSON et SARIF, indiquant le contexte source de la détection. La valeur est définie par l'appelant du pipeline (`pipeline::analyze_with_traces` pour le mode batch → toujours `CiBatch` ; `daemon::process_traces` pour le mode streaming → dérivé de `config.daemon_environment`). Les détecteurs eux-mêmes ne raisonnent jamais sur la confiance — ils émettent `Confidence::default()` et l'appelant écrase.
+
+Valeurs :
+
+| Confidence          | Source                                                   | Rank SARIF |
+|---------------------|----------------------------------------------------------|------------|
+| `CiBatch`           | Mode batch `analyze`, toujours                           | 30         |
+| `DaemonStaging`     | Daemon `watch` avec `[daemon] environment="staging"`     | 60         |
+| `DaemonProduction`  | Daemon `watch` avec `[daemon] environment="production"`  | 90         |
+
+Le champ apparaît dans :
+
+- **Rapport JSON** — chaque objet finding inclut `"confidence": "ci_batch"` / `"daemon_staging"` / `"daemon_production"`.
+- **SARIF v2.1.0** — entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
+- **Sortie terminal CLI** — NON affiché (le terminal reste propre pour l'usage interactif).
+
+Le consommateur principal est perf-lint, qui importe les findings runtime depuis la sortie JSON de perf-sentinel et applique un multiplicateur de sévérité basé sur la confiance. Voir `docs/FR/INTEGRATION-FR.md` pour l'exemple d'intégration.

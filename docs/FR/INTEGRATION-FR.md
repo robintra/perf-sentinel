@@ -40,8 +40,8 @@ slow_query_threshold_ms = 500
 
 [green]
 enabled = true
-default_region = "eu-west-3"       # optionnel : active les estimations gCO2eq (Phase 5a)
-# Phase 5a : surcharges par service pour les déploiements multi-région
+default_region = "eu-west-3"       # optionnel : active les estimations gCO2eq
+# : surcharges par service pour les déploiements multi-région
 # [green.service_regions]
 # "api-us"   = "us-east-1"
 # "api-asia" = "ap-southeast-1"
@@ -771,7 +771,61 @@ Pour l'intégration avec GitHub ou GitLab code scanning, exportez les findings e
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
 ```
 
-Chaque finding est mappé vers un résultat SARIF avec `ruleId`, `level` et `logicalLocations` (service + endpoint).
+Chaque finding est mappé vers un résultat SARIF avec `ruleId`, `level`, `logicalLocations` (service + endpoint), un tag custom `properties.confidence` et une valeur standard `rank` SARIF (0-100) dérivée de la confiance.
+
+## Champ de confiance sur les findings
+
+Chaque finding émis en JSON ou SARIF porte un champ `confidence` indiquant le contexte source de la détection. Les consommateurs aval — en particulier [perf-lint](https://github.com/robintra/perf-lint) — utilisent ce champ pour augmenter ou réduire la sévérité affichée dans l'IDE selon le degré de confiance à accorder au finding.
+
+Valeurs :
+
+| Valeur                | Quand émise                                                            | SARIF `rank` | Interprétation                                                                             |
+|-----------------------|------------------------------------------------------------------------|--------------|--------------------------------------------------------------------------------------------|
+| `"ci_batch"`          | `perf-sentinel analyze` (mode batch, toujours)                         | `30`         | Confiance faible : la trace vient d'un run CI contrôlé avec des patterns de trafic limités |
+| `"daemon_staging"`    | `perf-sentinel watch` avec `[daemon] environment = "staging"` (défaut) | `60`         | Confiance moyenne : patterns de trafic réels observés sur un déploiement staging           |
+| `"daemon_production"` | `perf-sentinel watch` avec `[daemon] environment = "production"`       | `90`         | Confiance la plus élevée : trafic réel, échelle réelle, vrais utilisateurs                 |
+
+**Exemple de finding JSON :**
+
+```json
+{
+  "type": "n_plus_one_sql",
+  "severity": "warning",
+  "trace_id": "abc123",
+  "service": "order-svc",
+  "source_endpoint": "POST /api/orders/{id}/submit",
+  "pattern": { "template": "SELECT * FROM order_item WHERE order_id = ?", "occurrences": 6, "window_ms": 250, "distinct_params": 6 },
+  "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+  "first_timestamp": "2026-04-08T03:14:01.050Z",
+  "last_timestamp": "2026-04-08T03:14:01.300Z",
+  "confidence": "daemon_production"
+}
+```
+
+**Fragment de résultat SARIF :**
+
+```json
+{
+  "ruleId": "n_plus_one_sql",
+  "level": "warning",
+  "message": { "text": "n_plus_one_sql in order-svc on POST /api/orders/{id}/submit..." },
+  "properties": { "confidence": "daemon_production" },
+  "rank": 90
+}
+```
+
+**Configuration dans le daemon :**
+
+```toml
+[daemon]
+# "staging" (défaut) → confidence = daemon_staging, rank = 60
+# "production"       → confidence = daemon_production, rank = 90
+environment = "production"
+```
+
+La valeur est tamponnée sur chaque finding émis par cette instance de daemon. Les valeurs invalides (tout sauf `staging`/`production`, insensible à la casse) sont rejetées au chargement de la config avec une erreur claire. Le mode batch `analyze` ignore ce champ et émet toujours `ci_batch`.
+
+**Interop perf-lint.** perf-lint lit le champ `confidence` sur les findings runtime importés et applique un multiplicateur de sévérité : les findings `ci_batch` sont affichés en hints, `daemon_staging` en warnings, `daemon_production` en errors. Ainsi un finding observé sur du trafic production réel apparaît plus bruyamment dans l'IDE qu'un finding observé uniquement dans une fixture CI.
 
 ---
 

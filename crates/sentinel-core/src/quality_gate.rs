@@ -57,7 +57,7 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{GreenImpact, Pattern};
+    use crate::detect::{Confidence, GreenImpact, Pattern};
 
     fn make_finding(finding_type: FindingType, severity: Severity) -> Finding {
         Finding {
@@ -79,6 +79,7 @@ mod tests {
                 estimated_extra_io_ops: 5,
                 io_intensity_score: 6.0,
             }),
+            confidence: Confidence::default(),
         }
     }
 

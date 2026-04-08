@@ -13,12 +13,13 @@ use crate::config::Config;
 use crate::correlate::Trace;
 use crate::correlate::window::{TraceWindow, WindowConfig};
 use crate::detect;
-use crate::detect::DetectConfig;
+use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
 use crate::normalize;
 use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
+use crate::score::scaphandre::ScaphandreState;
 
 /// Errors that can occur when running the daemon.
 #[derive(Debug, thiserror::Error)]
@@ -67,9 +68,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let grpc_incoming =
         tonic::transport::server::TcpIncoming::bind(grpc_addr).map_err(DaemonError::GrpcBind)?;
 
-    // Spawn OTLP gRPC server (listener already bound)
+    // Spawn OTLP gRPC server (listener already bound).
+    //
+    // The JoinHandle is captured so the Ctrl-C arm of the main select!
+    // can `.abort()` it and shut down cleanly. Without this, the gRPC
+    // server task outlives `daemon::run` and gets force-killed by
+    // tokio's runtime drop, which can leak connections and produce
+    // "task panicked after shutdown" log noise.
     let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx.clone());
-    tokio::spawn(async move {
+    let grpc_handle = tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         tracing::info!("OTLP gRPC listening on {grpc_addr}");
         if let Err(e) = tonic::transport::Server::builder()
@@ -84,7 +91,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         }
     });
 
-    // Spawn OTLP HTTP server with metrics endpoint merged
+    // Spawn OTLP HTTP server with metrics endpoint merged. JoinHandle
+    // captured for the same shutdown reason as the gRPC server above.
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
     let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
     let http_router = otlp_router.merge(metrics_router).layer(
@@ -95,37 +103,69 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             }))
             .layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60))),
     );
-    tokio::spawn(async move {
+    let http_handle = tokio::spawn(async move {
         tracing::info!("OTLP HTTP listening on {http_addr}");
         if let Err(e) = axum::serve(http_listener, http_router).await {
             tracing::error!("HTTP server error: {e}");
         }
     });
 
-    // Spawn JSON socket listener (Unix only)
+    // Spawn JSON socket listener (Unix only). JoinHandle captured so
+    // the Ctrl-C arm can abort the accept loop AND clean up the
+    // socket file (`run_json_socket` doesn't unlink the socket on its
+    // own — the file lingers until the next daemon start otherwise).
     #[cfg(unix)]
-    {
+    let json_socket_handle: Option<tokio::task::JoinHandle<()>> = {
         let socket_path = config.json_socket.clone();
         let socket_tx = tx.clone();
         let max_payload = config.max_payload_size;
-        tokio::spawn(async move {
+        Some(tokio::spawn(async move {
             run_json_socket(&socket_path, socket_tx, max_payload).await;
-        });
-    }
+        }))
+    };
     #[cfg(not(unix))]
-    {
+    let json_socket_handle: Option<tokio::task::JoinHandle<()>> = {
         tracing::warn!("JSON socket ingestion not available on this platform; use OTLP HTTP/gRPC");
-    }
+        None
+    };
 
     let detect_config = DetectConfig::from(&config);
-    let carbon_ctx = score::carbon::CarbonContext {
+    // base carbon context used as a template. The actual
+    // context passed to `process_traces` each tick is cloned from this
+    // with `scaphandre_snapshot` patched in from the shared state.
+    let base_carbon_ctx = score::carbon::CarbonContext {
         default_region: config.green_default_region.clone(),
         service_regions: config.green_service_regions.clone(),
         embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
+        // honour the [green] use_hourly_profiles toggle.
+        use_hourly_profiles: config.green_use_hourly_profiles,
+        // filled in per-tick from the Scaphandre state
+        // when the scraper is configured. Left None when it's not.
+        scaphandre_snapshot: None,
     };
     let green_enabled = config.green_enabled;
     let sampling_rate = config.sampling_rate;
     let evict_ms = config.trace_ttl_ms / 2;
+    // cache the confidence label once. The daemon stamps this
+    // on every finding in `process_traces`. `analyze` batch mode uses
+    // `Confidence::CiBatch` instead (stamped in `pipeline::analyze_with_traces`).
+    let confidence = config.confidence();
+
+    // optionally spawn the Scaphandre scraper. Absent config
+    // → None → scoring uses the proxy model. Present config → spawn a
+    // background task that updates `scaphandre_state` every
+    // `scrape_interval_secs` and the staleness threshold used by the
+    // snapshot read is 3× the interval (hung-scraper defense).
+    let (scaphandre_state, scraper_handle, staleness_ms) = if let Some(scaph_cfg) =
+        config.green_scaphandre.clone()
+    {
+        let staleness = scaph_cfg.scrape_interval.as_millis() as u64 * 3;
+        let state = ScaphandreState::new();
+        let handle = score::scaphandre::spawn_scraper(scaph_cfg, state.clone(), metrics.clone());
+        (Some(state), Some(handle), staleness)
+    } else {
+        (None, None, 0)
+    };
 
     // Main event loop
     let mut ticker = interval(Duration::from_millis(evict_ms.max(100)));
@@ -140,6 +180,17 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     .into_iter()
                     .map(normalize::normalize)
                     .collect();
+                // increment the per-service I/O op counter
+                // from the normalized events. The Scaphandre scraper
+                // reads this counter at each tick via snapshot-diff.
+                // Done before taking the window lock so the counter
+                // stays cheap even under contention.
+                for event in &normalized {
+                    metrics
+                        .service_io_ops_total
+                        .with_label_values(&[event.event.service.as_str()])
+                        .inc();
+                }
                 let now_ms = current_time_ms();
                 let mut lru_evicted = Vec::new();
                 {
@@ -152,14 +203,20 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     metrics.active_traces.set(w.active_traces() as f64);
                 }
                 metrics.events_processed_total.inc_by(event_count as f64);
-                // Process LRU-evicted traces so their findings are not lost
+                // Process LRU-evicted traces so their findings are not lost.
                 if !lru_evicted.is_empty() {
+                    let tick_ctx = build_tick_ctx(
+                        &base_carbon_ctx,
+                        scaphandre_state.as_deref(),
+                        staleness_ms,
+                    );
                     process_traces(
                         lru_evicted,
                         &detect_config,
                         green_enabled,
-                        &carbon_ctx,
+                        &tick_ctx,
                         &metrics,
+                        confidence,
                     );
                 }
             }
@@ -171,27 +228,68 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     metrics.active_traces.set(w.active_traces() as f64);
                     expired
                 };
-                process_traces(
-                    expired,
-                    &detect_config,
-                    green_enabled,
-                    &carbon_ctx,
-                    &metrics,
-                );
+                if !expired.is_empty() {
+                    let tick_ctx = build_tick_ctx(
+                        &base_carbon_ctx,
+                        scaphandre_state.as_deref(),
+                        staleness_ms,
+                    );
+                    process_traces(
+                        expired,
+                        &detect_config,
+                        green_enabled,
+                        &tick_ctx,
+                        &metrics,
+                        confidence,
+                    );
+                }
             }
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Shutting down daemon, processing remaining traces...");
+                // Abort all spawned tasks BEFORE draining the window
+                // and processing the remaining traces. This stops
+                // any in-flight `tracing::error!` from the listener
+                // tasks landing AFTER the "Shutting down" message,
+                // and prevents the runtime from leaking the tasks
+                // when `daemon::run` returns.
+                //
+                // Order matters slightly: kill the Scaphandre scraper
+                // first so its log lines don't interleave with the
+                // shutdown message, then the listeners.
+                if let Some(handle) = &scraper_handle {
+                    handle.abort();
+                }
+                grpc_handle.abort();
+                http_handle.abort();
+                if let Some(handle) = &json_socket_handle {
+                    handle.abort();
+                }
                 let remaining = {
                     let mut w = window.lock().await;
                     w.drain_all()
                 };
+                let tick_ctx = build_tick_ctx(
+                    &base_carbon_ctx,
+                    scaphandre_state.as_deref(),
+                    staleness_ms,
+                );
                 process_traces(
                     remaining,
                     &detect_config,
                     green_enabled,
-                    &carbon_ctx,
+                    &tick_ctx,
                     &metrics,
+                    confidence,
                 );
+                // Best-effort socket cleanup. `run_json_socket` doesn't
+                // unlink the Unix socket file on exit, so without this
+                // a leftover socket file blocks the next daemon start
+                // until manual `rm`. Ignore errors — if the file is
+                // gone or unreachable, the next bind will fail loudly.
+                #[cfg(unix)]
+                {
+                    let _ = std::fs::remove_file(&config.json_socket);
+                }
                 break;
             }
         }
@@ -200,13 +298,42 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     Ok(())
 }
 
+/// build a per-tick `CarbonContext` by cloning the base
+/// context and patching in a fresh Scaphandre snapshot.
+///
+/// Called right before every `process_traces` invocation so each tick
+/// sees the latest measured coefficients. When Scaphandre is not
+/// configured, returns a clone of the base context with
+/// `scaphandre_snapshot = None`.
+fn build_tick_ctx(
+    base: &score::carbon::CarbonContext,
+    scaphandre_state: Option<&ScaphandreState>,
+    staleness_ms: u64,
+) -> score::carbon::CarbonContext {
+    let snapshot = scaphandre_state.and_then(|state| {
+        let now = score::scaphandre::monotonic_ms();
+        let snap = state.snapshot(now, staleness_ms);
+        if snap.is_empty() { None } else { Some(snap) }
+    });
+    let mut ctx = base.clone();
+    ctx.scaphandre_snapshot = snapshot;
+    ctx
+}
+
 /// Process a batch of completed/expired traces: detect, score, emit NDJSON.
+///
+/// stamps `confidence` on every finding after detection. The
+/// value is derived from `config.daemon_environment` in `run()` and passed
+/// here unchanged. `analyze` batch mode does not call this function; it
+/// uses `pipeline::analyze_with_traces` which hardcodes
+/// `Confidence::CiBatch`.
 fn process_traces(
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
     detect_config: &DetectConfig,
     green_enabled: bool,
     carbon_ctx: &score::carbon::CarbonContext,
     metrics: &MetricsState,
+    confidence: Confidence,
 ) {
     if traces.is_empty() {
         return;
@@ -219,12 +346,20 @@ fn process_traces(
         .collect();
 
     let findings = detect::detect(&trace_structs, detect_config);
-    let (findings, green_summary) = if green_enabled {
+    let (mut findings, green_summary) = if green_enabled {
         score::score_green(&trace_structs, findings, Some(carbon_ctx))
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
         (findings, GreenSummary::disabled(total_io_ops))
     };
+
+    // stamp the daemon's confidence label. Detectors emitted
+    // `Confidence::default()` (= CiBatch); overwrite with the real value
+    // captured from Config at daemon startup.
+    for finding in &mut findings {
+        finding.confidence = confidence;
+    }
+    let findings = findings;
 
     // Update Prometheus metrics
     metrics.traces_analyzed_total.inc_by(trace_count as f64);
@@ -443,7 +578,14 @@ mod tests {
     fn process_traces_empty_does_nothing() {
         let metrics = MetricsState::new();
         let ctx = empty_carbon_ctx();
-        process_traces(vec![], &default_detect_config(), true, &ctx, &metrics);
+        process_traces(
+            vec![],
+            &default_detect_config(),
+            true,
+            &ctx,
+            &metrics,
+            Confidence::DaemonStaging,
+        );
     }
 
     #[test]
@@ -465,6 +607,7 @@ mod tests {
             true,
             &ctx,
             &metrics,
+            Confidence::DaemonStaging,
         );
     }
 
@@ -483,6 +626,7 @@ mod tests {
             true,
             &ctx,
             &metrics,
+            Confidence::DaemonStaging,
         );
     }
 
@@ -552,6 +696,7 @@ mod tests {
             true,
             &ctx,
             &metrics,
+            Confidence::DaemonStaging,
         );
 
         let output = metrics.render();
@@ -577,6 +722,7 @@ mod tests {
             false, // green_enabled = false
             &ctx,
             &metrics,
+            Confidence::DaemonStaging,
         );
         // avoidable_io_ops counter should stay at 0 when green is disabled
         assert!((metrics.avoidable_io_ops.get() - 0.0).abs() < f64::EPSILON);

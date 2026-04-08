@@ -384,7 +384,7 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{FindingType, Pattern, Severity};
+    use crate::detect::{Confidence, FindingType, Pattern, Severity};
 
     fn sample_csv() -> &'static str {
         "query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read\n\
@@ -647,6 +647,7 @@ mod tests {
             first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
             last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
             green_impact: None,
+            confidence: Confidence::default(),
         }
     }
 

@@ -139,17 +139,17 @@ It is **NOT a regulatory carbon accounting tool**. Do **NOT** use it for:
 
 ### What works
 
-| Use case | Reliability |
-|---|---|
-| Detect waste (N+1, fanout, redundant) | ✅ deterministic counting |
-| Compare runs (baseline vs. fix) | ✅ relative deltas are meaningful |
-| Rank endpoints by relative impact | ✅ within a single deployment |
-| CI carbon regression guardrails | ✅ via `[thresholds] io_waste_ratio_max` |
-| Absolute CO₂ in compliance reports | ❌ 2× multiplicative uncertainty |
-| Cross-infrastructure comparison | ❌ assumes uniform server profile |
-| Replacing measured energy | ❌ proxy only |
+| Use case                              | Reliability                             |
+|---------------------------------------|-----------------------------------------|
+| Detect waste (N+1, fanout, redundant) | ✅ deterministic counting                |
+| Compare runs (baseline vs. fix)       | ✅ relative deltas are meaningful        |
+| Rank endpoints by relative impact     | ✅ within a single deployment            |
+| CI carbon regression guardrails       | ✅ via `[thresholds] io_waste_ratio_max` |
+| Absolute CO₂ in compliance reports    | ❌ 2× multiplicative uncertainty         |
+| Cross-infrastructure comparison       | ❌ assumes uniform server profile        |
+| Replacing measured energy             | ❌ proxy only                            |
 
-### Multi-region scoring (Phase 5a)
+### Multi-region scoring
 
 When OTel spans carry the `cloud.region` resource attribute, perf-sentinel automatically buckets I/O ops per region and applies the correct grid intensity coefficient. The fallback chain is:
 
@@ -160,6 +160,81 @@ When OTel spans carry the `cloud.region` resource attribute, perf-sentinel autom
 I/O ops with no resolvable region land in a synthetic `"unknown"` bucket and contribute zero operational CO₂ (a `tracing::warn!` is emitted). Embodied carbon is still emitted because hardware emissions are region-independent.
 
 See `docs/design/05-GREENOPS-AND-CARBON.md` for the full methodology, formula, and SCI v1.0 alignment notes.
+
+### Hourly carbon profiles
+
+Embedded 24-hour UTC profiles are available for four regions with well-documented diurnal grid patterns:
+
+- **France (`eu-west-3`, `fr`)** — nuclear baseload, relatively flat with a slight 17h-20h UTC evening peak.
+- **Germany (`eu-central-1`, `de`)** — coal + gas + variable renewables, pronounced morning (06h-10h UTC) and evening (17h-20h UTC) peaks.
+- **UK (`eu-west-2`, `gb`)** — wind + gas, moderate twin peaks similar to Germany but smaller.
+- **US-East (`us-east-1`)** — gas + coal, flat daytime peak (13h-18h UTC = 9am-2pm Eastern business hours).
+
+When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific intensity for each span based on the span's UTC timestamp. Regions **not** listed above always use the flat annual value from the primary carbon table regardless of the toggle. Reports where at least one region used an hourly profile are tagged with `model = "io_proxy_v2"` (up from `"io_proxy_v1"`), and each per-region breakdown row carries an `intensity_source` field (`"annual"` or `"hourly"`) so downstream consumers can audit which regions benefited from the more precise data.
+
+**What this does and doesn't do.** The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). It does **not** capture:
+
+- **Seasonal variance** — only hourly is embedded, not monthly×hourly. Winter vs summer carbon intensity differences are averaged into the 24-value profile.
+- **Weather-dependent fluctuations** — the embedded values are typical averages, not real-time data. A calm windless day in the UK will produce more carbon than the profile suggests; a sunny noon in France less.
+- **Regions not in the 4-region set** — all other AWS/GCP/Azure regions, as well as ISO country codes, fall back to the flat annual value.
+
+**Timestamp requirements.** perf-sentinel parses timestamps as UTC and requires the canonical ISO 8601 form `YYYY-MM-DDTHH:MM:SS[.fff]Z` (trailing `Z`) or the space-separated variant. Strings with non-UTC offsets (`+02:00`, `-05:00`) are rejected rather than silently shifted — the carbon table is UTC-anchored, so naive offset handling would systematically skew the estimate. Spans with unparseable timestamps fall back to the flat annual intensity.
+
+**Accuracy improvement (approximate).** Compared to the flat-annual model, the hourly profiles reduce the time-of-day component of the uncertainty budget from ~±50% to ~±20% **for the 4 listed regions only**. The overall 2× multiplicative uncertainty bracket on the CO₂ estimate is unchanged, because the energy-per-op proxy constant remains the dominant source of error.
+
+To pin reports to the flat-annual model (e.g. to compare historical runs without the hourly shift), set `[green] use_hourly_profiles = false` in the config.
+
+#### ⚠️ Germany (`eu-central-1`) hourly profile diverges from the flat annual
+
+Unlike France, UK and US-East — whose hourly profiles stay within ±5% of their corresponding flat annual values in the primary carbon table — the Germany hourly profile has an **arithmetic mean of ~442 g/kWh**, whereas the embedded flat annual in `CARBON_TABLE[eu-central-1]` is **338 g/kWh** (a ~31% divergence). This reflects recent (2023-2024) ENTSO-E data on the German grid, which has been dominated by coal and variable renewables with pronounced peaks; the embedded flat annual predates this shift and is optimistic by comparison.
+
+**What this means for your reports:**
+
+- If you run reports with `default_region = "eu-central-1"` (or any span carrying `cloud.region = eu-central-1`) and the default `use_hourly_profiles = true`, you will see **CO₂ numbers roughly 31% higher** than you would have seen before the hourly profiles landed.
+- The new numbers are closer to reality than the old flat-annual ones. **We do not recommend pinning to the old numbers** except for backward-compatibility purposes (e.g. regression-comparing a new run against a baseline captured before the hourly profiles landed).
+- If you do need the old behaviour, set `[green] use_hourly_profiles = false` in your config. This disables hourly for all regions, not just Germany.
+- If you have CI quality gates (`[thresholds] io_waste_ratio_max` etc.) calibrated on the old DE numbers, you will need to recalibrate after the upgrade.
+
+The divergence is documented inline in `score/carbon.rs` so future data refreshes stay honest about the mismatch. A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual value so accidental edits to the DE profile cannot silently corrupt it.
+
+### Scaphandre precision bounds
+
+perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
+
+**Platform requirements.** Scaphandre works on:
+
+- **Linux only** (no Windows, no macOS, no BSD).
+- **Intel or AMD x86_64 CPUs with RAPL support** — most recent server and desktop chips, but notably **NOT ARM64**. Apple Silicon, Ampere, Graviton and similar cloud ARM instances cannot use this integration.
+- **Bare metal or VMs with RAPL passthrough.** Most cloud VMs (AWS EC2, GCP GCE, Azure VMs) do **not** expose RAPL counters to guest OSes. Kubernetes pods running on bare-metal nodes can access RAPL if the host exposes `/sys/class/powercap/intel-rapl/` into the container (requires privileged access or explicit mount).
+
+On unsupported platforms, the `[green.scaphandre]` section is parsed and the scraper spawns, but it will fail to find the endpoint and silently fall back to the proxy model. A single warn-level log line is emitted at first failure so operators notice the misconfiguration.
+
+**What Scaphandre improves.** The integration replaces the fixed proxy coefficient (0.1 µWh per I/O op) with a **service-level measured value** derived from the actual power consumption of the mapped process over the scrape window. Formula:
+
+```
+energy_per_op_kwh = (process_power_watts × scrape_interval_secs) / ops_in_window / 3_600_000
+```
+
+This captures:
+
+- **Actual process power** (not an averaged approximation).
+- **Per-service differences** — Java vs .NET vs Node vs Go will have different energy footprints even for similar I/O work.
+- **Workload variance over time** — an idle service and a loaded service get different coefficients as the daemon runs.
+
+Reports where at least one service used a measured coefficient are tagged with `model = "scaphandre_rapl"` (taking precedence over `"io_proxy_v2"` and `"io_proxy_v1"`).
+
+**What Scaphandre does NOT do.** This is the critical limitation: **Scaphandre gives per-service coefficients, not per-finding attribution**. Specifically:
+
+1. **RAPL is process-level, not span-level.** The metric `scaph_process_power_consumption_microwatts{exe="java"}` reports the total power draw of the `java` process. It cannot distinguish between two concurrent N+1 findings running in the same process at the same time — they share the coefficient by construction.
+2. **Scrape interval is not the precision bottleneck.** A 5-second scrape window averages power over 5 seconds. Going to 1 second would not give you per-finding precision because RAPL itself averages at the 2s-Scaphandre-step granularity. The actual precision floor is "one coefficient per (service, scrape_window)".
+3. **Concurrent services on the same process share nothing.** If your architecture runs multiple logical services in the same JVM, Scaphandre's `exe="java"` reading covers all of them together. perf-sentinel attributes the measured energy to whichever service name you mapped, which is a simplification.
+4. **OS scheduler noise.** Per-process power attribution via `process_cpu_time / total_cpu_time` is inherently noisy under mixed loads.
+
+**Correct mental model.** Scaphandre gives you a **dynamic, measured, service-level per-op coefficient** instead of a **fixed, proxied, global constant**. It is a meaningful improvement in the energy attribution layer of the carbon estimate stack, but it does not transform perf-sentinel into a regulatory-grade carbon accounting tool. The 2× multiplicative uncertainty bracket still applies.
+
+**Staleness handling.** The daemon drops entries older than 3× the scrape interval when building the per-tick snapshot. A hung scraper or a service that stops emitting events will silently fall back to the proxy model after ~3 scrape intervals. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators set up Grafana alerts on scraper health.
+
+**Batch mode.** `analyze` batch mode never spawns the scraper and never uses Scaphandre data. Even if `[green.scaphandre]` is present in the config, the `analyze` command skips it entirely and always uses the proxy model. Only the `watch` daemon integrates Scaphandre.
 
 ## gCO2eq energy constant (legacy section, kept for cross-references)
 

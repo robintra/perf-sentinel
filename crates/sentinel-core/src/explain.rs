@@ -298,7 +298,7 @@ pub fn format_tree_json(tree: &ExplainTree) -> Result<String, serde_json::Error>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{FindingType, Pattern, Severity};
+    use crate::detect::{Confidence, FindingType, Pattern, Severity};
     use crate::test_helpers::{make_sql_event, make_trace};
 
     fn make_finding_for(trace_id: &str, template: &str) -> Finding {
@@ -318,6 +318,7 @@ mod tests {
             first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
             last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
             green_impact: None,
+            confidence: Confidence::default(),
         }
     }
 

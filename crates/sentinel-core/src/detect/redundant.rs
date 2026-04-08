@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::correlate::Trace;
 use crate::event::EventType;
 
-use super::{Finding, FindingType, Pattern, Severity};
+use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
 /// Detect redundant (exact duplicate) operations in a single trace.
 #[must_use]
@@ -66,6 +66,7 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
             first_timestamp: min_ts.to_string(),
             last_timestamp: max_ts.to_string(),
             green_impact: None,
+            confidence: Confidence::default(),
         });
     }
 

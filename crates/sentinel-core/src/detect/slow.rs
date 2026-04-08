@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use crate::correlate::Trace;
 use crate::event::EventType;
 
-use super::{Finding, FindingType, Pattern, Severity};
+use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
 /// Detect recurring slow operations in a single trace.
 ///
@@ -88,6 +88,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             first_timestamp: min_ts.to_string(),
             last_timestamp: max_ts.to_string(),
             green_impact: None,
+            confidence: Confidence::default(),
         });
     }
 
@@ -222,6 +223,7 @@ fn build_cross_trace_finding(
         first_timestamp: first_ts.to_string(),
         last_timestamp: last_ts.to_string(),
         green_impact: None,
+        confidence: Confidence::default(),
     })
 }
 
