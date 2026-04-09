@@ -46,6 +46,36 @@ La détection de fanout (`excessive_fanout`) repose sur le champ `parent_span_id
 
 Les findings de fanout, comme les findings lents, ne sont **pas** comptés comme des I/O évitables dans le ratio de gaspillage. Ils représentent un problème structurel (trop d'opérations enfants par parent) plutôt que des I/O éliminables.
 
+## Detection des services bavards (chatty service)
+
+Le detecteur de services bavards ne compte que les spans HTTP sortants (`type: http_out`). Une trace avec 15 requetes SQL vers la meme base de donnees n'est pas "bavarde" au sens inter-services. Le seuil est par trace, pas par endpoint : une trace repartie sur 3 endpoints faisant chacun 6 appels (18 au total) declenchera le seuil meme si aucun endpoint individuel n'est particulierement bavard.
+
+Les findings de type chatty service ne sont PAS comptees comme I/O evitables dans le ratio de gaspillage. Elles representent un probleme architectural (granularite de decomposition des services), pas une opportunite de regroupement.
+
+## Detection de saturation du pool de connexions
+
+Le detecteur de saturation du pool utilise une heuristique basee sur le chevauchement temporel des spans SQL, pas les metriques reelles du pool de connexions. Il calcule la concurrence maximale en traitant chaque span SQL comme un intervalle `[debut, debut + duree]` et en executant un algorithme de balayage (sweep line).
+
+Limitations :
+- Les timestamps du tracing distribue peuvent presenter un decalage d'horloge, entrainant une detection imprecise du chevauchement.
+- Le detecteur ne peut pas distinguer entre une contention reelle du pool et des requetes paralleles intentionnelles (par exemple, des patterns scatter-gather).
+- Pour un monitoring precis, instrumentez votre application avec les metriques OTel du pool de connexions (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
+
+Les findings de saturation du pool ne sont PAS comptees comme I/O evitables.
+
+## Detection des appels serialises
+
+Le detecteur d'appels serialises signale les spans freres sequentiels (meme `parent_span_id`) qui appellent des services ou endpoints differents et pourraient potentiellement etre executes en parallele. La severite est `info` pour refleter l'incertitude inherente.
+
+Considerations sur les faux positifs :
+- Des appels sequentiels au meme service PEUVENT avoir des dependances de donnees legitimes que l'outil ne peut pas observer (par exemple, "creer un utilisateur" puis "envoyer un email de bienvenue" ou l'email a besoin de l'ID utilisateur).
+- Le detecteur ignore les sequences ou tous les appels partagent le meme template normalise (ce pattern est du N+1, pas de la serialisation).
+- Le champ `parent_span_id` doit etre present sur les spans pour que ce detecteur fonctionne. Les traces sans relations parent-enfant ne declencheront pas de findings de serialisation.
+
+Le detecteur remonte au maximum un finding par span parent : la plus longue sous-sequence non chevauchante (trouvee par programmation dynamique). Si un parent contient deux groupes distincts d'appels serialisables separes par des spans chevauchants, seul le groupe le plus long est rapporte.
+
+Les findings d'appels serialises ne sont PAS comptees comme I/O evitables. Elles representent une opportunite d'optimisation de latence, pas une reduction d'I/O.
+
 ## `rss_peak_bytes` sous Windows
 
 La commande `perf-sentinel bench` rapporte le RSS pic (Resident Set Size) en utilisant des APIs spécifiques à la plateforme. Sous Windows, cette métrique est rapportée comme `null` car l'implémentation actuelle utilise `getrusage()` qui est spécifique à Unix. Les métriques de débit et de latence fonctionnent sur toutes les plateformes.

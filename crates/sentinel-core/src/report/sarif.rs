@@ -122,6 +122,9 @@ fn finding_type_description(ft: &FindingType) -> &'static str {
         FindingType::SlowSql => "Slow SQL query pattern detected",
         FindingType::SlowHttp => "Slow HTTP call pattern detected",
         FindingType::ExcessiveFanout => "Excessive span fanout detected",
+        FindingType::ChattyService => "Chatty service pattern detected",
+        FindingType::PoolSaturation => "Connection pool saturation risk detected",
+        FindingType::SerializedCalls => "Serialized-but-parallelizable calls detected",
     }
 }
 
@@ -134,6 +137,9 @@ fn build_rules() -> Vec<SarifRule> {
         FindingType::SlowSql,
         FindingType::SlowHttp,
         FindingType::ExcessiveFanout,
+        FindingType::ChattyService,
+        FindingType::PoolSaturation,
+        FindingType::SerializedCalls,
     ];
     variants
         .iter()
@@ -286,9 +292,12 @@ mod tests {
         let report = make_report(vec![]);
         let sarif = report_to_sarif(&report);
         let rules = &sarif.runs[0].tool.driver.rules;
-        assert_eq!(rules.len(), 7);
+        assert_eq!(rules.len(), 10);
         assert_eq!(rules[0].id, "n_plus_one_sql");
         assert_eq!(rules[6].id, "excessive_fanout");
+        assert_eq!(rules[7].id, "chatty_service");
+        assert_eq!(rules[8].id, "pool_saturation");
+        assert_eq!(rules[9].id, "serialized_calls");
     }
 
     #[test]

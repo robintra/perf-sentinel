@@ -36,6 +36,12 @@ pub struct Config {
     pub slow_query_min_occurrences: u32,
     /// Maximum child spans per parent before flagging excessive fanout.
     pub max_fanout: u32,
+    /// Minimum HTTP outbound calls per trace to flag as chatty service.
+    pub chatty_service_min_calls: u32,
+    /// Peak concurrent SQL spans per service to flag pool saturation.
+    pub pool_saturation_concurrent_threshold: u32,
+    /// Minimum sequential independent sibling calls to flag as serialized.
+    pub serialized_min_sequential: u32,
 
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
@@ -153,6 +159,9 @@ impl Default for Config {
             slow_query_threshold_ms: 500,
             slow_query_min_occurrences: 3,
             max_fanout: 20,
+            chatty_service_min_calls: 15,
+            pool_saturation_concurrent_threshold: 10,
+            serialized_min_sequential: 3,
             // Green
             green_enabled: true,
             green_default_region: None,
@@ -230,6 +239,9 @@ struct DetectionSection {
     slow_query_threshold_ms: Option<u64>,
     slow_query_min_occurrences: Option<u32>,
     max_fanout: Option<u32>,
+    chatty_service_min_calls: Option<u32>,
+    pool_saturation_concurrent_threshold: Option<u32>,
+    serialized_min_sequential: Option<u32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -311,6 +323,7 @@ struct DaemonSection {
 }
 
 impl From<RawConfig> for Config {
+    #[allow(clippy::too_many_lines)] // Flat config-to-typed mapping: splitting would scatter field assignments
     fn from(raw: RawConfig) -> Self {
         let defaults = Self::default();
 
@@ -350,6 +363,18 @@ impl From<RawConfig> for Config {
                 .slow_query_min_occurrences
                 .unwrap_or(defaults.slow_query_min_occurrences),
             max_fanout: raw.detection.max_fanout.unwrap_or(defaults.max_fanout),
+            chatty_service_min_calls: raw
+                .detection
+                .chatty_service_min_calls
+                .unwrap_or(defaults.chatty_service_min_calls),
+            pool_saturation_concurrent_threshold: raw
+                .detection
+                .pool_saturation_concurrent_threshold
+                .unwrap_or(defaults.pool_saturation_concurrent_threshold),
+            serialized_min_sequential: raw
+                .detection
+                .serialized_min_sequential
+                .unwrap_or(defaults.serialized_min_sequential),
 
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
@@ -860,6 +885,21 @@ impl Config {
             &1,
         )?;
         check_range("max_fanout", &self.max_fanout, &1, &100_000)?;
+        check_min(
+            "chatty_service_min_calls",
+            &self.chatty_service_min_calls,
+            &1,
+        )?;
+        check_min(
+            "pool_saturation_concurrent_threshold",
+            &self.pool_saturation_concurrent_threshold,
+            &2,
+        )?;
+        check_min(
+            "serialized_min_sequential",
+            &self.serialized_min_sequential,
+            &2,
+        )?;
         Ok(())
     }
 
@@ -879,6 +919,13 @@ impl Config {
         Ok(())
     }
 
+    /// Warn (but do not reject) non-loopback listen addresses.
+    ///
+    /// The default is `127.0.0.1` (loopback). Advanced users may override
+    /// to `0.0.0.0` for container deployments behind a reverse proxy.
+    /// We warn loudly rather than rejecting, because the user's intent is
+    /// explicit (they changed the config) and a hard reject would force
+    /// workarounds (e.g., iptables) that are harder to audit.
     #[allow(clippy::unnecessary_wraps)]
     fn validate_listen_addr(&self) -> Result<(), String> {
         if self.listen_addr != "127.0.0.1" && self.listen_addr != "::1" {

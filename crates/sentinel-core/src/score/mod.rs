@@ -428,9 +428,16 @@ fn compute_carbon_report(
             // Per-op CO₂ via the single-source helper.
             let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 
-            // Obtain or insert the accumulator. Avoid re-allocating the
-            // String key when the fast path was taken (region already
-            // lowercase AND present) via two separate entry() calls.
+            // Obtain or insert the accumulator. Three paths to minimize
+            // allocations on the hot per-span loop:
+            //   1. needs_lowercase=true  -> region_key was already allocated,
+            //      use entry() which moves the owned String into the map.
+            //   2. needs_lowercase=false AND key exists -> get_mut() with a
+            //      borrowed &str, zero allocation.
+            //   3. needs_lowercase=false AND key absent -> allocate once via
+            //      entry(region_ref.to_string()).
+            // This avoids allocating a String for every span when the region
+            // is already lowercase and present (the common case).
             let acc = if needs_lowercase {
                 per_region.entry(region_key).or_default()
             } else if per_region.contains_key(region_ref) {

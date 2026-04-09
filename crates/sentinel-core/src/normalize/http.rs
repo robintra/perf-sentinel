@@ -48,7 +48,10 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
         None => (path_and_query, None),
     };
 
-    // Collect query params as extracted values (capped to prevent unbounded allocation)
+    // Collect query params as extracted values (capped to prevent unbounded allocation).
+    // Each pair is heap-allocated via to_string(). A Cow<str> backed by the source
+    // would avoid this, but NormalizedEvent.params is Vec<String> throughout the
+    // pipeline, so the allocation is unavoidable without a larger refactor.
     if let Some(q) = query_params {
         for pair in q.split('&').take(100) {
             params.push(pair.to_string());

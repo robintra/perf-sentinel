@@ -191,6 +191,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 
     // Main event loop
     let mut ticker = interval(Duration::from_millis(evict_ms.max(100)));
+    // Prevent burst-catchup if process_traces takes longer than the tick
+    // interval. Both the Scaphandre and cloud scrapers already use Delay.
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
@@ -232,6 +235,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 let now_ms = current_time_ms();
                 let mut lru_evicted = Vec::new();
                 {
+                    // Lock held for O(batch_size) push() calls. Each push
+                    // is O(1) amortized (LRU insert/promote). Batch size is
+                    // bounded by the mpsc channel capacity (1024) and
+                    // max_payload_size, so lock duration is bounded.
                     let mut w = window.lock().await;
                     for event in normalized {
                         if let Some(evicted) = w.push(event, now_ms) {
@@ -651,6 +658,9 @@ mod tests {
             slow_threshold_ms: 500,
             slow_min_occurrences: 3,
             max_fanout: 20,
+            chatty_service_min_calls: 15,
+            pool_saturation_concurrent_threshold: 10,
+            serialized_min_sequential: 3,
         }
     }
 

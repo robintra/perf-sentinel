@@ -758,6 +758,9 @@ fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool
             FindingType::SlowSql => "Slow SQL",
             FindingType::SlowHttp => "Slow HTTP",
             FindingType::ExcessiveFanout => "Excessive Fanout",
+            FindingType::ChattyService => "Chatty Service",
+            FindingType::PoolSaturation => "Pool Saturation",
+            FindingType::SerializedCalls => "Serialized Calls",
         };
 
         let severity_label = match finding.severity {

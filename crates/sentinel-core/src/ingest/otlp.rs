@@ -23,9 +23,13 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         buf.push(HEX[(b >> 4) as usize]);
         buf.push(HEX[(b & 0x0f) as usize]);
     }
-    // All pushed bytes come from HEX (ASCII hex digits 0-9, a-f),
-    // so the output is always valid UTF-8.
-    String::from_utf8(buf).expect("hex digits are always valid UTF-8")
+    // SAFETY: all bytes come from HEX (ASCII 0-9, a-f), always valid UTF-8.
+    // Use the infallible path to avoid a panic in library code.
+    //
+    // SAFETY justification: the only bytes pushed into `buf` are indexed
+    // from the `HEX` constant which contains exclusively ASCII characters.
+    // ASCII is a subset of UTF-8, so `from_utf8_unchecked` is sound.
+    unsafe { String::from_utf8_unchecked(buf) }
 }
 
 use crate::time::nanos_to_iso8601;
@@ -221,7 +225,7 @@ fn convert_span(
         trace_id,
         span_id,
         parent_span_id,
-        service: service_name.to_string(),
+        service: service_name.to_string(), // per-span clone; unavoidable (SpanEvent owns String)
         cloud_region,
         event_type,
         operation,

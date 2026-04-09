@@ -473,6 +473,9 @@ fn explain_tree_from_n_plus_one_fixture() {
         slow_threshold_ms: 500,
         slow_min_occurrences: 3,
         max_fanout: 20,
+        chatty_service_min_calls: 15,
+        pool_saturation_concurrent_threshold: 10,
+        serialized_min_sequential: 3,
     };
     let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
     let tree = sentinel_core::explain::build_tree(trace, &findings);

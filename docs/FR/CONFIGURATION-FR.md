@@ -42,6 +42,9 @@ Paramètres des algorithmes de détection.
 | `slow_query_threshold_ms`    | entier | `500`  | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                       |
 | `slow_query_min_occurrences` | entier | `3`    | Nombre minimum d'occurrences lentes du même template pour générer un finding                                    |
 | `max_fanout`                 | entier | `20`   | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)              |
+| `chatty_service_min_calls`   | entier | `15`   | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil. |
+| `pool_saturation_concurrent_threshold` | entier | `10` | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans. |
+| `serialized_min_sequential`  | entier | `3`    | Nombre minimum d'appels sequentiels independants (meme parent, sans chevauchement, templates differents) pour signaler des appels potentiellement parallelisables. |
 
 ### `[green]`
 
@@ -196,6 +199,9 @@ window_duration_ms = 500
 slow_query_threshold_ms = 500
 slow_query_min_occurrences = 3
 max_fanout = 20
+chatty_service_min_calls = 15
+pool_saturation_concurrent_threshold = 10
+serialized_min_sequential = 3
 
 [green]
 enabled = true

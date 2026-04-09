@@ -47,7 +47,7 @@ Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:
 
 For each detected anti-pattern, perf-sentinel reports:
 
-- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, or excessive fanout
+- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, excessive fanout, chatty service, pool saturation, or serialized calls
 - **Normalized template:** the query or URL with parameters replaced by placeholders (`?`, `{id}`)
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)

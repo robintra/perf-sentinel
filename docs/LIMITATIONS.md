@@ -272,6 +272,36 @@ Cloud SPECpower is an interpolation model with approximately +/-30% accuracy. It
 
 Cloud SPECpower is a daemon-only feature (`watch` mode). The `analyze` batch command always uses the proxy model.
 
+## Chatty service detection
+
+The chatty service detector only counts HTTP outbound spans (`type: http_out`). A trace with 15 SQL calls to the same database is not "chatty" in the inter-service sense. The threshold is per-trace, not per-endpoint: a trace that fans out across 3 endpoints each making 6 calls (18 total) will trigger at the trace level even though no single endpoint is particularly chatty.
+
+Chatty service findings are NOT counted as avoidable I/O in the waste ratio. They represent an architectural concern (service decomposition granularity), not a batching opportunity.
+
+## Connection pool saturation detection
+
+The pool saturation detector uses a heuristic based on SQL span timestamp overlap, not actual connection pool metrics. It computes peak concurrency by treating each SQL span as an interval `[start, start + duration]` and running a sweep-line algorithm.
+
+Limitations:
+- Timestamps from distributed tracing may have clock skew, leading to imprecise overlap detection.
+- The detector cannot distinguish between actual pool contention and intentional parallel queries (e.g., scatter-gather patterns).
+- For precise monitoring, instrument your application with OTel connection pool metrics (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
+
+Pool saturation findings are NOT counted as avoidable I/O.
+
+## Serialized calls detection
+
+The serialized calls detector flags sequential sibling spans (same `parent_span_id`) that call different services or endpoints and could potentially be executed in parallel. Severity is `info` to reflect the inherent uncertainty.
+
+False positive considerations:
+- Sequential calls to the same service MAY have legitimate data dependencies the tool cannot observe (e.g., "create user" then "send welcome email" where the email needs the user ID).
+- The detector skips sequences where all calls share the same normalized template (that pattern is N+1, not serialization).
+- The `parent_span_id` field must be present on spans for this detector to work. Traces without parent-child relationships (e.g., flat JSON ingestion without span IDs) will not trigger serialized findings.
+
+The detector reports at most one finding per parent span: the single longest non-overlapping subsequence (found via dynamic programming). If a parent has two disjoint groups of serializable calls separated by overlapping spans, only the longest group is reported.
+
+Serialized call findings are NOT counted as avoidable I/O. They represent a latency optimization opportunity, not an I/O reduction.
+
 ## gCO2eq energy constant (legacy section, kept for cross-references)
 
 The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`) as a rough order-of-magnitude approximation. See **Carbon estimates accuracy** above for the complete methodology and disclaimer.

@@ -1,6 +1,6 @@
 # Detection algorithms
 
-Detection is the fourth pipeline stage. It analyzes correlated traces to identify four types of anti-patterns: N+1 queries, redundant calls, slow operations and excessive fanout.
+Detection is the fourth pipeline stage. It analyzes correlated traces to identify seven types of anti-patterns: N+1 queries, redundant calls, slow operations, excessive fanout, chatty services, connection pool saturation, and serialized-but-parallelizable calls.
 
 ## Shared pattern: borrowed HashMap keys
 
@@ -170,7 +170,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 }
 ```
 
-The three detectors run sequentially on each trace. While they could theoretically share a single grouping pass, the key types differ (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) and the separate implementations are clearer and independently testable. With typical trace sizes of 10-50 spans, three O(n) passes are negligible.
+The detectors run sequentially on each trace. While they could theoretically share a single grouping pass, the key types differ (`(&EventType, &str)` vs `(&EventType, &str, &[String])`) and the separate implementations are clearer and independently testable. With typical trace sizes of 10-50 spans, multiple O(n) passes are negligible.
 
 ## Fanout detection
 
@@ -195,6 +195,133 @@ In batch mode, `detect_slow_cross_trace` collects slow spans across all traces a
 - Only templates appearing in at least 2 distinct traces are reported (single-trace cases are handled by per-trace detection)
 - Percentile computation uses the nearest-rank method via `div_ceil`
 
+## Chatty service detection
+
+### Algorithm
+
+1. Filter spans to HTTP outbound only (`type: http_out`)
+2. Count total HTTP outbound spans in the trace
+3. If count < `chatty_service_min_calls` (default 15), skip
+4. Collect the top called normalized endpoints for the suggestion message
+5. Assign severity: Warning if > threshold, Critical if > 3x threshold
+
+```
+Input:  trace with N spans
+Output: 0 or 1 ChattyService finding
+
+filter spans where type == http_out
+if count(http_spans) < chatty_service_min_calls:
+    return []
+
+group http_spans by normalized template
+sort groups by count descending
+top_endpoints = first 5 groups
+
+severity = Critical if count >= 3 * threshold else Warning
+emit finding with top_endpoints in suggestion
+```
+
+**Complexity:** O(n) to filter and count, O(k log k) to sort groups where k is the number of distinct templates. Since k << n in practice, this is effectively O(n).
+
+### Not part of waste ratio
+
+Chatty service findings have `green_impact.estimated_extra_io_ops = 0`. The detector flags an architectural concern (too many inter-service calls per request), not a batching opportunity. The calls may all be necessary; the problem is that the service boundary is too fine-grained. `FindingType::is_avoidable_io()` returns `false` for `ChattyService`.
+
+## Connection pool saturation detection
+
+### Algorithm
+
+1. Filter spans to SQL only (`type: sql`)
+2. Group SQL spans by service name
+3. For each service group, compute peak concurrency via sweep-line
+4. If peak concurrency < `pool_saturation_concurrent_threshold` (default 10), skip
+5. Assign severity: Warning if > threshold, Critical if > 3x threshold
+
+```
+Input:  trace with N spans, grouped by service
+Output: 0 or more PoolSaturation findings (one per service)
+
+for each service in sql_spans_by_service:
+    events = []
+    for span in service_spans:
+        start = parse_timestamp(span.timestamp)
+        end = start + span.duration_us
+        events.push((start, +1))
+        events.push((end, -1))
+
+    sort events by timestamp, with -1 before +1 on ties
+    current = 0
+    peak = 0
+    for (ts, delta) in events:
+        current += delta
+        peak = max(peak, current)
+
+    if peak >= pool_saturation_concurrent_threshold:
+        emit finding
+```
+
+**Complexity:** O(n log n) for the sort step, O(n) for the sweep. Total: O(n log n) per service group.
+
+### Sweep-line tie-breaking
+
+When a span ends and another begins at the exact same microsecond, the algorithm processes the end event (`-1`) before the start event (`+1`). This avoids inflating peak concurrency when spans are merely adjacent rather than overlapping.
+
+### Not part of waste ratio
+
+Pool saturation findings have `green_impact.estimated_extra_io_ops = 0`. High concurrency is not avoidable I/O. It signals potential contention on the database connection pool, which is a tuning or architectural concern. `FindingType::is_avoidable_io()` returns `false` for `PoolSaturation`.
+
+## Serialized calls detection
+
+### Algorithm
+
+1. Group sibling spans by `parent_span_id`
+2. For each parent group, sort children by **end time** (ascending)
+3. Find the longest non-overlapping subsequence via dynamic programming (Weighted Interval Scheduling with unit weights)
+4. If the optimal sequence has >= `serialized_min_sequential` (default 3) spans with distinct templates, emit a finding
+5. Severity: always Info (heuristic, inherent false positive risk)
+
+```
+Input:  trace with N spans, grouped by parent_span_id
+Output: 0 or more SerializedCalls findings
+
+for each parent_id in spans_by_parent:
+    children = spans with this parent_id
+    if len(children) < serialized_min_sequential:
+        skip
+
+    sort children by end_time ascending
+    
+    // Predecessor computation: for each span i, binary search for p(i),
+    // the rightmost span j (j < i) whose end_time <= span i's start_time.
+    // O(log n) per span.
+    
+    // DP recurrence:
+    //   dp[i] = max(dp[i-1], dp[p(i)] + 1)
+    // where dp[i] = longest non-overlapping subsequence in children[0..=i]
+    
+    // Backtrack from dp[n-1] to reconstruct the selected spans.
+    // Guard: predecessor must be strictly less than current index
+    // to guarantee termination on degenerate input (zero-duration spans).
+    
+    if len(selected) >= serialized_min_sequential
+       AND distinct_templates(selected) > 1:
+        emit finding for selected sequence
+```
+
+Complexity: O(n log n) for sorting + O(n log n) for all binary searches + O(n) for the DP fill and backtrack = O(n log n) total per parent group. This is the same asymptotic cost as the simpler greedy approach, but the DP guarantees finding the longest possible non-overlapping sequence. For example, given spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], a greedy approach sorted by start time would select {A, D} (length 2), while the DP correctly identifies {B, C, D} (length 3).
+
+### Template filtering
+
+The detector skips sequences where all spans share the same normalized template. That pattern is N+1 (same operation repeated with different params), not serialization. By requiring different templates, the detector targets the "fetch user, then fetch orders, then fetch preferences" pattern where the calls are independent and could run concurrently.
+
+### Time savings estimate
+
+The finding includes the potential time savings: `total_sequential_duration - max_individual_duration`. If 3 sequential calls each take 100ms, parallelizing them could reduce latency from 300ms to 100ms, saving 200ms. This is a best-case estimate that assumes no shared resource contention.
+
+### Not part of waste ratio
+
+Serialized call findings have `green_impact.estimated_extra_io_ops = 0`. Parallelizing calls does not reduce the total number of I/O operations. It reduces latency, not I/O volume. `FindingType::is_avoidable_io()` returns `false` for `SerializedCalls`.
+
 ## Detection orchestration (updated)
 
 ```rust
@@ -205,9 +332,12 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
         findings.extend(detect_redundant(trace));
         findings.extend(detect_slow(trace, ...));
         findings.extend(detect_fanout(trace, config.max_fanout));
+        findings.extend(detect_chatty_service(trace, config.chatty_service_min_calls));
+        findings.extend(detect_pool_saturation(trace, config.pool_saturation_concurrent_threshold));
+        findings.extend(detect_serialized_calls(trace, config.serialized_min_sequential));
     }
     findings
 }
 ```
 
-The four detectors run sequentially on each trace. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.
+The seven detectors run sequentially on each trace. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.

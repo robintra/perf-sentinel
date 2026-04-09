@@ -42,6 +42,9 @@ Detection algorithm parameters.
 | `slow_query_threshold_ms`    | integer | `500`   | Duration threshold in milliseconds above which an operation is considered slow             |
 | `slow_query_min_occurrences` | integer | `3`     | Minimum number of slow occurrences of the same template to generate a finding              |
 | `max_fanout`                 | integer | `20`    | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)       |
+| `chatty_service_min_calls`   | integer | `15`    | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold. |
+| `pool_saturation_concurrent_threshold` | integer | `10` | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps. |
+| `serialized_min_sequential`  | integer | `3`     | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable. |
 
 ### `[green]`
 
@@ -196,6 +199,9 @@ window_duration_ms = 500
 slow_query_threshold_ms = 500
 slow_query_min_occurrences = 3
 max_fanout = 20
+chatty_service_min_calls = 15
+pool_saturation_concurrent_threshold = 10
+serialized_min_sequential = 3
 
 [green]
 enabled = true

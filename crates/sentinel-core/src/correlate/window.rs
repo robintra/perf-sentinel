@@ -111,6 +111,12 @@ impl TraceWindow {
     /// Scans the full LRU cache rather than stopping at the first non-expired
     /// entry, because clock adjustments (NTP) can cause `last_seen_ms` and LRU
     /// position to diverge, leaving expired traces behind non-expired ones.
+    ///
+    /// The key cloning into a temporary `Vec<String>` is required because
+    /// the `lru` crate does not expose `retain()` or `drain_filter()`.
+    /// At `max_active_traces = 10_000` the cost is bounded and runs at
+    /// most once per tick (~15s). If the `lru` crate adds in-place removal
+    /// in a future release, this can be simplified.
     pub fn evict(&mut self, now_ms: u64) {
         let ttl = self.config.trace_ttl_ms;
         let expired_keys: Vec<String> = self

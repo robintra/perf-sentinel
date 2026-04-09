@@ -1,6 +1,6 @@
 # Algorithmes de détection
 
-La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier quatre types d'anti-patterns : les requêtes N+1, les appels redondants, les opérations lentes et le fanout excessif.
+La détection est la quatrième étape du pipeline. Elle analyse les traces corrélées pour identifier sept types d'anti-patterns : les requêtes N+1, les appels redondants, les opérations lentes, le fanout excessif, les services bavards, la saturation du pool de connexions et les appels sérialisés.
 
 ## Pattern partagé : clés HashMap empruntées
 
@@ -184,6 +184,90 @@ Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'
 ### Pas dans le ratio de gaspillage
 
 Comme les findings lents, les findings de fanout ont `green_impact.estimated_extra_io_ops = 0`. Le fanout excessif est un problème structurel qui nécessite une optimisation architecturale, pas une élimination d'I/O.
+
+## Detection des services bavards
+
+### Algorithme
+
+1. Pour chaque trace, compter les spans de type `http_out`
+2. Ignorer les traces avec moins de `chatty_service_min_calls` appels HTTP sortants (defaut 15)
+3. Emettre un finding `chatty_service` avec le service et le nombre total d'appels
+4. Severite : Warning si > seuil, Critical si > 3x seuil
+
+### Pas dans le ratio de gaspillage
+
+Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un probleme architectural (granularite de decomposition des services) qui necessite un redesign des API, pas une simple elimination d'I/O. Le compteur de gaspillage ne devrait refleter que les I/O qui peuvent etre supprimees par refactoring local (batching, cache).
+
+### Difference avec le fanout
+
+Le fanout excessif detecte un **parent unique** avec trop d'enfants directs. Le service bavard detecte une **trace entiere** avec trop d'appels HTTP sortants, independamment de la structure parent-enfant. Une trace peut declencher les deux si un seul parent genere tous les appels, ou seulement le service bavard si les appels sont repartis sur plusieurs parents.
+
+## Detection de saturation du pool de connexions
+
+### Algorithme
+
+1. Regrouper les spans SQL par service
+2. Pour chaque service, trier les spans par timestamp de debut
+3. Executer un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[debut, debut + duree]`, suivre la concurrence maximale
+4. Ignorer les services ou la concurrence maximale est inferieure ou egale a `pool_saturation_concurrent_threshold` (defaut 10)
+5. Emettre un finding `pool_saturation` avec le service et le pic de concurrence
+6. Severite : Warning si > seuil, Critical si > 3x seuil
+
+### Sweep line
+
+L'algorithme de balayage cree deux evenements par span : un evenement d'ouverture au timestamp de debut et un evenement de fermeture au timestamp de fin (debut + duree). Les evenements sont tries chronologiquement. Un compteur est incremente a chaque ouverture et decremente a chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
+
+### Pas dans le ratio de gaspillage
+
+Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Elles signalent un risque de contention des ressources, pas des I/O evitables.
+
+## Detection des appels serialises
+
+### Algorithme
+
+1. Grouper les spans freres par `parent_span_id`
+2. Pour chaque groupe, trier les enfants par **temps de fin** (croissant)
+3. Trouver la plus longue sous-sequence non chevauchante via programmation dynamique (Weighted Interval Scheduling avec poids unitaires)
+4. Si la sequence optimale a >= `serialized_min_sequential` (defaut 3) spans avec des templates distincts, emettre un finding
+5. Severite : toujours Info (heuristique, risque inherent de faux positifs)
+
+```
+Entree : trace avec N spans, groupes par parent_span_id
+Sortie : 0 ou plusieurs findings SerializedCalls
+
+pour chaque parent_id dans spans_par_parent :
+    enfants = spans avec ce parent_id
+    si len(enfants) < serialized_min_sequential :
+        passer
+
+    trier enfants par end_time croissant
+    
+    // Calcul des predecesseurs : pour chaque span i, recherche binaire
+    // de p(i), le span j (j < i) le plus a droite dont end_time <= start_time de i.
+    // O(log n) par span.
+    
+    // Recurrence DP :
+    //   dp[i] = max(dp[i-1], dp[p(i)] + 1)
+    // ou dp[i] = plus longue sous-sequence non chevauchante dans enfants[0..=i]
+    
+    // Backtrack depuis dp[n-1] pour reconstruire les spans selectionnes.
+    // Garde : le predecesseur doit etre strictement inferieur a l'index courant
+    // pour garantir la terminaison sur des entrees degenerees (spans de duree zero).
+    
+    si len(selectionnes) >= serialized_min_sequential
+       ET templates_distincts(selectionnes) > 1 :
+        emettre finding pour la sequence selectionnee
+```
+
+Complexite : O(n log n) pour le tri + O(n log n) pour toutes les recherches binaires + O(n) pour le remplissage DP et le backtrack = O(n log n) total par groupe parent. C'est le meme cout asymptotique que l'approche gloutonne plus simple, mais la programmation dynamique garantit de trouver la plus longue sequence non chevauchante possible. Par exemple, avec les spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], une approche gloutonne triee par temps de debut selectionnerait {A, D} (longueur 2), tandis que la DP identifie correctement {B, C, D} (longueur 3).
+
+### Pourquoi `info` uniquement
+
+Le detecteur ne peut pas observer les dependances de donnees entre les appels. Deux appels sequentiels a des services differents peuvent etre intentionnellement ordonnes (par exemple, creer un enregistrement puis notifier un service dependant). La severite `info` signale une opportunite d'investigation, pas un defaut confirme.
+
+### Pas dans le ratio de gaspillage
+
+Les findings d'appels serialises ont `green_impact.estimated_extra_io_ops = 0`. Paralleliser des appels sequentiels reduit la latence mais ne reduit pas le nombre total d'operations I/O. Le ratio de gaspillage ne mesure que les I/O eliminables.
 
 ## Percentiles lents cross-trace
 

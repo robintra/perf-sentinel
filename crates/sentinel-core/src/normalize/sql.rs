@@ -204,6 +204,11 @@ fn is_dollar_quote_start(i: usize, bytes: &[u8]) -> bool {
 }
 
 /// Extract the dollar-quote tag starting at position `i` (e.g., `$$` or `$tag$`).
+///
+/// Allocates a small `Vec<u8>` per call. Dollar-quoted strings are rare
+/// in practice (PostgreSQL-specific), so this is not on the hot path.
+/// A stack-allocated array would avoid the heap, but adds complexity
+/// for negligible gain.
 fn extract_dollar_tag(i: usize, bytes: &[u8]) -> Vec<u8> {
     // $$ case
     if i + 1 < bytes.len() && bytes[i + 1] == b'$' {

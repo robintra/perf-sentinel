@@ -152,7 +152,7 @@ pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
 
 /// Parse an ISO 8601 timestamp to milliseconds since Unix epoch.
 /// Format: `YYYY-MM-DDTHH:MM:SS.mmmZ`
-fn parse_timestamp_ms(ts: &str) -> Option<u64> {
+pub(crate) fn parse_timestamp_ms(ts: &str) -> Option<u64> {
     let (date_part, time_part) = ts.split_once('T')?;
     let time_part = time_part.trim_end_matches('Z');
 

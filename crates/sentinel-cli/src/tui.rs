@@ -489,6 +489,9 @@ fn finding_type_label(ft: &FindingType) -> &'static str {
         FindingType::SlowSql => "Slow SQL",
         FindingType::SlowHttp => "Slow HTTP",
         FindingType::ExcessiveFanout => "Excessive Fanout",
+        FindingType::ChattyService => "Chatty Service",
+        FindingType::PoolSaturation => "Pool Saturation",
+        FindingType::SerializedCalls => "Serialized Calls",
     }
 }
 
@@ -546,6 +549,9 @@ mod tests {
             slow_threshold_ms: 500,
             slow_min_occurrences: 3,
             max_fanout: 20,
+            chatty_service_min_calls: 15,
+            pool_saturation_concurrent_threshold: 10,
+            serialized_min_sequential: 3,
         };
 
         let traces = vec![

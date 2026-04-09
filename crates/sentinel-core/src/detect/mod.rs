@@ -1,8 +1,11 @@
 //! Detection stage: identifies performance anti-patterns in traces.
 
+pub mod chatty;
 pub mod fanout;
 pub mod n_plus_one;
+pub mod pool_saturation;
 pub mod redundant;
+pub mod serialized;
 pub mod slow;
 
 use crate::correlate::Trace;
@@ -50,6 +53,9 @@ pub enum FindingType {
     SlowSql,
     SlowHttp,
     ExcessiveFanout,
+    ChattyService,
+    PoolSaturation,
+    SerializedCalls,
 }
 
 /// Severity levels for findings.
@@ -168,6 +174,9 @@ impl FindingType {
             Self::SlowSql => "slow_sql",
             Self::SlowHttp => "slow_http",
             Self::ExcessiveFanout => "excessive_fanout",
+            Self::ChattyService => "chatty_service",
+            Self::PoolSaturation => "pool_saturation",
+            Self::SerializedCalls => "serialized_calls",
         }
     }
 
@@ -178,6 +187,12 @@ impl FindingType {
     /// optimization (indexing, caching), and fanout detection cannot distinguish
     /// necessary parallel work from batchable sequential work, so it
     /// conservatively excludes fanout from waste scoring.
+    ///
+    /// Chatty service, pool saturation, and serialized calls are also excluded:
+    /// chatty is an architectural concern (service decomposition granularity,
+    /// not a per-query batching opportunity), pool saturation is a resource
+    /// tuning issue, and serialized calls are a latency optimization that does
+    /// not reduce I/O count.
     #[must_use]
     pub const fn is_avoidable_io(&self) -> bool {
         matches!(
@@ -207,6 +222,9 @@ pub struct DetectConfig {
     pub slow_threshold_ms: u64,
     pub slow_min_occurrences: u32,
     pub max_fanout: u32,
+    pub chatty_service_min_calls: u32,
+    pub pool_saturation_concurrent_threshold: u32,
+    pub serialized_min_sequential: u32,
 }
 
 impl From<&crate::config::Config> for DetectConfig {
@@ -217,6 +235,9 @@ impl From<&crate::config::Config> for DetectConfig {
             slow_threshold_ms: config.slow_query_threshold_ms,
             slow_min_occurrences: config.slow_query_min_occurrences,
             max_fanout: config.max_fanout,
+            chatty_service_min_calls: config.chatty_service_min_calls,
+            pool_saturation_concurrent_threshold: config.pool_saturation_concurrent_threshold,
+            serialized_min_sequential: config.serialized_min_sequential,
         }
     }
 }
@@ -240,6 +261,18 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
             config.slow_min_occurrences,
         ));
         findings.extend(fanout::detect_fanout(trace, config.max_fanout));
+        findings.extend(chatty::detect_chatty(
+            trace,
+            config.chatty_service_min_calls,
+        ));
+        findings.extend(pool_saturation::detect_pool_saturation(
+            trace,
+            config.pool_saturation_concurrent_threshold,
+        ));
+        findings.extend(serialized::detect_serialized(
+            trace,
+            config.serialized_min_sequential,
+        ));
     }
     findings
 }
@@ -269,6 +302,9 @@ mod tests {
             slow_threshold_ms: 500,
             slow_min_occurrences: 3,
             max_fanout: 20,
+            chatty_service_min_calls: 15,
+            pool_saturation_concurrent_threshold: 10,
+            serialized_min_sequential: 3,
         }
     }
 
@@ -294,6 +330,15 @@ mod tests {
 
         let json = serde_json::to_string(&FindingType::ExcessiveFanout).unwrap();
         assert_eq!(json, r#""excessive_fanout""#);
+
+        let json = serde_json::to_string(&FindingType::ChattyService).unwrap();
+        assert_eq!(json, r#""chatty_service""#);
+
+        let json = serde_json::to_string(&FindingType::PoolSaturation).unwrap();
+        assert_eq!(json, r#""pool_saturation""#);
+
+        let json = serde_json::to_string(&FindingType::SerializedCalls).unwrap();
+        assert_eq!(json, r#""serialized_calls""#);
     }
 
     #[test]
@@ -459,6 +504,9 @@ mod tests {
     fn finding_type_as_str() {
         assert_eq!(FindingType::NPlusOneSql.as_str(), "n_plus_one_sql");
         assert_eq!(FindingType::SlowHttp.as_str(), "slow_http");
+        assert_eq!(FindingType::ChattyService.as_str(), "chatty_service");
+        assert_eq!(FindingType::PoolSaturation.as_str(), "pool_saturation");
+        assert_eq!(FindingType::SerializedCalls.as_str(), "serialized_calls");
     }
 
     #[test]
