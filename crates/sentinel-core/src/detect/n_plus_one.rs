@@ -194,7 +194,7 @@ fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 /// Uses the Howard Hinnant algorithm (public domain).
 /// Only valid for dates >= 1970-01-01 (returns `u64`).
 fn days_from_civil(y: u64, m: u64, d: u64) -> u64 {
-    let y = if m <= 2 { y - 1 } else { y };
+    let y = if m <= 2 { y.saturating_sub(1) } else { y };
     let era = y / 400;
     let yoe = y - era * 400;
     let m_adj = if m > 2 { m - 3 } else { m + 9 };

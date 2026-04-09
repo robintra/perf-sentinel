@@ -38,6 +38,60 @@ pub fn sanitize_id(id: &str) -> String {
     id[..end].to_string()
 }
 
+/// Maximum length for the `service` field (bytes).
+pub const MAX_SERVICE_LENGTH: usize = 256;
+
+/// Maximum length for the `operation` field (bytes).
+pub const MAX_OPERATION_LENGTH: usize = 256;
+
+/// Maximum length for the `target` field (bytes).
+/// The SQL normalizer has its own 64 KB limit; this provides
+/// defense-in-depth at the ingestion boundary.
+pub const MAX_TARGET_LENGTH: usize = 65_536;
+
+/// Maximum length for `source.endpoint` and `source.method` (bytes).
+pub const MAX_SOURCE_LENGTH: usize = 512;
+
+/// Truncate a string to `max_len` bytes on a char boundary.
+fn truncate_field(s: &mut String, max_len: usize) {
+    if s.len() <= max_len {
+        return;
+    }
+    let mut end = max_len;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s.truncate(end);
+}
+
+/// Sanitize all string fields on a [`SpanEvent`] to enforce length limits.
+///
+/// Maximum length for the `timestamp` field (bytes).
+/// ISO 8601 with microseconds and timezone is at most ~30 chars.
+const MAX_TIMESTAMP_LENGTH: usize = 64;
+
+/// Called at every ingestion boundary (OTLP, JSON, Jaeger, Zipkin) to
+/// prevent unbounded memory growth from oversized attribute values.
+/// Also truncates IDs (`trace_id`, `span_id`, `parent_span_id`) that
+/// are not already sanitized at the ingestion boundary for some formats
+/// (Jaeger, Zipkin, native JSON).
+pub fn sanitize_span_event(event: &mut SpanEvent) {
+    truncate_field(&mut event.timestamp, MAX_TIMESTAMP_LENGTH);
+    truncate_field(&mut event.trace_id, MAX_ID_LENGTH);
+    truncate_field(&mut event.span_id, MAX_ID_LENGTH);
+    if let Some(ref mut pid) = event.parent_span_id {
+        truncate_field(pid, MAX_ID_LENGTH);
+    }
+    if let Some(ref mut region) = event.cloud_region {
+        truncate_field(region, MAX_ID_LENGTH); // is_valid_region_id caps at 64
+    }
+    truncate_field(&mut event.service, MAX_SERVICE_LENGTH);
+    truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
+    truncate_field(&mut event.target, MAX_TARGET_LENGTH);
+    truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
+    truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
+}
+
 /// A single span event representing an I/O operation (SQL query, HTTP call).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanEvent {
@@ -222,5 +276,75 @@ mod tests {
         assert!(result.len() <= MAX_ID_LENGTH);
         // Result should contain whole chars only (even byte count for 2-byte chars)
         assert_eq!(result.len() % 2, 0);
+    }
+
+    // ------------------------------------------------------------------
+    // sanitize_span_event
+    // ------------------------------------------------------------------
+
+    fn make_event_with_field(field: &str, value: &str) -> SpanEvent {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        match field {
+            "service" => event.service = value.to_string(),
+            "operation" => event.operation = value.to_string(),
+            "target" => event.target = value.to_string(),
+            "endpoint" => event.source.endpoint = value.to_string(),
+            "method" => event.source.method = value.to_string(),
+            _ => panic!("unknown field: {field}"),
+        }
+        event
+    }
+
+    #[test]
+    fn sanitize_truncates_long_service() {
+        let mut event = make_event_with_field("service", &"x".repeat(500));
+        sanitize_span_event(&mut event);
+        assert!(event.service.len() <= MAX_SERVICE_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_truncates_long_operation() {
+        let mut event = make_event_with_field("operation", &"x".repeat(500));
+        sanitize_span_event(&mut event);
+        assert!(event.operation.len() <= MAX_OPERATION_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_truncates_long_target() {
+        let mut event = make_event_with_field("target", &"x".repeat(100_000));
+        sanitize_span_event(&mut event);
+        assert!(event.target.len() <= MAX_TARGET_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_truncates_long_endpoint() {
+        let mut event = make_event_with_field("endpoint", &"x".repeat(1000));
+        sanitize_span_event(&mut event);
+        assert!(event.source.endpoint.len() <= MAX_SOURCE_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_truncates_long_method() {
+        let mut event = make_event_with_field("method", &"x".repeat(1000));
+        sanitize_span_event(&mut event);
+        assert!(event.source.method.len() <= MAX_SOURCE_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_short_fields_unchanged() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        let before = event.clone();
+        sanitize_span_event(&mut event);
+        assert_eq!(event, before);
+    }
+
+    #[test]
+    fn sanitize_multibyte_char_boundary() {
+        // Service with 4-byte emojis that would split mid-char at MAX_SERVICE_LENGTH
+        let mut event = make_event_with_field("service", &"\u{1F600}".repeat(100));
+        sanitize_span_event(&mut event);
+        assert!(event.service.len() <= MAX_SERVICE_LENGTH);
+        // Must be valid UTF-8 (String invariant guarantees this, but verify)
+        assert!(event.service.is_char_boundary(event.service.len()));
     }
 }

@@ -19,6 +19,7 @@ use crate::normalize;
 use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
+use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::scaphandre::ScaphandreState;
 
 /// Errors that can occur when running the daemon.
@@ -130,18 +131,19 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     };
 
     let detect_config = DetectConfig::from(&config);
-    // base carbon context used as a template. The actual
-    // context passed to `process_traces` each tick is cloned from this
-    // with `scaphandre_snapshot` patched in from the shared state.
+    // Base carbon context used as a template. The actual context passed
+    // to `process_traces` each tick is cloned from this with
+    // `energy_snapshot` patched in from the shared energy states
+    // (Scaphandre and/or cloud `SPECpower`).
     let base_carbon_ctx = score::carbon::CarbonContext {
         default_region: config.green_default_region.clone(),
         service_regions: config.green_service_regions.clone(),
         embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
         // honour the [green] use_hourly_profiles toggle.
         use_hourly_profiles: config.green_use_hourly_profiles,
-        // filled in per-tick from the Scaphandre state
-        // when the scraper is configured. Left None when it's not.
-        scaphandre_snapshot: None,
+        // Filled in per-tick from the energy scrapers' shared state.
+        // Left None when neither scraper is configured.
+        energy_snapshot: None,
     };
     let green_enabled = config.green_enabled;
     let sampling_rate = config.sampling_rate;
@@ -167,6 +169,26 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         (None, None, 0)
     };
 
+    // Same pattern for cloud energy scraper.
+    let (cloud_state, cloud_handle, cloud_staleness_ms) =
+        if let Some(cloud_cfg) = config.green_cloud_energy.clone() {
+            let staleness = cloud_cfg.scrape_interval.as_millis() as u64 * 3;
+            let state = CloudEnergyState::new();
+            let handle =
+                score::cloud_energy::spawn_cloud_scraper(cloud_cfg, state.clone(), metrics.clone());
+            (Some(state), Some(handle), staleness)
+        } else {
+            (None, None, 0)
+        };
+
+    // Cardinality cap on the per-service Prometheus counter.
+    // Prevents OOM from a malicious OTLP sender injecting millions of
+    // unique service.name values. Events beyond the cap are still
+    // processed for detection, just not metered per-service.
+    let max_service_cardinality: usize = 1024;
+    let mut known_services: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut service_cap_warned = false;
+
     // Main event loop
     let mut ticker = interval(Duration::from_millis(evict_ms.max(100)));
 
@@ -180,16 +202,32 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     .into_iter()
                     .map(normalize::normalize)
                     .collect();
-                // increment the per-service I/O op counter
-                // from the normalized events. The Scaphandre scraper
-                // reads this counter at each tick via snapshot-diff.
-                // Done before taking the window lock so the counter
-                // stays cheap even under contention.
+                // Increment the per-service I/O op counter with a
+                // cardinality cap. The Scaphandre/cloud energy scrapers
+                // read this counter at each tick via snapshot-diff.
                 for event in &normalized {
-                    metrics
-                        .service_io_ops_total
-                        .with_label_values(&[event.event.service.as_str()])
-                        .inc();
+                    let service = event.event.service.as_str();
+                    if known_services.contains(service) {
+                        // Fast path: known service, no allocation.
+                        metrics
+                            .service_io_ops_total
+                            .with_label_values(&[service])
+                            .inc();
+                    } else if known_services.len() < max_service_cardinality {
+                        // New service under the cap: allocate once.
+                        known_services.insert(service.to_string());
+                        metrics
+                            .service_io_ops_total
+                            .with_label_values(&[service])
+                            .inc();
+                    } else if !service_cap_warned {
+                        tracing::warn!(
+                            cap = max_service_cardinality,
+                            "Service cardinality cap reached; new services will \
+                             not have per-service I/O op counters"
+                        );
+                        service_cap_warned = true;
+                    }
                 }
                 let now_ms = current_time_ms();
                 let mut lru_evicted = Vec::new();
@@ -209,6 +247,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                         &base_carbon_ctx,
                         scaphandre_state.as_deref(),
                         staleness_ms,
+                        cloud_state.as_deref(),
+                        cloud_staleness_ms,
                     );
                     process_traces(
                         lru_evicted,
@@ -233,6 +273,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                         &base_carbon_ctx,
                         scaphandre_state.as_deref(),
                         staleness_ms,
+                        cloud_state.as_deref(),
+                        cloud_staleness_ms,
                     );
                     process_traces(
                         expired,
@@ -256,6 +298,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 // Order matters slightly: kill the Scaphandre scraper
                 // first so its log lines don't interleave with the
                 // shutdown message, then the listeners.
+                if let Some(handle) = &cloud_handle {
+                    handle.abort();
+                }
                 if let Some(handle) = &scraper_handle {
                     handle.abort();
                 }
@@ -272,6 +317,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     &base_carbon_ctx,
                     scaphandre_state.as_deref(),
                     staleness_ms,
+                    cloud_state.as_deref(),
+                    cloud_staleness_ms,
                 );
                 process_traces(
                     remaining,
@@ -298,25 +345,51 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     Ok(())
 }
 
-/// build a per-tick `CarbonContext` by cloning the base
-/// context and patching in a fresh Scaphandre snapshot.
+/// Build a per-tick `CarbonContext` by cloning the base context and
+/// patching in a fresh energy snapshot merged from all configured
+/// energy sources (Scaphandre RAPL and/or cloud `SPECpower`).
 ///
 /// Called right before every `process_traces` invocation so each tick
-/// sees the latest measured coefficients. When Scaphandre is not
-/// configured, returns a clone of the base context with
-/// `scaphandre_snapshot = None`.
+/// sees the latest measured coefficients. When neither energy source
+/// is configured, returns a clone of the base context with
+/// `energy_snapshot = None`.
+///
+/// Scaphandre entries take precedence over cloud entries for the same
+/// service (direct RAPL measurement beats `SPECpower` interpolation).
 fn build_tick_ctx(
     base: &score::carbon::CarbonContext,
     scaphandre_state: Option<&ScaphandreState>,
-    staleness_ms: u64,
+    scaphandre_staleness_ms: u64,
+    cloud_state: Option<&CloudEnergyState>,
+    cloud_staleness_ms: u64,
 ) -> score::carbon::CarbonContext {
-    let snapshot = scaphandre_state.and_then(|state| {
-        let now = score::scaphandre::monotonic_ms();
-        let snap = state.snapshot(now, staleness_ms);
-        if snap.is_empty() { None } else { Some(snap) }
-    });
+    let now = score::scaphandre::monotonic_ms();
+
+    let mut merged: std::collections::HashMap<String, score::carbon::EnergyEntry> =
+        std::collections::HashMap::new();
+
+    // Cloud entries first (lower precedence).
+    if let Some(state) = cloud_state {
+        let snap = state.snapshot(now, cloud_staleness_ms);
+        for (service, energy_kwh) in snap {
+            merged.insert(service, score::carbon::EnergyEntry::cloud(energy_kwh));
+        }
+    }
+
+    // Scaphandre entries override cloud for the same service.
+    if let Some(state) = scaphandre_state {
+        let snap = state.snapshot(now, scaphandre_staleness_ms);
+        for (service, energy_kwh) in snap {
+            merged.insert(service, score::carbon::EnergyEntry::scaphandre(energy_kwh));
+        }
+    }
+
     let mut ctx = base.clone();
-    ctx.scaphandre_snapshot = snapshot;
+    ctx.energy_snapshot = if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    };
     ctx
 }
 
@@ -345,7 +418,18 @@ fn process_traces(
         .map(|(trace_id, spans)| Trace { trace_id, spans })
         .collect();
 
-    let findings = detect::detect(&trace_structs, detect_config);
+    let mut findings = detect::detect(&trace_structs, detect_config);
+
+    // Cross-trace slow percentile analysis. The internal detector
+    // requires >= 2 distinct traces per template, so we gate on 2.
+    if trace_structs.len() >= 2 {
+        findings.extend(detect::slow::detect_slow_cross_trace(
+            &trace_structs,
+            detect_config.slow_threshold_ms,
+            detect_config.slow_min_occurrences,
+        ));
+    }
+
     let (mut findings, green_summary) = if green_enabled {
         score::score_green(&trace_structs, findings, Some(carbon_ctx))
     } else {
@@ -761,5 +845,75 @@ mod tests {
             (300..=700).contains(&sampled),
             "expected ~500 sampled, got {sampled}"
         );
+    }
+
+    // ------------------------------------------------------------------
+    // build_tick_ctx merge tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn build_tick_ctx_no_scrapers_yields_none_snapshot() {
+        let base = score::carbon::CarbonContext::default();
+        let ctx = build_tick_ctx(&base, None, 0, None, 0);
+        assert!(ctx.energy_snapshot.is_none());
+    }
+
+    #[test]
+    fn build_tick_ctx_scaphandre_only() {
+        let base = score::carbon::CarbonContext::default();
+        let scaph = ScaphandreState::new();
+        scaph.insert_for_test("svc-a".into(), 1e-7, 100);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0);
+        let snap = ctx.energy_snapshot.unwrap();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
+    }
+
+    #[test]
+    fn build_tick_ctx_cloud_only() {
+        let base = score::carbon::CarbonContext::default();
+        let cloud = CloudEnergyState::new();
+        cloud.insert_for_test("svc-b".into(), 2e-7, 100);
+        let ctx = build_tick_ctx(&base, None, 0, Some(&cloud), 500);
+        let snap = ctx.energy_snapshot.unwrap();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
+    }
+
+    #[test]
+    fn build_tick_ctx_scaphandre_overrides_cloud_for_same_service() {
+        let base = score::carbon::CarbonContext::default();
+        let scaph = ScaphandreState::new();
+        scaph.insert_for_test("svc-a".into(), 1e-7, 100);
+        let cloud = CloudEnergyState::new();
+        cloud.insert_for_test("svc-a".into(), 5e-7, 100);
+        cloud.insert_for_test("svc-b".into(), 3e-7, 100);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, Some(&cloud), 500);
+        let snap = ctx.energy_snapshot.unwrap();
+        assert_eq!(snap.len(), 2);
+        // svc-a: Scaphandre wins (1e-7, not 5e-7)
+        assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
+        assert!((snap["svc-a"].energy_per_op_kwh - 1e-7).abs() < 1e-15);
+        // svc-b: cloud only
+        assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
+    }
+
+    #[test]
+    fn build_tick_ctx_stale_entries_filtered() {
+        // Test staleness via the state's snapshot() method directly.
+        // An entry at time 0 with a staleness of 1ms should be stale
+        // when queried at time 100.
+        let scaph = ScaphandreState::new();
+        scaph.insert_for_test("stale-svc".into(), 1e-7, 0);
+        let snap = scaph.snapshot(100, 1);
+        assert!(
+            snap.is_empty(),
+            "entry at time 0 should be stale when now=100, staleness=1"
+        );
+        // A fresh entry should appear.
+        scaph.insert_for_test("fresh-svc".into(), 2e-7, 99);
+        let snap2 = scaph.snapshot(100, 50);
+        assert!(snap2.contains_key("fresh-svc"));
+        assert!(!snap2.contains_key("stale-svc"));
     }
 }

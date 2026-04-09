@@ -171,7 +171,7 @@ fn convert_jaeger_span(
         .unwrap_or_default();
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
-    Some(SpanEvent {
+    let mut event = SpanEvent {
         timestamp: micros_to_iso8601(span.start_time),
         trace_id: trace_id.to_string(),
         span_id: span.span_id.clone(),
@@ -179,7 +179,7 @@ fn convert_jaeger_span(
         service,
         // Jaeger process tags do not carry cloud region. Users wanting
         // multi-region scoring with Jaeger ingestion should set
-        // [green.service_regions] in the config to map service → region.
+        // [green.service_regions] in the config to map service -> region.
         cloud_region: None,
         event_type,
         operation,
@@ -187,7 +187,9 @@ fn convert_jaeger_span(
         duration_us: span.duration,
         source: EventSource { endpoint, method },
         status_code,
-    })
+    };
+    crate::event::sanitize_span_event(&mut event);
+    Some(event)
 }
 
 fn find_tag(tags: &[JaegerTag], key: &str) -> Option<String> {

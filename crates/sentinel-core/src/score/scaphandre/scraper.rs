@@ -22,7 +22,7 @@ use super::state::{ScaphandreState, monotonic_ms};
 /// Hyper-util legacy client used by the Scaphandre scraper. Built once
 /// per scraper task in [`run_scraper_loop`] and reused across every
 /// scrape so the underlying connection pool stays warm.
-pub(super) type ScraperClient = hyper_util::client::legacy::Client<
+pub(crate) type ScraperClient = hyper_util::client::legacy::Client<
     hyper_util::client::legacy::connect::HttpConnector,
     http_body_util::Empty<bytes::Bytes>,
 >;
@@ -34,7 +34,7 @@ pub(super) type ScraperClient = hyper_util::client::legacy::Client<
 /// prevent a misbehaving (or attacker-redirected) endpoint from
 /// exhausting the daemon's RAM by streaming a multi-GB response —
 /// the 3 s fetch timeout only bounds latency, not bandwidth.
-pub(super) const MAX_SCRAPE_BODY_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_SCRAPE_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely unsupported platform" warning. 3 is
@@ -44,7 +44,7 @@ const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 
 /// Build a fresh hyper-util client for the scraper. Called once per
 /// scraper task at startup; the client is then reused for every fetch.
-pub(super) fn build_scraper_client() -> ScraperClient {
+pub(crate) fn build_scraper_client() -> ScraperClient {
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
     Client::builder(TokioExecutor::new()).build_http()
@@ -141,7 +141,7 @@ pub(super) enum ScraperError {
 /// raw URI would leak those credentials to journald / log
 /// aggregators. This helper rebuilds the URL with only the safe parts
 /// (scheme, host, port, path).
-fn redact_endpoint(uri: &hyper::Uri) -> String {
+pub(crate) fn redact_endpoint(uri: &hyper::Uri) -> String {
     let scheme = uri.scheme_str().unwrap_or("http");
     let host = uri.host().unwrap_or("?");
     let path_and_query = uri.path_and_query().map_or("/", |p| p.as_str());

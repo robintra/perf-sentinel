@@ -26,7 +26,7 @@ Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations
 - **I/O Intensity Score** = opérations I/O totales pour un endpoint / nombre d'invocations
 - **I/O Waste Ratio** = opérations I/O évitables (issues des findings) / opérations I/O totales
 
-Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`.
+Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. En mode daemon, le coefficient énergétique peut être affiné via [Scaphandre](https://github.com/hubblo-org/scaphandre) (RAPL bare-metal) ou l'estimation cloud-native CPU% + SPECpower pour les VMs AWS/GCP/Azure (section `[green.cloud]`).
 
 > **Note :** les estimations CO₂ sont **directionnelles**, pas auditables. Chaque estimation porte un intervalle d'incertitude multiplicative `~2×` (`low = mid/2`, `high = mid×2`) car le modèle proxy I/O est approximatif. perf-sentinel est un **compteur de gaspillage**, pas un outil de comptabilité carbone. Ne l'utilisez pas pour le reporting CSRD ou GHG Protocol Scope 3. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la méthodologie complète.
 
@@ -301,18 +301,6 @@ L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`exampl
 ---
 
 Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
-
-## Feuille de route
-
-| Phase   | Description                                                                                                                                    | Statut  |
-|---------|------------------------------------------------------------------------------------------------------------------------------------------------|---------|
-| **0**   | Scaffolding : workspace compilable, CI, stubs                                                                                                  | Terminé |
-| **1**   | Détection N+1 SQL + HTTP, normalisation, corrélation                                                                                           | Terminé |
-| **2**   | Scoring GreenOps, ingestion OTLP, quality gate CI                                                                                              | Terminé |
-| **3**   | Polish, benchmarks, release v0.1.0                                                                                                             | Terminé |
-| **4**   | Visualiseur de trace `explain`, export SARIF, ingestion `pg_stat_statements`, import Jaeger/Zipkin, Grafana Exemplars, mode TUI interactif     | Terminé |
-| **5a**  | Fiabilisation carbone : alignement SCI v1.0, intervalles de confiance, scoring multi-région via `cloud.region` OTel, terme embodié, disclaimer | Terminé |
-| **5b+** | Profils horaires d'intensité carbone, intégration Scaphandre opt-in (RAPL), ingestion Tempo, interop perf-lint, anti-patterns supplémentaires  | Suivant |
 
 ## Licence
 

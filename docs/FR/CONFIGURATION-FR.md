@@ -82,7 +82,7 @@ Les ops I/O sans région résolvable atterrissent dans un bucket synthétique `"
 
 Quand le scoring vert est activé et qu'au moins un événement est analysé, le `green_summary` du rapport JSON inclut :
 
-- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié). Valeurs `model`, le plus précis gagne : `"scaphandre_rapl"` → `"io_proxy_v2"` → `"io_proxy_v1"`.
+- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié). Valeurs `model`, le plus précis gagne : `"scaphandre_rapl"` → `"cloud_specpower"` → `"io_proxy_v2"` → `"io_proxy_v1"`.
 - **`regions[]`** : breakdown par région avec `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **trié par `co2_gco2` décroissant** (régions à plus fort impact en premier) avec tiebreak alphabétique. `intensity_source` vaut `"annual"` ou `"hourly"` selon quelle table carbone a été consultée pour la région.
 
 Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie, et `docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone` pour le disclaimer directionnel / non-réglementaire.
@@ -114,6 +114,47 @@ scrape_interval_secs = 5
 
 **Limites de précision (important).** Scaphandre améliore le coefficient énergétique **au niveau service** mais ne donne PAS d'attribution par-finding. RAPL est au niveau processus, pas au niveau span : deux findings dans le même processus pendant la même fenêtre de scrape partagent le même coefficient. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-scaphandre` pour la discussion complète.
 
+#### `[green.cloud]` (optionnel, opt-in)
+
+Estimation d'énergie cloud-native via utilisation CPU% + interpolation SPECpower. Quand cette section est configurée, le daemon `watch` scrape les métriques CPU% depuis un endpoint Prometheus/VictoriaMetrics et utilise une table de lookup embarquée (watts idle/max par type d'instance cloud) pour estimer la consommation énergétique par service. Supporte AWS, GCP, Azure, et le matériel on-premise avec surcharge manuelle des watts.
+
+| Champ                   | Type   | Défaut    | Description                                                                  |
+|-------------------------|--------|-----------|------------------------------------------------------------------------------|
+| `prometheus_endpoint`   | chaîne | *(aucun)* | URL de base de l'API HTTP Prometheus (ex. `http://prometheus:9090`). Obligatoire. |
+| `scrape_interval_secs`  | entier | `15`      | Intervalle de polling en secondes (plage : 1-3600).                          |
+| `default_provider`      | chaîne | *(aucun)* | Fournisseur cloud par défaut : `"aws"`, `"gcp"`, `"azure"`.                 |
+| `default_instance_type` | chaîne | *(aucun)* | Type d'instance de fallback pour les services non mappés.                    |
+| `cpu_metric`            | chaîne | *(aucun)* | Métrique/requête PromQL par défaut pour l'utilisation CPU.                   |
+
+Les entrées par service dans `[green.cloud.services]` supportent deux formes :
+
+**Instance cloud (lookup dans la table) :**
+
+```toml
+[green.cloud]
+prometheus_endpoint = "http://prometheus:9090"
+scrape_interval_secs = 15
+default_provider = "aws"
+
+[green.cloud.services]
+"account-svc" = { provider = "aws", instance_type = "c5.4xlarge" }
+"api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
+"analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
+```
+
+**Watts manuels (on-premise ou matériel custom) :**
+
+```toml
+[green.cloud.services]
+"my-service" = { idle_watts = 45, max_watts = 120 }
+```
+
+**Ignoré en mode `analyze` batch.** Seul le daemon `watch` lance le scraper Prometheus.
+
+**Comportement de repli.** Si le endpoint Prometheus est inaccessible, le daemon utilise le modèle proxy pour tous les services configurés cloud. Les types d'instance inconnus retombent sur un défaut au niveau du fournisseur.
+
+**Limites de précision.** Le modèle d'interpolation SPECpower a une précision d'environ +/-30%, meilleure que le modèle proxy mais moins précise que Scaphandre RAPL. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-du-cloud-specpower` pour les détails.
+
 ### `[daemon]`
 
 Paramètres du mode streaming (`perf-sentinel watch`).
@@ -129,7 +170,7 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `sampling_rate`        | flottant | `1.0`                       | Fraction des traces à analyser (0.0 à 1.0). Réduire en dessous de 1.0 pour diminuer la charge dans les environnements à fort trafic                                                                                                                                                                                              |
 | `max_events_per_trace` | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire, max 100000). Les événements les plus anciens sont supprimés en cas de dépassement                                                                                                                                                                              |
 | `max_payload_size`     | entier   | `1048576`                   | Taille maximale en octets d'un payload JSON unique (défaut : 1 Mo, max 100 Mo)                                                                                                                                                                                                                                                   |
-| `environment`          | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs aval (perf-lint). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config |
+| `environment`          | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs en aval (perf-lint). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config |
 
 ## Configuration minimale
 
@@ -158,7 +199,7 @@ max_fanout = 20
 
 [green]
 enabled = true
-region = "eu-west-3"
+default_region = "eu-west-3"
 
 [daemon]
 listen_address = "127.0.0.1"

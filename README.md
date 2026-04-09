@@ -26,7 +26,7 @@ Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O opera
 - **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
 - **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
 
-Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute.
+Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. In daemon mode, energy estimation can be refined via **Scaphandre RAPL** (bare metal) or **cloud-native CPU% + SPECpower** (AWS/GCP/Azure), with automatic fallback to the I/O proxy model.
 
 > **Note:** CO₂ estimates are **directional**, not regulatory-grade. Every estimate carries a `~2×` multiplicative uncertainty bracket (`low = mid/2`, `high = mid×2`) because the I/O proxy model is rough. perf-sentinel is a **waste counter**, not a carbon-accounting tool. Do not use it for CSRD or GHG Protocol Scope 3 reporting. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology.
 
@@ -301,18 +301,6 @@ The app sends traces to `localhost:4317` (no network hop). See [`examples/docker
 ---
 
 For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRATION.md](docs/INTEGRATION.md). For the full configuration reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md). For in-depth design documentation, see [docs/design/](docs/design/00-INDEX.md).
-
-## Roadmap
-
-| Phase   | Description                                                                                                                                            | Status |
-|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------|--------|
-| **0**   | Scaffolding: compilable workspace, CI, stubs                                                                                                           | Done   |
-| **1**   | N+1 SQL + HTTP detection, normalization, correlation                                                                                                   | Done   |
-| **2**   | GreenOps scoring, OTLP ingestion, CI quality gate                                                                                                      | Done   |
-| **3**   | Polish, benchmarks, v0.1.0 release                                                                                                                     | Done   |
-| **4**   | `explain` trace viewer, SARIF export, `pg_stat_statements` ingestion, Jaeger/Zipkin import, Grafana Exemplars, TUI interactive mode                    | Done   |
-| **5a**  | Carbon reliability: SCI v1.0 alignment, confidence intervals, multi-region scoring via OTel `cloud.region`, embodied carbon term, mandatory disclaimer | Done   |
-| **5b+** | Hourly carbon-intensity profiles, Scaphandre opt-in (RAPL), Tempo ingestion, perf-lint interop, additional anti-patterns                               | Next   |
 
 ## License
 

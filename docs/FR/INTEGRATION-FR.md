@@ -775,7 +775,7 @@ Chaque finding est mappé vers un résultat SARIF avec `ruleId`, `level`, `logic
 
 ## Champ de confiance sur les findings
 
-Chaque finding émis en JSON ou SARIF porte un champ `confidence` indiquant le contexte source de la détection. Les consommateurs aval — en particulier [perf-lint](https://github.com/robintra/perf-lint) — utilisent ce champ pour augmenter ou réduire la sévérité affichée dans l'IDE selon le degré de confiance à accorder au finding.
+Chaque finding émis en JSON ou SARIF porte un champ `confidence` indiquant le contexte source de la détection. Les consommateurs en aval, en particulier [perf-lint](https://github.com/robintra/perf-lint), utilisent ce champ pour augmenter ou réduire la sévérité affichée dans l'IDE selon le degré de confiance à accorder au finding.
 
 Valeurs :
 

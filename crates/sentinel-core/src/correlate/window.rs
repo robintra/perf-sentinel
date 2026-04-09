@@ -11,6 +11,15 @@ use lru::LruCache;
 use crate::normalize::NormalizedEvent;
 
 /// Configuration for the trace window.
+///
+/// # Eviction cost
+///
+/// `evict_expired` performs a full scan of the LRU cache (`O(n)` where
+/// `n = max_active_traces`) and clones the keys of expired entries into
+/// a temporary `Vec<String>`. The `lru` crate does not expose a
+/// `drain_filter` API. This is acceptable because the scan runs once
+/// per tick (half the TTL, typically every 15 s) and
+/// `max_active_traces` is capped at 10,000 by default.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
     /// Maximum events kept per trace (ring buffer).

@@ -82,7 +82,7 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` → `"io_proxy_v2"` → `"io_proxy_v1"`.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v2"` > `"io_proxy_v1"`.
 - **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"` or `"hourly"` depending on which carbon table was consulted for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology, and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
@@ -113,6 +113,47 @@ scrape_interval_secs = 5
 **Fallback behaviour.** When the endpoint is unreachable, a service is not present in `process_map`, or a service had zero ops in the current scrape window, the scoring stage falls back to the proxy model for those spans. The first failure logs at `warn` level; subsequent failures log at `debug` to avoid spam. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators detect a hung scraper.
 
 **Precision bounds (important).** Scaphandre improves the **per-service** energy coefficient but does NOT give per-finding attribution. RAPL is process-level, not span-level: two findings in the same process during the same scrape window share the same coefficient. See `docs/LIMITATIONS.md#scaphandre-precision-bounds` for the full discussion.
+
+#### `[green.cloud]` (optional, opt-in)
+
+Cloud-native energy estimation via CPU utilization + SPECpower interpolation. When configured, the `watch` daemon scrapes CPU% from a Prometheus/VictoriaMetrics endpoint and uses an embedded lookup table (idle/max watts per cloud instance type) to estimate per-service energy consumption. Supports AWS, GCP, Azure, and on-premise hardware with manual watts override.
+
+| Field                  | Type    | Default  | Description                                          |
+|------------------------|---------|----------|------------------------------------------------------|
+| `prometheus_endpoint`  | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090`). Required. |
+| `scrape_interval_secs` | integer | `15`     | Polling interval in seconds (range: 1-3600).         |
+| `default_provider`     | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`. |
+| `default_instance_type`| string  | *(none)* | Fallback instance type for unmapped services.        |
+| `cpu_metric`           | string  | *(none)* | Default PromQL metric/query for CPU utilization.     |
+
+Per-service entries in `[green.cloud.services]` support two forms:
+
+**Cloud instance (table lookup):**
+
+```toml
+[green.cloud]
+prometheus_endpoint = "http://prometheus:9090"
+scrape_interval_secs = 15
+default_provider = "aws"
+
+[green.cloud.services]
+"account-svc" = { provider = "aws", instance_type = "c5.4xlarge" }
+"api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
+"analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
+```
+
+**Manual watts (on-premise or custom hardware):**
+
+```toml
+[green.cloud.services]
+"my-service" = { idle_watts = 45, max_watts = 120 }
+```
+
+**Ignored in `analyze` batch mode.** Only the `watch` daemon spawns the Prometheus scraper.
+
+**Fallback behaviour.** If the Prometheus endpoint is unreachable, the daemon falls back to the proxy model for all cloud-configured services. Unknown instance types fall back to a provider-level default.
+
+**Precision bounds.** The SPECpower interpolation model has approximately +/-30% accuracy, better than the proxy model but less precise than Scaphandre RAPL. See `docs/LIMITATIONS.md` for details.
 
 ### `[daemon]`
 
@@ -158,7 +199,7 @@ max_fanout = 20
 
 [green]
 enabled = true
-region = "eu-west-3"
+default_region = "eu-west-3"
 
 [daemon]
 listen_address = "127.0.0.1"

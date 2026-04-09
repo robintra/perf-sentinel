@@ -134,7 +134,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         .or_else(|| span.name.clone())
         .unwrap_or_default();
 
-    Some(SpanEvent {
+    let mut event = SpanEvent {
         timestamp: micros_to_iso8601(timestamp),
         trace_id: span.trace_id.clone(),
         span_id: span.id.clone(),
@@ -142,7 +142,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         service,
         // Zipkin endpoint metadata does not carry cloud region. Users
         // wanting multi-region scoring with Zipkin ingestion should set
-        // [green.service_regions] in the config to map service → region.
+        // [green.service_regions] in the config to map service -> region.
         cloud_region: None,
         event_type,
         operation,
@@ -150,7 +150,9 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         duration_us,
         source: EventSource { endpoint, method },
         status_code,
-    })
+    };
+    crate::event::sanitize_span_event(&mut event);
+    Some(event)
 }
 
 #[cfg(test)]

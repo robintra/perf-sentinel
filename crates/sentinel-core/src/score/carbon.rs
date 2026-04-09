@@ -59,13 +59,23 @@ pub const CO2_MODEL_V2: &str = "io_proxy_v2";
 /// its energy-per-op coefficient from a Scaphandre per-process power
 /// reading.
 ///
-/// This tag takes precedence over `io_proxy_v1` / `io_proxy_v2` on the
-/// top-level `CarbonEstimate.model` because measured energy (even if
-/// process-level and 5-second averaged) is qualitatively different from
-/// the I/O proxy. Services that are NOT mapped in `[green.scaphandre]`
-/// still use the proxy model; the tag flips as soon as one service
-/// benefits from measurement.
+/// This tag takes precedence over `io_proxy_v1` / `io_proxy_v2` and
+/// `cloud_specpower` on the top-level `CarbonEstimate.model` because
+/// measured energy (even if process-level and 5-second averaged) is
+/// qualitatively different from the I/O proxy or `SPECpower` interpolation.
+/// Services that are NOT mapped in `[green.scaphandre]` still use the
+/// proxy model; the tag flips as soon as one service benefits from
+/// measurement.
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
+
+/// Model identifier used when at least one service in the report drew
+/// its energy-per-op coefficient from the cloud `SPECpower` interpolation
+/// model (CPU% from Prometheus + instance-type idle/max watts lookup).
+///
+/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+/// A service with both Scaphandre and cloud config uses Scaphandre
+/// (direct measurement beats interpolation).
+pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
 /// Methodology tag for the **total** carbon estimate.
 ///
@@ -128,6 +138,40 @@ pub const REGION_STATUS_OUT_OF_TABLE: &str = "out_of_table";
 /// Status tag on a [`RegionBreakdown`] row: the synthetic `"unknown"` bucket
 /// aggregating events where no region resolved at all. `co2_gco2 = 0.0`.
 pub const REGION_STATUS_UNRESOLVED: &str = "unresolved";
+
+/// A per-service energy-per-op measurement with its provenance tag.
+///
+/// Carried inside [`CarbonContext::energy_snapshot`] so the scoring path
+/// can distinguish between different measurement sources (Scaphandre RAPL
+/// vs cloud `SPECpower`) without separate fields.
+#[derive(Debug, Clone, Copy)]
+pub struct EnergyEntry {
+    /// Energy consumed per I/O operation, in kWh.
+    pub energy_per_op_kwh: f64,
+    /// Model tag identifying the measurement source.
+    /// One of [`CO2_MODEL_SCAPHANDRE`] or [`CO2_MODEL_CLOUD_SPECPOWER`].
+    pub model_tag: &'static str,
+}
+
+impl EnergyEntry {
+    /// Build an entry from a Scaphandre RAPL measurement.
+    #[must_use]
+    pub const fn scaphandre(energy_per_op_kwh: f64) -> Self {
+        Self {
+            energy_per_op_kwh,
+            model_tag: CO2_MODEL_SCAPHANDRE,
+        }
+    }
+
+    /// Build an entry from a cloud `SPECpower` interpolation.
+    #[must_use]
+    pub const fn cloud(energy_per_op_kwh: f64) -> Self {
+        Self {
+            energy_per_op_kwh,
+            model_tag: CO2_MODEL_CLOUD_SPECPOWER,
+        }
+    }
+}
 
 /// CO₂ point estimate with a low/high multiplicative uncertainty interval.
 ///
@@ -297,7 +341,7 @@ pub struct RegionBreakdown {
     /// `co2_gco2 ≈ io_ops × grid_intensity_gco2_kwh × pue × ENERGY_PER_IO_OP_KWH`
     /// holds **only in the proxy-energy case** (no Scaphandre snapshot in
     /// play, or a single uniform energy-per-op across the region). When
-    /// [`CarbonContext::scaphandre_snapshot`] is present and services
+    /// [`CarbonContext::energy_snapshot`] is present and services
     /// within the same region use different measured coefficients, the
     /// identity becomes approximate: the displayed intensity is still the
     /// weighted mean, but the per-op energy varies per service so the
@@ -358,16 +402,24 @@ pub struct CarbonContext {
     /// intensity. Otherwise it falls back to the flat annual average
     /// from [`CARBON_TABLE`]. Default: `true`.
     pub use_hourly_profiles: bool,
-    /// optional per-service measured energy-per-op coefficient
-    /// (kWh) produced by the Scaphandre scraper in daemon mode. When
-    /// present, services listed in this map use their measured
-    /// coefficient instead of the fixed [`ENERGY_PER_IO_OP_KWH`] constant
-    /// for per-op CO₂ calculations. Services absent from the map (or
-    /// the entire field being `None`) fall back to the proxy model.
+    /// Optional per-service measured energy-per-op coefficient (kWh)
+    /// produced by energy scrapers in daemon mode (Scaphandre RAPL
+    /// and/or cloud `SPECpower`). When present, services listed in this
+    /// map use their measured coefficient instead of the fixed
+    /// [`ENERGY_PER_IO_OP_KWH`] constant for per-op CO₂ calculations.
+    /// Services absent from the map (or the entire field being `None`)
+    /// fall back to the proxy model.
     ///
-    /// `analyze` batch mode never populates this field — only the
-    /// `watch` daemon scrapes Scaphandre.
-    pub scaphandre_snapshot: Option<HashMap<String, f64>>,
+    /// Each [`EnergyEntry`] carries both the coefficient and a model tag
+    /// so the scoring path can track which measurement source was used
+    /// (for the top-level model tag on [`CarbonEstimate`]).
+    ///
+    /// The daemon's `build_tick_ctx` merges Scaphandre and cloud energy
+    /// snapshots into this single map, with Scaphandre entries taking
+    /// precedence for the same service.
+    ///
+    /// `analyze` batch mode never populates this field.
+    pub energy_snapshot: Option<HashMap<String, EnergyEntry>>,
 }
 
 impl Default for CarbonContext {
@@ -377,7 +429,7 @@ impl Default for CarbonContext {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         }
     }
 }
@@ -399,6 +451,9 @@ pub fn resolve_region<'a>(event: &'a SpanEvent, ctx: &'a CarbonContext) -> Optio
     // N3: short-circuit when the service_regions map is empty (mono-region
     // common case). Skips the per-span `to_ascii_lowercase` allocation that
     // would otherwise happen on every probe with no chance of hitting.
+    // When the map IS populated, the allocation is bounded: service names
+    // are truncated to MAX_SERVICE_LENGTH (256 bytes) at the ingestion
+    // boundary, so the lowercase copy is small and short-lived.
     if !ctx.service_regions.is_empty()
         && let Some(region) = ctx.service_regions.get(&event.service.to_ascii_lowercase())
     {
@@ -1038,7 +1093,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let event = make_event("order-svc", Some("ap-south-1"));
         assert_eq!(resolve_region(&event, &ctx), Some("ap-south-1"));
@@ -1053,7 +1108,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let event = make_event("order-svc", None);
         assert_eq!(resolve_region(&event, &ctx), Some("us-east-1"));
@@ -1066,7 +1121,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let event = make_event("unknown-svc", None);
         assert_eq!(resolve_region(&event, &ctx), Some("eu-west-3"));
@@ -1090,7 +1145,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let event = make_event("order-svc", Some("eu-north-1"));
         assert_eq!(resolve_region(&event, &ctx), Some("eu-north-1"));
@@ -1109,7 +1164,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         // Mixed-case service name on the event — should still match.
         let event = make_event("Order-Svc", None);

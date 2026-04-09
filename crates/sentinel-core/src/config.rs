@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use crate::detect::Confidence;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
+use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::scaphandre::ScaphandreConfig;
 
 /// Top-level configuration for perf-sentinel.
@@ -74,6 +75,13 @@ pub struct Config {
     /// `analyze` batch mode — only `watch` daemon mode spawns the
     /// scraper.
     pub green_scaphandre: Option<ScaphandreConfig>,
+    /// Optional cloud energy configuration. When `Some`, the daemon
+    /// spawns a background task that scrapes CPU% from Prometheus and
+    /// derives per-service energy-per-op via `SPECpower` interpolation.
+    ///
+    /// Parsed from `[green.cloud]` in the TOML config. Ignored in
+    /// `analyze` batch mode.
+    pub green_cloud_energy: Option<CloudEnergyConfig>,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -152,6 +160,7 @@ impl Default for Config {
             green_embodied_carbon_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             green_use_hourly_profiles: true,
             green_scaphandre: None,
+            green_cloud_energy: None,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -236,6 +245,8 @@ struct GreenSection {
     /// Scaphandre scraper section. Absent when Scaphandre
     /// is not configured.
     scaphandre: ScaphandreSection,
+    /// Cloud energy section. Absent when cloud energy is not configured.
+    cloud: CloudSection,
 }
 
 /// Raw deserialization target for `[green.scaphandre]`.
@@ -249,6 +260,36 @@ struct ScaphandreSection {
     endpoint: Option<String>,
     scrape_interval_secs: Option<u64>,
     process_map: HashMap<String, String>,
+}
+
+/// Raw deserialization target for `[green.cloud]`.
+///
+/// Converted to a `CloudEnergyConfig` during `RawConfig -> Config` only
+/// when `prometheus_endpoint` is set.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CloudSection {
+    prometheus_endpoint: Option<String>,
+    scrape_interval_secs: Option<u64>,
+    default_provider: Option<String>,
+    default_instance_type: Option<String>,
+    cpu_metric: Option<String>,
+    services: HashMap<String, CloudServiceRaw>,
+}
+
+/// Raw deserialization for a single entry in `[green.cloud.services]`.
+///
+/// Supports two forms:
+/// - Instance type: `{ provider = "aws", instance_type = "m5.large" }`
+/// - Manual watts: `{ idle_watts = 45, max_watts = 120 }`
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CloudServiceRaw {
+    provider: Option<String>,
+    instance_type: Option<String>,
+    idle_watts: Option<f64>,
+    max_watts: Option<f64>,
+    cpu_query: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -340,6 +381,7 @@ impl From<RawConfig> for Config {
                     process_map: raw.green.scaphandre.process_map.clone(),
                 }
             }),
+            green_cloud_energy: convert_cloud_section(&raw.green.cloud),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -380,9 +422,9 @@ impl From<RawConfig> for Config {
                 .unwrap_or(defaults.max_payload_size),
             // parse environment into the typed enum. Invalid
             // strings are rejected later in Config::validate so parse
-            // errors surface at load time with a clear error. When the
-            // field is absent or parse fails here, we stash the raw string
-            // on the default env and let validate() catch it.
+            // Fallback to Staging is safe: load_from_str() pre-validates
+            // this field before calling Config::from(). Direct callers
+            // (only tests) get Staging as a safe default.
             daemon_environment: match raw.daemon.environment.as_deref() {
                 None => defaults.daemon_environment,
                 Some(s) => parse_daemon_environment(s).unwrap_or(DaemonEnvironment::Staging),
@@ -394,15 +436,49 @@ impl From<RawConfig> for Config {
 /// Parse a case-insensitive environment string into [`DaemonEnvironment`].
 ///
 /// Returns `None` for any value that is not `"staging"` or `"production"`.
-/// Called from both [`Config::from`] (which falls back to default on error,
-/// deferring the real rejection to [`Config::validate`]) and
-/// [`Config::validate_daemon_environment`].
+/// Called from [`Config::from`] (which falls back to default on error,
+/// deferring the real rejection to [`Config::validate`]).
 fn parse_daemon_environment(value: &str) -> Option<DaemonEnvironment> {
     match value.trim().to_ascii_lowercase().as_str() {
         "staging" => Some(DaemonEnvironment::Staging),
         "production" => Some(DaemonEnvironment::Production),
         _ => None,
     }
+}
+
+/// Convert the raw `[green.cloud]` TOML section into a typed config.
+///
+/// Returns `None` when `prometheus_endpoint` is absent (section empty
+/// or not present). Per-service entries are classified as either
+/// `InstanceType` or `ManualWatts` based on which fields are set.
+fn convert_cloud_section(raw: &CloudSection) -> Option<CloudEnergyConfig> {
+    let endpoint = raw.prometheus_endpoint.as_ref()?;
+    let mut services = HashMap::with_capacity(raw.services.len());
+    for (name, svc) in &raw.services {
+        let config = if svc.idle_watts.is_some() || svc.max_watts.is_some() {
+            // Manual watts mode: both must be present (validated later).
+            ServiceCloudConfig::ManualWatts {
+                idle_watts: svc.idle_watts.unwrap_or(0.0),
+                max_watts: svc.max_watts.unwrap_or(0.0),
+                cpu_query: svc.cpu_query.clone(),
+            }
+        } else {
+            ServiceCloudConfig::InstanceType {
+                provider: svc.provider.clone(),
+                instance_type: svc.instance_type.clone().unwrap_or_default(),
+                cpu_query: svc.cpu_query.clone(),
+            }
+        };
+        services.insert(name.clone(), config);
+    }
+    Some(CloudEnergyConfig {
+        prometheus_endpoint: endpoint.clone(),
+        scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(15)),
+        default_provider: raw.default_provider.clone(),
+        default_instance_type: raw.default_instance_type.clone(),
+        cpu_metric: raw.cpu_metric.clone(),
+        services,
+    })
 }
 
 fn check_range<T: PartialOrd + std::fmt::Display>(
@@ -506,6 +582,9 @@ impl Config {
         if let Some(cfg) = &self.green_scaphandre {
             Self::validate_scaphandre(cfg)?;
         }
+        if let Some(cfg) = &self.green_cloud_energy {
+            Self::validate_cloud_energy(cfg)?;
+        }
         Ok(())
     }
 
@@ -596,6 +675,161 @@ impl Config {
         Ok(())
     }
 
+    /// Validate a parsed `[green.cloud]` config section.
+    fn validate_cloud_energy(cfg: &CloudEnergyConfig) -> Result<(), String> {
+        Self::validate_cloud_endpoint(cfg)?;
+        Self::validate_cloud_services(cfg)
+    }
+
+    fn validate_cloud_endpoint(cfg: &CloudEnergyConfig) -> Result<(), String> {
+        if cfg.prometheus_endpoint.is_empty() {
+            return Err(
+                "[green.cloud] prometheus_endpoint is required when the section is present"
+                    .to_string(),
+            );
+        }
+        if !cfg.prometheus_endpoint.starts_with("http://") {
+            return Err(format!(
+                "[green.cloud] prometheus_endpoint '{}' must start with 'http://' \
+                 (HTTPS scraping is not supported)",
+                cfg.prometheus_endpoint
+            ));
+        }
+        let parsed = <hyper::Uri as std::str::FromStr>::from_str(&cfg.prometheus_endpoint)
+            .map_err(|e| {
+                format!(
+                    "[green.cloud] prometheus_endpoint '{}' is not a valid URI: {e}",
+                    cfg.prometheus_endpoint
+                )
+            })?;
+        if let Some(authority) = parsed.authority()
+            && authority.as_str().contains('@')
+        {
+            return Err(format!(
+                "[green.cloud] prometheus_endpoint must not contain credentials: '{}'",
+                cfg.prometheus_endpoint
+            ));
+        }
+        let secs = cfg.scrape_interval.as_secs();
+        if !(1..=3600).contains(&secs) {
+            return Err(format!(
+                "[green.cloud] scrape_interval_secs must be in [1, 3600], got {secs}"
+            ));
+        }
+        if let Some(ref p) = cfg.default_provider
+            && !matches!(p.as_str(), "aws" | "gcp" | "azure")
+        {
+            return Err(format!(
+                "[green.cloud] default_provider must be 'aws', 'gcp', or 'azure', got '{p}'"
+            ));
+        }
+        if let Some(ref it) = cfg.default_instance_type
+            && !crate::score::cloud_energy::table::is_known_instance_type(it)
+        {
+            tracing::warn!(
+                instance_type = %it,
+                "[green.cloud] default_instance_type is not in the embedded \
+                 SPECpower table; the provider default watts will be used"
+            );
+        }
+        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
+        if let Some(ref m) = cfg.cpu_metric
+            && has_control_char(m)
+        {
+            return Err("[green.cloud] cpu_metric contains control characters".to_string());
+        }
+        Ok(())
+    }
+
+    fn validate_cloud_services(cfg: &CloudEnergyConfig) -> Result<(), String> {
+        const MAX_CLOUD_SERVICES: usize = 256;
+        if cfg.services.len() > MAX_CLOUD_SERVICES {
+            return Err(format!(
+                "[green.cloud.services] has {} entries; maximum is {MAX_CLOUD_SERVICES}",
+                cfg.services.len()
+            ));
+        }
+
+        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
+
+        for (service, svc_cfg) in &cfg.services {
+            if service.is_empty() || service.len() > 256 {
+                return Err(format!(
+                    "[green.cloud.services] service name '{service}' must be 1-256 chars"
+                ));
+            }
+            if has_control_char(service) {
+                return Err(format!(
+                    "[green.cloud.services] service name '{service}' contains control characters"
+                ));
+            }
+            // Validate per-service string fields for control chars.
+            if let Some(q) = svc_cfg.cpu_query()
+                && has_control_char(q)
+            {
+                return Err(format!(
+                    "[green.cloud.services.{service}] cpu_query contains control characters"
+                ));
+            }
+            match svc_cfg {
+                ServiceCloudConfig::ManualWatts {
+                    idle_watts,
+                    max_watts,
+                    ..
+                } => {
+                    if !idle_watts.is_finite() || *idle_watts < 0.0 {
+                        return Err(format!(
+                            "[green.cloud.services.{service}] idle_watts must be finite and >= 0, \
+                             got {idle_watts}"
+                        ));
+                    }
+                    if !max_watts.is_finite() || *max_watts < 0.0 {
+                        return Err(format!(
+                            "[green.cloud.services.{service}] max_watts must be finite and >= 0, \
+                             got {max_watts}"
+                        ));
+                    }
+                    if max_watts < idle_watts {
+                        return Err(format!(
+                            "[green.cloud.services.{service}] max_watts ({max_watts}) must be \
+                             >= idle_watts ({idle_watts})"
+                        ));
+                    }
+                }
+                ServiceCloudConfig::InstanceType {
+                    provider,
+                    instance_type,
+                    ..
+                } => {
+                    if let Some(p) = provider
+                        && !matches!(p.as_str(), "aws" | "gcp" | "azure")
+                    {
+                        return Err(format!(
+                            "[green.cloud.services.{service}] provider must be 'aws', 'gcp', \
+                             or 'azure', got '{p}'"
+                        ));
+                    }
+                    if has_control_char(instance_type) {
+                        return Err(format!(
+                            "[green.cloud.services.{service}] instance_type contains control characters"
+                        ));
+                    }
+                    if !instance_type.is_empty()
+                        && !crate::score::cloud_energy::table::is_known_instance_type(instance_type)
+                    {
+                        tracing::warn!(
+                            service = %service,
+                            instance_type = %instance_type,
+                            "[green.cloud.services] instance_type is not in the embedded \
+                             SPECpower table; provider default watts will be used"
+                        );
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn validate_daemon_limits(&self) -> Result<(), String> {
         check_range(
             "max_payload_size",
@@ -663,10 +897,6 @@ impl Config {
 ///
 /// Supports both the sectioned format and the legacy flat format.
 /// Validates that all values are within acceptable bounds after parsing.
-///
-/// # Errors
-///
-/// Returns an error if the TOML content cannot be parsed or contains invalid values.
 ///
 /// # Errors
 ///
@@ -1490,5 +1720,130 @@ endpoint = "http://localhost/metrics"
                 .as_secs(),
             3600
         );
+    }
+
+    // ------------------------------------------------------------------
+    // [green.cloud] config tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cloud_section_absent_yields_none() {
+        let toml = "[green]\nenabled = true\n";
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        assert!(cfg.green_cloud_energy.is_none());
+    }
+
+    #[test]
+    fn cloud_section_endpoint_only_parses_with_defaults() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://prom:9090"
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let cloud = cfg.green_cloud_energy.unwrap();
+        assert_eq!(cloud.prometheus_endpoint, "http://prom:9090");
+        assert_eq!(cloud.scrape_interval.as_secs(), 15);
+        assert!(cloud.default_provider.is_none());
+        assert!(cloud.services.is_empty());
+    }
+
+    #[test]
+    fn cloud_section_full_config_with_both_service_types() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://prom:9090"
+scrape_interval_secs = 30
+default_provider = "aws"
+
+[green.cloud.services.svc-a]
+provider = "gcp"
+instance_type = "n2-standard-8"
+
+[green.cloud.services.svc-b]
+idle_watts = 45
+max_watts = 120
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        assert!(cfg.validate().is_ok());
+        let cloud = cfg.green_cloud_energy.as_ref().unwrap();
+        assert_eq!(cloud.scrape_interval.as_secs(), 30);
+        assert_eq!(cloud.default_provider.as_deref(), Some("aws"));
+        assert_eq!(cloud.services.len(), 2);
+    }
+
+    #[test]
+    fn cloud_rejects_https_endpoint() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "https://prom:9090"
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("http://"), "error: {err}");
+    }
+
+    #[test]
+    fn cloud_rejects_credentials_in_endpoint() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://user:pass@prom:9090"
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("credentials"), "error: {err}");
+    }
+
+    #[test]
+    fn cloud_rejects_invalid_scrape_interval() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://prom:9090"
+scrape_interval_secs = 0
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("scrape_interval"), "error: {err}");
+    }
+
+    #[test]
+    fn cloud_rejects_invalid_provider() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://prom:9090"
+default_provider = "alibaba"
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("default_provider"), "error: {err}");
+    }
+
+    #[test]
+    fn cloud_rejects_max_watts_less_than_idle() {
+        let toml = r#"
+[green.cloud]
+prometheus_endpoint = "http://prom:9090"
+
+[green.cloud.services.bad-svc]
+idle_watts = 100
+max_watts = 50
+"#;
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("max_watts"), "error: {err}");
+    }
+
+    #[test]
+    fn cloud_rejects_service_name_with_control_chars() {
+        let toml = "
+[green.cloud]
+prometheus_endpoint = \"http://prom:9090\"
+
+[green.cloud.services.\"bad\\nsvc\"]
+idle_watts = 10
+max_watts = 50
+";
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("control characters"), "error: {err}");
     }
 }

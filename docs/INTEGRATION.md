@@ -797,7 +797,7 @@ Upload the SARIF file to your code scanning dashboard. Each finding maps to a SA
 
 ## Finding confidence field
 
-Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. Downstream consumers — in particular [perf-lint](https://github.com/robintra/perf-lint) — use this field to boost or reduce the severity shown in the IDE depending on how much trust to place in the finding.
+Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. Downstream consumers, in particular [perf-lint](https://github.com/robintra/perf-lint), use this field to boost or reduce the severity shown in the IDE depending on how much trust to place in the finding.
 
 Values:
 

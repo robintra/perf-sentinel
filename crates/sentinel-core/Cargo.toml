@@ -21,7 +21,7 @@ tracing = "0.1.44"
 thiserror = "2.0.18"
 toml = "1.1.2+spec-1.1.0"
 regex = "1.12.3"
-tokio = { version = "1.51.1", features = ["full"] }
+tokio = { version = "1.51.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util"] }
 tonic = "0.14.5"
 prost = "0.14.3"
 opentelemetry-proto = { version = "0.31.0", features = ["gen-tonic-messages", "trace"] }

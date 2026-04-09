@@ -49,9 +49,10 @@ pub fn analyze_with_traces(
             embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
             // honour the [green] use_hourly_profiles toggle.
             use_hourly_profiles: config.green_use_hourly_profiles,
-            // Scaphandre is a daemon-only feature; batch
-            // `analyze` never scrapes, so the snapshot is always None here.
-            scaphandre_snapshot: None,
+            // Energy scraping (Scaphandre, cloud SPECpower) is a daemon-only
+            // feature; batch `analyze` never scrapes, so the snapshot is
+            // always None here.
+            energy_snapshot: None,
         };
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {

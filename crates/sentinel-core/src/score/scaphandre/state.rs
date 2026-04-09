@@ -72,13 +72,13 @@ impl ScaphandreState {
     /// `Arc<HashMap>` that is guaranteed consistent (it's whatever the
     /// scraper last published) and we iterate it to filter stale rows.
     /// Keys are still cloned (once per fresh row) because the
-    /// `CarbonContext.scaphandre_snapshot` signature takes an owned
+    /// `CarbonContext.energy_snapshot` signature takes an owned
     /// `HashMap<String, f64>`; that's a typically tiny allocation
     /// (bounded by the number of mapped services, usually single
     /// digits).
     ///
     /// Used by the daemon right before `process_traces` to build the
-    /// `CarbonContext.scaphandre_snapshot` for the current tick.
+    /// `CarbonContext.energy_snapshot` for the current tick.
     #[must_use]
     pub fn snapshot(&self, now_ms: u64, staleness_ms: u64) -> HashMap<String, f64> {
         let current = self.inner.load_full();

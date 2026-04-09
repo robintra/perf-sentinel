@@ -1,6 +1,7 @@
 //! Scoring stage: computes `GreenOps` I/O intensity scores.
 
 pub mod carbon;
+pub mod cloud_energy;
 pub mod scaphandre;
 
 use std::cmp::Ordering;
@@ -10,11 +11,11 @@ use crate::correlate::Trace;
 use crate::detect::{Finding, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 use carbon::{
-    CO2_MODEL, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CarbonContext, CarbonEstimate, CarbonReport,
-    ENERGY_PER_IO_OP_KWH, IntensitySource, REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE,
-    REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION, hourly_profile_for_region_lower,
-    is_valid_region_id, lookup_hourly_intensity_lower, lookup_region_lower, per_op_gco2,
-    resolve_region,
+    CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CarbonContext,
+    CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, IntensitySource, REGION_STATUS_KNOWN,
+    REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION,
+    hourly_profile_for_region_lower, is_valid_region_id, lookup_hourly_intensity_lower,
+    lookup_region_lower, per_op_gco2, resolve_region,
 };
 
 /// Maximum number of distinct regions allowed in a single scoring pass.
@@ -158,7 +159,7 @@ pub fn score_green(
         None => (None, Vec::new(), false),
     };
 
-    // Phase 6: Build top offenders sorted by IIS descending, with alphabetical tiebreaker.
+    // Build top offenders sorted by IIS descending, with alphabetical tiebreaker.
     // Top-offender CO₂ uses the default region ONLY in mono-region mode. When
     // multi-region scoring is active, the per-offender scalar would be
     // inconsistent with the per-region breakdown, so we set it to None.
@@ -243,9 +244,14 @@ struct RegionAccumulator {
     /// `RegionBreakdown.intensity_source`.
     any_hourly: bool,
     /// Set when at least one op in this region used a measured energy
-    /// coefficient from the Scaphandre snapshot. Drives the top-level
-    /// model tag to [`CO2_MODEL_SCAPHANDRE`].
+    /// coefficient from Scaphandre RAPL. Drives the top-level model tag
+    /// to [`CO2_MODEL_SCAPHANDRE`].
     any_scaphandre: bool,
+    /// Set when at least one op in this region used a cloud `SPECpower`
+    /// energy coefficient. Drives the top-level model tag to
+    /// [`CO2_MODEL_CLOUD_SPECPOWER`] (unless Scaphandre is also present,
+    /// which takes precedence).
+    any_cloud_specpower: bool,
 }
 
 /// Compute the structured carbon report, per-region breakdown, and the
@@ -261,13 +267,13 @@ struct RegionAccumulator {
 ///    instead of the flat annual value. Marks the region as
 ///    `any_hourly = true` for the breakdown's `intensity_source` field.
 ///
-/// 2. **Scaphandre snapshot path** — when `ctx.scaphandre_snapshot` is
-///    `Some` AND the span's service is mapped in the snapshot, the
-///    per-op energy coefficient comes from the measured value instead
-///    of [`ENERGY_PER_IO_OP_KWH`]. This path COMPOSES with the hourly
-///    path — a Scaphandre-served op can also use an hourly intensity.
-///    Marks the region as `any_scaphandre = true` so the top-level
-///    model tag flips to [`CO2_MODEL_SCAPHANDRE`] at aggregation time.
+/// 2. **Energy snapshot path** — when `ctx.energy_snapshot` is `Some`
+///    AND the span's service is mapped in the snapshot, the per-op
+///    energy coefficient comes from the measured value instead of
+///    [`ENERGY_PER_IO_OP_KWH`]. This path COMPOSES with the hourly
+///    path. The entry's `model_tag` determines which flag is set on
+///    the `RegionAccumulator` (`any_scaphandre` or `any_cloud_specpower`)
+///    so the top-level model tag reflects the most precise source used.
 ///
 /// 3. **Proxy path (default)** — flat annual intensity + fixed
 ///    per-op energy constant. Matches the behaviour.
@@ -407,15 +413,16 @@ fn compute_carbon_report(
                 None => annual_intensity,
             };
 
-            // Energy (kWh) per op: measured from Scaphandre if the
-            // snapshot is configured and maps this service, else the
-            // fixed proxy constant.
-            let (energy_kwh, is_scaphandre) = match &ctx.scaphandre_snapshot {
+            // Energy (kWh) per op: measured from the energy snapshot
+            // (Scaphandre RAPL or cloud `SPECpower`) if the snapshot is
+            // configured and maps this service, else the fixed proxy
+            // constant.
+            let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
                 Some(snapshot) => match snapshot.get(&span.event.service) {
-                    Some(&measured) => (measured, true),
-                    None => (ENERGY_PER_IO_OP_KWH, false),
+                    Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
+                    None => (ENERGY_PER_IO_OP_KWH, None),
                 },
-                None => (ENERGY_PER_IO_OP_KWH, false),
+                None => (ENERGY_PER_IO_OP_KWH, None),
             };
 
             // Per-op CO₂ via the single-source helper.
@@ -427,7 +434,9 @@ fn compute_carbon_report(
             let acc = if needs_lowercase {
                 per_region.entry(region_key).or_default()
             } else if per_region.contains_key(region_ref) {
-                per_region.get_mut(region_ref).unwrap()
+                per_region
+                    .get_mut(region_ref)
+                    .expect("key confirmed present by contains_key above")
             } else {
                 per_region.entry(region_ref.to_string()).or_default()
             };
@@ -437,8 +446,10 @@ fn compute_carbon_report(
             if hour_opt.is_some() {
                 acc.any_hourly = true;
             }
-            if is_scaphandre {
-                acc.any_scaphandre = true;
+            match measured_model {
+                Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
+                Some(CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
+                _ => {}
             }
         }
     }
@@ -450,10 +461,12 @@ fn compute_carbon_report(
     let mut operational_gco2: f64 = 0.0;
     let mut any_hourly_report = false;
     let mut any_scaphandre_report = false;
+    let mut any_cloud_specpower_report = false;
     for (region, acc) in per_region {
         operational_gco2 += acc.co2_gco2;
         any_hourly_report |= acc.any_hourly;
         any_scaphandre_report |= acc.any_scaphandre;
+        any_cloud_specpower_report |= acc.any_cloud_specpower;
 
         if let Some((_, pue)) = lookup_region_lower(&region) {
             // Time-weighted mean intensity for display. Guaranteed
@@ -461,6 +474,24 @@ fn compute_carbon_report(
             // the accumulator after incrementing total_ops.
             let mean_intensity = acc.intensity_sum_per_op / acc.total_ops as f64;
             let intensity_source = if acc.any_hourly {
+                // The eu-central-1 hourly profile has a mean ~31% above
+                // the flat annual value (442 vs 338 gCO2/kWh). Log once
+                // so users notice the divergence when comparing v1/v2.
+                if region == "eu-central-1" {
+                    use std::sync::Once;
+                    static WARN: Once = Once::new();
+                    WARN.call_once(|| {
+                        tracing::info!(
+                            region = "eu-central-1",
+                            annual_gco2_kwh = 338.0,
+                            hourly_mean_gco2_kwh = 442.0,
+                            "Hourly carbon profile for eu-central-1 (DE) averages \
+                             ~31% above the flat annual value. This reflects recent \
+                             grid data. Disable with [green] use_hourly_profiles = false \
+                             to use the annual baseline instead."
+                        );
+                    });
+                }
                 IntensitySource::Hourly
             } else {
                 IntensitySource::Annual
@@ -528,7 +559,11 @@ fn compute_carbon_report(
     // regardless of whether the application does N+1 queries.
     let accounted_io_ops = total_io_ops.saturating_sub(unknown_ops);
     let avoidable_mid = if accounted_io_ops > 0 {
-        operational_gco2 * (avoidable_io_ops as f64 / accounted_io_ops as f64)
+        // Clamp ratio to 1.0: in pathological cases (avoidable ops from
+        // unknown-region spans exceeding accounted ops) the ratio can
+        // exceed 1.0, which would produce avoidable > operational.
+        let ratio = (avoidable_io_ops as f64 / accounted_io_ops as f64).min(1.0);
+        operational_gco2 * ratio
     } else {
         0.0
     };
@@ -536,6 +571,8 @@ fn compute_carbon_report(
     // top-level model tag. Most precise model wins.
     let model = if any_scaphandre_report {
         CO2_MODEL_SCAPHANDRE
+    } else if any_cloud_specpower_report {
+        CO2_MODEL_CLOUD_SPECPOWER
     } else if any_hourly_report {
         CO2_MODEL_V2
     } else {
@@ -858,7 +895,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         }
     }
 
@@ -967,7 +1004,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.001,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1163,7 +1200,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.001, // 1 trace × 0.001 = 0.001 g embodied
             use_hourly_profiles: false,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1208,7 +1245,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.5, // intentionally large to detect leakage
             use_hourly_profiles: false,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![finding], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1270,7 +1307,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1413,7 +1450,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1435,7 +1472,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1458,7 +1495,7 @@ mod tests {
             service_regions,
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1480,7 +1517,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1609,7 +1646,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace_eu, trace_orphan], vec![finding], Some(&ctx));
 
@@ -1729,7 +1766,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: use_hourly,
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         }
     }
 
@@ -1815,7 +1852,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false, // pin to flat annual
-            scaphandre_snapshot: None,
+            energy_snapshot: None,
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1895,13 +1932,16 @@ mod tests {
         // 2. Compute operational CO₂ with the measured coefficient
         let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
         let mut snapshot = HashMap::new();
-        snapshot.insert("order-svc".to_string(), 5e-7);
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
         let ctx = CarbonContext {
             default_region: None,
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false, // isolate Scaphandre effect
-            scaphandre_snapshot: Some(snapshot),
+            energy_snapshot: Some(snapshot),
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1926,7 +1966,7 @@ mod tests {
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
-            scaphandre_snapshot: Some(HashMap::new()),
+            energy_snapshot: Some(HashMap::new()),
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1935,16 +1975,19 @@ mod tests {
 
     #[test]
     fn scaphandre_takes_precedence_over_hourly_in_model_tag() {
-        // Both hourly AND scaphandre active → scaphandre_rapl wins.
+        // Both hourly AND scaphandre active -> scaphandre_rapl wins.
         let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
         let mut snapshot = HashMap::new();
-        snapshot.insert("order-svc".to_string(), 3e-7);
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(3e-7),
+        );
         let ctx = CarbonContext {
             default_region: None,
             service_regions: HashMap::new(),
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
-            scaphandre_snapshot: Some(snapshot),
+            energy_snapshot: Some(snapshot),
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1953,5 +1996,89 @@ mod tests {
         // the hourly path was used for the intensity even though
         // Scaphandre supplied the energy coefficient.
         assert_eq!(summary.regions[0].intensity_source, IntensitySource::Hourly);
+    }
+
+    // ------------------------------------------------------------------
+    // Cloud SPECpower model tag tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn cloud_snapshot_flips_model_to_cloud_specpower() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::cloud(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "cloud_specpower");
+        // Operational CO2 = 6 ops * 5e-7 kWh * 56 g/kWh * 1.135 PUE.
+        let expected = 6.0 * 5e-7 * 56.0 * 1.135;
+        assert!(
+            (co2.operational_gco2 - expected).abs() < 1e-12,
+            "expected {expected}, got {}",
+            co2.operational_gco2
+        );
+    }
+
+    #[test]
+    fn cloud_takes_precedence_over_hourly_in_model_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::cloud(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: true,
+            energy_snapshot: Some(snapshot),
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "cloud_specpower");
+    }
+
+    #[test]
+    fn scaphandre_takes_precedence_over_cloud_in_model_tag() {
+        // Mixed snapshot: one service with Scaphandre, another with cloud.
+        // Scaphandre should win for the top-level model tag.
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        snapshot.insert("other-svc".to_string(), carbon::EnergyEntry::cloud(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        // "order-svc" (the service in the trace) has Scaphandre entry.
+        assert_eq!(co2.total.model, "scaphandre_rapl");
+    }
+
+    #[test]
+    fn cloud_empty_snapshot_stays_on_proxy() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(HashMap::new()),
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "io_proxy_v1");
     }
 }

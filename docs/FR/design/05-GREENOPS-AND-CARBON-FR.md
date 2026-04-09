@@ -209,7 +209,7 @@ Pour taguer cette distinction sémantique au niveau des données, `CarbonEstimat
 - `"sci_v1_numerator"` : utilisé sur `co2.total`. L'empreinte `(E × I) + M` sommée sur les traces.
 - `"sci_v1_operational_ratio"` : utilisé sur `co2.avoidable`. Le ratio global aveugle à la région `operational × (avoidable/accounted)`, excluant le carbone embodié.
 
-Les deux valeurs distinctes signalent aux consommateurs aval que `total` et `avoidable` sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
+Les deux valeurs distinctes signalent aux consommateurs en aval que `total` et `avoidable` sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
 
 ### Évitable via ratio (choix de design)
 
@@ -273,7 +273,7 @@ Les bornes reflètent l'incertitude agrégée du modèle, **pas** la variance pa
 
 ### Versionnement du modèle
 
-Le champ `model: "io_proxy_v1"` versionne la méthodologie d'estimation. Les améliorations futures (pondération par opération, profils horaires de carbone, intégration RAPL) bumperont cette version, permettant aux consommateurs aval de tracer quelle méthodologie a produit un rapport donné.
+Le champ `model: "io_proxy_v1"` versionne la méthodologie d'estimation. Les améliorations futures (pondération par opération, profils horaires de carbone, intégration RAPL) bumperont cette version, permettant aux consommateurs en aval de tracer quelle méthodologie a produit un rapport donné.
 
 ### Recherche par région
 
@@ -309,10 +309,10 @@ Quand la région configurée n'est pas trouvée dans la table, les champs CO2 so
 
 La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque un profil UTC 24 valeurs par région pour quatre régions avec des formes diurnes bien documentées :
 
-- **France (`eu-west-3`)** — baseload nucléaire, forme plate-avec-pic-soir.
-- **Allemagne (`eu-central-1`)** — charbon + gaz + renouvelables variables, pics matin/soir prononcés.
-- **Royaume-Uni (`eu-west-2`)** — éolien + gaz, pics jumeaux modérés.
-- **US-East (`us-east-1`)** — gaz + charbon, plateau diurne 13h-18h UTC (9h-14h heure Est).
+- **France (`eu-west-3`)** : baseload nucléaire, forme plate-avec-pic-soir.
+- **Allemagne (`eu-central-1`)** : charbon + gaz + renouvelables variables, pics matin/soir prononcés.
+- **Royaume-Uni (`eu-west-2`)** : éolien + gaz, pics jumeaux modérés.
+- **US-East (`us-east-1`)** : gaz + charbon, plateau diurne 13h-18h UTC (9h-14h heure Est).
 
 La moyenne arithmétique de chaque profil approxime la valeur annuelle plate correspondante dans les ±5%, préservant la continuité méthodologique. Sources : rapports open-data annuels Electricity Maps, ENTSO-E Transparency Platform, études académiques.
 
@@ -329,7 +329,7 @@ let intensity_used = if ctx.use_hourly_profiles
 };
 ```
 
-Quand le dispatch sélectionne le chemin horaire pour une région, la ligne `RegionBreakdown` est taguée `intensity_source: "hourly"` et le `CarbonEstimate.model` de niveau supérieur passe de `"io_proxy_v1"` à `"io_proxy_v2"`. Si le même rapport contient des régions passées par le chemin plat, ces régions restent taguées `intensity_source: "annual"` tandis que le modèle de niveau supérieur lit toujours `"io_proxy_v2"` — le tag enregistre "le modèle le plus précis utilisé quelque part dans le run".
+Quand le dispatch sélectionne le chemin horaire pour une région, la ligne `RegionBreakdown` est taguée `intensity_source: "hourly"` et le `CarbonEstimate.model` de niveau supérieur passe de `"io_proxy_v1"` à `"io_proxy_v2"`. Si le même rapport contient des régions passées par le chemin plat, ces régions restent taguées `intensity_source: "annual"` tandis que le modèle de niveau supérieur lit toujours `"io_proxy_v2"`. Le tag enregistre "le modèle le plus précis utilisé quelque part dans le run".
 
 **Les timestamps doivent être en UTC.** `parse_utc_hour` rejette les formes d'offset non-UTC (`+02:00`, `-05:00`) plutôt que de les décaler silencieusement. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate pour la région.
 
@@ -339,14 +339,14 @@ Quand le dispatch sélectionne le chemin horaire pour une région, la ligne `Reg
 
 Le modèle proxy utilise une constante fixe `ENERGY_PER_IO_OP_KWH` (0,1 µWh par op). C'est une approximation à deux ordres de grandeur près. perf-sentinel offre un support opt-in pour remplacer le proxy par un coefficient mesuré au niveau service dérivé des lectures de puissance par processus de [Scaphandre](https://github.com/hubblo-org/scaphandre).
 
-**Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. perf-sentinel NE bundle PAS et NE fork PAS Scaphandre — il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre.rs` possède :
+**Comment ça s'intègre dans l'architecture.** Scaphandre est un processus externe installé par l'utilisateur. perf-sentinel NE bundle PAS et NE fork PAS Scaphandre : il scrape l'endpoint Prometheus `/metrics` que Scaphandre expose déjà. Le module `score/scaphandre.rs` possède :
 
-- `ScaphandreConfig` — parsé depuis `[green.scaphandre]` dans `.perf-sentinel.toml`.
-- `ScaphandreState` — `Arc<RwLock<HashMap<String, ServiceEnergy>>>`, partagé entre la tâche scraper et le chemin de scoring.
-- `spawn_scraper()` — une tâche tokio qui s'exécute toutes les `scrape_interval_secs`.
-- `parse_scaphandre_metrics()` — un parser sensible aux échappements pour le format d'exposition texte Prometheus.
-- `OpsSnapshotDiff` — un helper de snapshot-diff qui lit les compteurs d'ops par service depuis `MetricsState::service_io_ops_total`.
-- `apply_scrape()` — applique les lectures de puissance parsées + les deltas d'ops à l'état.
+- `ScaphandreConfig` : parsé depuis `[green.scaphandre]` dans `.perf-sentinel.toml`.
+- `ScaphandreState` : `Arc<RwLock<HashMap<String, ServiceEnergy>>>`, partagé entre la tâche scraper et le chemin de scoring.
+- `spawn_scraper()` : une tâche tokio qui s'exécute toutes les `scrape_interval_secs`.
+- `parse_scaphandre_metrics()` : un parser sensible aux échappements pour le format d'exposition texte Prometheus.
+- `OpsSnapshotDiff` : un helper de snapshot-diff qui lit les compteurs d'ops par service depuis `MetricsState::service_io_ops_total`.
+- `apply_scrape()` : applique les lectures de puissance parsées + les deltas d'ops à l'état.
 
 **La formule.** Pour chaque service mappé dans une fenêtre de scrape :
 
@@ -357,22 +357,22 @@ kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_observed_in_window
 ```
 
-Quand `ops_observed_in_window == 0`, l'entrée d'état existante est **conservée** inchangée plutôt qu'effacée — cela évite le flapping du tag model pour les services idle.
+Quand `ops_observed_in_window == 0`, l'entrée d'état existante est **conservée** inchangée plutôt qu'effacée, ce qui évite le flapping du tag model pour les services idle.
 
-**Où le coefficient se branche.** Le daemon prend un snapshot synchrone de `ScaphandreState` au début de chaque tick `process_traces`. Cette map est attachée à `CarbonContext.scaphandre_snapshot` pour la durée du tick. Dans la boucle de spans de `compute_carbon_report`, l'énergie par op est résolue comme suit :
+**Où le coefficient se branche.** Le daemon prend un snapshot synchrone de toutes les sources d'énergie au début de chaque tick `process_traces` via `build_tick_ctx`. Cette map fusionnée est attachée à `CarbonContext.energy_snapshot` pour la durée du tick. Chaque `EnergyEntry` porte le coefficient et un tag de modèle (`"scaphandre_rapl"` ou `"cloud_specpower"`). Dans la boucle de spans de `compute_carbon_report`, l'énergie par op est résolue comme suit :
 
 ```rust
-let (energy_kwh, is_scaphandre) = match &ctx.scaphandre_snapshot {
+let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
     Some(snapshot) => match snapshot.get(&span.event.service) {
-        Some(&measured) => (measured, true),
-        None => (ENERGY_PER_IO_OP_KWH, false),
+        Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
+        None => (ENERGY_PER_IO_OP_KWH, None),
     },
-    None => (ENERGY_PER_IO_OP_KWH, false),
+    None => (ENERGY_PER_IO_OP_KWH, None),
 };
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-L'étape de scoring suit `any_scaphandre: bool` et, quand c'est vrai, met `CarbonEstimate.model` de niveau supérieur à `"scaphandre_rapl"` — qui a priorité sur `"io_proxy_v2"` et `"io_proxy_v1"`. Scaphandre et les profils horaires se composent naturellement : une op servie par Scaphandre en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
+L'étape de scoring suit des flags par région (`any_scaphandre`, `any_cloud_specpower`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
 
 **Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus) via `snapshot_service_io_ops()`. Le chemin d'intake d'événements du daemon incrémente ce compteur sur chaque événement normalisé.
 
@@ -382,7 +382,7 @@ L'étape de scoring suit `any_scaphandre: bool` et, quand c'est vrai, met `Carbo
 
 ## Champ de confiance sur les findings (interop perf-lint)
 
-Un champ `confidence` est tamponné sur chaque `Finding` dans le rapport JSON et SARIF, indiquant le contexte source de la détection. La valeur est définie par l'appelant du pipeline (`pipeline::analyze_with_traces` pour le mode batch → toujours `CiBatch` ; `daemon::process_traces` pour le mode streaming → dérivé de `config.daemon_environment`). Les détecteurs eux-mêmes ne raisonnent jamais sur la confiance — ils émettent `Confidence::default()` et l'appelant écrase.
+Un champ `confidence` est tamponné sur chaque `Finding` dans le rapport JSON et SARIF, indiquant le contexte source de la détection. La valeur est définie par l'appelant du pipeline (`pipeline::analyze_with_traces` pour le mode batch → toujours `CiBatch` ; `daemon::process_traces` pour le mode streaming → dérivé de `config.daemon_environment`). Les détecteurs eux-mêmes ne raisonnent jamais sur la confiance : ils émettent `Confidence::default()` et l'appelant écrase.
 
 Valeurs :
 
@@ -394,8 +394,8 @@ Valeurs :
 
 Le champ apparaît dans :
 
-- **Rapport JSON** — chaque objet finding inclut `"confidence": "ci_batch"` / `"daemon_staging"` / `"daemon_production"`.
-- **SARIF v2.1.0** — entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
-- **Sortie terminal CLI** — NON affiché (le terminal reste propre pour l'usage interactif).
+- **Rapport JSON** : chaque objet finding inclut `"confidence": "ci_batch"` / `"daemon_staging"` / `"daemon_production"`.
+- **SARIF v2.1.0** : entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
+- **Sortie terminal CLI** : NON affiché (le terminal reste propre pour l'usage interactif).
 
 Le consommateur principal est perf-lint, qui importe les findings runtime depuis la sortie JSON de perf-sentinel et applique un multiplicateur de sévérité basé sur la confiance. Voir `docs/FR/INTEGRATION-FR.md` pour l'exemple d'intégration.

@@ -23,9 +23,9 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         buf.push(HEX[(b >> 4) as usize]);
         buf.push(HEX[(b & 0x0f) as usize]);
     }
-    // SAFETY: all pushed bytes come from HEX which only contains ASCII hex digits (0-9, a-f).
-    // The output is guaranteed valid UTF-8 because every byte is in the ASCII range.
-    unsafe { String::from_utf8_unchecked(buf) }
+    // All pushed bytes come from HEX (ASCII hex digits 0-9, a-f),
+    // so the output is always valid UTF-8.
+    String::from_utf8(buf).expect("hex digits are always valid UTF-8")
 }
 
 use crate::time::nanos_to_iso8601;
@@ -216,7 +216,7 @@ fn convert_span(
             .map(str::to_string)
     });
 
-    Some(SpanEvent {
+    let mut event = SpanEvent {
         timestamp,
         trace_id,
         span_id,
@@ -232,7 +232,9 @@ fn convert_span(
             method: source_method,
         },
         status_code,
-    })
+    };
+    crate::event::sanitize_span_event(&mut event);
+    Some(event)
 }
 
 // ── gRPC service implementation ─────────────────────────────────────

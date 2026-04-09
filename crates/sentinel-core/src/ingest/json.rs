@@ -69,6 +69,7 @@ impl IngestSource for JsonIngest {
                     {
                         event.cloud_region = None;
                     }
+                    crate::event::sanitize_span_event(event);
                 }
                 Ok(events)
             }

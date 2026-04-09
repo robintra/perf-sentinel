@@ -69,6 +69,10 @@ En mode streaming, chaque trace contient au maximum `max_events_per_trace` évé
 
 Pour les traces avec un très grand nombre d'événements, augmentez `max_events_per_trace` ou investiguer pourquoi une seule trace génère autant d'opérations.
 
+## Limites de longueur des champs à l'ingestion
+
+Toutes les frontières d'ingestion (OTLP, JSON, Jaeger, Zipkin) tronquent les champs texte pour empêcher une croissance mémoire non bornée. Limites : `service` 256 octets, `operation` 256 octets, `target` 64 Ko, `source.endpoint` 512 octets, `source.method` 512 octets, `timestamp` 64 octets, `trace_id`/`span_id` 128 octets. La troncation préserve les frontières de caractères UTF-8. Les champs en dessous de la limite ne sont pas modifiés.
+
 ## Taille du binaire
 
 Le binaire release cible < 10 Mo avec `lto = "thin"`, `strip = true` et `panic = "abort"`. La table d'intensité carbone embarquée et le support protobuf OTLP contribuent à la taille du binaire. Si vous avez besoin d'un binaire plus petit et n'utilisez pas l'ingestion OTLP, la compilation avec des feature flags (travail futur) pourrait réduire la taille.
@@ -165,20 +169,20 @@ Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la méthodologie complè
 
 Des profils UTC 24h embarqués sont disponibles pour quatre régions disposant de patterns de réseau diurnes bien documentés :
 
-- **France (`eu-west-3`, `fr`)** — baseload nucléaire, profil relativement plat avec un léger pic 17h-20h UTC.
-- **Allemagne (`eu-central-1`, `de`)** — charbon + gaz + renouvelables variables, pics prononcés le matin (06h-10h UTC) et le soir (17h-20h UTC).
-- **Royaume-Uni (`eu-west-2`, `gb`)** — éolien + gaz, pics jumeaux modérés similaires à l'Allemagne mais plus petits.
-- **US-East (`us-east-1`)** — gaz + charbon, plateau diurne (13h-18h UTC = 9h-14h heure Est, heures de bureau).
+- **France (`eu-west-3`, `fr`)** : baseload nucléaire, profil relativement plat avec un léger pic 17h-20h UTC.
+- **Allemagne (`eu-central-1`, `de`)** : charbon + gaz + renouvelables variables, pics prononcés le matin (06h-10h UTC) et le soir (17h-20h UTC).
+- **Royaume-Uni (`eu-west-2`, `gb`)** : éolien + gaz, pics jumeaux modérés similaires à l'Allemagne mais plus petits.
+- **US-East (`us-east-1`)** : gaz + charbon, plateau diurne (13h-18h UTC = 9h-14h heure Est, heures de bureau).
 
-Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure pour chaque span basée sur son timestamp UTC. Les régions **non** listées ci-dessus utilisent toujours la valeur annuelle plate de la table carbone principale quel que soit le toggle. Les rapports où au moins une région a utilisé un profil horaire sont tagués `model = "io_proxy_v2"` (monté depuis `"io_proxy_v1"`), et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"` ou `"hourly"`) pour que les consommateurs aval puissent auditer quelles régions ont bénéficié des données plus précises.
+Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure pour chaque span basée sur son timestamp UTC. Les régions **non** listées ci-dessus utilisent toujours la valeur annuelle plate de la table carbone principale quel que soit le toggle. Les rapports où au moins une région a utilisé un profil horaire sont tagués `model = "io_proxy_v2"` (monté depuis `"io_proxy_v1"`), et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"` ou `"hourly"`) pour que les consommateurs en aval puissent auditer quelles régions ont bénéficié des données plus précises.
 
 **Ce que ça fait et ne fait pas.** Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Il ne capture PAS :
 
-- **La variance saisonnière** — seul l'horaire est embarqué, pas mensuel×horaire. Les différences hiver/été sont moyennées dans le profil 24 valeurs.
-- **Les fluctuations liées à la météo** — les valeurs embarquées sont des moyennes typiques, pas des données temps-réel.
-- **Les régions hors du set de 4** — toutes les autres régions AWS/GCP/Azure et codes pays ISO retombent sur la valeur annuelle plate.
+- **La variance saisonnière** : seul l'horaire est embarqué, pas mensuel×horaire. Les différences hiver/été sont moyennées dans le profil 24 valeurs.
+- **Les fluctuations liées à la météo** : les valeurs embarquées sont des moyennes typiques, pas des données temps-réel.
+- **Les régions hors du set de 4** : toutes les autres régions AWS/GCP/Azure et codes pays ISO retombent sur la valeur annuelle plate.
 
-**Exigences de timestamp.** perf-sentinel parse les timestamps en UTC et exige la forme canonique ISO 8601 `YYYY-MM-DDTHH:MM:SS[.fff]Z` (Z final) ou la variante avec espace. Les chaînes avec offset non-UTC (`+02:00`, `-05:00`) sont rejetées plutôt que silencieusement décalées — la table carbone est ancrée UTC, donc un traitement naïf des offsets fausserait systématiquement l'estimation. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate.
+**Exigences de timestamp.** perf-sentinel parse les timestamps en UTC et exige la forme canonique ISO 8601 `YYYY-MM-DDTHH:MM:SS[.fff]Z` (Z final) ou la variante avec espace. Les chaînes avec offset non-UTC (`+02:00`, `-05:00`) sont rejetées plutôt que silencieusement décalées, car la table carbone est ancrée UTC et un traitement naïf des offsets fausserait systématiquement l'estimation. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate.
 
 **Amélioration de précision (approximative).** Par rapport au modèle plat-annuel, les profils horaires réduisent la composante temps-de-jour du budget d'incertitude de ~±50% à ~±20% **pour les 4 régions listées uniquement**. L'intervalle d'incertitude multiplicative 2× global sur l'estimation CO₂ est inchangé, car la constante proxy énergie-par-op reste la source d'erreur dominante.
 
@@ -186,7 +190,7 @@ Pour figer les rapports sur le modèle annuel plat (ex. pour comparer des runs h
 
 #### ⚠️ Le profil horaire Allemagne (`eu-central-1`) diverge de l'annuel plat
 
-Contrairement à la France, au Royaume-Uni et aux US-East — dont les profils horaires restent dans les ±5% de leur valeur annuelle plate correspondante dans la table carbone principale — le profil horaire Allemagne a une **moyenne arithmétique de ~442 g/kWh**, alors que la valeur annuelle plate embarquée dans `CARBON_TABLE[eu-central-1]` est de **338 g/kWh** (écart d'environ 31%). Cela reflète les données ENTSO-E récentes (2023-2024) sur le réseau allemand, dominé par le charbon et les renouvelables variables avec des pics prononcés ; la valeur annuelle plate embarquée précède ce décalage et est optimiste par comparaison.
+Contrairement à la France, au Royaume-Uni et aux US-East, dont les profils horaires restent dans les ±5% de leur valeur annuelle plate correspondante dans la table carbone principale, le profil horaire Allemagne a une **moyenne arithmétique de ~442 g/kWh**, alors que la valeur annuelle plate embarquée dans `CARBON_TABLE[eu-central-1]` est de **338 g/kWh** (écart d'environ 31%). Cela reflète les données ENTSO-E récentes (2023-2024) sur le réseau allemand, dominé par le charbon et les renouvelables variables avec des pics prononcés ; la valeur annuelle plate embarquée précède ce décalage et est optimiste par comparaison.
 
 **Ce que ça signifie pour vos rapports :**
 
@@ -204,7 +208,7 @@ perf-sentinel embarque une intégration opt-in avec [Scaphandre](https://github.
 **Exigences plateforme.** Scaphandre fonctionne sur :
 
 - **Linux uniquement** (pas Windows, pas macOS, pas BSD).
-- **CPU x86_64 Intel ou AMD avec support RAPL** — la plupart des puces serveur et desktop récentes, mais notamment **PAS ARM64**. Apple Silicon, Ampere, Graviton et instances cloud ARM similaires ne peuvent pas utiliser cette intégration.
+- **CPU x86_64 Intel ou AMD avec support RAPL** : la plupart des puces serveur et desktop récentes, mais notamment **PAS ARM64**. Apple Silicon, Ampere, Graviton et instances cloud ARM similaires ne peuvent pas utiliser cette intégration.
 - **Bare metal ou VMs avec passthrough RAPL.** La plupart des VMs cloud (AWS EC2, GCP GCE, Azure VMs) n'exposent **pas** les compteurs RAPL aux OS invités. Les pods Kubernetes s'exécutant sur des nœuds bare-metal peuvent accéder à RAPL si l'hôte expose `/sys/class/powercap/intel-rapl/` dans le conteneur (nécessite accès privilégié ou mount explicite).
 
 Sur les plateformes non supportées, la section `[green.scaphandre]` est parsée et le scraper est lancé, mais il échouera à trouver l'endpoint et retombera silencieusement sur le modèle proxy. Une seule ligne de log au niveau warn est émise au premier échec pour que les opérateurs remarquent la mauvaise configuration.
@@ -218,14 +222,14 @@ energy_per_op_kwh = (process_power_watts × scrape_interval_secs) / ops_in_windo
 Ce qui capture :
 
 - **La puissance processus réelle** (pas une approximation moyenne).
-- **Les différences entre services** — Java vs .NET vs Node vs Go auront des empreintes énergétiques différentes même pour des charges I/O similaires.
-- **La variance de charge dans le temps** — un service idle et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
+- **Les différences entre services** : Java vs .NET vs Node vs Go auront des empreintes énergétiques différentes même pour des charges I/O similaires.
+- **La variance de charge dans le temps** : un service idle et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"` (priorité sur `"io_proxy_v2"` et `"io_proxy_v1"`).
+Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Ce que Scaphandre ne fait PAS.** C'est la limitation critique : **Scaphandre donne des coefficients par-service, pas d'attribution par-finding**. Spécifiquement :
 
-1. **RAPL est au niveau processus, pas au niveau span.** La métrique `scaph_process_power_consumption_microwatts{exe="java"}` rapporte la consommation totale du processus `java`. Elle ne peut pas distinguer deux findings N+1 concurrents tournant dans le même processus au même moment — ils partagent le coefficient par construction.
+1. **RAPL est au niveau processus, pas au niveau span.** La métrique `scaph_process_power_consumption_microwatts{exe="java"}` rapporte la consommation totale du processus `java`. Elle ne peut pas distinguer deux findings N+1 concurrents tournant dans le même processus au même moment : ils partagent le coefficient par construction.
 2. **L'intervalle de scrape n'est PAS le goulot de précision.** Une fenêtre de 5 secondes moyenne la puissance sur 5 secondes. Passer à 1 seconde ne donnerait pas de précision par-finding parce que RAPL lui-même moyenne à la granularité du pas Scaphandre (~2s). Le plancher de précision réel est "un coefficient par (service, fenêtre_scrape)".
 3. **Les services concurrents dans le même processus ne partagent rien.** Si votre architecture fait tourner plusieurs services logiques dans la même JVM, la lecture `exe="java"` de Scaphandre couvre tous ensemble. perf-sentinel attribue l'énergie mesurée au nom de service que vous avez mappé, ce qui est une simplification.
 4. **Bruit de l'ordonnanceur OS.** L'attribution de puissance par processus via `process_cpu_time / total_cpu_time` est intrinsèquement bruitée sous charges mixtes.
@@ -235,6 +239,43 @@ Les rapports où au moins un service a utilisé un coefficient mesuré sont tagu
 **Gestion de la fraîcheur.** Le daemon jette les entrées plus anciennes que 3× l'intervalle de scrape lors de la construction du snapshot par tick. Un scraper bloqué ou un service qui cesse d'émettre des événements retombera silencieusement sur le modèle proxy après ~3 intervalles de scrape. La jauge Prometheus `perf_sentinel_scaphandre_last_scrape_age_seconds` permet aux opérateurs de configurer des alertes Grafana sur la santé du scraper.
 
 **Mode batch.** Le mode batch `analyze` ne lance jamais le scraper et n'utilise jamais les données Scaphandre. Même si `[green.scaphandre]` est présent dans la config, la commande `analyze` l'ignore entièrement et utilise toujours le modèle proxy. Seul le daemon `watch` intègre Scaphandre.
+
+### Limites de précision du cloud SPECpower
+
+perf-sentinel embarque une intégration opt-in pour l'estimation d'énergie cloud-native via utilisation CPU% + interpolation SPECpower. Quand `[green.cloud]` est configuré, le daemon `watch` scrape les métriques CPU% depuis un endpoint Prometheus et les combine avec une table de lookup embarquée (watts idle/max par type d'instance, issue des données SPECpower de Cloud Carbon Footprint) pour estimer la consommation énergétique par service. Supporte AWS, GCP et Azure.
+
+**Exigences plateforme.** L'intégration cloud nécessite :
+
+- **Un endpoint Prometheus/VictoriaMetrics accessible** exposant les métriques d'utilisation CPU pour les services cibles (ex. `container_cpu_usage_seconds_total` via cAdvisor, `CPUUtilization` via cloudwatch_exporter, ou équivalent GCP/Azure).
+- **Un mapping type d'instance → watts** dans la table embarquée. La table couvre les types d'instance courants AWS (c5, m5, r5, c6g, m6g, etc.), GCP (n2-standard, e2, c2, etc.) et Azure (Standard_D, Standard_E, Standard_F, etc.). Les types inconnus retombent sur un défaut au niveau fournisseur.
+
+Sur les instances non supportées ou quand le endpoint Prometheus est inaccessible, le scoring retombe silencieusement sur le modèle proxy.
+
+**Ce que ça améliore.** L'intégration cloud remplace le coefficient proxy fixe par une **valeur dérivée de l'utilisation CPU réelle** interpolée entre la puissance idle et maximale de l'instance. Formule :
+
+```
+watts = idle_watts + (max_watts - idle_watts) × cpu_utilization
+energy_per_op_kwh = (watts × scrape_interval_secs) / ops_in_window / 3_600_000
+```
+
+Ce qui capture :
+
+- **L'utilisation CPU réelle du service** (pas une constante fixe).
+- **Les caractéristiques de l'instance** : un `c5.4xlarge` (16 vCPUs, 32 GiB) a un profil énergétique différent d'un `m5.xlarge` (4 vCPUs, 16 GiB).
+- **La variance de charge dans le temps** : un service au repos et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
+
+Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`).
+
+**Ce que ça ne fait PAS.** Comme Scaphandre, le modèle cloud SPECpower donne des coefficients par-service, pas d'attribution par-finding. De plus :
+
+1. **L'interpolation SPECpower est linéaire.** La consommation réelle d'un serveur n'est pas parfaitement linéaire entre idle et max. La précision résultante est d'environ **+/-30%**, meilleure que le proxy (~facteur 2) mais nettement moins précise que les mesures RAPL directes de Scaphandre.
+2. **Le CPU n'est pas le seul consommateur d'énergie.** La mémoire, le réseau et le stockage contribuent à la consommation totale mais ne sont pas capturés par ce modèle.
+3. **Les VMs partagées faussent les lectures.** Sur des instances partagées (burstable comme `t3`, `e2-micro`), l'utilisation CPU visible ne reflète pas nécessairement la consommation réelle au niveau de l'hôte physique.
+4. **La table de lookup vieillit.** Les nouvelles générations d'instances nécessitent des mises à jour de la table embarquée. Les types d'instance inconnus retombent sur un profil générique du fournisseur.
+
+**Modèle mental correct.** Le modèle cloud SPECpower vous donne un **coefficient dynamique par-service basé sur l'utilisation CPU réelle** au lieu d'une **constante proxy fixe globale**. C'est une amélioration significative pour les déploiements cloud où Scaphandre n'est pas disponible (la plupart des VMs cloud n'exposent pas RAPL). L'intervalle d'incertitude passe d'un facteur ~2× (proxy) à environ +/-30% (SPECpower), mais l'outil reste un compteur de gaspillage directionnel, pas un instrument de comptabilité carbone.
+
+**Mode batch.** Le mode batch `analyze` ne lance jamais le scraper Prometheus et n'utilise jamais les données cloud. Même si `[green.cloud]` est présent dans la config, la commande `analyze` l'ignore entièrement et utilise toujours le modèle proxy. Seul le daemon `watch` intègre l'estimation cloud.
 
 ## Constante énergétique gCO2eq (section legacy, conservée pour les références croisées)
 

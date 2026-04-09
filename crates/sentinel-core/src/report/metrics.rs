@@ -64,6 +64,10 @@ pub struct MetricsState {
     /// Grafana alerts that detect a hung scraper. Stays at 0 when
     /// Scaphandre is not configured.
     pub scaphandre_last_scrape_age_seconds: Gauge,
+    /// Age in seconds since the last successful cloud energy scrape.
+    /// Same pattern as [`Self::scaphandre_last_scrape_age_seconds`].
+    /// Stays at 0 when cloud energy is not configured.
+    pub cloud_energy_last_scrape_age_seconds: Gauge,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -77,6 +81,7 @@ impl MetricsState {
     ///
     /// Panics if prometheus metric creation or registration fails (should not happen).
     #[must_use]
+    #[allow(clippy::too_many_lines)]
     pub fn new() -> Self {
         let registry = Registry::new();
 
@@ -176,6 +181,15 @@ impl MetricsState {
             .register(Box::new(scaphandre_last_scrape_age_seconds.clone()))
             .expect("registration should not fail");
 
+        let cloud_energy_last_scrape_age_seconds = Gauge::new(
+            "perf_sentinel_cloud_energy_last_scrape_age_seconds",
+            "Age in seconds since the last successful cloud energy scrape",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(cloud_energy_last_scrape_age_seconds.clone()))
+            .expect("registration should not fail");
+
         Self {
             registry,
             findings_total,
@@ -187,6 +201,7 @@ impl MetricsState {
             avoidable_io_ops,
             service_io_ops_total,
             scaphandre_last_scrape_age_seconds,
+            cloud_energy_last_scrape_age_seconds,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }

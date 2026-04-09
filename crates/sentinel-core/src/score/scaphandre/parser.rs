@@ -99,7 +99,12 @@ fn find_label_block_end(s: &str) -> Option<usize> {
         match b {
             b'"' => in_value = !in_value,
             b'\\' if in_value => {
-                // Skip the next byte (escaped character).
+                // Skip the next byte (the escaped character). Safe to
+                // advance by 2 bytes because Prometheus label values
+                // only use single-byte ASCII escape sequences (\", \\,
+                // \n), so the byte after the backslash is always a
+                // single ASCII byte that cannot split a multi-byte
+                // UTF-8 codepoint.
                 i += 2;
                 continue;
             }
