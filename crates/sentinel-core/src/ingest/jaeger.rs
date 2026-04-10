@@ -187,6 +187,7 @@ fn convert_jaeger_span(
         duration_us: span.duration,
         source: EventSource { endpoint, method },
         status_code,
+        response_size_bytes: None,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

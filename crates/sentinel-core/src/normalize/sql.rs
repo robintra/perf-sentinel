@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 static IN_LIST_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)IN\s*\(\s*\?(?:\s*,\s*\?)*\s*\)").unwrap());
+    LazyLock::new(|| Regex::new(r"(?i)IN\s*\(\s*\?(?:\s*,\s*\?)*\s*\)").expect("static regex"));
 
 /// Result of SQL normalization.
 #[derive(Debug, Clone, PartialEq, Eq)]

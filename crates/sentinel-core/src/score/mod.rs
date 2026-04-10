@@ -14,8 +14,8 @@ use carbon::{
     CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CarbonContext,
     CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, IntensitySource, REGION_STATUS_KNOWN,
     REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION,
-    hourly_profile_for_region_lower, is_valid_region_id, lookup_hourly_intensity_lower,
-    lookup_region_lower, per_op_gco2, resolve_region,
+    energy_coefficient, extract_hostname, hourly_profile_for_region_lower, is_valid_region_id,
+    lookup_hourly_intensity_lower, lookup_region_lower, per_op_gco2, resolve_region,
 };
 
 /// Maximum number of distinct regions allowed in a single scoring pass.
@@ -151,19 +151,18 @@ pub fn score_green(
     // CarbonContext is provided. Builds the per-region breakdown using a
     // BTreeMap for deterministic accumulation order.
     //
-    // N2: multi-region detection is folded into compute_carbon_report's
-    // single span pass, saving one full O(n) walk vs the previous
-    // detect_multi_region helper.
+    // Multi-region detection is folded into compute_carbon_report's
+    // single span pass.
     let (co2, regions, multi_region_active) = match carbon {
         Some(ctx) => compute_carbon_report(traces, ctx, total_io_ops, avoidable_io_ops),
         None => (None, Vec::new(), false),
     };
 
-    // Build top offenders sorted by IIS descending, with alphabetical tiebreaker.
-    // Top-offender CO₂ uses the default region ONLY in mono-region mode. When
-    // multi-region scoring is active, the per-offender scalar would be
-    // inconsistent with the per-region breakdown, so we set it to None.
-    let default_region_lower = if multi_region_active {
+    // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
+    // only emitted in mono-region mode with per-op coefficients disabled.
+    // Otherwise the scalar would be inconsistent with the per-region breakdown.
+    let per_op_active = carbon.is_some_and(|ctx| ctx.per_operation_coefficients);
+    let default_region_lower = if multi_region_active || per_op_active {
         None
     } else {
         carbon
@@ -201,6 +200,10 @@ pub fn score_green(
             0.0
         },
         top_offenders,
+        // Hoisted from co2.transport_gco2 for top-level JSON visibility:
+        // consumers can read transport_gco2 without navigating into the
+        // nested co2 object. The canonical value lives in CarbonReport.
+        transport_gco2: co2.as_ref().and_then(|r| r.transport_gco2),
         co2,
         regions,
     };
@@ -208,116 +211,34 @@ pub fn score_green(
     (enriched, green_summary)
 }
 
-/// Per-region accumulator used by [`compute_carbon_report`].
-///
-/// replaces the flat `BTreeMap<String, usize>` used in
-/// with this accumulator so per-op processing can attribute
-/// CO₂ directly when the hourly profile or a Scaphandre-measured
-/// energy coefficient varies between ops within the same region.
-///
-/// The `intensity_sum_per_op` field lets the breakdown row report
-/// the effective grid intensity that was applied (time-weighted mean
-/// for hourly rows; the flat annual value for annual rows), so the
-/// reported `grid_intensity_gco2_kwh` stays self-consistent with the
-/// computed `co2_gco2`.
+/// Per-region CO₂ accumulator. `intensity_sum_per_op / total_ops`
+/// gives the ops-weighted mean intensity for the breakdown row.
 #[derive(Default)]
 struct RegionAccumulator {
-    /// Running sum of operational CO₂ (gCO₂eq) for this region.
     co2_gco2: f64,
-    /// Total I/O ops attributed to this region, across all subpaths.
     total_ops: usize,
-    /// Sum of `intensity_used` over every span attributed to this
-    /// region (one per-op contribution per span, weight = 1). Divided
-    /// by `total_ops` at aggregation time to produce the display-only
-    /// `grid_intensity_gco2_kwh`. For an `Annual` row this collapses
-    /// to the flat annual intensity. For an `Hourly` row it produces
-    /// the ops-weighted mean of the hourly intensities used.
-    ///
-    /// Note: this is the per-op accumulator, NOT `Σ ops × intensity`.
-    /// Each span adds exactly one intensity value, so the resulting
-    /// mean weights each op equally — which is what we want for the
-    /// breakdown row's display intensity.
+    /// Sum of per-op intensities (NOT `ops * intensity`). Mean = sum / `total_ops`.
     intensity_sum_per_op: f64,
-    /// Set when at least one op in this region used the hourly profile
-    /// (i.e. `ctx.use_hourly_profiles && hourly profile exists for this
-    /// region && span timestamp parsed to a valid UTC hour`). Drives
-    /// `RegionBreakdown.intensity_source`.
     any_hourly: bool,
-    /// Set when at least one op in this region used a measured energy
-    /// coefficient from Scaphandre RAPL. Drives the top-level model tag
-    /// to [`CO2_MODEL_SCAPHANDRE`].
     any_scaphandre: bool,
-    /// Set when at least one op in this region used a cloud `SPECpower`
-    /// energy coefficient. Drives the top-level model tag to
-    /// [`CO2_MODEL_CLOUD_SPECPOWER`] (unless Scaphandre is also present,
-    /// which takes precedence).
     any_cloud_specpower: bool,
 }
 
-/// Compute the structured carbon report, per-region breakdown, and the
-/// `multi_region_active` flag for one analysis run.
-///
-/// Walks the span set **once** to attribute CO₂ per region, with
-/// three interleaved paths per span:
-///
-/// 1. **Hourly profile path** — when `ctx.use_hourly_profiles` is `true`
-///    AND the resolved region has an entry in [`HOURLY_CARBON_TABLE`]
-///    AND the span's timestamp parses to a valid UTC hour, the per-op
-///    intensity comes from `lookup_hourly_intensity_lower(region, hour)`
-///    instead of the flat annual value. Marks the region as
-///    `any_hourly = true` for the breakdown's `intensity_source` field.
-///
-/// 2. **Energy snapshot path** — when `ctx.energy_snapshot` is `Some`
-///    AND the span's service is mapped in the snapshot, the per-op
-///    energy coefficient comes from the measured value instead of
-///    [`ENERGY_PER_IO_OP_KWH`]. This path COMPOSES with the hourly
-///    path. The entry's `model_tag` determines which flag is set on
-///    the `RegionAccumulator` (`any_scaphandre` or `any_cloud_specpower`)
-///    so the top-level model tag reflects the most precise source used.
-///
-/// 3. **Proxy path (default)** — flat annual intensity + fixed
-///    per-op energy constant. Matches the behaviour.
-///
-/// All three paths share the single [`per_op_gco2`] helper so the
-/// formula `energy × intensity × pue` has exactly one definition.
-/// This preserves the "single source of truth" invariant the
-/// review fixes explicitly guarded against drift from.
-///
-/// Caps region cardinality at [`MAX_REGIONS`] to prevent memory
-/// exhaustion from attacker-controlled `cloud.region` values, folds
-/// overflow into the synthetic `unknown` bucket, emits per-region
-/// breakdown rows sorted by `co2_gco2` DESC with alphabetical
-/// tiebreak, and derives the avoidable estimate via the region-blind
-/// ratio (`operational × avoidable / accounted`, excluding the
-/// unknown bucket).
-///
-/// Each [`RegionBreakdown`] row carries a `status` tag:
-/// - [`REGION_STATUS_KNOWN`] — region is in the embedded carbon table
-/// - [`REGION_STATUS_OUT_OF_TABLE`] — name resolved but not in the table
-/// - [`REGION_STATUS_UNRESOLVED`] — synthetic `"unknown"` bucket
-///
-/// The top-level `CarbonEstimate.model` is:
-/// - [`CO2_MODEL_SCAPHANDRE`] when ANY region used a Scaphandre
-///   measured coefficient,
-/// - else [`CO2_MODEL_V2`] when ANY region used a hourly profile,
-/// - else [`CO2_MODEL`] (proxy v1).
-///
-/// Returns `(None, vec![], multi_region_active)` for an empty `traces`
-/// slice. The flag still reflects `ctx.service_regions` so downstream
-/// gating is consistent even with zero events.
-#[allow(clippy::too_many_lines)] // Scoring stage with interleaved bucketing, cap, status tagging,
-// hourly/scaphandre path selection, and invariant assertions; splitting would obscure the data flow.
+/// Compute carbon report, per-region breakdown, and multi-region flag.
+/// Single-pass over spans with interleaved hourly/measured/proxy paths.
+/// See `docs/design/05-GREENOPS-AND-CARBON.md` for the full algorithm.
+#[allow(clippy::too_many_lines)]
 fn compute_carbon_report(
     traces: &[Trace],
     ctx: &CarbonContext,
     total_io_ops: usize,
     avoidable_io_ops: usize,
 ) -> (Option<CarbonReport>, Vec<RegionBreakdown>, bool) {
-    // N2: multi-region flag seeded from the cheap config signal; updated
+    // Multi-region flag seeded from config; updated
     // from span attributes during the main loop below.
     let mut multi_region_active = !ctx.service_regions.is_empty();
 
-    // F1: empty-traces early return. No events → nothing meaningful to report.
+    // Empty-traces early return. No events → nothing meaningful to report.
     // Still propagate the config-based multi_region_active so that an empty
     // batch with a configured service_regions map is consistent with a
     // non-empty batch from the same config.
@@ -331,9 +252,10 @@ fn compute_carbon_report(
     let mut per_region: BTreeMap<String, RegionAccumulator> = BTreeMap::new();
     let mut unknown_ops: usize = 0;
     let mut overflow_warned = false;
+    let mut total_transport_gco2: f64 = 0.0;
     for trace in traces {
         for span in &trace.spans {
-            // N2: detect multi-region by span attribute in the same pass.
+            // Detect multi-region by span attribute in the same pass.
             if span.event.cloud_region.is_some() {
                 multi_region_active = true;
             }
@@ -342,7 +264,7 @@ fn compute_carbon_report(
                 continue;
             };
 
-            // C2: defense-in-depth invariant. All regions reaching this
+            // Defense-in-depth invariant. All regions reaching this
             // loop should have been validated at the ingestion boundary
             // (is_valid_region_id in ingest/otlp.rs and ingest/json.rs)
             // or rejected at config load. Assert the invariant in debug
@@ -354,7 +276,7 @@ fn compute_carbon_report(
                  ingestion boundary should have sanitized it"
             );
 
-            // N5: probe-before-allocate. We still need to
+            // Probe-before-allocate. We still need to
             // allocate the lowercase key for the accumulator lookup
             // because the accumulator is a BTreeMap<String, _>, but we
             // can skip the allocation for the cap check by comparing
@@ -414,15 +336,20 @@ fn compute_carbon_report(
             };
 
             // Energy (kWh) per op: measured from the energy snapshot
-            // (Scaphandre RAPL or cloud `SPECpower`) if the snapshot is
-            // configured and maps this service, else the fixed proxy
-            // constant.
+            // (Scaphandre RAPL or cloud SPECpower) if the snapshot is
+            // configured and maps this service, else the proxy constant
+            // (optionally weighted by operation type).
+            let proxy_energy_kwh = if ctx.per_operation_coefficients {
+                ENERGY_PER_IO_OP_KWH * energy_coefficient(&span.event)
+            } else {
+                ENERGY_PER_IO_OP_KWH
+            };
             let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
                 Some(snapshot) => match snapshot.get(&span.event.service) {
                     Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
-                    None => (ENERGY_PER_IO_OP_KWH, None),
+                    None => (proxy_energy_kwh, None),
                 },
-                None => (ENERGY_PER_IO_OP_KWH, None),
+                None => (proxy_energy_kwh, None),
             };
 
             // Per-op CO₂ via the single-source helper.
@@ -432,18 +359,16 @@ fn compute_carbon_report(
             // allocations on the hot per-span loop:
             //   1. needs_lowercase=true  -> region_key was already allocated,
             //      use entry() which moves the owned String into the map.
-            //   2. needs_lowercase=false AND key exists -> get_mut() with a
-            //      borrowed &str, zero allocation.
+            //   2. needs_lowercase=false AND key exists -> single get_mut()
+            //      with a borrowed &str, zero allocation.
             //   3. needs_lowercase=false AND key absent -> allocate once via
             //      entry(region_ref.to_string()).
             // This avoids allocating a String for every span when the region
             // is already lowercase and present (the common case).
             let acc = if needs_lowercase {
                 per_region.entry(region_key).or_default()
-            } else if per_region.contains_key(region_ref) {
-                per_region
-                    .get_mut(region_ref)
-                    .expect("key confirmed present by contains_key above")
+            } else if let Some(existing) = per_region.get_mut(region_ref) {
+                existing
             } else {
                 per_region.entry(region_ref.to_string()).or_default()
             };
@@ -457,6 +382,40 @@ fn compute_carbon_report(
                 Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
                 Some(CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
                 _ => {}
+            }
+
+            // Network transport energy: cross-region HTTP calls only.
+            // Reuse `region_ref` (already resolved above) as the caller region
+            // to avoid a redundant `resolve_region` call on the hot path.
+            if ctx.include_network_transport
+                && span.event.event_type == crate::event::EventType::HttpOut
+                && let Some(bytes) = span.event.response_size_bytes
+            {
+                // Probe-before-allocate: only lowercase the hostname when
+                // it contains uppercase bytes (same pattern as region keys).
+                let callee_region = extract_hostname(&span.event.target)
+                    .and_then(|host| {
+                        if host.bytes().any(|b| b.is_ascii_uppercase()) {
+                            ctx.service_regions.get(&host.to_ascii_lowercase())
+                        } else {
+                            ctx.service_regions.get(host)
+                        }
+                    })
+                    .map(String::as_str);
+
+                if let Some(callee) = callee_region
+                    && !region_ref.eq_ignore_ascii_case(callee)
+                {
+                    // `bytes` is the response body only (request body is not
+                    // available in standard OTel HTTP semantic conventions).
+                    // We use the caller's grid intensity and PUE as a proxy
+                    // for the network infrastructure's actual grid mix, which
+                    // is distributed and unknown. This is a known approximation
+                    // documented in LIMITATIONS.md.
+                    let transport_energy = bytes as f64 * ctx.network_energy_per_byte_kwh;
+                    let transport_co2 = transport_energy * intensity_used * pue;
+                    total_transport_gco2 += transport_co2;
+                }
             }
         }
     }
@@ -513,7 +472,7 @@ fn compute_carbon_report(
                 intensity_source,
             });
         } else {
-            // W6: out-of-table region — name resolved but not in our table.
+            // Out-of-table region: name resolved but not in our table.
             // Distinguishable from "unresolved" via the `status` field.
             tracing::debug!(
                 "Region '{region}' is not in the embedded carbon table; \
@@ -558,9 +517,9 @@ fn compute_carbon_report(
     // Total = SCI v1.0 numerator (E × I) + M, summed over all analyzed traces.
     // This is NOT the SCI per-R intensity — consumers compute that themselves
     // as total_mid / traces.len() if they need it.
-    let total_mid = operational_gco2 + embodied_gco2;
+    let total_mid = operational_gco2 + embodied_gco2 + total_transport_gco2;
 
-    // D4: Avoidable CO₂ via region-blind ratio. Denominator excludes the
+    // Avoidable CO₂ via region-blind ratio. Denominator excludes the
     // unknown bucket (operational_gco2 already excludes it, so we match).
     // Embodied is NOT included in avoidable — hardware emissions are fixed
     // regardless of whether the application does N+1 queries.
@@ -586,14 +545,21 @@ fn compute_carbon_report(
         CO2_MODEL
     };
 
+    let transport_gco2 = if total_transport_gco2 > 0.0 {
+        Some(total_transport_gco2)
+    } else {
+        None
+    };
+
     let report = CarbonReport {
         total: CarbonEstimate::sci_numerator_with_model(total_mid, model),
         avoidable: CarbonEstimate::operational_ratio_with_model(avoidable_mid, model),
         operational_gco2,
         embodied_gco2,
+        transport_gco2,
     };
 
-    // D5: sort regions vec by CO₂ descending with alphabetical tiebreak.
+    // Sort regions vec by CO₂ descending with alphabetical tiebreak.
     // BTreeMap-based accumulation above gives stable float sums; this final
     // sort is on a Vec and purely cosmetic — determinism is preserved.
     regions.sort_by(|a, b| {
@@ -903,6 +869,10 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
             energy_snapshot: None,
+            // Disable per-op coefficients so legacy tests asserting exact
+            // CO2 values against the flat ENERGY_PER_IO_OP_KWH stay valid.
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         }
     }
 
@@ -947,7 +917,7 @@ mod tests {
         assert!(co2.total.mid > 0.0);
         assert!(co2.avoidable.mid > 0.0);
         assert_eq!(co2.total.model, "io_proxy_v1");
-        // review fixes: methodology field replaces sci_version,
+        // Methodology field replaces sci_version,
         // with distinct values for total (numerator) vs avoidable (ratio).
         assert_eq!(co2.total.methodology, "sci_v1_numerator");
         assert_eq!(co2.avoidable.methodology, "sci_v1_operational_ratio");
@@ -1012,6 +982,8 @@ mod tests {
             embodied_per_request_gco2: 0.001,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1208,6 +1180,8 @@ mod tests {
             embodied_per_request_gco2: 0.001, // 1 trace × 0.001 = 0.001 g embodied
             use_hourly_profiles: false,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1253,6 +1227,8 @@ mod tests {
             embodied_per_request_gco2: 0.5, // intentionally large to detect leakage
             use_hourly_profiles: false,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![finding], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1269,7 +1245,7 @@ mod tests {
     #[test]
     fn multi_region_bucketing_distinct_per_region() {
         // 3 spans in eu-west-3 + 2 spans in us-east-1 = 2 region buckets.
-        // After the review fix, regions are sorted by co2_gco2 DESC:
+        // Regions are sorted by co2_gco2 DESC:
         // us-east-1 (2 ops × 379 × 1.135 × 1e-7 ≈ 8.6e-5)
         //  vs eu-west-3 (3 ops × 56 × 1.135 × 1e-7 ≈ 1.9e-5)
         // → us-east-1 appears first despite having fewer ops.
@@ -1315,6 +1291,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1357,7 +1335,7 @@ mod tests {
 
     #[test]
     fn regions_sorted_by_co2_desc() {
-        // review fix: the regions breakdown is sorted by co2_gco2
+        // The regions breakdown is sorted by co2_gco2
         // descending (with alphabetical tiebreak) for actionability —
         // users see the highest-impact regions first. BTreeMap accumulation
         // keeps the per-region float sums deterministic; the final Vec sort
@@ -1384,7 +1362,7 @@ mod tests {
 
     #[test]
     fn regions_output_deterministic_under_permutation() {
-        // review fix (D2): explicitly verify that feeding the
+        // Explicitly verify that feeding the
         // same logical workload in two different input orders produces
         // identical `regions` output. BTreeMap accumulation + the final
         // CO₂-DESC sort jointly guarantee this.
@@ -1427,7 +1405,7 @@ mod tests {
 
     #[test]
     fn co2_methodology_labels_set() {
-        // review fix: `total` is tagged as the SCI numerator,
+        // `total` is tagged as the SCI numerator,
         // `avoidable` is tagged as the region-blind operational ratio.
         // The two distinct methodology strings signal the semantic
         // difference to downstream consumers at the data layer.
@@ -1458,6 +1436,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
@@ -1467,7 +1447,7 @@ mod tests {
         assert_eq!(summary.regions[0].io_ops, 1);
     }
 
-    // ----- review fixes: multi-region guard, cap, denominator -----
+    // ----- Multi-region guard, cap, denominator -----
 
     #[test]
     fn top_offender_co2_some_in_single_region_mode() {
@@ -1480,6 +1460,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1491,7 +1473,7 @@ mod tests {
 
     #[test]
     fn top_offender_co2_none_when_multi_region_via_service_regions() {
-        // F6: when [green.service_regions] is non-empty, multi-region is
+        // When [green.service_regions] is non-empty, multi-region is
         // active → TopOffender.co2_grams must be None (the scalar would be
         // inconsistent with the per-region breakdown).
         let trace = make_trace_with_region_no_cloud("t1", 6);
@@ -1503,6 +1485,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1517,7 +1501,7 @@ mod tests {
 
     #[test]
     fn top_offender_co2_none_when_multi_region_via_span_attribute() {
-        // F6: when any span carries cloud.region, multi-region is active.
+        // When any span carries cloud.region, multi-region is active.
         let trace = make_trace_with_region("t1", "ap-south-1", 6);
         let ctx = CarbonContext {
             default_region: Some("eu-west-3".to_string()),
@@ -1525,6 +1509,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         assert!(!summary.top_offenders.is_empty());
@@ -1538,7 +1524,7 @@ mod tests {
 
     #[test]
     fn region_cardinality_cap_folds_overflow_into_unknown() {
-        // F8: cap at 256 distinct regions. Feed 260 distinct region tags;
+        // Cap at 256 distinct regions. Feed 260 distinct region tags;
         // expect at most 256 in the breakdown + an "unknown" row with the
         // overflow count.
         let mut events = Vec::with_capacity(260);
@@ -1558,7 +1544,7 @@ mod tests {
         let ctx = CarbonContext::default();
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
 
-        // N4: tighten the assertions. With 260 distinct region names fed
+        // Tighten the assertions. With 260 distinct region names fed
         // in insertion order and MAX_REGIONS = 256, exactly 256 known rows
         // should be bucketed + exactly 4 ops folded into the unknown bucket.
         let non_unknown_rows: Vec<&RegionBreakdown> = summary
@@ -1596,7 +1582,7 @@ mod tests {
 
     #[test]
     fn avoidable_ratio_excludes_unknown_bucket_from_denominator() {
-        // D4: when the unknown bucket has io_ops, the avoidable ratio
+        // When the unknown bucket has io_ops, the avoidable ratio
         // uses (total_io_ops - unknown_ops) as the denominator, so the
         // numerator and denominator are consistent (both exclude unknown).
         //
@@ -1654,6 +1640,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace_eu, trace_orphan], vec![finding], Some(&ctx));
 
@@ -1687,11 +1675,11 @@ mod tests {
         make_trace(events)
     }
 
-    // ----- Review-fix round 4 tests -----
+    // ----- Out-of-table and unknown region tests -----
 
     #[test]
     fn empty_traces_with_carbon_context_returns_no_co2() {
-        // W5: explicit test for the F1 early-return branch inside
+        // Explicit test for the early-return branch inside
         // compute_carbon_report. Previous coverage only hit the outer
         // `None` arm via `score_green(..., None)`.
         let ctx = ctx_with_region("eu-west-3");
@@ -1705,7 +1693,7 @@ mod tests {
 
     #[test]
     fn region_breakdown_distinguishes_out_of_table_from_unresolved() {
-        // W6: `mars-1` resolves (via default_region) but isn't in the carbon
+        // `mars-1` resolves (via default_region) but isn't in the carbon
         // table → status "out_of_table". A second span with no resolvable
         // region → status "unresolved" in the "unknown" bucket.
         let mut span_mars = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
@@ -1737,7 +1725,7 @@ mod tests {
 
     #[test]
     fn region_breakdown_status_known_for_in_table_region() {
-        // W6: baseline — eu-west-3 is in the carbon table, status = known.
+        // Baseline: eu-west-3 is in the carbon table, status = known.
         let trace = make_trace_with_region("t1", "eu-west-3", 3);
         let ctx = ctx_with_region("eu-west-3");
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
@@ -1774,6 +1762,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: use_hourly,
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         }
     }
 
@@ -1860,6 +1850,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false, // pin to flat annual
             energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1949,6 +1941,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false, // isolate Scaphandre effect
             energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1974,6 +1968,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
             energy_snapshot: Some(HashMap::new()),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1995,6 +1991,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -2020,6 +2018,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
             energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -2044,6 +2044,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -2067,6 +2069,8 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
             energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -2083,9 +2087,395 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: false,
             energy_snapshot: Some(HashMap::new()),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
         };
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
         assert_eq!(co2.total.model, "io_proxy_v1");
+    }
+
+    // ── Per-operation coefficient integration tests ────────────────
+
+    #[test]
+    fn per_op_coefficients_select_lower_than_insert() {
+        // SELECT uses 0.5x, INSERT uses 1.5x. An INSERT-heavy trace
+        // should produce higher CO2 than a SELECT-heavy trace.
+        let select_events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "t1",
+                    &format!("s{i}"),
+                    &format!("SELECT * FROM users WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let insert_events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "t2",
+                    &format!("s{i}"),
+                    &format!("INSERT INTO users (name) VALUES ('user{i}')"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let trace_select = make_trace(select_events);
+        let trace_insert = make_trace(insert_events);
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            use_hourly_profiles: false,
+            per_operation_coefficients: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary_select) = score_green(&[trace_select], vec![], Some(&ctx));
+        let (_, summary_insert) = score_green(&[trace_insert], vec![], Some(&ctx));
+
+        let co2_select = summary_select.co2.as_ref().unwrap().operational_gco2;
+        let co2_insert = summary_insert.co2.as_ref().unwrap().operational_gco2;
+
+        assert!(
+            co2_insert > co2_select,
+            "INSERT CO2 ({co2_insert}) should be > SELECT CO2 ({co2_select})"
+        );
+        // Ratio should be 1.5 / 0.5 = 3.0
+        let ratio = co2_insert / co2_select;
+        assert!(
+            (ratio - 3.0).abs() < 1e-6,
+            "INSERT/SELECT ratio should be 3.0, got {ratio}"
+        );
+    }
+
+    #[test]
+    fn per_op_coefficients_disabled_uses_flat() {
+        // With per_operation_coefficients=false, SELECT and INSERT
+        // should produce the same CO2 (both use flat ENERGY_PER_IO_OP_KWH).
+        let select_events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "t1",
+                    &format!("s{i}"),
+                    &format!("SELECT * FROM users WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let insert_events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "t2",
+                    &format!("s{i}"),
+                    &format!("INSERT INTO users (name) VALUES ('user{i}')"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let trace_select = make_trace(select_events);
+        let trace_insert = make_trace(insert_events);
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary_select) = score_green(&[trace_select], vec![], Some(&ctx));
+        let (_, summary_insert) = score_green(&[trace_insert], vec![], Some(&ctx));
+
+        let co2_select = summary_select.co2.as_ref().unwrap().operational_gco2;
+        let co2_insert = summary_insert.co2.as_ref().unwrap().operational_gco2;
+
+        assert!(
+            (co2_insert - co2_select).abs() < 1e-15,
+            "with per_op disabled, SELECT ({co2_select}) and INSERT ({co2_insert}) should match"
+        );
+    }
+
+    #[test]
+    fn per_op_coefficients_measured_energy_ignores_coefficient() {
+        // Scaphandre snapshot overrides the per-op coefficient.
+        let events: Vec<SpanEvent> = (1..=6)
+            .map(|i| {
+                make_sql_event(
+                    "t1",
+                    &format!("s{i}"),
+                    &format!("SELECT * FROM users WHERE id = {i}"),
+                    &format!("2025-07-10T14:32:01.{i:03}Z"),
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+
+        let measured_energy = 5e-7;
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(measured_energy),
+        );
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            use_hourly_profiles: false,
+            per_operation_coefficients: true,
+            energy_snapshot: Some(snapshot),
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+
+        // With Scaphandre, energy is measured_energy, not ENERGY_PER_IO_OP_KWH * coeff.
+        // 6 ops × 5e-7 kWh × 56 g/kWh × 1.135 PUE
+        let expected = 6.0 * measured_energy * 56.0 * 1.135;
+        assert!(
+            (co2.operational_gco2 - expected).abs() < 1e-12,
+            "expected {expected}, got {}",
+            co2.operational_gco2
+        );
+    }
+
+    // ── Transport CO2 integration tests ────────────────────────────
+
+    #[test]
+    fn transport_co2_cross_region_http() {
+        use crate::test_helpers::make_http_event_with_size;
+        // HTTP call from eu-west-3 to a host mapped to us-east-1.
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://order-api:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            Some(100_000), // 100 KB
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_some(),
+            "transport_gco2 should be present for cross-region HTTP"
+        );
+        assert!(
+            summary.transport_gco2.unwrap() > 0.0,
+            "transport_gco2 should be positive"
+        );
+    }
+
+    #[test]
+    fn transport_co2_same_region_zero() {
+        use crate::test_helpers::make_http_event_with_size;
+        // HTTP call within same region should not produce transport CO2.
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://order-api:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            Some(100_000),
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "eu-west-3".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_none(),
+            "transport_gco2 should be None for same-region calls"
+        );
+    }
+
+    #[test]
+    fn transport_co2_disabled_by_default() {
+        use crate::test_helpers::make_http_event_with_size;
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://order-api:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            Some(100_000),
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: false, // disabled
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_none(),
+            "transport_gco2 should be None when disabled"
+        );
+    }
+
+    #[test]
+    fn transport_co2_no_response_size() {
+        use crate::test_helpers::make_http_event_with_size;
+        // HTTP call without response_size_bytes should not contribute transport.
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://order-api:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            None, // no size
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_none(),
+            "transport_gco2 should be None when response_size_bytes is absent"
+        );
+    }
+
+    #[test]
+    fn transport_co2_sql_excluded() {
+        // SQL spans should never contribute transport energy.
+        let mut event = make_sql_event(
+            "t1",
+            "s1",
+            "SELECT * FROM users WHERE id = 1",
+            "2025-07-10T14:32:01.000Z",
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        event.response_size_bytes = Some(100_000);
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_none(),
+            "transport_gco2 should be None for SQL spans"
+        );
+    }
+
+    #[test]
+    fn transport_co2_numerical_value() {
+        use crate::test_helpers::make_http_event_with_size;
+        // Verify the exact transport CO2 value, not just > 0.
+        // 100_000 bytes * 4e-11 kWh/byte * 56.0 gCO2/kWh * 1.135 PUE
+        let response_bytes: u64 = 100_000;
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://order-api:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            Some(response_bytes),
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let transport = summary.transport_gco2.unwrap();
+        // eu-west-3: intensity=56.0, PUE=1.135
+        let expected =
+            response_bytes as f64 * carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH * 56.0 * 1.135;
+        assert!(
+            (transport - expected).abs() < 1e-18,
+            "expected {expected}, got {transport}"
+        );
+    }
+
+    #[test]
+    fn transport_co2_uppercase_hostname_matches() {
+        use crate::test_helpers::make_http_event_with_size;
+        // Target URL has uppercase hostname; service_regions keys are lowercase.
+        let mut event = make_http_event_with_size(
+            "t1",
+            "s1",
+            "http://Order-API:8080/api/orders",
+            "2025-07-10T14:32:01.000Z",
+            Some(50_000),
+        );
+        event.cloud_region = Some("eu-west-3".to_string());
+        let trace = make_trace(vec![event]);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("order-api".to_string(), "us-east-1".to_string());
+
+        let ctx = CarbonContext {
+            default_region: Some("eu-west-3".to_string()),
+            service_regions,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            include_network_transport: true,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        assert!(
+            summary.transport_gco2.is_some(),
+            "uppercase hostname should match lowercase service_regions key"
+        );
     }
 }

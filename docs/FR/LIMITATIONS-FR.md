@@ -46,35 +46,63 @@ La détection de fanout (`excessive_fanout`) repose sur le champ `parent_span_id
 
 Les findings de fanout, comme les findings lents, ne sont **pas** comptés comme des I/O évitables dans le ratio de gaspillage. Ils représentent un problème structurel (trop d'opérations enfants par parent) plutôt que des I/O éliminables.
 
-## Detection des services bavards (chatty service)
+### Coefficients énergétiques par opération
 
-Le detecteur de services bavards ne compte que les spans HTTP sortants (`type: http_out`). Une trace avec 15 requetes SQL vers la meme base de donnees n'est pas "bavarde" au sens inter-services. Le seuil est par trace, pas par endpoint : une trace repartie sur 3 endpoints faisant chacun 6 appels (18 au total) declenchera le seuil meme si aucun endpoint individuel n'est particulierement bavard.
+Les multiplicateurs d'énergie par opération (pondération par verbe SQL, tiers de taille de payload HTTP) sont des estimations heuristiques dérivées de benchmarks académiques d'énergie SGBD (Xu et al. VLDB 2010, Tsirogiannis et al. SIGMOD 2010) et de la méthodologie Cloud Carbon Footprint. Les ratios relatifs entre opérations (SELECT < DELETE < INSERT/UPDATE) sont plus fiables que les valeurs absolues, qui varient selon les générations de matériel et les moteurs de bases de données.
 
-Les findings de type chatty service ne sont PAS comptees comme I/O evitables dans le ratio de gaspillage. Elles representent un probleme architectural (granularite de decomposition des services), pas une opportunite de regroupement.
+Limitations principales :
 
-## Detection de saturation du pool de connexions
+- **Pas d'analyse de complexité de requête.** Un SELECT avec full table scan coûte plus d'énergie qu'un point lookup indexé, mais les deux reçoivent le même coefficient 0.5x.
+- **La taille du payload HTTP nécessite des attributs OTel.** L'attribut `http.response.body.size` doit être présent sur les spans HTTP. Quand il est absent, le coefficient retombe à 1.0x.
+- **Non utilisé avec l'énergie mesurée.** Quand Scaphandre ou cloud SPECpower fournit de l'énergie mesurée par service, les coefficients par opération sont ignorés.
 
-Le detecteur de saturation du pool utilise une heuristique basee sur le chevauchement temporel des spans SQL, pas les metriques reelles du pool de connexions. Il calcule la concurrence maximale en traitant chaque span SQL comme un intervalle `[debut, debut + duree]` et en executant un algorithme de balayage (sweep line).
+Mettre `per_operation_coefficients = false` pour désactiver cette fonctionnalité.
+
+### Énergie de transport réseau
+
+Le terme optionnel d'énergie de transport réseau estime le coût énergétique du transfert d'octets entre régions. Le coefficient par défaut (0.04 kWh/Go) est le milieu de la fourchette 0.03-0.06 kWh/Go des études récentes (Mytton, Lunden & Malmodin, J. Industrial Ecology, 2024 ; Sustainable Web Design, 2024).
+
+Limitations principales :
+
+- **Large plage d'estimation.** Les valeurs publiées vont de 0.06 à 0.08 kWh/Go selon l'étude, l'année et le périmètre.
+- **Pas d'effets CDN ou compression.** Les réseaux de distribution de contenu, la compression HTTP et la réutilisation de connexions ne sont pas modélisés.
+- **Détection inter-région basée sur la config.** La région cible est déterminée en cherchant le hostname dans `[green.service_regions]`. Si le hostname n'est pas mappé, perf-sentinel suppose conservativement la même région.
+- **Pas de modélisation du dernier kilomètre.** L'estimation couvre le transport backbone uniquement.
+- **Hypothèse de proportionnalité linéaire.** Le modèle kWh/Go suppose que l'énergie augmente linéairement avec le volume de données. Mytton et al. (2024) montrent que c'est une simplification : les équipements réseau ont une puissance de base fixe significative indépendante du trafic. L'estimation est directionnelle, pas précise.
+- **Corps de réponse uniquement.** Seule la taille du corps de réponse (`http.response.body.size`) est comptée. Le corps de requête (ex. payloads POST volumineux) n'est pas disponible dans les conventions sémantiques OTel HTTP standard et est exclu. Pour les APIs à écriture intensive, cela sous-estime l'énergie de transport.
+- **Intensité réseau du caller.** L'infrastructure réseau est distribuée sur plusieurs grids, mais perf-sentinel utilise l'intensité carbone de la région du caller comme proxy. C'est une simplification connue, cohérente avec l'approche d'estimation directionnelle.
+
+La fonctionnalité est désactivée par défaut (`include_network_transport = false`).
+
+## Détection des services bavards (chatty service)
+
+Le détecteur de services bavards ne compte que les spans HTTP sortants (`type: http_out`). Une trace avec 15 requêtes SQL vers la même base de données n'est pas "bavarde" au sens inter-services. Le seuil est par trace, pas par endpoint : une trace répartie sur 3 endpoints faisant chacun 6 appels (18 au total) déclenchera le seuil même si aucun endpoint individuel n'est particulièrement bavard.
+
+Les findings de type chatty service ne sont PAS comptées comme I/O évitables dans le ratio de gaspillage. Elles représentent un problème architectural (granularité de décomposition des services), pas une opportunité de regroupement.
+
+## Détection de saturation du pool de connexions
+
+Le détecteur de saturation du pool utilise une heuristique basée sur le chevauchement temporel des spans SQL, pas les métriques réelles du pool de connexions. Il calcule la concurrence maximale en traitant chaque span SQL comme un intervalle `[début, début + durée]` et en exécutant un algorithme de balayage (sweep line).
 
 Limitations :
-- Les timestamps du tracing distribue peuvent presenter un decalage d'horloge, entrainant une detection imprecise du chevauchement.
-- Le detecteur ne peut pas distinguer entre une contention reelle du pool et des requetes paralleles intentionnelles (par exemple, des patterns scatter-gather).
-- Pour un monitoring precis, instrumentez votre application avec les metriques OTel du pool de connexions (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
+- Les timestamps du tracing distribué peuvent présenter un décalage d'horloge, entraînant une détection imprécise du chevauchement.
+- Le détecteur ne peut pas distinguer entre une contention réelle du pool et des requêtes parallèles intentionnelles (par exemple, des patterns scatter-gather).
+- Pour un monitoring précis, instrumentez votre application avec les métriques OTel du pool de connexions (`db.client.connection.pool.usage`, `db.client.connection.pool.wait_time`).
 
-Les findings de saturation du pool ne sont PAS comptees comme I/O evitables.
+Les findings de saturation du pool ne sont PAS comptées comme I/O évitables.
 
-## Detection des appels serialises
+## Détection des appels sérialisés
 
-Le detecteur d'appels serialises signale les spans freres sequentiels (meme `parent_span_id`) qui appellent des services ou endpoints differents et pourraient potentiellement etre executes en parallele. La severite est `info` pour refleter l'incertitude inherente.
+Le détecteur d'appels sérialisés signale les spans frères séquentiels (même `parent_span_id`) qui appellent des services ou endpoints différents et pourraient potentiellement être exécutés en parallèle. La sévérité est `info` pour refléter l'incertitude inhérente.
 
-Considerations sur les faux positifs :
-- Des appels sequentiels au meme service PEUVENT avoir des dependances de donnees legitimes que l'outil ne peut pas observer (par exemple, "creer un utilisateur" puis "envoyer un email de bienvenue" ou l'email a besoin de l'ID utilisateur).
-- Le detecteur ignore les sequences ou tous les appels partagent le meme template normalise (ce pattern est du N+1, pas de la serialisation).
-- Le champ `parent_span_id` doit etre present sur les spans pour que ce detecteur fonctionne. Les traces sans relations parent-enfant ne declencheront pas de findings de serialisation.
+Considérations sur les faux positifs :
+- Des appels séquentiels au même service PEUVENT avoir des dépendances de données légitimes que l'outil ne peut pas observer (par exemple, "créer un utilisateur" puis "envoyer un email de bienvenue" où l'email a besoin de l'ID utilisateur).
+- Le détecteur ignore les séquences où tous les appels partagent le même template normalisé (ce pattern est du N+1, pas de la sérialisation).
+- Le champ `parent_span_id` doit être présent sur les spans pour que ce détecteur fonctionne. Les traces sans relations parent-enfant ne déclencheront pas de findings de sérialisation.
 
-Le detecteur remonte au maximum un finding par span parent : la plus longue sous-sequence non chevauchante (trouvee par programmation dynamique). Si un parent contient deux groupes distincts d'appels serialisables separes par des spans chevauchants, seul le groupe le plus long est rapporte.
+Le détecteur remonte au maximum un finding par span parent : la plus longue sous-séquence non chevauchante (trouvée par programmation dynamique). Si un parent contient deux groupes distincts d'appels sérialisables séparés par des spans chevauchants, seul le groupe le plus long est rapporté.
 
-Les findings d'appels serialises ne sont PAS comptees comme I/O evitables. Elles representent une opportunite d'optimisation de latence, pas une reduction d'I/O.
+Les findings d'appels sérialisés ne sont PAS comptées comme I/O évitables. Elles représentent une opportunité d'optimisation de latence, pas une réduction d'I/O.
 
 ## `rss_peak_bytes` sous Windows
 

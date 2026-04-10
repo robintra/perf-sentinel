@@ -42,12 +42,12 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         buf.push(HEX[(b >> 4) as usize]);
         buf.push(HEX[(b & 0x0f) as usize]);
     }
-    // SAFETY: tous les octets sont des chiffres hexadécimaux ASCII (0-9, a-f)
-    unsafe { String::from_utf8_unchecked(buf) }
+    // Tous les octets viennent de HEX (ASCII 0-9, a-f), toujours du UTF-8 valide.
+    String::from_utf8(buf).expect("hex table is ASCII")
 }
 ```
 
-C'est une optimisation bien connue pour l'encodage hexadécimal. Au lieu d'utiliser `write!(hex, "{b:02x}")` (qui invoque la machinerie de formatage par octet à ~30ns), la table de recherche convertit chaque octet en deux caractères hexadécimaux via décalage de bits à ~5ns par octet. La construction d'un `Vec<u8>` avec `from_utf8_unchecked` évite le surcoût de la conversion char vers UTF-8 de `String::push(char)`. Le `unsafe` est justifié car tous les octets en sortie sont des chiffres hexadécimaux ASCII.
+C'est une optimisation bien connue pour l'encodage hexadécimal. Au lieu d'utiliser `write!(hex, "{b:02x}")` (qui invoque la machinerie de formatage par octet à ~30ns), la table de recherche convertit chaque octet en deux caractères hexadécimaux via décalage de bits à ~5ns par octet. Le `Vec<u8>` est pré-alloué et l'appel `from_utf8` est infaillible puisque seuls des chiffres hexadécimaux ASCII sont insérés. Pas de `unsafe` nécessaire : le `expect` est une assertion à coût zéro sur une condition qui ne peut pas échouer.
 
 Pour un trace_id de 16 octets + un span_id de 8 octets, cela économise ~600ns par conversion de span. À 100 000 événements/sec, c'est 60ms/sec de surcoût évité.
 
@@ -97,6 +97,8 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 ### Auto-détection du format
 
 `JsonIngest` auto-détecte le format d'entrée en utilisant des heuristiques au niveau des octets. Il examine les premiers 1-4 Ko du payload pour déterminer s'il s'agit de Jaeger, Zipkin ou du format natif, évitant un double parsing coûteux.
+
+**Sanitisation à la frontière.** Après le parsing, le chemin d'ingestion JSON valide `cloud_region` via `is_valid_region_id` et exécute `sanitize_span_event` sur chaque événement, appliquant les mêmes limites de champs et troncatures UTF-8 que le chemin OTLP. Cela garantit des données uniformément sanitisées en aval, quel que soit le format d'ingestion.
 
 ### Ingestion Jaeger JSON
 

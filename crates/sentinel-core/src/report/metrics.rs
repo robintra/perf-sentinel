@@ -526,6 +526,7 @@ mod tests {
                 top_offenders: vec![],
                 co2: None,
                 regions: vec![],
+                transport_gco2: None,
             },
             quality_gate: QualityGate {
                 passed: true,

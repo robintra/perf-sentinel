@@ -35,6 +35,7 @@ pub fn make_sql_event_with_duration(
             method: "OrderService::create_order".to_string(),
         },
         status_code: None,
+        response_size_bytes: None,
     }
 }
 
@@ -61,7 +62,20 @@ pub fn make_http_event_with_duration(
             method: "OrderService::create_order".to_string(),
         },
         status_code: Some(200),
+        response_size_bytes: None,
     }
+}
+
+pub fn make_http_event_with_size(
+    trace_id: &str,
+    span_id: &str,
+    target: &str,
+    ts: &str,
+    response_size_bytes: Option<u64>,
+) -> SpanEvent {
+    let mut event = make_http_event(trace_id, span_id, target, ts);
+    event.response_size_bytes = response_size_bytes;
+    event
 }
 
 pub fn make_trace(events: Vec<SpanEvent>) -> Trace {

@@ -47,7 +47,7 @@ Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031
 
 Pour chaque anti-pattern détecté, perf-sentinel remonte :
 
-- **Type :** N+1 SQL, N+1 HTTP, requete redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions, ou appels serialises
+- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions, ou appels sérialisés
 - **Template normalisé :** la requête ou l'URL avec les paramètres remplacés par des placeholders (`?`, `{id}`)
 - **Occurrences :** combien de fois le pattern s'est déclenché dans la fenêtre de détection
 - **Endpoint source :** quel endpoint applicatif l'a généré (ex : `GET /api/orders`)

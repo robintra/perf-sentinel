@@ -59,7 +59,7 @@ impl IngestSource for JsonIngest {
             InputFormat::Native => {
                 let mut events: Vec<SpanEvent> =
                     serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
-                // C1: sanitize cloud.region at the JSON ingest boundary, symmetric
+                // Sanitize cloud.region at the JSON ingest boundary, symmetric
                 // with the OTLP path. Invalid values (empty, > 64 bytes, non-ASCII
                 // alphanumeric plus `-`/`_`) are replaced with None to prevent
                 // log-forging through downstream tracing::debug! format strings.
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(events[0].target, "SELECT 1");
     }
 
-    // ----- Review fix C1: sanitize cloud_region on native JSON path -----
+    // ----- Sanitize cloud_region on native JSON path -----
 
     fn native_event_with_cloud_region(cloud_region: &str) -> String {
         format!(
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn native_json_invalid_cloud_region_is_sanitized_to_none() {
-        // C1: a malicious client on the JSON socket trying to log-forge via
+        // A malicious client on the JSON socket trying to log-forge via
         // a newline in cloud_region must have the value replaced with None,
         // symmetric with the OTLP boundary sanitization.
         let json = native_event_with_cloud_region("eu-west-3\n2026 WARN fake alert");

@@ -78,6 +78,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         }
     }
 
@@ -98,6 +99,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: Some(200),
+            response_size_bytes: None,
         }
     }
 

@@ -10,6 +10,7 @@
 
 pub mod config;
 pub mod correlate;
+#[cfg(feature = "daemon")]
 pub mod daemon;
 pub mod detect;
 pub mod event;

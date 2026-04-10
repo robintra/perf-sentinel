@@ -851,6 +851,80 @@ The value is stamped on every finding emitted by that daemon instance. Invalid v
 
 ---
 
+## Advanced carbon scoring setup
+
+### Multi-region scoring
+
+If your services span multiple cloud regions, perf-sentinel can apply per-region carbon intensity coefficients. The primary mechanism is the OTel `cloud.region` resource attribute, which most cloud-hosted OTel SDKs emit automatically. When this attribute is absent (e.g., Jaeger/Zipkin ingestion), use the `[green.service_regions]` table to map services to regions:
+
+```toml
+[green]
+default_region = "eu-west-3"
+
+[green.service_regions]
+"order-svc" = "us-east-1"
+"chat-svc"  = "ap-southeast-1"
+"auth-svc"  = "eu-west-3"
+```
+
+The region resolution chain is: span `cloud.region` attribute > `service_regions[service]` > `default_region` > synthetic `"unknown"` bucket. The JSON report includes a `regions[]` array sorted by CO2 descending, with each row showing the region name, grid intensity, PUE, I/O op count, and operational CO2.
+
+### Scaphandre integration (on-premise / bare metal)
+
+For on-premise or bare-metal servers with Intel RAPL support, perf-sentinel can scrape [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power metrics to replace the I/O proxy model with measured energy data.
+
+**Prerequisites:**
+- Scaphandre installed and running on each host, exposing a Prometheus `/metrics` endpoint.
+- RAPL access available (bare metal, or VM with RAPL passthrough).
+
+**Configuration:**
+
+```toml
+[green.scaphandre]
+endpoint = "http://localhost:8080/metrics"
+scrape_interval_secs = 5
+process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
+```
+
+The `process_map` maps perf-sentinel service names to the `exe` label in Scaphandre's `scaph_process_power_consumption_microwatts` metric. The daemon scrapes this endpoint every `scrape_interval_secs` and computes a per-service energy-per-op coefficient using the formula: `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
+
+Services not present in `process_map`, or when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre; the `analyze` batch command always uses the proxy model.
+
+### Cloud-native energy estimation (AWS / GCP / Azure)
+
+For cloud VMs that do not expose RAPL (most non-bare-metal instances), perf-sentinel can estimate per-service energy using CPU utilization metrics from a Prometheus endpoint and the SPECpower model.
+
+**Prerequisites:**
+- A Prometheus-compatible endpoint with CPU utilization metrics (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter, or node_exporter).
+- perf-sentinel does NOT query cloud provider APIs directly.
+
+**Configuration:**
+
+```toml
+[green.cloud]
+prometheus_endpoint = "http://prometheus:9090"
+scrape_interval_secs = 15
+default_provider = "aws"
+default_instance_type = "c5.xlarge"
+cpu_metric = "node_cpu_seconds_total"
+
+[green.cloud.services.api-us]
+provider = "aws"
+region = "us-east-1"
+instance_type = "c5.4xlarge"
+
+[green.cloud.services.analytics]
+provider = "azure"
+region = "westeurope"
+instance_type = "Standard_D8s_v3"
+```
+
+The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using SPECpower data embedded in the binary (~60 common instance types across AWS, GCP, Azure). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
+
+**Energy source precedence.** When both Scaphandre and cloud energy are configured for the same service, Scaphandre wins (direct RAPL measurement is more precise than CPU% interpolation). The full chain: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` (hourly profiles) > `io_proxy_v1` (flat annual).
+
+---
+
 ## Troubleshooting
 
 ### No events received (`events_processed_total = 0`)

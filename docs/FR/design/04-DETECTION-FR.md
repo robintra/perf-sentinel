@@ -185,54 +185,54 @@ Les quatre détecteurs s'exécutent séquentiellement sur chaque trace. Bien qu'
 
 Comme les findings lents, les findings de fanout ont `green_impact.estimated_extra_io_ops = 0`. Le fanout excessif est un problème structurel qui nécessite une optimisation architecturale, pas une élimination d'I/O.
 
-## Detection des services bavards
+## Détection des services bavards
 
 ### Algorithme
 
 1. Pour chaque trace, compter les spans de type `http_out`
-2. Ignorer les traces avec moins de `chatty_service_min_calls` appels HTTP sortants (defaut 15)
-3. Emettre un finding `chatty_service` avec le service et le nombre total d'appels
-4. Severite : Warning si > seuil, Critical si > 3x seuil
+2. Ignorer les traces avec moins de `chatty_service_min_calls` appels HTTP sortants (défaut 15)
+3. Émettre un finding `chatty_service` avec le service et le nombre total d'appels
+4. Sévérité : Warning si > seuil, Critical si > 3x seuil
 
 ### Pas dans le ratio de gaspillage
 
-Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un probleme architectural (granularite de decomposition des services) qui necessite un redesign des API, pas une simple elimination d'I/O. Le compteur de gaspillage ne devrait refleter que les I/O qui peuvent etre supprimees par refactoring local (batching, cache).
+Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. Un service bavard est un problème architectural (granularité de décomposition des services) qui nécessite un redesign des API, pas une simple élimination d'I/O. Le compteur de gaspillage ne devrait refléter que les I/O qui peuvent être supprimées par refactoring local (batching, cache).
 
-### Difference avec le fanout
+### Différence avec le fanout
 
-Le fanout excessif detecte un **parent unique** avec trop d'enfants directs. Le service bavard detecte une **trace entiere** avec trop d'appels HTTP sortants, independamment de la structure parent-enfant. Une trace peut declencher les deux si un seul parent genere tous les appels, ou seulement le service bavard si les appels sont repartis sur plusieurs parents.
+Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le service bavard détecte une **trace entière** avec trop d'appels HTTP sortants, indépendamment de la structure parent-enfant. Une trace peut déclencher les deux si un seul parent génère tous les appels, ou seulement le service bavard si les appels sont répartis sur plusieurs parents.
 
-## Detection de saturation du pool de connexions
+## Détection de saturation du pool de connexions
 
 ### Algorithme
 
 1. Regrouper les spans SQL par service
-2. Pour chaque service, trier les spans par timestamp de debut
-3. Executer un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[debut, debut + duree]`, suivre la concurrence maximale
-4. Ignorer les services ou la concurrence maximale est inferieure ou egale a `pool_saturation_concurrent_threshold` (defaut 10)
-5. Emettre un finding `pool_saturation` avec le service et le pic de concurrence
-6. Severite : Warning si > seuil, Critical si > 3x seuil
+2. Pour chaque service, trier les spans par timestamp de début
+3. Exécuter un algorithme de balayage (sweep line) : traiter chaque span comme un intervalle `[début, début + durée]`, suivre la concurrence maximale
+4. Ignorer les services où la concurrence maximale est inférieure ou égale à `pool_saturation_concurrent_threshold` (défaut 10)
+5. Émettre un finding `pool_saturation` avec le service et le pic de concurrence
+6. Sévérité : Warning si > seuil, Critical si > 3x seuil
 
 ### Sweep line
 
-L'algorithme de balayage cree deux evenements par span : un evenement d'ouverture au timestamp de debut et un evenement de fermeture au timestamp de fin (debut + duree). Les evenements sont tries chronologiquement. Un compteur est incremente a chaque ouverture et decremente a chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
+L'algorithme de balayage crée deux événements par span : un événement d'ouverture au timestamp de début et un événement de fermeture au timestamp de fin (début + durée). Les événements sont triés chronologiquement. Un compteur est incrémenté à chaque ouverture et décrémenté à chaque fermeture. La valeur maximale atteinte par le compteur est la concurrence pic.
 
 ### Pas dans le ratio de gaspillage
 
-Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Elles signalent un risque de contention des ressources, pas des I/O evitables.
+Les findings de saturation du pool ont `green_impact.estimated_extra_io_ops = 0`. Elles signalent un risque de contention des ressources, pas des I/O évitables.
 
-## Detection des appels serialises
+## Détection des appels sérialisés
 
 ### Algorithme
 
-1. Grouper les spans freres par `parent_span_id`
+1. Grouper les spans frères par `parent_span_id`
 2. Pour chaque groupe, trier les enfants par **temps de fin** (croissant)
-3. Trouver la plus longue sous-sequence non chevauchante via programmation dynamique (Weighted Interval Scheduling avec poids unitaires)
-4. Si la sequence optimale a >= `serialized_min_sequential` (defaut 3) spans avec des templates distincts, emettre un finding
-5. Severite : toujours Info (heuristique, risque inherent de faux positifs)
+3. Trouver la plus longue sous-séquence non chevauchante via programmation dynamique (Weighted Interval Scheduling avec poids unitaires)
+4. Si la séquence optimale a >= `serialized_min_sequential` (défaut 3) spans avec des templates distincts, émettre un finding
+5. Sévérité : toujours Info (heuristique, risque inhérent de faux positifs)
 
 ```
-Entree : trace avec N spans, groupes par parent_span_id
+Entrée : trace avec N spans, groupés par parent_span_id
 Sortie : 0 ou plusieurs findings SerializedCalls
 
 pour chaque parent_id dans spans_par_parent :
@@ -242,32 +242,34 @@ pour chaque parent_id dans spans_par_parent :
 
     trier enfants par end_time croissant
     
-    // Calcul des predecesseurs : pour chaque span i, recherche binaire
-    // de p(i), le span j (j < i) le plus a droite dont end_time <= start_time de i.
+    // Calcul des prédécesseurs : pour chaque span i, recherche binaire
+    // de p(i), le span j (j < i) le plus à droite dont end_time <= start_time de i.
     // O(log n) par span.
     
-    // Recurrence DP :
+    // Récurrence DP :
     //   dp[i] = max(dp[i-1], dp[p(i)] + 1)
-    // ou dp[i] = plus longue sous-sequence non chevauchante dans enfants[0..=i]
+    // où dp[i] = plus longue sous-séquence non chevauchante dans enfants[0..=i]
     
-    // Backtrack depuis dp[n-1] pour reconstruire les spans selectionnes.
-    // Garde : le predecesseur doit etre strictement inferieur a l'index courant
-    // pour garantir la terminaison sur des entrees degenerees (spans de duree zero).
+    // Backtrack depuis dp[n-1] pour reconstruire les spans sélectionnés.
+    // Garde : le prédécesseur doit être strictement inférieur à l'index courant
+    // pour garantir la terminaison sur des entrées dégénérées (spans de durée zéro).
     
-    si len(selectionnes) >= serialized_min_sequential
-       ET templates_distincts(selectionnes) > 1 :
-        emettre finding pour la sequence selectionnee
+    si len(sélectionnés) >= serialized_min_sequential
+       ET templates_distincts(sélectionnés) > 1 :
+        émettre finding pour la séquence sélectionnée
 ```
 
-Complexite : O(n log n) pour le tri + O(n log n) pour toutes les recherches binaires + O(n) pour le remplissage DP et le backtrack = O(n log n) total par groupe parent. C'est le meme cout asymptotique que l'approche gloutonne plus simple, mais la programmation dynamique garantit de trouver la plus longue sequence non chevauchante possible. Par exemple, avec les spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], une approche gloutonne triee par temps de debut selectionnerait {A, D} (longueur 2), tandis que la DP identifie correctement {B, C, D} (longueur 3).
+Complexité : O(n log n) pour le tri + O(n log n) pour toutes les recherches binaires + O(n) pour le remplissage DP et le backtrack = O(n log n) total par groupe parent. C'est le même coût asymptotique que l'approche gloutonne plus simple, mais la programmation dynamique garantit de trouver la plus longue séquence non chevauchante possible. Par exemple, avec les spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], une approche gloutonne triée par temps de début sélectionnerait {A, D} (longueur 2), tandis que la DP identifie correctement {B, C, D} (longueur 3).
+
+La recherche binaire utilise `partition_point` directement sur le slice trié, évitant une allocation séparée pour le tableau des prédécesseurs.
 
 ### Pourquoi `info` uniquement
 
-Le detecteur ne peut pas observer les dependances de donnees entre les appels. Deux appels sequentiels a des services differents peuvent etre intentionnellement ordonnes (par exemple, creer un enregistrement puis notifier un service dependant). La severite `info` signale une opportunite d'investigation, pas un defaut confirme.
+Le détecteur ne peut pas observer les dépendances de données entre les appels. Deux appels séquentiels à des services différents peuvent être intentionnellement ordonnés (par exemple, créer un enregistrement puis notifier un service dépendant). La sévérité `info` signale une opportunité d'investigation, pas un défaut confirmé.
 
 ### Pas dans le ratio de gaspillage
 
-Les findings d'appels serialises ont `green_impact.estimated_extra_io_ops = 0`. Paralleliser des appels sequentiels reduit la latence mais ne reduit pas le nombre total d'operations I/O. Le ratio de gaspillage ne mesure que les I/O eliminables.
+Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`. Paralléliser des appels séquentiels réduit la latence mais ne réduit pas le nombre total d'opérations I/O. Le ratio de gaspillage ne mesure que les I/O éliminables.
 
 ## Percentiles lents cross-trace
 

@@ -280,7 +280,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 /// Sort findings deterministically for stable output.
 ///
 /// Orders by finding type, severity, trace ID, source endpoint, and template.
-pub fn sort_findings(findings: &mut [Finding]) {
+pub(crate) fn sort_findings(findings: &mut [Finding]) {
     findings.sort_by(|a, b| {
         a.finding_type
             .cmp(&b.finding_type)

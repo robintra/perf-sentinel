@@ -53,6 +53,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         }
     }
 

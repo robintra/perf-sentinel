@@ -41,14 +41,19 @@ pub enum DaemonError {
 /// # Errors
 ///
 /// Returns an error if the configured addresses are invalid or a listener fails to bind.
-#[allow(clippy::too_many_lines)] // daemon orchestration: server setup + event loop must stay in one function
+///
+/// # Panics
+///
+/// Panics if `config.max_active_traces` is 0 (config validation prevents this).
+#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
 
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
         max_events_per_trace: config.max_events_per_trace,
         trace_ttl_ms: config.trace_ttl_ms,
-        max_active_traces: config.max_active_traces,
+        max_active_traces: std::num::NonZeroUsize::new(config.max_active_traces)
+            .expect("config validates max_active_traces >= 1"),
     })));
 
     let max_payload = config.max_payload_size;
@@ -69,13 +74,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let grpc_incoming =
         tonic::transport::server::TcpIncoming::bind(grpc_addr).map_err(DaemonError::GrpcBind)?;
 
-    // Spawn OTLP gRPC server (listener already bound).
-    //
-    // The JoinHandle is captured so the Ctrl-C arm of the main select!
-    // can `.abort()` it and shut down cleanly. Without this, the gRPC
-    // server task outlives `daemon::run` and gets force-killed by
-    // tokio's runtime drop, which can leak connections and produce
-    // "task panicked after shutdown" log noise.
+    // JoinHandles captured so Ctrl-C can abort cleanly.
     let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx.clone());
     let grpc_handle = tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
@@ -92,8 +91,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         }
     });
 
-    // Spawn OTLP HTTP server with metrics endpoint merged. JoinHandle
-    // captured for the same shutdown reason as the gRPC server above.
+    // OTLP HTTP + metrics.
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
     let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
     let http_router = otlp_router.merge(metrics_router).layer(
@@ -111,10 +109,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         }
     });
 
-    // Spawn JSON socket listener (Unix only). JoinHandle captured so
-    // the Ctrl-C arm can abort the accept loop AND clean up the
-    // socket file (`run_json_socket` doesn't unlink the socket on its
-    // own — the file lingers until the next daemon start otherwise).
+    // JSON socket (Unix only). Socket file unlinked on shutdown.
     #[cfg(unix)]
     let json_socket_handle: Option<tokio::task::JoinHandle<()>> = {
         let socket_path = config.json_socket.clone();
@@ -134,17 +129,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     // Base carbon context used as a template. The actual context passed
     // to `process_traces` each tick is cloned from this with
     // `energy_snapshot` patched in from the shared energy states
-    // (Scaphandre and/or cloud `SPECpower`).
-    let base_carbon_ctx = score::carbon::CarbonContext {
-        default_region: config.green_default_region.clone(),
-        service_regions: config.green_service_regions.clone(),
-        embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
-        // honour the [green] use_hourly_profiles toggle.
-        use_hourly_profiles: config.green_use_hourly_profiles,
-        // Filled in per-tick from the energy scrapers' shared state.
-        // Left None when neither scraper is configured.
-        energy_snapshot: None,
-    };
+    // (Scaphandre and/or cloud SPECpower).
+    let base_carbon_ctx = config.carbon_context();
     let green_enabled = config.green_enabled;
     let sampling_rate = config.sampling_rate;
     let evict_ms = config.trace_ttl_ms / 2;
@@ -648,6 +634,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         })
     }
 
@@ -754,6 +741,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         });
 
         w.push(event, 0);

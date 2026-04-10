@@ -41,6 +41,11 @@ pub struct GreenSummary {
     /// Empty when green scoring is disabled or no events were analyzed.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub regions: Vec<RegionBreakdown>,
+    /// Network transport CO₂ (gCO₂eq). Only present when
+    /// `[green] include_network_transport = true` and at least one
+    /// cross-region HTTP call had response size data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport_gco2: Option<f64>,
 }
 
 impl GreenSummary {
@@ -54,6 +59,7 @@ impl GreenSummary {
             top_offenders: vec![],
             co2: None,
             regions: vec![],
+            transport_gco2: None,
         }
     }
 }

@@ -161,3 +161,7 @@ pub fn normalize(event: SpanEvent) -> NormalizedEvent {
 ```
 
 `normalize_all()` is a simple `events.into_iter().map(normalize).collect()`. The `into_iter()` consumes the input vector and each `SpanEvent` is moved (not cloned) into the normalizer.
+
+## Defense-in-depth
+
+**Query truncation.** `normalize_sql` truncates input at `MAX_QUERY_LEN` (64 KB) before processing to prevent the state-machine tokenizer from running on adversarially large inputs. Truncation uses `floor_char_boundary` to avoid splitting multi-byte UTF-8 characters. This is a second layer after the `sanitize_span_event` field caps applied at the ingestion boundary.

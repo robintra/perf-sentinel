@@ -89,6 +89,24 @@ This subcommand is intentionally separate from `analyze` because `pg_stat_statem
 
 **Data loading:** events are ingested once, then cloned. One copy for `correlate()` (needed for tree building) and one for `pipeline::analyze()` (consumed by the pipeline). This avoids re-reading the file.
 
+### Feature flags
+
+The workspace uses Cargo feature flags to keep daemon-only dependencies optional:
+
+| Feature  | Crate           | What it gates                                                                                                                            |
+|----------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Enables `daemon.rs`, Scaphandre scraper/state, cloud energy scraper/state. |
+| `daemon` | `sentinel-cli`  | Forwards to `sentinel-core/daemon`. Enables the `watch` subcommand.                                                                      |
+| `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Enables the `inspect` subcommand.                                                                                |
+
+Both `daemon` and `tui` are in the `default` feature set for the CLI. Users of `sentinel-core` as a library dependency can depend on it without `daemon` to avoid pulling in the hyper stack:
+
+```toml
+perf-sentinel-core = { version = "0.3", default-features = false }
+```
+
+This compiles the full batch pipeline (normalize, correlate, detect, score, report) without any HTTP client code. Config types (`ScaphandreConfig`, `CloudEnergyConfig`) are always available so the TOML parser works regardless of features; only the runtime scrapers and state types are gated.
+
 ## Configuration parsing
 
 ### Dual format: sectioned + flat

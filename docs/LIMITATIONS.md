@@ -272,6 +272,34 @@ Cloud SPECpower is an interpolation model with approximately +/-30% accuracy. It
 
 Cloud SPECpower is a daemon-only feature (`watch` mode). The `analyze` batch command always uses the proxy model.
 
+### Per-operation energy coefficients
+
+The per-operation energy multipliers (SQL verb weighting, HTTP payload size tiers) are heuristic estimates derived from academic DBMS energy benchmarks (Xu et al. VLDB 2010, Tsirogiannis et al. SIGMOD 2010) and the Cloud Carbon Footprint methodology. The relative ratios between operations (SELECT < DELETE < INSERT/UPDATE) are more robust than the absolute values, which vary across hardware generations and database engines.
+
+Key limitations:
+
+- **No query complexity analysis.** A full table scan SELECT costs more energy than an indexed point lookup, but both get the same 0.5x coefficient. The coefficients capture the average operation class, not the specific query plan.
+- **HTTP payload size requires OTel attributes.** The `http.response.body.size` (or legacy `http.response_content_length`) attribute must be present on HTTP spans. When absent, the coefficient falls back to 1.0x (the base constant). Most HTTP instrumentation libraries do not emit this attribute by default.
+- **Not used with measured energy.** When Scaphandre or cloud SPECpower provides measured per-service energy, the per-operation coefficients are ignored. This is by design: measured data is always more accurate than heuristic multipliers.
+
+Set `per_operation_coefficients = false` to disable this feature and use the flat energy constant for all operations.
+
+### Network transport energy
+
+The optional network transport energy term estimates the energy cost of moving bytes between regions. The default coefficient (0.04 kWh/GB) is the midpoint of the 0.03-0.06 kWh/GB range from recent studies (Mytton, Lunden & Malmodin, J. Industrial Ecology, 2024; Sustainable Web Design, 2024).
+
+Key limitations:
+
+- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year, and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance, and infrastructure.
+- **No CDN or compression effects.** Content delivery networks, HTTP compression, and connection reuse all reduce the effective transport energy but are not modeled.
+- **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
+- **No last-mile modeling.** The estimate covers backbone transport. The energy cost of the last mile (edge network, client device) is excluded.
+- **Linear proportionality assumption.** The kWh/GB model assumes energy scales linearly with data volume. Mytton et al. (2024) show this is a simplification: network equipment has a significant fixed baseload power regardless of traffic. The estimate is directional, not precise.
+- **Response body only.** Only the response body size (`http.response.body.size`) is counted. The request body (e.g., large POST payloads) is not available in standard OTel HTTP semantic conventions and is excluded. For write-heavy APIs this underestimates transport energy.
+- **Caller's grid intensity used for network.** Network infrastructure is distributed across many grids, but perf-sentinel uses the caller region's carbon intensity as a proxy. This is a known simplification consistent with the directional estimation approach.
+
+The feature is disabled by default (`include_network_transport = false`) and must be explicitly opted into.
+
 ## Chatty service detection
 
 The chatty service detector only counts HTTP outbound spans (`type: http_out`). A trace with 15 SQL calls to the same database is not "chatty" in the inter-service sense. The threshold is per-trace, not per-endpoint: a trace that fans out across 3 endpoints each making 6 calls (18 total) will trigger at the trace level even though no single endpoint is particularly chatty.

@@ -276,10 +276,13 @@ fn pipeline_with_region_includes_co2_in_report() {
         "avoidable co2 should be positive when there are findings"
     );
 
+    // co2_grams is None when per_operation_coefficients is active (default)
+    // because the flat ENERGY_PER_IO_OP_KWH scalar would be inconsistent
+    // with the per-op weighted breakdown.
     for offender in &report.green_summary.top_offenders {
         assert!(
-            offender.co2_grams.is_some(),
-            "top offender should have co2_grams in mono-region mode"
+            offender.co2_grams.is_none(),
+            "top offender co2_grams should be None when per_operation_coefficients is active"
         );
     }
 }

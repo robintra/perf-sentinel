@@ -43,17 +43,7 @@ pub fn analyze_with_traces(
     findings.extend(cross_trace);
 
     let (mut findings, green_summary) = if config.green_enabled {
-        let carbon_ctx = score::carbon::CarbonContext {
-            default_region: config.green_default_region.clone(),
-            service_regions: config.green_service_regions.clone(),
-            embodied_per_request_gco2: config.green_embodied_carbon_per_request_gco2,
-            // honour the [green] use_hourly_profiles toggle.
-            use_hourly_profiles: config.green_use_hourly_profiles,
-            // Energy scraping (Scaphandre, cloud SPECpower) is a daemon-only
-            // feature; batch `analyze` never scrapes, so the snapshot is
-            // always None here.
-            energy_snapshot: None,
-        };
+        let carbon_ctx = config.carbon_context();
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
         let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
@@ -274,7 +264,7 @@ mod tests {
 
     #[test]
     fn pipeline_empty_traces_no_co2() {
-        // F1: with 0 events, compute_carbon_report early-returns
+        // With 0 events, compute_carbon_report early-returns
         // (None, vec![]) — nothing meaningful to report.
         // Avoids emitting a noisy all-zeros co2 object for empty daemon ticks.
         let config = Config::default();

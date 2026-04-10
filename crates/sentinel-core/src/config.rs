@@ -16,6 +16,7 @@ use crate::score::scaphandre::ScaphandreConfig;
 
 /// Top-level configuration for perf-sentinel.
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)] // Config aggregates all toggles from .perf-sentinel.toml
 pub struct Config {
     // --- Thresholds ---
     /// Maximum allowed critical N+1 SQL findings before quality gate fails.
@@ -46,48 +47,27 @@ pub struct Config {
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
     pub green_enabled: bool,
-    /// Default region for gCO₂eq conversion (e.g. "eu-west-3", "FR", "us-east-1").
-    ///
-    /// Used as the fallback when neither the span's `cloud.region` attribute
-    /// nor the per-service mapping resolves a region. Renamed from `green_region`
-    /// (v0.3.0); the previous `[green] region` TOML key is no
-    /// longer accepted. Update `.perf-sentinel.toml` when upgrading from v0.2.x.
+    /// Fallback region for CO₂ scoring (e.g. `"eu-west-3"`).
     pub green_default_region: Option<String>,
-    /// Per-service region overrides used when `OTel` `cloud.region` is absent
-    /// from spans (e.g. `Jaeger` / `Zipkin` ingestion). Maps service name → region key.
+    /// Per-service region overrides. Keys lowercased at load time.
     pub green_service_regions: HashMap<String, String>,
-    /// SCI v1.0 embodied carbon term `M`: hardware manufacturing emissions
-    /// amortized per request (per trace), in gCO₂eq. Region-independent.
-    /// Defaults to [`DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2`].
+    /// SCI `M` term: embodied carbon per request (gCO₂eq).
     pub green_embodied_carbon_per_request_gco2: f64,
-    /// whether the scoring stage consults the embedded
-    /// `HOURLY_CARBON_TABLE` to use time-of-day-specific intensities
-    /// instead of the flat annual average. Defaults to `true`.
-    ///
-    /// Only 4 regions (eu-west-3, eu-central-1, eu-west-2, us-east-1)
-    /// have hourly profiles embedded; other regions always
-    /// use the flat annual value regardless of this toggle. Users who
-    /// want to pin their reports to the model (e.g. to
-    /// compare historical runs) can set this to `false`.
+    /// Use 24-hour carbon intensity profiles when available.
     pub green_use_hourly_profiles: bool,
-    /// optional Scaphandre scraper configuration. When
-    /// `Some`, the daemon spawns a background task that scrapes the
-    /// configured Prometheus endpoint and feeds per-process power
-    /// readings into the per-service energy-per-op coefficient. When
-    /// `None`, the proxy model is used for everything.
-    ///
-    /// Parsed from `[green.scaphandre]` in the TOML config; see
-    /// [`ScaphandreConfig`] for field semantics. Ignored entirely in
-    /// `analyze` batch mode — only `watch` daemon mode spawns the
-    /// scraper.
+    /// Scaphandre RAPL scraper config (daemon only).
     pub green_scaphandre: Option<ScaphandreConfig>,
-    /// Optional cloud energy configuration. When `Some`, the daemon
-    /// spawns a background task that scrapes CPU% from Prometheus and
-    /// derives per-service energy-per-op via `SPECpower` interpolation.
-    ///
-    /// Parsed from `[green.cloud]` in the TOML config. Ignored in
-    /// `analyze` batch mode.
+    /// Cloud CPU% + `SPECpower` config (daemon only).
     pub green_cloud_energy: Option<CloudEnergyConfig>,
+    /// Whether to use per-operation energy coefficients (SQL verb weighting,
+    /// HTTP payload size tiers) in the proxy model. Default: `true`.
+    pub green_per_operation_coefficients: bool,
+    /// Whether to compute a network transport energy term for cross-region
+    /// HTTP calls. Default: `false` (opt-in).
+    pub green_include_network_transport: bool,
+    /// Energy per byte for network transport (kWh/byte).
+    /// Default: 0.04 kWh/GB (Mytton et al. 2024).
+    pub green_network_energy_per_byte_kwh: f64,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -170,6 +150,10 @@ impl Default for Config {
             green_use_hourly_profiles: true,
             green_scaphandre: None,
             green_cloud_energy: None,
+            green_per_operation_coefficients: true,
+            green_include_network_transport: false,
+            green_network_energy_per_byte_kwh:
+                crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -196,6 +180,25 @@ impl Config {
         match self.daemon_environment {
             DaemonEnvironment::Staging => Confidence::DaemonStaging,
             DaemonEnvironment::Production => Confidence::DaemonProduction,
+        }
+    }
+
+    /// Build a [`CarbonContext`] from the green config fields.
+    ///
+    /// Returns a context with `energy_snapshot: None`. The daemon clones
+    /// this and patches in the measured energy snapshot per tick; the
+    /// batch pipeline uses it as-is (no scrapers in batch mode).
+    #[must_use]
+    pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
+        crate::score::carbon::CarbonContext {
+            default_region: self.green_default_region.clone(),
+            service_regions: self.green_service_regions.clone(),
+            embodied_per_request_gco2: self.green_embodied_carbon_per_request_gco2,
+            use_hourly_profiles: self.green_use_hourly_profiles,
+            energy_snapshot: None,
+            per_operation_coefficients: self.green_per_operation_coefficients,
+            include_network_transport: self.green_include_network_transport,
+            network_energy_per_byte_kwh: self.green_network_energy_per_byte_kwh,
         }
     }
 }
@@ -259,6 +262,9 @@ struct GreenSection {
     scaphandre: ScaphandreSection,
     /// Cloud energy section. Absent when cloud energy is not configured.
     cloud: CloudSection,
+    per_operation_coefficients: Option<bool>,
+    include_network_transport: Option<bool>,
+    network_energy_per_byte_kwh: Option<f64>,
 }
 
 /// Raw deserialization target for `[green.scaphandre]`.
@@ -379,7 +385,7 @@ impl From<RawConfig> for Config {
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
             green_default_region: raw.green.default_region,
-            // D7: lowercase service_regions keys so resolve_region's
+            // Lowercase service_regions keys so resolve_region's
             // lowercase lookup matches regardless of config casing.
             green_service_regions: raw
                 .green
@@ -407,6 +413,18 @@ impl From<RawConfig> for Config {
                 }
             }),
             green_cloud_energy: convert_cloud_section(&raw.green.cloud),
+            green_per_operation_coefficients: raw
+                .green
+                .per_operation_coefficients
+                .unwrap_or(defaults.green_per_operation_coefficients),
+            green_include_network_transport: raw
+                .green
+                .include_network_transport
+                .unwrap_or(defaults.green_include_network_transport),
+            green_network_energy_per_byte_kwh: raw
+                .green
+                .network_energy_per_byte_kwh
+                .unwrap_or(defaults.green_network_energy_per_byte_kwh),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -532,6 +550,39 @@ fn check_min<T: PartialOrd + std::fmt::Display>(
     Ok(())
 }
 
+/// `true` if `s` contains any ASCII control character (< 0x20 or DEL).
+fn has_control_char(s: &str) -> bool {
+    s.bytes().any(|b| b < 0x20 || b == 0x7F)
+}
+
+/// Validate the authority portion of an HTTP(S) URI.
+/// Rejects credentials, empty host, control characters, and invalid port.
+fn validate_http_authority(url: &str, label: &str) -> Result<(), String> {
+    let after_scheme = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .unwrap_or(url);
+    let authority = after_scheme.split('/').next().unwrap_or(after_scheme);
+    if authority.is_empty() {
+        return Err(format!("{label} '{url}' has no host"));
+    }
+    if authority.contains('@') {
+        return Err(format!(
+            "{label} must not contain credentials (userinfo): '{url}'"
+        ));
+    }
+    if has_control_char(authority) {
+        return Err(format!("{label} '{url}' contains control characters"));
+    }
+    if let Some(port_str) = authority.rsplit(':').next()
+        && authority.contains(':')
+        && port_str.parse::<u16>().is_err()
+    {
+        return Err(format!("{label} '{url}' has an invalid port"));
+    }
+    Ok(())
+}
+
 impl Config {
     /// Validate that config values are within acceptable bounds.
     ///
@@ -549,7 +600,7 @@ impl Config {
     }
 
     fn validate_green(&self) -> Result<(), String> {
-        /// N6: maximum number of entries in `[green.service_regions]`.
+        /// Maximum number of entries in `[green.service_regions]`.
         /// Bounds the config-load memory footprint against fat-finger or
         /// malicious configs. 1024 is 4× `MAX_REGIONS` (256) and comfortably
         /// above any realistic multi-cloud deployment size.
@@ -566,7 +617,7 @@ impl Config {
                 "embodied_carbon_per_request_gco2 must be >= 0.0, got {value}"
             ));
         }
-        // F9: region ID validation. Config is trusted input — fail loud
+        // Region ID validation. Config is trusted input, fail loud
         // so typos surface at load time rather than silently producing
         // zeroed CO₂ rows downstream. Same validator used at the OTLP
         // ingestion boundary (there, invalid values are silently dropped).
@@ -578,7 +629,7 @@ impl Config {
                  expected ASCII alphanumeric + '-' or '_', length 1-64"
             ));
         }
-        // N6: cardinality cap on service_regions (defense against fat-finger
+        // Cardinality cap on service_regions (defense against fat-finger
         // configs; AWS has ~33 regions, GCP ~40, Azure ~60, so 1024 leaves
         // ample headroom).
         if self.green_service_regions.len() > MAX_SERVICE_REGIONS {
@@ -610,24 +661,22 @@ impl Config {
         if let Some(cfg) = &self.green_cloud_energy {
             Self::validate_cloud_energy(cfg)?;
         }
+        let nw = self.green_network_energy_per_byte_kwh;
+        if !nw.is_finite() || nw < 0.0 {
+            return Err(format!(
+                "network_energy_per_byte_kwh must be finite and >= 0.0, got {nw}"
+            ));
+        }
         Ok(())
     }
 
     /// Validate a parsed `[green.scaphandre]` config section.
     ///
-    /// Called from [`Self::validate_green`] when the section is present.
-    /// Fails fast on:
-    /// - Empty endpoint or non-`http://` scheme (TLS not supported).
-    /// - URIs that fail to parse via `hyper::Uri`.
-    /// - URIs containing credentials in the authority (`user:pass@host`).
-    /// - `scrape_interval_secs` outside the 1-3600 range.
-    /// - `process_map` keys/values that are empty, >256 chars, or contain
-    ///   ASCII control characters (< 0x20, 0x7F) — the latter blocks
-    ///   Prometheus label injection and log forging via newlines.
+    /// Rejects: empty endpoint, non-`http://` scheme, credentials in
+    /// authority, control characters, invalid port, `scrape_interval_secs`
+    /// outside [1, 3600], and `process_map` keys/values that are empty,
+    /// >256 chars, or contain control characters.
     fn validate_scaphandre(cfg: &ScaphandreConfig) -> Result<(), String> {
-        // Closure (not nested fn) to satisfy clippy's `items_after_statements`.
-        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
-
         if cfg.endpoint.is_empty() {
             return Err(
                 "[green.scaphandre] endpoint is required when the section is present".to_string(),
@@ -635,33 +684,11 @@ impl Config {
         }
         if !cfg.endpoint.starts_with("http://") {
             return Err(format!(
-                "[green.scaphandre] endpoint '{}' must start with 'http://' \
-                 (HTTPS scraping is not supported)",
+                "[green.scaphandre] endpoint '{}' must start with 'http://'",
                 cfg.endpoint
             ));
         }
-        // Parse the URI at config load (fail-fast). The runtime scraper
-        // task re-parses the same URI but treats failure as a clean exit;
-        // rejecting it here means the operator sees the error before the
-        // daemon starts. Also rejects URIs containing credentials in the
-        // userinfo component — perf-sentinel does not support authenticated
-        // Scaphandre endpoints, and credentials in the URL would leak to
-        // logs even with the redaction helper.
-        let parsed = <hyper::Uri as std::str::FromStr>::from_str(&cfg.endpoint).map_err(|e| {
-            format!(
-                "[green.scaphandre] endpoint '{}' is not a valid URI: {e}",
-                cfg.endpoint
-            )
-        })?;
-        if let Some(authority) = parsed.authority()
-            && authority.as_str().contains('@')
-        {
-            return Err(format!(
-                "[green.scaphandre] endpoint must not contain credentials \
-                 (userinfo component): '{}'",
-                cfg.endpoint
-            ));
-        }
+        validate_http_authority(&cfg.endpoint, "[green.scaphandre] endpoint")?;
         let secs = cfg.scrape_interval.as_secs();
         if !(1..=3600).contains(&secs) {
             return Err(format!(
@@ -706,6 +733,7 @@ impl Config {
         Self::validate_cloud_services(cfg)
     }
 
+    /// Validate `[green.cloud]` endpoint, scrape interval, provider, and instance type.
     fn validate_cloud_endpoint(cfg: &CloudEnergyConfig) -> Result<(), String> {
         if cfg.prometheus_endpoint.is_empty() {
             return Err(
@@ -720,21 +748,10 @@ impl Config {
                 cfg.prometheus_endpoint
             ));
         }
-        let parsed = <hyper::Uri as std::str::FromStr>::from_str(&cfg.prometheus_endpoint)
-            .map_err(|e| {
-                format!(
-                    "[green.cloud] prometheus_endpoint '{}' is not a valid URI: {e}",
-                    cfg.prometheus_endpoint
-                )
-            })?;
-        if let Some(authority) = parsed.authority()
-            && authority.as_str().contains('@')
-        {
-            return Err(format!(
-                "[green.cloud] prometheus_endpoint must not contain credentials: '{}'",
-                cfg.prometheus_endpoint
-            ));
-        }
+        validate_http_authority(
+            &cfg.prometheus_endpoint,
+            "[green.cloud] prometheus_endpoint",
+        )?;
         let secs = cfg.scrape_interval.as_secs();
         if !(1..=3600).contains(&secs) {
             return Err(format!(
@@ -757,7 +774,6 @@ impl Config {
                  SPECpower table; the provider default watts will be used"
             );
         }
-        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
         if let Some(ref m) = cfg.cpu_metric
             && has_control_char(m)
         {
@@ -766,6 +782,8 @@ impl Config {
         Ok(())
     }
 
+    /// Validate per-service entries in `[green.cloud.services]`: cardinality
+    /// cap, name/control-char checks, watts ranges, instance type lookup.
     fn validate_cloud_services(cfg: &CloudEnergyConfig) -> Result<(), String> {
         const MAX_CLOUD_SERVICES: usize = 256;
         if cfg.services.len() > MAX_CLOUD_SERVICES {
@@ -774,8 +792,6 @@ impl Config {
                 cfg.services.len()
             ));
         }
-
-        let has_control_char = |s: &str| s.chars().any(|c| (c as u32) < 0x20 || (c as u32) == 0x7F);
 
         for (service, svc_cfg) in &cfg.services {
             if service.is_empty() || service.len() > 256 {
@@ -1252,7 +1268,7 @@ default_region = "eu-west-3"
         assert!(config.green_service_regions.is_empty());
     }
 
-    // ----- review fixes: region validation + lowercase + both-set -----
+    // ----- Region validation + lowercase + both-set -----
 
     #[test]
     fn rejects_invalid_default_region_characters() {
@@ -1277,7 +1293,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn rejects_default_region_with_newline_escape() {
-        // W2: in a TOML basic string, `\n` is an escape sequence for a real
+        // In a TOML basic string, `\n` is an escape sequence for a real
         // newline byte. The validator must reject the resulting control
         // char to block log-forging via default_region.
         let result = load_from_str("[green]\ndefault_region = \"eu-west-3\\n\"");
@@ -1290,7 +1306,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn rejects_default_region_with_literal_newline() {
-        // W2: multi-line basic string with an actual newline byte in the
+        // Multi-line basic string with an actual newline byte in the
         // value. Also rejected at load time.
         let result = load_from_str("[green]\ndefault_region = \"\"\"eu-west-3\n\"\"\"");
         assert!(result.is_err());
@@ -1334,7 +1350,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn rejects_oversized_service_regions_map() {
-        // N6: fat-finger or malicious config with too many entries gets
+        // Fat-finger or malicious config with too many entries gets
         // rejected at load time with a clear error mentioning the cap.
         use std::fmt::Write as _;
         let mut toml = String::from("[green.service_regions]\n");
@@ -1364,7 +1380,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn service_regions_keys_are_lowercased_on_load() {
-        // D7: config loader lowercases keys so resolve_region's
+        // Config loader lowercases keys so resolve_region's
         // case-insensitive lookup works transparently.
         let toml = r#"
 [green.service_regions]
@@ -1892,5 +1908,71 @@ max_watts = 50
         let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
         let err = cfg.validate().unwrap_err();
         assert!(err.contains("control characters"), "error: {err}");
+    }
+
+    #[test]
+    fn config_per_operation_coefficients_default_true() {
+        let cfg = Config::default();
+        assert!(cfg.green_per_operation_coefficients);
+    }
+
+    #[test]
+    fn config_include_network_transport_default_false() {
+        let cfg = Config::default();
+        assert!(!cfg.green_include_network_transport);
+    }
+
+    #[test]
+    fn config_network_energy_per_byte_kwh_default() {
+        let cfg = Config::default();
+        assert!(
+            (cfg.green_network_energy_per_byte_kwh
+                - crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH)
+                .abs()
+                < f64::EPSILON
+        );
+    }
+
+    #[test]
+    fn config_network_energy_per_byte_kwh_rejects_negative() {
+        let toml = r"
+[green]
+network_energy_per_byte_kwh = -0.001
+";
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("network_energy_per_byte_kwh"), "error: {err}");
+    }
+
+    #[test]
+    fn config_network_energy_per_byte_kwh_rejects_nan() {
+        let cfg = Config {
+            green_network_energy_per_byte_kwh: f64::NAN,
+            ..Config::default()
+        };
+        let err = cfg.validate().unwrap_err();
+        assert!(err.contains("network_energy_per_byte_kwh"), "error: {err}");
+    }
+
+    #[test]
+    fn config_per_operation_coefficients_from_toml() {
+        let toml = r"
+[green]
+per_operation_coefficients = false
+";
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        assert!(!cfg.green_per_operation_coefficients);
+    }
+
+    #[test]
+    fn config_include_network_transport_from_toml() {
+        let toml = r"
+[green]
+include_network_transport = true
+network_energy_per_byte_kwh = 0.00000000008
+";
+        let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
+        assert!(cfg.green_include_network_transport);
+        assert!((cfg.green_network_energy_per_byte_kwh - 0.000_000_000_08).abs() < f64::EPSILON);
     }
 }

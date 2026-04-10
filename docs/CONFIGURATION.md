@@ -17,7 +17,7 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 | `demo`     | Run analysis on an embedded demo dataset                         |
 | `bench`    | Benchmark throughput on a trace file                             |
 | `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON) for SQL hotspots |
-| `inspect`  | Interactive TUI to browse traces, findings and span trees       |
+| `inspect`  | Interactive TUI to browse traces, findings and span trees        |
 
 ## Sections
 
@@ -35,27 +35,30 @@ Quality gate thresholds. The quality gate fails if any rule is violated.
 
 Detection algorithm parameters.
 
-| Field                        | Type    | Default | Description                                                                                |
-|------------------------------|---------|---------|--------------------------------------------------------------------------------------------|
-| `n_plus_one_min_occurrences` | integer | `5`     | Minimum number of occurrences (with distinct params) to flag an N+1 pattern                |
-| `window_duration_ms`         | integer | `500`   | Time window in milliseconds within which repeated operations are considered an N+1 pattern |
-| `slow_query_threshold_ms`    | integer | `500`   | Duration threshold in milliseconds above which an operation is considered slow             |
-| `slow_query_min_occurrences` | integer | `3`     | Minimum number of slow occurrences of the same template to generate a finding              |
-| `max_fanout`                 | integer | `20`    | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)       |
-| `chatty_service_min_calls`   | integer | `15`    | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold. |
-| `pool_saturation_concurrent_threshold` | integer | `10` | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps. |
-| `serialized_min_sequential`  | integer | `3`     | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable. |
+| Field                                  | Type    | Default | Description                                                                                                                             |
+|----------------------------------------|---------|---------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `n_plus_one_min_occurrences`           | integer | `5`     | Minimum number of occurrences (with distinct params) to flag an N+1 pattern                                                             |
+| `window_duration_ms`                   | integer | `500`   | Time window in milliseconds within which repeated operations are considered an N+1 pattern                                              |
+| `slow_query_threshold_ms`              | integer | `500`   | Duration threshold in milliseconds above which an operation is considered slow                                                          |
+| `slow_query_min_occurrences`           | integer | `3`     | Minimum number of slow occurrences of the same template to generate a finding                                                           |
+| `max_fanout`                           | integer | `20`    | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)                                                    |
+| `chatty_service_min_calls`             | integer | `15`    | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold.                |
+| `pool_saturation_concurrent_threshold` | integer | `10`    | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps.          |
+| `serialized_min_sequential`            | integer | `3`     | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable. |
 
 ### `[green]`
 
 GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (operational + embodied terms, confidence intervals, multi-region).
 
-| Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                            |
-|------------------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                                                                                                                                                                         |
-| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                                                                                                                                                                        |
-| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                          |
-| `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for regions that have a 24-hour UTC profile embedded (FR, DE, GB, US-East). Reports that touched a profiled region are tagged `model = "io_proxy_v2"` instead of `"io_proxy_v1"`. Set to `false` to pin reports to the flat-annual model (useful for historical comparisons) |
+| Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                                                              |
+|------------------------------------|---------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                                                                                                                                                                                                           |
+| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                                                                                                                                                                                                          |
+| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                                                            |
+| `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for regions that have a 24-hour UTC profile embedded (FR, DE, GB, US-East). Reports that touched a profiled region are tagged `model = "io_proxy_v2"` instead of `"io_proxy_v1"`. Set to `false` to pin reports to the flat-annual model (useful for historical comparisons)                                   |
+| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x), and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations |
+| `include_network_transport`        | boolean | `false`  | When `true`, adds a network transport energy term for cross-region HTTP calls. Requires `response_size_bytes` on HTTP spans (OTel `http.response.body.size` attribute) and callee region mapped via `[green.service_regions]`. Same-region calls are excluded. Transport CO₂ appears as `transport_gco2` in the JSON report |
+| `network_energy_per_byte_kwh`      | float   | `4e-11`  | Energy per byte for network transport (kWh/byte). Default 0.04 kWh/GB, midpoint of 0.03-0.06 range from Mytton et al. (2024). Only used when `include_network_transport = true` |
 
 #### `[green.service_regions]`
 
@@ -121,13 +124,13 @@ scrape_interval_secs = 5
 
 Cloud-native energy estimation via CPU utilization + SPECpower interpolation. When configured, the `watch` daemon scrapes CPU% from a Prometheus/VictoriaMetrics endpoint and uses an embedded lookup table (idle/max watts per cloud instance type) to estimate per-service energy consumption. Supports AWS, GCP, Azure, and on-premise hardware with manual watts override.
 
-| Field                  | Type    | Default  | Description                                          |
-|------------------------|---------|----------|------------------------------------------------------|
-| `prometheus_endpoint`  | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090`). Required. |
-| `scrape_interval_secs` | integer | `15`     | Polling interval in seconds (range: 1-3600).         |
-| `default_provider`     | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`. |
-| `default_instance_type`| string  | *(none)* | Fallback instance type for unmapped services.        |
-| `cpu_metric`           | string  | *(none)* | Default PromQL metric/query for CPU utilization.     |
+| Field                   | Type    | Default  | Description                                                             |
+|-------------------------|---------|----------|-------------------------------------------------------------------------|
+| `prometheus_endpoint`   | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090`). Required. |
+| `scrape_interval_secs`  | integer | `15`     | Polling interval in seconds (range: 1-3600).                            |
+| `default_provider`      | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`.                    |
+| `default_instance_type` | string  | *(none)* | Fallback instance type for unmapped services.                           |
+| `cpu_metric`            | string  | *(none)* | Default PromQL metric/query for CPU utilization.                        |
 
 Per-service entries in `[green.cloud.services]` support two forms:
 

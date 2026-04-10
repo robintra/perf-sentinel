@@ -23,13 +23,8 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         buf.push(HEX[(b >> 4) as usize]);
         buf.push(HEX[(b & 0x0f) as usize]);
     }
-    // SAFETY: all bytes come from HEX (ASCII 0-9, a-f), always valid UTF-8.
-    // Use the infallible path to avoid a panic in library code.
-    //
-    // SAFETY justification: the only bytes pushed into `buf` are indexed
-    // from the `HEX` constant which contains exclusively ASCII characters.
-    // ASCII is a subset of UTF-8, so `from_utf8_unchecked` is sound.
-    unsafe { String::from_utf8_unchecked(buf) }
+    // All bytes come from HEX (ASCII 0-9, a-f), always valid UTF-8.
+    String::from_utf8(buf).expect("hex table is ASCII")
 }
 
 use crate::time::nanos_to_iso8601;
@@ -98,16 +93,8 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             .unwrap_or("unknown")
             .to_string();
 
-        // Extract `cloud.region` once per resource. The OTel semantic
-        // convention places it on the resource, but some SDKs (older
-        // instrumentation, AWS X-Ray adapters) put it on individual spans;
-        // `convert_span` falls back to a span-level attribute when the
-        // resource attribute is absent.
-        //
-        // F9: sanitize the region string at the ingest boundary. Invalid
-        // values (empty, >64 chars, non-ASCII-alphanumeric/-/_) are
-        // silently dropped to prevent log-forging in text subscribers and
-        // unbounded string accumulation in downstream BTreeMap bucketing.
+        // cloud.region: resource-level with span-level fallback in convert_span.
+        // Invalid values silently dropped (sanitization at ingest boundary).
         let resource_cloud_region = resource_spans
             .resource
             .as_ref()
@@ -149,6 +136,8 @@ fn convert_span(
         get_str_attribute(attrs, "db.statement")
             .or_else(|| get_str_attribute(attrs, "db.query.text"))
     {
+        // db.system (e.g. "postgresql"), not the SQL verb. The verb is
+        // extracted from target by energy_coefficient() in the scoring stage.
         let op = get_str_attribute(attrs, "db.system")
             .unwrap_or("sql")
             .to_string();
@@ -188,6 +177,15 @@ fn convert_span(
         None
     };
 
+    // Response body size (HTTP only, for carbon scoring payload tiers).
+    let response_size_bytes = if event_type == EventType::HttpOut {
+        get_int_attribute(attrs, "http.response.body.size")
+            .or_else(|| get_int_attribute(attrs, "http.response_content_length"))
+            .and_then(|v| u64::try_from(v).ok())
+    } else {
+        None
+    };
+
     // Parent span lookup for source endpoint/method
     let (source_endpoint, source_method) = if span.parent_span_id.is_empty() {
         ("unknown".to_string(), span.name.clone())
@@ -210,10 +208,7 @@ fn convert_span(
         Some(bytes_to_hex(&span.parent_span_id))
     };
 
-    // cloud.region resolution chain (resource → span → None).
-    // Resource is the OTel semconv canonical location; span-level fallback
-    // accommodates SDKs that place cloud.region on individual spans.
-    // F9: sanitize span-level attribute the same way as the resource-level one.
+    // cloud.region: resource → span fallback → None.
     let cloud_region = resource_cloud_region.map(str::to_string).or_else(|| {
         get_str_attribute(attrs, "cloud.region")
             .filter(|s| crate::score::carbon::is_valid_region_id(s))
@@ -236,6 +231,7 @@ fn convert_span(
             method: source_method,
         },
         status_code,
+        response_size_bytes,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)
@@ -769,7 +765,7 @@ mod tests {
         assert!(events[0].cloud_region.is_none());
     }
 
-    // ----- review fix (F9): sanitize cloud.region at OTLP boundary -----
+    // ----- cloud.region sanitization at OTLP boundary -----
 
     #[test]
     fn cloud_region_with_space_is_sanitized_to_none() {

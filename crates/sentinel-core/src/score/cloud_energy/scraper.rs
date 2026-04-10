@@ -509,7 +509,7 @@ mod tests {
     fn parse_nan_value_returns_nan() {
         // Prometheus returns "NaN" for absent series. parse_prom_scalar
         // returns Ok(NaN), but the scraper loop filters non-finite
-        // values before inserting into cpu_readings (H4 fix).
+        // values before inserting into cpu_readings.
         let body = r#"{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1234567890.123,"NaN"]}]}}"#;
         let val = parse_prom_scalar(body, "test_query").unwrap();
         assert!(val.is_nan());

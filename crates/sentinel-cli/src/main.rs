@@ -77,6 +77,7 @@ enum Commands {
     },
 
     /// Watch for traces in real-time (daemon mode).
+    #[cfg(feature = "daemon")]
     Watch {
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
@@ -178,6 +179,7 @@ async fn main() {
         } => {
             cmd_explain(&input, &trace_id, config.as_deref(), format);
         }
+        #[cfg(feature = "daemon")]
         Commands::Watch { config } => cmd_watch(config.as_deref()).await,
         Commands::Demo { config } => cmd_demo(config.as_deref()),
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
@@ -383,6 +385,7 @@ fn cmd_explain(
     }
 }
 
+#[cfg(feature = "daemon")]
 async fn cmd_watch(config_path: Option<&std::path::Path>) {
     let config = load_config(config_path);
     info!(
@@ -822,6 +825,9 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
             "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
             carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
         );
+        if let Some(transport) = carbon.transport_gco2 {
+            println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
+        }
     }
 
     // Per-region breakdown when more than one region was resolved.
@@ -903,6 +909,7 @@ mod tests {
                 top_offenders,
                 co2: None,
                 regions: vec![],
+                transport_gco2: None,
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
@@ -1072,6 +1079,7 @@ mod tests {
                 }],
                 co2: None,
                 regions: vec![],
+                transport_gco2: None,
             },
             quality_gate: QualityGate {
                 passed: true,

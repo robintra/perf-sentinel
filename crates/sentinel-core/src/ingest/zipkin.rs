@@ -150,6 +150,7 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         duration_us,
         source: EventSource { endpoint, method },
         status_code,
+        response_size_bytes: None,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

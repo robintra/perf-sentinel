@@ -1,8 +1,25 @@
 //! `GreenOps` gCO₂eq conversion: static region-based carbon intensity table.
 //!
-//! Embeds carbon intensity values per region (gCO₂eq/kWh) and cloud provider PUE.
-//! No network calls, all data is embedded at compile time.
-//! Sources: Cloud Carbon Footprint (CCF), Electricity Maps annual averages.
+//! Embeds carbon intensity values per region (gCO₂eq/kWh), cloud provider PUE,
+//! per-operation energy coefficients, and network transport energy constants.
+//! No network calls: all data is embedded at compile time.
+//!
+//! Sources:
+//! - Cloud Carbon Footprint (CCF): annual grid intensities, PUE values, I/O
+//!   energy methodology (<https://ccf.climatiq.io>)
+//! - Electricity Maps: annual average gCO₂eq/kWh per region (2023-2024)
+//! - ENTSO-E Transparency Platform: hourly carbon profiles for EU regions
+//! - Mytton, Lunden & Malmodin (J. Industrial Ecology, 2024): network
+//!   transport energy model (0.03-0.06 kWh/GB, power model critique)
+//! - Xu et al. (VLDB 2010), Tsirogiannis et al. (SIGMOD 2010): foundational
+//!   DBMS energy benchmarks for per-operation SQL verb weighting
+//! - Siddik et al., `DBJoules` (2023): per-operation energy measurement
+//!   confirming 7-38% inter-operation variance across DBMS
+//! - Guo et al. (ACM Computing Surveys 2022): systematic survey of
+//!   energy-efficient database systems
+//! - IDEAS 2025: real-time energy estimation framework for DBMS queries
+//! - Boavizta API / `HotCarbon` 2024: server lifecycle embodied carbon
+//!   bottom-up model
 
 use std::collections::HashMap;
 
@@ -16,134 +33,79 @@ use crate::event::SpanEvent;
 /// It accounts for a typical database query or HTTP round-trip on cloud
 /// infrastructure, including CPU, memory, and network overhead.
 ///
-/// **This is NOT a measured value.** The actual energy depends on I/O type,
-/// latency, payload size, and hardware. This constant is used to convert
-/// I/O operation counts into estimated gCO₂eq as an indicative metric,
-/// not a precise measurement.
-///
-/// For SCI (ISO/IEC 21031:2024) compliance, this approximation must be
-/// disclosed as methodology in reports and documentation.
+/// Not a measured value. See `docs/design/05-GREENOPS-AND-CARBON.md`.
 pub const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1;
 
+// Per-operation energy multipliers (proxy model only).
+// See docs/design/05-GREENOPS-AND-CARBON.md for sources and rationale.
+
+const SQL_SELECT_COEFF: f64 = 0.5; // read-only index lookup
+const SQL_INSERT_COEFF: f64 = 1.5; // WAL write + data page write
+const SQL_UPDATE_COEFF: f64 = 1.5; // read + write
+const SQL_DELETE_COEFF: f64 = 1.2; // mark + WAL
+const SQL_OTHER_COEFF: f64 = 1.0; // DDL, EXPLAIN, BEGIN, etc.
+
+const HTTP_SMALL_COEFF: f64 = 0.8; // payload < 10 KB
+const HTTP_MEDIUM_COEFF: f64 = 1.2; // payload 10 KB to 1 MB
+const HTTP_LARGE_COEFF: f64 = 2.0; // payload > 1 MB
+
+const HTTP_SMALL_THRESHOLD: u64 = 10 * 1024; // 10 KB
+const HTTP_LARGE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
+
+/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, midpoint of
+/// 0.03-0.06 kWh/GB range from Mytton, Lunden & Malmodin (2024) and
+/// Sustainable Web Design (2024). Previous Shift Project 2019 value (0.07)
+/// was on the high end; see Mytton 2024 "power model" critique.
+/// Only for cross-region HTTP calls when `include_network_transport` is enabled.
+pub const DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH: f64 = 0.000_000_000_04;
+
 /// Lower bound factor for the CO₂ confidence interval (`low = mid × 0.5`).
-///
-/// Combined with [`CO2_HIGH_FACTOR`] this produces a **2× multiplicative
-/// uncertainty** around the mid estimate: `low = mid/2`, `high = mid×2`.
-/// This is a log-symmetric interval (geometric mean of low and high
-/// equals mid), not a symmetric ±50% window — the I/O proxy model's
-/// true uncertainty is wider than ±50%, so a 2× multiplicative factor
-/// is more honest.
+/// 2x multiplicative uncertainty, log-symmetric.
 pub const CO2_LOW_FACTOR: f64 = 0.5;
 
 /// Upper bound factor for the CO₂ confidence interval (`high = mid × 2.0`).
-/// See [`CO2_LOW_FACTOR`] for rationale on the 2× multiplicative framing.
 pub const CO2_HIGH_FACTOR: f64 = 2.0;
 
-/// Identifier for the carbon estimation model used.
-///
-/// Versioned so that future improvements (per-operation weighting,
-/// hourly carbon profiles, RAPL integration) can be tracked in reports
-/// without breaking downstream consumers.
+/// Carbon estimation model: flat annual proxy.
 pub const CO2_MODEL: &str = "io_proxy_v1";
 
-/// Model identifier used when at least one region in the report
-/// applied a 24-hour carbon intensity profile.
-///
-/// The top-level `CarbonEstimate.model` field reports the **most precise**
-/// model that was applied anywhere in the run. Per-region auditing of
-/// which regions used hourly vs annual data is available on each
-/// [`RegionBreakdown`] via the `intensity_source` field.
+/// Carbon estimation model: hourly carbon intensity profiles.
 pub const CO2_MODEL_V2: &str = "io_proxy_v2";
 
-/// Model identifier used when at least one service in the report drew
-/// its energy-per-op coefficient from a Scaphandre per-process power
-/// reading.
-///
-/// This tag takes precedence over `io_proxy_v1` / `io_proxy_v2` and
-/// `cloud_specpower` on the top-level `CarbonEstimate.model` because
-/// measured energy (even if process-level and 5-second averaged) is
-/// qualitatively different from the I/O proxy or `SPECpower` interpolation.
-/// Services that are NOT mapped in `[green.scaphandre]` still use the
-/// proxy model; the tag flips as soon as one service benefits from
-/// measurement.
+/// Carbon estimation model: Scaphandre per-process RAPL measurement.
+/// Highest precedence.
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 
-/// Model identifier used when at least one service in the report drew
-/// its energy-per-op coefficient from the cloud `SPECpower` interpolation
-/// model (CPU% from Prometheus + instance-type idle/max watts lookup).
-///
+/// Carbon estimation model: cloud CPU% + `SPECpower` interpolation.
 /// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
-/// A service with both Scaphandre and cloud config uses Scaphandre
-/// (direct measurement beats interpolation).
 pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
-/// Methodology tag for the **total** carbon estimate.
-///
-/// `total` holds the SCI v1.0 numerator `(E × I) + M` summed over all
-/// analyzed traces — it is NOT the per-R intensity score that the SCI
-/// specification defines as "SCI". To get the per-trace intensity,
-/// downstream consumers compute `total.mid / analysis.traces_analyzed`
-/// themselves.
+/// Methodology tag: SCI v1.0 numerator `(E x I) + M` summed over traces.
+/// Not the per-R intensity. See design doc for SCI semantics.
 pub const METHODOLOGY_SCI_NUMERATOR: &str = "sci_v1_numerator";
 
-/// Methodology tag for the **avoidable** carbon estimate.
-///
-/// `avoidable` is computed as `operational_gco2 × (avoidable_io_ops / accounted_io_ops)`,
-/// a region-blind global ratio that deliberately excludes embodied carbon
-/// (hardware manufacturing emissions are fixed per request regardless of
-/// application efficiency). The tag signals the approximation at the data
-/// layer so downstream consumers don't misread it as a per-region
-/// attribution.
+/// Methodology tag: avoidable CO2 via `operational * (avoidable_ops / accounted_ops)`.
+/// Region-blind, excludes embodied.
 pub const METHODOLOGY_OPERATIONAL_RATIO: &str = "sci_v1_operational_ratio";
 
-/// Default embodied carbon term `M` per request (per trace) in gCO₂eq.
-///
-/// Represents amortized hardware manufacturing emissions over the server
-/// lifecycle, divided by the typical request volume.
-///
-/// **Derivation:** a modern x86 server has an embodied footprint of
-/// ~1000 kgCO₂eq over a 4-year lifecycle (sources: Boavizta API lifecycle
-/// assessments, Cloud Carbon Footprint methodology). At 1 request/second
-/// continuously, that amortizes to ~8×10⁻⁶ g/req. Real servers see lower
-/// request volumes and mixed utilization (~20-40%), pushing the effective
-/// embodied cost to the 10⁻⁵ to 10⁻³ g/req range depending on workload
-/// density.
-///
-/// **Default `0.001` g/req is a conservative upper bound** for
-/// lightly-loaded microservice servers. Users with measured infrastructure
-/// data should override via `[green] embodied_carbon_per_request_gco2`
-/// in the configuration. Full methodology documented in
-/// `docs/design/05-GREENOPS-AND-CARBON.md`.
+/// SCI `M` term: embodied carbon per request in gCO₂eq. Conservative
+/// upper bound for lightly-loaded servers. Override via
+/// `[green] embodied_carbon_per_request_gco2`. Derivation in design doc.
 pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 
-/// Synthetic region label used when no region can be resolved for an event.
-///
-/// Events that fall into this bucket contribute to `total_io_ops` and to the
-/// breakdown row but do NOT contribute to operational CO₂ (no carbon
-/// intensity is known). A `tracing::debug!` is emitted by the scoring stage
-/// when this bucket is non-empty so users can spot the misconfiguration
-/// with `RUST_LOG=debug`. The breakdown row is the primary user-visible signal.
+/// Synthetic region label for events with no resolved region.
 pub const UNKNOWN_REGION: &str = "unknown";
 
-/// Status tag on a [`RegionBreakdown`] row: the region is present in the
-/// embedded carbon table and contributes non-zero operational CO₂.
+/// Region is in the embedded carbon table.
 pub const REGION_STATUS_KNOWN: &str = "known";
 
-/// Status tag on a [`RegionBreakdown`] row: the region name resolved (from
-/// `event.cloud_region`, `[green.service_regions]`, or `default_region`) but
-/// is **not** in the embedded carbon table. The row carries `io_ops` but
-/// `co2_gco2 = 0.0` since no intensity is known.
+/// Region name resolved but not in the carbon table (`co2_gco2 = 0.0`).
 pub const REGION_STATUS_OUT_OF_TABLE: &str = "out_of_table";
 
-/// Status tag on a [`RegionBreakdown`] row: the synthetic `"unknown"` bucket
-/// aggregating events where no region resolved at all. `co2_gco2 = 0.0`.
+/// Synthetic "unknown" bucket for unresolved events (`co2_gco2 = 0.0`).
 pub const REGION_STATUS_UNRESOLVED: &str = "unresolved";
 
-/// A per-service energy-per-op measurement with its provenance tag.
-///
-/// Carried inside [`CarbonContext::energy_snapshot`] so the scoring path
-/// can distinguish between different measurement sources (Scaphandre RAPL
-/// vs cloud `SPECpower`) without separate fields.
+/// Per-service measured energy-per-op with provenance tag.
 #[derive(Debug, Clone, Copy)]
 pub struct EnergyEntry {
     /// Energy consumed per I/O operation, in kWh.
@@ -173,42 +135,18 @@ impl EnergyEntry {
     }
 }
 
-/// CO₂ point estimate with a low/high multiplicative uncertainty interval.
-///
-/// Reported as part of [`CarbonReport`]. The `low`/`high` bounds reflect
-/// **aggregate model uncertainty** (~2× multiplicative), not per-endpoint
-/// variance. See [`CO2_LOW_FACTOR`] / [`CO2_HIGH_FACTOR`] for the framing.
-///
-/// The `methodology` field tags which SCI term this estimate represents:
-/// - [`METHODOLOGY_SCI_NUMERATOR`] for the `total` field of [`CarbonReport`]
-///   — the `(E × I) + M` numerator summed over traces.
-/// - [`METHODOLOGY_OPERATIONAL_RATIO`] for the `avoidable` field — the
-///   region-blind `operational × (avoidable/accounted)` approximation.
+/// CO₂ point estimate with 2x multiplicative uncertainty interval.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct CarbonEstimate {
-    /// Lower bound of the multiplicative uncertainty interval (gCO₂eq).
-    /// Equal to `mid × 0.5`.
     pub low: f64,
-    /// Mid-point estimate (gCO₂eq). Best estimate at the model's central value.
     pub mid: f64,
-    /// Upper bound of the multiplicative uncertainty interval (gCO₂eq).
-    /// Equal to `mid × 2.0`.
     pub high: f64,
-    /// Identifier of the estimation model (versioned for forward-compat
-    /// as the model improves). Currently always [`CO2_MODEL`].
     pub model: &'static str,
-    /// SCI v1.0 methodology tag: which term of the SCI formula this
-    /// estimate represents. Either [`METHODOLOGY_SCI_NUMERATOR`] or
-    /// [`METHODOLOGY_OPERATIONAL_RATIO`].
     pub methodology: &'static str,
 }
 
 impl CarbonEstimate {
-    /// Private helper deriving `low`/`high` from a midpoint using the
-    /// multiplicative uncertainty factors. Single source of truth for the
-    /// public constructors below. Accepts both the model and methodology
-    /// tags so the paths ([`CO2_MODEL_V2`] /
-    /// [`CO2_MODEL_SCAPHANDRE`]) can reuse it.
+    /// Derive `low`/`high` from midpoint using multiplicative factors.
     const fn new_with_model(mid: f64, model: &'static str, methodology: &'static str) -> Self {
         Self {
             low: mid * CO2_LOW_FACTOR,
@@ -219,42 +157,25 @@ impl CarbonEstimate {
         }
     }
 
-    /// Build a [`CarbonEstimate`] for the **SCI v1.0 numerator** `(E × I) + M`
-    /// summed over all analyzed traces. Uses [`CO2_MODEL`] (proxy v1) as
-    /// the model tag. Used for [`CarbonReport::total`] in the
-    /// code path.
-    ///
-    /// This is NOT the per-R intensity score. Consumers who need the
-    /// SCI intensity compute `mid / analysis.traces_analyzed` themselves.
+    /// SCI v1.0 numerator estimate with default proxy v1 model.
     #[must_use]
     pub const fn sci_numerator(mid: f64) -> Self {
         Self::new_with_model(mid, CO2_MODEL, METHODOLOGY_SCI_NUMERATOR)
     }
 
-    /// Build a [`CarbonEstimate`] for the **avoidable** estimate computed
-    /// via the region-blind operational ratio
-    /// `operational_gco2 × (avoidable_io_ops / accounted_io_ops)`.
-    /// Uses [`CO2_MODEL`] (proxy v1) as the model tag. Used for
-    /// [`CarbonReport::avoidable`] in the code path.
+    /// Avoidable CO₂ estimate with default proxy v1 model.
     #[must_use]
     pub const fn operational_ratio(mid: f64) -> Self {
         Self::new_with_model(mid, CO2_MODEL, METHODOLOGY_OPERATIONAL_RATIO)
     }
 
-    /// build a total-numerator [`CarbonEstimate`] with an
-    /// explicit model tag. The scoring stage computes
-    /// `model = scaphandre_rapl | io_proxy_v2 | io_proxy_v1` based on
-    /// which paths were actually taken in the report, then calls this
-    /// constructor so the model on both `total` and `avoidable` stays
-    /// consistent without duplicating the selection logic.
+    /// SCI v1.0 numerator estimate with explicit model tag.
     #[must_use]
     pub const fn sci_numerator_with_model(mid: f64, model: &'static str) -> Self {
         Self::new_with_model(mid, model, METHODOLOGY_SCI_NUMERATOR)
     }
 
-    /// build an avoidable-ratio [`CarbonEstimate`] with an
-    /// explicit model tag. See [`Self::sci_numerator_with_model`] for
-    /// the rationale.
+    /// Avoidable CO₂ estimate with explicit model tag.
     #[must_use]
     pub const fn operational_ratio_with_model(mid: f64, model: &'static str) -> Self {
         Self::new_with_model(mid, model, METHODOLOGY_OPERATIONAL_RATIO)
@@ -280,146 +201,52 @@ pub struct CarbonReport {
     /// SCI `M` term: embodied hardware emissions amortized per request.
     /// Region-independent.
     pub embodied_gco2: f64,
+    /// Network transport CO₂ for cross-region HTTP calls (gCO₂eq).
+    /// Only present when `[green] include_network_transport = true`
+    /// and at least one cross-region HTTP call had response size data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport_gco2: Option<f64>,
 }
 
-/// Source of the carbon intensity used for a region breakdown row.
-///
-/// Added alongside the [`HOURLY_CARBON_TABLE`]. The top-level
-/// `CarbonEstimate.model` tag reports the most precise model used anywhere
-/// in the report (v2 if at least one region went through the hourly path),
-/// while this per-row field lets consumers audit which specific regions
-/// benefited from the better data.
-///
-/// Serializes as `"annual"` or `"hourly"` in the JSON report.
+/// Whether a region row used the flat annual or 24-hour profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IntensitySource {
-    /// Flat annual average from [`CARBON_TABLE`]. This is the default and
-    /// applies to all regions not present in [`HOURLY_CARBON_TABLE`] as
-    /// well as to runs where `[green] use_hourly_profiles = false`.
     #[default]
     Annual,
-    /// Time-weighted hourly profile from [`HOURLY_CARBON_TABLE`]. The
-    /// row's `grid_intensity_gco2_kwh` field then holds the
-    /// time-weighted mean of the hourly values actually used (not the
-    /// flat annual average), so the row stays self-consistent with the
-    /// reported `co2_gco2`.
     Hourly,
 }
 
-/// Per-region operational CO₂ breakdown row.
-///
-/// Emitted in `green_summary.regions[]` when carbon scoring is enabled.
-/// The [`Self::status`] field distinguishes three kinds of row:
-///
-/// - `"known"` ([`REGION_STATUS_KNOWN`]) — region is in the embedded carbon
-///   table, `co2_gco2 > 0`, intensity and PUE populated.
-/// - `"out_of_table"` ([`REGION_STATUS_OUT_OF_TABLE`]) — region name resolved
-///   (from `cloud.region`, `service_regions`, or `default_region`) but is
-///   not in the embedded table. `co2_gco2 = 0.0`, intensity and PUE are 0.
-/// - `"unresolved"` ([`REGION_STATUS_UNRESOLVED`]) — synthetic [`UNKNOWN_REGION`]
-///   bucket aggregating events whose region couldn't resolve at all.
-///   `co2_gco2 = 0.0`.
+/// Per-region operational CO₂ breakdown row in `green_summary.regions[]`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct RegionBreakdown {
-    /// Status tag: `"known"` / `"out_of_table"` / `"unresolved"`. Lets
-    /// downstream consumers distinguish the three kinds of zero-CO₂ row
-    /// without string-matching on the region name.
+    /// `"known"` / `"out_of_table"` / `"unresolved"`.
     pub status: &'static str,
-    /// Region identifier (lowercased). May be the synthetic
-    /// [`UNKNOWN_REGION`] when no region resolves for some events.
     pub region: String,
-    /// Grid carbon intensity in gCO₂eq per kWh.
-    ///
-    /// For rows with `intensity_source = Annual`, this is the flat value
-    /// from [`CARBON_TABLE`]. For rows with `intensity_source = Hourly`,
-    /// this is the **ops-weighted mean** of the hourly values actually
-    /// applied (each span contributes its own hour's intensity exactly
-    /// once).
-    ///
-    /// **Self-consistency note.** The identity
-    /// `co2_gco2 ≈ io_ops × grid_intensity_gco2_kwh × pue × ENERGY_PER_IO_OP_KWH`
-    /// holds **only in the proxy-energy case** (no Scaphandre snapshot in
-    /// play, or a single uniform energy-per-op across the region). When
-    /// [`CarbonContext::energy_snapshot`] is present and services
-    /// within the same region use different measured coefficients, the
-    /// identity becomes approximate: the displayed intensity is still the
-    /// weighted mean, but the per-op energy varies per service so the
-    /// exact CO₂ reconstruction would need the per-service split that is
-    /// not exposed on this row. Downstream consumers that need that
-    /// split should inspect the Prometheus `service_io_ops_total` counter
-    /// and the `ScaphandreState` snapshot instead of trying to back-derive
-    /// it from the breakdown row.
-    ///
-    /// `0.0` for out-of-table or unresolved regions.
+    /// Ops-weighted mean grid intensity (gCO₂eq/kWh). `0.0` if out-of-table.
     pub grid_intensity_gco2_kwh: f64,
-    /// Power Usage Effectiveness for this region's cloud provider,
-    /// or `0.0` if the region is not in the table or is unknown.
     pub pue: f64,
-    /// Number of I/O ops attributed to this region.
     pub io_ops: usize,
-    /// Operational CO₂ contribution from this region (gCO₂eq).
-    /// Always `0.0` for unknown / out-of-table regions.
     pub co2_gco2: f64,
-    /// whether this row used the flat annual or the 24-hour
-    /// profile from [`HOURLY_CARBON_TABLE`]. Always [`IntensitySource::Annual`]
-    /// when hourly profiles are disabled in config.
     #[serde(default)]
     pub intensity_source: IntensitySource,
 }
 
-/// Configuration bundle passed to `score::score_green` for carbon scoring.
-///
-/// Owns its data so the scoring function doesn't need lifetime parameters.
-/// Cloned once per analysis run from the parsed [`crate::config::Config`].
-///
-/// **Note on `Default`:** the manual `default()` yields
-/// `embodied_per_request_gco2 = 0.0`, **not**
-/// [`DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2`]. Real code paths build
-/// `CarbonContext` from `Config`, which applies the correct default.
-/// The `Default` impl is intended for ad-hoc test construction where the
-/// caller explicitly sets the fields they care about. `use_hourly_profiles`
-/// is set to `true` in the default so tests default to the most precise
-/// model — the handful of tests that need to disable hourly profiles
-/// explicitly override the field.
+/// Carbon scoring configuration. Built via [`Config::carbon_context()`].
+/// `Default` is for tests only (`embodied = 0.0`, not the config default).
 #[derive(Debug, Clone)]
 pub struct CarbonContext {
-    /// Fallback region used when neither the span's `cloud_region` attribute
-    /// nor the per-service mapping resolves a region.
     pub default_region: Option<String>,
-    /// Per-service region overrides for environments where `OTel`
-    /// `cloud.region` is not set (e.g. `Jaeger`/`Zipkin` ingestion).
-    ///
-    /// Keys are lowercased at config load time; lookup is case-insensitive.
+    /// Keys lowercased at config load.
     pub service_regions: HashMap<String, String>,
-    /// SCI `M` term: embodied carbon per request (per trace) in gCO₂eq.
-    /// See [`DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2`].
     pub embodied_per_request_gco2: f64,
-    /// whether to consult the [`HOURLY_CARBON_TABLE`] when
-    /// computing operational CO₂. When `true` AND the resolved region
-    /// has an hourly profile AND each span has a parseable UTC timestamp,
-    /// the scoring path buckets spans per-hour and uses the hour-specific
-    /// intensity. Otherwise it falls back to the flat annual average
-    /// from [`CARBON_TABLE`]. Default: `true`.
     pub use_hourly_profiles: bool,
-    /// Optional per-service measured energy-per-op coefficient (kWh)
-    /// produced by energy scrapers in daemon mode (Scaphandre RAPL
-    /// and/or cloud `SPECpower`). When present, services listed in this
-    /// map use their measured coefficient instead of the fixed
-    /// [`ENERGY_PER_IO_OP_KWH`] constant for per-op CO₂ calculations.
-    /// Services absent from the map (or the entire field being `None`)
-    /// fall back to the proxy model.
-    ///
-    /// Each [`EnergyEntry`] carries both the coefficient and a model tag
-    /// so the scoring path can track which measurement source was used
-    /// (for the top-level model tag on [`CarbonEstimate`]).
-    ///
-    /// The daemon's `build_tick_ctx` merges Scaphandre and cloud energy
-    /// snapshots into this single map, with Scaphandre entries taking
-    /// precedence for the same service.
-    ///
-    /// `analyze` batch mode never populates this field.
+    /// Measured energy from Scaphandre/cloud scrapers (daemon only).
     pub energy_snapshot: Option<HashMap<String, EnergyEntry>>,
+    /// SQL verb / HTTP size tier weighting (proxy model only).
+    pub per_operation_coefficients: bool,
+    pub include_network_transport: bool,
+    pub network_energy_per_byte_kwh: f64,
 }
 
 impl Default for CarbonContext {
@@ -430,34 +257,29 @@ impl Default for CarbonContext {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            per_operation_coefficients: true,
+            include_network_transport: false,
+            network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
         }
     }
 }
 
-/// Resolve the effective region for a span event.
-///
-/// Resolution chain (first match wins):
-/// 1. `event.cloud_region` (from `OTel` `cloud.region` attribute — most authoritative)
-/// 2. `ctx.service_regions[event.service.to_lowercase()]` (per-service config override, case-insensitive)
-/// 3. `ctx.default_region` (fallback)
-///
-/// Returns `None` if all three are absent — the caller (scoring stage)
-/// buckets such events under [`UNKNOWN_REGION`].
+/// Resolve region: `cloud_region` > `service_regions` > `default_region` > `None`.
 #[must_use]
 pub fn resolve_region<'a>(event: &'a SpanEvent, ctx: &'a CarbonContext) -> Option<&'a str> {
     if let Some(region) = event.cloud_region.as_deref() {
         return Some(region);
     }
-    // N3: short-circuit when the service_regions map is empty (mono-region
-    // common case). Skips the per-span `to_ascii_lowercase` allocation that
-    // would otherwise happen on every probe with no chance of hitting.
-    // When the map IS populated, the allocation is bounded: service names
-    // are truncated to MAX_SERVICE_LENGTH (256 bytes) at the ingestion
-    // boundary, so the lowercase copy is small and short-lived.
-    if !ctx.service_regions.is_empty()
-        && let Some(region) = ctx.service_regions.get(&event.service.to_ascii_lowercase())
-    {
-        return Some(region.as_str());
+    // Probe-before-allocate: skip lowercase when service is already lowercase.
+    if !ctx.service_regions.is_empty() {
+        let lookup = if event.service.bytes().any(|b| b.is_ascii_uppercase()) {
+            ctx.service_regions.get(&event.service.to_ascii_lowercase())
+        } else {
+            ctx.service_regions.get(event.service.as_str())
+        };
+        if let Some(region) = lookup {
+            return Some(region.as_str());
+        }
     }
     ctx.default_region.as_deref()
 }
@@ -507,7 +329,8 @@ impl Provider {
 /// Static carbon intensity table: (`region_key`, gCO₂eq/kWh, provider).
 ///
 /// Region keys are lowercase for case-insensitive matching.
-/// Data from CCF and Electricity Maps (2023-2024 annual averages).
+/// Data from Cloud Carbon Footprint (CCF) and Electricity Maps
+/// (2023-2024 annual averages). PUE values from CCF per provider.
 static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
@@ -570,49 +393,10 @@ static REGION_MAP: std::sync::LazyLock<HashMap<&'static str, (f64, Provider)>> =
             .collect()
     });
 
-/// hourly carbon intensity profiles (UTC) in gCO₂eq/kWh.
-///
-/// 24 values per region, one per UTC hour (index 0 = 00:00 UTC).
-/// Only regions with well-documented diurnal shapes are listed; all
-/// other regions fall back to the flat annual value from
-/// [`CARBON_TABLE`]. Each profile's arithmetic mean approximates the
-/// corresponding flat annual value (±5%), preserving methodology
-/// continuity: when hourly profiles are enabled and a region has a
-/// profile, the CO₂ estimate for that region stays within ~5% of the
-/// v1 estimate on average over a representative 24-hour window.
-///
-/// **Data sources and derivation:**
-/// - Electricity Maps annual open-data reports (2023-2024 typical
-///   diurnal shapes by zone)
-/// - ENTSO-E Transparency Platform (European grid composition and
-///   demand curves)
-/// - Published academic studies on diurnal grid carbon intensity:
-///   RTE eco2mix daily data (France), Fraunhofer ISE Energy-Charts
-///   (Germany), NGESO carbonintensity.org.uk (UK), EIA hourly
-///   generation data (US-East).
-///
-/// **Region shapes (UTC hours, brief rationale):**
-/// - **France (eu-west-3 / fr)**: strong nuclear baseload, flat with
-///   a slight evening peak (17h-20h UTC) as demand rises after sunset.
-///   Range roughly 44-72 g/kWh around the 56 g/kWh annual average.
-/// - **Germany (eu-central-1 / de)**: coal + gas + variable renewables,
-///   pronounced morning (06h-10h UTC) and evening (17h-20h UTC) peaks
-///   driven by residential and industrial demand, night wind dip.
-/// - **UK (eu-west-2 / gb)**: wind + gas, smaller peaks than Germany
-///   but similar shape; overnight baseline dips when wind output rises.
-/// - **US-East (us-east-1)**: gas + coal, peaks 13h-18h UTC
-///   (9am-2pm Eastern, business hours). Flatter overall because of a
-///   mixed fuel base.
-///
-/// intentionally does **not** embed a monthly (24×12) table.
-/// The value would be 12× the data for marginal accuracy gain until
-/// seasonal data sourcing is solved. Future sprints can extend this
-/// to `[[f64; 24]; 12]` without breaking consumers because the
-/// [`IntensitySource::Hourly`] tag already exists and downstream
-/// consumers don't parse the table directly.
+/// Hourly carbon intensity profiles (UTC, gCO₂eq/kWh). 24 values per region.
+/// Sources and per-region rationale in `docs/design/05-GREENOPS-AND-CARBON.md`.
 static HOURLY_CARBON_TABLE: &[(&str, [f64; 24])] = &[
-    // France (eu-west-3 / FR) — nuclear baseload, flat-with-evening-peak.
-    // Mean ≈ 55.0, matches CARBON_TABLE[eu-west-3] = 56.0 within 2%.
+    // France (eu-west-3) — nuclear baseload, mean ≈ 55.
     (
         "eu-west-3",
         [
@@ -622,14 +406,7 @@ static HOURLY_CARBON_TABLE: &[(&str, [f64; 24])] = &[
             72.0, 68.0, 62.0, 56.0, 52.0, 50.0, // 18-23 UTC
         ],
     ),
-    // Germany (eu-central-1 / DE) — coal + wind, strong twin peaks.
-    // Mean ≈ 442.0. CARBON_TABLE[eu-central-1] = 338.0; hourly profile
-    // reflects a worse-case peak-heavy industrial day. The ±5%
-    // continuity guarantee does NOT hold for DE because
-    // the embedded annual value in CARBON_TABLE appears optimistic
-    // compared to recent (2023-2024) data. Users who need exact
-    // calibration to their own annual baseline can disable hourly
-    // profiles with `use_hourly_profiles = false`.
+    // Germany (eu-central-1) — coal + wind, mean ≈ 442. See LIMITATIONS.md.
     (
         "eu-central-1",
         [
@@ -639,8 +416,7 @@ static HOURLY_CARBON_TABLE: &[(&str, [f64; 24])] = &[
             525.0, 500.0, 470.0, 440.0, 410.0, 395.0, // 18-23 UTC
         ],
     ),
-    // UK (eu-west-2 / GB) — wind + gas, moderate twin peaks.
-    // Mean ≈ 231.7, matches CARBON_TABLE[eu-west-2] = 231.0 within 0.3%.
+    // UK (eu-west-2) — wind + gas, mean ≈ 232.
     (
         "eu-west-2",
         [
@@ -650,8 +426,7 @@ static HOURLY_CARBON_TABLE: &[(&str, [f64; 24])] = &[
             300.0, 280.0, 255.0, 235.0, 215.0, 205.0, // 18-23 UTC
         ],
     ),
-    // US-East (us-east-1 / Virginia) — gas + coal, daytime peak.
-    // Mean ≈ 379.0, matches CARBON_TABLE[us-east-1] = 379.0 within 0.1%.
+    // US-East (us-east-1) — gas + coal, mean ≈ 379.
     (
         "us-east-1",
         [
@@ -672,17 +447,7 @@ static HOURLY_REGION_MAP: std::sync::LazyLock<HashMap<&'static str, &'static [f6
             .collect()
     });
 
-/// look up the hourly carbon intensity for a region and a
-/// UTC hour.
-///
-/// Returns `Some(gco2_per_kwh)` if the region is in
-/// [`HOURLY_CARBON_TABLE`] and `hour < 24`. Returns `None` otherwise —
-/// callers should fall back to [`lookup_region_lower`] (the flat annual
-/// average) for regions without hourly profiles.
-///
-/// Input `region` is expected to be pre-lowercased (the scoring stage
-/// lowercases once when bucketing). `hour` comes from
-/// [`crate::time::parse_utc_hour`].
+/// Hourly intensity for a pre-lowercased region at UTC hour, or `None`.
 #[must_use]
 pub(crate) fn lookup_hourly_intensity_lower(region: &str, hour: u8) -> Option<f64> {
     if hour >= 24 {
@@ -693,30 +458,20 @@ pub(crate) fn lookup_hourly_intensity_lower(region: &str, hour: u8) -> Option<f6
         .map(|profile| profile[hour as usize])
 }
 
-/// return the full 24-hour profile for a region if present.
-///
-/// Used by the scoring stage to decide whether to enable the hourly
-/// histogram path for a region before iterating its spans.
+/// Full 24-hour profile for a region, or `None` if not profiled.
 #[must_use]
 pub(crate) fn hourly_profile_for_region_lower(region: &str) -> Option<&'static [f64; 24]> {
     HOURLY_REGION_MAP.get(region).copied()
 }
 
-/// Look up carbon intensity for a region string.
-///
-/// Returns `(carbon_intensity_gco2_per_kwh, pue)` if the region is found.
-/// Matching is case-insensitive (input is lowercased before lookup).
+/// Look up `(intensity, pue)` for a region (case-insensitive).
 #[must_use]
 pub fn lookup_region(region: &str) -> Option<(f64, f64)> {
     let lower = region.to_ascii_lowercase();
     lookup_region_lower(&lower)
 }
 
-/// Look up carbon intensity for a **pre-lowercased** region string.
-///
-/// Use this when the caller has already lowercased the region to avoid
-/// a redundant allocation. Exposed as `pub(crate)` for the scoring stage,
-/// which lowercases regions once when bucketing and then probes multiple times.
+/// Look up `(intensity, pue)` for a pre-lowercased region.
 #[must_use]
 pub(crate) fn lookup_region_lower(region: &str) -> Option<(f64, f64)> {
     REGION_MAP
@@ -724,22 +479,63 @@ pub(crate) fn lookup_region_lower(region: &str) -> Option<(f64, f64)> {
         .map(|(intensity, provider)| (*intensity, provider.pue()))
 }
 
-/// per-op gCO₂eq contribution. Single source of truth for
-/// the formula `energy × intensity × pue`.
-///
-/// Used by [`compute_operational_gco2`] (the multi-op convenience) and
-/// directly by the scoring stage when summing over an hourly histogram
-/// or a Scaphandre-measured coefficient. Keeping the formula in one
-/// place prevents the dedup drift explicitly guarded against
-/// (see the C2 invariant comment in `score::compute_carbon_report`).
-///
-/// The `energy_kwh` parameter is the per-op energy in kWh — either
-/// [`ENERGY_PER_IO_OP_KWH`] (proxy model) or a measured value from
-/// [`crate::score::scaphandre`].
+/// `energy × intensity × pue`. Single source of truth for the CO₂ formula.
 #[inline]
 #[must_use]
 pub(crate) fn per_op_gco2(energy_kwh: f64, intensity: f64, pue: f64) -> f64 {
     energy_kwh * intensity * pue
+}
+
+/// Return the energy multiplier for a span based on its operation type.
+///
+/// For SQL spans: extract the verb from the first word of `target` (the raw
+/// SQL statement). OTLP-ingested spans store `db.system` in `operation`,
+/// not the SQL verb, so we parse `target` instead.
+///
+/// For HTTP spans: classify by `response_size_bytes` into small/medium/large
+/// tiers. Falls back to `1.0` (base) when size is unknown.
+#[inline]
+#[must_use]
+pub(crate) fn energy_coefficient(event: &SpanEvent) -> f64 {
+    match event.event_type {
+        crate::event::EventType::Sql => {
+            let verb = event.target.split_ascii_whitespace().next().unwrap_or("");
+            if verb.eq_ignore_ascii_case("SELECT") {
+                SQL_SELECT_COEFF
+            } else if verb.eq_ignore_ascii_case("INSERT") {
+                SQL_INSERT_COEFF
+            } else if verb.eq_ignore_ascii_case("UPDATE") {
+                SQL_UPDATE_COEFF
+            } else if verb.eq_ignore_ascii_case("DELETE") {
+                SQL_DELETE_COEFF
+            } else {
+                SQL_OTHER_COEFF
+            }
+        }
+        crate::event::EventType::HttpOut => match event.response_size_bytes {
+            Some(size) if size > HTTP_LARGE_THRESHOLD => HTTP_LARGE_COEFF,
+            Some(size) if size >= HTTP_SMALL_THRESHOLD => HTTP_MEDIUM_COEFF,
+            Some(_) => HTTP_SMALL_COEFF,
+            None => 1.0,
+        },
+    }
+}
+
+/// Extract the hostname from an HTTP URL.
+///
+/// Handles `http://host:port/path`, `https://host:port/path`, and
+/// `http://user:pass@host:port/path` (RFC 3986 userinfo) patterns.
+/// Returns `None` if the URL is malformed or not an HTTP URL.
+#[must_use]
+pub(crate) fn extract_hostname(url: &str) -> Option<&str> {
+    let after_scheme = url
+        .strip_prefix("http://")
+        .or_else(|| url.strip_prefix("https://"))?;
+    let host_port = after_scheme.split('/').next()?;
+    // Strip userinfo (RFC 3986): "user:pass@host:port" -> "host:port"
+    let authority = host_port.rsplit('@').next().unwrap_or(host_port);
+    let host = authority.split(':').next()?;
+    if host.is_empty() { None } else { Some(host) }
 }
 
 /// Compute operational CO₂ in gCO₂eq from raw I/O operation count, grid
@@ -854,9 +650,22 @@ mod tests {
     }
 
     #[test]
+    fn hourly_profile_de_known_divergence_from_annual() {
+        // eu-central-1 intentionally diverges ~30% from the annual value (338).
+        // The hourly profile reflects recent 2023-2024 data. This test guards
+        // against accidental edits to the profile values.
+        let profile = hourly_profile_for_region_lower("eu-central-1").unwrap();
+        let mean: f64 = profile.iter().sum::<f64>() / 24.0;
+        assert!(
+            (420.0..=460.0).contains(&mean),
+            "eu-central-1 hourly mean {mean} should be in [420, 460] (known divergence from annual 338)"
+        );
+    }
+
+    #[test]
     fn per_op_gco2_single_source() {
         // verify the per_op helper matches the compute_operational
-        // formula so the two paths stay in sync (review fix against dedup drift).
+        // formula so the two paths stay in sync.
         let per_op = per_op_gco2(ENERGY_PER_IO_OP_KWH, 100.0, 1.2);
         let bulk = compute_operational_gco2(1, 100.0, 1.2);
         assert!((per_op - bulk).abs() < 1e-18);
@@ -977,6 +786,7 @@ mod tests {
                 method: "Test::method".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         }
     }
 
@@ -1094,6 +904,7 @@ mod tests {
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            ..CarbonContext::default()
         };
         let event = make_event("order-svc", Some("ap-south-1"));
         assert_eq!(resolve_region(&event, &ctx), Some("ap-south-1"));
@@ -1109,6 +920,7 @@ mod tests {
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            ..CarbonContext::default()
         };
         let event = make_event("order-svc", None);
         assert_eq!(resolve_region(&event, &ctx), Some("us-east-1"));
@@ -1122,6 +934,7 @@ mod tests {
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            ..CarbonContext::default()
         };
         let event = make_event("unknown-svc", None);
         assert_eq!(resolve_region(&event, &ctx), Some("eu-west-3"));
@@ -1146,6 +959,7 @@ mod tests {
             embodied_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            ..CarbonContext::default()
         };
         let event = make_event("order-svc", Some("eu-north-1"));
         assert_eq!(resolve_region(&event, &ctx), Some("eu-north-1"));
@@ -1165,6 +979,7 @@ mod tests {
             embodied_per_request_gco2: 0.0,
             use_hourly_profiles: true,
             energy_snapshot: None,
+            ..CarbonContext::default()
         };
         // Mixed-case service name on the event — should still match.
         let event = make_event("Order-Svc", None);
@@ -1172,5 +987,195 @@ mod tests {
         // Upper-case service name.
         let event_upper = make_event("ORDER-SVC", None);
         assert_eq!(resolve_region(&event_upper, &ctx), Some("us-east-1"));
+    }
+
+    // ── energy_coefficient tests ───────────────────────────────────
+
+    fn make_sql_target_event(target: &str) -> SpanEvent {
+        SpanEvent {
+            timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+            trace_id: "trace-1".to_string(),
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            service: "test".to_string(),
+            cloud_region: None,
+            event_type: EventType::Sql,
+            operation: "postgresql".to_string(),
+            target: target.to_string(),
+            duration_us: 1000,
+            source: EventSource {
+                endpoint: "GET /test".to_string(),
+                method: "Test::method".to_string(),
+            },
+            status_code: None,
+            response_size_bytes: None,
+        }
+    }
+
+    fn make_http_size_event(response_size_bytes: Option<u64>) -> SpanEvent {
+        SpanEvent {
+            timestamp: "2025-07-10T14:32:01.000Z".to_string(),
+            trace_id: "trace-1".to_string(),
+            span_id: "span-1".to_string(),
+            parent_span_id: None,
+            service: "test".to_string(),
+            cloud_region: None,
+            event_type: EventType::HttpOut,
+            operation: "GET".to_string(),
+            target: "http://user-svc:5000/api/users/123".to_string(),
+            duration_us: 1000,
+            source: EventSource {
+                endpoint: "GET /test".to_string(),
+                method: "Test::method".to_string(),
+            },
+            status_code: Some(200),
+            response_size_bytes,
+        }
+    }
+
+    #[test]
+    fn energy_coefficient_sql_select() {
+        let event = make_sql_target_event("SELECT * FROM users WHERE id = 1");
+        assert!((energy_coefficient(&event) - SQL_SELECT_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_insert() {
+        let event = make_sql_target_event("INSERT INTO users (name) VALUES ('Alice')");
+        assert!((energy_coefficient(&event) - SQL_INSERT_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_update() {
+        let event = make_sql_target_event("UPDATE users SET name = 'Bob' WHERE id = 1");
+        assert!((energy_coefficient(&event) - SQL_UPDATE_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_delete() {
+        let event = make_sql_target_event("DELETE FROM users WHERE id = 1");
+        assert!((energy_coefficient(&event) - SQL_DELETE_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_other() {
+        let event = make_sql_target_event("CREATE TABLE users (id INT)");
+        assert!((energy_coefficient(&event) - SQL_OTHER_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_case_insensitive() {
+        let event = make_sql_target_event("select * from users");
+        assert!((energy_coefficient(&event) - SQL_SELECT_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_small() {
+        let event = make_http_size_event(Some(1024)); // 1 KB
+        assert!((energy_coefficient(&event) - HTTP_SMALL_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_medium() {
+        let event = make_http_size_event(Some(100 * 1024)); // 100 KB
+        assert!((energy_coefficient(&event) - HTTP_MEDIUM_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_large() {
+        let event = make_http_size_event(Some(2 * 1024 * 1024)); // 2 MB
+        assert!((energy_coefficient(&event) - HTTP_LARGE_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_no_size() {
+        let event = make_http_size_event(None);
+        assert!((energy_coefficient(&event) - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_boundary_small_threshold() {
+        // Exactly at the small/medium boundary (10 KB) should be medium.
+        let event = make_http_size_event(Some(HTTP_SMALL_THRESHOLD));
+        assert!((energy_coefficient(&event) - HTTP_MEDIUM_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_http_boundary_large_threshold() {
+        // Exactly at the large boundary (1 MB) is still medium; >1 MB is large.
+        let event = make_http_size_event(Some(HTTP_LARGE_THRESHOLD));
+        assert!((energy_coefficient(&event) - HTTP_MEDIUM_COEFF).abs() < f64::EPSILON);
+        let event_over = make_http_size_event(Some(HTTP_LARGE_THRESHOLD + 1));
+        assert!((energy_coefficient(&event_over) - HTTP_LARGE_COEFF).abs() < f64::EPSILON);
+    }
+
+    // ── extract_hostname tests ─────────────────────────────────────
+
+    #[test]
+    fn extract_hostname_http_with_port() {
+        assert_eq!(
+            extract_hostname("http://user-svc:5000/api/users"),
+            Some("user-svc")
+        );
+    }
+
+    #[test]
+    fn extract_hostname_http_no_port() {
+        assert_eq!(
+            extract_hostname("http://user-svc/api/users"),
+            Some("user-svc")
+        );
+    }
+
+    #[test]
+    fn extract_hostname_https() {
+        assert_eq!(
+            extract_hostname("https://api.example.com/path"),
+            Some("api.example.com")
+        );
+    }
+
+    #[test]
+    fn extract_hostname_empty() {
+        assert_eq!(extract_hostname(""), None);
+    }
+
+    #[test]
+    fn extract_hostname_no_scheme() {
+        assert_eq!(extract_hostname("/api/users"), None);
+    }
+
+    #[test]
+    fn extract_hostname_empty_host() {
+        assert_eq!(extract_hostname("http:///path"), None);
+    }
+
+    #[test]
+    fn extract_hostname_with_userinfo() {
+        // RFC 3986 userinfo: "user:pass@host:port" should extract "host"
+        assert_eq!(
+            extract_hostname("http://user:pass@order-api:8080/api/orders"),
+            Some("order-api")
+        );
+    }
+
+    #[test]
+    fn extract_hostname_with_user_only() {
+        assert_eq!(
+            extract_hostname("http://admin@order-api/api"),
+            Some("order-api")
+        );
+    }
+
+    #[test]
+    fn energy_coefficient_http_zero_bytes() {
+        let event = make_http_size_event(Some(0));
+        assert!((energy_coefficient(&event) - HTTP_SMALL_COEFF).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn energy_coefficient_sql_empty_target() {
+        let event = make_sql_target_event("");
+        assert!((energy_coefficient(&event) - SQL_OTHER_COEFF).abs() < f64::EPSILON);
     }
 }

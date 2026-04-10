@@ -112,12 +112,22 @@ pub struct SpanEvent {
     pub cloud_region: Option<String>,
     #[serde(rename = "type")]
     pub event_type: EventType,
+    /// SQL: `db.system` for OTLP (e.g. "postgresql"), verb for native JSON.
+    /// HTTP: request method (e.g. "GET").
     pub operation: String,
     pub target: String,
     pub duration_us: u64,
     pub source: EventSource,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status_code: Option<u16>,
+    /// HTTP response body size in bytes, sourced from the `OTel`
+    /// `http.response.body.size` attribute (or legacy
+    /// `http.response_content_length`). Used by the carbon scoring stage
+    /// for HTTP payload size tier classification and network transport
+    /// energy estimation. `None` for SQL spans or when the attribute is
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_size_bytes: Option<u64>,
 }
 
 #[cfg(test)]

@@ -310,6 +310,8 @@ for each parent_id in spans_by_parent:
 
 Complexity: O(n log n) for sorting + O(n log n) for all binary searches + O(n) for the DP fill and backtrack = O(n log n) total per parent group. This is the same asymptotic cost as the simpler greedy approach, but the DP guarantees finding the longest possible non-overlapping sequence. For example, given spans A:[0-200ms], B:[100-150ms], C:[160-300ms], D:[310-400ms], a greedy approach sorted by start time would select {A, D} (length 2), while the DP correctly identifies {B, C, D} (length 3).
 
+The binary search uses `partition_point` directly on the sorted slice, avoiding a separate predecessor array allocation.
+
 ### Template filtering
 
 The detector skips sequences where all spans share the same normalized template. That pattern is N+1 (same operation repeated with different params), not serialization. By requiring different templates, the detector targets the "fetch user, then fetch orders, then fetch preferences" pattern where the calls are independent and could run concurrently.

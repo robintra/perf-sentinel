@@ -91,6 +91,7 @@ mod tests {
             top_offenders: vec![],
             co2: None,
             regions: vec![],
+            transport_gco2: None,
         }
     }
 
@@ -197,6 +198,7 @@ mod tests {
             top_offenders: vec![],
             co2: None,
             regions: vec![],
+            transport_gco2: None,
         };
         let gate = evaluate(&[], &summary, &config);
 
@@ -228,6 +230,7 @@ mod tests {
             top_offenders: vec![],
             co2: None,
             regions: vec![],
+            transport_gco2: None,
         };
         let gate = evaluate(&findings, &summary, &config);
 

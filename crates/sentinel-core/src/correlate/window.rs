@@ -11,23 +11,14 @@ use lru::LruCache;
 use crate::normalize::NormalizedEvent;
 
 /// Configuration for the trace window.
-///
-/// # Eviction cost
-///
-/// `evict_expired` performs a full scan of the LRU cache (`O(n)` where
-/// `n = max_active_traces`) and clones the keys of expired entries into
-/// a temporary `Vec<String>`. The `lru` crate does not expose a
-/// `drain_filter` API. This is acceptable because the scan runs once
-/// per tick (half the TTL, typically every 15 s) and
-/// `max_active_traces` is capped at 10,000 by default.
 #[derive(Debug, Clone)]
 pub struct WindowConfig {
     /// Maximum events kept per trace (ring buffer).
     pub max_events_per_trace: usize,
     /// Trace time-to-live in milliseconds.
     pub trace_ttl_ms: u64,
-    /// Maximum number of active traces before LRU eviction.
-    pub max_active_traces: usize,
+    /// Maximum number of active traces before LRU eviction. Must be >= 1.
+    pub max_active_traces: NonZeroUsize,
 }
 
 impl Default for WindowConfig {
@@ -35,7 +26,7 @@ impl Default for WindowConfig {
         Self {
             max_events_per_trace: 1000,
             trace_ttl_ms: 30_000,
-            max_active_traces: 10_000,
+            max_active_traces: NonZeroUsize::new(10_000).expect("10000 > 0"),
         }
     }
 }
@@ -57,13 +48,9 @@ pub struct TraceWindow {
 }
 
 impl TraceWindow {
-    /// # Panics
-    ///
-    /// Panics if `max_active_traces` is 0.
     #[must_use]
     pub fn new(config: WindowConfig) -> Self {
-        let cap =
-            NonZeroUsize::new(config.max_active_traces).expect("max_active_traces must be >= 1");
+        let cap = config.max_active_traces;
         Self {
             config,
             traces: LruCache::new(cap),
@@ -191,6 +178,7 @@ mod tests {
                 method: "Test::test".to_string(),
             },
             status_code: None,
+            response_size_bytes: None,
         };
         normalize::normalize(event)
     }
@@ -251,7 +239,7 @@ mod tests {
     #[test]
     fn lru_eviction() {
         let config = WindowConfig {
-            max_active_traces: 2,
+            max_active_traces: NonZeroUsize::new(2).unwrap(),
             ..Default::default()
         };
         let mut w = TraceWindow::new(config);
@@ -280,7 +268,7 @@ mod tests {
     #[test]
     fn lru_touch_prevents_eviction() {
         let config = WindowConfig {
-            max_active_traces: 2,
+            max_active_traces: NonZeroUsize::new(2).unwrap(),
             ..Default::default()
         };
         let mut w = TraceWindow::new(config);
@@ -330,7 +318,7 @@ mod tests {
     #[test]
     fn lru_eviction_chain() {
         let config = WindowConfig {
-            max_active_traces: 1,
+            max_active_traces: NonZeroUsize::new(1).unwrap(),
             ..Default::default()
         };
         let mut w = TraceWindow::new(config);
@@ -378,7 +366,7 @@ mod tests {
     #[test]
     fn push_returns_evicted_events() {
         let config = WindowConfig {
-            max_active_traces: 1,
+            max_active_traces: NonZeroUsize::new(1).unwrap(),
             ..Default::default()
         };
         let mut w = TraceWindow::new(config);

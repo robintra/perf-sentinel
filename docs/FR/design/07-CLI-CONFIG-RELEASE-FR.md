@@ -85,6 +85,24 @@ Cette sous-commande est intentionnellement séparée d'`analyze` car les donnée
 
 **Gestion d'état :** la struct `App` contient des `findings_by_trace` pré-calculés (indexés à la construction) pour éviter de recalculer à chaque frame. L'état de navigation (selected_trace, selected_finding, active_panel, scroll_offset) est mis à jour par les événements clavier.
 
+### Feature flags
+
+Le workspace utilise des feature flags Cargo pour garder les dépendances daemon optionnelles :
+
+| Feature  | Crate           | Ce qu'il active                                                                                                                         |
+|----------|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------|
+| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Active `daemon.rs`, scraper/state Scaphandre, scraper/state cloud energy. |
+| `daemon` | `sentinel-cli`  | Transmet à `sentinel-core/daemon`. Active la sous-commande `watch`.                                                                     |
+| `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Active la sous-commande `inspect`.                                                                              |
+
+Les deux features sont dans le `default` du CLI. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
+
+```toml
+perf-sentinel-core = { version = "0.3", default-features = false }
+```
+
+Cela compile le pipeline batch complet (normalize, correlate, detect, score, report) sans code client HTTP. Les types de config (`ScaphandreConfig`, `CloudEnergyConfig`) sont toujours disponibles pour que le parseur TOML fonctionne ; seuls les scrapers runtime et les types state sont conditionnels.
+
 ## Parsing de la configuration
 
 ### Double format : sectionné + plat

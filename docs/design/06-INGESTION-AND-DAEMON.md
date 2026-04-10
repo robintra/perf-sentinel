@@ -42,12 +42,12 @@ fn bytes_to_hex(bytes: &[u8]) -> String {
         buf.push(HEX[(b >> 4) as usize]);
         buf.push(HEX[(b & 0x0f) as usize]);
     }
-    // SAFETY: all bytes are ASCII hex digits (0-9, a-f)
-    unsafe { String::from_utf8_unchecked(buf) }
+    // All bytes come from HEX (ASCII 0-9, a-f), always valid UTF-8.
+    String::from_utf8(buf).expect("hex table is ASCII")
 }
 ```
 
-This is a well-known optimization for hex encoding. Instead of using `write!(hex, "{b:02x}")` (which invokes the formatting machinery per byte at ~30ns), the lookup table converts each byte to two hex characters via bit shifting at ~5ns per byte. Building a `Vec<u8>` and using `from_utf8_unchecked` avoids the char-to-UTF8 conversion overhead of `String::push(char)`. The `unsafe` is justified because all output bytes are ASCII hex digits.
+This is a well-known optimization for hex encoding. Instead of using `write!(hex, "{b:02x}")` (which invokes the formatting machinery per byte at ~30ns), the lookup table converts each byte to two hex characters via bit shifting at ~5ns per byte. The `Vec<u8>` is pre-allocated and the `from_utf8` call is infallible since only ASCII hex digits are pushed. No `unsafe` is needed: the `expect` is a zero-cost assertion on a condition that cannot fail.
 
 For a 16-byte trace_id + 8-byte span_id, this saves ~600ns per span conversion. At 100,000 events/sec, that is 60ms/sec of avoided overhead.
 
@@ -103,6 +103,8 @@ The payload size is checked **before** deserialization. This prevents `serde_jso
 - Otherwise: **Native** perf-sentinel format
 
 This avoids parsing the full payload into a `serde_json::Value` for detection, eliminating a 2x parse cost. The heuristic operates on raw bytes (`std::str::from_utf8` on a bounded prefix), making it O(1) regardless of payload size.
+
+**Boundary sanitization.** After parsing, the JSON ingest path validates `cloud_region` via `is_valid_region_id` and runs `sanitize_span_event` on every event, applying the same field-length caps and UTF-8 boundary truncation as the OTLP path. This ensures all downstream code sees consistently sanitized data regardless of ingestion format.
 
 ### Jaeger JSON ingestion
 
