@@ -22,10 +22,14 @@
 //!   bottom-up model
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::Serialize;
 
 use crate::event::SpanEvent;
+
+pub use super::carbon_profiles::HourlyProfile;
+pub(crate) use super::carbon_profiles::HourlyProfileRef;
 
 /// Estimated energy consumed per I/O operation in kWh.
 ///
@@ -72,12 +76,16 @@ pub const CO2_MODEL: &str = "io_proxy_v1";
 /// Carbon estimation model: hourly carbon intensity profiles.
 pub const CO2_MODEL_V2: &str = "io_proxy_v2";
 
+/// Carbon estimation model: monthly x hourly carbon intensity profiles.
+/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+pub const CO2_MODEL_V3: &str = "io_proxy_v3";
+
 /// Carbon estimation model: Scaphandre per-process RAPL measurement.
 /// Highest precedence.
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 
 /// Carbon estimation model: cloud CPU% + `SPECpower` interpolation.
-/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
 /// Methodology tag: SCI v1.0 numerator `(E x I) + M` summed over traces.
@@ -92,6 +100,11 @@ pub const METHODOLOGY_OPERATIONAL_RATIO: &str = "sci_v1_operational_ratio";
 /// upper bound for lightly-loaded servers. Override via
 /// `[green] embodied_carbon_per_request_gco2`. Derivation in design doc.
 pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
+
+/// Generic PUE (Power Usage Effectiveness) for regions not associated
+/// with a specific cloud provider. Used as fallback for out-of-table
+/// regions that have a custom hourly profile.
+pub const GENERIC_PUE: f64 = 1.2;
 
 /// Synthetic region label for events with no resolved region.
 pub const UNKNOWN_REGION: &str = "unknown";
@@ -208,13 +221,15 @@ pub struct CarbonReport {
     pub transport_gco2: Option<f64>,
 }
 
-/// Whether a region row used the flat annual or 24-hour profile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+/// Whether a region row used the flat annual, 24-hour, or monthly x hourly profile.
+/// Variants are ordered by fidelity: `Annual` < `Hourly` < `MonthlyHourly`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IntensitySource {
     #[default]
     Annual,
     Hourly,
+    MonthlyHourly,
 }
 
 /// Per-region operational CO₂ breakdown row in `green_summary.regions[]`.
@@ -247,6 +262,11 @@ pub struct CarbonContext {
     pub per_operation_coefficients: bool,
     pub include_network_transport: bool,
     pub network_energy_per_byte_kwh: f64,
+    /// User-supplied hourly profiles from `[green] hourly_profiles_file`.
+    /// Keys are pre-lowercased region identifiers.
+    /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
+    /// daemon can clone the context per tick without deep-copying profiles.
+    pub custom_hourly_profiles: Option<Arc<HashMap<String, HourlyProfile>>>,
 }
 
 impl Default for CarbonContext {
@@ -260,6 +280,7 @@ impl Default for CarbonContext {
             per_operation_coefficients: true,
             include_network_transport: false,
             network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
+            custom_hourly_profiles: None,
         }
     }
 }
@@ -344,6 +365,8 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("eu-north-1", 8.0, Provider::Aws),       // Stockholm
     ("ap-northeast-1", 462.0, Provider::Aws), // Tokyo
     ("ap-southeast-1", 408.0, Provider::Aws), // Singapore
+    ("eu-west-4", 328.0, Provider::Aws),      // Netherlands (canonical hourly key)
+    ("eu-south-1", 370.0, Provider::Aws),     // Milan (Italy)
     ("ap-southeast-2", 550.0, Provider::Aws), // Sydney
     ("ap-south-1", 708.0, Provider::Aws),     // Mumbai
     ("ca-central-1", 13.0, Provider::Aws),    // Canada
@@ -352,11 +375,15 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("us-central1", 426.0, Provider::Gcp),
     ("us-east1", 379.0, Provider::Gcp),
     ("us-west1", 89.0, Provider::Gcp),
-    ("europe-west1", 187.0, Provider::Gcp),    // Belgium
-    ("europe-west4", 328.0, Provider::Gcp),    // Netherlands
-    ("europe-west9", 56.0, Provider::Gcp),     // Paris
-    ("europe-north1", 8.0, Provider::Gcp),     // Finland
-    ("asia-northeast1", 462.0, Provider::Gcp), // Tokyo
+    ("europe-west1", 187.0, Provider::Gcp),      // Belgium
+    ("europe-west4", 328.0, Provider::Gcp),      // Netherlands
+    ("europe-west9", 56.0, Provider::Gcp),       // Paris
+    ("europe-north1", 8.0, Provider::Gcp),       // Finland
+    ("europe-west8", 370.0, Provider::Gcp),      // Milan (Italy)
+    ("europe-southwest1", 200.0, Provider::Gcp), // Madrid (Spain)
+    ("europe-central2", 700.0, Provider::Gcp),   // Warsaw (Poland)
+    ("europe-north2", 7.0, Provider::Gcp),       // Oslo-ish (Norway)
+    ("asia-northeast1", 462.0, Provider::Gcp),   // Tokyo
     // Azure regions
     ("eastus", 379.0, Provider::Azure),
     ("westus2", 89.0, Provider::Azure),
@@ -382,6 +409,9 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("nl", 328.0, Provider::Generic),
     ("be", 187.0, Provider::Generic),
     ("fi", 8.0, Provider::Generic),
+    ("it", 370.0, Provider::Generic),
+    ("es", 200.0, Provider::Generic),
+    ("pl", 700.0, Provider::Generic),
 ];
 
 /// Pre-built map for O(1) region lookup (keys are lowercase).
@@ -393,82 +423,303 @@ static REGION_MAP: std::sync::LazyLock<HashMap<&'static str, (f64, Provider)>> =
             .collect()
     });
 
-/// Hourly carbon intensity profiles (UTC, gCO₂eq/kWh). 24 values per region.
-/// Sources and per-region rationale in `docs/design/05-GREENOPS-AND-CARBON.md`.
-static HOURLY_CARBON_TABLE: &[(&str, [f64; 24])] = &[
-    // France (eu-west-3) — nuclear baseload, mean ≈ 55.
-    (
-        "eu-west-3",
-        [
-            48.0, 46.0, 45.0, 44.0, 45.0, 47.0, // 00-05 UTC
-            52.0, 58.0, 62.0, 60.0, 58.0, 56.0, // 06-11 UTC
-            54.0, 52.0, 50.0, 52.0, 58.0, 68.0, // 12-17 UTC
-            72.0, 68.0, 62.0, 56.0, 52.0, 50.0, // 18-23 UTC
-        ],
-    ),
-    // Germany (eu-central-1) — coal + wind, mean ≈ 442. See LIMITATIONS.md.
-    (
-        "eu-central-1",
-        [
-            380.0, 370.0, 365.0, 360.0, 370.0, 395.0, // 00-05 UTC
-            450.0, 480.0, 490.0, 475.0, 460.0, 445.0, // 06-11 UTC
-            430.0, 415.0, 420.0, 435.0, 470.0, 510.0, // 12-17 UTC
-            525.0, 500.0, 470.0, 440.0, 410.0, 395.0, // 18-23 UTC
-        ],
-    ),
-    // UK (eu-west-2) — wind + gas, mean ≈ 232.
-    (
-        "eu-west-2",
-        [
-            195.0, 185.0, 180.0, 175.0, 185.0, 210.0, // 00-05 UTC
-            245.0, 275.0, 270.0, 255.0, 240.0, 230.0, // 06-11 UTC
-            220.0, 210.0, 215.0, 230.0, 260.0, 290.0, // 12-17 UTC
-            300.0, 280.0, 255.0, 235.0, 215.0, 205.0, // 18-23 UTC
-        ],
-    ),
-    // US-East (us-east-1) — gas + coal, mean ≈ 379.
-    (
-        "us-east-1",
-        [
-            340.0, 325.0, 315.0, 310.0, 320.0, 340.0, // 00-05 UTC
-            365.0, 385.0, 400.0, 410.0, 415.0, 420.0, // 06-11 UTC
-            420.0, 425.0, 430.0, 425.0, 415.0, 400.0, // 12-17 UTC
-            385.0, 370.0, 360.0, 355.0, 350.0, 345.0, // 18-23 UTC
-        ],
-    ),
-];
-
 /// Pre-built map for O(1) hourly profile lookup (keys are lowercase).
-static HOURLY_REGION_MAP: std::sync::LazyLock<HashMap<&'static str, &'static [f64; 24]>> =
+/// Merges flat-year profiles, monthly profiles, and aliases.
+static HOURLY_REGION_MAP: std::sync::LazyLock<HashMap<&'static str, HourlyProfileRef<'static>>> =
     std::sync::LazyLock::new(|| {
-        HOURLY_CARBON_TABLE
-            .iter()
-            .map(|(key, profile)| (*key, profile))
-            .collect()
+        use super::carbon_profiles::{FLAT_YEAR_PROFILES, MONTHLY_PROFILES, PROFILE_ALIASES};
+
+        let cap = FLAT_YEAR_PROFILES.len() + MONTHLY_PROFILES.len() + PROFILE_ALIASES.len();
+        let mut map = HashMap::with_capacity(cap);
+        for (key, profile) in FLAT_YEAR_PROFILES {
+            map.insert(*key, HourlyProfileRef::FlatYear(profile));
+        }
+        for (key, profile) in MONTHLY_PROFILES {
+            map.insert(*key, HourlyProfileRef::Monthly(profile));
+        }
+        // Aliases: look up the canonical key and insert a copy of the
+        // reference under the alias key (same static data, zero-copy).
+        for &(alias, canonical) in PROFILE_ALIASES {
+            if let Some(&profile_ref) = map.get(canonical) {
+                map.insert(alias, profile_ref);
+            }
+        }
+        map
     });
 
-/// Hourly intensity for a pre-lowercased region at UTC hour, or `None`.
+/// Hourly intensity for a pre-lowercased region at UTC hour and optional
+/// month (0-indexed, 0 = January). Returns `None` for unknown regions
+/// or invalid hour/month values.
+#[cfg(test)]
 #[must_use]
-pub(crate) fn lookup_hourly_intensity_lower(region: &str, hour: u8) -> Option<f64> {
+pub(crate) fn lookup_hourly_intensity_lower(
+    region: &str,
+    hour: u8,
+    month: Option<u8>,
+) -> Option<f64> {
     if hour >= 24 {
+        return None;
+    }
+    if let Some(m) = month
+        && m >= 12
+    {
         return None;
     }
     HOURLY_REGION_MAP
         .get(region)
-        .map(|profile| profile[hour as usize])
+        .map(|profile_ref: &HourlyProfileRef<'_>| profile_ref.intensity_at(hour, month))
 }
 
-/// Full 24-hour profile for a region, or `None` if not profiled.
+/// Look up the profile reference for a pre-lowercased region.
+/// Returns `None` if no hourly profile exists for this region.
 #[must_use]
-pub(crate) fn hourly_profile_for_region_lower(region: &str) -> Option<&'static [f64; 24]> {
+pub(crate) fn hourly_profile_for_region_lower(region: &str) -> Option<HourlyProfileRef<'static>> {
     HOURLY_REGION_MAP.get(region).copied()
+}
+
+/// Resolve hourly intensity with custom profile priority.
+/// Lookup chain: custom > embedded > None.
+///
+/// Returns `(intensity, source)` where `source` indicates
+/// whether a monthly or flat-year profile was used.
+#[cfg(test)]
+#[must_use]
+pub(crate) fn resolve_hourly_intensity(
+    region: &str,
+    hour: u8,
+    month: Option<u8>,
+    custom: Option<&HashMap<String, HourlyProfile>>,
+) -> Option<(f64, IntensitySource)> {
+    if hour >= 24 {
+        return None;
+    }
+    if let Some(m) = month
+        && m >= 12
+    {
+        return None;
+    }
+    // 1. Check custom profiles.
+    if let Some(custom_map) = custom
+        && let Some(profile) = custom_map.get(region)
+    {
+        let val = profile.intensity_at(hour, month);
+        let src = if profile.is_monthly() {
+            IntensitySource::MonthlyHourly
+        } else {
+            IntensitySource::Hourly
+        };
+        return Some((val, src));
+    }
+    // 2. Check embedded profiles.
+    HOURLY_REGION_MAP
+        .get(region)
+        .map(|profile_ref: &HourlyProfileRef<'_>| {
+            let val = profile_ref.intensity_at(hour, month);
+            let src = if profile_ref.is_monthly() {
+                IntensitySource::MonthlyHourly
+            } else {
+                IntensitySource::Hourly
+            };
+            (val, src)
+        })
+}
+
+/// Load user-supplied hourly profiles from a JSON file.
+///
+/// Expected format:
+/// ```json
+/// {
+///   "profiles": {
+///     "my-region": { "type": "flat_year", "hours": [24 values] },
+///     "other":     { "type": "monthly", "months": [[24 values] x 12] }
+///   }
+/// }
+/// ```
+///
+/// Validation: dimension checks (24 or 12x24), finite, non-negative.
+/// Warns (does not reject) when mean diverges >5% from embedded annual.
+///
+/// # Errors
+///
+/// Returns `Err` when the file cannot be read, contains invalid JSON,
+/// has wrong dimensions, negative or non-finite values, or invalid
+/// region keys.
+#[allow(clippy::too_many_lines)]
+pub fn load_custom_profiles(
+    path: &std::path::Path,
+) -> Result<HashMap<String, HourlyProfile>, String> {
+    /// Maximum file size for custom profiles (2 MiB). A 30-region monthly
+    /// file with formatting is well under 100 KB; 2 MiB is generous.
+    const MAX_PROFILE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+    /// Maximum plausible grid intensity (gCO2/kWh). No national grid
+    /// exceeds ~950 (South Africa, Mongolia). Values above 1000 likely
+    /// indicate a unit confusion (mg vs g, or kgCO2 vs gCO2).
+    const MAX_PLAUSIBLE_INTENSITY: f64 = 1000.0;
+
+    /// Maximum number of custom profile entries (same cap as `MAX_REGIONS`).
+    const MAX_CUSTOM_PROFILES: usize = 256;
+
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("failed to stat '{}': {e}", path.display()))?;
+    if metadata.len() > MAX_PROFILE_FILE_BYTES {
+        return Err(format!(
+            "'{}' is {} bytes, exceeding the {} byte limit",
+            path.display(),
+            metadata.len(),
+            MAX_PROFILE_FILE_BYTES
+        ));
+    }
+
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| format!("failed to read '{}': {e}", path.display()))?;
+
+    let raw: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| format!("invalid JSON in '{}': {e}", path.display()))?;
+
+    let profiles_obj = raw
+        .get("profiles")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| format!("'{}' missing 'profiles' object", path.display()))?;
+
+    if profiles_obj.len() > MAX_CUSTOM_PROFILES {
+        return Err(format!(
+            "'{}' contains {} profiles, exceeding the {} limit",
+            path.display(),
+            profiles_obj.len(),
+            MAX_CUSTOM_PROFILES
+        ));
+    }
+
+    let mut result = HashMap::with_capacity(profiles_obj.len());
+    for (region, value) in profiles_obj {
+        let region_lower = region.to_ascii_lowercase();
+        if !is_valid_region_id(&region_lower) {
+            return Err(
+                "invalid region key (expected ASCII alphanumeric + '-'/'_', length 1-64)"
+                    .to_string(),
+            );
+        }
+
+        let profile_type = value
+            .get("type")
+            .and_then(|t| t.as_str())
+            .ok_or_else(|| format!("region '{region}': missing 'type' field"))?;
+
+        let profile = match profile_type {
+            "flat_year" => {
+                let hours = value
+                    .get("hours")
+                    .and_then(|h| h.as_array())
+                    .ok_or_else(|| format!("region '{region}': missing 'hours' array"))?;
+                if hours.len() != 24 {
+                    return Err(format!(
+                        "region '{region}': flat_year profile must have exactly 24 values, got {}",
+                        hours.len()
+                    ));
+                }
+                let mut arr = [0.0_f64; 24];
+                for (i, v) in hours.iter().enumerate() {
+                    let val = v
+                        .as_f64()
+                        .ok_or_else(|| format!("region '{region}' hour {i}: expected a number"))?;
+                    if !val.is_finite() || val < 0.0 {
+                        return Err(format!(
+                            "region '{region}' hour {i}: value must be finite and non-negative, got {val}"
+                        ));
+                    }
+                    arr[i] = val;
+                }
+                HourlyProfile::FlatYear(arr)
+            }
+            "monthly" => {
+                let months = value
+                    .get("months")
+                    .and_then(|m| m.as_array())
+                    .ok_or_else(|| format!("region '{region}': missing 'months' array"))?;
+                if months.len() != 12 {
+                    return Err(format!(
+                        "region '{region}': monthly profile must have exactly 12 months, got {}",
+                        months.len()
+                    ));
+                }
+                let mut arr = [[0.0_f64; 24]; 12];
+                for (m, month_val) in months.iter().enumerate() {
+                    let month_arr = month_val
+                        .as_array()
+                        .ok_or_else(|| format!("region '{region}' month {m}: expected an array"))?;
+                    if month_arr.len() != 24 {
+                        return Err(format!(
+                            "region '{region}' month {m}: must have exactly 24 values, got {}",
+                            month_arr.len()
+                        ));
+                    }
+                    for (h, v) in month_arr.iter().enumerate() {
+                        let val = v.as_f64().ok_or_else(|| {
+                            format!("region '{region}' month {m} hour {h}: expected a number")
+                        })?;
+                        if !val.is_finite() || val < 0.0 {
+                            return Err(format!(
+                                "region '{region}' month {m} hour {h}: value must be finite and non-negative, got {val}"
+                            ));
+                        }
+                        arr[m][h] = val;
+                    }
+                }
+                HourlyProfile::Monthly(Box::new(arr))
+            }
+            _ => {
+                return Err(format!(
+                    "region '{region}': unknown profile type (expected 'flat_year' or 'monthly')"
+                ));
+            }
+        };
+
+        // Warn if mean diverges >5% from embedded annual (but do not reject).
+        if let Some(&(annual, _)) = REGION_MAP.get(region_lower.as_str())
+            && annual > 0.0
+        {
+            let mean = profile.mean();
+            let deviation = (mean - annual).abs() / annual;
+            if deviation > 0.05 {
+                tracing::warn!(
+                    region = %region_lower,
+                    profile_mean = mean,
+                    annual_value = annual,
+                    deviation_pct = deviation * 100.0,
+                    "Custom hourly profile mean deviates from embedded annual value. \
+                     The profile will be used as-is.",
+                );
+            }
+        }
+
+        // Sanity-check: warn for implausibly high intensity values
+        // even for out-of-table regions. The highest real-world grid
+        // intensity is ~900 gCO2/kWh (coal-heavy grids); 2000 is very
+        // generous as an upper bound.
+        let mean = profile.mean();
+        if mean > MAX_PLAUSIBLE_INTENSITY {
+            tracing::warn!(
+                region = %region_lower,
+                profile_mean = mean,
+                "Custom hourly profile has an unusually high mean intensity. \
+                 Verify the values are in gCO2/kWh, not mg or another unit.",
+            );
+        }
+
+        result.insert(region_lower, profile);
+    }
+    Ok(result)
 }
 
 /// Look up `(intensity, pue)` for a region (case-insensitive).
 #[must_use]
 pub fn lookup_region(region: &str) -> Option<(f64, f64)> {
-    let lower = region.to_ascii_lowercase();
-    lookup_region_lower(&lower)
+    if region.bytes().any(|b| b.is_ascii_uppercase()) {
+        lookup_region_lower(&region.to_ascii_lowercase())
+    } else {
+        lookup_region_lower(region)
+    }
 }
 
 /// Look up `(intensity, pue)` for a pre-lowercased region.
@@ -573,93 +824,406 @@ mod tests {
 
     #[test]
     fn hourly_profile_present_for_key_regions() {
-        // The 4 regions listed in HOURLY_CARBON_TABLE must be looked up.
+        // The original 4 regions (now Monthly) plus new FlatYear regions.
         assert!(hourly_profile_for_region_lower("eu-west-3").is_some());
         assert!(hourly_profile_for_region_lower("eu-central-1").is_some());
         assert!(hourly_profile_for_region_lower("eu-west-2").is_some());
         assert!(hourly_profile_for_region_lower("us-east-1").is_some());
+        // New FlatYear regions.
+        assert!(hourly_profile_for_region_lower("eu-west-1").is_some());
+        assert!(hourly_profile_for_region_lower("eu-west-4").is_some());
+        assert!(hourly_profile_for_region_lower("eu-north-1").is_some());
+        assert!(hourly_profile_for_region_lower("europe-west1").is_some());
+        assert!(hourly_profile_for_region_lower("europe-north1").is_some());
+        assert!(hourly_profile_for_region_lower("us-east-2").is_some());
+        assert!(hourly_profile_for_region_lower("us-west-1").is_some());
+        assert!(hourly_profile_for_region_lower("us-west-2").is_some());
+        assert!(hourly_profile_for_region_lower("ca-central-1").is_some());
+        assert!(hourly_profile_for_region_lower("ap-southeast-2").is_some());
+        assert!(hourly_profile_for_region_lower("ap-northeast-1").is_some());
+        assert!(hourly_profile_for_region_lower("ap-southeast-1").is_some());
+        assert!(hourly_profile_for_region_lower("ap-south-1").is_some());
+        assert!(hourly_profile_for_region_lower("sa-east-1").is_some());
     }
 
     #[test]
-    fn hourly_profile_absent_for_untreated_regions() {
-        assert!(hourly_profile_for_region_lower("ap-south-1").is_none());
-        assert!(hourly_profile_for_region_lower("sa-east-1").is_none());
-        assert!(hourly_profile_for_region_lower("fr").is_none()); // ISO code, no hourly
+    fn hourly_profile_absent_for_unknown_region() {
+        assert!(hourly_profile_for_region_lower("mars-1").is_none());
+        assert!(hourly_profile_for_region_lower("unknown-region").is_none());
+    }
+
+    #[test]
+    fn hourly_profile_aliases_resolve() {
+        // Country-code aliases should point to the same profile.
+        assert!(hourly_profile_for_region_lower("fr").is_some());
+        assert!(hourly_profile_for_region_lower("de").is_some());
+        assert!(hourly_profile_for_region_lower("gb").is_some());
+        assert!(hourly_profile_for_region_lower("ie").is_some());
+        assert!(hourly_profile_for_region_lower("nl").is_some());
+        assert!(hourly_profile_for_region_lower("se").is_some());
+        assert!(hourly_profile_for_region_lower("no").is_some());
+        assert!(hourly_profile_for_region_lower("jp").is_some());
+        assert!(hourly_profile_for_region_lower("br").is_some());
+        // Cloud-provider aliases.
+        assert!(hourly_profile_for_region_lower("westeurope").is_some());
+        assert!(hourly_profile_for_region_lower("northeurope").is_some());
+        assert!(hourly_profile_for_region_lower("uksouth").is_some());
+        assert!(hourly_profile_for_region_lower("francecentral").is_some());
+    }
+
+    #[test]
+    fn hourly_profile_original_4_are_monthly() {
+        // The original 4 regions upgraded to Monthly profiles.
+        assert!(
+            hourly_profile_for_region_lower("eu-west-3")
+                .unwrap()
+                .is_monthly()
+        );
+        assert!(
+            hourly_profile_for_region_lower("eu-central-1")
+                .unwrap()
+                .is_monthly()
+        );
+        assert!(
+            hourly_profile_for_region_lower("eu-west-2")
+                .unwrap()
+                .is_monthly()
+        );
+        assert!(
+            hourly_profile_for_region_lower("us-east-1")
+                .unwrap()
+                .is_monthly()
+        );
+    }
+
+    #[test]
+    fn hourly_profile_new_regions_are_flat_year() {
+        assert!(
+            !hourly_profile_for_region_lower("eu-west-1")
+                .unwrap()
+                .is_monthly()
+        );
+        assert!(
+            !hourly_profile_for_region_lower("us-east-2")
+                .unwrap()
+                .is_monthly()
+        );
+        assert!(
+            !hourly_profile_for_region_lower("ca-central-1")
+                .unwrap()
+                .is_monthly()
+        );
     }
 
     #[test]
     fn hourly_intensity_lookup_returns_hour_value() {
-        let night_fr = lookup_hourly_intensity_lower("eu-west-3", 3).unwrap();
-        let evening_fr = lookup_hourly_intensity_lower("eu-west-3", 18).unwrap();
-        // France nuclear baseload: night should be less than evening peak.
+        // France at July (month 6): night should be less than evening peak.
+        let night_fr = lookup_hourly_intensity_lower("eu-west-3", 3, Some(6)).unwrap();
+        let evening_fr = lookup_hourly_intensity_lower("eu-west-3", 18, Some(6)).unwrap();
         assert!(
             night_fr < evening_fr,
-            "expected night ({night_fr}) < evening peak ({evening_fr}) in eu-west-3"
+            "expected night ({night_fr}) < evening peak ({evening_fr}) in eu-west-3 (July)"
         );
     }
 
     #[test]
     fn hourly_intensity_unknown_region_returns_none() {
-        assert!(lookup_hourly_intensity_lower("ap-south-1", 10).is_none());
+        assert!(lookup_hourly_intensity_lower("mars-1", 10, None).is_none());
     }
 
     #[test]
     fn hourly_intensity_invalid_hour_returns_none() {
-        assert!(lookup_hourly_intensity_lower("eu-west-3", 24).is_none());
-        assert!(lookup_hourly_intensity_lower("eu-west-3", 99).is_none());
+        assert!(lookup_hourly_intensity_lower("eu-west-3", 24, None).is_none());
+        assert!(lookup_hourly_intensity_lower("eu-west-3", 99, None).is_none());
+    }
+
+    #[test]
+    fn hourly_intensity_invalid_month_returns_none() {
+        assert!(lookup_hourly_intensity_lower("eu-west-3", 12, Some(12)).is_none());
+        assert!(lookup_hourly_intensity_lower("eu-west-3", 12, Some(99)).is_none());
+    }
+
+    /// Helper: compute the grand mean of a profile (monthly or flat year).
+    fn profile_grand_mean(pr: HourlyProfileRef<'_>) -> f64 {
+        match pr {
+            HourlyProfileRef::FlatYear(profile) => profile.iter().sum::<f64>() / 24.0,
+            HourlyProfileRef::Monthly(profiles) => {
+                let total: f64 = profiles.iter().flat_map(|m| m.iter()).sum();
+                total / (12.0 * 24.0)
+            }
+        }
     }
 
     #[test]
     fn hourly_profile_mean_close_to_annual_for_fr() {
-        // France hourly profile mean should approximate the flat annual
-        // (56 g/kWh) within ±5%. This guarantees that enabling hourly
-        // profiles does NOT cause a sudden jump in the reported CO₂ for
-        // mono-region reports in the representative-day case.
-        let profile = hourly_profile_for_region_lower("eu-west-3").unwrap();
-        let mean: f64 = profile.iter().sum::<f64>() / 24.0;
+        let pr = hourly_profile_for_region_lower("eu-west-3").unwrap();
+        let mean = profile_grand_mean(pr);
         let annual = lookup_region_lower("eu-west-3").unwrap().0;
         let deviation = (mean - annual).abs() / annual;
         assert!(
             deviation < 0.05,
-            "fr hourly mean {mean} deviates {deviation:.3} from annual {annual}"
+            "fr grand mean {mean:.1} deviates {deviation:.3} from annual {annual}"
         );
     }
 
     #[test]
     fn hourly_profile_mean_close_to_annual_for_us_east() {
-        let profile = hourly_profile_for_region_lower("us-east-1").unwrap();
-        let mean: f64 = profile.iter().sum::<f64>() / 24.0;
+        let pr = hourly_profile_for_region_lower("us-east-1").unwrap();
+        let mean = profile_grand_mean(pr);
         let annual = lookup_region_lower("us-east-1").unwrap().0;
         let deviation = (mean - annual).abs() / annual;
         assert!(
             deviation < 0.05,
-            "us-east-1 hourly mean {mean} deviates {deviation:.3} from annual {annual}"
+            "us-east-1 grand mean {mean:.1} deviates {deviation:.3} from annual {annual}"
         );
     }
 
     #[test]
     fn hourly_profile_mean_close_to_annual_for_gb() {
-        let profile = hourly_profile_for_region_lower("eu-west-2").unwrap();
-        let mean: f64 = profile.iter().sum::<f64>() / 24.0;
+        let pr = hourly_profile_for_region_lower("eu-west-2").unwrap();
+        let mean = profile_grand_mean(pr);
         let annual = lookup_region_lower("eu-west-2").unwrap().0;
         let deviation = (mean - annual).abs() / annual;
         assert!(
             deviation < 0.05,
-            "gb hourly mean {mean} deviates {deviation:.3} from annual {annual}"
+            "gb grand mean {mean:.1} deviates {deviation:.3} from annual {annual}"
         );
     }
 
     #[test]
     fn hourly_profile_de_known_divergence_from_annual() {
-        // eu-central-1 intentionally diverges ~30% from the annual value (338).
-        // The hourly profile reflects recent 2023-2024 data. This test guards
-        // against accidental edits to the profile values.
-        let profile = hourly_profile_for_region_lower("eu-central-1").unwrap();
-        let mean: f64 = profile.iter().sum::<f64>() / 24.0;
+        let pr = hourly_profile_for_region_lower("eu-central-1").unwrap();
+        let mean = profile_grand_mean(pr);
         assert!(
             (420.0..=460.0).contains(&mean),
-            "eu-central-1 hourly mean {mean} should be in [420, 460] (known divergence from annual 338)"
+            "eu-central-1 grand mean {mean:.1} should be in [420, 460] (known divergence from annual 338)"
         );
+    }
+
+    // Mean invariant for all new FlatYear regions.
+    #[test]
+    fn hourly_profile_mean_close_to_annual_for_all_flat_year_regions() {
+        for &(key, ref profile) in crate::score::carbon_profiles::FLAT_YEAR_PROFILES {
+            let vals: &[f64; 24] = profile;
+            let mean: f64 = vals.iter().sum::<f64>() / 24.0;
+            let (annual, _) = lookup_region_lower(key).unwrap_or_else(|| {
+                panic!("{key} is a canonical profile key but is missing from CARBON_TABLE")
+            });
+            let deviation = (mean - annual).abs() / annual;
+            assert!(
+                deviation < 0.05,
+                "{key} hourly mean {mean:.1} deviates {deviation:.3} from annual {annual}"
+            );
+        }
+    }
+
+    #[test]
+    fn hourly_profile_mean_close_to_annual_for_all_monthly_regions() {
+        for &(key, ref months) in crate::score::carbon_profiles::MONTHLY_PROFILES {
+            if key == "eu-central-1" {
+                continue; // Known ~31% divergence, covered by separate test
+            }
+            let total: f64 = months.iter().flat_map(|m| m.iter()).sum();
+            let mean = total / (12.0 * 24.0);
+            let (annual, _) = lookup_region_lower(key).unwrap_or_else(|| {
+                panic!("{key} is a canonical monthly profile key but is missing from CARBON_TABLE")
+            });
+            let deviation = (mean - annual).abs() / annual;
+            assert!(
+                deviation < 0.05,
+                "{key} monthly grand mean {mean:.1} deviates {deviation:.3} from annual {annual}"
+            );
+        }
+    }
+
+    #[test]
+    fn monthly_profile_seasonal_variation_fr() {
+        // France: winter months should have higher mean than summer months.
+        let pr = hourly_profile_for_region_lower("eu-west-3").unwrap();
+        let jan_mean = (0..24).map(|h| pr.intensity_at(h, Some(0))).sum::<f64>() / 24.0;
+        let jul_mean = (0..24).map(|h| pr.intensity_at(h, Some(6))).sum::<f64>() / 24.0;
+        assert!(
+            jan_mean > jul_mean,
+            "FR January mean ({jan_mean:.1}) should be higher than July ({jul_mean:.1})"
+        );
+    }
+
+    #[test]
+    fn monthly_profile_seasonal_variation_de() {
+        let pr = hourly_profile_for_region_lower("eu-central-1").unwrap();
+        let jan_mean = (0..24).map(|h| pr.intensity_at(h, Some(0))).sum::<f64>() / 24.0;
+        let jun_mean = (0..24).map(|h| pr.intensity_at(h, Some(5))).sum::<f64>() / 24.0;
+        assert!(
+            jan_mean > jun_mean,
+            "DE January mean ({jan_mean:.1}) should be higher than June ({jun_mean:.1})"
+        );
+    }
+
+    // --- profile shape tests for solar-heavy grids ---
+
+    #[test]
+    fn caiso_profile_has_midday_solar_dip() {
+        // CAISO duck curve: intensity at peak solar (UTC 18-21, local 10am-1pm)
+        // must be well below the evening gas ramp (UTC 2-4, local 6-8pm).
+        let pr = hourly_profile_for_region_lower("us-west-1").unwrap();
+        let solar_min = (18..=21)
+            .map(|h| pr.intensity_at(h, None))
+            .fold(f64::INFINITY, f64::min);
+        let evening_max = (2..=4)
+            .map(|h| pr.intensity_at(h, None))
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            solar_min < evening_max * 0.80,
+            "CAISO solar dip ({solar_min:.0}) should be well below evening peak ({evening_max:.0})"
+        );
+    }
+
+    #[test]
+    fn spain_profile_has_midday_solar_dip() {
+        // Spain: solar peak at local noon-2pm (UTC 10-12, CET=UTC+1).
+        let pr = hourly_profile_for_region_lower("europe-southwest1").unwrap();
+        let solar_min = (10..=13)
+            .map(|h| pr.intensity_at(h, None))
+            .fold(f64::INFINITY, f64::min);
+        let evening_max = (17..=19)
+            .map(|h| pr.intensity_at(h, None))
+            .fold(f64::NEG_INFINITY, f64::max);
+        assert!(
+            solar_min < evening_max * 0.85,
+            "Spain solar dip ({solar_min:.0}) should be below evening peak ({evening_max:.0})"
+        );
+    }
+
+    #[test]
+    fn hydro_profiles_are_nearly_flat() {
+        // Hydro-dominated grids (SE, NO, CA) should have very low variation.
+        for region in ["eu-north-1", "europe-north2", "ca-central-1"] {
+            let pr = hourly_profile_for_region_lower(region).unwrap();
+            let min = (0..24)
+                .map(|h| pr.intensity_at(h, None))
+                .fold(f64::INFINITY, f64::min);
+            let max = (0..24)
+                .map(|h| pr.intensity_at(h, None))
+                .fold(f64::NEG_INFINITY, f64::max);
+            assert!(
+                max <= min * 2.5,
+                "{region} hydro profile should be nearly flat (min={min:.0}, max={max:.0})"
+            );
+        }
+    }
+
+    // --- resolve_hourly_intensity tests ---
+
+    #[test]
+    fn resolve_hourly_intensity_custom_takes_precedence() {
+        let mut custom = HashMap::new();
+        custom.insert(
+            "eu-west-3".to_string(),
+            HourlyProfile::FlatYear([999.0; 24]),
+        );
+        let (val, src) = resolve_hourly_intensity("eu-west-3", 12, None, Some(&custom)).unwrap();
+        assert!((val - 999.0).abs() < f64::EPSILON);
+        assert_eq!(src, IntensitySource::Hourly);
+    }
+
+    #[test]
+    fn resolve_hourly_intensity_falls_through_to_embedded() {
+        let (val, src) = resolve_hourly_intensity("eu-west-1", 12, None, None).unwrap();
+        assert!(val > 0.0);
+        assert_eq!(src, IntensitySource::Hourly); // eu-west-1 is FlatYear
+    }
+
+    #[test]
+    fn resolve_hourly_intensity_monthly_embedded() {
+        let (val, src) = resolve_hourly_intensity("eu-west-3", 12, Some(6), None).unwrap();
+        assert!(val > 0.0);
+        assert_eq!(src, IntensitySource::MonthlyHourly);
+    }
+
+    #[test]
+    fn resolve_hourly_intensity_unknown_region_returns_none() {
+        assert!(resolve_hourly_intensity("mars-1", 12, None, None).is_none());
+    }
+
+    #[test]
+    fn resolve_hourly_intensity_rejects_invalid_month() {
+        assert!(resolve_hourly_intensity("eu-west-3", 12, Some(12), None).is_none());
+        assert!(resolve_hourly_intensity("eu-west-3", 12, Some(99), None).is_none());
+    }
+
+    #[test]
+    fn resolve_hourly_intensity_rejects_invalid_hour() {
+        assert!(resolve_hourly_intensity("eu-west-3", 24, None, None).is_none());
+        assert!(resolve_hourly_intensity("eu-west-3", 99, None, None).is_none());
+    }
+
+    // --- load_custom_profiles tests ---
+
+    #[test]
+    fn load_custom_profiles_flat_year() {
+        let dir = std::env::temp_dir().join("perf_sentinel_test_profiles");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_flat.json");
+        let hours: Vec<f64> = (0..24).map(|h| 50.0 + f64::from(h)).collect();
+        let json =
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#,);
+        std::fs::write(&path, &json).unwrap();
+        let result = load_custom_profiles(&path).unwrap();
+        assert!(result.contains_key("my-dc"));
+        assert!(!result["my-dc"].is_monthly());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_custom_profiles_monthly() {
+        let dir = std::env::temp_dir().join("perf_sentinel_test_profiles");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_monthly.json");
+        let month: Vec<f64> = vec![100.0; 24];
+        let months: Vec<Vec<f64>> = vec![month; 12];
+        let json =
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "monthly", "months": {months:?}}}}}}}"#,);
+        std::fs::write(&path, &json).unwrap();
+        let result = load_custom_profiles(&path).unwrap();
+        assert!(result["my-dc"].is_monthly());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_custom_profiles_rejects_wrong_dimensions() {
+        let dir = std::env::temp_dir().join("perf_sentinel_test_profiles");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_bad_dim.json");
+        let json = r#"{"profiles": {"my-dc": {"type": "flat_year", "hours": [1.0, 2.0]}}}"#;
+        std::fs::write(&path, json).unwrap();
+        assert!(load_custom_profiles(&path).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_custom_profiles_rejects_negative() {
+        let dir = std::env::temp_dir().join("perf_sentinel_test_profiles");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_neg.json");
+        let mut hours = vec![50.0; 24];
+        hours[5] = -1.0;
+        let json =
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#,);
+        std::fs::write(&path, &json).unwrap();
+        assert!(load_custom_profiles(&path).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_custom_profiles_rejects_nan() {
+        let dir = std::env::temp_dir().join("perf_sentinel_test_profiles");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test_nan.json");
+        // NaN is not valid JSON, so we use null which will fail to parse as f64.
+        let json = r#"{"profiles": {"my-dc": {"type": "flat_year", "hours": [null, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0]}}}"#;
+        std::fs::write(&path, json).unwrap();
+        assert!(load_custom_profiles(&path).is_err());
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -815,6 +1379,13 @@ mod tests {
         assert_ne!(METHODOLOGY_SCI_NUMERATOR, METHODOLOGY_OPERATIONAL_RATIO);
         assert_eq!(METHODOLOGY_SCI_NUMERATOR, "sci_v1_numerator");
         assert_eq!(METHODOLOGY_OPERATIONAL_RATIO, "sci_v1_operational_ratio");
+    }
+
+    #[test]
+    fn intensity_source_ordering_by_fidelity() {
+        // Pin the derived Ord so reordering variants is caught.
+        assert!(IntensitySource::Annual < IntensitySource::Hourly);
+        assert!(IntensitySource::Hourly < IntensitySource::MonthlyHourly);
     }
 
     #[test]

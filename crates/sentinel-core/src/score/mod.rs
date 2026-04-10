@@ -1,6 +1,7 @@
 //! Scoring stage: computes `GreenOps` I/O intensity scores.
 
 pub mod carbon;
+pub(crate) mod carbon_profiles;
 pub mod cloud_energy;
 pub mod scaphandre;
 
@@ -11,11 +12,12 @@ use crate::correlate::Trace;
 use crate::detect::{Finding, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 use carbon::{
-    CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CarbonContext,
-    CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, IntensitySource, REGION_STATUS_KNOWN,
-    REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION,
-    energy_coefficient, extract_hostname, hourly_profile_for_region_lower, is_valid_region_id,
-    lookup_hourly_intensity_lower, lookup_region_lower, per_op_gco2, resolve_region,
+    CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CO2_MODEL_V3,
+    CarbonContext, CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, GENERIC_PUE,
+    IntensitySource, REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED,
+    RegionBreakdown, UNKNOWN_REGION, energy_coefficient, extract_hostname,
+    hourly_profile_for_region_lower, is_valid_region_id, lookup_region_lower, per_op_gco2,
+    resolve_region,
 };
 
 /// Maximum number of distinct regions allowed in a single scoring pass.
@@ -219,7 +221,8 @@ struct RegionAccumulator {
     total_ops: usize,
     /// Sum of per-op intensities (NOT `ops * intensity`). Mean = sum / `total_ops`.
     intensity_sum_per_op: f64,
-    any_hourly: bool,
+    /// Highest-fidelity intensity source seen for this region.
+    max_intensity_source: IntensitySource,
     any_scaphandre: bool,
     any_cloud_specpower: bool,
 }
@@ -282,20 +285,14 @@ fn compute_carbon_report(
             // can skip the allocation for the cap check by comparing
             // against `needs_lowercase`.
             let needs_lowercase = region_ref.bytes().any(|b| b.is_ascii_uppercase());
-            let region_key: String = if needs_lowercase {
-                region_ref.to_ascii_lowercase()
+            let region_key: Option<String> = if needs_lowercase {
+                Some(region_ref.to_ascii_lowercase())
             } else {
-                // Only allocate once we know the region will be inserted
-                // (see the contains_key fast path below).
-                String::new()
+                None
             };
 
-            // Region cardinality cap check (same semantics as).
-            let region_key_borrow: &str = if needs_lowercase {
-                region_key.as_str()
-            } else {
-                region_ref
-            };
+            // Region cardinality cap check.
+            let region_key_borrow: &str = region_key.as_deref().unwrap_or(region_ref);
             if per_region.len() >= MAX_REGIONS && !per_region.contains_key(region_key_borrow) {
                 unknown_ops += 1;
                 if !overflow_warned {
@@ -308,31 +305,84 @@ fn compute_carbon_report(
                 continue;
             }
 
-            // Look up annual intensity + PUE. Regions not in the table
-            // get (0.0, 0.0) so their CO₂ contribution is zero but they
-            // still produce a breakdown row with the op count.
-            let (annual_intensity, pue) =
-                lookup_region_lower(region_key_borrow).unwrap_or((0.0, 0.0));
+            // Single-probe: look up the profile reference once and reuse
+            // it for both the "has profile?" check, the PUE fallback,
+            // and the intensity read, avoiding redundant HashMap probes
+            // on the hot path.
+            let custom_profile = ctx
+                .custom_hourly_profiles
+                .as_ref()
+                .and_then(|m| m.get(region_key_borrow));
 
-            // Hourly intensity lookup. Only consulted when the region
-            // has an entry in HOURLY_CARBON_TABLE and the span timestamp
+            // Look up annual intensity + PUE. Regions not in the table
+            // get (0.0, generic_pue) so their CO₂ from annual intensity
+            // is zero but they still produce a breakdown row. When a
+            // custom hourly profile exists for an out-of-table region,
+            // a generic PUE (1.2) is used so the profile's intensity
+            // is not zeroed by pue=0.
+            let (annual_intensity, pue) =
+                lookup_region_lower(region_key_borrow).unwrap_or_else(|| {
+                    let fallback_pue = if custom_profile.is_some() {
+                        GENERIC_PUE
+                    } else {
+                        0.0
+                    };
+                    (0.0, fallback_pue)
+                });
+
+            // Hourly intensity lookup. Consulted when the region has an
+            // embedded or custom hourly profile and the span timestamp
             // parses to a valid UTC hour. parse_utc_hour returns None
-            // for non-UTC offsets and non-ISO-8601 shapes — in those
-            // cases we fall back to the flat annual intensity rather
-            // than silently using a default hour (which would skew the
+            // for non-UTC offsets and non-ISO-8601 shapes, in which case
+            // we fall back to the flat annual intensity rather than
+            // silently using a default hour (which would skew the
             // estimate systematically).
-            let region_has_hourly = ctx.use_hourly_profiles
-                && hourly_profile_for_region_lower(region_key_borrow).is_some();
-            let hour_opt = if region_has_hourly {
-                crate::time::parse_utc_hour(&span.event.timestamp)
+            let embedded_profile = if custom_profile.is_none() {
+                hourly_profile_for_region_lower(region_key_borrow)
             } else {
                 None
             };
-            let intensity_used = match hour_opt {
+            let region_has_hourly =
+                ctx.use_hourly_profiles && (custom_profile.is_some() || embedded_profile.is_some());
+            let (hour_opt, month_opt) = if region_has_hourly {
+                (
+                    crate::time::parse_utc_hour(&span.event.timestamp),
+                    crate::time::parse_utc_month(&span.event.timestamp),
+                )
+            } else {
+                (None, None)
+            };
+            let (intensity_used, span_source) = match hour_opt {
                 Some(h) => {
-                    lookup_hourly_intensity_lower(region_key_borrow, h).unwrap_or(annual_intensity)
+                    // Use the cached profile reference directly instead
+                    // of re-probing the HashMap via resolve_hourly_intensity.
+                    // NOTE: this logic mirrors resolve_hourly_intensity() in
+                    // carbon.rs but uses pre-cached refs to avoid redundant
+                    // HashMap probes on the hot path.
+                    if let Some(cp) = custom_profile {
+                        let val = cp.intensity_at(h, month_opt);
+                        let src = if cp.is_monthly() {
+                            IntensitySource::MonthlyHourly
+                        } else {
+                            IntensitySource::Hourly
+                        };
+                        (val, src)
+                    } else if let Some(ep) = embedded_profile {
+                        let val = ep.intensity_at(h, month_opt);
+                        let src = if ep.is_monthly() {
+                            IntensitySource::MonthlyHourly
+                        } else {
+                            IntensitySource::Hourly
+                        };
+                        (val, src)
+                    } else {
+                        // Invariant: region_has_hourly implies custom or
+                        // embedded is Some. This branch is unreachable.
+                        debug_assert!(false, "region_has_hourly was true but no profile found");
+                        (annual_intensity, IntensitySource::Annual)
+                    }
                 }
-                None => annual_intensity,
+                None => (annual_intensity, IntensitySource::Annual),
             };
 
             // Energy (kWh) per op: measured from the energy snapshot
@@ -357,16 +407,16 @@ fn compute_carbon_report(
 
             // Obtain or insert the accumulator. Three paths to minimize
             // allocations on the hot per-span loop:
-            //   1. needs_lowercase=true  -> region_key was already allocated,
-            //      use entry() which moves the owned String into the map.
-            //   2. needs_lowercase=false AND key exists -> single get_mut()
+            //   1. region_key is Some  -> already allocated the lowercase
+            //      key, use entry() which moves the owned String into the map.
+            //   2. region_key is None AND key exists -> single get_mut()
             //      with a borrowed &str, zero allocation.
-            //   3. needs_lowercase=false AND key absent -> allocate once via
+            //   3. region_key is None AND key absent -> allocate once via
             //      entry(region_ref.to_string()).
             // This avoids allocating a String for every span when the region
             // is already lowercase and present (the common case).
-            let acc = if needs_lowercase {
-                per_region.entry(region_key).or_default()
+            let acc = if let Some(lowered) = region_key {
+                per_region.entry(lowered).or_default()
             } else if let Some(existing) = per_region.get_mut(region_ref) {
                 existing
             } else {
@@ -375,8 +425,8 @@ fn compute_carbon_report(
             acc.co2_gco2 += op_co2;
             acc.total_ops += 1;
             acc.intensity_sum_per_op += intensity_used;
-            if hour_opt.is_some() {
-                acc.any_hourly = true;
+            if span_source > acc.max_intensity_source {
+                acc.max_intensity_source = span_source;
             }
             match measured_model {
                 Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
@@ -426,11 +476,21 @@ fn compute_carbon_report(
     let mut regions: Vec<RegionBreakdown> = Vec::with_capacity(per_region.len() + 1);
     let mut operational_gco2: f64 = 0.0;
     let mut any_hourly_report = false;
+    let mut any_monthly_hourly_report = false;
     let mut any_scaphandre_report = false;
     let mut any_cloud_specpower_report = false;
     for (region, acc) in per_region {
         operational_gco2 += acc.co2_gco2;
-        any_hourly_report |= acc.any_hourly;
+        match acc.max_intensity_source {
+            IntensitySource::MonthlyHourly => {
+                any_monthly_hourly_report = true;
+                any_hourly_report = true;
+            }
+            IntensitySource::Hourly => {
+                any_hourly_report = true;
+            }
+            IntensitySource::Annual => {}
+        }
         any_scaphandre_report |= acc.any_scaphandre;
         any_cloud_specpower_report |= acc.any_cloud_specpower;
 
@@ -439,29 +499,27 @@ fn compute_carbon_report(
             // non-zero ops because the loop above only inserts into
             // the accumulator after incrementing total_ops.
             let mean_intensity = acc.intensity_sum_per_op / acc.total_ops as f64;
-            let intensity_source = if acc.any_hourly {
-                // The eu-central-1 hourly profile has a mean ~31% above
-                // the flat annual value (442 vs 338 gCO2/kWh). Log once
-                // so users notice the divergence when comparing v1/v2.
-                if region == "eu-central-1" {
-                    use std::sync::Once;
-                    static WARN: Once = Once::new();
-                    WARN.call_once(|| {
-                        tracing::info!(
-                            region = "eu-central-1",
-                            annual_gco2_kwh = 338.0,
-                            hourly_mean_gco2_kwh = 442.0,
-                            "Hourly carbon profile for eu-central-1 (DE) averages \
-                             ~31% above the flat annual value. This reflects recent \
-                             grid data. Disable with [green] use_hourly_profiles = false \
-                             to use the annual baseline instead."
-                        );
-                    });
-                }
-                IntensitySource::Hourly
-            } else {
-                IntensitySource::Annual
-            };
+            let intensity_source = acc.max_intensity_source;
+
+            // The eu-central-1 hourly profile has a mean ~31% above
+            // the flat annual value (442 vs 338 gCO2/kWh). Log once
+            // so users notice the divergence when comparing v1/v2/v3.
+            if intensity_source > IntensitySource::Annual && region == "eu-central-1" {
+                use std::sync::Once;
+                static WARN: Once = Once::new();
+                WARN.call_once(|| {
+                    tracing::debug!(
+                        region = "eu-central-1",
+                        annual_gco2_kwh = 338.0,
+                        hourly_mean_gco2_kwh = 442.0,
+                        "Hourly carbon profile for eu-central-1 (DE) averages \
+                         ~31% above the flat annual value. This reflects recent \
+                         grid data. Disable with [green] use_hourly_profiles = false \
+                         to use the annual baseline instead."
+                    );
+                });
+            }
+
             regions.push(RegionBreakdown {
                 status: REGION_STATUS_KNOWN,
                 region,
@@ -473,21 +531,36 @@ fn compute_carbon_report(
             });
         } else {
             // Out-of-table region: name resolved but not in our table.
-            // Distinguishable from "unresolved" via the `status` field.
-            tracing::debug!(
-                "Region '{region}' is not in the embedded carbon table; \
-                 {ops} I/O ops contribute 0 to operational CO₂. \
-                 See docs/CONFIGURATION.md for the list of supported regions.",
-                ops = acc.total_ops
-            );
+            // When a custom hourly profile produced non-zero CO2 (via
+            // the generic PUE fallback), report the actual accumulated
+            // values so sum(regions[].co2_gco2) == operational_gco2.
+            let has_co2 = acc.co2_gco2 > 0.0;
+            if !has_co2 {
+                tracing::debug!(
+                    "Region '{region}' is not in the embedded carbon table; \
+                     {ops} I/O ops contribute 0 to operational CO₂. \
+                     See docs/CONFIGURATION.md for the list of supported regions.",
+                    ops = acc.total_ops
+                );
+            }
+            let mean_intensity = if acc.total_ops > 0 && has_co2 {
+                acc.intensity_sum_per_op / acc.total_ops as f64
+            } else {
+                0.0
+            };
+            let pue_display = if has_co2 { GENERIC_PUE } else { 0.0 };
             regions.push(RegionBreakdown {
                 status: REGION_STATUS_OUT_OF_TABLE,
                 region,
-                grid_intensity_gco2_kwh: 0.0,
-                pue: 0.0,
+                grid_intensity_gco2_kwh: mean_intensity,
+                pue: pue_display,
                 io_ops: acc.total_ops,
-                co2_gco2: 0.0,
-                intensity_source: IntensitySource::Annual,
+                co2_gco2: acc.co2_gco2,
+                intensity_source: if has_co2 {
+                    acc.max_intensity_source
+                } else {
+                    IntensitySource::Annual
+                },
             });
         }
     }
@@ -534,11 +607,13 @@ fn compute_carbon_report(
         0.0
     };
 
-    // top-level model tag. Most precise model wins.
+    // Top-level model tag. Most precise model wins.
     let model = if any_scaphandre_report {
         CO2_MODEL_SCAPHANDRE
     } else if any_cloud_specpower_report {
         CO2_MODEL_CLOUD_SPECPOWER
+    } else if any_monthly_hourly_report {
+        CO2_MODEL_V3
     } else if any_hourly_report {
         CO2_MODEL_V2
     } else {
@@ -1747,7 +1822,7 @@ mod tests {
                 trace_id,
                 &format!("span-{i}"),
                 &format!("SELECT * FROM t WHERE id = {i}"),
-                &format!("2025-07-10T{hour:02}:00:{i:02}.000Z"),
+                &format!("2025-07-10T{hour:02}:00:00.{i:03}Z"),
             );
             event.cloud_region = Some(region.to_string());
             events.push(event);
@@ -1788,17 +1863,21 @@ mod tests {
     }
 
     #[test]
-    fn hourly_profile_flips_model_to_v2() {
-        // A report using the hourly path must tag model = io_proxy_v2.
+    fn hourly_profile_flips_model_to_v3_for_monthly_region() {
+        // A report using a monthly hourly profile (eu-west-3) must tag
+        // model = io_proxy_v3 and intensity_source = MonthlyHourly.
         let trace = make_trace_at_hour("t1", "eu-west-3", 14, 6);
         let ctx = ctx_hourly(true);
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
-        assert_eq!(co2.total.model, "io_proxy_v2");
-        assert_eq!(co2.avoidable.model, "io_proxy_v2");
+        assert_eq!(co2.total.model, "io_proxy_v3");
+        assert_eq!(co2.avoidable.model, "io_proxy_v3");
         // Per-region breakdown tag matches.
         assert_eq!(summary.regions.len(), 1);
-        assert_eq!(summary.regions[0].intensity_source, IntensitySource::Hourly);
+        assert_eq!(
+            summary.regions[0].intensity_source,
+            IntensitySource::MonthlyHourly
+        );
     }
 
     #[test]
@@ -1815,10 +1894,10 @@ mod tests {
 
     #[test]
     fn hourly_profile_fallback_to_annual_for_region_without_profile() {
-        // ap-south-1 is in CARBON_TABLE but NOT in HOURLY_CARBON_TABLE.
+        // us-central1 (GCP) is in CARBON_TABLE but has no hourly profile.
         // Even with use_hourly_profiles = true, the report should use
         // the flat annual path and tag model = io_proxy_v1.
-        let trace = make_trace_at_hour("t1", "ap-south-1", 10, 6);
+        let trace = make_trace_at_hour("t1", "us-central1", 10, 6);
         let ctx = ctx_hourly(true);
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
@@ -1874,51 +1953,175 @@ mod tests {
     }
 
     #[test]
-    fn mixed_report_hourly_and_annual_tags_v2_per_row() {
-        // Two traces, one in eu-west-3 (hourly available) and one in
-        // ap-south-1 (no hourly). Top-level model should be v2 because
-        // AT LEAST one region used hourly; per-region breakdown should
-        // show the correct intensity_source for each row.
+    fn mixed_report_monthly_hourly_and_annual_tags_v3_per_row() {
+        // Two traces: one in eu-west-3 (Monthly profile) and one in
+        // us-central1 (no hourly profile). Top-level model should be v3
+        // because at least one region used monthly hourly. Per-region
+        // breakdown should show the correct intensity_source.
         let trace_eu = make_trace_at_hour("t_eu", "eu-west-3", 12, 3);
-        let trace_in = make_trace_at_hour("t_in", "ap-south-1", 12, 3);
+        let trace_us = make_trace_at_hour("t_us", "us-central1", 12, 3);
         let ctx = ctx_hourly(true);
-        let (_, summary) = score_green(&[trace_eu, trace_in], vec![], Some(&ctx));
+        let (_, summary) = score_green(&[trace_eu, trace_us], vec![], Some(&ctx));
 
         let co2 = summary.co2.as_ref().unwrap();
         assert_eq!(
-            co2.total.model, "io_proxy_v2",
-            "mixed report with any hourly region tags model = v2"
+            co2.total.model, "io_proxy_v3",
+            "mixed report with any monthly hourly region tags model = v3"
         );
 
-        // Find each region and assert its intensity_source.
         let eu_row = summary
             .regions
             .iter()
             .find(|r| r.region == "eu-west-3")
             .expect("eu-west-3 row");
-        assert_eq!(eu_row.intensity_source, IntensitySource::Hourly);
+        assert_eq!(eu_row.intensity_source, IntensitySource::MonthlyHourly);
 
-        let in_row = summary
+        let us_row = summary
             .regions
             .iter()
-            .find(|r| r.region == "ap-south-1")
-            .expect("ap-south-1 row");
-        assert_eq!(in_row.intensity_source, IntensitySource::Annual);
+            .find(|r| r.region == "us-central1")
+            .expect("us-central1 row");
+        assert_eq!(us_row.intensity_source, IntensitySource::Annual);
+    }
+
+    #[test]
+    fn mixed_report_flat_hourly_and_annual_tags_v2() {
+        // eu-west-1 (FlatYear hourly) + us-central1 (no hourly).
+        // Top-level model = v2 (not v3, because eu-west-1 is FlatYear).
+        let trace_ie = make_trace_at_hour("t_ie", "eu-west-1", 12, 3);
+        let trace_us = make_trace_at_hour("t_us", "us-central1", 12, 3);
+        let ctx = ctx_hourly(true);
+        let (_, summary) = score_green(&[trace_ie, trace_us], vec![], Some(&ctx));
+
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "io_proxy_v2");
+
+        let ie_row = summary
+            .regions
+            .iter()
+            .find(|r| r.region == "eu-west-1")
+            .expect("eu-west-1 row");
+        assert_eq!(ie_row.intensity_source, IntensitySource::Hourly);
     }
 
     #[test]
     fn hourly_row_intensity_is_time_weighted_mean() {
-        // All 6 ops at the same hour → the weighted mean should equal
-        // the single hourly value used (no averaging needed).
+        // All 6 ops at the same hour (03 UTC) and month (July, month 6,
+        // from timestamp "2025-07-10T03:00:...Z"). The weighted mean
+        // should equal the single hourly value used.
         let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
         let ctx = ctx_hourly(true);
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let row = &summary.regions[0];
-        // eu-west-3 at hour 3 UTC = 44.0 g/kWh per the embedded table.
+        // eu-west-3, July (month 6), hour 3 UTC = 38.0 g/kWh per the
+        // Monthly profile in carbon_profiles.rs.
+        let expected = crate::score::carbon::resolve_hourly_intensity(
+            "eu-west-3",
+            3,
+            Some(6), // July
+            None,
+        )
+        .unwrap()
+        .0;
         assert!(
-            (row.grid_intensity_gco2_kwh - 44.0).abs() < f64::EPSILON,
-            "expected 44.0 g/kWh at hour 3 UTC, got {}",
+            (row.grid_intensity_gco2_kwh - expected).abs() < f64::EPSILON,
+            "expected {expected} g/kWh at hour 3 UTC July, got {}",
             row.grid_intensity_gco2_kwh
+        );
+    }
+
+    #[test]
+    fn custom_profile_overrides_embedded_in_scoring_loop() {
+        // Provide a custom FlatYear profile for eu-west-3 with a constant
+        // 999.0 intensity. The scoring loop should use 999.0 instead of
+        // the embedded Monthly profile values.
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut custom = HashMap::new();
+        custom.insert(
+            "eu-west-3".to_string(),
+            carbon::HourlyProfile::FlatYear([999.0; 24]),
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: true,
+            energy_snapshot: None,
+            per_operation_coefficients: false,
+            custom_hourly_profiles: Some(std::sync::Arc::new(custom)),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let row = &summary.regions[0];
+        // Custom FlatYear profile: all hours are 999.0.
+        assert!(
+            (row.grid_intensity_gco2_kwh - 999.0).abs() < f64::EPSILON,
+            "expected custom intensity 999.0, got {}",
+            row.grid_intensity_gco2_kwh
+        );
+        // Custom FlatYear profile => IntensitySource::Hourly (not MonthlyHourly).
+        assert_eq!(row.intensity_source, IntensitySource::Hourly);
+        // Model tag: FlatYear custom => io_proxy_v2.
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "io_proxy_v2");
+    }
+
+    #[test]
+    fn custom_profile_on_out_of_table_region_uses_generic_pue() {
+        // "my-datacenter" is not in CARBON_TABLE. A custom profile should
+        // still produce non-zero CO2 via the generic PUE fallback (1.2).
+        let trace = make_trace_at_hour("t1", "my-datacenter", 12, 6);
+        let mut custom = HashMap::new();
+        custom.insert(
+            "my-datacenter".to_string(),
+            carbon::HourlyProfile::FlatYear([500.0; 24]),
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: true,
+            energy_snapshot: None,
+            per_operation_coefficients: false,
+            custom_hourly_profiles: Some(std::sync::Arc::new(custom)),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        // 6 ops * 1e-7 kWh/op * 500 gCO2/kWh * 1.2 PUE = 3.6e-4 gCO2
+        let expected = 6.0 * 1e-7 * 500.0 * 1.2;
+        assert!(
+            (co2.operational_gco2 - expected).abs() < 1e-12,
+            "expected {expected}, got {}",
+            co2.operational_gco2
+        );
+        assert!(
+            co2.operational_gco2 > 0.0,
+            "custom profile on out-of-table region must produce non-zero CO2"
+        );
+        // Verify breakdown row reflects actual CO2, not zeros.
+        assert_eq!(summary.regions.len(), 1);
+        let row = &summary.regions[0];
+        assert_eq!(row.region, "my-datacenter");
+        assert!(
+            (row.co2_gco2 - expected).abs() < 1e-12,
+            "breakdown row co2 must match accumulated value"
+        );
+        assert!(
+            (row.pue - 1.2).abs() < f64::EPSILON,
+            "out-of-table region with custom profile should use generic PUE 1.2"
+        );
+        assert!(
+            (row.grid_intensity_gco2_kwh - 500.0).abs() < f64::EPSILON,
+            "breakdown row should report the custom profile intensity"
+        );
+        assert_eq!(row.intensity_source, IntensitySource::Hourly);
+        // Conservation: sum of breakdown rows == operational total.
+        let sum: f64 = summary.regions.iter().map(|r| r.co2_gco2).sum();
+        assert!(
+            (sum - co2.operational_gco2).abs() < 1e-12,
+            "breakdown sum ({sum}) must equal operational_gco2 ({})",
+            co2.operational_gco2
         );
     }
 
@@ -1997,10 +2200,13 @@ mod tests {
         let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
         assert_eq!(co2.total.model, "scaphandre_rapl");
-        // The region row still reports intensity_source = Hourly because
-        // the hourly path was used for the intensity even though
-        // Scaphandre supplied the energy coefficient.
-        assert_eq!(summary.regions[0].intensity_source, IntensitySource::Hourly);
+        // The region row still reports intensity_source = MonthlyHourly
+        // because the monthly hourly path was used for the intensity
+        // even though Scaphandre supplied the energy coefficient.
+        assert_eq!(
+            summary.regions[0].intensity_source,
+            IntensitySource::MonthlyHourly
+        );
     }
 
     // ------------------------------------------------------------------

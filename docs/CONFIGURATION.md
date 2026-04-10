@@ -50,15 +50,16 @@ Detection algorithm parameters.
 
 GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (operational + embodied terms, confidence intervals, multi-region).
 
-| Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                                                              |
-|------------------------------------|---------|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                                                                                                                                                                                                           |
-| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                                                                                                                                                                                                          |
-| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                                                            |
-| `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for regions that have a 24-hour UTC profile embedded (FR, DE, GB, US-East). Reports that touched a profiled region are tagged `model = "io_proxy_v2"` instead of `"io_proxy_v1"`. Set to `false` to pin reports to the flat-annual model (useful for historical comparisons)                                   |
-| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x), and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations |
-| `include_network_transport`        | boolean | `false`  | When `true`, adds a network transport energy term for cross-region HTTP calls. Requires `response_size_bytes` on HTTP spans (OTel `http.response.body.size` attribute) and callee region mapped via `[green.service_regions]`. Same-region calls are excluded. Transport CO₂ appears as `transport_gco2` in the JSON report |
-| `network_energy_per_byte_kwh`      | float   | `4e-11`  | Energy per byte for network transport (kWh/byte). Default 0.04 kWh/GB, midpoint of 0.03-0.06 range from Mytton et al. (2024). Only used when `include_network_transport = true` |
+| Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                |
+|------------------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`                          | boolean | `true`   | Enable GreenOps scoring (IIS, waste ratio, top offenders, CO₂)                                                                                                                                                                                                                                                                                                                             |
+| `default_region`                   | string  | *(none)* | Fallback cloud region used when neither the span's `cloud.region` attribute nor the `service_regions` mapping resolves a region. Examples: `"eu-west-3"`, `"us-east-1"`, `"FR"`                                                                                                                                                                                                            |
+| `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                                                              |
+| `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for the 30+ regions with embedded hourly profiles. Regions with monthly x hourly profiles (FR, DE, GB, US-East) also account for seasonal variation. Reports are tagged `model = "io_proxy_v3"` (monthly x hourly) or `"io_proxy_v2"` (flat-year hourly). Set to `false` to pin reports to the flat-annual model |
+| `hourly_profiles_file`             | string  | *(none)* | Path to a JSON file with user-supplied hourly profiles. Can be absolute or relative to the config file. Profiles in this file take precedence over embedded profiles for the same region key. See "User-supplied profiles" below                                                                                                                                                           |
+| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x), and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations   |
+| `include_network_transport`        | boolean | `false`  | When `true`, adds a network transport energy term for cross-region HTTP calls. Requires `response_size_bytes` on HTTP spans (OTel `http.response.body.size` attribute) and callee region mapped via `[green.service_regions]`. Same-region calls are excluded. Transport CO₂ appears as `transport_gco2` in the JSON report                                                                |
+| `network_energy_per_byte_kwh`      | float   | `4e-11`  | Energy per byte for network transport (kWh/byte). Default 0.04 kWh/GB, midpoint of 0.03-0.06 range from Mytton et al. (2024). Only used when `include_network_transport = true`                                                                                                                                                                                                            |
 
 #### `[green.service_regions]`
 
@@ -88,10 +89,46 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v2"` > `"io_proxy_v1"`.
-- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"` or `"hourly"` depending on which carbon table was consulted for the region.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`.
+- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, or `"monthly_hourly"` depending on which carbon profile was consulted for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology, and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
+
+#### User-supplied hourly profiles
+
+Set `[green] hourly_profiles_file` to a JSON file to provide your own hourly profiles. This is useful for datacenter operators with their own power purchase agreements (PPAs), or for overriding the embedded data with local measurements.
+
+```json
+{
+  "profiles": {
+    "my-datacenter": {
+      "type": "flat_year",
+      "hours": [45.0, 44.0, 43.0, "... 24 values total ..."]
+    },
+    "eu-west-3": {
+      "type": "monthly",
+      "months": [
+        [50.0, 49.0, "... 24 values for January ..."],
+        ["... 11 more months ..."]
+      ]
+    }
+  }
+}
+```
+
+User-supplied profiles take precedence over embedded profiles for the same region key. Validation at config load: each `flat_year` must have exactly 24 values, each `monthly` must have exactly 12 arrays of 24 values. All values must be finite and non-negative. If the region key exists in the embedded carbon table, a warning is logged when the profile mean deviates more than 5% from the annual value, but the profile is still accepted.
+
+#### Hourly profile region aliases
+
+Country-code aliases and cloud-provider synonyms are resolved to the same hourly profile. For example, `"fr"`, `"francecentral"`, and `"europe-west9"` all map to the `eu-west-3` (France) profile. Notable mappings:
+
+- `"us"`, `"eastus"` -> `us-east-1` (US-East, the most common US deployment region)
+- `"westeurope"`, `"nl"` -> `eu-west-4` (Netherlands)
+- `"northeurope"`, `"ie"` -> `eu-west-1` (Ireland)
+- `"uksouth"`, `"gb"`, `"uk"` -> `eu-west-2` (UK)
+- `"westus2"` -> `us-west-2` (Oregon)
+
+The full alias table is in `score/carbon_profiles.rs`. If your region key is not aliased, the flat annual value from the primary carbon table is used.
 
 #### `[green.scaphandre]` (optional, opt-in)
 

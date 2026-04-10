@@ -225,20 +225,31 @@ Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la méthodologie complè
 
 ### Profils carbone horaires
 
-Des profils UTC 24h embarqués sont disponibles pour quatre régions disposant de patterns de réseau diurnes bien documentés :
+Des profils d'intensité carbone horaire UTC sont embarqués pour plus de 30 régions cloud couvrant tous les principaux fournisseurs et zones géographiques. Quatre régions (FR, DE, GB, US-East) ont des profils **mois x heure** (288 valeurs chacun) qui capturent la variation saisonnière. Les autres régions ont des profils **annuels plats** (24 valeurs, même forme toute l'année).
 
-- **France (`eu-west-3`, `fr`)** : baseload nucléaire, profil relativement plat avec un léger pic 17h-20h UTC.
-- **Allemagne (`eu-central-1`, `de`)** : charbon + gaz + renouvelables variables, pics prononcés le matin (06h-10h UTC) et le soir (17h-20h UTC).
-- **Royaume-Uni (`eu-west-2`, `gb`)** : éolien + gaz, pics jumeaux modérés similaires à l'Allemagne mais plus petits.
-- **US-East (`us-east-1`)** : gaz + charbon, plateau diurne (13h-18h UTC = 9h-14h heure Est, heures de bureau).
+**Régions mois x heure** (12 mois x 24 heures) :
 
-Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure pour chaque span basée sur son timestamp UTC. Les régions **non** listées ci-dessus utilisent toujours la valeur annuelle plate de la table carbone principale quel que soit le toggle. Les rapports où au moins une région a utilisé un profil horaire sont tagués `model = "io_proxy_v2"` (monté depuis `"io_proxy_v1"`), et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"` ou `"hourly"`) pour que les consommateurs en aval puissent auditer quelles régions ont bénéficié des données plus précises.
+- **France (`eu-west-3`)** : baseload nucléaire avec pic de gaz hivernal. Plus haute intensité en hiver, plus basse en été.
+- **Allemagne (`eu-central-1`)** : charbon + renouvelables. Forte variance saisonnière : utilisation du charbon significativement accrue en hiver.
+- **Royaume-Uni (`eu-west-2`)** : éolien + gaz. L'hiver a plus de chauffage au gaz, l'été plus d'éolien.
+- **US-East (`us-east-1`)** : gaz + charbon. La climatisation estivale et le chauffage hivernal poussent l'intensité au-dessus du printemps/automne.
 
-**Ce que ça fait et ne fait pas.** Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Il ne capture PAS :
+**Régions horaires annuelles plates** (profil 24h, même toute l'année) :
 
-- **La variance saisonnière** : seul l'horaire est embarqué, pas mensuel×horaire. Les différences hiver/été sont moyennées dans le profil 24 valeurs.
+- **Europe (ENTSO-E)** : Irlande (`eu-west-1`), Pays-Bas (`eu-west-4`), Suède (`eu-north-1`), Belgique (`europe-west1`), Finlande (`europe-north1`), Italie (`eu-south-1`), Espagne (`europe-southwest1`), Pologne (`europe-central2`), Norvège (`europe-north2`).
+- **Amériques (EIA / IESO / ONS)** : US Ohio (`us-east-2`), US N. Californie (`us-west-1`), US Oregon (`us-west-2`), Canada Québec (`ca-central-1`), Brésil (`sa-east-1`).
+- **Asie-Pacifique (best-effort)** : Japon (`ap-northeast-1`), Singapour (`ap-southeast-1`), Inde (`ap-south-1`), Australie (`ap-southeast-2`).
+
+Les alias de codes pays (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) et synonymes fournisseurs cloud (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) sont supportés et résolvent vers le même profil.
+
+Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure (et au mois quand disponible) pour chaque span basée sur son timestamp UTC. Les régions sans profil utilisent toujours la valeur annuelle plate. Les rapports sont tagués `model = "io_proxy_v3"` (mois x heure), `"io_proxy_v2"` (horaire annuel plat), ou `"io_proxy_v1"` (annuel), et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"`, `"hourly"`, ou `"monthly_hourly"`).
+
+**Ce que ça fait et ne fait pas.** Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Les profils mois x heure capturent aussi la variance saisonnière pour les 4 régions listées. Il ne capture PAS :
+
 - **Les fluctuations liées à la météo** : les valeurs embarquées sont des moyennes typiques, pas des données temps-réel.
-- **Les régions hors du set de 4** : toutes les autres régions AWS/GCP/Azure et codes pays ISO retombent sur la valeur annuelle plate.
+- **Les données en temps réel** : pour l'intensité carbone en temps réel, voir l'intégration Electricity Maps API (prévue dans une prochaine version).
+
+**Profils estimés.** Les profils Asie-Pacifique et Brésil sont estimés à partir de la composition du mix de combustibles plutôt que de données horaires de génération. Ils sont annotés comme tels dans le code source.
 
 **Exigences de timestamp.** perf-sentinel parse les timestamps en UTC et exige la forme canonique ISO 8601 `YYYY-MM-DDTHH:MM:SS[.fff]Z` (Z final) ou la variante avec espace. Les chaînes avec offset non-UTC (`+02:00`, `-05:00`) sont rejetées plutôt que silencieusement décalées, car la table carbone est ancrée UTC et un traitement naïf des offsets fausserait systématiquement l'estimation. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate.
 

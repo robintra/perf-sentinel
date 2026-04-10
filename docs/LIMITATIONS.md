@@ -167,20 +167,31 @@ See `docs/design/05-GREENOPS-AND-CARBON.md` for the full methodology, formula, a
 
 ### Hourly carbon profiles
 
-Embedded 24-hour UTC profiles are available for four regions with well-documented diurnal grid patterns:
+Embedded hourly UTC profiles are available for 30+ cloud regions across all major cloud providers and geographies. Four regions (FR, DE, GB, US-East) have **monthly x hourly** profiles (288 values each) that capture seasonal variation. The remaining regions have **flat-year** profiles (24 values, same shape all year).
 
-- **France (`eu-west-3`, `fr`)**: nuclear baseload, relatively flat with a slight 17h-20h UTC evening peak.
-- **Germany (`eu-central-1`, `de`)**: coal + gas + variable renewables, pronounced morning (06h-10h UTC) and evening (17h-20h UTC) peaks.
-- **UK (`eu-west-2`, `gb`)**: wind + gas, moderate twin peaks similar to Germany but smaller.
-- **US-East (`us-east-1`)**: gas + coal, flat daytime peak (13h-18h UTC = 9am-2pm Eastern business hours).
+**Monthly x hourly regions** (12 months x 24 hours):
 
-When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific intensity for each span based on the span's UTC timestamp. Regions **not** listed above always use the flat annual value from the primary carbon table regardless of the toggle. Reports where at least one region used an hourly profile are tagged with `model = "io_proxy_v2"` (up from `"io_proxy_v1"`), and each per-region breakdown row carries an `intensity_source` field (`"annual"` or `"hourly"`) so downstream consumers can audit which regions benefited from the more precise data.
+- **France (`eu-west-3`)**: nuclear baseload with winter gas peaking. Higher intensity in winter, lower in summer.
+- **Germany (`eu-central-1`)**: coal + renewables. Strong seasonal variance: winter coal use increases significantly.
+- **UK (`eu-west-2`)**: wind + gas. Winter has more gas heating, summer has more wind.
+- **US-East (`us-east-1`)**: gas + coal. Summer AC load and winter heating both push intensity above spring/fall.
 
-**What this does and doesn't do.** The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). It does **not** capture:
+**Flat-year hourly regions** (24-hour profile, same all year):
 
-- **Seasonal variance**: only hourly is embedded, not monthly×hourly. Winter vs summer carbon intensity differences are averaged into the 24-value profile.
-- **Weather-dependent fluctuations**: the embedded values are typical averages, not real-time data. A calm windless day in the UK will produce more carbon than the profile suggests; a sunny noon in France less.
-- **Regions not in the 4-region set**: all other AWS/GCP/Azure regions, as well as ISO country codes, fall back to the flat annual value.
+- **Europe (ENTSO-E)**: Ireland (`eu-west-1`), Netherlands (`eu-west-4`), Sweden (`eu-north-1`), Belgium (`europe-west1`), Finland (`europe-north1`), Italy (`eu-south-1`), Spain (`europe-southwest1`), Poland (`europe-central2`), Norway (`europe-north2`).
+- **Americas (EIA / IESO / ONS)**: US Ohio (`us-east-2`), US N. California (`us-west-1`), US Oregon (`us-west-2`), Canada Quebec (`ca-central-1`), Brazil (`sa-east-1`).
+- **Asia-Pacific (best-effort)**: Japan (`ap-northeast-1`), Singapore (`ap-southeast-1`), India (`ap-south-1`), Australia (`ap-southeast-2`).
+
+Country-code aliases (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) and cloud-provider synonyms (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) are supported and resolve to the same profile.
+
+When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific (and month-specific when available) intensity for each span based on the span's UTC timestamp. Regions without a profile always use the flat annual value. Reports are tagged with `model = "io_proxy_v3"` (monthly x hourly), `"io_proxy_v2"` (flat-year hourly), or `"io_proxy_v1"` (annual), and each per-region breakdown row carries an `intensity_source` field (`"annual"`, `"hourly"`, or `"monthly_hourly"`).
+
+**What this does and doesn't do.** The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). Monthly x hourly profiles also capture seasonal variance for the 4 listed regions. It does **not** capture:
+
+- **Weather-dependent fluctuations**: the embedded values are typical averages, not real-time data. A calm windless day in the UK will produce more carbon than the profile suggests.
+- **Real-time grid data**: for live carbon intensity, consider the Electricity Maps API integration (planned for a future release).
+
+**Estimated profiles.** The Asia-Pacific and Brazil profiles are estimated from fuel mix composition rather than hourly generation data. They are annotated as such in the source code. The diurnal shapes are approximations based on the known fuel mix (e.g. gas-dominated grids are nearly flat, coal-heavy grids have mild evening peaks).
 
 **Timestamp requirements.** perf-sentinel parses timestamps as UTC and requires the canonical ISO 8601 form `YYYY-MM-DDTHH:MM:SS[.fff]Z` (trailing `Z`) or the space-separated variant. Strings with non-UTC offsets (`+02:00`, `-05:00`) are rejected rather than silently shifted. The carbon table is UTC-anchored, so naive offset handling would systematically skew the estimate. Spans with unparseable timestamps fall back to the flat annual intensity.
 

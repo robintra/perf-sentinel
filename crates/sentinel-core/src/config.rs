@@ -68,6 +68,14 @@ pub struct Config {
     /// Energy per byte for network transport (kWh/byte).
     /// Default: 0.04 kWh/GB (Mytton et al. 2024).
     pub green_network_energy_per_byte_kwh: f64,
+    /// Path to user-supplied hourly profiles JSON file. `None` when not
+    /// configured (uses only embedded profiles).
+    pub green_hourly_profiles_file: Option<String>,
+    /// Pre-parsed custom hourly profiles, loaded at config parse time.
+    /// `None` when `hourly_profiles_file` is not set or failed to load.
+    pub green_custom_hourly_profiles: Option<
+        std::sync::Arc<std::collections::HashMap<String, crate::score::carbon::HourlyProfile>>,
+    >,
 
     // --- Daemon ---
     /// Address for the daemon to listen on.
@@ -154,6 +162,8 @@ impl Default for Config {
             green_include_network_transport: false,
             green_network_energy_per_byte_kwh:
                 crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
+            green_hourly_profiles_file: None,
+            green_custom_hourly_profiles: None,
             // Daemon
             listen_addr: "127.0.0.1".to_string(),
             listen_port: 4318,
@@ -199,6 +209,7 @@ impl Config {
             per_operation_coefficients: self.green_per_operation_coefficients,
             include_network_transport: self.green_include_network_transport,
             network_energy_per_byte_kwh: self.green_network_energy_per_byte_kwh,
+            custom_hourly_profiles: self.green_custom_hourly_profiles.clone(),
         }
     }
 }
@@ -265,6 +276,8 @@ struct GreenSection {
     per_operation_coefficients: Option<bool>,
     include_network_transport: Option<bool>,
     network_energy_per_byte_kwh: Option<f64>,
+    /// Path to a JSON file with user-supplied hourly carbon profiles.
+    hourly_profiles_file: Option<String>,
 }
 
 /// Raw deserialization target for `[green.scaphandre]`.
@@ -425,6 +438,30 @@ impl From<RawConfig> for Config {
                 .green
                 .network_energy_per_byte_kwh
                 .unwrap_or(defaults.green_network_energy_per_byte_kwh),
+            green_hourly_profiles_file: raw.green.hourly_profiles_file.clone(),
+            green_custom_hourly_profiles: raw.green.hourly_profiles_file.as_ref().and_then(
+                |path| {
+                    if has_control_char(path) {
+                        tracing::warn!(
+                            "hourly_profiles_file path contains control characters, skipping"
+                        );
+                        return None;
+                    }
+                    let p = std::path::Path::new(path);
+                    match crate::score::carbon::load_custom_profiles(p) {
+                        Ok(profiles) => Some(std::sync::Arc::new(profiles)),
+                        Err(e) => {
+                            // Not logged at warn: validate_green() will
+                            // surface a hard error for this case.
+                            tracing::debug!(
+                                error = %e,
+                                "Custom hourly profiles failed to load"
+                            );
+                            None
+                        }
+                    }
+                },
+            ),
 
             // Daemon: section > flat > default
             listen_addr: raw
@@ -666,6 +703,19 @@ impl Config {
             return Err(format!(
                 "network_energy_per_byte_kwh must be finite and >= 0.0, got {nw}"
             ));
+        }
+        // Validate hourly_profiles_file: reject control characters (log
+        // injection) and ensure the file loaded successfully when configured.
+        if let Some(ref path) = self.green_hourly_profiles_file {
+            if has_control_char(path) {
+                return Err("[green] hourly_profiles_file contains control characters".to_string());
+            }
+            if self.green_custom_hourly_profiles.is_none() {
+                return Err(format!(
+                    "[green] hourly_profiles_file '{path}' was configured but \
+                     failed to load. Remove the field to use embedded profiles only."
+                ));
+            }
         }
         Ok(())
     }
@@ -1652,6 +1702,42 @@ default_region = "eu-west-3"
     fn green_use_hourly_profiles_explicit_true() {
         let config = load_from_str("[green]\nuse_hourly_profiles = true\n").unwrap();
         assert!(config.green_use_hourly_profiles);
+    }
+
+    // --- [green] hourly_profiles_file ---
+
+    #[test]
+    fn hourly_profiles_file_absent_by_default() {
+        let config = Config::default();
+        assert!(config.green_hourly_profiles_file.is_none());
+        assert!(config.green_custom_hourly_profiles.is_none());
+    }
+
+    #[test]
+    fn hourly_profiles_file_control_chars_rejected() {
+        let config = load_from_str("[green]\nhourly_profiles_file = \"/tmp/profiles\\n.json\"\n");
+        // The control character check happens during loading (sets None)
+        // and then validate_green rejects the config.
+        if let Ok(c) = config {
+            let err = c.validate().unwrap_err();
+            assert!(
+                err.contains("control characters") || err.contains("failed to load"),
+                "expected control char or load failure error, got: {err}"
+            );
+        } else {
+            // TOML parse error is also acceptable
+        }
+    }
+
+    #[test]
+    fn hourly_profiles_file_nonexistent_path_rejected() {
+        let result =
+            load_from_str("[green]\nhourly_profiles_file = \"/nonexistent/profiles.json\"\n");
+        let err = result.unwrap_err();
+        assert!(
+            format!("{err}").contains("failed to load"),
+            "expected load failure error, got: {err}"
+        );
     }
 
     // --- [green.scaphandre] parsing ---

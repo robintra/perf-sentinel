@@ -96,6 +96,43 @@ pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
     Some(hour)
 }
 
+/// Extract the UTC month (0-indexed: 0 = January, 11 = December) from
+/// an ISO 8601 timestamp string.
+///
+/// Parses positions 5-6 of `YYYY-MM-DD...` (the `MM` field). Same
+/// ASCII-only and UTC-only constraints as [`parse_utc_hour`], but with
+/// a lower minimum length (7 bytes vs 13). In practice, always called
+/// alongside `parse_utc_hour` which provides the stricter check.
+///
+/// Returns `None` for strings shorter than 7 bytes, non-numeric month
+/// digits, or months outside 01..=12. The returned value is 0-indexed
+/// for direct use as an array index into `[[f64; 24]; 12]`.
+#[must_use]
+pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
+    if !ts.is_ascii() {
+        return None;
+    }
+    let bytes = ts.as_bytes();
+    if bytes.len() < 7 {
+        return None;
+    }
+    // Position 4 must be '-' (YYYY-MM).
+    if bytes[4] != b'-' {
+        return None;
+    }
+    let m1 = bytes[5].checked_sub(b'0').filter(|&d| d <= 9)?;
+    let m2 = bytes[6].checked_sub(b'0').filter(|&d| d <= 9)?;
+    let month = m1 * 10 + m2;
+    if !(1..=12).contains(&month) {
+        return None;
+    }
+    // Same UTC check as parse_utc_hour.
+    if !ts.ends_with('Z') {
+        return None;
+    }
+    Some(month - 1) // 0-indexed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +221,61 @@ mod tests {
         // Multi-byte characters would misalign the byte indexing above.
         // The function returns None instead of panicking.
         assert_eq!(parse_utc_hour("2025-07-10T14\u{00E9}:32:01Z"), None);
+    }
+
+    // --- parse_utc_month ---
+
+    #[test]
+    fn parse_utc_month_canonical() {
+        assert_eq!(parse_utc_month("2025-01-10T14:32:01.123Z"), Some(0)); // Jan
+        assert_eq!(parse_utc_month("2025-06-15T00:00:00.000Z"), Some(5)); // Jun
+        assert_eq!(parse_utc_month("2025-07-10T14:32:01.123Z"), Some(6)); // Jul
+        assert_eq!(parse_utc_month("2025-12-31T23:59:59.999Z"), Some(11)); // Dec
+    }
+
+    #[test]
+    fn parse_utc_month_all_months() {
+        for m in 1..=12_u8 {
+            let ts = format!("2025-{m:02}-10T12:00:00Z");
+            assert_eq!(parse_utc_month(&ts), Some(m - 1), "month {m:02}");
+        }
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_month_00() {
+        assert_eq!(parse_utc_month("2025-00-10T14:32:01Z"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_month_13() {
+        assert_eq!(parse_utc_month("2025-13-10T14:32:01Z"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_truncated() {
+        assert_eq!(parse_utc_month(""), None);
+        assert_eq!(parse_utc_month("2025-0"), None);
+        assert_eq!(parse_utc_month("2025"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_non_utc() {
+        assert_eq!(parse_utc_month("2025-07-10T14:32:01+02:00"), None);
+        assert_eq!(parse_utc_month("2025-07-10T14:32:01-05:00"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_non_ascii() {
+        assert_eq!(parse_utc_month("2025\u{00E9}07-10T14:32:01Z"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_non_numeric() {
+        assert_eq!(parse_utc_month("2025-ab-10T14:32:01Z"), None);
+    }
+
+    #[test]
+    fn parse_utc_month_rejects_missing_dash() {
+        assert_eq!(parse_utc_month("2025007-10T14:32:01Z"), None);
     }
 }
