@@ -74,7 +74,7 @@ use_hourly_profiles = true
 # Adds a `sci_v1_numerator+transport` methodology tag. Opt-in because it
 # requires the `response_size_bytes` field in your spans.
 include_network_transport = false
-# network_energy_per_byte_kwh = 0.00000000004  # 0.04 kWh / GB, default
+# network_energy_per_byte_kwh = 0.00000000004 # 0.04 kWh / GB, default
 
 # Per-service region override when the OTel `cloud.region` resource attribute
 # is absent. Values are case-insensitive, lowercased at load time.

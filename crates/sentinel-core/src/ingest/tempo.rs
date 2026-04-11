@@ -11,7 +11,7 @@
 use std::time::Duration;
 
 use crate::event::SpanEvent;
-use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
+use crate::http_client::{self, HttpClient};
 use crate::ingest::otlp::convert_otlp_request;
 
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -153,7 +153,21 @@ struct TraceMeta {
 // ---------------------------------------------------------------
 
 /// Maximum body size for search responses (1 MiB).
+///
+/// Search responses only return trace-ID summaries, not span payloads,
+/// so 1 MiB is generous even for a `limit=500` query.
 const MAX_SEARCH_BODY_BYTES: usize = 1024 * 1024;
+
+/// Maximum body size for a full trace fetch (64 MiB).
+///
+/// Tempo traces can legitimately carry hundreds or thousands of spans
+/// in a single OTLP protobuf; the 8 MiB cap used for Prometheus /metrics
+/// and Electricity Maps JSON is not enough. 64 MiB is large enough to
+/// cover production workloads while still bounding the worst case at a
+/// level that fits comfortably in daemon RSS (the `<20 MB loaded`
+/// target only applies to steady-state, not a one-shot `tempo` CLI
+/// invocation that exits after the fetch).
+const MAX_TRACE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 /// Request timeout for Tempo API calls.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -289,7 +303,7 @@ pub async fn fetch_trace(
         .parse()
         .map_err(|_| TempoError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_bytes(client, uri, MAX_BODY_BYTES).await?;
+    let body = fetch_bytes(client, uri, MAX_TRACE_BODY_BYTES).await?;
 
     let request = ExportTraceServiceRequest::decode(body)
         .map_err(|e| TempoError::ProtobufDecode(e.to_string()))?;
@@ -309,15 +323,28 @@ pub async fn ingest_from_tempo(
     lookback: Duration,
     max_traces: usize,
 ) -> Result<Vec<SpanEvent>, TempoError> {
-    // Validate endpoint: must start with http:// or https://, no credentials.
+    // Validate endpoint: must start with http:// or https://, no
+    // credentials in the authority section. We deliberately check for
+    // `@` only in the authority (scheme://authority/path?query), not
+    // in the path or query string, so paths like `/api/traces?owner=foo%40example.com`
+    // are accepted. The `validate_http_authority` helper in config.rs
+    // uses the same strip-then-split-on-`/` technique.
     if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
         return Err(TempoError::InvalidEndpoint(format!(
             "endpoint must start with http:// or https://, got '{endpoint}'"
         )));
     }
-    if endpoint.contains('@') {
+    let after_scheme = endpoint
+        .strip_prefix("https://")
+        .or_else(|| endpoint.strip_prefix("http://"))
+        .unwrap_or("");
+    // The authority ends at the first `/` (start of path) or `?`
+    // (start of query). Everything before is host[:port] with optional
+    // userinfo. We reject `@` only in that slice.
+    let authority_end = after_scheme.find(['/', '?']).unwrap_or(after_scheme.len());
+    if after_scheme[..authority_end].contains('@') {
         return Err(TempoError::InvalidEndpoint(
-            "endpoint must not contain credentials".to_string(),
+            "endpoint must not contain credentials (user:pass@host)".to_string(),
         ));
     }
 
@@ -462,5 +489,314 @@ mod tests {
         let decoded = ExportTraceServiceRequest::decode(bytes::Bytes::from(buf)).unwrap();
         let events = convert_otlp_request(&decoded);
         assert!(events.is_empty());
+    }
+
+    // ---------------------------------------------------------------
+    // Integration tests with a mock Tempo HTTP server
+    // ---------------------------------------------------------------
+    //
+    // The mock server helpers live in `crate::test_helpers` and are
+    // shared with scaphandre, cloud_energy, and electricity_maps
+    // tests. The mock serves one response per accepted connection,
+    // which matches the one-shot nature of each Tempo API call.
+
+    use crate::test_helpers::{http_200_bytes, http_200_text, http_status, spawn_one_shot_server};
+
+    /// Wrap the shared `http_200_text` with the JSON content type.
+    fn http_200_json(body: &str) -> Vec<u8> {
+        http_200_text("application/json", body)
+    }
+
+    /// Wrap the shared `http_200_bytes` with the protobuf content type.
+    fn http_200_proto(body: &[u8]) -> Vec<u8> {
+        http_200_bytes("application/protobuf", body)
+    }
+
+    // --- ingest_from_tempo endpoint validation ---
+
+    #[tokio::test]
+    async fn ingest_from_tempo_rejects_non_http_scheme() {
+        let err = ingest_from_tempo(
+            "ftp://tempo.local",
+            Some("foo-svc"),
+            None,
+            Duration::from_secs(60),
+            10,
+        )
+        .await
+        .expect_err("non-http must be rejected");
+        match err {
+            TempoError::InvalidEndpoint(msg) => assert!(msg.contains("http://")),
+            other => panic!("expected InvalidEndpoint, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_from_tempo_rejects_credentials_in_endpoint() {
+        let err = ingest_from_tempo(
+            "http://user:pass@tempo.local",
+            None,
+            Some("abc"),
+            Duration::from_secs(60),
+            10,
+        )
+        .await
+        .expect_err("credentials must be rejected");
+        match err {
+            TempoError::InvalidEndpoint(msg) => assert!(msg.contains("credentials")),
+            other => panic!("expected InvalidEndpoint, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_from_tempo_rejects_missing_service_and_trace_id() {
+        // Neither trace_id nor service supplied — must error.
+        let err = ingest_from_tempo(
+            "http://tempo.local",
+            None,
+            None,
+            Duration::from_secs(60),
+            10,
+        )
+        .await
+        .expect_err("missing both must be rejected");
+        match err {
+            TempoError::InvalidEndpoint(msg) => {
+                assert!(msg.contains("trace-id") || msg.contains("service"));
+            }
+            other => panic!("expected InvalidEndpoint, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_from_tempo_accepts_percent_encoded_at_in_query_string() {
+        // Regression guard: the endpoint validator must only reject `@`
+        // in the authority section, not in the path or query. A URI
+        // like `http://tempo.local/api/traces?owner=foo%40example.com`
+        // contains a literal `@` in the query string — after the
+        // authority — and should be accepted. The validator strips
+        // the scheme, then looks at the slice BEFORE the first `/` or
+        // `?`, so the authority is `tempo.local` and the `%40` lives
+        // in the query-string-only part.
+        //
+        // Note: this test uses an unreachable endpoint. We don't care
+        // whether the fetch succeeds, only that the validator does
+        // NOT synchronously return `InvalidEndpoint`. Any other error
+        // (transport, timeout, etc.) is acceptable.
+        let result = ingest_from_tempo(
+            "http://127.0.0.1:1/api/traces?owner=foo%40example.com",
+            None,
+            Some("abc123"),
+            Duration::from_secs(60),
+            10,
+        )
+        .await;
+        match result {
+            Err(TempoError::InvalidEndpoint(msg)) if msg.contains("credentials") => {
+                panic!("validator must not reject `@` in the query string");
+            }
+            _ => {} // transport / timeout / anything else is fine
+        }
+    }
+
+    // --- fetch_trace: hex validation and happy path ---
+
+    #[tokio::test]
+    async fn fetch_trace_rejects_non_hex_trace_id() {
+        let client = http_client::build_client();
+        let err = fetch_trace(&client, "http://tempo.local", "not-hex-id!")
+            .await
+            .expect_err("non-hex must be rejected");
+        match err {
+            TempoError::InvalidEndpoint(msg) => assert!(msg.contains("non-hex")),
+            other => panic!("expected InvalidEndpoint, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_decodes_empty_otlp_request() {
+        // Send an empty but valid OTLP protobuf. fetch_trace should
+        // decode it into an empty Vec<SpanEvent> without error.
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![],
+        };
+        let mut buf = Vec::new();
+        request.encode(&mut buf).unwrap();
+
+        let (endpoint, server) = spawn_one_shot_server(http_200_proto(&buf)).await;
+        let client = http_client::build_client();
+        let events = fetch_trace(&client, &endpoint, "abc123def456")
+            .await
+            .expect("valid OTLP must decode");
+        assert!(events.is_empty());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_surfaces_404_as_trace_not_found() {
+        let (endpoint, server) = spawn_one_shot_server(http_status(404, "Not Found")).await;
+        let client = http_client::build_client();
+        let err = fetch_trace(&client, &endpoint, "abc123")
+            .await
+            .expect_err("404 must surface as TraceNotFound");
+        assert!(matches!(err, TempoError::TraceNotFound(_)));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_surfaces_500_as_http_status() {
+        let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
+        let client = http_client::build_client();
+        let err = fetch_trace(&client, &endpoint, "abc123")
+            .await
+            .expect_err("500 must surface as HttpStatus");
+        match err {
+            TempoError::HttpStatus(500) => {}
+            other => panic!("expected HttpStatus(500), got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_trace_rejects_malformed_protobuf() {
+        let garbage = http_200_proto(b"\xff\xff\xff\xff\xff\xff\xff\xff");
+        let (endpoint, server) = spawn_one_shot_server(garbage).await;
+
+        let client = http_client::build_client();
+        let err = fetch_trace(&client, &endpoint, "abc123")
+            .await
+            .expect_err("malformed protobuf must surface as ProtobufDecode");
+        assert!(matches!(err, TempoError::ProtobufDecode(_)));
+        server.await.unwrap();
+    }
+
+    // --- search_traces ---
+
+    #[tokio::test]
+    async fn search_traces_happy_path_returns_ids() {
+        let body = r#"{"traces":[{"traceID":"aaa111"},{"traceID":"bbb222"}]}"#;
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
+        let client = http_client::build_client();
+        let ids = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(300), 10)
+            .await
+            .expect("search must succeed");
+        assert_eq!(ids, vec!["aaa111".to_string(), "bbb222".to_string()]);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_traces_empty_result_surfaces_no_traces_found() {
+        let body = r#"{"traces":[]}"#;
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
+        let client = http_client::build_client();
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+            .await
+            .expect_err("empty search result must be NoTracesFound");
+        assert!(matches!(err, TempoError::NoTracesFound));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_traces_malformed_json_surfaces_json_parse() {
+        let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
+        let client = http_client::build_client();
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+            .await
+            .expect_err("malformed JSON must be JsonParse");
+        assert!(matches!(err, TempoError::JsonParse(_)));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_traces_http_500_surfaces_http_status() {
+        let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
+        let client = http_client::build_client();
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+            .await
+            .expect_err("500 must surface as HttpStatus");
+        match err {
+            TempoError::HttpStatus(500) => {}
+            other => panic!("expected HttpStatus(500), got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
+    // --- ingest_from_tempo: end-to-end search+fetch flow ---
+
+    #[tokio::test]
+    async fn ingest_from_tempo_search_then_fetch_aggregates_events() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        // The mock must handle MULTIPLE connections in sequence:
+        //   1. /api/search → return one trace ID
+        //   2. /api/traces/<id> → return an empty OTLP protobuf
+        let search_body = r#"{"traces":[{"traceID":"abcdef"}]}"#;
+        let search_resp = http_200_json(search_body);
+        let mut proto_buf = Vec::new();
+        ExportTraceServiceRequest {
+            resource_spans: vec![],
+        }
+        .encode(&mut proto_buf)
+        .unwrap();
+        let trace_resp = http_200_proto(&proto_buf);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let endpoint = format!("http://{addr}");
+
+        let server = tokio::spawn(async move {
+            // Connection 1: search
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut rbuf = [0u8; 4096];
+            let _ = socket.read(&mut rbuf).await;
+            let _ = socket.write_all(&search_resp).await;
+            let _ = socket.shutdown().await;
+            drop(socket);
+
+            // Connection 2: fetch trace
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let _ = socket.read(&mut rbuf).await;
+            let _ = socket.write_all(&trace_resp).await;
+            let _ = socket.shutdown().await;
+        });
+
+        let err = ingest_from_tempo(
+            &endpoint,
+            Some("foo-svc"),
+            None,
+            Duration::from_secs(300),
+            5,
+        )
+        .await
+        .expect_err("empty trace must surface as NoTracesFound after loop");
+        // The trace was fetched successfully but contained zero spans,
+        // so the aggregated result is empty → NoTracesFound at the end.
+        assert!(matches!(err, TempoError::NoTracesFound));
+        server.await.unwrap();
+    }
+
+    // --- Error display ---
+
+    #[test]
+    fn tempo_error_display_messages_are_informative() {
+        let e1 = TempoError::InvalidEndpoint("bad".to_string());
+        let e2 = TempoError::Transport("oops".to_string());
+        let e3 = TempoError::BodyRead("body".to_string());
+        let e4 = TempoError::HttpStatus(418);
+        let e5 = TempoError::Timeout;
+        let e6 = TempoError::JsonParse("json".to_string());
+        let e7 = TempoError::ProtobufDecode("proto".to_string());
+        let e8 = TempoError::TraceNotFound("http://x".to_string());
+        let e9 = TempoError::NoTracesFound;
+        assert!(format!("{e1}").contains("endpoint"));
+        assert!(format!("{e2}").contains("transport") || format!("{e2}").contains("Transport"));
+        assert!(format!("{e3}").contains("body"));
+        assert!(format!("{e4}").contains("418"));
+        assert!(format!("{e5}").contains("timed out"));
+        assert!(format!("{e6}").contains("JSON"));
+        assert!(format!("{e7}").contains("protobuf") || format!("{e7}").contains("Protobuf"));
+        assert!(format!("{e8}").contains("not found") || format!("{e8}").contains("Not found"));
+        assert!(format!("{e9}").contains("no traces") || format!("{e9}").contains("No traces"));
     }
 }

@@ -1,58 +1,37 @@
 //! Shared Scaphandre state and monotonic timestamp helper.
 //!
-//! The [`ScaphandreState`] is backed by an [`ArcSwap`] so
-//! the scoring path reads are sync and zero-clone. The scraper task
-//! builds a fresh `Arc<HashMap>` on each successful scrape and
-//! atomically swaps it in via [`ArcSwap::store`]; readers do a single
-//! `load_full()` to get their own `Arc` reference without contending
-//! on a lock.
+//! Thin wrapper around [`crate::score::energy_state::AgedEnergyMap`];
+//! see that module for the `ArcSwap`-backed storage design. This file
+//! keeps `ScaphandreState` as a distinct nominal type (so the daemon
+//! code cannot accidentally swap a cloud-energy state for a Scaphandre
+//! one) while delegating all storage behavior to the shared impl.
+//!
+//! Read-heavy / write-rare:
+//! - Writes: once per scrape interval (default 5 s), by a single task.
+//! - Reads: once per `process_traces` tick (typically multiple per
+//!   second under real OTLP load).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
+use crate::score::energy_state::AgedEnergyMap;
+
+/// Row type expected by [`super::ops::apply_scrape`] when constructing
+/// fresh entries. Aliased to the shared [`EnergyRow`] so both states
+/// share one definition.
+///
+/// [`EnergyRow`]: crate::score::energy_state::EnergyRow
+pub(super) use crate::score::energy_state::EnergyRow as ServiceEnergy;
 
 /// Runtime state shared between the scraper task and the scoring path.
 ///
-/// The scraper task holds an `Arc<ScaphandreState>` and publishes a new
-/// `Arc<HashMap<String, ServiceEnergy>>` on each successful scrape via
-/// [`ArcSwap::store`]. Scoring takes a synchronous snapshot at the
-/// start of each `process_traces` tick via [`Self::snapshot`], which
-/// is a single `load_full()` + a filter pass — no async lock, no
-/// per-tick `String` clone of the keys.
-///
-/// This is a read-heavy / write-rare pattern:
-/// - Writes: once per scrape interval (default 5 s), by a single task.
-/// - Reads: once per `process_traces` tick (typically multiple per
-///   second under real OTLP load).
-/// - Both sides see a consistent view of the full table: readers get
-///   the `Arc` that was current when they called `load_full`, writers
-///   don't block anyone.
+/// Nominally distinct from
+/// [`crate::score::cloud_energy::CloudEnergyState`] so the daemon can
+/// accept one without accidentally receiving the other. Both wrap the
+/// same [`AgedEnergyMap`] storage under the hood.
 #[derive(Debug, Default)]
 pub struct ScaphandreState {
-    // ArcSwap stores an `Arc<HashMap<...>>`. Default yields an
-    // ArcSwap pointing at an empty HashMap, which is exactly what we
-    // want for the "no successful scrape yet" initial state.
-    inner: ArcSwap<HashMap<String, ServiceEnergy>>,
-}
-
-/// One row in the shared state: a measured coefficient with a
-/// freshness timestamp.
-///
-/// `last_update_ms` is monotonic milliseconds since process start —
-/// produced by [`monotonic_ms`]. The scoring snapshot uses the
-/// `staleness_threshold_ms` parameter to discard entries older than
-/// `3 × scrape_interval` (so a hung scraper doesn't silently return
-/// increasingly stale data).
-///
-/// Visible as `pub(super)` so the sibling [`super::ops::apply_scrape`]
-/// function can construct new rows. Fields stay private to this
-/// module so the freshness invariant can only be updated via a
-/// [`ScaphandreState::publish`] call.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ServiceEnergy {
-    pub(super) energy_per_op_kwh: f64,
-    pub(super) last_update_ms: u64,
+    inner: AgedEnergyMap,
 }
 
 impl ScaphandreState {
@@ -64,60 +43,28 @@ impl ScaphandreState {
         Arc::new(Self::default())
     }
 
-    /// Produce a synchronous `HashMap<String, f64>` snapshot of the
-    /// current per-service coefficients, filtering out stale rows.
-    ///
-    /// Stale rows are defined as `now_ms - last_update_ms >= staleness_ms`.
-    /// No async, no lock — a single `ArcSwap::load_full()` gives us an
-    /// `Arc<HashMap>` that is guaranteed consistent (it's whatever the
-    /// scraper last published) and we iterate it to filter stale rows.
-    /// Keys are still cloned (once per fresh row) because the
-    /// `CarbonContext.energy_snapshot` signature takes an owned
-    /// `HashMap<String, f64>`; that's a typically tiny allocation
-    /// (bounded by the number of mapped services, usually single
-    /// digits).
-    ///
-    /// Used by the daemon right before `process_traces` to build the
-    /// `CarbonContext.energy_snapshot` for the current tick.
+    /// Synchronous snapshot of per-service coefficients, filtering out
+    /// rows whose age is `>= staleness_ms`. See
+    /// [`AgedEnergyMap::snapshot`] for the full contract.
     #[must_use]
     pub fn snapshot(&self, now_ms: u64, staleness_ms: u64) -> HashMap<String, f64> {
-        let current = self.inner.load_full();
-        current
-            .iter()
-            .filter_map(|(service, energy)| {
-                // Saturating sub so a clock skew or monotonic-reset
-                // event doesn't accidentally mark fresh rows as stale.
-                let age = now_ms.saturating_sub(energy.last_update_ms);
-                if age < staleness_ms {
-                    Some((service.clone(), energy.energy_per_op_kwh))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.inner.snapshot(now_ms, staleness_ms)
     }
 
     /// Publish a fresh table. Called by [`super::ops::apply_scrape`]
-    /// after each successful scrape; the old `Arc` is dropped when
-    /// the last reader releases it.
-    ///
-    /// Takes the new map by value so the scraper's temporary
-    /// `HashMap` doesn't need to be re-allocated after publish.
+    /// after each successful scrape.
     pub(super) fn publish(&self, new_table: HashMap<String, ServiceEnergy>) {
-        self.inner.store(Arc::new(new_table));
+        self.inner.publish(new_table);
     }
 
     /// Produce an owned copy of the current table so the scraper can
-    /// merge-update it before publishing the new version. The map is
-    /// typically small (one entry per mapped service) so the clone is
-    /// cheap compared to the alternative of holding a write lock.
+    /// merge-update it before publishing the new version.
     pub(super) fn current_owned(&self) -> HashMap<String, ServiceEnergy> {
-        (*self.inner.load_full()).clone()
+        self.inner.current_owned()
     }
 
     /// Test-only helper: insert an entry directly without running the
-    /// full scrape loop. Keeps the `inner` field private while letting
-    /// the integration tests build predictable snapshots.
+    /// full scrape loop.
     #[cfg(test)]
     pub(crate) fn insert_for_test(
         &self,
@@ -125,15 +72,8 @@ impl ScaphandreState {
         energy_per_op_kwh: f64,
         last_update_ms: u64,
     ) {
-        let mut current = self.current_owned();
-        current.insert(
-            service,
-            ServiceEnergy {
-                energy_per_op_kwh,
-                last_update_ms,
-            },
-        );
-        self.publish(current);
+        self.inner
+            .insert_for_test(service, energy_per_op_kwh, last_update_ms);
     }
 }
 

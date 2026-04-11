@@ -1,10 +1,12 @@
 //! Report stage: outputs analysis results.
 
+pub mod interpret;
 pub mod json;
 pub mod metrics;
 pub mod sarif;
 
 use crate::detect::Finding;
+use crate::report::interpret::InterpretationLevel;
 use crate::score::carbon::{CarbonReport, RegionBreakdown};
 use serde::Serialize;
 
@@ -31,6 +33,14 @@ pub struct GreenSummary {
     pub total_io_ops: usize,
     pub avoidable_io_ops: usize,
     pub io_waste_ratio: f64,
+    /// Classification band for `io_waste_ratio`
+    /// (`healthy` / `moderate` / `high` / `critical`).
+    ///
+    /// Computed by [`InterpretationLevel::for_waste_ratio`]. The enum
+    /// values are stable across versions; the thresholds behind them
+    /// are versioned with the binary. See the [`interpret`] module for
+    /// the stability contract.
+    pub io_waste_ratio_band: InterpretationLevel,
     pub top_offenders: Vec<TopOffender>,
     /// Structured CO₂ report. Includes 2× multiplicative uncertainty
     /// bracket, SCI v1.0 methodology tags, and operational + embodied terms.
@@ -56,6 +66,7 @@ impl GreenSummary {
             total_io_ops,
             avoidable_io_ops: 0,
             io_waste_ratio: 0.0,
+            io_waste_ratio_band: InterpretationLevel::Healthy,
             top_offenders: vec![],
             co2: None,
             regions: vec![],
@@ -70,6 +81,10 @@ pub struct TopOffender {
     pub endpoint: String,
     pub service: String,
     pub io_intensity_score: f64,
+    /// Classification band for `io_intensity_score`. Stable enum values
+    /// across versions; thresholds versioned with the binary. See the
+    /// [`interpret`] module for the stability contract.
+    pub io_intensity_band: InterpretationLevel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub co2_grams: Option<f64>,
 }

@@ -1,14 +1,14 @@
 ---
-title: Daemon Streaming Architecture
+title: Daemon streaming architecture
 ---
 flowchart TB
     grpc["OTLP gRPC<br/><i>:4317</i>"]
     http["OTLP HTTP<br/><i>:4318 POST /v1/traces</i>"]
-    sock["JSON Unix Socket<br/><i>/tmp/perf-sentinel.sock</i>"]
+    sock["JSON Unix socket<br/><i>/tmp/perf-sentinel.sock</i>"]
 
     channel["mpsc::channel(1024)<br/><i>Vec&lt;SpanEvent&gt; batches</i>"]
 
-    subgraph eventloop["tokio::select! Event Loop"]
+    subgraph eventloop["tokio::select! event loop"]
         recv["Receive batch"]
         tick["Ticker<br/><i>every TTL/2 (min 100ms)</i>"]
         ctrlc["Ctrl-C<br/><i>graceful shutdown</i>"]
@@ -18,12 +18,12 @@ flowchart TB
     norm["Normalize<br/><i>outside lock</i>"]
 
     subgraph window["TraceWindow"]
-        lru["LRU Cache<br/><i>max_active_traces</i>"]
-        ring["Ring Buffer<br/><i>max_events_per_trace</i>"]
-        ttl["TTL Eviction<br/><i>trace_ttl_ms</i>"]
+        lru["LRU cache<br/><i>max_active_traces</i>"]
+        ring["Ring buffer<br/><i>max_events_per_trace</i>"]
+        ttl["TTL eviction<br/><i>trace_ttl_ms</i>"]
     end
 
-    subgraph scrapers["Energy Scrapers (background tasks)"]
+    subgraph scrapers["Energy scrapers (background tasks)"]
         scaph["Scaphandre<br/><i>RAPL per-process<br/>scrape_interval_secs</i>"]
         cloud["Cloud SPECpower<br/><i>CPU% from Prometheus<br/>scrape_interval_secs</i>"]
         emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]
@@ -35,7 +35,7 @@ flowchart TB
 
     stdout["stdout<br/><i>NDJSON findings</i>"]
     metrics_state["MetricsState<br/><i>counters &amp; gauges</i>"]
-    metrics_endpoint["GET /metrics<br/><i>Prometheus + Exemplars</i>"]
+    metrics_endpoint["GET /metrics<br/><i>Prometheus + exemplars</i>"]
 
     grpc --> channel
     http --> channel

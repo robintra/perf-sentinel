@@ -1,11 +1,11 @@
 ---
-title: OTLP Span Conversion (Two-Pass)
+title: OTLP span conversion (two-pass)
 ---
 sequenceDiagram
     participant Req as ExportTraceServiceRequest
-    participant P1 as Pass 1 - Build Index
+    participant P1 as Pass 1 - build index
     participant Idx as span_index HashMap
-    participant P2 as Pass 2 - Convert
+    participant P2 as Pass 2 - convert
     participant Out as Vec of SpanEvent
 
     Note over Req: Also used by Tempo ingestion:<br/>fetch protobuf, decode, then this flow

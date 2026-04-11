@@ -40,6 +40,30 @@ Slow findings (`slow_sql`, `slow_http`) represent operations that are **necessar
 
 This is by design: the waste ratio measures how much I/O could be eliminated (N+1, redundant), while slow findings highlight operations that need optimization (indexing, caching) rather than elimination.
 
+## Score interpretation
+
+The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io_intensity_score` and `io_waste_ratio`, and the same classification ships in the JSON report as sibling fields `io_intensity_band` and `io_waste_ratio_band`. Reference tables live in the main README.
+
+### Why these thresholds
+
+- **IIS_MODERATE (2.0)** is a rule of thumb, not empirical. It reflects the intuition that a typical CRUD endpoint makes 1-2 I/O ops per request. Aggregators, dashboards, and report generators will show many "moderate" endpoints that are legitimate designs, not defects.
+- **IIS_HIGH (5.0)** is anchored on `Config::default().n_plus_one_threshold = 5`. An endpoint whose IIS reaches 5.0 is arithmetically at the point where `detect_n_plus_one` starts emitting findings — hence "high, worth investigating".
+- **IIS_CRITICAL (10.0)** is anchored on the hard-coded `indices.len() >= 10` severity escalation in `crate::detect::n_plus_one`. Same number, same semantics: if a finding hits that count, it's tagged `Severity::Critical` by the detector, and the endpoint-level IIS band tells you the aggregate footprint also crossed the same line.
+- **WASTE_RATIO_HIGH (0.30)** matches the **default** `io_waste_ratio_max`. If you override the quality gate in your `.perf-sentinel.toml`, the CLI/JSON interpretation does NOT follow — the gate is a user policy, the interpretation is a fixed heuristic. These are two independent dimensions by design, otherwise a user who relaxes the gate to accept a noisy legacy service would see the interpretation silently shift and miss the signal.
+- **WASTE_RATIO_CRITICAL (0.50)** flags runs where at least half of the analyzed I/O is avoidable waste.
+
+### JSON stability contract
+
+The enum values (`healthy`, `moderate`, `high`, `critical`) are **stable across versions**. Downstream consumers (SARIF, Grafana, perf-lint, etc.) can safely branch on these labels.
+
+The **numeric thresholds** behind the labels are **versioned with the binary**. They may evolve as we gather real usage data. This mirrors the existing pattern where `co2.model` evolves across `io_proxy_v1 → v2 → v3` without breaking consumers who just want to know which model was used.
+
+If a consumer needs a version-independent classification (for example, a Grafana alert that must behave identically across perf-sentinel upgrades), it should read the raw `io_intensity_score` and `io_waste_ratio` fields and apply its own bands.
+
+### Per-finding severity is documented elsewhere
+
+For per-detector severity rules (`Critical` / `Warning` / `Info` on N+1, Fanout, Slow, Chatty, Pool, Serialized), see [`docs/design/04-DETECTION.md`](design/04-DETECTION.md). Those rules depend on per-detector thresholds that are partly config-tunable (e.g. `max_fanout × 3`, `chatty_service_min_calls × 3`) and are documented alongside the detectors themselves.
+
 ## Fanout detection requires `parent_span_id`
 
 Fanout detection (`excessive_fanout`) relies on the `parent_span_id` field to build parent-child relationships between spans. If the tracing instrumentation does not propagate parent span IDs (some older OTel SDKs or custom instrumentations), fanout detection will not produce findings.
@@ -88,6 +112,15 @@ If you expose perf-sentinel to a network:
 - Route traces through an OpenTelemetry Collector with its own auth extensions and forward to perf-sentinel on a trusted internal network
 
 Never expose perf-sentinel directly to untrusted networks without a security layer in front.
+
+### JSON socket hardening
+
+The Unix-domain JSON socket (`[daemon] json_socket`) defends against local-user attacks on a multi-tenant host with two mechanisms:
+
+- **Permissions `0o600`** are applied right after `bind()`. Other local users cannot connect to inject events.
+- **Symlink pre-check**: before the daemon unlinks any stale socket file at the configured path, it calls `symlink_metadata()` and refuses to proceed if the path is a symlink. This prevents a local attacker with write access to the socket's parent directory from pointing `json_socket` at a victim file (e.g., `/etc/passwd`) and having the daemon's startup `remove_file()` delete it.
+
+Both defenses only matter when `json_socket` lives in a directory writeable by other local users. If you put the socket in a daemon-owned directory (`/var/run/perf-sentinel/` with `0o700`), the surface is already closed at the filesystem level.
 
 ## Carbon estimates accuracy
 

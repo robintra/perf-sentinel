@@ -20,9 +20,13 @@ use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 /// Errors that can occur during calibration.
 #[derive(Debug, thiserror::Error)]
 pub enum CalibrationError {
+    /// A CSV row had the wrong number of columns, unparseable numeric
+    /// values, or an unknown header layout. `line` is 1-indexed.
     #[error("CSV parse error at line {line}: {reason}")]
     CsvParse { line: usize, reason: String },
 
+    /// An ISO 8601 timestamp column could not be parsed. Covers missing
+    /// `Z` suffix, non-UTC offsets, and out-of-range date/time fields.
     #[error("failed to parse timestamp '{value}' at line {line}: {reason}")]
     TimestampParse {
         line: usize,
@@ -30,15 +34,24 @@ pub enum CalibrationError {
         reason: String,
     },
 
+    /// The CSV parsed successfully but contained zero data rows. At
+    /// least one measurement is required to compute a calibration.
     #[error("empty energy CSV: no data rows found")]
     EmptyData,
 
+    /// Underlying filesystem I/O error when reading the CSV or writing
+    /// the calibration TOML output.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
+    /// The calibration TOML file loaded via `[green] calibration_file`
+    /// failed TOML deserialization (malformed syntax, wrong types).
     #[error("TOML parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
 
+    /// A semantic validation check failed on an otherwise well-formed
+    /// calibration TOML: negative or non-finite factor, missing base
+    /// energy, or a service factor outside the accepted range.
     #[error("validation error: {0}")]
     Validation(String),
 }
@@ -62,107 +75,15 @@ pub struct EnergyReading {
     pub energy_kwh: f64,
 }
 
-/// Parse an ISO 8601 timestamp string into milliseconds since epoch.
+/// Parse an ISO 8601 UTC timestamp into milliseconds since epoch.
 ///
-/// Handles formats like `2025-07-10T14:32:01.123Z` and `2025-07-10T14:32:01Z`.
-/// Rejects non-UTC timestamps.
+/// Thin wrapper around [`crate::time::parse_iso8601_utc_to_ms`]. Kept
+/// as a module-local function for a clearer stack trace on CSV errors
+/// ("failed to parse timestamp at row 42") and because earlier versions
+/// of this module had a hand-rolled implementation that has since been
+/// centralized in `time.rs`.
 fn parse_timestamp_ms(s: &str) -> Result<u64, String> {
-    let s = s.trim();
-    if !s.ends_with('Z') {
-        return Err("only UTC timestamps (ending with 'Z') are supported".to_string());
-    }
-    let without_z = &s[..s.len() - 1];
-
-    // Split on 'T' or space
-    let (date_part, time_part) = if let Some(pos) = without_z.find('T') {
-        (&without_z[..pos], &without_z[pos + 1..])
-    } else if let Some(pos) = without_z.find(' ') {
-        (&without_z[..pos], &without_z[pos + 1..])
-    } else {
-        return Err("expected 'T' or space between date and time".to_string());
-    };
-
-    // Parse date: YYYY-MM-DD
-    let date_parts: Vec<&str> = date_part.split('-').collect();
-    if date_parts.len() != 3 {
-        return Err("expected date format YYYY-MM-DD".to_string());
-    }
-    let year: u64 = date_parts[0]
-        .parse()
-        .map_err(|_| "invalid year".to_string())?;
-    let month: u64 = date_parts[1]
-        .parse()
-        .map_err(|_| "invalid month".to_string())?;
-    let day: u64 = date_parts[2]
-        .parse()
-        .map_err(|_| "invalid day".to_string())?;
-
-    if year < 1970 {
-        return Err("year must be >= 1970".to_string());
-    }
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return Err("month or day out of range".to_string());
-    }
-
-    // Parse time: HH:MM:SS[.mmm]
-    let (time_no_frac, millis) = if let Some(dot_pos) = time_part.find('.') {
-        let frac = &time_part[dot_pos + 1..];
-        let ms: u64 = match frac.len() {
-            1 => {
-                frac.parse::<u64>()
-                    .map_err(|_| "invalid fractional seconds")?
-                    * 100
-            }
-            2 => {
-                frac.parse::<u64>()
-                    .map_err(|_| "invalid fractional seconds")?
-                    * 10
-            }
-            3 => frac
-                .parse::<u64>()
-                .map_err(|_| "invalid fractional seconds")?,
-            _ => frac[..3]
-                .parse::<u64>()
-                .map_err(|_| "invalid fractional seconds")?,
-        };
-        (&time_part[..dot_pos], ms)
-    } else {
-        (time_part, 0u64)
-    };
-
-    let time_parts: Vec<&str> = time_no_frac.split(':').collect();
-    if time_parts.len() != 3 {
-        return Err("expected time format HH:MM:SS".to_string());
-    }
-    let hours: u64 = time_parts[0]
-        .parse()
-        .map_err(|_| "invalid hours".to_string())?;
-    let minutes: u64 = time_parts[1]
-        .parse()
-        .map_err(|_| "invalid minutes".to_string())?;
-    let seconds: u64 = time_parts[2]
-        .parse()
-        .map_err(|_| "invalid seconds".to_string())?;
-
-    if hours >= 24 || minutes >= 60 || seconds >= 60 {
-        return Err("time values out of range".to_string());
-    }
-
-    // Convert date to days since epoch using the same algorithm as time.rs
-    let (y, m) = if month <= 2 {
-        (year - 1, month + 9)
-    } else {
-        (year, month - 3)
-    };
-    let era = y / 400;
-    let yoe = y - era * 400;
-    let doy = (153 * m + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-
-    let total_ms =
-        days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
-    Ok(total_ms)
+    crate::time::parse_iso8601_utc_to_ms(s)
 }
 
 /// Parse an energy measurement CSV file.
@@ -836,5 +757,280 @@ base_energy_per_io_op_kwh = 0.000_000_1
         assert_eq!(warnings.len(), 2);
         assert!(warnings[0].contains("too-high"));
         assert!(warnings[1].contains("too-low"));
+    }
+
+    // --- parse_timestamp_ms error branches ---
+
+    #[test]
+    fn parse_timestamp_accepts_space_between_date_and_time() {
+        // Exercises the space-separator branch of parse_timestamp_ms.
+        let ms = parse_timestamp_ms("2025-07-10 14:32:01Z").unwrap();
+        let t_form = parse_timestamp_ms("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(ms, t_form);
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_missing_t_and_space() {
+        let err = parse_timestamp_ms("2025-07-1014:32:01Z").unwrap_err();
+        assert!(err.contains("'T' or space"));
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_wrong_date_format() {
+        let err = parse_timestamp_ms("2025-07T14:32:01Z").unwrap_err();
+        assert!(err.contains("YYYY-MM-DD"));
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_non_numeric_year_month_day() {
+        assert!(
+            parse_timestamp_ms("abcd-07-10T14:32:01Z")
+                .unwrap_err()
+                .contains("year")
+        );
+        assert!(
+            parse_timestamp_ms("2025-ab-10T14:32:01Z")
+                .unwrap_err()
+                .contains("month")
+        );
+        assert!(
+            parse_timestamp_ms("2025-07-abT14:32:01Z")
+                .unwrap_err()
+                .contains("day")
+        );
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_pre_1970_year() {
+        let err = parse_timestamp_ms("1969-12-31T23:59:59Z").unwrap_err();
+        assert!(err.contains("1970"));
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_month_day_out_of_range() {
+        assert!(
+            parse_timestamp_ms("2025-13-01T00:00:00Z")
+                .unwrap_err()
+                .contains("out of range")
+        );
+        assert!(
+            parse_timestamp_ms("2025-07-32T00:00:00Z")
+                .unwrap_err()
+                .contains("out of range")
+        );
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_wrong_time_format() {
+        let err = parse_timestamp_ms("2025-07-10T14:32Z").unwrap_err();
+        assert!(err.contains("HH:MM:SS"));
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_non_numeric_hours_minutes_seconds() {
+        assert!(
+            parse_timestamp_ms("2025-07-10Tab:32:01Z")
+                .unwrap_err()
+                .contains("hours")
+        );
+        assert!(
+            parse_timestamp_ms("2025-07-10T14:ab:01Z")
+                .unwrap_err()
+                .contains("minutes")
+        );
+        assert!(
+            parse_timestamp_ms("2025-07-10T14:32:abZ")
+                .unwrap_err()
+                .contains("seconds")
+        );
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_time_out_of_range() {
+        let err = parse_timestamp_ms("2025-07-10T25:00:00Z").unwrap_err();
+        assert!(err.contains("out of range"));
+    }
+
+    #[test]
+    fn parse_timestamp_accepts_1_digit_fractional_seconds() {
+        // Exercises the `1 => ... * 100` branch of the fractional parser.
+        let ms_1 = parse_timestamp_ms("2025-07-10T14:32:01.5Z").unwrap();
+        let ms_base = parse_timestamp_ms("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(ms_1 - ms_base, 500);
+    }
+
+    #[test]
+    fn parse_timestamp_accepts_2_digit_fractional_seconds() {
+        // Exercises the `2 => ... * 10` branch.
+        let ms_2 = parse_timestamp_ms("2025-07-10T14:32:01.25Z").unwrap();
+        let ms_base = parse_timestamp_ms("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(ms_2 - ms_base, 250);
+    }
+
+    #[test]
+    fn parse_timestamp_truncates_sub_millisecond_fractional_seconds() {
+        // Exercises the `_ => frac[..3].parse()` branch for 4+ digits.
+        let ms = parse_timestamp_ms("2025-07-10T14:32:01.123456Z").unwrap();
+        let ms_base = parse_timestamp_ms("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(ms - ms_base, 123);
+    }
+
+    #[test]
+    fn parse_timestamp_rejects_non_numeric_fractional_seconds() {
+        let err = parse_timestamp_ms("2025-07-10T14:32:01.abZ").unwrap_err();
+        assert!(err.contains("fractional"));
+    }
+
+    // --- parse_energy_csv error branches ---
+
+    #[test]
+    fn parse_energy_csv_reports_invalid_timestamp_with_line_number() {
+        let csv = "timestamp,service,energy_kwh\n\
+                   not-a-timestamp,svc-a,0.001\n";
+        let err = parse_energy_csv(csv).unwrap_err();
+        match err {
+            CalibrationError::TimestampParse { line, value, .. } => {
+                assert_eq!(line, 2);
+                assert_eq!(value, "not-a-timestamp");
+            }
+            other => panic!("expected TimestampParse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_energy_csv_reports_invalid_numeric_value_with_line_number() {
+        let csv = "timestamp,service,energy_kwh\n\
+                   2025-07-10T14:00:00Z,svc-a,not-a-number\n";
+        let err = parse_energy_csv(csv).unwrap_err();
+        match err {
+            CalibrationError::CsvParse { line, reason } => {
+                assert_eq!(line, 2);
+                assert!(reason.contains("not-a-number"));
+            }
+            other => panic!("expected CsvParse, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_energy_csv_power_watts_empty_after_conversion_returns_empty_data() {
+        // A single power reading cannot be converted (needs a pair).
+        // After conversion, the result is empty → EmptyData error.
+        let csv = "timestamp,service,power_watts\n\
+                   2025-07-10T14:00:00Z,svc-a,12.5\n";
+        let err = parse_energy_csv(csv).unwrap_err();
+        assert!(matches!(err, CalibrationError::EmptyData));
+    }
+
+    // --- calibrate() error branches ---
+
+    #[test]
+    fn calibrate_rejects_empty_readings() {
+        let events = vec![make_event("svc-a", "2025-07-10T14:00:00Z")];
+        let err = calibrate(&events, &[]).unwrap_err();
+        assert!(matches!(err, CalibrationError::EmptyData));
+    }
+
+    #[test]
+    fn calibrate_skips_events_with_unparsable_timestamp() {
+        // The trace event has a garbage timestamp — calibrate() must skip
+        // it silently via the `let Ok(ts) = ... else continue` path and
+        // still produce a valid result for the other events.
+        let mut bad_event = make_event("svc-a", "2025-07-10T14:00:05Z");
+        bad_event.timestamp = "not-a-timestamp".to_string();
+        let events = vec![bad_event, make_event("svc-a", "2025-07-10T14:00:05Z")];
+        let readings = vec![
+            EnergyReading {
+                timestamp_ms: parse_timestamp_ms("2025-07-10T14:00:00Z").unwrap(),
+                service: "svc-a".to_string(),
+                energy_kwh: 0.000_000_2,
+            },
+            EnergyReading {
+                timestamp_ms: parse_timestamp_ms("2025-07-10T14:00:10Z").unwrap(),
+                service: "svc-a".to_string(),
+                energy_kwh: 0.000_000_2,
+            },
+        ];
+        let results = calibrate(&events, &readings).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].total_ops, 1, "bad-timestamp event was skipped");
+    }
+
+    // --- load_calibration_file error branches ---
+
+    #[test]
+    fn load_calibration_file_rejects_missing_file() {
+        let err = load_calibration_file("/tmp/does-not-exist-abc123.toml").unwrap_err();
+        assert!(matches!(err, CalibrationError::Io(_)));
+    }
+
+    /// Write `contents` to a fresh file inside a `tempfile::TempDir` and
+    /// return the owned dir + path. The dir is auto-cleaned on drop, and
+    /// the path is unique per test invocation, avoiding symlink TOCTOU
+    /// and parallel-run collisions from predictable `/tmp/...` names.
+    fn write_temp_toml(filename: &str, contents: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir creation");
+        let path = dir.path().join(filename);
+        std::fs::write(&path, contents).unwrap();
+        (dir, path)
+    }
+
+    #[test]
+    fn load_calibration_file_rejects_malformed_toml() {
+        let (_dir, path) = write_temp_toml("malformed.toml", "not = valid [toml");
+        let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, CalibrationError::TomlParse(_)));
+    }
+
+    #[test]
+    fn load_calibration_file_rejects_negative_factor() {
+        let (_dir, path) = write_temp_toml(
+            "neg.toml",
+            r#"
+[calibration]
+base_energy_per_io_op_kwh = 0.0000001
+
+[calibration.services]
+"svc-a" = { factor = -1.0, measured_energy_per_op_kwh = 0.0000001 }
+"#,
+        );
+        let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, CalibrationError::Validation(_)));
+    }
+
+    #[test]
+    fn load_calibration_file_rejects_nonfinite_measured_energy() {
+        let (_dir, path) = write_temp_toml(
+            "inf.toml",
+            r#"
+[calibration]
+base_energy_per_io_op_kwh = 0.0000001
+
+[calibration.services]
+"svc-a" = { factor = 1.0, measured_energy_per_op_kwh = nan }
+"#,
+        );
+        let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
+        assert!(matches!(err, CalibrationError::Validation(_)));
+    }
+
+    #[test]
+    fn load_calibration_file_accepts_extreme_factors_with_warning() {
+        // Factors 0.0, > 10, < 0.1 all emit warnings but load successfully.
+        // This exercises the three `tracing::warn!` branches in load_calibration_file.
+        let (_dir, path) = write_temp_toml(
+            "warn.toml",
+            r#"
+[calibration]
+base_energy_per_io_op_kwh = 0.0000001
+
+[calibration.services]
+"zero" = { factor = 0.0, measured_energy_per_op_kwh = 0.0 }
+"too-high" = { factor = 15.0, measured_energy_per_op_kwh = 0.0000015 }
+"too-low" = { factor = 0.05, measured_energy_per_op_kwh = 0.000000005 }
+"normal" = { factor = 1.0, measured_energy_per_op_kwh = 0.0000001 }
+"#,
+        );
+        let data = load_calibration_file(path.to_str().unwrap()).unwrap();
+        assert_eq!(data.calibration.services.len(), 4);
     }
 }

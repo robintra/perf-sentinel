@@ -64,6 +64,7 @@ mod tests {
             total_io_ops: 0,
             avoidable_io_ops: 0,
             io_waste_ratio: 0.0,
+            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::Healthy,
             top_offenders: vec![],
             co2: None,
             regions: vec![],
@@ -171,6 +172,9 @@ mod tests {
             total_io_ops: 10,
             avoidable_io_ops: 5,
             io_waste_ratio: 0.5,
+            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+                0.5,
+            ),
             top_offenders: vec![],
             co2: None,
             regions: vec![],
@@ -203,6 +207,9 @@ mod tests {
             total_io_ops: 10,
             avoidable_io_ops: 8,
             io_waste_ratio: 0.8,
+            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+                0.8,
+            ),
             top_offenders: vec![],
             co2: None,
             regions: vec![],

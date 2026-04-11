@@ -1,12 +1,12 @@
 ---
-title: Batch Pipeline Architecture
+title: Batch pipeline architecture
 ---
 flowchart LR
     input["Vec&lt;SpanEvent&gt;"]
 
     subgraph normalize["1. Normalize"]
-        sql["SQL Tokenizer<br/><i>literals &rarr; ?</i>"]
-        http["HTTP Normalizer<br/><i>/users/42 &rarr; /users/{id}</i>"]
+        sql["SQL tokenizer<br/><i>literals &rarr; ?</i>"]
+        http["HTTP normalizer<br/><i>/users/42 &rarr; /users/{id}</i>"]
     end
 
     correlate["2. Correlate<br/><i>Group by trace_id</i>"]
@@ -16,16 +16,16 @@ flowchart LR
         red["Redundant<br/>SQL &amp; HTTP"]
         slow["Slow<br/>SQL &amp; HTTP"]
         fan["Fanout<br/><i>parent &rarr; children</i>"]
-        chatty["Chatty Service<br/><i>HTTP calls &ge; threshold</i>"]
-        pool["Pool Saturation<br/><i>concurrent SQL</i>"]
-        serial["Serialized Calls<br/><i>parallelizable siblings</i>"]
+        chatty["Chatty service<br/><i>HTTP calls &ge; threshold</i>"]
+        pool["Pool saturation<br/><i>concurrent SQL</i>"]
+        serial["Serialized calls<br/><i>parallelizable siblings</i>"]
     end
 
-    cross["3b. Cross-trace<br/>Slow Percentiles<br/><i>p50 / p95 / p99</i>"]
+    cross["3b. Cross-trace<br/>slow percentiles<br/><i>p50 / p95 / p99</i>"]
 
     subgraph score["4. Score"]
-        iis["I/O Intensity<br/>Score (IIS)"]
-        waste["Waste Ratio"]
+        iis["I/O intensity<br/>score (IIS)"]
+        waste["Waste ratio"]
         co2["gCO2eq<br/><i>SCI v1.0</i>"]
     end
 
@@ -44,7 +44,7 @@ flowchart LR
     pool --> score
     serial --> score
     cross --> score
-    score -- "Vec&lt;Finding&gt;<br/>GreenSummary" --> report
+    score -- "Vec&lt;Finding&gt;<br/>GreenSummary<br/><i>+ interpretation bands</i>" --> report
 
     style normalize fill:#2d4a3e,stroke:#4ade80
     style detect fill:#3b2d4a,stroke:#a78bfa

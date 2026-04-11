@@ -1,4 +1,11 @@
 //! Shared timestamp conversion helpers.
+//!
+//! This module is the **single source of truth** for civil-calendar
+//! arithmetic in the crate. Both directions are here: epoch → ISO 8601
+//! (via [`nanos_to_iso8601`] / [`micros_to_iso8601`]) and ISO 8601 →
+//! epoch ms (via [`parse_iso8601_utc_to_ms`]). Do not reimplement the
+//! Howard-Hinnant `days_from_civil` formulas anywhere else — call these
+//! helpers so a single bug fix propagates to every call site.
 
 /// Convert nanoseconds since epoch to an ISO 8601 timestamp string.
 ///
@@ -131,6 +138,126 @@ pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
         return None;
     }
     Some(month - 1) // 0-indexed
+}
+
+/// Parse an ISO 8601 UTC timestamp into milliseconds since epoch.
+///
+/// Accepts the same forms as [`parse_utc_hour`] plus the full
+/// `YYYY-MM-DDTHH:MM:SS[.fff]Z` variant:
+///
+/// - `T` or space between date and time
+/// - fractional seconds with 1 to 9 digits (truncated to 3 for ms)
+/// - must end with `Z` (UTC); non-UTC offsets are rejected
+///
+/// Uses Howard Hinnant's civil-date algorithm (the inverse of
+/// [`nanos_to_iso8601`]) so both directions share the same source of
+/// truth for leap-year handling and month-length arithmetic.
+///
+/// # Errors
+///
+/// Returns `Err` with a short human-readable message for non-UTC
+/// timestamps, unparseable fields, out-of-range values, or years before
+/// 1970.
+pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if !s.ends_with('Z') {
+        return Err("only UTC timestamps (ending with 'Z') are supported".to_string());
+    }
+    let without_z = &s[..s.len() - 1];
+
+    // Split on 'T' or space.
+    let (date_part, time_part) = if let Some(pos) = without_z.find('T') {
+        (&without_z[..pos], &without_z[pos + 1..])
+    } else if let Some(pos) = without_z.find(' ') {
+        (&without_z[..pos], &without_z[pos + 1..])
+    } else {
+        return Err("expected 'T' or space between date and time".to_string());
+    };
+
+    // Parse date: YYYY-MM-DD.
+    let date_parts: Vec<&str> = date_part.split('-').collect();
+    if date_parts.len() != 3 {
+        return Err("expected date format YYYY-MM-DD".to_string());
+    }
+    let year: u64 = date_parts[0]
+        .parse()
+        .map_err(|_| "invalid year".to_string())?;
+    let month: u64 = date_parts[1]
+        .parse()
+        .map_err(|_| "invalid month".to_string())?;
+    let day: u64 = date_parts[2]
+        .parse()
+        .map_err(|_| "invalid day".to_string())?;
+
+    if year < 1970 {
+        return Err("year must be >= 1970".to_string());
+    }
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Err("month or day out of range".to_string());
+    }
+
+    // Parse time: HH:MM:SS[.fff].
+    let (time_no_frac, millis) = if let Some(dot_pos) = time_part.find('.') {
+        let frac = &time_part[dot_pos + 1..];
+        let ms: u64 = match frac.len() {
+            1 => {
+                frac.parse::<u64>()
+                    .map_err(|_| "invalid fractional seconds")?
+                    * 100
+            }
+            2 => {
+                frac.parse::<u64>()
+                    .map_err(|_| "invalid fractional seconds")?
+                    * 10
+            }
+            3 => frac
+                .parse::<u64>()
+                .map_err(|_| "invalid fractional seconds")?,
+            _ => frac[..3]
+                .parse::<u64>()
+                .map_err(|_| "invalid fractional seconds")?,
+        };
+        (&time_part[..dot_pos], ms)
+    } else {
+        (time_part, 0u64)
+    };
+
+    let time_parts: Vec<&str> = time_no_frac.split(':').collect();
+    if time_parts.len() != 3 {
+        return Err("expected time format HH:MM:SS".to_string());
+    }
+    let hours: u64 = time_parts[0]
+        .parse()
+        .map_err(|_| "invalid hours".to_string())?;
+    let minutes: u64 = time_parts[1]
+        .parse()
+        .map_err(|_| "invalid minutes".to_string())?;
+    let seconds: u64 = time_parts[2]
+        .parse()
+        .map_err(|_| "invalid seconds".to_string())?;
+
+    if hours >= 24 || minutes >= 60 || seconds >= 60 {
+        return Err("time values out of range".to_string());
+    }
+
+    // Howard Hinnant's `days_from_civil` (inverse of the algorithm used
+    // in nanos_to_iso8601). Shifts the year so March is month 0, then
+    // computes era/yoe/doy/doe. See
+    // https://howardhinnant.github.io/date_algorithms.html.
+    let (y, m) = if month <= 2 {
+        (year - 1, month + 9)
+    } else {
+        (year, month - 3)
+    };
+    let era = y / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * m + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+
+    let total_ms =
+        days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
+    Ok(total_ms)
 }
 
 #[cfg(test)]
@@ -277,5 +404,67 @@ mod tests {
     #[test]
     fn parse_utc_month_rejects_missing_dash() {
         assert_eq!(parse_utc_month("2025007-10T14:32:01Z"), None);
+    }
+
+    // --- parse_iso8601_utc_to_ms ---
+
+    #[test]
+    fn parse_iso8601_round_trips_with_nanos_to_iso8601() {
+        // Round-trip: nanos → ISO → ms → verify consistency. This is
+        // the critical cross-function invariant: both directions must
+        // agree on day counting and leap-year handling.
+        let nanos = 1_720_621_921_123_000_000u64; // 2024-07-10T14:32:01.123Z
+        let iso = nanos_to_iso8601(nanos);
+        let ms = parse_iso8601_utc_to_ms(&iso).unwrap();
+        assert_eq!(ms, nanos / 1_000_000);
+    }
+
+    #[test]
+    fn parse_iso8601_epoch_zero() {
+        let ms = parse_iso8601_utc_to_ms("1970-01-01T00:00:00.000Z").unwrap();
+        assert_eq!(ms, 0);
+    }
+
+    #[test]
+    fn parse_iso8601_without_fractional_seconds() {
+        let ms = parse_iso8601_utc_to_ms("2025-07-10T14:32:01Z").unwrap();
+        assert_eq!(ms % 1000, 0);
+    }
+
+    #[test]
+    fn parse_iso8601_space_separator() {
+        let ms_t = parse_iso8601_utc_to_ms("2025-07-10T14:32:01.123Z").unwrap();
+        let ms_sp = parse_iso8601_utc_to_ms("2025-07-10 14:32:01.123Z").unwrap();
+        assert_eq!(ms_t, ms_sp);
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_non_utc() {
+        assert!(parse_iso8601_utc_to_ms("2025-07-10T14:32:01.123+02:00").is_err());
+        assert!(parse_iso8601_utc_to_ms("2025-07-10T14:32:01.123").is_err());
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_pre_epoch() {
+        assert!(parse_iso8601_utc_to_ms("1969-12-31T23:59:59Z").is_err());
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_invalid_month_day() {
+        assert!(parse_iso8601_utc_to_ms("2025-13-01T00:00:00Z").is_err());
+        assert!(parse_iso8601_utc_to_ms("2025-00-01T00:00:00Z").is_err());
+        assert!(parse_iso8601_utc_to_ms("2025-06-32T00:00:00Z").is_err());
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_invalid_time() {
+        assert!(parse_iso8601_utc_to_ms("2025-06-01T24:00:00Z").is_err());
+        assert!(parse_iso8601_utc_to_ms("2025-06-01T12:60:00Z").is_err());
+        assert!(parse_iso8601_utc_to_ms("2025-06-01T12:00:60Z").is_err());
+    }
+
+    #[test]
+    fn parse_iso8601_rejects_malformed_date_field_count() {
+        assert!(parse_iso8601_utc_to_ms("2025/07/10T14:32:01Z").is_err());
     }
 }

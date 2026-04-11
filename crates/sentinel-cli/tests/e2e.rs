@@ -754,7 +754,7 @@ fn cli_analyze_fanout_fixture() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Excessive Fanout"),
+        stdout.contains("Excessive fanout"),
         "should detect excessive fanout, got:\n{stdout}"
     );
 }

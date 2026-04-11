@@ -149,6 +149,7 @@ pub fn make_finding(
         green_impact: Some(crate::detect::GreenImpact {
             estimated_extra_io_ops: 5,
             io_intensity_score: 6.0,
+            io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(6.0),
         }),
         confidence: crate::detect::Confidence::default(),
     }
@@ -159,4 +160,97 @@ pub fn make_trace(events: Vec<SpanEvent>) -> Trace {
     let trace_id = events[0].trace_id.clone();
     let spans = normalize::normalize_all(events);
     Trace { trace_id, spans }
+}
+
+// ---------------------------------------------------------------
+// Mock HTTP server helpers for scraper and API-client tests
+// ---------------------------------------------------------------
+//
+// Every scraper/ingest module that does network I/O (scaphandre,
+// cloud_energy, electricity_maps, tempo) needs to test its HTTP
+// round-trips against a local mock. These helpers give them a single
+// implementation of the "bind ephemeral TCP port, accept one
+// connection, write a canned response, half-close" dance.
+//
+// The server is hand-rolled (raw `tokio::net::TcpListener` + raw
+// HTTP/1.1 response bytes) to avoid pulling in wiremock/httptest as
+// dev-deps. That's also why the helpers live here rather than in each
+// module's `tests.rs`: Qodana was flagging the 4-way duplicate.
+
+/// Bind an ephemeral TCP port on `127.0.0.1`, spawn a one-shot server
+/// that writes `response_body` verbatim on the first accepted
+/// connection, and return `(endpoint_url, server_join_handle)`.
+///
+/// Callers must `.await` the returned `JoinHandle` after driving the
+/// client side so the assertions inside the server task (`unwrap()`
+/// etc.) propagate their failures.
+///
+/// `response_body` is `Vec<u8>` so binary protocols (OTLP protobuf)
+/// can use the same helper as text/JSON.
+pub async fn spawn_one_shot_server(
+    response_body: Vec<u8>,
+) -> (String, tokio::task::JoinHandle<()>) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let endpoint = format!("http://{addr}");
+
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        // Drain the request headers so the client doesn't see a reset.
+        let mut buf = [0u8; 4096];
+        let _ = socket.read(&mut buf).await;
+        let _ = socket.write_all(&response_body).await;
+        let _ = socket.flush().await;
+        let _ = socket.shutdown().await;
+    });
+    (endpoint, handle)
+}
+
+/// Build an HTTP/1.1 200 OK response with a text body and the given
+/// `Content-Type`. Used for JSON and Prometheus scrape responses.
+#[must_use]
+pub fn http_200_text(content_type: &str, body: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        body.len()
+    )
+    .into_bytes()
+}
+
+/// Build an HTTP/1.1 200 OK response with a binary body. Used for
+/// OTLP protobuf responses (Tempo fetch).
+#[must_use]
+pub fn http_200_bytes(content_type: &str, body: &[u8]) -> Vec<u8> {
+    let headers = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: {content_type}\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n",
+        body.len()
+    );
+    let mut out = headers.into_bytes();
+    out.extend_from_slice(body);
+    out
+}
+
+/// Build an HTTP/1.1 status-only response (empty body). Used for 4xx
+/// and 5xx error-path tests.
+#[must_use]
+pub fn http_status(code: u16, reason: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 {code} {reason}\r\n\
+         Content-Length: 0\r\n\
+         Connection: close\r\n\
+         \r\n"
+    )
+    .into_bytes()
 }

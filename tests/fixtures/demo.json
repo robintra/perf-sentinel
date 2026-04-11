@@ -1,0 +1,1163 @@
+[
+  {
+    "timestamp": "2025-07-10T14:32:01.000Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-1",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 1",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.050Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-2",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 2",
+    "duration_us": 750,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.100Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-3",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 3",
+    "duration_us": 900,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.150Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-4",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 4",
+    "duration_us": 820,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.200Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-5",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 5",
+    "duration_us": 780,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.250Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-6",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 6",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.300Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-7",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 7",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.350Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-8",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 8",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.400Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-9",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 9",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:01.450Z",
+    "trace_id": "trace-demo-nplus-sql",
+    "span_id": "span-nplus-sql-10",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 10",
+    "duration_us": 800,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.000Z",
+    "trace_id": "trace-demo-nplus-http",
+    "span_id": "span-nplus-http-1",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/101",
+    "duration_us": 12000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.050Z",
+    "trace_id": "trace-demo-nplus-http",
+    "span_id": "span-nplus-http-2",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/102",
+    "duration_us": 11000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.100Z",
+    "trace_id": "trace-demo-nplus-http",
+    "span_id": "span-nplus-http-3",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/103",
+    "duration_us": 13000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.150Z",
+    "trace_id": "trace-demo-nplus-http",
+    "span_id": "span-nplus-http-4",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/104",
+    "duration_us": 14000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:02.200Z",
+    "trace_id": "trace-demo-nplus-http",
+    "span_id": "span-nplus-http-5",
+    "service": "order-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/105",
+    "duration_us": 11500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/orders/42/submit",
+      "method": "OrderService::create_order"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:03.000Z",
+    "trace_id": "trace-demo-redundant-sql",
+    "span_id": "span-redundant-sql-1",
+    "service": "cache-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM settings WHERE key = 'theme'",
+    "duration_us": 200,
+    "source": {
+      "endpoint": "GET /api/settings",
+      "method": "SettingsService::get_settings"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:03.050Z",
+    "trace_id": "trace-demo-redundant-sql",
+    "span_id": "span-redundant-sql-2",
+    "service": "cache-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM settings WHERE key = 'theme'",
+    "duration_us": 180,
+    "source": {
+      "endpoint": "GET /api/settings",
+      "method": "SettingsService::get_settings"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:03.100Z",
+    "trace_id": "trace-demo-redundant-sql",
+    "span_id": "span-redundant-sql-3",
+    "service": "cache-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM settings WHERE key = 'theme'",
+    "duration_us": 190,
+    "source": {
+      "endpoint": "GET /api/settings",
+      "method": "SettingsService::get_settings"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:04.000Z",
+    "trace_id": "trace-demo-redundant-http",
+    "span_id": "span-redundant-http-1",
+    "service": "profile-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://auth-svc:5000/api/token/validate",
+    "duration_us": 4500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/profile/me",
+      "method": "ProfileService::get_me"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:04.050Z",
+    "trace_id": "trace-demo-redundant-http",
+    "span_id": "span-redundant-http-2",
+    "service": "profile-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://auth-svc:5000/api/token/validate",
+    "duration_us": 4800,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/profile/me",
+      "method": "ProfileService::get_me"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:04.100Z",
+    "trace_id": "trace-demo-redundant-http",
+    "span_id": "span-redundant-http-3",
+    "service": "profile-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://auth-svc:5000/api/token/validate",
+    "duration_us": 4700,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/profile/me",
+      "method": "ProfileService::get_me"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:05.000Z",
+    "trace_id": "trace-demo-slow-sql",
+    "span_id": "span-slow-sql-1",
+    "service": "reports-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM reports WHERE month = 1",
+    "duration_us": 720000,
+    "source": {
+      "endpoint": "GET /api/reports/monthly",
+      "method": "ReportsService::monthly_summary"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:05.800Z",
+    "trace_id": "trace-demo-slow-sql",
+    "span_id": "span-slow-sql-2",
+    "service": "reports-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM reports WHERE month = 2",
+    "duration_us": 680000,
+    "source": {
+      "endpoint": "GET /api/reports/monthly",
+      "method": "ReportsService::monthly_summary"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:06.600Z",
+    "trace_id": "trace-demo-slow-sql",
+    "span_id": "span-slow-sql-3",
+    "service": "reports-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM reports WHERE month = 3",
+    "duration_us": 750000,
+    "source": {
+      "endpoint": "GET /api/reports/monthly",
+      "method": "ReportsService::monthly_summary"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:08.000Z",
+    "trace_id": "trace-demo-slow-http",
+    "span_id": "span-slow-http-1",
+    "service": "reports-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://analytics-svc:5000/api/reports/quarterly/1",
+    "duration_us": 700000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/reports/quarterly",
+      "method": "ReportsService::quarterly_aggregate"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:08.800Z",
+    "trace_id": "trace-demo-slow-http",
+    "span_id": "span-slow-http-2",
+    "service": "reports-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://analytics-svc:5000/api/reports/quarterly/2",
+    "duration_us": 820000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/reports/quarterly",
+      "method": "ReportsService::quarterly_aggregate"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:09.700Z",
+    "trace_id": "trace-demo-slow-http",
+    "span_id": "span-slow-http-3",
+    "service": "reports-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://analytics-svc:5000/api/reports/quarterly/3",
+    "duration_us": 780000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/reports/quarterly",
+      "method": "ReportsService::quarterly_aggregate"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.000Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT 1",
+    "duration_us": 300000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.010Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-1",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://payment-svc:5000/api/payments/status",
+    "duration_us": 45000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.011Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-2",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://inventory-svc:5000/api/inventory/check",
+    "duration_us": 80000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.012Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-3",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://shipping-svc:5000/api/shipping/rates",
+    "duration_us": 120000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.013Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-4",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://tax-svc:5000/api/tax/compute",
+    "duration_us": 35000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.014Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-5",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://coupon-svc:5000/api/coupons/validate",
+    "duration_us": 28000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.015Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-6",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/user/preferences",
+    "duration_us": 60000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.016Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-7",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://loyalty-svc:5000/api/loyalty/points",
+    "duration_us": 90000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.017Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-8",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://email-svc:5000/api/email/template",
+    "duration_us": 55000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.018Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-9",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://sms-svc:5000/api/sms/template",
+    "duration_us": 42000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.019Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-10",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://fraud-svc:5000/api/fraud/score",
+    "duration_us": 220000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.020Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-11",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://analytics-svc:5000/api/analytics/track",
+    "duration_us": 30000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.021Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-12",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://search-svc:5000/api/search/reindex",
+    "duration_us": 150000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.022Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-13",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://recommendation-svc:5000/api/recs/refresh",
+    "duration_us": 180000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.023Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-14",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://warehouse-svc:5000/api/warehouse/reserve",
+    "duration_us": 110000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.024Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-http-15",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://session-svc:5000/api/session/refresh",
+    "duration_us": 25000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.025Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-1",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM carts WHERE user_id = 42",
+    "duration_us": 35000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.026Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-2",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM orders WHERE status = 'pending'",
+    "duration_us": 45000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.027Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-3",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM addresses WHERE user_id = 42",
+    "duration_us": 28000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.028Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-4",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM payment_methods WHERE user_id = 42",
+    "duration_us": 40000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.029Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-5",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM promotions WHERE active = true",
+    "duration_us": 25000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:11.030Z",
+    "trace_id": "trace-demo-fanout",
+    "span_id": "span-fanout-sql-6",
+    "parent_span_id": "span-fanout-root",
+    "service": "checkout-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM inventory WHERE warehouse = 'EU-1'",
+    "duration_us": 32000,
+    "source": {
+      "endpoint": "POST /api/checkout/confirm",
+      "method": "CheckoutService::confirm"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.000Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-1",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/user/profile",
+    "duration_us": 10000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.020Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-2",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://activity-svc:5000/api/activity/feed",
+    "duration_us": 12000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.040Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-3",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://notification-svc:5000/api/notifications/unread",
+    "duration_us": 9500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.060Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-4",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://friend-svc:5000/api/friends/list",
+    "duration_us": 8000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.080Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-5",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://message-svc:5000/api/messages/inbox",
+    "duration_us": 11000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.100Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-6",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://achievement-svc:5000/api/achievements/recent",
+    "duration_us": 7500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.120Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-7",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://stats-svc:5000/api/stats/summary",
+    "duration_us": 13000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.140Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-8",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://leaderboard-svc:5000/api/leaderboard/weekly",
+    "duration_us": 14000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.160Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-9",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://event-svc:5000/api/events/upcoming",
+    "duration_us": 10500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.180Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-10",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://shop-svc:5000/api/shop/featured",
+    "duration_us": 9000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.200Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-11",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://quest-svc:5000/api/quests/available",
+    "duration_us": 11500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.220Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-12",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://guild-svc:5000/api/guild/info",
+    "duration_us": 8500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.240Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-13",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://ranking-svc:5000/api/ranking/current",
+    "duration_us": 12500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.260Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-14",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://trade-svc:5000/api/trades/pending",
+    "duration_us": 7000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.280Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-15",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://mail-svc:5000/api/mail/inbox",
+    "duration_us": 10000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:12.300Z",
+    "trace_id": "trace-demo-chatty",
+    "span_id": "span-chatty-16",
+    "service": "gateway-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://calendar-svc:5000/api/calendar/today",
+    "duration_us": 9500,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard/home",
+      "method": "DashboardGateway::home"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-1",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_items WHERE cart_id = 1",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-2",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_metadata WHERE cart_id = 1",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-3",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM shipping_options WHERE region = 'EU'",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-4",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM gift_wraps WHERE available = true",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-5",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM tax_rates WHERE country = 'FR'",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-6",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM discount_codes WHERE active = true",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-7",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM product_stocks WHERE available > 0",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-8",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM user_preferences WHERE user_id = 42",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-9",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM payment_tokens WHERE user_id = 42",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:13.000Z",
+    "trace_id": "trace-demo-pool",
+    "span_id": "span-pool-10",
+    "service": "orders-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM shipping_addresses WHERE user_id = 42",
+    "duration_us": 200000,
+    "source": {
+      "endpoint": "POST /api/orders/bulk",
+      "method": "OrdersService::bulk_create"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:14.000Z",
+    "trace_id": "trace-demo-serialized",
+    "span_id": "span-serialized-1",
+    "parent_span_id": "span-dashboard-root",
+    "service": "dashboard-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://user-svc:5000/api/users/42",
+    "duration_us": 80000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard",
+      "method": "DashboardService::render"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:14.090Z",
+    "trace_id": "trace-demo-serialized",
+    "span_id": "span-serialized-2",
+    "parent_span_id": "span-dashboard-root",
+    "service": "dashboard-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://order-svc:5000/api/orders/42",
+    "duration_us": 85000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard",
+      "method": "DashboardService::render"
+    }
+  },
+  {
+    "timestamp": "2025-07-10T14:32:14.180Z",
+    "trace_id": "trace-demo-serialized",
+    "span_id": "span-serialized-3",
+    "parent_span_id": "span-dashboard-root",
+    "service": "dashboard-svc",
+    "type": "http_out",
+    "operation": "GET",
+    "target": "http://notification-svc:5000/api/notifications/42",
+    "duration_us": 75000,
+    "status_code": 200,
+    "source": {
+      "endpoint": "GET /api/dashboard",
+      "method": "DashboardService::render"
+    }
+  }
+]

@@ -1,5 +1,5 @@
 ---
-title: CLI Commands Overview
+title: CLI commands overview
 ---
 flowchart LR
     cli["perf-sentinel"]
@@ -15,7 +15,7 @@ flowchart LR
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
-    tempo_pipeline["Tempo fetch<br/>&rarr; Pipeline"]
+    tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
     inspect_pipeline["Pipeline + TUI<br/><i>ratatui 3-panel</i>"]
     demo_pipeline["Pipeline"]
     bench_pipeline["Pipeline<br/><i>throughput measurement</i>"]
@@ -24,13 +24,13 @@ flowchart LR
     ranking["rank_entries()<br/><i>top-N hotspots</i>"]
     cal_engine["calibrate()<br/><i>correlate ops + energy</i>"]
 
-    report_text["Colored<br/>Terminal"]
-    report_json["JSON<br/>Report"]
+    report_text["Colored<br/>terminal"]
+    report_json["JSON<br/>report"]
     report_sarif["SARIF<br/>v2.1.0"]
     report_ndjson["NDJSON<br/>stdout"]
     report_metrics["Prometheus<br/>/metrics"]
     report_toml["Calibration<br/>TOML"]
-    report_bench["JSON<br/>Perf Metrics"]
+    report_bench["JSON<br/>perf metrics"]
 
     cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate
 

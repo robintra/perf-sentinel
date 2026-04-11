@@ -198,6 +198,8 @@ Chemin vers un fichier TOML de calibration généré par `perf-sentinel calibrat
 calibration_file = ".perf-sentinel-calibration.toml"
 ```
 
+**Limites de taille d'entrée pour `perf-sentinel calibrate`.** Les deux entrées sont plafonnées pour éviter une consommation mémoire incontrôlée : le fichier `--traces` utilise `config.max_payload_size` (défaut 1 MiB, identique à `analyze`), et le CSV `--measured-energy` est plafonné à 64 MiB. Calibrate termine avec une erreur claire si l'un des fichiers dépasse sa limite. 64 MiB est généreux pour des milliers d'échantillons RAPL par minute ; si vous avez besoin de plus, augmentez `max_payload_size` et ouvrez une issue décrivant la charge de travail.
+
 #### `[tempo]` (optionnel)
 
 Configuration pour la sous-commande `perf-sentinel tempo`. La sous-commande s'exécute en **mode batch** (pas daemon), récupère les traces depuis l'API HTTP d'un Grafana Tempo et les passe dans le pipeline d'analyse standard. Toutes les valeurs ci-dessous peuvent être définies via les flags CLI (les flags ont priorité).

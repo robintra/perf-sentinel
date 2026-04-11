@@ -12,6 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
 use crate::report::metrics::MetricsState;
 
 use super::config::ScaphandreConfig;
@@ -19,33 +20,23 @@ use super::ops::{OpsSnapshotDiff, apply_scrape};
 use super::parser::parse_scaphandre_metrics;
 use super::state::{ScaphandreState, monotonic_ms};
 
-// Re-export shared HTTP client utilities so existing importers
-// (cloud_energy, electricity_maps) continue to work via the
-// `scaphandre::scraper` path. New code should import from
-// `crate::http_client` directly.
-pub(crate) use crate::http_client::HttpClient as ScraperClient;
-pub(crate) use crate::http_client::MAX_BODY_BYTES as MAX_SCRAPE_BODY_BYTES;
-
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely unsupported platform" warning. 3 is
 /// enough to rule out transient network blips on a working host
 /// without delaying the diagnostic too long on a misconfigured host.
 const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 
-pub(crate) use crate::http_client::build_client as build_scraper_client;
-pub(crate) use crate::http_client::redact_endpoint;
-
 /// Scrape the Scaphandre endpoint once via the hyper-util client.
 /// Returns the response body as a `String` on success.
 ///
 /// A 3-second hard timeout guards against hung endpoints. Non-2xx
 /// responses are treated as errors. The body is wrapped in
-/// [`http_body_util::Limited`] with [`MAX_SCRAPE_BODY_BYTES`] so a
+/// [`http_body_util::Limited`] with [`MAX_BODY_BYTES`] so a
 /// runaway endpoint cannot OOM the daemon. The function takes the
-/// pre-parsed `Uri` and the long-lived [`ScraperClient`] by
+/// pre-parsed `Uri` and the long-lived [`HttpClient`] by
 /// reference so connection pooling actually kicks in.
 pub(super) async fn fetch_metrics_once(
-    client: &ScraperClient,
+    client: &HttpClient,
     uri: &hyper::Uri,
 ) -> Result<String, ScraperError> {
     use http_body_util::{BodyExt, Empty, Limited};
@@ -69,11 +60,11 @@ pub(super) async fn fetch_metrics_once(
         return Err(ScraperError::HttpStatus(response.status().as_u16()));
     }
 
-    // Cap the body at MAX_SCRAPE_BODY_BYTES. `Limited` produces a
+    // Cap the body at MAX_BODY_BYTES. `Limited` produces a
     // `LengthLimitError` when the cap is exceeded; we map it to the
     // dedicated `BodyRead` variant so operators can distinguish it
     // from a transport error.
-    let limited_body = Limited::new(response.into_body(), MAX_SCRAPE_BODY_BYTES);
+    let limited_body = Limited::new(response.into_body(), MAX_BODY_BYTES);
     let collected = limited_body
         .collect()
         .await
@@ -94,7 +85,7 @@ pub(super) async fn fetch_metrics_once(
 pub(super) enum ScraperError {
     /// Endpoint URI failed to parse at config-load or scraper-startup time.
     /// The `endpoint` field is the redacted URL (no userinfo) — see
-    /// [`redact_endpoint`].
+    /// [`http_client::redact_endpoint`].
     #[error("invalid Scaphandre endpoint URI '{endpoint}'")]
     InvalidUri {
         endpoint: String,
@@ -105,7 +96,7 @@ pub(super) enum ScraperError {
     RequestBuild(#[source] hyper::http::Error),
     #[error("HTTP transport error")]
     Transport(#[source] hyper_util::client::legacy::Error),
-    /// Body read failed or exceeded `MAX_SCRAPE_BODY_BYTES`.
+    /// Body read failed or exceeded `MAX_BODY_BYTES`.
     /// The inner string is the upstream error message — typically a
     /// `LengthLimitError` from `http_body_util::Limited` when the cap
     /// trips, or a connection-level read failure otherwise.
@@ -148,7 +139,7 @@ pub fn spawn_scraper(
 /// Inner loop for [`spawn_scraper`]. Extracted so tests can drive a
 /// single tick without the full spawn machinery.
 ///
-/// Owns one [`ScraperClient`] for the lifetime of the scraper task so
+/// Owns one [`HttpClient`] for the lifetime of the scraper task so
 /// hyper-util can pool the underlying TCP connection between scrapes.
 /// Parses the endpoint URI once at startup; if the URI is malformed
 /// the task logs and exits cleanly without retrying — a user-facing
@@ -175,8 +166,8 @@ async fn run_scraper_loop(
             return;
         }
     };
-    let redacted = redact_endpoint(&uri);
-    let client = build_scraper_client();
+    let redacted = http_client::redact_endpoint(&uri);
+    let client = http_client::build_client();
 
     let mut ticker = tokio::time::interval(cfg.scrape_interval);
     // Skip ticks instead of bursting if the scraper falls behind.

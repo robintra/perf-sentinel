@@ -54,18 +54,70 @@ For each detected anti-pattern, perf-sentinel reports:
 - **Suggestion:** e.g. "batch this query", "use a batch endpoint", "consider adding an index"
 - **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, structured `co2` object (`low`/`mid`/`high`, SCI v1.0 operational + embodied terms), per-region breakdown when multi-region scoring is active
 
-![demo](docs/img/demo.gif)
+![demo](docs/img/analyze/demo.gif)
+
+Or drill into a single trace with the `explain` tree view, which annotates findings inline next to the offending spans:
+
+![explain tree view](docs/img/explain/demo.gif)
+
+Or browse traces, findings, and span trees interactively with the `inspect` TUI (3-panel layout, keyboard navigation):
+
+![inspect TUI](docs/img/inspect/demo.gif)
+
+Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Three rankings (by total time, by call count, by mean latency) help you spot queries that dominate the DB without being visible in your traces — a sign of instrumentation gaps:
+
+![pg-stat hotspots](docs/img/pg-stat/demo.gif)
+
+Finally, tune the I/O-to-energy coefficients to your real infrastructure with `calibrate`, which correlates a trace file with measured energy readings (Scaphandre, cloud monitoring, etc.) and emits a TOML file loaded via `[green] calibration_file`:
+
+![calibrate workflow](docs/img/calibrate/demo.gif)
 
 <details>
 <summary>Still frames</summary>
 
 **Configuration** (`.perf-sentinel.toml`):
 
-![config](docs/img/demo-config.png)
+![config](docs/img/analyze/config.png)
 
-**Analysis report:**
+**Analysis report** (the first GIF above scrolls through the full report; the four still frames below cover it page by page, with a small overlap so every finding appears fully on at least one page):
 
-![report](docs/img/demo-report.png)
+![page 1: N+1 SQL, N+1 HTTP, redundant SQL](docs/img/analyze/report-1.png)
+
+![page 2: redundant HTTP, slow SQL, slow HTTP](docs/img/analyze/report-2.png)
+
+![page 3: excessive fanout, chatty service, pool saturation](docs/img/analyze/report-3.png)
+
+![page 4: serialized calls, GreenOps summary, quality gate](docs/img/analyze/report-4.png)
+
+**Explain mode** (tree view of a single trace, `perf-sentinel explain --trace-id <id>`). Span-anchored findings (N+1, redundant, slow, fanout) are rendered inline next to the offending spans; trace-level findings (chatty service, pool saturation, serialized calls) are surfaced in a dedicated header above the tree:
+
+![explain tree view with excessive fanout annotation on the parent span](docs/img/explain/tree.png)
+
+![explain trace-level header with chatty service warning](docs/img/explain/trace-level.png)
+
+**Inspect mode** (interactive TUI, `perf-sentinel inspect`). The findings panel header colors findings by severity; below are five still frames walking the demo fixture across the three severity levels plus a detail-panel view with its scroll feature:
+
+![inspect TUI, initial view: chatty service warning (yellow)](docs/img/inspect/main.png)
+
+![inspect TUI, detail panel active: top of the excessive fanout span tree](docs/img/inspect/detail.png)
+
+![inspect TUI, detail panel scrolled down: bottom half of the fanout tree](docs/img/inspect/detail-scrolled.png)
+
+![inspect TUI, N+1 SQL critical (red): 10 occurrences, batch suggestion](docs/img/inspect/critical.png)
+
+![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](docs/img/inspect/info.png)
+
+**pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries three ways (by total execution time, by call count, by mean latency). Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
+
+![pg-stat: top hotspots by total time, calls, and mean latency](docs/img/pg-stat/hotspots.png)
+
+**Calibrate mode** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`):
+
+![calibrate input: CSV with per-service power readings](docs/img/calibrate/csv.png)
+
+![calibrate run: warnings and per-service factors printed](docs/img/calibrate/run.png)
+
+![calibrate output: generated TOML with calibration factors](docs/img/calibrate/output.png)
 
 </details>
 
@@ -77,66 +129,99 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
 ```json
 {
   "analysis": {
-    "duration_ms": 1,
-    "events_processed": 6,
+    "duration_ms": 0,
+    "events_processed": 10,
     "traces_analyzed": 1
   },
   "findings": [
     {
       "type": "n_plus_one_sql",
-      "severity": "warning",
-      "trace_id": "trace-n1-sql",
-      "service": "game",
-      "source_endpoint": "POST /api/game/42/start",
+      "severity": "critical",
+      "trace_id": "trace-demo-nplus-sql",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/42/submit",
       "pattern": {
-        "template": "SELECT * FROM player WHERE game_id = ?",
-        "occurrences": 6,
-        "window_ms": 250,
-        "distinct_params": 6
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 10,
+        "window_ms": 450,
+        "distinct_params": 10
       },
-      "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+      "suggestion": "Use WHERE ... IN (?) to batch 10 queries into one",
       "first_timestamp": "2025-07-10T14:32:01.000Z",
-      "last_timestamp": "2025-07-10T14:32:01.250Z",
+      "last_timestamp": "2025-07-10T14:32:01.450Z",
       "green_impact": {
-        "estimated_extra_io_ops": 5,
-        "io_intensity_score": 6.0
-      }
+        "estimated_extra_io_ops": 9,
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
+      },
+      "confidence": "ci_batch"
     }
   ],
   "green_summary": {
-    "total_io_ops": 6,
-    "avoidable_io_ops": 5,
-    "io_waste_ratio": 0.833,
+    "total_io_ops": 10,
+    "avoidable_io_ops": 9,
+    "io_waste_ratio": 0.9,
+    "io_waste_ratio_band": "critical",
     "top_offenders": [
       {
-        "endpoint": "POST /api/game/42/start",
-        "service": "game",
-        "io_intensity_score": 6.0,
-        "co2_grams": 0.000054
+        "endpoint": "POST /api/orders/42/submit",
+        "service": "order-svc",
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
       }
     ],
     "co2": {
-      "total":     { "low": 0.000519, "mid": 0.001038, "high": 0.002076, "model": "io_proxy_v1", "methodology": "sci_v1_numerator" },
-      "avoidable": { "low": 0.000016, "mid": 0.000032, "high": 0.000064, "model": "io_proxy_v1", "methodology": "sci_v1_operational_ratio" },
-      "operational_gco2": 0.000038,
+      "total":     { "low": 0.000512, "mid": 0.001024, "high": 0.002048, "model": "io_proxy_v3", "methodology": "sci_v1_numerator" },
+      "avoidable": { "low": 0.000011, "mid": 0.000021, "high": 0.000043, "model": "io_proxy_v3", "methodology": "sci_v1_operational_ratio" },
+      "operational_gco2": 0.000024,
       "embodied_gco2":    0.001
     },
     "regions": [
-      { "region": "eu-west-3", "grid_intensity_gco2_kwh": 56.0, "pue": 1.135, "io_ops": 6, "co2_gco2": 0.000038 }
+      {
+        "status": "known",
+        "region": "eu-west-3",
+        "grid_intensity_gco2_kwh": 42.0,
+        "pue": 1.135,
+        "io_ops": 10,
+        "co2_gco2": 0.000024,
+        "intensity_source": "monthly_hourly"
+      }
     ]
   },
   "quality_gate": {
     "passed": false,
     "rules": [
-      { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 0.0, "passed": true },
+      { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 1.0, "passed": false },
       { "rule": "n_plus_one_http_warning_max", "threshold": 3.0, "actual": 0.0, "passed": true },
-      { "rule": "io_waste_ratio_max", "threshold": 0.3, "actual": 0.833, "passed": false }
+      { "rule": "io_waste_ratio_max", "threshold": 0.1, "actual": 0.9, "passed": false }
     ]
   }
 }
 ```
 
 </details>
+
+### How to read the report
+
+The CLI renders a `(healthy / moderate / high / critical)` qualifier next to I/O Intensity Score and I/O waste ratio. The same classification ships as sibling fields in the JSON report (`io_intensity_band`, `io_waste_ratio_band`), so downstream tools like SARIF converters, Grafana panels, or IDE plugins can consume our heuristics or apply their own on the raw numbers.
+
+| IIS       | Band       | Anchor                                            |
+|-----------|------------|---------------------------------------------------|
+| < 2.0     | `healthy`  | simple CRUD baseline (≤ 2 I/O per request)        |
+| 2.0 – 4.9 | `moderate` | above baseline, worth watching (heuristic)        |
+| 5.0 – 9.9 | `high`     | N+1 detector's flag threshold (5 occurrences)     |
+| ≥ 10.0    | `critical` | N+1 detector's CRITICAL severity escalation       |
+
+| I/O waste ratio | Band       | Anchor                                       |
+|-----------------|------------|----------------------------------------------|
+| < 10%           | `healthy`  |                                              |
+| 10 – 29%        | `moderate` |                                              |
+| 30 – 49%        | `high`     | default `[thresholds] io_waste_ratio_max`    |
+| ≥ 50%           | `critical` | majority of analyzed I/O is waste            |
+
+**JSON stability contract:** the enum values above (`healthy` / `moderate` / `high` / `critical`) are stable across versions. The numeric thresholds behind them are versioned with the binary and may evolve. Consumers who want a version-independent classification should read the raw `io_intensity_score` and `io_waste_ratio` fields and apply their own bands.
+
+For per-finding severity (`Critical` / `Warning` / `Info` on each detector type), see [`docs/design/04-DETECTION.md`](docs/design/04-DETECTION.md). For the full rationale behind the interpretation bands, see [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md#score-interpretation).
 
 ## Getting Started
 

@@ -7,3 +7,7 @@
 
 # JetBrains Qodana (local-only static analysis config)
 /qodana.yaml
+
+# VHS byproduct: tapes/demo-config.tape needs an Output directive but we
+# only care about the PNG it produces via Screenshot. The GIF is unused.
+/tapes/demo-config-unused.gif

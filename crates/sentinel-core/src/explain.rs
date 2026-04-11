@@ -4,7 +4,7 @@ use crate::correlate::Trace;
 use crate::detect::Finding;
 use crate::normalize::NormalizedEvent;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// A node in the explain tree, representing a single span.
 #[derive(Debug, Clone, Serialize)]
@@ -31,24 +31,61 @@ pub struct InlineFinding {
     pub suggestion: String,
 }
 
+impl InlineFinding {
+    /// Convert a full [`Finding`] into a compact inline representation.
+    fn from_finding(f: &Finding) -> Self {
+        Self {
+            finding_type: f.finding_type.as_str().to_string(),
+            severity: f.severity.as_str().to_string(),
+            occurrences: f.pattern.occurrences,
+            suggestion: f.suggestion.clone(),
+        }
+    }
+}
+
 /// The complete explain tree for a trace.
 #[derive(Debug, Clone, Serialize)]
 pub struct ExplainTree {
     pub trace_id: String,
+    /// Trace-level findings that cannot be anchored to a single span.
+    ///
+    /// The span-template-based annotation path attaches findings to spans
+    /// whose normalized template matches `finding.pattern.template`. Some
+    /// detectors (chatty service, pool saturation, serialized calls) emit
+    /// findings whose `pattern.template` is a service name or an entry
+    /// endpoint rather than a span template, so the match finds nothing.
+    /// Those findings land here instead of being silently dropped from the
+    /// tree view.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trace_level_findings: Vec<InlineFinding>,
     pub roots: Vec<SpanNode>,
 }
 
 /// Build an explain tree from a trace and its findings.
 #[must_use]
 pub fn build_tree(trace: &Trace, findings: &[Finding]) -> ExplainTree {
-    // Index findings by template for quick lookup
+    // Collect the set of span templates that actually appear in the trace.
+    // Used both to index span-anchored findings and to decide which findings
+    // fall through to the trace-level bucket.
+    let span_templates: HashSet<&str> = trace.spans.iter().map(|s| s.template.as_str()).collect();
+
+    // Index findings by template for quick lookup (span-anchored path).
+    // Any finding whose template does not match a span template is collected
+    // separately into `trace_level_findings` so the tree view can still
+    // surface it at the top instead of dropping it silently.
     let mut findings_by_template: HashMap<&str, Vec<&Finding>> = HashMap::new();
+    let mut trace_level_findings: Vec<InlineFinding> = Vec::new();
     for f in findings {
-        if f.trace_id == trace.trace_id {
+        if f.trace_id != trace.trace_id {
+            continue;
+        }
+        if span_templates.contains(f.pattern.template.as_str()) {
             findings_by_template
                 .entry(f.pattern.template.as_str())
                 .or_default()
                 .push(f);
+        } else {
+            trace_level_findings.push(InlineFinding::from_finding(f));
         }
     }
 
@@ -88,6 +125,7 @@ pub fn build_tree(trace: &Trace, findings: &[Finding]) -> ExplainTree {
 
     ExplainTree {
         trace_id: trace.trace_id.clone(),
+        trace_level_findings,
         roots: root_nodes,
     }
 }
@@ -98,16 +136,7 @@ fn make_node(
 ) -> SpanNode {
     let inline_findings = findings_by_template
         .get(span.template.as_str())
-        .map(|fs| {
-            fs.iter()
-                .map(|f| InlineFinding {
-                    finding_type: f.finding_type.as_str().to_string(),
-                    severity: f.severity.as_str().to_string(),
-                    occurrences: f.pattern.occurrences,
-                    suggestion: f.suggestion.clone(),
-                })
-                .collect()
-        })
+        .map(|fs| fs.iter().map(|f| InlineFinding::from_finding(f)).collect())
         .unwrap_or_default();
 
     SpanNode {
@@ -204,12 +233,54 @@ pub fn format_tree_text(tree: &ExplainTree, use_color: bool) -> String {
         cyan = colors.cyan
     );
 
+    format_trace_level_findings(&mut out, &tree.trace_level_findings, &colors);
+
     for (i, root) in tree.roots.iter().enumerate() {
         let is_last = i == tree.roots.len() - 1;
         format_node(&mut out, root, "", is_last, &colors, 0);
     }
 
     out
+}
+
+/// Render the trace-level findings header section, if any.
+///
+/// Emitted between the `Trace <id>` header and the span tree, so the reader
+/// sees whole-trace issues (chatty service, pool saturation, serialized
+/// calls) before drilling into individual spans.
+fn format_trace_level_findings(out: &mut String, findings: &[InlineFinding], c: &TreeColors) {
+    use std::fmt::Write;
+
+    if findings.is_empty() {
+        return;
+    }
+
+    let _ = writeln!(
+        out,
+        "{}{}\u{26a0} Trace-level findings:{}",
+        c.bold, c.yellow, c.reset,
+    );
+    for f in findings {
+        let severity_color = match f.severity.as_str() {
+            "critical" => c.red,
+            "warning" => c.yellow,
+            _ => c.dim,
+        };
+        let _ = writeln!(
+            out,
+            "  {severity_color}\u{2022} {} {} (\u{00d7}{}){}",
+            f.finding_type.replace('_', " "),
+            f.severity,
+            f.occurrences,
+            c.reset,
+        );
+        let _ = writeln!(
+            out,
+            "      {}\u{2514}\u{2500} suggestion: {}{}",
+            c.dim, f.suggestion, c.reset,
+        );
+    }
+    let _ = writeln!(out);
 }
 
 fn format_node(
@@ -434,6 +505,101 @@ mod tests {
         // Should contain ANSI escape codes
         assert!(text.contains("\x1b[1m"), "should contain bold ANSI code");
         assert!(text.contains("\x1b[36m"), "should contain cyan ANSI code");
+    }
+
+    /// Build a chatty-service-style finding whose `pattern.template` is the
+    /// entry endpoint (as real detectors emit it), not a span template.
+    fn make_chatty_finding(trace_id: &str) -> Finding {
+        Finding {
+            finding_type: FindingType::ChattyService,
+            severity: Severity::Warning,
+            trace_id: trace_id.to_string(),
+            service: "gateway-svc".to_string(),
+            source_endpoint: "GET /api/dashboard/home".to_string(),
+            pattern: Pattern {
+                template: "GET /api/dashboard/home".to_string(),
+                occurrences: 16,
+                window_ms: 300,
+                distinct_params: 16,
+            },
+            suggestion: "Consider aggregating calls with a BFF layer".to_string(),
+            first_timestamp: "2025-07-10T14:32:00.000Z".to_string(),
+            last_timestamp: "2025-07-10T14:32:00.300Z".to_string(),
+            green_impact: None,
+            confidence: Confidence::default(),
+        }
+    }
+
+    #[test]
+    fn trace_level_finding_routed_to_header() {
+        // A single SQL span with a template that does NOT match the chatty
+        // finding's entry-endpoint template.
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT * FROM users WHERE id = 42",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let trace = make_trace(events);
+
+        let finding = make_chatty_finding("trace-1");
+        let tree = build_tree(&trace, &[finding]);
+
+        assert!(
+            tree.roots[0].findings.is_empty(),
+            "chatty finding should not land on the SQL span"
+        );
+        assert_eq!(
+            tree.trace_level_findings.len(),
+            1,
+            "chatty finding should land in trace_level_findings"
+        );
+        assert_eq!(tree.trace_level_findings[0].finding_type, "chatty_service");
+        assert_eq!(tree.trace_level_findings[0].severity, "warning");
+    }
+
+    #[test]
+    fn span_anchored_and_trace_level_coexist() {
+        // Five matching SQL spans trigger a span-anchored N+1 SQL finding,
+        // alongside a trace-level chatty finding. Both should be captured.
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+
+        let nplus = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        let chatty = make_chatty_finding("trace-1");
+        let tree = build_tree(&trace, &[nplus, chatty]);
+
+        let has_inline = tree.roots.iter().any(|r| !r.findings.is_empty());
+        assert!(has_inline, "N+1 finding should annotate the SQL spans");
+        assert_eq!(
+            tree.trace_level_findings.len(),
+            1,
+            "chatty finding should still land in trace_level_findings"
+        );
+    }
+
+    #[test]
+    fn format_tree_text_renders_trace_level_section() {
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let trace = make_trace(events);
+        let finding = make_chatty_finding("trace-1");
+        let tree = build_tree(&trace, &[finding]);
+
+        let text = format_tree_text(&tree, false);
+        assert!(
+            text.contains("Trace-level findings:"),
+            "should render the trace-level header: {text}"
+        );
+        assert!(
+            text.contains("chatty service"),
+            "should mention the finding type: {text}"
+        );
+        assert!(text.contains("BFF"), "should render the suggestion: {text}");
     }
 
     #[test]

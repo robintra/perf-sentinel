@@ -614,8 +614,22 @@ fn convert_cloud_section(raw: &CloudSection) -> Option<CloudEnergyConfig> {
 fn convert_electricity_maps_section(
     raw: &ElectricityMapsSection,
 ) -> Option<crate::score::electricity_maps::ElectricityMapsConfig> {
+    convert_electricity_maps_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_EMAPS_TOKEN").ok()
+    })
+}
+
+/// Test-friendly inner form: takes the env-var lookup as a closure so tests
+/// can pass `|| None` instead of mutating the global process env. Avoids the
+/// `unsafe` that Rust 2024 requires on `std::env::remove_var` (`set_var` and
+/// `remove_var` are data races with other threads inside the same process,
+/// including the `cargo test` harness).
+fn convert_electricity_maps_section_with_env(
+    raw: &ElectricityMapsSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<crate::score::electricity_maps::ElectricityMapsConfig> {
     // Auth token: env var takes precedence over config file.
-    let from_env = std::env::var("PERF_SENTINEL_EMAPS_TOKEN").ok();
+    let from_env = env_lookup();
     let token = from_env.clone().or_else(|| raw.api_key.clone())?;
 
     if token.is_empty() {
@@ -2220,5 +2234,212 @@ network_energy_per_byte_kwh = 0.00000000008
         let cfg: Config = toml::from_str::<RawConfig>(toml).unwrap().into();
         assert!(cfg.green_include_network_transport);
         assert!((cfg.green_network_energy_per_byte_kwh - 0.000_000_000_08).abs() < f64::EPSILON);
+    }
+
+    // --- validate_http_authority error paths ---
+
+    #[test]
+    fn validate_http_authority_rejects_empty_host() {
+        assert!(validate_http_authority("http://", "test").is_err());
+    }
+
+    #[test]
+    fn validate_http_authority_rejects_credentials() {
+        let err = validate_http_authority("http://user:pass@host/", "test").unwrap_err();
+        assert!(err.contains("credentials"));
+    }
+
+    #[test]
+    fn validate_http_authority_rejects_control_char() {
+        // Embed a tab (0x09) in the host.
+        let err = validate_http_authority("http://bad\thost/", "test").unwrap_err();
+        assert!(err.contains("control"));
+    }
+
+    #[test]
+    fn validate_http_authority_rejects_invalid_ipv4_port() {
+        let err = validate_http_authority("http://host:abc/", "test").unwrap_err();
+        assert!(err.contains("port"));
+    }
+
+    #[test]
+    fn validate_http_authority_accepts_bare_ipv6() {
+        // `[::1]` without port — should not error on the port-parse branch.
+        assert!(validate_http_authority("http://[::1]/metrics", "test").is_ok());
+    }
+
+    #[test]
+    fn validate_http_authority_accepts_ipv6_with_port() {
+        assert!(validate_http_authority("http://[::1]:8080/metrics", "test").is_ok());
+    }
+
+    #[test]
+    fn validate_http_authority_rejects_ipv6_with_invalid_port() {
+        let err = validate_http_authority("http://[::1]:abc/metrics", "test").unwrap_err();
+        assert!(err.contains("port"));
+    }
+
+    #[test]
+    fn validate_http_authority_accepts_https_scheme() {
+        assert!(validate_http_authority("https://host:443/", "test").is_ok());
+    }
+
+    // --- validate_green error paths ---
+
+    #[test]
+    fn validate_green_rejects_nonfinite_embodied_carbon() {
+        let toml = "[green]\nembodied_carbon_per_request_gco2 = nan\n";
+        let err = load_from_str(toml).unwrap_err();
+        assert!(format!("{err:?}").contains("finite"));
+    }
+
+    #[test]
+    fn validate_green_rejects_hourly_profiles_file_that_fails_to_load() {
+        let toml = r#"
+[green]
+hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
+"#;
+        let err = load_from_str(toml).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(msg.contains("hourly_profiles_file") || msg.contains("failed to load"));
+    }
+
+    // --- convert_electricity_maps_section branches ---
+
+    // Local imports used by all the electricity_maps tests below.
+    // `HashMap` and `Duration` are already in scope via `use super::*;`
+    // at the top of this module, but Qodana flags the fully-qualified
+    // forms as unnecessary — using the short names reads cleaner anyway.
+    use crate::score::electricity_maps::ElectricityMapsConfig;
+
+    #[test]
+    fn electricity_maps_empty_api_key_returns_none() {
+        // When the api_key is explicitly an empty string and no env var is
+        // set, the conversion returns None (subsystem stays inactive).
+        let raw = ElectricityMapsSection {
+            api_key: Some(String::new()),
+            endpoint: None,
+            poll_interval_secs: None,
+            region_map: HashMap::new(),
+        };
+        // Pass a stubbed env-lookup that returns None so the test is
+        // independent of the ambient process environment (no `unsafe`
+        // env mutation, no races with other tests in the same binary).
+        assert!(convert_electricity_maps_section_with_env(&raw, || None).is_none());
+    }
+
+    #[test]
+    fn electricity_maps_warn_when_api_key_in_config_file() {
+        // `api_key` set, env var unset → returns Some(...) but emits a
+        // warning about preferring the env var. The warning path is
+        // exercised; we just verify the conversion succeeds.
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("file-token".to_string()),
+            endpoint: None,
+            poll_interval_secs: Some(600),
+            region_map,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
+        assert_eq!(cfg.auth_token, "file-token");
+        assert_eq!(cfg.poll_interval, Duration::from_secs(600));
+        // default endpoint fallback
+        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v3");
+        // region key was lowercased (it was already lowercase, so idempotent)
+        assert!(cfg.region_map.contains_key("eu-west-3"));
+    }
+
+    #[test]
+    fn electricity_maps_region_map_keys_lowercased() {
+        let mut region_map = HashMap::new();
+        region_map.insert("EU-WEST-3".to_string(), "FR".to_string());
+        region_map.insert("Us-East-1".to_string(), "US-MIDA-PJM".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("tok".to_string()),
+            endpoint: Some("https://custom.api/v3".to_string()),
+            poll_interval_secs: Some(120),
+            region_map,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
+        assert!(cfg.region_map.contains_key("eu-west-3"));
+        assert!(cfg.region_map.contains_key("us-east-1"));
+        assert_eq!(cfg.api_endpoint, "https://custom.api/v3");
+    }
+
+    #[test]
+    fn electricity_maps_env_var_takes_precedence_over_config_file() {
+        // Env-lookup returns a token → it wins over `api_key` in the file.
+        // Covers the from_env branch of convert_electricity_maps_section_with_env
+        // without touching the real process environment.
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("from-file".to_string()),
+            endpoint: None,
+            poll_interval_secs: None,
+            region_map,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || Some("from-env".to_string()))
+            .expect("env-supplied token should produce a valid config");
+        assert_eq!(cfg.auth_token, "from-env");
+    }
+
+    // --- validate_electricity_maps error paths ---
+
+    #[test]
+    fn validate_electricity_maps_rejects_control_char_in_token() {
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            auth_token: "tok\x07en".to_string(), // contains a control char
+            poll_interval: Duration::from_secs(300),
+            region_map: {
+                let mut m = HashMap::new();
+                m.insert("eu-west-3".to_string(), "FR".to_string());
+                m
+            },
+        };
+        let err = Config::validate_electricity_maps(&cfg).unwrap_err();
+        assert!(err.contains("control"));
+    }
+
+    #[test]
+    fn validate_electricity_maps_rejects_empty_region_map() {
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            auth_token: "tok".to_string(),
+            poll_interval: Duration::from_secs(300),
+            region_map: HashMap::new(),
+        };
+        let err = Config::validate_electricity_maps(&cfg).unwrap_err();
+        assert!(err.contains("region_map"));
+    }
+
+    #[test]
+    fn validate_electricity_maps_rejects_empty_zone() {
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), String::new());
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            auth_token: "tok".to_string(),
+            poll_interval: Duration::from_secs(300),
+            region_map,
+        };
+        let err = Config::validate_electricity_maps(&cfg).unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn validate_electricity_maps_rejects_invalid_poll_interval() {
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            auth_token: "tok".to_string(),
+            poll_interval: Duration::from_secs(10), // below 60
+            region_map,
+        };
+        let err = Config::validate_electricity_maps(&cfg).unwrap_err();
+        assert!(err.contains("poll_interval"));
     }
 }

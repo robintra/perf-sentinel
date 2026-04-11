@@ -523,6 +523,9 @@ mod tests {
                 total_io_ops: total,
                 avoidable_io_ops: avoidable,
                 io_waste_ratio: waste_ratio,
+                io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+                    waste_ratio,
+                ),
                 top_offenders: vec![],
                 co2: None,
                 regions: vec![],
@@ -559,6 +562,7 @@ mod tests {
             green_impact: Some(GreenImpact {
                 estimated_extra_io_ops: occurrences.saturating_sub(1),
                 io_intensity_score: 6.0,
+                io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(6.0),
             }),
             confidence: Confidence::default(),
         }

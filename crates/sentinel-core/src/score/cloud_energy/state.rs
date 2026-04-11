@@ -1,35 +1,34 @@
 //! Shared cloud energy state and snapshot access.
 //!
-//! Mirrors [`super::super::scaphandre::state`]: an [`ArcSwap`]-backed
-//! `HashMap` of per-service energy coefficients with monotonic-clock
-//! staleness filtering. The scraper publishes fresh data; the scoring
-//! path reads a zero-contention snapshot.
+//! Thin wrapper around [`crate::score::energy_state::AgedEnergyMap`];
+//! the same shared storage used by
+//! [`crate::score::scaphandre::ScaphandreState`]. Kept as a distinct
+//! nominal type so the daemon's `build_tick_ctx` cannot accidentally
+//! confuse cloud-SPECpower readings with Scaphandre-RAPL readings when
+//! it merges the snapshots.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arc_swap::ArcSwap;
+use crate::score::energy_state::AgedEnergyMap;
 
 // Reuse the monotonic clock from the Scaphandre module so both
 // scrapers and the scoring path share a single time source.
 pub use crate::score::scaphandre::state::monotonic_ms;
 
-/// One row in the shared state: a measured coefficient with a
-/// freshness timestamp.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ServiceEnergy {
-    pub(super) energy_per_op_kwh: f64,
-    pub(super) last_update_ms: u64,
-}
+/// Row type expected by the cloud energy scraper when constructing
+/// fresh entries. Aliased to the shared [`EnergyRow`] so both the
+/// cloud and Scaphandre states share one row definition.
+///
+/// [`EnergyRow`]: crate::score::energy_state::EnergyRow
+pub(super) use crate::score::energy_state::EnergyRow as ServiceEnergy;
 
 /// Runtime state shared between the cloud energy scraper and the
-/// scoring path.
-///
-/// Same design as [`crate::score::scaphandre::state::ScaphandreState`]:
-/// read-heavy / write-rare, zero-contention via [`ArcSwap`].
+/// scoring path. Read-heavy / write-rare, zero-contention via
+/// [`AgedEnergyMap`].
 #[derive(Debug, Default)]
 pub struct CloudEnergyState {
-    inner: ArcSwap<HashMap<String, ServiceEnergy>>,
+    inner: AgedEnergyMap,
 }
 
 impl CloudEnergyState {
@@ -40,33 +39,23 @@ impl CloudEnergyState {
     }
 
     /// Synchronous snapshot of per-service coefficients, filtering out
-    /// stale rows (age >= `staleness_ms`).
+    /// stale rows (age >= `staleness_ms`). See
+    /// [`AgedEnergyMap::snapshot`] for the full contract.
     #[must_use]
     pub fn snapshot(&self, now_ms: u64, staleness_ms: u64) -> HashMap<String, f64> {
-        let current = self.inner.load_full();
-        current
-            .iter()
-            .filter_map(|(service, energy)| {
-                let age = now_ms.saturating_sub(energy.last_update_ms);
-                if age < staleness_ms {
-                    Some((service.clone(), energy.energy_per_op_kwh))
-                } else {
-                    None
-                }
-            })
-            .collect()
+        self.inner.snapshot(now_ms, staleness_ms)
     }
 
     /// Publish a fresh table. Called by the scraper after each
     /// successful scrape cycle.
     pub(super) fn publish(&self, new_table: HashMap<String, ServiceEnergy>) {
-        self.inner.store(Arc::new(new_table));
+        self.inner.publish(new_table);
     }
 
     /// Clone the current table for merge-update. Typically small
     /// (one entry per configured service).
     pub(super) fn current_owned(&self) -> HashMap<String, ServiceEnergy> {
-        (*self.inner.load_full()).clone()
+        self.inner.current_owned()
     }
 
     /// Test-only helper: insert an entry directly.
@@ -77,55 +66,7 @@ impl CloudEnergyState {
         energy_per_op_kwh: f64,
         last_update_ms: u64,
     ) {
-        let mut current = self.current_owned();
-        current.insert(
-            service,
-            ServiceEnergy {
-                energy_per_op_kwh,
-                last_update_ms,
-            },
-        );
-        self.publish(current);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn empty_state_returns_empty_snapshot() {
-        let state = CloudEnergyState::new();
-        let snap = state.snapshot(1000, 5000);
-        assert!(snap.is_empty());
-    }
-
-    #[test]
-    fn fresh_entry_appears_in_snapshot() {
-        let state = CloudEnergyState::new();
-        state.insert_for_test("svc-a".into(), 1e-7, 100);
-        let snap = state.snapshot(200, 500);
-        assert_eq!(snap.len(), 1);
-        assert!((snap["svc-a"] - 1e-7).abs() < 1e-15);
-    }
-
-    #[test]
-    fn stale_entry_filtered_out() {
-        let state = CloudEnergyState::new();
-        state.insert_for_test("svc-a".into(), 1e-7, 100);
-        // now=700, staleness=500 → age 600 >= 500 → stale
-        let snap = state.snapshot(700, 500);
-        assert!(snap.is_empty());
-    }
-
-    #[test]
-    fn mixed_fresh_and_stale() {
-        let state = CloudEnergyState::new();
-        state.insert_for_test("fresh".into(), 2e-7, 500);
-        state.insert_for_test("stale".into(), 3e-7, 100);
-        let snap = state.snapshot(600, 200);
-        assert_eq!(snap.len(), 1);
-        assert!(snap.contains_key("fresh"));
-        assert!(!snap.contains_key("stale"));
+        self.inner
+            .insert_for_test(service, energy_per_op_kwh, last_update_ms);
     }
 }

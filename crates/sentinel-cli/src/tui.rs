@@ -49,7 +49,27 @@ pub struct App {
 impl App {
     /// Create a new app from analysis findings and traces.
     #[must_use]
-    pub fn new(findings: Vec<Finding>, traces: Vec<Trace>, detect_config: DetectConfig) -> Self {
+    pub fn new(
+        findings: Vec<Finding>,
+        mut traces: Vec<Trace>,
+        detect_config: DetectConfig,
+    ) -> Self {
+        // Sort traces by trace_id so the trace list panel has a stable,
+        // predictable display order across runs. The upstream `correlate`
+        // stage iterates a `HashMap<String, Vec<_>>` which yields traces
+        // in randomized hash order, which is fine for batch analysis but
+        // makes the interactive TUI non-reproducible (the same input file
+        // shows traces in a different order on every launch, breaking
+        // muscle memory for users who come back to investigate a trace
+        // they just saw).
+        //
+        // `sort_unstable_by` is preferred over `sort_by`: the correlate
+        // stage guarantees unique `trace_id` per `Trace` (all spans with
+        // the same trace_id are folded into one entry), so sort stability
+        // has no semantic value here, and the unstable variant avoids the
+        // merge-sort allocation.
+        traces.sort_unstable_by(|a, b| a.trace_id.cmp(&b.trace_id));
+
         let trace_ids: Vec<String> = traces.iter().map(|t| t.trace_id.clone()).collect();
         let trace_index: std::collections::HashMap<String, usize> = traces
             .iter()
@@ -105,6 +125,39 @@ impl App {
         indices
             .get(self.selected_finding)
             .map(|&idx| &self.all_findings[idx])
+    }
+
+    /// Count the logical lines the Detail panel will render for the
+    /// currently selected finding.
+    ///
+    /// Mirrors the line construction in [`draw_detail_panel`]: 7 always-
+    /// present metadata rows (type header, template, occurrences, service,
+    /// endpoint, suggestion, plus the blank between the header and the
+    /// body), +1 when the finding carries a `green_impact`, +2 for the
+    /// blank + "Span tree:" header, +N for the cached span tree text.
+    ///
+    /// Used by [`App::move_down`] to clamp the Detail-panel scroll offset
+    /// so `Down`/`j` cannot scroll past the content. Long wrapped lines
+    /// count as one logical line, so the clamp is slightly conservative
+    /// on wrapped output — the tradeoff vs. reading the panel width at
+    /// event-handling time (which ratatui does not expose) is accepted.
+    fn detail_panel_line_count(&self) -> u16 {
+        let Some(finding) = self.current_finding() else {
+            return 0;
+        };
+        // 6 always-present metadata rows + 1 blank after the type header.
+        let mut count: u16 = 7;
+        if finding.green_impact.is_some() {
+            count = count.saturating_add(1);
+        }
+        if let Some((ct, ref text)) = self.cached_detail
+            && ct == self.selected_trace
+        {
+            // +2 for blank + "Span tree:" header, +N for the tree lines.
+            let tree_count = u16::try_from(text.lines().count()).unwrap_or(u16::MAX);
+            count = count.saturating_add(2).saturating_add(tree_count);
+        }
+        count
     }
 
     /// Get the cached detail tree text, computing it if needed.
@@ -172,7 +225,14 @@ impl App {
                 }
             }
             Panel::Detail => {
-                self.scroll_offset = self.scroll_offset.saturating_add(1);
+                // Clamp to `line_count - 1` so the last logical line stays
+                // at least partially visible at the top of the viewport
+                // when fully scrolled down. Prevents infinite scroll past
+                // the content, which used to leave the panel blank.
+                let max_offset = self.detail_panel_line_count().saturating_sub(1);
+                if self.scroll_offset < max_offset {
+                    self.scroll_offset = self.scroll_offset.saturating_add(1);
+                }
             }
         }
     }
@@ -509,6 +569,8 @@ mod tests {
                 green_impact: Some(GreenImpact {
                     estimated_extra_io_ops: 5,
                     io_intensity_score: 6.0,
+                    io_intensity_band:
+                        sentinel_core::report::interpret::InterpretationLevel::for_iis(6.0),
                 }),
                 confidence: Confidence::default(),
             },
@@ -658,6 +720,71 @@ mod tests {
         assert_eq!(app.scroll_offset, 2);
         app.move_up();
         assert_eq!(app.scroll_offset, 1);
+    }
+
+    #[test]
+    fn scroll_in_detail_panel_clamps_at_content_end() {
+        let mut app = make_test_app();
+        app.active_panel = Panel::Detail;
+
+        // The test app's finding carries `green_impact` but has no cached
+        // span tree, so the detail panel renders 8 logical lines (6 meta
+        // rows + type header + blank + extra I/O). The scroll offset must
+        // clamp at 7 (line_count - 1) no matter how many Down keys fire.
+        let expected_max = app.detail_panel_line_count().saturating_sub(1);
+        assert!(expected_max > 0, "test app should have detail content");
+
+        // Hammer Down far beyond the content height.
+        for _ in 0..100 {
+            app.move_down();
+        }
+
+        assert_eq!(
+            app.scroll_offset, expected_max,
+            "scroll_offset should clamp at `line_count - 1`, got {}",
+            app.scroll_offset
+        );
+
+        // move_up still works from the clamp ceiling.
+        app.move_up();
+        assert_eq!(app.scroll_offset, expected_max.saturating_sub(1));
+    }
+
+    #[test]
+    fn scroll_clamps_with_cached_span_tree() {
+        // Exercises the `cached_detail.is_some()` branch of
+        // `detail_panel_line_count`: when a span tree is cached for the
+        // selected trace, the clamp must include its line count.
+        //
+        // Without this test, a regression that misroutes the +2 "Span tree:"
+        // header offset or the tree line count would only be caught on
+        // actual trace data, not in CI.
+        let mut app = make_test_app();
+        app.active_panel = Panel::Detail;
+
+        // Inject a synthetic cached tree: 5 lines for the current trace.
+        // 7 base meta lines + 1 green_impact (the test fixture sets it)
+        // + 2 (blank + "Span tree:" header) + 5 (tree lines) = 15 logical
+        // rows, so the clamp should plateau at 14.
+        app.cached_detail = Some((
+            app.selected_trace,
+            "line1\nline2\nline3\nline4\nline5".to_string(),
+        ));
+
+        let expected_max = app.detail_panel_line_count().saturating_sub(1);
+        assert_eq!(
+            expected_max, 14,
+            "base 7 + green_impact 1 + header 2 + tree 5 - 1 = 14"
+        );
+
+        for _ in 0..100 {
+            app.move_down();
+        }
+
+        assert_eq!(
+            app.scroll_offset, expected_max,
+            "scroll_offset must include cached tree lines in the clamp"
+        );
     }
 
     #[test]

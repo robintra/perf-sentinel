@@ -61,11 +61,11 @@ pub struct Finding {
     /// production daemon. Used by downstream consumers (perf-lint) to
     /// boost or reduce severity based on how the finding was produced.
     ///
-    /// ** contract:** detectors always emit
-    /// [`Confidence::default()`] (= `CiBatch`); the real value is stamped
-    /// by the pipeline caller (`pipeline::analyze_with_traces` for batch,
-    /// `daemon::process_traces` for the daemon) after detection returns.
-    /// This keeps the detector layer oblivious to runtime context.
+    /// **Contract:** detectors always emit [`Confidence::default()`]
+    /// (= `CiBatch`); the real value is stamped by the pipeline caller
+    /// (`pipeline::analyze_with_traces` for batch, `daemon::process_traces`
+    /// for the daemon) after detection returns. This keeps the detector
+    /// layer oblivious to runtime context.
     #[serde(default)]
     pub confidence: Confidence,
 }
@@ -164,6 +164,14 @@ pub struct GreenImpact {
     pub estimated_extra_io_ops: usize,
     /// I/O Intensity Score of the endpoint where this finding occurs.
     pub io_intensity_score: f64,
+    /// Classification band for `io_intensity_score`
+    /// (`healthy` / `moderate` / `high` / `critical`).
+    ///
+    /// Computed by [`crate::report::interpret::InterpretationLevel::for_iis`].
+    /// The enum values are stable across versions; the thresholds behind
+    /// them are versioned with the binary. See
+    /// [`crate::report::interpret`] for the stability contract.
+    pub io_intensity_band: crate::report::interpret::InterpretationLevel,
 }
 
 impl FindingType {
@@ -218,10 +226,10 @@ impl FindingType {
             Self::RedundantHttp => "Redundant HTTP",
             Self::SlowSql => "Slow SQL",
             Self::SlowHttp => "Slow HTTP",
-            Self::ExcessiveFanout => "Excessive Fanout",
-            Self::ChattyService => "Chatty Service",
-            Self::PoolSaturation => "Pool Saturation",
-            Self::SerializedCalls => "Serialized Calls",
+            Self::ExcessiveFanout => "Excessive fanout",
+            Self::ChattyService => "Chatty service",
+            Self::PoolSaturation => "Pool saturation",
+            Self::SerializedCalls => "Serialized calls",
         }
     }
 

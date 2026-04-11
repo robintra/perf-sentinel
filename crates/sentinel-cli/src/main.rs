@@ -92,8 +92,11 @@ enum Commands {
     },
 
     /// Explain a specific trace: tree view with findings annotated inline.
-    /// Shows per-trace detections only (N+1, redundant, slow, fanout).
-    /// Cross-trace percentile findings from `analyze` are not included.
+    /// Span-anchored detections (N+1, redundant, slow, fanout) land on
+    /// their offending spans; trace-level detections (chatty service,
+    /// pool saturation, serialized calls) are rendered in a dedicated
+    /// header section above the span tree. Cross-trace percentile
+    /// findings from `analyze` are not included.
     Explain {
         /// Path to a JSON trace file.
         #[arg(short, long)]
@@ -497,6 +500,27 @@ fn cmd_calibrate(
 
     let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
+    // Cap the energy CSV size the same way `read_events` caps trace files.
+    // A 10 GB CSV passed as `--measured-energy` would otherwise load entirely
+    // into RAM (DoS). 64 MiB is generous enough for thousands of RAPL samples
+    // per minute while bounding the worst case.
+    const MAX_ENERGY_CSV_BYTES: u64 = 64 * 1024 * 1024;
+    match std::fs::metadata(energy_path) {
+        Ok(meta) if meta.len() > MAX_ENERGY_CSV_BYTES => {
+            eprintln!(
+                "Error: energy CSV {} is {} bytes, exceeds maximum of {} bytes",
+                energy_path.display(),
+                meta.len(),
+                MAX_ENERGY_CSV_BYTES
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Error reading {}: {e}", energy_path.display());
+            std::process::exit(1);
+        }
+        _ => {}
+    }
     let energy_content = match std::fs::read_to_string(energy_path) {
         Ok(c) => c,
         Err(e) => {
@@ -938,6 +962,24 @@ fn ansi_colors(force_color: bool) -> AnsiColors {
     }
 }
 
+/// Map an [`InterpretationLevel`] to the ANSI color used for CLI
+/// rendering. Mirrors the palette used for finding severities:
+/// Critical=red, High=yellow, Healthy=green. Moderate returns an empty
+/// string (uncolored) to keep it informational without visually competing
+/// with High.
+///
+/// [`InterpretationLevel`]: sentinel_core::InterpretationLevel
+fn interpret_color(level: sentinel_core::InterpretationLevel, colors: AnsiColors) -> &'static str {
+    let (_bold, _cyan, red, yellow, green, _dim, _reset) = colors;
+    use sentinel_core::InterpretationLevel::{Critical, Healthy, High, Moderate};
+    match level {
+        Critical => red,
+        High => yellow,
+        Moderate => "",
+        Healthy => green,
+    }
+}
+
 fn format_colored_report(report: &Report, title: &str, force_color: bool) {
     let (bold, cyan, _red, _yellow, green, dim, reset) = ansi_colors(force_color);
 
@@ -967,8 +1009,9 @@ fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool
     println!("{bold}Found {} issue(s):{reset}", findings.len());
     println!();
 
+    let colors = ansi_colors(force_color);
     for (i, finding) in findings.iter().enumerate() {
-        let (_bold, _cyan, red, yellow, _green, _dim, _reset) = ansi_colors(force_color);
+        let (_bold, _cyan, red, yellow, _green, _dim, _reset) = colors;
         let severity_color = match finding.severity {
             Severity::Critical => red,
             Severity::Warning => yellow,
@@ -1005,21 +1048,37 @@ fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool
                 "    {dim}Extra I/O:{reset} {} avoidable ops",
                 impact.estimated_extra_io_ops
             );
-            println!("    {dim}IIS:{reset}      {:.1}", impact.io_intensity_score);
+            // Read the pre-computed band from the struct field rather than
+            // calling for_iis() again: keeps the CLI rendering in lockstep
+            // with the JSON output (both reflect the same `score_green`
+            // classification) and prevents silent drift if the thresholds
+            // change in one place but not the other.
+            let level = impact.io_intensity_band;
+            let level_color = interpret_color(level, colors);
+            println!(
+                "    {dim}IIS:{reset}      {:.1} {level_color}({}){reset}",
+                impact.io_intensity_score,
+                level.short_label(),
+            );
         }
         println!();
     }
 }
 
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
-    let (bold, cyan, _red, _yellow, _green, dim, reset) = ansi_colors(force_color);
+    let colors = ansi_colors(force_color);
+    let (bold, cyan, _red, _yellow, _green, dim, reset) = colors;
 
     println!("{bold}{cyan}--- GreenOps Summary ---{reset}");
     println!("  Total I/O ops:     {}", summary.total_io_ops);
     println!("  Avoidable I/O ops: {}", summary.avoidable_io_ops);
+    // Read the pre-computed band from the struct field (see print_findings).
+    let waste_level = summary.io_waste_ratio_band;
+    let waste_color = interpret_color(waste_level, colors);
     println!(
-        "  I/O waste ratio:   {:.1}%",
-        summary.io_waste_ratio * 100.0
+        "  I/O waste ratio:   {:.1}% {waste_color}({}){reset}",
+        summary.io_waste_ratio * 100.0,
+        waste_level.short_label(),
     );
 
     // Render the structured CO₂ report when present.
@@ -1057,12 +1116,18 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         println!();
         println!("  {bold}Top offenders:{reset}");
         for offender in &summary.top_offenders {
+            // Read the pre-computed band from the struct field (see print_findings).
+            let level = offender.io_intensity_band;
+            let level_color = interpret_color(level, colors);
             let co2_str = offender
                 .co2_grams
                 .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
             println!(
-                "    - {}: IIS {:.1} (service: {}){co2_str}",
-                offender.endpoint, offender.io_intensity_score, offender.service,
+                "    - {}: IIS {:.1} {level_color}({}){reset} (service: {}){co2_str}",
+                offender.endpoint,
+                offender.io_intensity_score,
+                level.short_label(),
+                offender.service,
             );
         }
     }
@@ -1078,6 +1143,17 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
              (low = mid/2, high = mid\u{00d7}2). See docs/LIMITATIONS.md.{reset}"
         );
     }
+
+    // One-liner on the interpret bands: they are anchored on the
+    // *default* detector thresholds, not on the user's config. An
+    // endpoint still labelled "high" after raising `n_plus_one_threshold`
+    // in .perf-sentinel.toml is not a bug; see README "How to read the
+    // report" for the full explanation.
+    println!(
+        "  {dim}Note: `(healthy/moderate/high/critical)` bands use fixed heuristic \
+         thresholds, independent of your `n_plus_one_threshold` / \
+         `io_waste_ratio_max` overrides. See README \"How to read the report\".{reset}"
+    );
 
     println!();
 }
@@ -1117,6 +1193,7 @@ mod tests {
                 total_io_ops: event_count,
                 avoidable_io_ops: 0,
                 io_waste_ratio: 0.0,
+                io_waste_ratio_band: sentinel_core::InterpretationLevel::Healthy,
                 top_offenders,
                 co2: None,
                 regions: vec![],
@@ -1148,6 +1225,7 @@ mod tests {
             green_impact: Some(GreenImpact {
                 estimated_extra_io_ops: 5,
                 io_intensity_score: 6.0,
+                io_intensity_band: sentinel_core::InterpretationLevel::for_iis(6.0),
             }),
             confidence: Confidence::default(),
         }
@@ -1239,6 +1317,7 @@ mod tests {
                 endpoint: "POST /api/orders/{id}/submit".to_string(),
                 service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
+                io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
                 co2_grams: None,
             }],
             true,
@@ -1261,6 +1340,7 @@ mod tests {
                 endpoint: "POST /api/orders/{id}/submit".to_string(),
                 service: "order-svc".to_string(),
                 io_intensity_score: 8.2,
+                io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
                 co2_grams: None,
             }],
             false,
@@ -1282,10 +1362,12 @@ mod tests {
                 total_io_ops: 10,
                 avoidable_io_ops: 5,
                 io_waste_ratio: 0.5,
+                io_waste_ratio_band: sentinel_core::InterpretationLevel::for_waste_ratio(0.5),
                 top_offenders: vec![TopOffender {
                     endpoint: "POST /api/orders/{id}/submit".to_string(),
                     service: "order-svc".to_string(),
                     io_intensity_score: 8.2,
+                    io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
                     co2_grams: Some(0.001),
                 }],
                 co2: None,

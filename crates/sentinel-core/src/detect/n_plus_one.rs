@@ -11,6 +11,15 @@ use crate::event::EventType;
 
 use super::{Confidence, Finding, FindingType, Pattern, Severity};
 
+/// Occurrence count at which an N+1 finding escalates from
+/// `Severity::Warning` to `Severity::Critical`.
+///
+/// This is the canonical source of truth for the critical threshold.
+/// `crate::report::interpret::IIS_CRITICAL` is mechanically anchored on
+/// this constant via a drift-guard test, so that raising or lowering it
+/// here automatically updates the CLI interpretation band.
+pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
+
 /// Detect N+1 patterns in a single trace.
 ///
 /// Groups spans by (`event_type`, template) and flags groups where:
@@ -62,7 +71,7 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
 
         // Use the first span for metadata
         let first = &trace.spans[indices[0]];
-        let severity = if indices.len() >= 10 {
+        let severity = if indices.len() >= CRITICAL_OCCURRENCE_THRESHOLD {
             Severity::Critical
         } else {
             Severity::Warning

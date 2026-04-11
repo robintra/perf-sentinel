@@ -54,22 +54,74 @@ Pour chaque anti-pattern détecté, perf-sentinel remonte :
 - **Suggestion :** par exemple *"batch cette requête"*, *"utilise un batch endpoint"*, *"ajouter un index"*
 - **Impact GreenOps :** estimation des I/O évitables, I/O Intensity Score, objet `co2` structuré (`low`/`mid`/`high`, termes opérationnel + embodié SCI v1.0), breakdown par région quand le scoring multi-région est actif
 
-![demo](docs/img/demo.gif)
+![demo](docs/img/analyze/demo.gif)
+
+Ou explore une trace unique avec le mode `explain` en arbre, qui annote les findings directement à côté des spans concernés :
+
+![vue en arbre explain](docs/img/explain/demo.gif)
+
+Ou navigue dans les traces, les findings et les arbres de spans de manière interactive avec le TUI `inspect` (3 panneaux, navigation au clavier) :
+
+![TUI inspect](docs/img/inspect/demo.gif)
+
+Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Trois classements (par temps total, par nombre d'appels, par latence moyenne) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
+
+![hotspots pg-stat](docs/img/pg-stat/demo.gif)
+
+Enfin, ajuste les coefficients I/O-vers-énergie à ton infrastructure réelle avec `calibrate`, qui corrèle un fichier de traces avec des mesures d'énergie (Scaphandre, supervision cloud, etc.) et génère un fichier TOML chargeable via `[green] calibration_file` :
+
+![flux calibrate](docs/img/calibrate/demo.gif)
 
 <details>
 <summary>Images fixes</summary>
 
 **Configuration** (`.perf-sentinel.toml`) :
 
-![config](docs/img/demo-config.png)
+![config](docs/img/analyze/config.png)
 
-**Rapport d'analyse :**
+**Rapport d'analyse** (le premier GIF ci-dessus défile dans le rapport complet, les quatre images fixes ci-dessous le couvrent page par page, avec un léger recouvrement pour que chaque finding apparaisse en entier sur au moins une page) :
 
-![report](docs/img/demo-report.png)
+![page 1 : N+1 SQL, N+1 HTTP, SQL redondant](docs/img/analyze/report-1.png)
+
+![page 2 : HTTP redondant, SQL lent, HTTP lent](docs/img/analyze/report-2.png)
+
+![page 3 : fanout excessif, service bavard, saturation du pool](docs/img/analyze/report-3.png)
+
+![page 4 : appels sérialisés, résumé GreenOps, quality gate](docs/img/analyze/report-4.png)
+
+**Mode explain** (vue en arbre d'une trace unique, `perf-sentinel explain --trace-id <id>`). Les findings rattachés à un span (N+1, redondant, lent, fanout) sont affichés inline à côté du span concerné ; les findings de niveau trace (service bavard, saturation du pool, appels sérialisés) sont remontés dans une section dédiée au-dessus de l'arbre :
+
+![vue en arbre explain avec annotation de fanout excessif sur le span parent](docs/img/explain/tree.png)
+
+![header trace-level explain avec warning de service bavard](docs/img/explain/trace-level.png)
+
+**Mode inspect** (TUI interactif, `perf-sentinel inspect`). Le header du panneau findings colore chaque finding selon sa sévérité ; les cinq images fixes ci-dessous parcourent la fixture démo à travers les trois niveaux de sévérité plus une vue du panneau détail avec sa fonction de scroll :
+
+![TUI inspect, vue initiale : service bavard warning (jaune)](docs/img/inspect/main.png)
+
+![TUI inspect, panneau détail actif : haut de l'arbre de spans fanout excessif](docs/img/inspect/detail.png)
+
+![TUI inspect, panneau détail scrollé : moitié basse de l'arbre fanout](docs/img/inspect/detail-scrolled.png)
+
+![TUI inspect, N+1 SQL critical (rouge) : 10 occurrences, suggestion de batch](docs/img/inspect/critical.png)
+
+![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](docs/img/inspect/info.png)
+
+**Mode pg-stat** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`) : classe les requêtes SQL de trois manières (par temps d'exécution total, par nombre d'appels, par latence moyenne). Cross-référence avec tes traces via `--traces` pour repérer les requêtes qui dominent la DB sans apparaître dans ton instrumentation :
+
+![pg-stat : top hotspots par temps total, appels et latence moyenne](docs/img/pg-stat/hotspots.png)
+
+**Mode calibrate** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`) :
+
+![entrée calibrate : CSV avec mesures de puissance par service](docs/img/calibrate/csv.png)
+
+![exécution calibrate : warnings et facteurs par service affichés](docs/img/calibrate/run.png)
+
+![sortie calibrate : TOML généré avec les facteurs de calibration](docs/img/calibrate/output.png)
 
 </details>
 
-En mode CI (`perf-sentinel analyze --ci`), la sortie est un rapport JSON structure :
+En mode CI (`perf-sentinel analyze --ci`), la sortie est un rapport JSON structuré :
 
 <details>
 <summary>Exemple de rapport JSON</summary>
@@ -77,66 +129,99 @@ En mode CI (`perf-sentinel analyze --ci`), la sortie est un rapport JSON structu
 ```json
 {
   "analysis": {
-    "duration_ms": 1,
-    "events_processed": 6,
+    "duration_ms": 0,
+    "events_processed": 10,
     "traces_analyzed": 1
   },
   "findings": [
     {
       "type": "n_plus_one_sql",
-      "severity": "warning",
-      "trace_id": "trace-n1-sql",
-      "service": "game",
-      "source_endpoint": "POST /api/game/42/start",
+      "severity": "critical",
+      "trace_id": "trace-demo-nplus-sql",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/42/submit",
       "pattern": {
-        "template": "SELECT * FROM player WHERE game_id = ?",
-        "occurrences": 6,
-        "window_ms": 250,
-        "distinct_params": 6
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 10,
+        "window_ms": 450,
+        "distinct_params": 10
       },
-      "suggestion": "Use WHERE ... IN (?) to batch 6 queries into one",
+      "suggestion": "Use WHERE ... IN (?) to batch 10 queries into one",
       "first_timestamp": "2025-07-10T14:32:01.000Z",
-      "last_timestamp": "2025-07-10T14:32:01.250Z",
+      "last_timestamp": "2025-07-10T14:32:01.450Z",
       "green_impact": {
-        "estimated_extra_io_ops": 5,
-        "io_intensity_score": 6.0
-      }
+        "estimated_extra_io_ops": 9,
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
+      },
+      "confidence": "ci_batch"
     }
   ],
   "green_summary": {
-    "total_io_ops": 6,
-    "avoidable_io_ops": 5,
-    "io_waste_ratio": 0.833,
+    "total_io_ops": 10,
+    "avoidable_io_ops": 9,
+    "io_waste_ratio": 0.9,
+    "io_waste_ratio_band": "critical",
     "top_offenders": [
       {
-        "endpoint": "POST /api/game/42/start",
-        "service": "game",
-        "io_intensity_score": 6.0,
-        "co2_grams": 0.000054
+        "endpoint": "POST /api/orders/42/submit",
+        "service": "order-svc",
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
       }
     ],
     "co2": {
-      "total":     { "low": 0.000519, "mid": 0.001038, "high": 0.002076, "model": "io_proxy_v1", "methodology": "sci_v1_numerator" },
-      "avoidable": { "low": 0.000016, "mid": 0.000032, "high": 0.000064, "model": "io_proxy_v1", "methodology": "sci_v1_operational_ratio" },
-      "operational_gco2": 0.000038,
+      "total":     { "low": 0.000512, "mid": 0.001024, "high": 0.002048, "model": "io_proxy_v3", "methodology": "sci_v1_numerator" },
+      "avoidable": { "low": 0.000011, "mid": 0.000021, "high": 0.000043, "model": "io_proxy_v3", "methodology": "sci_v1_operational_ratio" },
+      "operational_gco2": 0.000024,
       "embodied_gco2":    0.001
     },
     "regions": [
-      { "region": "eu-west-3", "grid_intensity_gco2_kwh": 56.0, "pue": 1.135, "io_ops": 6, "co2_gco2": 0.000038 }
+      {
+        "status": "known",
+        "region": "eu-west-3",
+        "grid_intensity_gco2_kwh": 42.0,
+        "pue": 1.135,
+        "io_ops": 10,
+        "co2_gco2": 0.000024,
+        "intensity_source": "monthly_hourly"
+      }
     ]
   },
   "quality_gate": {
     "passed": false,
     "rules": [
-      { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 0.0, "passed": true },
+      { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 1.0, "passed": false },
       { "rule": "n_plus_one_http_warning_max", "threshold": 3.0, "actual": 0.0, "passed": true },
-      { "rule": "io_waste_ratio_max", "threshold": 0.3, "actual": 0.833, "passed": false }
+      { "rule": "io_waste_ratio_max", "threshold": 0.1, "actual": 0.9, "passed": false }
     ]
   }
 }
 ```
 
 </details>
+
+### Lecture du rapport
+
+La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côté du I/O Intensity Score et du I/O waste ratio. La même classification est émise comme champs siblings dans le rapport JSON (`io_intensity_band`, `io_waste_ratio_band`), pour que les outils downstream (convertisseurs SARIF, dashboards Grafana, extensions IDE) puissent consommer nos heuristiques ou appliquer leurs propres sur les nombres bruts.
+
+| IIS       | Band       | Ancrage                                              |
+|-----------|------------|------------------------------------------------------|
+| < 2.0     | `healthy`  | baseline CRUD simple (≤ 2 I/O par requête)           |
+| 2.0 – 4.9 | `moderate` | au-dessus de la baseline, à surveiller (heuristique) |
+| 5.0 – 9.9 | `high`     | seuil de détection du N+1 (5 occurrences)            |
+| ≥ 10.0    | `critical` | escalade CRITICAL du détecteur N+1                   |
+
+| I/O waste ratio | Band       | Ancrage                                       |
+|-----------------|------------|-----------------------------------------------|
+| < 10%           | `healthy`  |                                               |
+| 10 – 29%        | `moderate` |                                               |
+| 30 – 49%        | `high`     | `[thresholds] io_waste_ratio_max` par défaut  |
+| ≥ 50%           | `critical` | la majorité de l'I/O analysée est du gaspi    |
+
+**Contrat de stabilité JSON :** les valeurs d'enum ci-dessus (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions. Les seuils numériques qui les déclenchent sont versionnés avec le binaire et peuvent évoluer. Les consommateurs qui veulent une classification indépendante de la version doivent lire les champs bruts `io_intensity_score` et `io_waste_ratio` et appliquer leurs propres bandes.
+
+Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type de détecteur), voir [`docs/design/04-DETECTION.md`](docs/design/04-DETECTION.md). Pour le rationale complet des bandes d'interprétation, voir [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md#score-interpretation).
 
 ## Démarrage rapide
 

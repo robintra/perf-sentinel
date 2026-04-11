@@ -7,10 +7,12 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::http_client::build_client as build_scraper_client;
+
 use super::config::ScaphandreConfig;
 use super::ops::{OpsSnapshotDiff, apply_scrape, compute_energy_per_op_kwh};
 use super::parser::{ProcessPower, parse_scaphandre_metrics};
-use super::scraper::{ScraperError, build_scraper_client, fetch_metrics_once};
+use super::scraper::{ScraperError, fetch_metrics_once, spawn_scraper};
 use super::state::ScaphandreState;
 
 #[test]
@@ -370,4 +372,374 @@ async fn fetch_metrics_once_surfaces_http_error_status() {
         ScraperError::HttpStatus(500) => {}
         other => panic!("expected HttpStatus(500), got {other:?}"),
     }
+}
+
+// --- parser edge cases: target uncovered branches in parser.rs ---
+
+/// A metric name that *starts with* the target prefix but is a different
+/// metric (`scaph_process_power_consumption_microwatts_total`) must be
+/// rejected — otherwise a Scaphandre version that ships a companion
+/// `_total` histogram would be confused with the live gauge.
+///
+/// This also exercises the `_ => continue` arm in `parse_scaphandre_metrics`
+/// (prefix collision, line ~64).
+#[test]
+fn parse_rejects_prefix_collision_metric() {
+    let body = "scaph_process_power_consumption_microwatts_total{exe=\"java\"} 123\n";
+    assert!(parse_scaphandre_metrics(body).is_empty());
+}
+
+/// A valid metric line with labels but without an `exe=` label must be
+/// skipped (exercises the `let Some(exe) = ... else continue` branch and
+/// the final `None` return from `extract_exe_label`).
+#[test]
+fn parse_skips_metric_without_exe_label() {
+    let body =
+        "scaph_process_power_consumption_microwatts{pid=\"1234\",cmdline=\"java -jar\"} 50000\n";
+    assert!(parse_scaphandre_metrics(body).is_empty());
+}
+
+/// `extract_exe_label` must scan past unrelated labels before landing
+/// on `exe`. This hits the "skip closing quote + comma + whitespace"
+/// branch that advances past a non-exe label before looking at the next.
+#[test]
+fn parse_extracts_exe_when_not_first_label() {
+    let body = "scaph_process_power_consumption_microwatts{pid=\"42\",exe=\"postgres\"} 12345\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].exe, "postgres");
+    assert!((parsed[0].power_microwatts - 12345.0).abs() < f64::EPSILON);
+}
+
+/// A label block with unterminated `exe="...` (missing closing quote)
+/// must be rejected. Hits the `if i >= bytes.len() { return None; }`
+/// guard inside the value-collection loop of `extract_exe_label`.
+#[test]
+fn parse_rejects_label_with_unterminated_value() {
+    // Note: we emit the `{`/`}` to pass the label-block guard, then
+    // build a label value that starts `exe="` without a closing quote.
+    let body = "scaph_process_power_consumption_microwatts{exe=\"unclosed} 100\n";
+    // The unmatched inner `}` will be consumed by find_label_block_end,
+    // leaving an incomplete labels string that extract_exe_label cannot
+    // terminate, so the line is skipped.
+    assert!(parse_scaphandre_metrics(body).is_empty());
+}
+
+/// A labels block that opens `{` but never closes must be skipped
+/// (hits the `None` return of `find_label_block_end`).
+#[test]
+fn parse_skips_unmatched_label_block() {
+    let body = "scaph_process_power_consumption_microwatts{exe=\"java\",pid=\"1 20000\n";
+    // No closing `}` so the line is dropped.
+    assert!(parse_scaphandre_metrics(body).is_empty());
+}
+
+/// A line where the numeric value does not parse as `f64` must be
+/// skipped. Hits the `let Ok(value) = ... else continue;` branch.
+#[test]
+fn parse_skips_line_with_non_numeric_value() {
+    let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} not-a-number\n";
+    assert!(parse_scaphandre_metrics(body).is_empty());
+}
+
+/// `unescape_prometheus_value` handles `\"`, `\\`, `\n`, and unknown
+/// escapes. These cases are only reachable via a label value that
+/// contains backslashes — exercise them through the public parser.
+#[test]
+fn parse_unescapes_quote_backslash_and_newline_in_exe_label() {
+    // JVM-style command lines can embed quotes via `\"`. Scaphandre
+    // exposes this verbatim in the `exe` label's escaped form.
+    let body = "scaph_process_power_consumption_microwatts{exe=\"a\\\"b\"} 10\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].exe, "a\"b");
+
+    let body = "scaph_process_power_consumption_microwatts{exe=\"a\\\\b\"} 20\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed[0].exe, "a\\b");
+
+    let body = "scaph_process_power_consumption_microwatts{exe=\"line1\\nline2\"} 30\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed[0].exe, "line1\nline2");
+}
+
+/// Unknown escape sequences (e.g. `\t`) are not part of the Prometheus
+/// spec but are passed through literally rather than dropped, so the
+/// round-trip is stable on weird inputs.
+#[test]
+fn parse_preserves_unknown_escape_in_exe_label() {
+    let body = "scaph_process_power_consumption_microwatts{exe=\"a\\tb\"} 5\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    // `\t` is not a recognized Prometheus escape, so the unescaper
+    // keeps both the backslash and the `t`.
+    assert_eq!(parsed[0].exe, "a\\tb");
+}
+
+/// Values with a trailing timestamp (Prometheus text format allows it)
+/// must parse the first token as the value and discard the rest.
+#[test]
+fn parse_value_with_trailing_timestamp() {
+    let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} 12345 1700000000\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    assert!((parsed[0].power_microwatts - 12345.0).abs() < f64::EPSILON);
+}
+
+// --- spawn_scraper / run_scraper_loop integration tests ---
+//
+// These drive the full `spawn_scraper` entry point against a mock
+// HTTP server, exercising the tokio-task orchestration, the ticker,
+// the OpsSnapshotDiff delta logic, the state publish path, and the
+// `scaphandre_last_scrape_age_seconds` gauge update.
+
+/// Spawn the scraper against a mock endpoint that serves a valid
+/// Scaphandre response. After ~2 ticks, abort the task and verify the
+/// shared state received a reading. This exercises the full hot path
+/// in `run_scraper_loop`: URI parse → client build → ticker → fetch
+/// → parse → `apply_scrape` → gauge update.
+#[tokio::test]
+async fn spawn_scraper_happy_path_updates_state() {
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    // The mock serves one reading per connection. The scraper task
+    // ticks at 50ms, so during a 200ms test window we expect ~3-4
+    // successful scrapes — we spawn a loop of accepted connections
+    // that all respond with the same canned body.
+    let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} 10000000\n";
+    let response = format!(
+        "HTTP/1.1 200 OK\r\n\
+         Content-Type: text/plain\r\n\
+         Content-Length: {}\r\n\
+         Connection: close\r\n\
+         \r\n\
+         {body}",
+        body.len()
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let endpoint = format!("http://{addr}/metrics");
+    let response_arc = Arc::new(response);
+
+    // Accept connections in a loop until the test cancels.
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let resp = response_arc.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    let mut process_map = HashMap::new();
+    process_map.insert("order-svc".to_string(), "java".to_string());
+    let cfg = ScaphandreConfig {
+        endpoint,
+        scrape_interval: Duration::from_millis(50),
+        process_map,
+    };
+    let state = Arc::new(ScaphandreState::default());
+    let metrics = Arc::new(crate::report::metrics::MetricsState::default());
+
+    // Feed the metrics snapshot so OpsSnapshotDiff produces a non-zero
+    // delta, otherwise apply_scrape would be a no-op.
+    metrics
+        .service_io_ops_total
+        .with_label_values(&["order-svc"])
+        .inc_by(5_000.0);
+
+    let handle = spawn_scraper(cfg, state.clone(), metrics.clone());
+
+    // Let the scraper tick 3-4 times before aborting.
+    tokio::time::sleep(Duration::from_millis(220)).await;
+    handle.abort();
+    let _ = handle.await;
+    server.abort();
+    let _ = server.await;
+
+    // The state must now contain a coefficient for `order-svc`. Its
+    // exact value is parser-dependent and tested elsewhere; here we
+    // only assert that the full pipeline ran at least once.
+    let snap = state.snapshot(crate::score::scaphandre::state::monotonic_ms(), 60_000);
+    assert!(
+        snap.contains_key("order-svc"),
+        "state should have been populated for order-svc; got {snap:?}"
+    );
+}
+
+/// Spawn the scraper against a server that always returns 500. Verify
+/// the task keeps running (warn-once pattern) without panicking and
+/// without updating the state.
+#[tokio::test]
+async fn spawn_scraper_500_keeps_running_and_state_empty() {
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let endpoint = format!("http://{addr}/metrics");
+
+    let server = tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            tokio::spawn(async move {
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let resp = "HTTP/1.1 500 Internal Server Error\r\n\
+                            Content-Length: 0\r\n\
+                            Connection: close\r\n\
+                            \r\n";
+                let _ = socket.write_all(resp.as_bytes()).await;
+                let _ = socket.shutdown().await;
+            });
+        }
+    });
+
+    let cfg = ScaphandreConfig {
+        endpoint,
+        scrape_interval: Duration::from_millis(40),
+        process_map: HashMap::new(),
+    };
+    let state = Arc::new(ScaphandreState::default());
+    let metrics = Arc::new(crate::report::metrics::MetricsState::default());
+    let handle = spawn_scraper(cfg, state.clone(), metrics);
+
+    // Let the scraper tick 4+ times so we cross the
+    // UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD (3) and exercise the
+    // one-shot "likely unsupported platform" warning path.
+    tokio::time::sleep(Duration::from_millis(220)).await;
+    handle.abort();
+    let _ = handle.await;
+    server.abort();
+    let _ = server.await;
+
+    // State must remain empty — no successful scrape means no readings.
+    let snap = state.snapshot(crate::score::scaphandre::state::monotonic_ms(), 60_000);
+    assert!(snap.is_empty(), "500 scrapes must not populate state");
+}
+
+/// Spawn the scraper with an invalid endpoint URI. `run_scraper_loop`
+/// must log an error and exit cleanly (the task finishes naturally,
+/// not via abort).
+#[tokio::test]
+async fn spawn_scraper_invalid_uri_exits_cleanly() {
+    use std::sync::Arc;
+    let cfg = ScaphandreConfig {
+        endpoint: "not a valid :: uri".to_string(),
+        scrape_interval: Duration::from_secs(5),
+        process_map: HashMap::new(),
+    };
+    let state = Arc::new(ScaphandreState::default());
+    let metrics = Arc::new(crate::report::metrics::MetricsState::default());
+    let handle = spawn_scraper(cfg, state, metrics);
+
+    // The task should exit on its own within a few ms because the URI
+    // parse fails at the top of run_scraper_loop.
+    let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
+    assert!(
+        result.is_ok(),
+        "scraper should exit cleanly on invalid URI, got: {result:?}"
+    );
+}
+
+/// Spawn the scraper against an unreachable endpoint (closed port).
+/// The task must keep running (tick + fail + warn-once) without
+/// panicking. We abort after ~2 ticks to end the test.
+#[tokio::test]
+async fn spawn_scraper_unreachable_endpoint_keeps_running() {
+    use std::sync::Arc;
+    // Port 1 is reserved and should be refused on localhost.
+    let cfg = ScaphandreConfig {
+        endpoint: "http://127.0.0.1:1/metrics".to_string(),
+        scrape_interval: Duration::from_millis(50),
+        process_map: HashMap::new(),
+    };
+    let state = Arc::new(ScaphandreState::default());
+    let metrics = Arc::new(crate::report::metrics::MetricsState::default());
+    let handle = spawn_scraper(cfg, state, metrics);
+
+    // Let the scraper tick 2 times, then abort.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    handle.abort();
+    let _ = handle.await;
+    // Test passes if the task didn't panic.
+}
+
+// --- Additional fetch_metrics_once error path tests ---
+
+/// The body limit is 8 MiB. Serve a response with a bogus
+/// `Content-Length` > 8 MiB but minimal actual body — the hyper client
+/// will try to read up to Content-Length and hit the Limited guard.
+#[tokio::test]
+async fn fetch_metrics_once_rejects_oversized_body() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let endpoint = format!("http://{addr}/metrics");
+
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 1024];
+        let _ = socket.read(&mut buf).await;
+        // Advertise a body larger than the 8 MiB cap and then stream
+        // 9 MiB of garbage to trigger the LengthLimitError.
+        let header = "HTTP/1.1 200 OK\r\n\
+                      Content-Type: text/plain\r\n\
+                      Content-Length: 9437184\r\n\
+                      Connection: close\r\n\
+                      \r\n";
+        let _ = socket.write_all(header.as_bytes()).await;
+        // Write 9 MiB in 64 KiB chunks.
+        let chunk = vec![b'x'; 65536];
+        for _ in 0..(9 * 16) {
+            if socket.write_all(&chunk).await.is_err() {
+                break;
+            }
+        }
+        let _ = socket.shutdown().await;
+    });
+
+    let client = build_scraper_client();
+    let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+    let err = fetch_metrics_once(&client, &uri)
+        .await
+        .expect_err("oversized body must fail with BodyRead (LengthLimit)");
+    server.await.unwrap();
+    match err {
+        ScraperError::BodyRead(msg) => {
+            // The underlying error type varies across hyper versions;
+            // the common thread is "length" in the message.
+            assert!(
+                msg.to_ascii_lowercase().contains("length") || msg.contains("limit"),
+                "expected length-limit error, got: {msg}"
+            );
+        }
+        other => panic!("expected BodyRead, got {other:?}"),
+    }
+}
+
+/// Ensure each `ScraperError` variant has a distinct, informative
+/// Display message so operators can tell categories apart in logs.
+#[test]
+fn scraper_error_display_messages_are_informative() {
+    let e1 = ScraperError::BodyRead("oops".to_string());
+    let e2 = ScraperError::HttpStatus(418);
+    let e3 = ScraperError::Timeout;
+    assert!(format!("{e1}").contains("body read"));
+    assert!(format!("{e2}").contains("418"));
+    assert!(format!("{e3}").contains("timed out"));
 }

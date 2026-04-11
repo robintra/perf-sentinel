@@ -40,6 +40,30 @@ Les findings lents (`slow_sql`, `slow_http`) représentent des opérations qui s
 
 C'est un choix de conception : le ratio de gaspillage mesure combien d'I/O pourraient être éliminées (N+1, redondant), tandis que les findings lents mettent en évidence des opérations nécessitant une optimisation (indexation, cache) plutôt qu'une élimination.
 
+## Interprétation des scores
+
+La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côté de `io_intensity_score` et `io_waste_ratio`, et la même classification est émise dans le rapport JSON sous forme de champs siblings `io_intensity_band` et `io_waste_ratio_band`. Les tables de référence sont dans le README principal.
+
+### Pourquoi ces seuils
+
+- **IIS_MODERATE (2.0)** est une règle de pouce, pas empirique. Elle reflète l'intuition qu'un endpoint CRUD typique fait 1-2 opérations I/O par requête. Les agrégateurs, dashboards et générateurs de rapports verront beaucoup d'endpoints "moderate" qui sont des designs légitimes, pas des défauts.
+- **IIS_HIGH (5.0)** est ancré sur `Config::default().n_plus_one_threshold = 5`. Un endpoint dont l'IIS atteint 5.0 est arithmétiquement au point où `detect_n_plus_one` commence à émettre des findings : d'où "high, à investiguer".
+- **IIS_CRITICAL (10.0)** est ancré sur l'escalade de sévérité hard-codée `indices.len() >= 10` dans `crate::detect::n_plus_one`. Même nombre, même sémantique : si un finding atteint ce compte, il est tagué `Severity::Critical` par le détecteur, et la band IIS au niveau endpoint indique que l'empreinte agrégée a franchi la même limite.
+- **WASTE_RATIO_HIGH (0.30)** correspond à la valeur **par défaut** de `io_waste_ratio_max`. Si vous surchargez la quality gate dans votre `.perf-sentinel.toml`, l'interprétation CLI/JSON ne suit **pas** : la gate est une policy utilisateur, l'interprétation est une heuristique fixe. Ces deux dimensions sont indépendantes par design, sinon un utilisateur qui relâche la gate pour accepter un service legacy bruyant verrait l'interprétation se décaler silencieusement et manquerait le signal.
+- **WASTE_RATIO_CRITICAL (0.50)** signale les runs où au moins la moitié de l'I/O analysée est du gaspillage évitable.
+
+### Contrat de stabilité JSON
+
+Les valeurs d'enum (`healthy`, `moderate`, `high`, `critical`) sont **stables entre versions**. Les consommateurs downstream (SARIF, Grafana, perf-lint, etc.) peuvent se brancher sur ces labels en toute sécurité.
+
+Les **seuils numériques** qui déclenchent ces labels sont **versionnés avec le binaire**. Ils peuvent évoluer à mesure qu'on accumule des données d'usage réelles. Cela reflète le pattern existant où `co2.model` évolue de `io_proxy_v1 → v2 → v3` sans casser les consommateurs qui veulent juste savoir quel modèle a été utilisé.
+
+Si un consommateur a besoin d'une classification indépendante de la version (par exemple, une alerte Grafana qui doit se comporter à l'identique à travers les upgrades de perf-sentinel), il doit lire les champs bruts `io_intensity_score` et `io_waste_ratio` et appliquer ses propres bandes.
+
+### La sévérité par finding est documentée ailleurs
+
+Pour les règles de sévérité par détecteur (`Critical` / `Warning` / `Info` sur N+1, Fanout, Slow, Chatty, Pool, Serialized), voir [`docs/design/04-DETECTION.md`](../design/04-DETECTION.md). Ces règles dépendent de seuils par détecteur partiellement config-tunables (par ex. `max_fanout × 3`, `chatty_service_min_calls × 3`) et sont documentées à côté des détecteurs eux-mêmes.
+
 ## La détection de fanout nécessite `parent_span_id`
 
 La détection de fanout (`excessive_fanout`) repose sur le champ `parent_span_id` pour construire les relations parent-enfant entre les spans. Si l'instrumentation de tracing ne propage pas les IDs de span parent (certains anciens SDKs OTel ou instrumentations personnalisées), la détection de fanout ne produira pas de findings.
@@ -146,6 +170,15 @@ Si vous exposez perf-sentinel sur un réseau :
 - Acheminez les traces via un OpenTelemetry Collector avec ses propres extensions d'authentification et transmettez à perf-sentinel sur un réseau interne de confiance
 
 N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans couche de sécurité en amont.
+
+### Durcissement du socket JSON
+
+Le socket unix JSON (`[daemon] json_socket`) se défend contre les attaques locales sur un hôte multi-utilisateurs avec deux mécanismes :
+
+- **Permissions `0o600`** appliquées juste après `bind()`. Les autres utilisateurs locaux ne peuvent pas se connecter pour injecter des événements.
+- **Pré-vérification des symlinks** : avant que le daemon ne supprime un éventuel fichier socket résiduel, il appelle `symlink_metadata()` et refuse de continuer si le chemin est un lien symbolique. Cela empêche un attaquant local qui contrôle le répertoire parent du socket de faire pointer `json_socket` vers un fichier victime (par exemple `/etc/passwd`) et de laisser le `remove_file()` de démarrage du daemon le supprimer.
+
+Ces deux défenses ne comptent que si `json_socket` se trouve dans un répertoire accessible en écriture par d'autres utilisateurs locaux. Si vous placez le socket dans un répertoire appartenant au daemon (`/var/run/perf-sentinel/` avec `0o700`), la surface est déjà fermée au niveau du système de fichiers.
 
 ## Précision des estimations carbone
 

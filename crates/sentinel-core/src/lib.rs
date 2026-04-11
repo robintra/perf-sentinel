@@ -28,3 +28,8 @@ pub(crate) mod time;
 
 #[cfg(test)]
 pub(crate) mod test_helpers;
+
+// Re-export the interpretation helper so the CLI and downstream consumers
+// can write `sentinel_core::InterpretationLevel::for_iis(...)` without
+// having to know it lives under `report::interpret::`.
+pub use report::interpret::InterpretationLevel;

@@ -10,11 +10,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
 use crate::report::metrics::MetricsState;
 use crate::score::scaphandre::ops::OpsSnapshotDiff;
-use crate::score::scaphandre::scraper::{
-    MAX_SCRAPE_BODY_BYTES, ScraperClient, build_scraper_client, redact_endpoint,
-};
 
 use super::config::{CloudEnergyConfig, ServiceCloudConfig};
 use super::state::{CloudEnergyState, ServiceEnergy, monotonic_ms};
@@ -91,7 +89,7 @@ struct PromResult {
 
 /// Fetch a single `PromQL` instant query and return the scalar value.
 async fn fetch_cpu_percent(
-    client: &ScraperClient,
+    client: &HttpClient,
     base_uri: &hyper::Uri,
     query: &str,
 ) -> Result<f64, CloudScraperError> {
@@ -130,7 +128,7 @@ async fn fetch_cpu_percent(
         return Err(CloudScraperError::HttpStatus(response.status().as_u16()));
     }
 
-    let limited = Limited::new(response.into_body(), MAX_SCRAPE_BODY_BYTES);
+    let limited = Limited::new(response.into_body(), MAX_BODY_BYTES);
     let collected = limited
         .collect()
         .await
@@ -240,8 +238,8 @@ async fn run_cloud_scraper_loop(
             return;
         }
     };
-    let redacted = redact_endpoint(&uri);
-    let client = build_scraper_client();
+    let redacted = http_client::redact_endpoint(&uri);
+    let client = http_client::build_client();
 
     let mut ticker = tokio::time::interval(cfg.scrape_interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -269,26 +267,52 @@ async fn run_cloud_scraper_loop(
         let mut any_success = false;
         let mut cpu_readings: HashMap<String, f64> = HashMap::with_capacity(cfg.services.len());
 
-        // Query CPU% for each configured service sequentially.
+        // Query CPU% for all configured services in parallel via a
+        // `JoinSet`. The previous sequential loop was N × request_time,
+        // which at 1024 services × 20ms easily exceeded the 15s scrape
+        // interval and caused ticker backlog. Parallelism lets us fan
+        // out the queries and collect them as they return. The hyper
+        // client holds an Arc internally so `.clone()` is cheap.
+        let mut set: tokio::task::JoinSet<(String, Result<f64, CloudScraperError>)> =
+            tokio::task::JoinSet::new();
         for (service, svc_cfg) in &cfg.services {
-            let query = resolve_cpu_query(svc_cfg, &cfg);
-            match fetch_cpu_percent(&client, &uri, &query).await {
-                Ok(cpu_pct) if cpu_pct.is_finite() => {
-                    cpu_readings.insert(service.clone(), cpu_pct);
+            let query = resolve_cpu_query(svc_cfg, &cfg).into_owned();
+            let client_clone = client.clone();
+            let uri_clone = uri.clone();
+            let service_clone = service.clone();
+            set.spawn(async move {
+                let result = fetch_cpu_percent(&client_clone, &uri_clone, &query).await;
+                (service_clone, result)
+            });
+        }
+
+        while let Some(join_result) = set.join_next().await {
+            match join_result {
+                Ok((service, Ok(cpu_pct))) if cpu_pct.is_finite() => {
+                    cpu_readings.insert(service, cpu_pct);
                     any_success = true;
                 }
-                Ok(cpu_pct) => {
+                Ok((service, Ok(cpu_pct))) => {
                     tracing::debug!(
                         service = %service,
                         value = %cpu_pct,
                         "Cloud energy: Prometheus returned non-finite CPU%, skipping"
                     );
                 }
-                Err(e) => {
+                Ok((service, Err(e))) => {
                     tracing::debug!(
                         service = %service,
                         error = %e,
                         "Cloud energy: failed to fetch CPU% for service"
+                    );
+                }
+                Err(e) => {
+                    // Task panicked or was cancelled. Neither should
+                    // happen in normal operation but don't bring the
+                    // scraper loop down.
+                    tracing::debug!(
+                        error = %e,
+                        "Cloud energy: CPU% fetch task panicked or was cancelled"
                     );
                 }
             }
@@ -675,5 +699,435 @@ mod tests {
             cpu_metric: None,
             services: HashMap::new(),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // resolve_cpu_query: exhaustive provider-branch coverage
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn azure_provider_uses_azure_default_query() {
+        let svc = ServiceCloudConfig::InstanceType {
+            provider: Some("azure".into()),
+            instance_type: "Standard_D4s_v3".into(),
+            cpu_query: None,
+        };
+        let cfg = make_test_config();
+        assert_eq!(resolve_cpu_query(&svc, &cfg), DEFAULT_CPU_QUERY_AZURE);
+    }
+
+    #[test]
+    fn aws_provider_uses_aws_default_query() {
+        let svc = ServiceCloudConfig::InstanceType {
+            provider: Some("aws".into()),
+            instance_type: "m5.large".into(),
+            cpu_query: None,
+        };
+        let cfg = make_test_config();
+        assert_eq!(resolve_cpu_query(&svc, &cfg), DEFAULT_CPU_QUERY_AWS);
+    }
+
+    #[test]
+    fn unknown_provider_falls_back_to_generic_query() {
+        let svc = ServiceCloudConfig::InstanceType {
+            provider: Some("hetzner".into()),
+            instance_type: "cx21".into(),
+            cpu_query: None,
+        };
+        let cfg = make_test_config();
+        assert_eq!(resolve_cpu_query(&svc, &cfg), DEFAULT_CPU_QUERY_GENERIC);
+    }
+
+    #[test]
+    fn manual_watts_variant_uses_default_provider_for_query() {
+        // ManualWatts has no provider field; resolve_cpu_query must
+        // fall back to cfg.default_provider, exercising the second
+        // match arm in resolve_cpu_query.
+        let svc = ServiceCloudConfig::ManualWatts {
+            idle_watts: 10.0,
+            max_watts: 100.0,
+            cpu_query: None,
+        };
+        let mut cfg = make_test_config();
+        cfg.default_provider = Some("azure".into());
+        assert_eq!(resolve_cpu_query(&svc, &cfg), DEFAULT_CPU_QUERY_AZURE);
+    }
+
+    #[test]
+    fn manual_watts_variant_no_default_provider_uses_generic() {
+        let svc = ServiceCloudConfig::ManualWatts {
+            idle_watts: 10.0,
+            max_watts: 100.0,
+            cpu_query: None,
+        };
+        let mut cfg = make_test_config();
+        cfg.default_provider = None;
+        assert_eq!(resolve_cpu_query(&svc, &cfg), DEFAULT_CPU_QUERY_GENERIC);
+    }
+
+    // ------------------------------------------------------------------
+    // apply_cloud_scrape: missing-readings and non-finite branches
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn apply_scrape_skips_service_without_cpu_reading() {
+        let state = CloudEnergyState::new();
+        let cpu = HashMap::new(); // no CPU reading for svc-a
+        let mut ops = HashMap::new();
+        ops.insert("svc-a".to_string(), 1000_u64);
+
+        let mut services = HashMap::new();
+        services.insert(
+            "svc-a".to_string(),
+            ServiceCloudConfig::ManualWatts {
+                idle_watts: 2.0,
+                max_watts: 20.0,
+                cpu_query: None,
+            },
+        );
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://localhost:9090".into(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services,
+        };
+
+        apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
+        // No CPU reading → continue → no insertion → empty snapshot.
+        let snap = state.snapshot(200, 500);
+        assert!(snap.is_empty());
+    }
+
+    #[test]
+    fn apply_scrape_skips_service_without_ops_delta() {
+        let state = CloudEnergyState::new();
+        let mut cpu = HashMap::new();
+        cpu.insert("svc-a".to_string(), 50.0);
+        let ops = HashMap::new(); // no ops delta for svc-a
+
+        let mut services = HashMap::new();
+        services.insert(
+            "svc-a".to_string(),
+            ServiceCloudConfig::ManualWatts {
+                idle_watts: 2.0,
+                max_watts: 20.0,
+                cpu_query: None,
+            },
+        );
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://localhost:9090".into(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services,
+        };
+
+        apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
+        // No ops delta → continue → no insertion.
+        let snap = state.snapshot(200, 500);
+        assert!(snap.is_empty());
+    }
+
+    #[test]
+    fn apply_scrape_zero_ops_non_finite_energy_skipped() {
+        // ops=0 makes `compute_cloud_energy_per_op_kwh` return None,
+        // which hits the `continue` on line 421. The service should
+        // NOT be inserted into state.
+        let state = CloudEnergyState::new();
+        let mut cpu = HashMap::new();
+        cpu.insert("svc-a".to_string(), 50.0);
+        let mut ops = HashMap::new();
+        ops.insert("svc-a".to_string(), 0_u64); // zero ops → None
+
+        let mut services = HashMap::new();
+        services.insert(
+            "svc-a".to_string(),
+            ServiceCloudConfig::ManualWatts {
+                idle_watts: 2.0,
+                max_watts: 20.0,
+                cpu_query: None,
+            },
+        );
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://localhost:9090".into(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services,
+        };
+
+        apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
+        let snap = state.snapshot(200, 500);
+        assert!(snap.is_empty(), "zero-ops service must not be inserted");
+    }
+
+    #[test]
+    fn resolve_power_falls_back_to_default_instance_type() {
+        // svc_cfg.instance_type is empty → uses cfg.default_instance_type.
+        let svc = ServiceCloudConfig::InstanceType {
+            provider: Some("aws".into()),
+            instance_type: String::new(), // empty → fallback path
+            cpu_query: None,
+        };
+        let mut cfg = make_test_config();
+        cfg.default_instance_type = Some("c5.4xlarge".into());
+        let (idle, max) = resolve_power(&svc, &cfg);
+        assert!((idle - 21.3).abs() < 0.01);
+        assert!((max - 143.7).abs() < 0.1);
+    }
+
+    // ------------------------------------------------------------------
+    // warn_if_slow
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn warn_if_slow_does_not_panic_when_elapsed_under_threshold() {
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://localhost:9090".into(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+        };
+        warn_if_slow(&cfg, Duration::from_millis(100));
+    }
+
+    #[test]
+    fn warn_if_slow_does_not_panic_when_elapsed_exceeds_threshold() {
+        // 13s > 15s * 0.8 = 12s → emits a tracing::warn but must not panic.
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://localhost:9090".into(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+        };
+        warn_if_slow(&cfg, Duration::from_secs(13));
+    }
+
+    // ------------------------------------------------------------------
+    // log_scrape_failure
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn log_scrape_failure_first_invocation_flips_first_warned() {
+        let mut first_warned = false;
+        let mut unreachable_warned = false;
+        log_scrape_failure("http://fake", &mut first_warned, &mut unreachable_warned, 1);
+        assert!(first_warned, "first invocation must flip first_warned");
+        assert!(!unreachable_warned, "unreachable threshold not reached yet");
+    }
+
+    #[test]
+    fn log_scrape_failure_threshold_sets_unreachable() {
+        let mut first_warned = true;
+        let mut unreachable_warned = false;
+        log_scrape_failure(
+            "http://fake",
+            &mut first_warned,
+            &mut unreachable_warned,
+            FAILURE_THRESHOLD,
+        );
+        assert!(
+            unreachable_warned,
+            "threshold reached must flip unreachable_warned"
+        );
+    }
+
+    #[test]
+    fn log_scrape_failure_is_idempotent_after_unreachable_flagged() {
+        let mut first_warned = true;
+        let mut unreachable_warned = true;
+        log_scrape_failure(
+            "http://fake",
+            &mut first_warned,
+            &mut unreachable_warned,
+            10,
+        );
+        // Both flags stay true, no panic.
+        assert!(first_warned && unreachable_warned);
+    }
+
+    // ------------------------------------------------------------------
+    // Integration tests with a mock HTTP server on an ephemeral port
+    // ------------------------------------------------------------------
+    //
+    // Shared helpers from `crate::test_helpers` — same pattern used by
+    // scaphandre, electricity_maps, and tempo tests.
+
+    use crate::test_helpers::{http_200_text, http_status, spawn_one_shot_server};
+
+    /// Wrap the shared `http_200_text` with the JSON content type.
+    fn http_200_json(body: &str) -> Vec<u8> {
+        http_200_text("application/json", body)
+    }
+
+    #[tokio::test]
+    async fn fetch_cpu_percent_happy_path() {
+        let body = r#"{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1234567890.0,"42.5"]}]}}"#;
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
+
+        let client = http_client::build_client();
+        let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+        let val = fetch_cpu_percent(&client, &uri, "test_query")
+            .await
+            .expect("valid response should parse");
+        assert!((val - 42.5).abs() < 1e-10);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_cpu_percent_non_200_surfaces_http_status() {
+        let (endpoint, server) =
+            spawn_one_shot_server(http_status(503, "Service Unavailable")).await;
+
+        let client = http_client::build_client();
+        let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+        let err = fetch_cpu_percent(&client, &uri, "q")
+            .await
+            .expect_err("503 must error");
+        match err {
+            CloudScraperError::HttpStatus(503) => {}
+            other => panic!("expected HttpStatus(503), got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_cpu_percent_malformed_json_surfaces_json_parse() {
+        let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
+
+        let client = http_client::build_client();
+        let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+        let err = fetch_cpu_percent(&client, &uri, "q")
+            .await
+            .expect_err("malformed JSON must error");
+        assert!(matches!(err, CloudScraperError::JsonParse(_)));
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_cpu_percent_empty_result_surfaces_empty_result_error() {
+        let body = r#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
+        let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
+
+        let client = http_client::build_client();
+        let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+        let err = fetch_cpu_percent(&client, &uri, "query-alpha")
+            .await
+            .expect_err("empty result must error");
+        match err {
+            CloudScraperError::EmptyResult { query } => {
+                assert_eq!(query, "query-alpha");
+            }
+            other => panic!("expected EmptyResult, got {other:?}"),
+        }
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn spawn_cloud_scraper_invalid_endpoint_exits_cleanly() {
+        // `from_str` on the invalid URI returns Err, which makes
+        // run_cloud_scraper_loop emit an error and return immediately.
+        // The spawned task should complete without panic.
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "not a uri :: bad".into(),
+            scrape_interval: Duration::from_millis(50),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+        };
+        let state = CloudEnergyState::new();
+        let metrics = Arc::new(MetricsState::new());
+        let handle = spawn_cloud_scraper(cfg, state, metrics);
+        // The task returns almost immediately on the InvalidUri branch.
+        tokio::time::timeout(Duration::from_secs(2), handle)
+            .await
+            .expect("invalid URI task must exit within 2s")
+            .expect("task must not panic");
+    }
+
+    #[tokio::test]
+    async fn spawn_cloud_scraper_empty_services_never_fails() {
+        // With no services configured, each tick runs to completion
+        // without querying anything. `any_success == false` but the
+        // `!cfg.services.is_empty()` guard skips `log_scrape_failure`.
+        // Verify the task stays alive and we can abort cleanly.
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://127.0.0.1:1".into(), // unreachable
+            scrape_interval: Duration::from_millis(50),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+        };
+        let state = CloudEnergyState::new();
+        let metrics = Arc::new(MetricsState::new());
+        let handle = spawn_cloud_scraper(cfg, state, metrics);
+        // Let a couple of ticks fire.
+        tokio::time::sleep(Duration::from_millis(180)).await;
+        handle.abort();
+        let _ = handle.await;
+    }
+
+    #[tokio::test]
+    async fn spawn_cloud_scraper_unreachable_endpoint_keeps_running() {
+        // Configured services but the endpoint refuses connections.
+        // The scraper must stay alive, go through log_scrape_failure,
+        // eventually bump consecutive_failures past the threshold.
+        let mut services = HashMap::new();
+        services.insert(
+            "svc-a".to_string(),
+            ServiceCloudConfig::ManualWatts {
+                idle_watts: 2.0,
+                max_watts: 20.0,
+                cpu_query: None,
+            },
+        );
+        let cfg = CloudEnergyConfig {
+            prometheus_endpoint: "http://127.0.0.1:1".into(),
+            scrape_interval: Duration::from_millis(30),
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services,
+        };
+        let state = CloudEnergyState::new();
+        let metrics = Arc::new(MetricsState::new());
+        let handle = spawn_cloud_scraper(cfg, state.clone(), metrics);
+        // Enough ticks to step past the FAILURE_THRESHOLD.
+        tokio::time::sleep(Duration::from_millis(220)).await;
+        handle.abort();
+        let _ = handle.await;
+
+        // State stays empty since nothing ever succeeded.
+        assert!(state.snapshot(monotonic_ms(), 5_000).is_empty());
+    }
+
+    #[test]
+    fn cloud_scraper_error_display_messages_are_informative() {
+        // Smoke test to make sure every thiserror variant produces a
+        // distinct message. Helps operators disambiguate log lines.
+        let e1 = CloudScraperError::BodyRead("oops".to_string());
+        let e2 = CloudScraperError::HttpStatus(503);
+        let e3 = CloudScraperError::Timeout;
+        let e4 = CloudScraperError::JsonParse("bad".to_string());
+        let e5 = CloudScraperError::EmptyResult {
+            query: "q".to_string(),
+        };
+        let e6 = CloudScraperError::QueryError("err".to_string());
+        assert!(format!("{e1}").contains("body read"));
+        assert!(format!("{e2}").contains("503"));
+        assert!(format!("{e3}").contains("timed out"));
+        assert!(format!("{e4}").contains("parse"));
+        assert!(format!("{e5}").contains("no result"));
+        assert!(format!("{e6}").contains("error status"));
     }
 }

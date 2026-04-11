@@ -41,6 +41,7 @@ mod tests {
                 total_io_ops: 0,
                 avoidable_io_ops: 0,
                 io_waste_ratio: 0.0,
+                io_waste_ratio_band: crate::report::interpret::InterpretationLevel::Healthy,
                 top_offenders: vec![],
                 co2: None,
                 regions: vec![],
@@ -92,6 +93,9 @@ mod tests {
                 total_io_ops: 10,
                 avoidable_io_ops: 5,
                 io_waste_ratio: 0.5,
+                io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+                    0.5,
+                ),
                 top_offenders: vec![],
                 co2: None,
                 regions: vec![],
@@ -111,5 +115,18 @@ mod tests {
         assert!(json.contains("\"io_waste_ratio\": 0.5"));
         assert!(json.contains("\"first_timestamp\""));
         assert!(json.contains("\"last_timestamp\""));
+
+        // Interpretation band fields are part of the stable JSON schema
+        // (see `crates/sentinel-core/src/report/interpret.rs` stability
+        // contract). Asserting their presence here guards against an
+        // accidental `#[serde(skip)]` or a rename that would silently
+        // break downstream consumers (SARIF, Grafana, perf-lint).
+        //
+        // With `io_waste_ratio = 0.5`, the band MUST be "critical"
+        // (>= WASTE_RATIO_CRITICAL = 0.50).
+        assert!(
+            json.contains("\"io_waste_ratio_band\": \"critical\""),
+            "io_waste_ratio_band missing or not `critical` for 0.5 waste: {json}"
+        );
     }
 }

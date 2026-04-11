@@ -4,10 +4,11 @@ pub mod carbon;
 pub(crate) mod carbon_profiles;
 pub mod cloud_energy;
 pub mod electricity_maps;
+pub(crate) mod energy_state;
 pub mod scaphandre;
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use crate::correlate::Trace;
 use crate::detect::{Finding, GreenImpact};
@@ -34,19 +35,30 @@ struct EndpointStats<'a> {
     total_io_ops: usize,
     invocation_count: usize,
     service: &'a str,
+    /// Index of the most recent trace in which this endpoint was seen,
+    /// used by `count_endpoint_stats` as a sentinel to bump
+    /// `invocation_count` only on the first span of a trace that hits
+    /// this endpoint. Initialized to `usize::MAX` so trace index `0`
+    /// still triggers the bump on first sight.
+    last_seen_trace: usize,
 }
 
 /// Count I/O ops per endpoint and invocations (distinct traces per endpoint).
+///
+/// Single-pass implementation: the previous version had a second
+/// `get_mut` loop over `seen_endpoints` per trace, doing an extra
+/// `HashMap` probe per (trace, endpoint) pair just to bump
+/// `invocation_count`. We now bump `invocation_count` the first time
+/// an endpoint is seen within a given trace and set the sentinel in
+/// `EndpointStats.last_seen_trace` so subsequent spans in the same
+/// trace skip the bump. One `HashMap` lookup per span, zero second-pass
+/// probes.
 fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<&str, EndpointStats<'_>>, usize) {
     let mut endpoint_stats: HashMap<&str, EndpointStats<'_>> =
         HashMap::with_capacity(traces.len().min(64));
     let mut total_io_ops: usize = 0;
-    // Allocated once, cleared per trace. clear() retains capacity so
-    // subsequent traces reuse the same allocation (no churn).
-    let mut seen_endpoints: HashSet<&str> = HashSet::new();
 
-    for trace in traces {
-        seen_endpoints.clear();
+    for (trace_idx, trace) in traces.iter().enumerate() {
         for span in &trace.spans {
             total_io_ops += 1;
             let key = span.event.source.endpoint.as_str();
@@ -54,13 +66,17 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<&str, EndpointStats<'_>>, 
                 total_io_ops: 0,
                 invocation_count: 0,
                 service: span.event.service.as_str(),
+                last_seen_trace: usize::MAX,
             });
             stats.total_io_ops += 1;
-            seen_endpoints.insert(key);
-        }
-        for &ep in &seen_endpoints {
-            if let Some(stats) = endpoint_stats.get_mut(ep) {
+            // Bump invocation_count only on the first span of this
+            // trace that hits this endpoint. Using the trace index as
+            // the sentinel (usize::MAX initially) avoids allocating a
+            // per-trace HashSet. Trace index 0 still works because the
+            // sentinel is MAX, not 0.
+            if stats.last_seen_trace != trace_idx {
                 stats.invocation_count += 1;
+                stats.last_seen_trace = trace_idx;
             }
         }
     }
@@ -148,6 +164,7 @@ pub fn score_green(
         f.green_impact = Some(GreenImpact {
             estimated_extra_io_ops: extra,
             io_intensity_score: iis,
+            io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(iis),
         });
     }
 
@@ -196,6 +213,7 @@ pub fn score_green(
                 endpoint: (*endpoint).to_string(),
                 service: stats.service.to_string(),
                 io_intensity_score: iis,
+                io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(iis),
                 co2_grams,
             }
         })
@@ -207,14 +225,18 @@ pub fn score_green(
             .then_with(|| a.endpoint.cmp(&b.endpoint))
     });
 
+    let io_waste_ratio = if total_io_ops > 0 {
+        avoidable_io_ops as f64 / total_io_ops as f64
+    } else {
+        0.0
+    };
     let green_summary = GreenSummary {
         total_io_ops,
         avoidable_io_ops,
-        io_waste_ratio: if total_io_ops > 0 {
-            avoidable_io_ops as f64 / total_io_ops as f64
-        } else {
-            0.0
-        },
+        io_waste_ratio,
+        io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+            io_waste_ratio,
+        ),
         top_offenders,
         // Hoisted from co2.transport_gco2 for top-level JSON visibility:
         // consumers can read transport_gco2 without navigating into the
