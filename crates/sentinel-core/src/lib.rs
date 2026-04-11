@@ -8,6 +8,7 @@
 #![allow(clippy::cast_precision_loss)] // usize -> f64 for ratios
 #![allow(clippy::similar_names)] // min_ts/min_ms, max_ts/max_ms are clear
 
+pub mod calibrate;
 pub mod config;
 pub mod correlate;
 #[cfg(feature = "daemon")]
@@ -15,6 +16,8 @@ pub mod daemon;
 pub mod detect;
 pub mod event;
 pub mod explain;
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+pub(crate) mod http_client;
 pub mod ingest;
 pub mod normalize;
 pub mod pipeline;

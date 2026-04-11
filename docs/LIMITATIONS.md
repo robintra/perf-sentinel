@@ -236,7 +236,7 @@ This captures:
 - **Per-service differences**: Java vs .NET vs Node vs Go will have different energy footprints even for similar I/O work.
 - **Workload variance over time**: an idle service and a loaded service get different coefficients as the daemon runs.
 
-Reports where at least one service used a measured coefficient are tagged with `model = "scaphandre_rapl"`. Full precedence chain: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+Reports where at least one service used a measured coefficient are tagged with `model = "scaphandre_rapl"`. Full precedence chain: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. When calibration factors are active on proxy models, the suffix `+cal` is appended (e.g. `io_proxy_v2+cal`).
 
 **What Scaphandre does NOT do.** This is the critical limitation: **Scaphandre gives per-service coefficients, not per-finding attribution**. Specifically:
 
@@ -340,6 +340,19 @@ False positive considerations:
 The detector reports at most one finding per parent span: the single longest non-overlapping subsequence (found via dynamic programming). If a parent has two disjoint groups of serializable calls separated by overlapping spans, only the longest group is reported.
 
 Serialized call findings are NOT counted as avoidable I/O. They represent a latency optimization opportunity, not an I/O reduction.
+
+## Electricity Maps API
+
+- **API key required.** The Electricity Maps integration requires an API key (free or paid tier). The key should be provided via the `PERF_SENTINEL_EMAPS_TOKEN` environment variable rather than in the config file.
+- **Rate limits.** The free tier allows approximately 30 requests per month per zone. With the default `poll_interval_secs = 300` (5 minutes), this budget would be exhausted in under 3 hours. Free tier users should set `poll_interval_secs = 3600` or higher, or use the embedded hourly profiles instead.
+- **Daemon only.** The Electricity Maps scraper runs only in `perf-sentinel watch` mode. Batch mode (`analyze`, `tempo`, `calibrate`) uses the embedded profiles.
+- **Staleness fallback.** If the API is unreachable for longer than 3x the poll interval, the scraper falls back to embedded hourly or annual profiles.
+
+## Tempo ingestion
+
+- **Protobuf format.** The `perf-sentinel tempo` subcommand requests traces as OTLP protobuf from Tempo's HTTP API. Tempo must be configured to serve protobuf responses (the default).
+- **Sequential fetching.** Traces are fetched one at a time to respect Tempo's per-tenant rate limits. For large numbers of traces, the fetch phase may take time.
+- **Search API.** The search mode uses Tempo's `GET /api/search` endpoint which may not be available on all Tempo deployments (requires the search feature to be enabled in Tempo).
 
 ## gCO2eq energy constant (legacy section, kept for cross-references)
 

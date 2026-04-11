@@ -19,22 +19,12 @@ use super::ops::{OpsSnapshotDiff, apply_scrape};
 use super::parser::parse_scaphandre_metrics;
 use super::state::{ScaphandreState, monotonic_ms};
 
-/// Hyper-util legacy client used by the Scaphandre scraper. Built once
-/// per scraper task in [`run_scraper_loop`] and reused across every
-/// scrape so the underlying connection pool stays warm.
-pub(crate) type ScraperClient = hyper_util::client::legacy::Client<
-    hyper_util::client::legacy::connect::HttpConnector,
-    http_body_util::Empty<bytes::Bytes>,
->;
-
-/// Maximum response body size accepted from the Scaphandre endpoint.
-///
-/// 8 MiB is generous: real Scaphandre exports are typically <1 MiB
-/// even on hosts with thousands of processes. The cap exists to
-/// prevent a misbehaving (or attacker-redirected) endpoint from
-/// exhausting the daemon's RAM by streaming a multi-GB response —
-/// the 3 s fetch timeout only bounds latency, not bandwidth.
-pub(crate) const MAX_SCRAPE_BODY_BYTES: usize = 8 * 1024 * 1024;
+// Re-export shared HTTP client utilities so existing importers
+// (cloud_energy, electricity_maps) continue to work via the
+// `scaphandre::scraper` path. New code should import from
+// `crate::http_client` directly.
+pub(crate) use crate::http_client::HttpClient as ScraperClient;
+pub(crate) use crate::http_client::MAX_BODY_BYTES as MAX_SCRAPE_BODY_BYTES;
 
 /// Number of consecutive scrape failures before [`run_scraper_loop`]
 /// emits the one-shot "likely unsupported platform" warning. 3 is
@@ -42,13 +32,8 @@ pub(crate) const MAX_SCRAPE_BODY_BYTES: usize = 8 * 1024 * 1024;
 /// without delaying the diagnostic too long on a misconfigured host.
 const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 
-/// Build a fresh hyper-util client for the scraper. Called once per
-/// scraper task at startup; the client is then reused for every fetch.
-pub(crate) fn build_scraper_client() -> ScraperClient {
-    use hyper_util::client::legacy::Client;
-    use hyper_util::rt::TokioExecutor;
-    Client::builder(TokioExecutor::new()).build_http()
-}
+pub(crate) use crate::http_client::build_client as build_scraper_client;
+pub(crate) use crate::http_client::redact_endpoint;
 
 /// Scrape the Scaphandre endpoint once via the hyper-util client.
 /// Returns the response body as a `String` on success.
@@ -132,24 +117,6 @@ pub(super) enum ScraperError {
     Timeout,
     #[error("Scaphandre response was not valid UTF-8")]
     Utf8(#[source] std::string::FromUtf8Error),
-}
-
-/// Strip userinfo (`http://user:pass@host/`) from a `Uri` before
-/// logging. perf-sentinel does not support authenticated Scaphandre
-/// endpoints, but operators may put credentials in the URL out of
-/// habit when fronting Scaphandre with a reverse proxy. Logging the
-/// raw URI would leak those credentials to journald / log
-/// aggregators. This helper rebuilds the URL with only the safe parts
-/// (scheme, host, port, path).
-pub(crate) fn redact_endpoint(uri: &hyper::Uri) -> String {
-    let scheme = uri.scheme_str().unwrap_or("http");
-    let host = uri.host().unwrap_or("?");
-    let path_and_query = uri.path_and_query().map_or("/", |p| p.as_str());
-    if let Some(port) = uri.port_u16() {
-        format!("{scheme}://{host}:{port}{path_and_query}")
-    } else {
-        format!("{scheme}://{host}{path_and_query}")
-    }
 }
 
 /// Spawn the periodic Scaphandre scraper task.

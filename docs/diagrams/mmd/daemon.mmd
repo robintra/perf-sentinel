@@ -10,7 +10,7 @@ flowchart TB
 
     subgraph eventloop["tokio::select! Event Loop"]
         recv["Receive batch"]
-        tick["Ticker<br/><i>every TTL/2</i>"]
+        tick["Ticker<br/><i>every TTL/2 (min 100ms)</i>"]
         ctrlc["Ctrl-C<br/><i>graceful shutdown</i>"]
     end
 
@@ -22,6 +22,14 @@ flowchart TB
         ring["Ring Buffer<br/><i>max_events_per_trace</i>"]
         ttl["TTL Eviction<br/><i>trace_ttl_ms</i>"]
     end
+
+    subgraph scrapers["Energy Scrapers (background tasks)"]
+        scaph["Scaphandre<br/><i>RAPL per-process<br/>scrape_interval_secs</i>"]
+        cloud["Cloud SPECpower<br/><i>CPU% from Prometheus<br/>scrape_interval_secs</i>"]
+        emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]
+    end
+
+    tick_ctx["build_tick_ctx()<br/><i>merge energy snapshots<br/>+ real-time intensity</i>"]
 
     process["process_traces()<br/><i>detect &rarr; score</i>"]
 
@@ -38,8 +46,13 @@ flowchart TB
     tick --> ttl
     ctrlc -- "drain_all()" --> window
 
-    lru -- "evicted traces" --> process
-    ttl -- "expired traces" --> process
+    scaph --> tick_ctx
+    cloud --> tick_ctx
+    emaps --> tick_ctx
+
+    lru -- "evicted traces" --> tick_ctx
+    ttl -- "expired traces" --> tick_ctx
+    tick_ctx --> process
 
     process --> stdout
     process -- "update" --> metrics_state
@@ -49,3 +62,4 @@ flowchart TB
 
     style eventloop fill:#2d3b4a,stroke:#60a5fa
     style window fill:#3b2d4a,stroke:#a78bfa
+    style scrapers fill:#2d4a3e,stroke:#4ade80

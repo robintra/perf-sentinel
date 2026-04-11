@@ -88,9 +88,27 @@ pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 /// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
+/// Carbon intensity source: Electricity Maps real-time API data.
+/// Highest precedence for the intensity dimension (independent of the
+/// energy model tag which tracks Scaphandre/cloud/proxy).
+pub const CO2_MODEL_EMAPS: &str = "electricity_maps_api";
+
+/// Suffix appended to the proxy model tag when calibration factors are active.
+pub const CO2_MODEL_CAL_SUFFIX: &str = "+cal";
+
+/// Calibrated proxy model tags (static variants to avoid dynamic allocation).
+pub const CO2_MODEL_V1_CAL: &str = "io_proxy_v1+cal";
+pub const CO2_MODEL_V2_CAL: &str = "io_proxy_v2+cal";
+pub const CO2_MODEL_V3_CAL: &str = "io_proxy_v3+cal";
+
 /// Methodology tag: SCI v1.0 numerator `(E x I) + M` summed over traces.
 /// Not the per-R intensity. See design doc for SCI semantics.
 pub const METHODOLOGY_SCI_NUMERATOR: &str = "sci_v1_numerator";
+
+/// Methodology tag: SCI v1.0 numerator with network transport energy added.
+/// `(E x I) + M + T` where `T` is network transport CO2. Used when
+/// `[green] include_network_transport = true` and transport CO2 > 0.
+pub const METHODOLOGY_SCI_NUMERATOR_TRANSPORT: &str = "sci_v1_numerator+transport";
 
 /// Methodology tag: avoidable CO2 via `operational * (avoidable_ops / accounted_ops)`.
 /// Region-blind, excludes embodied.
@@ -160,7 +178,11 @@ pub struct CarbonEstimate {
 
 impl CarbonEstimate {
     /// Derive `low`/`high` from midpoint using multiplicative factors.
-    const fn new_with_model(mid: f64, model: &'static str, methodology: &'static str) -> Self {
+    pub(crate) const fn new_with_model(
+        mid: f64,
+        model: &'static str,
+        methodology: &'static str,
+    ) -> Self {
         Self {
             low: mid * CO2_LOW_FACTOR,
             mid,
@@ -221,8 +243,9 @@ pub struct CarbonReport {
     pub transport_gco2: Option<f64>,
 }
 
-/// Whether a region row used the flat annual, 24-hour, or monthly x hourly profile.
-/// Variants are ordered by fidelity: `Annual` < `Hourly` < `MonthlyHourly`.
+/// Whether a region row used the flat annual, 24-hour, monthly x hourly profile,
+/// or real-time data from the Electricity Maps API.
+/// Variants are ordered by fidelity: `Annual` < `Hourly` < `MonthlyHourly` < `RealTime`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IntensitySource {
@@ -230,6 +253,8 @@ pub enum IntensitySource {
     Annual,
     Hourly,
     MonthlyHourly,
+    /// Real-time data from Electricity Maps API (highest fidelity).
+    RealTime,
 }
 
 /// Per-region operational CO₂ breakdown row in `green_summary.regions[]`.
@@ -267,6 +292,12 @@ pub struct CarbonContext {
     /// Takes precedence over embedded profiles. Wrapped in `Arc` so the
     /// daemon can clone the context per tick without deep-copying profiles.
     pub custom_hourly_profiles: Option<Arc<HashMap<String, HourlyProfile>>>,
+    /// Per-service calibration factors from `[green] calibration_file`.
+    /// Multiplied with the proxy model `ENERGY_PER_IO_OP_KWH` per service.
+    pub calibration: Option<crate::calibrate::CalibrationData>,
+    /// Real-time grid intensity from Electricity Maps (daemon only).
+    /// Keys are lowercased cloud region names, values are gCO2/kWh.
+    pub real_time_intensity: Option<HashMap<String, f64>>,
 }
 
 impl Default for CarbonContext {
@@ -281,6 +312,8 @@ impl Default for CarbonContext {
             include_network_transport: false,
             network_energy_per_byte_kwh: DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             custom_hourly_profiles: None,
+            calibration: None,
+            real_time_intensity: None,
         }
     }
 }

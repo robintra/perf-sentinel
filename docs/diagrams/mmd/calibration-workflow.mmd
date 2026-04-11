@@ -1,0 +1,40 @@
+---
+title: Calibration Workflow
+---
+flowchart LR
+    subgraph measure["1. Measure"]
+        workload["Run reference<br/>workload"]
+        traces["Collect traces<br/><i>perf-sentinel analyze<br/>or OTLP export</i>"]
+        energy["Collect energy<br/><i>Scaphandre CSV export<br/>or cloud monitoring</i>"]
+        workload --> traces & energy
+    end
+
+    subgraph calibrate_cmd["2. Calibrate"]
+        parse_traces["Parse traces<br/><i>count I/O ops<br/>per service</i>"]
+        parse_csv["Parse energy CSV<br/><i>power_watts or<br/>energy_kwh format</i>"]
+        correlate["Correlate by<br/>service + time window"]
+        compute["Compute factor<br/><i>measured / default<br/>per service</i>"]
+        validate["Validate<br/><i>reject negative<br/>warn if &gt;10x or &lt;0.1x</i>"]
+        output["Write TOML<br/><i>.perf-sentinel-calibration.toml</i>"]
+
+        parse_traces --> correlate
+        parse_csv --> correlate
+        correlate --> compute --> validate --> output
+    end
+
+    subgraph use["3. Use"]
+        config["Add to config<br/><i>[green]<br/>calibration_file = path</i>"]
+        load["Config loads factors<br/><i>at startup</i>"]
+        scoring["Scoring loop<br/><i>proxy_energy *= factor<br/>per service</i>"]
+        tag["Model tag<br/><i>+cal suffix appended<br/>e.g. io_proxy_v2+cal</i>"]
+
+        config --> load --> scoring --> tag
+    end
+
+    traces --> parse_traces
+    energy --> parse_csv
+    output --> config
+
+    style measure fill:#2d3b4a,stroke:#60a5fa
+    style calibrate_cmd fill:#4a3b2d,stroke:#fbbf24
+    style use fill:#2d4a3e,stroke:#4ade80

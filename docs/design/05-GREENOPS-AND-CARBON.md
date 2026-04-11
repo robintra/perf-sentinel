@@ -104,6 +104,13 @@ When `total_io_ops == 0`, the ratio is `0.0` (not NaN). This is the fraction of 
 
 ## Carbon conversion
 
+The scoring pipeline resolves two dimensions independently for every span: **energy per op** (`E`) and **grid intensity** (`I`). Both have fallback chains from the highest-fidelity source down to the embedded defaults.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/carbon-scoring_dark.svg">
+  <img alt="Carbon scoring energy and intensity resolution" src="../diagrams/svg/carbon-scoring.svg">
+</picture>
+
 ### SCI v1.0 alignment
 
 perf-sentinel implements the [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) specification (later [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)) from the Green Software Foundation. The formula is:
@@ -382,7 +389,7 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-The scoring stage tracks per-region flags (`any_scaphandre`, `any_cloud_specpower`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v2"` > `"io_proxy_v1"`. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
+The scoring stage tracks per-region flags (`any_scaphandre`, `any_cloud_specpower`, `any_realtime_report`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
 
 **Per-service op counter as single source of truth.** The scraper reads the per-service op counter from `MetricsState::service_io_ops_total` (a Prometheus `CounterVec` labeled with `service`) via `snapshot_service_io_ops()`. The daemon's event intake path increments this counter on every normalized event. Using the Prometheus counter directly, instead of a parallel counter that would need resetting every scrape window, avoids reset races and gives Grafana users a per-service op rate graph for free.
 
@@ -435,7 +442,7 @@ region = "europe-west1"
 instance_type = "n2-standard-8"
 ```
 
-**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, Scaphandre entries take precedence: if both Scaphandre and cloud energy exist for the same service, the Scaphandre entry wins (it measures real power, the cloud entry interpolates). The top-level model tag reflects the most precise source: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, Scaphandre entries take precedence: if both Scaphandre and cloud energy exist for the same service, the Scaphandre entry wins (it measures real power, the cloud entry interpolates). The top-level model tag reflects the most precise source: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Daemon only.** Like Scaphandre, cloud energy estimation is a daemon-only feature. The `analyze` batch command always uses the proxy model.
 
@@ -447,22 +454,22 @@ The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for ever
 
 **SQL verb multipliers.** The verb is extracted from the first word of the `target` field (the raw SQL statement), not from the `operation` field. This is necessary because OTLP-ingested spans store `db.system` (e.g., "postgresql") in `operation`, not the SQL verb. The first whitespace-delimited token reliably gives the SQL verb across all ingestion formats (native JSON, OTLP, Jaeger, Zipkin).
 
-| SQL verb | Multiplier | Rationale |
-|----------|------------|-----------|
+| SQL verb | Multiplier | Rationale                            |
+|----------|------------|--------------------------------------|
 | SELECT   | 0.5x       | Read-only index lookup, no WAL write |
-| INSERT   | 1.5x       | WAL write + data page write |
-| UPDATE   | 1.5x       | Read + write |
-| DELETE   | 1.2x       | Mark + WAL |
-| Other    | 1.0x       | DDL, EXPLAIN, BEGIN, etc. |
+| INSERT   | 1.5x       | WAL write + data page write          |
+| UPDATE   | 1.5x       | Read + write                         |
+| DELETE   | 1.2x       | Mark + WAL                           |
+| Other    | 1.0x       | DDL, EXPLAIN, BEGIN, etc.            |
 
 **HTTP payload size tiers.** For HTTP spans, the multiplier depends on `response_size_bytes` (extracted from OTel `http.response.body.size` or legacy `http.response_content_length`).
 
-| Payload size | Multiplier | Threshold |
-|-------------|------------|-----------|
-| Small       | 0.8x       | < 10 KB   |
-| Medium      | 1.2x       | 10 KB to 1 MB |
-| Large       | 2.0x       | > 1 MB    |
-| Unknown     | 1.0x       | attribute absent |
+| Payload size | Multiplier | Threshold        |
+|--------------|------------|------------------|
+| Small        | 0.8x       | < 10 KB          |
+| Medium       | 1.2x       | 10 KB to 1 MB    |
+| Large        | 2.0x       | > 1 MB           |
+| Unknown      | 1.0x       | attribute absent |
 
 **Sources.** The relative ratios are derived from academic DBMS energy benchmarks (Xu et al. "An Analysis of Power Consumption in a DBMS", VLDB 2010; Tsirogiannis et al. "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010) and the Cloud Carbon Footprint methodology. The absolute values are order-of-magnitude estimates. The relative ordering (SELECT < DELETE < INSERT/UPDATE) is more robust across hardware generations.
 

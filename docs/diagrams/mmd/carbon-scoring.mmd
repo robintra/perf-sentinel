@@ -1,0 +1,88 @@
+---
+title: Carbon Scoring - Energy and Intensity Resolution
+---
+flowchart TD
+    span["SpanEvent<br/><i>service, region, operation</i>"]
+
+    subgraph energy["Energy per op (E)"]
+        direction TB
+        e_base["Base proxy<br/><i>ENERGY_PER_IO_OP_KWH</i>"]
+        e_coeff{"per_operation<br/>_coefficients?"}
+        e_weighted["Weighted proxy<br/><i>SELECT 0.5x, INSERT 1.5x<br/>HTTP size tiers</i>"]
+        e_cal{"calibration<br/>factor for service?"}
+        e_calibrated["proxy * factor<br/><i>model: +cal suffix</i>"]
+        e_proxy_final["proxy_energy_kwh"]
+        e_snap{"energy_snapshot<br/>has service?"}
+        e_scaph["Scaphandre RAPL<br/><i>measured kWh/op</i><br/>model: scaphandre_rapl"]
+        e_cloud["Cloud SPECpower<br/><i>CPU% interpolated</i><br/>model: cloud_specpower"]
+
+        e_base --> e_coeff
+        e_coeff -- "yes" --> e_weighted --> e_cal
+        e_coeff -- "no" --> e_cal
+        e_cal -- "yes" --> e_calibrated --> e_proxy_final
+        e_cal -- "no" --> e_proxy_final
+        e_proxy_final --> e_snap
+        e_snap -- "Scaphandre entry" --> e_scaph
+        e_snap -- "Cloud entry" --> e_cloud
+        e_snap -- "None: use proxy" --> e_final
+    end
+
+    e_final["energy_kwh"]
+
+    subgraph intensity["Grid intensity (I)"]
+        direction TB
+        i_rt{"real_time_intensity<br/>has region?"}
+        i_emaps["Electricity Maps API<br/><i>live gCO2/kWh</i><br/>source: real_time"]
+        i_hourly{"hourly profile<br/>available?"}
+        i_month{"monthly variant?"}
+        i_mh["Monthly x Hourly<br/><i>288 values per region</i><br/>source: monthly_hourly"]
+        i_h["Hourly<br/><i>24 values per region</i><br/>source: hourly"]
+        i_annual["Annual table<br/><i>flat gCO2/kWh</i><br/>source: annual"]
+
+        i_rt -- "yes" --> i_emaps
+        i_rt -- "no" --> i_hourly
+        i_hourly -- "yes + UTC hour" --> i_month
+        i_month -- "yes" --> i_mh
+        i_month -- "no" --> i_h
+        i_hourly -- "no" --> i_annual
+    end
+
+    i_final["intensity gCO2/kWh"]
+
+    pue["PUE<br/><i>per-region table<br/>or 1.2 generic fallback</i>"]
+
+    formula["per_op_gco2<br/><i>energy * intensity * PUE</i>"]
+
+    subgraph report["Carbon Report (SCI v1.0)"]
+        op_co2["operational_gco2<br/><i>sum over all ops</i>"]
+        embodied["embodied_gco2<br/><i>traces * M per request</i>"]
+        transport["transport_gco2<br/><i>network bytes * 0.04 kWh/GB<br/>cross-region HTTP only</i>"]
+        total["total = operational + embodied + transport<br/><i>methodology: sci_v1_numerator[+transport]</i>"]
+        avoidable["avoidable = operational * ratio<br/><i>ratio = avoidable_ops / accounted_ops</i>"]
+    end
+
+    span --> energy
+    span --> intensity
+    e_scaph --> e_final
+    e_cloud --> e_final
+    i_emaps --> i_final
+    i_mh --> i_final
+    i_h --> i_final
+    i_annual --> i_final
+
+    e_final --> formula
+    i_final --> formula
+    pue --> formula
+
+    formula --> op_co2
+    op_co2 --> total
+    embodied --> total
+    transport --> total
+    op_co2 --> avoidable
+
+    style energy fill:#2d4a3e,stroke:#4ade80
+    style intensity fill:#3b2d4a,stroke:#a78bfa
+    style report fill:#2d3b4a,stroke:#60a5fa
+    style e_scaph fill:#1a3a2a,stroke:#22c55e
+    style e_cloud fill:#1a3a2a,stroke:#22c55e
+    style i_emaps fill:#2a1a3a,stroke:#c084fc

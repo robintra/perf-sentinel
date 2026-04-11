@@ -8,7 +8,10 @@ sequenceDiagram
     participant P2 as Pass 2 - Convert
     participant Out as Vec of SpanEvent
 
+    Note over Req: Also used by Tempo ingestion:<br/>fetch protobuf, decode, then this flow
+
     Req->>P1: resource_spans[].scope_spans[].spans[]
+    Note over P1: Extract cloud.region from<br/>resource attributes (span fallback)
     loop Each span (cap 100k)
         P1->>Idx: insert(span_id, span)
     end
@@ -18,13 +21,15 @@ sequenceDiagram
         P2->>P2: Has db.statement / db.query.text?
         alt SQL span
             P2->>Idx: lookup parent_span_id
-            Idx-->>P2: parent attrs (http.route, code.function)
-            P2->>Out: SpanEvent type Sql
+            Idx-->>P2: parent endpoint: http.route > http.url > url.full<br/>parent method: code.function > span name
+            P2->>Out: SpanEvent type=Sql<br/>+ cloud_region
         else Has http.url / url.full?
             P2->>Idx: lookup parent_span_id
-            Idx-->>P2: parent attrs
-            P2->>Out: SpanEvent type HttpOut
+            Idx-->>P2: parent endpoint + method
+            P2->>Out: SpanEvent type=HttpOut<br/>+ status_code + response_size_bytes<br/>+ cloud_region
         else No I/O attributes
             P2->>P2: skip
         end
     end
+
+    Note over P2: Both legacy (db.statement, http.url, http.method)<br/>and stable (db.query.text, url.full, http.request.method)<br/>OTel semantic conventions are checked

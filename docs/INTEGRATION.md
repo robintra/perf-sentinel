@@ -4,12 +4,12 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on 
 
 ## Choose your topology
 
-| Topology | Best for | Effort | Changes to services |
-|----------|----------|--------|---------------------|
-| **[CI batch](#quick-start-ci-batch-analysis)** | CI pipelines, pull request checks | Lowest | None (uses trace files) |
-| **[Central collector](#quick-start-central-collector)** | Production, multi-service | Low | None (YAML config only) |
-| **[Sidecar](#quick-start-sidecar)** | Dev/staging, single-service debug | Low | None (Docker only) |
-| **[Direct daemon](#quick-start-direct-daemon)** | Local dev, quick experiments | Medium | Per-language env vars |
+| Topology                                                | Best for                          | Effort | Changes to services     |
+|---------------------------------------------------------|-----------------------------------|--------|-------------------------|
+| **[CI batch](#quick-start-ci-batch-analysis)**          | CI pipelines, pull request checks | Lowest | None (uses trace files) |
+| **[Central collector](#quick-start-central-collector)** | Production, multi-service         | Low    | None (YAML config only) |
+| **[Sidecar](#quick-start-sidecar)**                     | Dev/staging, single-service debug | Low    | None (Docker only)      |
+| **[Direct daemon](#quick-start-direct-daemon)**         | Local dev, quick experiments      | Medium | Per-language env vars   |
 
 ---
 
@@ -921,7 +921,54 @@ instance_type = "Standard_D8s_v3"
 
 The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using SPECpower data embedded in the binary (~60 common instance types across AWS, GCP, Azure). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
 
-**Energy source precedence.** When both Scaphandre and cloud energy are configured for the same service, Scaphandre wins (direct RAPL measurement is more precise than CPU% interpolation). The full chain: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` (hourly profiles) > `io_proxy_v1` (flat annual).
+**Energy source precedence.** When both Scaphandre and cloud energy are configured for the same service, Scaphandre wins (direct RAPL measurement is more precise than CPU% interpolation). The full chain: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+
+### Calibrate the proxy model from on-site measurements
+
+When neither Scaphandre nor cloud energy are available but you have reference energy measurements from an external source (power meter, RAPL export, datacenter monitoring), the `perf-sentinel calibrate` subcommand tunes the I/O-to-energy proxy coefficients per service. The three-step workflow:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/calibration-workflow_dark.svg">
+  <img alt="Calibration workflow" src="diagrams/svg/calibration-workflow.svg">
+</picture>
+
+**1. Measure.** Run a reference workload and collect both traces (standard perf-sentinel JSON format) and energy measurements (CSV with `timestamp,service,power_watts` or `timestamp,service,energy_kwh` columns, auto-detected from the header).
+
+**2. Calibrate.** Run `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. The subcommand correlates I/O ops with energy readings per service and time window, computes `factor = measured_per_op / default_proxy`, and writes a TOML file. Factors > 10x or < 0.1x emit warnings (likely measurement error).
+
+**3. Use.** Load the calibration file at config time via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. The scoring loop multiplies the proxy energy by the per-service factor, and the model tag gets a `+cal` suffix (e.g. `io_proxy_v2+cal`). Calibration only applies to the proxy model: Scaphandre/cloud measured energy still overrides.
+
+---
+
+## Tempo integration
+
+If your infrastructure uses Grafana Tempo as the trace backend, you can query it directly with `perf-sentinel tempo` instead of exporting traces to files.
+
+### Single trace analysis
+
+```bash
+perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123def456
+```
+
+### Service-based search
+
+```bash
+# Analyze the last hour of traces for order-svc
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
+
+# CI mode with quality gate
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 30m --ci
+```
+
+### Requirements
+
+- Tempo must expose its HTTP API (default port 3200).
+- The `--endpoint` flag points to the Tempo API base URL.
+- Traces are fetched as OTLP protobuf and run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
+
+### Alternative: Tempo generic forwarding
+
+Instead of querying Tempo, you can configure Tempo to forward a copy of traces to perf-sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). This avoids querying Tempo and works in real-time with `perf-sentinel watch`.
 
 ---
 

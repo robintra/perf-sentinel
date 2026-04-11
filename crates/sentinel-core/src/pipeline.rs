@@ -99,21 +99,12 @@ mod tests {
 
     #[test]
     fn waste_dedup_no_double_count() {
-        use crate::test_helpers::make_sql_event;
+        use crate::test_helpers::{make_sql_event, make_sql_series_events};
         // 5 different params + 2 duplicates of param 1 = 7 events, same template
         // N+1 sees 7 occurrences with 5 distinct params -> finding (avoidable = 6)
         // Redundant sees 3 occurrences of order_id=1 -> finding (avoidable = 2)
         // Without dedup: 6 + 2 = 8. With dedup: max(6, 2) = 6.
-        let mut events: Vec<SpanEvent> = (1..=5)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let mut events: Vec<SpanEvent> = make_sql_series_events(5);
         // Add 2 more with order_id = 1 (duplicates)
         for i in 6..=7 {
             events.push(make_sql_event(
@@ -181,18 +172,9 @@ mod tests {
 
     #[test]
     fn pipeline_with_findings_computes_green_summary() {
-        use crate::test_helpers::make_sql_event;
+        use crate::test_helpers::make_n_plus_one_events;
         // 6 events with different params -> N+1 finding
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = make_n_plus_one_events();
 
         let config = Config::default();
         let report = analyze(events, &config);
@@ -235,17 +217,8 @@ mod tests {
 
     #[test]
     fn pipeline_with_green_default_region_produces_co2() {
-        use crate::test_helpers::make_sql_event;
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        use crate::test_helpers::make_n_plus_one_events;
+        let events = make_n_plus_one_events();
 
         let config = Config {
             green_default_region: Some("eu-west-3".to_string()),
@@ -278,18 +251,9 @@ mod tests {
 
     #[test]
     fn green_disabled_skips_scoring() {
-        use crate::test_helpers::make_sql_event;
+        use crate::test_helpers::make_n_plus_one_events;
         // 6 events -> N+1 finding, but green scoring disabled
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = make_n_plus_one_events();
 
         let config = Config {
             green_enabled: false,
@@ -328,17 +292,8 @@ mod tests {
 
     #[test]
     fn batch_analyze_stamps_ci_batch_confidence() {
-        use crate::test_helpers::make_sql_event;
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        use crate::test_helpers::make_n_plus_one_events;
+        let events = make_n_plus_one_events();
         // Even with a production environment in config, batch analyze
         // must stamp CiBatch — confidence is mode-driven, not config-driven,
         // for `analyze` (the config `daemon_environment` only affects

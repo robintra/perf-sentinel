@@ -26,7 +26,7 @@ Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O opera
 - **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
 - **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
 
-Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. **30+ cloud regions** have embedded hourly carbon intensity profiles, with monthly x hourly seasonal variation for FR, DE, GB, and US-East. In daemon mode, energy estimation can be refined via **Scaphandre RAPL** (bare metal) or **cloud-native CPU% + SPECpower** (AWS/GCP/Azure), with automatic fallback to the I/O proxy model. Users can also supply their own hourly profiles via `[green] hourly_profiles_file`.
+Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. **30+ cloud regions** have embedded hourly carbon intensity profiles, with monthly x hourly seasonal variation for FR, DE, GB, and US-East. In daemon mode, energy estimation can be refined via **Scaphandre RAPL** (bare metal) or **cloud-native CPU% + SPECpower** (AWS/GCP/Azure), and grid intensity can be pulled live from the **Electricity Maps API**, with automatic fallback to the I/O proxy model. Users can supply their own hourly profiles via `[green] hourly_profiles_file`, or tune the proxy coefficients from on-site measurements via `perf-sentinel calibrate`.
 
 > **Note:** CO₂ estimates are **directional**, not regulatory-grade. Every estimate carries a `~2×` multiplicative uncertainty bracket (`low = mid/2`, `high = mid×2`) because the I/O proxy model is rough. perf-sentinel is a **waste counter**, not a carbon-accounting tool. Do not use it for CSRD or GHG Protocol Scope 3 reporting. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology.
 
@@ -211,6 +211,23 @@ perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
 
 ```bash
 perf-sentinel inspect --input traces.json
+```
+
+### Tempo trace ingestion
+
+```bash
+# Fetch and analyze a single trace from Grafana Tempo
+perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
+
+# Search and analyze recent traces by service name
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
+```
+
+### Calibrate energy coefficients
+
+```bash
+# Tune I/O-to-energy coefficients from real measurements
+perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
 ```
 
 ### Streaming mode (daemon)

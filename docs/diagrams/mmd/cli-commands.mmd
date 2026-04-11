@@ -6,32 +6,43 @@ flowchart LR
 
     analyze["analyze<br/><i>--input file<br/>--ci --format json|sarif</i>"]
     explain["explain<br/><i>--trace-id ID<br/>--format text|json</i>"]
-    inspect["inspect<br/><i>--input file<br/>TUI mode</i>"]
-    watch["watch<br/><i>daemon mode<br/>--config path</i>"]
+    inspect["inspect ⚙ tui<br/><i>--input file<br/>TUI mode</i>"]
+    watch["watch ⚙ daemon<br/><i>daemon mode<br/>--config path</i>"]
     demo["demo<br/><i>embedded dataset</i>"]
     bench["bench<br/><i>--input file<br/>--iterations N</i>"]
     pgstat["pg-stat<br/><i>--input csv|json<br/>--top-n N --traces file</i>"]
+    tempo["tempo ⚙ tempo<br/><i>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h</i>"]
+    calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
+    tempo_pipeline["Tempo fetch<br/>&rarr; Pipeline"]
     inspect_pipeline["Pipeline + TUI<br/><i>ratatui 3-panel</i>"]
     demo_pipeline["Pipeline"]
     bench_pipeline["Pipeline<br/><i>throughput measurement</i>"]
     tree["build_tree()<br/><i>span tree + findings</i>"]
     daemon["daemon::run()<br/><i>OTLP + streaming</i>"]
     ranking["rank_entries()<br/><i>top-N hotspots</i>"]
+    cal_engine["calibrate()<br/><i>correlate ops + energy</i>"]
 
     report_text["Colored<br/>Terminal"]
     report_json["JSON<br/>Report"]
     report_sarif["SARIF<br/>v2.1.0"]
     report_ndjson["NDJSON<br/>stdout"]
     report_metrics["Prometheus<br/>/metrics"]
+    report_toml["Calibration<br/>TOML"]
+    report_bench["JSON<br/>Perf Metrics"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
     analyze_pipeline --> report_json
     analyze_pipeline --> report_sarif
+
+    tempo --> tempo_pipeline
+    tempo_pipeline --> report_text
+    tempo_pipeline --> report_json
+    tempo_pipeline --> report_sarif
 
     explain --> tree
     tree --> report_text
@@ -45,14 +56,18 @@ flowchart LR
 
     demo --> demo_pipeline --> report_text
 
-    bench --> bench_pipeline
+    bench --> bench_pipeline --> report_bench
 
     pgstat --> ranking
     ranking --> report_text
     ranking --> report_json
 
+    calibrate --> cal_engine --> report_toml
+
     style analyze_pipeline fill:#2d4a3e,stroke:#4ade80
+    style tempo_pipeline fill:#2d4a3e,stroke:#4ade80
     style demo_pipeline fill:#2d4a3e,stroke:#4ade80
     style bench_pipeline fill:#2d4a3e,stroke:#4ade80
     style inspect_pipeline fill:#2d4a3e,stroke:#4ade80
+    style cal_engine fill:#4a3b2d,stroke:#fbbf24
     style daemon fill:#3b2d4a,stroke:#a78bfa

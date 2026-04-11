@@ -16,9 +16,10 @@ name = "perf-sentinel"
 path = "src/main.rs"
 
 [features]
-default = ["tui", "daemon"]
+default = ["tui", "daemon", "tempo"]
 tui = ["ratatui", "crossterm"]
 daemon = ["perf-sentinel-core/daemon"]
+tempo = ["perf-sentinel-core/tempo"]
 
 [dependencies]
 perf-sentinel-core = { version = "0.3.0", path = "../sentinel-core" }

@@ -294,7 +294,7 @@ Ce qui capture :
 - **Les différences entre services** : Java vs .NET vs Node vs Go auront des empreintes énergétiques différentes même pour des charges I/O similaires.
 - **La variance de charge dans le temps** : un service idle et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Quand des facteurs de calibration sont actifs sur les modèles proxy, le suffixe `+cal` est ajouté (ex. `io_proxy_v2+cal`).
 
 **Ce que Scaphandre ne fait PAS.** C'est la limitation critique : **Scaphandre donne des coefficients par-service, pas d'attribution par-finding**. Spécifiquement :
 
@@ -333,7 +333,7 @@ Ce qui capture :
 - **Les caractéristiques de l'instance** : un `c5.4xlarge` (16 vCPUs, 32 GiB) a un profil énergétique différent d'un `m5.xlarge` (4 vCPUs, 16 GiB).
 - **La variance de charge dans le temps** : un service au repos et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`).
+Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`).
 
 **Ce que ça ne fait PAS.** Comme Scaphandre, le modèle cloud SPECpower donne des coefficients par-service, pas d'attribution par-finding. De plus :
 
@@ -345,6 +345,19 @@ Les rapports où au moins un service a utilisé l'estimation cloud sont tagués 
 **Modèle mental correct.** Le modèle cloud SPECpower vous donne un **coefficient dynamique par-service basé sur l'utilisation CPU réelle** au lieu d'une **constante proxy fixe globale**. C'est une amélioration significative pour les déploiements cloud où Scaphandre n'est pas disponible (la plupart des VMs cloud n'exposent pas RAPL). L'intervalle d'incertitude passe d'un facteur ~2× (proxy) à environ +/-30% (SPECpower), mais l'outil reste un compteur de gaspillage directionnel, pas un instrument de comptabilité carbone.
 
 **Mode batch.** Le mode batch `analyze` ne lance jamais le scraper Prometheus et n'utilise jamais les données cloud. Même si `[green.cloud]` est présent dans la config, la commande `analyze` l'ignore entièrement et utilise toujours le modèle proxy. Seul le daemon `watch` intègre l'estimation cloud.
+
+## API Electricity Maps
+
+- **Clé API requise.** L'intégration Electricity Maps nécessite une clé API (tier gratuit ou payant). La clé doit être fournie via la variable `PERF_SENTINEL_EMAPS_TOKEN` plutôt que dans le fichier de config.
+- **Limites de débit.** Le tier gratuit permet environ 30 requêtes par mois par zone. Avec le `poll_interval_secs = 300` par défaut, ce budget serait épuisé en moins de 3 heures. Les utilisateurs du tier gratuit doivent utiliser `poll_interval_secs = 3600` ou plus.
+- **Mode daemon uniquement.** Le scraper Electricity Maps ne fonctionne qu'en mode `perf-sentinel watch`.
+- **Repli en cas de staleness.** Si l'API est inaccessible plus longtemps que 3x l'intervalle de sondage, le scraper retombe sur les profils horaires embarqués.
+
+## Ingestion Tempo
+
+- **Format protobuf.** La sous-commande `perf-sentinel tempo` demande les traces en protobuf OTLP depuis l'API HTTP de Tempo.
+- **Récupération séquentielle.** Les traces sont récupérées une par une pour respecter les limites de débit de Tempo.
+- **API de recherche.** Le mode recherche utilise l'endpoint `GET /api/search` de Tempo, qui doit être activé dans la configuration Tempo.
 
 ## Constante énergétique gCO2eq (section legacy, conservée pour les références croisées)
 

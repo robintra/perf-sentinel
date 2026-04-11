@@ -1,0 +1,466 @@
+//! Tempo trace ingestion: query Grafana Tempo's HTTP API for traces.
+//!
+//! Supports two modes:
+//! - By trace ID: fetch a single trace via `GET /api/traces/{traceID}`
+//! - By service + lookback: search for trace IDs via `GET /api/search`,
+//!   then fetch each trace
+//!
+//! Trace data is returned as OTLP protobuf, decoded via `prost`, and
+//! converted to `SpanEvent` using the existing `convert_otlp_request`.
+
+use std::time::Duration;
+
+use crate::event::SpanEvent;
+use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
+use crate::ingest::otlp::convert_otlp_request;
+
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use prost::Message;
+
+// ---------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------
+
+/// Errors from Tempo API interactions.
+#[derive(Debug, thiserror::Error)]
+pub enum TempoError {
+    #[error("invalid Tempo endpoint: {0}")]
+    InvalidEndpoint(String),
+
+    #[error("invalid lookback duration: {0}")]
+    InvalidLookback(String),
+
+    #[error("HTTP transport error: {0}")]
+    Transport(String),
+
+    #[error("Tempo returned HTTP {0}")]
+    HttpStatus(u16),
+
+    #[error("request timed out")]
+    Timeout,
+
+    #[error("failed to read response body: {0}")]
+    BodyRead(String),
+
+    #[error("failed to decode protobuf response: {0}")]
+    ProtobufDecode(String),
+
+    #[error("failed to parse JSON response: {0}")]
+    JsonParse(String),
+
+    #[error("trace not found: {0}")]
+    TraceNotFound(String),
+
+    #[error("no traces found for the given search criteria")]
+    NoTracesFound,
+}
+
+// ---------------------------------------------------------------
+// Lookback duration parser
+// ---------------------------------------------------------------
+
+/// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
+///
+/// # Errors
+///
+/// Returns `TempoError::InvalidLookback` for malformed inputs.
+pub fn parse_lookback(s: &str) -> Result<Duration, TempoError> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err(TempoError::InvalidLookback("empty string".to_string()));
+    }
+
+    let mut total_secs: u64 = 0;
+    let mut num_buf = String::new();
+
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            num_buf.push(ch);
+        } else {
+            if num_buf.is_empty() {
+                return Err(TempoError::InvalidLookback(format!(
+                    "unexpected '{ch}' without a preceding number"
+                )));
+            }
+            let n: u64 = num_buf
+                .parse()
+                .map_err(|_| TempoError::InvalidLookback(format!("invalid number: {num_buf}")))?;
+            num_buf.clear();
+            match ch {
+                'h' => total_secs += n * 3600,
+                'm' => total_secs += n * 60,
+                's' => total_secs += n,
+                _ => {
+                    return Err(TempoError::InvalidLookback(format!(
+                        "unknown unit '{ch}', expected h/m/s"
+                    )));
+                }
+            }
+        }
+    }
+
+    // Trailing number without unit is rejected
+    if !num_buf.is_empty() {
+        return Err(TempoError::InvalidLookback(format!(
+            "number '{num_buf}' without a unit suffix (h/m/s)"
+        )));
+    }
+
+    if total_secs == 0 {
+        return Err(TempoError::InvalidLookback(
+            "duration must be greater than zero".to_string(),
+        ));
+    }
+
+    Ok(Duration::from_secs(total_secs))
+}
+
+/// Minimal percent-encoding for URI query parameter values.
+/// Encodes `&`, `=`, `#`, `+`, space, and non-ASCII bytes.
+fn percent_encode_query_value(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'&' | b'=' | b'#' | b'+' | b' ' | b'%' | 0x00..=0x1F | 0x7F..=0xFF => {
+                out.push('%');
+                out.push(char::from(b"0123456789ABCDEF"[(b >> 4) as usize]));
+                out.push(char::from(b"0123456789ABCDEF"[(b & 0x0f) as usize]));
+            }
+            _ => out.push(char::from(b)),
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------
+// Tempo search response types
+// ---------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct SearchResponse {
+    #[serde(default)]
+    traces: Vec<TraceMeta>,
+}
+
+#[derive(serde::Deserialize)]
+struct TraceMeta {
+    #[serde(rename = "traceID")]
+    trace_id: String,
+}
+
+// ---------------------------------------------------------------
+// HTTP helpers
+// ---------------------------------------------------------------
+
+/// Maximum body size for search responses (1 MiB).
+const MAX_SEARCH_BODY_BYTES: usize = 1024 * 1024;
+
+/// Request timeout for Tempo API calls.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Fetch raw bytes from a Tempo endpoint with size limit and timeout.
+///
+/// Shared implementation behind `fetch_bytes` (protobuf) and `fetch_json`.
+/// Builds the request, applies the timeout, checks the HTTP status, and
+/// reads the limited body. When `map_404` is true, 404 responses return
+/// `TempoError::TraceNotFound` instead of the generic `HttpStatus`.
+async fn fetch_raw(
+    client: &HttpClient,
+    uri: hyper::Uri,
+    accept: &'static str,
+    max_bytes: usize,
+    map_404: bool,
+) -> Result<bytes::Bytes, TempoError> {
+    let req = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri(&uri)
+        .header("Accept", accept)
+        .header("User-Agent", "perf-sentinel")
+        .body(http_body_util::Empty::<bytes::Bytes>::new())
+        .map_err(|e| TempoError::Transport(e.to_string()))?;
+
+    let resp = tokio::time::timeout(REQUEST_TIMEOUT, client.request(req))
+        .await
+        .map_err(|_| TempoError::Timeout)?
+        .map_err(|e| TempoError::Transport(e.to_string()))?;
+
+    let status = resp.status().as_u16();
+    if map_404 && status == 404 {
+        return Err(TempoError::TraceNotFound(http_client::redact_endpoint(
+            &uri,
+        )));
+    }
+    if status != 200 {
+        return Err(TempoError::HttpStatus(status));
+    }
+
+    let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
+    let body = http_body_util::BodyExt::collect(limited)
+        .await
+        .map_err(|e| TempoError::BodyRead(e.to_string()))?
+        .to_bytes();
+
+    Ok(body)
+}
+
+/// Fetch raw bytes from a Tempo endpoint (OTLP protobuf). 404 maps to
+/// `TraceNotFound` for graceful handling in search+fetch flows.
+async fn fetch_bytes(
+    client: &HttpClient,
+    uri: hyper::Uri,
+    max_bytes: usize,
+) -> Result<bytes::Bytes, TempoError> {
+    fetch_raw(client, uri, "application/protobuf", max_bytes, true).await
+}
+
+/// Fetch JSON from a Tempo endpoint.
+async fn fetch_json(
+    client: &HttpClient,
+    uri: hyper::Uri,
+    max_bytes: usize,
+) -> Result<String, TempoError> {
+    let body = fetch_raw(client, uri, "application/json", max_bytes, false).await?;
+    String::from_utf8(body.to_vec()).map_err(|e| TempoError::BodyRead(e.to_string()))
+}
+
+// ---------------------------------------------------------------
+// Core API functions
+// ---------------------------------------------------------------
+
+/// Search Tempo for trace IDs matching a service name within a lookback window.
+///
+/// # Errors
+///
+/// Returns `TempoError` on HTTP errors, timeouts, or JSON parse failures.
+pub async fn search_traces(
+    client: &HttpClient,
+    endpoint: &str,
+    service: &str,
+    lookback: Duration,
+    limit: usize,
+) -> Result<Vec<String>, TempoError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let end = now.as_secs();
+    let start = end.saturating_sub(lookback.as_secs());
+
+    let encoded_service = percent_encode_query_value(service);
+    let uri_str = format!(
+        "{endpoint}/api/search?tags=service.name%3D{encoded_service}&start={start}&end={end}&limit={limit}"
+    );
+    let uri: hyper::Uri = uri_str
+        .parse()
+        .map_err(|_| TempoError::InvalidEndpoint(endpoint.to_string()))?;
+
+    let json = fetch_json(client, uri, MAX_SEARCH_BODY_BYTES).await?;
+
+    let response: SearchResponse =
+        serde_json::from_str(&json).map_err(|e| TempoError::JsonParse(e.to_string()))?;
+
+    let ids: Vec<String> = response.traces.into_iter().map(|t| t.trace_id).collect();
+    if ids.is_empty() {
+        return Err(TempoError::NoTracesFound);
+    }
+
+    Ok(ids)
+}
+
+/// Fetch a single trace from Tempo and convert to `SpanEvent`s.
+///
+/// Requests OTLP protobuf format and decodes via `prost::Message`.
+///
+/// # Errors
+///
+/// Returns `TempoError` on HTTP errors, timeouts, or protobuf decode failures.
+pub async fn fetch_trace(
+    client: &HttpClient,
+    endpoint: &str,
+    trace_id: &str,
+) -> Result<Vec<SpanEvent>, TempoError> {
+    // Validate trace_id is hex-only (OTLP spec: hex-encoded 16/32 bytes).
+    if !trace_id.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(TempoError::InvalidEndpoint(format!(
+            "trace ID '{trace_id}' contains non-hex characters"
+        )));
+    }
+    let uri_str = format!("{endpoint}/api/traces/{trace_id}");
+    let uri: hyper::Uri = uri_str
+        .parse()
+        .map_err(|_| TempoError::InvalidEndpoint(endpoint.to_string()))?;
+
+    let body = fetch_bytes(client, uri, MAX_BODY_BYTES).await?;
+
+    let request = ExportTraceServiceRequest::decode(body)
+        .map_err(|e| TempoError::ProtobufDecode(e.to_string()))?;
+
+    Ok(convert_otlp_request(&request))
+}
+
+/// Ingest traces from Tempo: either a single trace by ID or a search-then-fetch flow.
+///
+/// # Errors
+///
+/// Returns `TempoError` on API failures.
+pub async fn ingest_from_tempo(
+    endpoint: &str,
+    service: Option<&str>,
+    trace_id: Option<&str>,
+    lookback: Duration,
+    max_traces: usize,
+) -> Result<Vec<SpanEvent>, TempoError> {
+    // Validate endpoint: must start with http:// or https://, no credentials.
+    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+        return Err(TempoError::InvalidEndpoint(format!(
+            "endpoint must start with http:// or https://, got '{endpoint}'"
+        )));
+    }
+    if endpoint.contains('@') {
+        return Err(TempoError::InvalidEndpoint(
+            "endpoint must not contain credentials".to_string(),
+        ));
+    }
+
+    let client = http_client::build_client();
+
+    if let Some(tid) = trace_id {
+        tracing::info!(trace_id = tid, "Fetching single trace from Tempo");
+        return fetch_trace(&client, endpoint, tid).await;
+    }
+
+    let svc = service.ok_or_else(|| {
+        TempoError::InvalidEndpoint("either --trace-id or --service is required".to_string())
+    })?;
+
+    tracing::info!(
+        service = svc,
+        lookback_secs = lookback.as_secs(),
+        max_traces,
+        "Searching Tempo for traces"
+    );
+
+    let trace_ids = search_traces(&client, endpoint, svc, lookback, max_traces).await?;
+    tracing::info!(count = trace_ids.len(), "Found traces, fetching...");
+
+    let mut all_events = Vec::new();
+    for (i, tid) in trace_ids.iter().enumerate() {
+        match fetch_trace(&client, endpoint, tid).await {
+            Ok(events) => {
+                tracing::debug!(
+                    trace_id = %tid,
+                    events = events.len(),
+                    progress = format!("{}/{}", i + 1, trace_ids.len()),
+                    "Fetched trace"
+                );
+                all_events.extend(events);
+            }
+            Err(TempoError::TraceNotFound(_)) => {
+                tracing::warn!(trace_id = %tid, "Trace not found, skipping");
+            }
+            Err(e) => {
+                tracing::error!(trace_id = %tid, error = %e, "Failed to fetch trace, skipping");
+            }
+        }
+    }
+
+    if all_events.is_empty() {
+        return Err(TempoError::NoTracesFound);
+    }
+
+    Ok(all_events)
+}
+
+// ---------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- Lookback parser ---
+
+    #[test]
+    fn parse_lookback_hours() {
+        assert_eq!(parse_lookback("1h").unwrap(), Duration::from_secs(3600));
+        assert_eq!(parse_lookback("24h").unwrap(), Duration::from_secs(86_400));
+    }
+
+    #[test]
+    fn parse_lookback_minutes() {
+        assert_eq!(parse_lookback("30m").unwrap(), Duration::from_secs(1800));
+    }
+
+    #[test]
+    fn parse_lookback_seconds() {
+        assert_eq!(parse_lookback("90s").unwrap(), Duration::from_secs(90));
+    }
+
+    #[test]
+    fn parse_lookback_combined() {
+        assert_eq!(
+            parse_lookback("2h30m").unwrap(),
+            Duration::from_secs(2 * 3600 + 30 * 60)
+        );
+    }
+
+    #[test]
+    fn parse_lookback_rejects_empty() {
+        assert!(parse_lookback("").is_err());
+    }
+
+    #[test]
+    fn parse_lookback_rejects_no_unit() {
+        assert!(parse_lookback("30").is_err());
+    }
+
+    #[test]
+    fn parse_lookback_rejects_unknown_unit() {
+        assert!(parse_lookback("5d").is_err());
+    }
+
+    #[test]
+    fn parse_lookback_rejects_zero() {
+        assert!(parse_lookback("0h").is_err());
+    }
+
+    // --- Search response parsing ---
+
+    #[test]
+    fn parse_search_response() {
+        let json = r#"{"traces":[{"traceID":"abc123"},{"traceID":"def456"}]}"#;
+        let response: SearchResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.traces.len(), 2);
+        assert_eq!(response.traces[0].trace_id, "abc123");
+        assert_eq!(response.traces[1].trace_id, "def456");
+    }
+
+    #[test]
+    fn parse_search_response_empty() {
+        let json = r#"{"traces":[]}"#;
+        let response: SearchResponse = serde_json::from_str(json).unwrap();
+        assert!(response.traces.is_empty());
+    }
+
+    #[test]
+    fn parse_search_response_missing_traces() {
+        let json = r"{}";
+        let response: SearchResponse = serde_json::from_str(json).unwrap();
+        assert!(response.traces.is_empty());
+    }
+
+    // --- Protobuf decode round-trip ---
+
+    #[test]
+    fn protobuf_decode_empty_request() {
+        let request = ExportTraceServiceRequest {
+            resource_spans: vec![],
+        };
+        let mut buf = Vec::new();
+        request.encode(&mut buf).unwrap();
+
+        let decoded = ExportTraceServiceRequest::decode(bytes::Bytes::from(buf)).unwrap();
+        let events = convert_otlp_request(&decoded);
+        assert!(events.is_empty());
+    }
+}

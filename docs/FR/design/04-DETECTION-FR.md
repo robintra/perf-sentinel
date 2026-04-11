@@ -267,6 +267,14 @@ La recherche binaire utilise `partition_point` directement sur le slice trié, �
 
 Le détecteur ne peut pas observer les dépendances de données entre les appels. Deux appels séquentiels à des services différents peuvent être intentionnellement ordonnés (par exemple, créer un enregistrement puis notifier un service dépendant). La sévérité `info` signale une opportunité d'investigation, pas un défaut confirmé.
 
+### Filtrage de template
+
+Le détecteur ignore les séquences où tous les spans partagent le même template normalisé. Ce motif est un N+1 (même opération répétée avec des paramètres différents), pas une sérialisation. En exigeant des templates différents, le détecteur cible le pattern « récupérer l'utilisateur, puis ses commandes, puis ses préférences » où les appels sont indépendants et pourraient s'exécuter en parallèle.
+
+### Estimation du gain de temps
+
+Le finding inclut le gain de temps potentiel : `durée_séquentielle_totale - durée_individuelle_max`. Si 3 appels séquentiels prennent chacun 100 ms, les paralléliser pourrait réduire la latence de 300 ms à 100 ms, soit 200 ms économisées. C'est une estimation optimale qui suppose qu'il n'y a pas de contention sur des ressources partagées.
+
 ### Pas dans le ratio de gaspillage
 
 Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`. Paralléliser des appels séquentiels réduit la latence mais ne réduit pas le nombre total d'opérations I/O. Le ratio de gaspillage ne mesure que les I/O éliminables.
@@ -274,3 +282,23 @@ Les findings d'appels sérialisés ont `green_impact.estimated_extra_io_ops = 0`
 ## Percentiles lents cross-trace
 
 En mode batch, `detect_slow_cross_trace` collecte les spans lents à travers toutes les traces et calcule les percentiles p50/p95/p99 par template normalisé. Seuls les templates apparaissant dans au moins 2 traces distinctes sont rapportés.
+
+## Orchestration de la détection (mise à jour)
+
+```rust
+pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
+    let mut findings = Vec::new();
+    for trace in traces {
+        findings.append(&mut detect_n_plus_one(trace, ...));
+        findings.append(&mut detect_redundant(trace));
+        findings.append(&mut detect_slow(trace, ...));
+        findings.append(&mut detect_fanout(trace, config.max_fanout));
+        findings.append(&mut detect_chatty(trace, config.chatty_service_min_calls));
+        findings.append(&mut detect_pool_saturation(trace, config.pool_saturation_concurrent_threshold));
+        findings.append(&mut detect_serialized(trace, config.serialized_min_sequential));
+    }
+    findings
+}
+```
+
+Les sept détecteurs s'exécutent séquentiellement sur chaque trace. `append(&mut ...)` est utilisé à la place de `extend()` pour transférer les buffers en O(1) sans passer par un itérateur. L'analyse des percentiles lents cross-trace s'exécute séparément dans `pipeline.rs` après la détection par trace et avant le scoring.

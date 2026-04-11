@@ -81,16 +81,7 @@ mod tests {
 
     #[test]
     fn detects_redundant_sql() {
-        let events: Vec<SpanEvent> = (1..=3)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    "SELECT * FROM order_item WHERE order_id = 42",
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_redundant_events();
 
         let trace = make_trace(events);
         let findings = detect_redundant(&trace);

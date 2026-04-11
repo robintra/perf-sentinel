@@ -40,21 +40,8 @@ struct TimedSpan<'a> {
 pub fn detect_serialized(trace: &Trace, min_sequential: u32) -> Vec<Finding> {
     let min_seq = min_sequential as usize;
 
-    // Group spans by parent_span_id (skip spans without one)
-    let mut siblings: HashMap<&str, Vec<usize>> = HashMap::with_capacity(trace.spans.len().min(64));
-    for (i, span) in trace.spans.iter().enumerate() {
-        if let Some(ref pid) = span.event.parent_span_id {
-            siblings.entry(pid.as_str()).or_default().push(i);
-        }
-    }
-
-    // Build span index for parent lookup
-    let span_index: HashMap<&str, usize> = trace
-        .spans
-        .iter()
-        .enumerate()
-        .map(|(i, s)| (s.event.span_id.as_str(), i))
-        .collect();
+    let siblings = super::group_children_by_parent(trace);
+    let span_index = super::build_span_index(trace);
 
     let mut findings = Vec::new();
 

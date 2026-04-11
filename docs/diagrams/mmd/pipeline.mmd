@@ -16,6 +16,9 @@ flowchart LR
         red["Redundant<br/>SQL &amp; HTTP"]
         slow["Slow<br/>SQL &amp; HTTP"]
         fan["Fanout<br/><i>parent &rarr; children</i>"]
+        chatty["Chatty Service<br/><i>HTTP calls &ge; threshold</i>"]
+        pool["Pool Saturation<br/><i>concurrent SQL</i>"]
+        serial["Serialized Calls<br/><i>parallelizable siblings</i>"]
     end
 
     cross["3b. Cross-trace<br/>Slow Percentiles<br/><i>p50 / p95 / p99</i>"]
@@ -23,7 +26,7 @@ flowchart LR
     subgraph score["4. Score"]
         iis["I/O Intensity<br/>Score (IIS)"]
         waste["Waste Ratio"]
-        co2["gCO2eq<br/><i>optional</i>"]
+        co2["gCO2eq<br/><i>SCI v1.0</i>"]
     end
 
     report["5. Report"]
@@ -37,6 +40,9 @@ flowchart LR
     red --> score
     slow --> score
     fan --> score
+    chatty --> score
+    pool --> score
+    serial --> score
     cross --> score
     score -- "Vec&lt;Finding&gt;<br/>GreenSummary" --> report
 

@@ -57,31 +57,7 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{Confidence, GreenImpact, Pattern};
-
-    fn make_finding(finding_type: FindingType, severity: Severity) -> Finding {
-        Finding {
-            finding_type,
-            severity,
-            trace_id: "trace-1".to_string(),
-            service: "order-svc".to_string(),
-            source_endpoint: "POST /api/orders/42/submit".to_string(),
-            pattern: Pattern {
-                template: "SELECT * FROM t WHERE id = ?".to_string(),
-                occurrences: 6,
-                window_ms: 200,
-                distinct_params: 6,
-            },
-            suggestion: "batch".to_string(),
-            first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
-            last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
-            green_impact: Some(GreenImpact {
-                estimated_extra_io_ops: 5,
-                io_intensity_score: 6.0,
-            }),
-            confidence: Confidence::default(),
-        }
-    }
+    use crate::test_helpers::make_finding;
 
     fn empty_green_summary() -> GreenSummary {
         GreenSummary {

@@ -104,6 +104,13 @@ Quand `total_io_ops == 0`, le ratio est `0.0` (pas NaN). C'est la fraction d'op�
 
 ## Conversion carbone
 
+Le pipeline de scoring résout deux dimensions indépendantes pour chaque span : **l'énergie par opération** (`E`) et **l'intensité du réseau électrique** (`I`). Chacune a sa propre chaîne de repli, de la source la plus précise jusqu'aux valeurs embarquées par défaut.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/carbon-scoring_dark.svg">
+  <img alt="Résolution de l'énergie et de l'intensité dans le scoring carbone" src="../../diagrams/svg/carbon-scoring.svg">
+</picture>
+
 ### Alignement SCI v1.0
 
 perf-sentinel implémente la spécification [Software Carbon Intensity v1.0](https://sci-guide.greensoftware.foundation/) (devenue [ISO/IEC 21031:2024](https://www.iso.org/standard/86612.html)) de la Green Software Foundation. La formule est :
@@ -378,7 +385,7 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-L'étape de scoring suit des flags par région (`any_scaphandre`, `any_cloud_specpower`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
+L'étape de scoring suit des flags par région (`any_scaphandre`, `any_cloud_specpower`, `any_realtime_report`) et le `CarbonEstimate.model` de niveau supérieur reflète la source la plus précise utilisée : `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs, `+cal` est ajouté. Toutes les sources d'énergie se composent naturellement avec les profils horaires : une op avec énergie mesurée en eu-west-3 à 3h du matin UTC utilise l'énergie mesurée ET l'intensité horaire simultanément.
 
 **Compteur d'ops par service comme source unique de vérité.** Le scraper lit le compteur d'ops par service depuis `MetricsState::service_io_ops_total` (un `CounterVec` Prometheus) via `snapshot_service_io_ops()`. Le chemin d'intake d'événements du daemon incrémente ce compteur sur chaque événement normalisé.
 
@@ -408,7 +415,7 @@ kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_in_window
 ```
 
-**Tag de modèle et précédence.** Le coefficient porte le tag `"cloud_specpower"`. Dans `build_tick_ctx`, les entrées Scaphandre prennent la précédence : si Scaphandre et cloud energy existent pour le même service, l'entrée Scaphandre gagne (elle mesure la puissance réelle). Le tag de modèle de niveau supérieur : `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v2` > `io_proxy_v1`.
+**Tag de modèle et précédence.** Le coefficient porte le tag `"cloud_specpower"`. Dans `build_tick_ctx`, les entrées Scaphandre prennent la précédence : si Scaphandre et cloud energy existent pour le même service, l'entrée Scaphandre gagne (elle mesure la puissance réelle). Le tag de modèle de niveau supérieur : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Daemon uniquement.** Comme Scaphandre, l'estimation d'énergie cloud est une fonctionnalité daemon uniquement. La commande `analyze` batch utilise toujours le modèle proxy.
 
@@ -420,22 +427,22 @@ Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) p
 
 **Multiplicateurs SQL.** Le verbe est extrait du premier mot du champ `target` (la requête SQL brute), pas du champ `operation`. C'est nécessaire car les spans ingérées via OTLP stockent `db.system` (ex. "postgresql") dans `operation`, pas le verbe SQL.
 
-| Verbe SQL | Multiplicateur | Justification |
-|-----------|---------------|---------------|
-| SELECT    | 0.5x          | Lecture seule, pas d'écriture WAL |
-| INSERT    | 1.5x          | Écriture WAL + page de données |
-| UPDATE    | 1.5x          | Lecture + écriture |
-| DELETE    | 1.2x          | Marquage + WAL |
-| Autre     | 1.0x          | DDL, EXPLAIN, BEGIN, etc. |
+| Verbe SQL | Multiplicateur | Justification                     |
+|-----------|----------------|-----------------------------------|
+| SELECT    | 0.5x           | Lecture seule, pas d'écriture WAL |
+| INSERT    | 1.5x           | Écriture WAL + page de données    |
+| UPDATE    | 1.5x           | Lecture + écriture                |
+| DELETE    | 1.2x           | Marquage + WAL                    |
+| Autre     | 1.0x           | DDL, EXPLAIN, BEGIN, etc.         |
 
 **Tiers de taille de payload HTTP.** Pour les spans HTTP, le multiplicateur dépend de `response_size_bytes` (extrait de l'attribut OTel `http.response.body.size`).
 
-| Taille payload | Multiplicateur | Seuil |
-|---------------|---------------|-------|
-| Petit         | 0.8x          | < 10 Ko |
-| Moyen         | 1.2x          | 10 Ko à 1 Mo |
-| Grand         | 2.0x          | > 1 Mo |
-| Inconnu       | 1.0x          | attribut absent |
+| Taille payload | Multiplicateur | Seuil           |
+|----------------|----------------|-----------------|
+| Petit          | 0.8x           | < 10 Ko         |
+| Moyen          | 1.2x           | 10 Ko à 1 Mo    |
+| Grand          | 2.0x           | > 1 Mo          |
+| Inconnu        | 1.0x           | attribut absent |
 
 **Sources.** Les ratios relatifs proviennent de benchmarks académiques d'énergie SGBD (Xu et al. VLDB 2010, Tsirogiannis et al. SIGMOD 2010) et de la méthodologie Cloud Carbon Footprint.
 

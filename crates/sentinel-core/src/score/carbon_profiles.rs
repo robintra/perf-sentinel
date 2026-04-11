@@ -672,18 +672,18 @@ mod tests {
         assert!((pr.intensity_at(23, Some(11)) - 33.0).abs() < f64::EPSILON);
     }
 
+    /// Minimal static monthly table shared by tests below: every month
+    /// is 100 except July (index 6) which is 200. Each month has a
+    /// distinguishing first-hour value via the full-row replacement.
+    static TEST_MONTHLY_TABLE: [[f64; 24]; 12] = {
+        let mut t = [[100.0; 24]; 12];
+        t[6] = [200.0; 24];
+        t
+    };
+
     #[test]
     fn profile_ref_monthly_uses_month() {
-        // Construct a minimal static monthly table where each month
-        // has a distinguishing first-hour value.
-        static TABLE: [[f64; 24]; 12] = {
-            let mut t = [[100.0; 24]; 12];
-            // Month 0 (Jan) hour 0 = 100 (default), month 6 (Jul) hour 0 will
-            // be set below.
-            t[6] = [200.0; 24];
-            t
-        };
-        let pr = HourlyProfileRef::Monthly(&TABLE);
+        let pr = HourlyProfileRef::Monthly(&TEST_MONTHLY_TABLE);
         assert!((pr.intensity_at(0, Some(0)) - 100.0).abs() < f64::EPSILON);
         assert!((pr.intensity_at(0, Some(6)) - 200.0).abs() < f64::EPSILON);
     }
@@ -691,12 +691,7 @@ mod tests {
     #[test]
     fn profile_ref_monthly_none_month_averages() {
         // When month is None, should average across all 12 months.
-        static TABLE: [[f64; 24]; 12] = {
-            let mut t = [[100.0; 24]; 12];
-            t[6] = [200.0; 24]; // Jul = 200, rest = 100
-            t
-        };
-        let pr = HourlyProfileRef::Monthly(&TABLE);
+        let pr = HourlyProfileRef::Monthly(&TEST_MONTHLY_TABLE);
         let expected = (11.0 * 100.0 + 200.0) / 12.0;
         assert!((pr.intensity_at(0, None) - expected).abs() < 0.01);
     }

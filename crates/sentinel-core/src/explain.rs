@@ -365,16 +365,7 @@ mod tests {
 
     #[test]
     fn build_tree_with_findings() {
-        let events: Vec<_> = (1..=5)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_sql_series_events(5);
         let trace = make_trace(events);
 
         let finding = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");

@@ -223,6 +223,10 @@ emit finding with top_endpoints in suggestion
 
 **Complexity:** O(n) to filter and count, O(k log k) to sort groups where k is the number of distinct templates. Since k << n in practice, this is effectively O(n).
 
+### Difference from fanout
+
+Excessive fanout detects a **single parent** with too many direct children. Chatty service detects an **entire trace** with too many outbound HTTP calls, independently of the parent-child structure. A trace can trigger both when a single parent generates all the calls, or only chatty service when the calls are spread across multiple parents.
+
 ### Not part of waste ratio
 
 Chatty service findings have `green_impact.estimated_extra_io_ops = 0`. The detector flags an architectural concern (too many inter-service calls per request), not a batching opportunity. The calls may all be necessary; the problem is that the service boundary is too fine-grained. `FindingType::is_avoidable_io()` returns `false` for `ChattyService`.
@@ -312,6 +316,10 @@ Complexity: O(n log n) for sorting + O(n log n) for all binary searches + O(n) f
 
 The binary search uses `partition_point` directly on the sorted slice, avoiding a separate predecessor array allocation.
 
+### Why `info` only
+
+The detector cannot observe data dependencies between calls. Two sequential calls to different services may be intentionally ordered (e.g. create a record, then notify a dependent service). The `info` severity signals an investigation opportunity, not a confirmed defect.
+
 ### Template filtering
 
 The detector skips sequences where all spans share the same normalized template. That pattern is N+1 (same operation repeated with different params), not serialization. By requiring different templates, the detector targets the "fetch user, then fetch orders, then fetch preferences" pattern where the calls are independent and could run concurrently.
@@ -330,16 +338,16 @@ Serialized call findings have `green_impact.estimated_extra_io_ops = 0`. Paralle
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
     for trace in traces {
-        findings.extend(detect_n_plus_one(trace, ...));
-        findings.extend(detect_redundant(trace));
-        findings.extend(detect_slow(trace, ...));
-        findings.extend(detect_fanout(trace, config.max_fanout));
-        findings.extend(detect_chatty_service(trace, config.chatty_service_min_calls));
-        findings.extend(detect_pool_saturation(trace, config.pool_saturation_concurrent_threshold));
-        findings.extend(detect_serialized_calls(trace, config.serialized_min_sequential));
+        findings.append(&mut detect_n_plus_one(trace, ...));
+        findings.append(&mut detect_redundant(trace));
+        findings.append(&mut detect_slow(trace, ...));
+        findings.append(&mut detect_fanout(trace, config.max_fanout));
+        findings.append(&mut detect_chatty(trace, config.chatty_service_min_calls));
+        findings.append(&mut detect_pool_saturation(trace, config.pool_saturation_concurrent_threshold));
+        findings.append(&mut detect_serialized(trace, config.serialized_min_sequential));
     }
     findings
 }
 ```
 
-The seven detectors run sequentially on each trace. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.
+The seven detectors run sequentially on each trace. `append(&mut ...)` is used instead of `extend()` to move the backing allocation in O(1) without iterator overhead. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.

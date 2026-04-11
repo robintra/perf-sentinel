@@ -105,14 +105,7 @@ impl TraceWindow {
     /// most once per tick (~15s). If the `lru` crate adds in-place removal
     /// in a future release, this can be simplified.
     pub fn evict(&mut self, now_ms: u64) {
-        let ttl = self.config.trace_ttl_ms;
-        let expired_keys: Vec<String> = self
-            .traces
-            .iter()
-            .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
-            .map(|(id, _)| id.clone())
-            .collect();
-        for key in expired_keys {
+        for key in self.collect_expired_keys(now_ms) {
             self.traces.pop(&key);
         }
     }
@@ -123,13 +116,7 @@ impl TraceWindow {
     /// returns them so the daemon can run detection before discarding.
     /// Scans the full cache to handle clock skew (see `evict()`).
     pub fn evict_expired(&mut self, now_ms: u64) -> Vec<(String, Vec<NormalizedEvent>)> {
-        let ttl = self.config.trace_ttl_ms;
-        let expired_keys: Vec<String> = self
-            .traces
-            .iter()
-            .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
-            .map(|(id, _)| id.clone())
-            .collect();
+        let expired_keys = self.collect_expired_keys(now_ms);
         let mut expired = Vec::with_capacity(expired_keys.len());
         for key in expired_keys {
             if let Some((_id, buf)) = self.traces.pop_entry(&key) {
@@ -137,6 +124,17 @@ impl TraceWindow {
             }
         }
         expired
+    }
+
+    /// Collect trace IDs whose `last_seen_ms` is older than `trace_ttl_ms`.
+    /// Shared by `evict()` and `evict_expired()`.
+    fn collect_expired_keys(&self, now_ms: u64) -> Vec<String> {
+        let ttl = self.config.trace_ttl_ms;
+        self.traces
+            .iter()
+            .filter(|(_, buf)| now_ms.saturating_sub(buf.last_seen_ms) > ttl)
+            .map(|(id, _)| id.clone())
+            .collect()
     }
 
     /// Drain all traces, returning their events grouped by `trace_id`.

@@ -20,6 +20,7 @@ use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
+use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::scaphandre::ScaphandreState;
 
 /// Errors that can occur when running the daemon.
@@ -167,6 +168,18 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             (None, None, 0)
         };
 
+    // Same pattern for Electricity Maps real-time intensity scraper.
+    let (emaps_state, emaps_handle, emaps_staleness_ms) =
+        if let Some(emaps_cfg) = config.green_electricity_maps.clone() {
+            let staleness = emaps_cfg.poll_interval.as_millis() as u64 * 3;
+            let state = ElectricityMapsState::new();
+            let handle =
+                score::electricity_maps::spawn_electricity_maps_scraper(emaps_cfg, state.clone());
+            (Some(state), Some(handle), staleness)
+        } else {
+            (None, None, 0)
+        };
+
     // Cardinality cap on the per-service Prometheus counter.
     // Prevents OOM from a malicious OTLP sender injecting millions of
     // unique service.name values. Events beyond the cap are still
@@ -242,6 +255,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                         staleness_ms,
                         cloud_state.as_deref(),
                         cloud_staleness_ms,
+                        emaps_state.as_deref(),
+                        emaps_staleness_ms,
                     );
                     process_traces(
                         lru_evicted,
@@ -268,6 +283,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                         staleness_ms,
                         cloud_state.as_deref(),
                         cloud_staleness_ms,
+                        emaps_state.as_deref(),
+                        emaps_staleness_ms,
                     );
                     process_traces(
                         expired,
@@ -291,6 +308,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 // Order matters slightly: kill the Scaphandre scraper
                 // first so its log lines don't interleave with the
                 // shutdown message, then the listeners.
+                if let Some(handle) = &emaps_handle {
+                    handle.abort();
+                }
                 if let Some(handle) = &cloud_handle {
                     handle.abort();
                 }
@@ -312,6 +332,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     staleness_ms,
                     cloud_state.as_deref(),
                     cloud_staleness_ms,
+                    emaps_state.as_deref(),
+                    emaps_staleness_ms,
                 );
                 process_traces(
                     remaining,
@@ -355,6 +377,8 @@ fn build_tick_ctx(
     scaphandre_staleness_ms: u64,
     cloud_state: Option<&CloudEnergyState>,
     cloud_staleness_ms: u64,
+    emaps_state: Option<&ElectricityMapsState>,
+    emaps_staleness_ms: u64,
 ) -> score::carbon::CarbonContext {
     let now = score::scaphandre::monotonic_ms();
 
@@ -383,6 +407,15 @@ fn build_tick_ctx(
     } else {
         Some(merged)
     };
+
+    // Electricity Maps real-time intensity (independent of energy snapshot).
+    if let Some(state) = emaps_state {
+        let snap = state.snapshot(now, emaps_staleness_ms);
+        if !snap.is_empty() {
+            ctx.real_time_intensity = Some(snap);
+        }
+    }
+
     ctx
 }
 
@@ -852,7 +885,7 @@ mod tests {
     #[test]
     fn build_tick_ctx_no_scrapers_yields_none_snapshot() {
         let base = score::carbon::CarbonContext::default();
-        let ctx = build_tick_ctx(&base, None, 0, None, 0);
+        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0);
         assert!(ctx.energy_snapshot.is_none());
     }
 
@@ -861,7 +894,7 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
-        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0, None, 0);
         let snap = ctx.energy_snapshot.unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
@@ -872,7 +905,7 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-b".into(), 2e-7, 100);
-        let ctx = build_tick_ctx(&base, None, 0, Some(&cloud), 500);
+        let ctx = build_tick_ctx(&base, None, 0, Some(&cloud), 500, None, 0);
         let snap = ctx.energy_snapshot.unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
@@ -886,7 +919,7 @@ mod tests {
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-a".into(), 5e-7, 100);
         cloud.insert_for_test("svc-b".into(), 3e-7, 100);
-        let ctx = build_tick_ctx(&base, Some(&scaph), 500, Some(&cloud), 500);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, Some(&cloud), 500, None, 0);
         let snap = ctx.energy_snapshot.unwrap();
         assert_eq!(snap.len(), 2);
         // svc-a: Scaphandre wins (1e-7, not 5e-7)

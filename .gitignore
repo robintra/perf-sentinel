@@ -5,12 +5,5 @@
 .DS_Store
 .idea/
 
-# Local-only: internal project management artifacts
-# (kept out of the repo per repo convention)
-/CLAUDE.md
-/perf-sentinel-plan.md
-/CHANGELOG.md
-/.claude/
-
 # JetBrains Qodana (local-only static analysis config)
 /qodana.yaml

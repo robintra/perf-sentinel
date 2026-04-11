@@ -481,18 +481,7 @@ fn severity_label(severity: &Severity) -> &'static str {
 }
 
 fn finding_type_label(ft: &FindingType) -> &'static str {
-    match ft {
-        FindingType::NPlusOneSql => "N+1 SQL",
-        FindingType::NPlusOneHttp => "N+1 HTTP",
-        FindingType::RedundantSql => "Redundant SQL",
-        FindingType::RedundantHttp => "Redundant HTTP",
-        FindingType::SlowSql => "Slow SQL",
-        FindingType::SlowHttp => "Slow HTTP",
-        FindingType::ExcessiveFanout => "Excessive Fanout",
-        FindingType::ChattyService => "Chatty Service",
-        FindingType::PoolSaturation => "Pool Saturation",
-        FindingType::SerializedCalls => "Serialized Calls",
-    }
+    ft.display_label()
 }
 
 #[cfg(test)]

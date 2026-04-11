@@ -4,6 +4,8 @@ pub mod jaeger;
 pub mod json;
 pub mod otlp;
 pub mod pg_stat;
+#[cfg(feature = "tempo")]
+pub mod tempo;
 pub mod zipkin;
 
 use crate::event::SpanEvent;

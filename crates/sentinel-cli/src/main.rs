@@ -10,7 +10,7 @@ mod tui;
 
 use clap::{Parser, Subcommand};
 use sentinel_core::config::Config;
-use sentinel_core::detect::{FindingType, Severity};
+use sentinel_core::detect::Severity;
 use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
 use sentinel_core::pipeline;
@@ -130,6 +130,51 @@ enum Commands {
         config: Option<PathBuf>,
     },
 
+    /// Query Grafana Tempo for traces and analyze them.
+    #[cfg(feature = "tempo")]
+    Tempo {
+        /// Tempo HTTP API endpoint (e.g. `http://localhost:3200`).
+        #[arg(long)]
+        endpoint: String,
+        /// Fetch a single trace by ID.
+        #[arg(long)]
+        trace_id: Option<String>,
+        /// Search traces by service name.
+        #[arg(long)]
+        service: Option<String>,
+        /// Lookback window for search (e.g. `1h`, `30m`, `24h`).
+        #[arg(long, default_value = "1h")]
+        lookback: String,
+        /// Maximum number of traces to fetch.
+        #[arg(long, default_value = "100")]
+        max_traces: usize,
+        /// Path to a `.perf-sentinel.toml` config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (colored, default), json, sarif.
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+        /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
+        #[arg(long)]
+        ci: bool,
+    },
+
+    /// Calibrate energy coefficients from real measurements.
+    Calibrate {
+        /// Path to a JSON trace file (same format as analyze input).
+        #[arg(long)]
+        traces: PathBuf,
+        /// Path to a CSV file with energy measurements (`power_watts` or `energy_kwh` format).
+        #[arg(long)]
+        measured_energy: PathBuf,
+        /// Output path for the calibration TOML file.
+        #[arg(long, default_value = ".perf-sentinel-calibration.toml")]
+        output: PathBuf,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+    },
+
     /// Analyze `pg_stat_statements` data for SQL hotspot detection.
     PgStat {
         /// Path to `pg_stat_statements` CSV or JSON export.
@@ -185,6 +230,35 @@ async fn main() {
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
         #[cfg(feature = "tui")]
         Commands::Inspect { input, config } => cmd_inspect(&input, config.as_deref()),
+        #[cfg(feature = "tempo")]
+        Commands::Tempo {
+            endpoint,
+            trace_id,
+            service,
+            lookback,
+            max_traces,
+            config,
+            format,
+            ci,
+        } => {
+            cmd_tempo(
+                &endpoint,
+                trace_id.as_deref(),
+                service.as_deref(),
+                &lookback,
+                max_traces,
+                config.as_deref(),
+                format,
+                ci,
+            )
+            .await;
+        }
+        Commands::Calibrate {
+            traces,
+            measured_energy,
+            output,
+            config,
+        } => cmd_calibrate(&traces, &measured_energy, &output, config.as_deref()),
         Commands::PgStat {
             input,
             top_n,
@@ -267,6 +341,20 @@ fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
     }
 }
 
+/// Parse raw bytes as JSON trace events, printing a clear error and
+/// exiting with code 1 on failure. Shared across all CLI subcommands
+/// that ingest trace files.
+fn ingest_json_or_exit(raw: &[u8], max_size: usize) -> Vec<sentinel_core::event::SpanEvent> {
+    let ingest = JsonIngest::new(max_size);
+    match ingest.ingest(raw) {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error ingesting events: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cmd_analyze(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
@@ -276,14 +364,7 @@ fn cmd_analyze(
     let config = load_config(config_path);
     let raw = read_events(input, config.max_payload_size);
 
-    let ingest = JsonIngest::new(config.max_payload_size);
-    let events = match ingest.ingest(&raw) {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error ingesting events: {e}");
-            std::process::exit(1);
-        }
-    };
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     let report = pipeline::analyze(events, &config);
 
@@ -320,6 +401,175 @@ fn cmd_analyze(
     }
 }
 
+#[cfg(feature = "tempo")]
+#[allow(clippy::too_many_arguments)]
+async fn cmd_tempo(
+    endpoint: &str,
+    trace_id: Option<&str>,
+    service: Option<&str>,
+    lookback: &str,
+    max_traces: usize,
+    config_path: Option<&std::path::Path>,
+    format: Option<OutputFormat>,
+    ci: bool,
+) {
+    if trace_id.is_none() && service.is_none() {
+        eprintln!("Error: either --trace-id or --service is required");
+        std::process::exit(1);
+    }
+    if trace_id.is_some() && service.is_some() {
+        eprintln!("Error: --trace-id and --service are mutually exclusive");
+        std::process::exit(1);
+    }
+
+    let lookback_duration = match sentinel_core::ingest::tempo::parse_lookback(lookback) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error parsing lookback: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let config = load_config(config_path);
+
+    let events = match sentinel_core::ingest::tempo::ingest_from_tempo(
+        endpoint,
+        service,
+        trace_id,
+        lookback_duration,
+        max_traces,
+    )
+    .await
+    {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error fetching traces from Tempo: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    info!(
+        events = events.len(),
+        "Ingested events from Tempo, running analysis"
+    );
+
+    let report = pipeline::analyze(events, &config);
+
+    let effective_format = format.unwrap_or(if ci {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Text
+    });
+
+    match effective_format {
+        OutputFormat::Text => {
+            print_colored_report(&report, "tempo");
+        }
+        OutputFormat::Json => {
+            let sink = JsonReportSink;
+            if let Err(e) = sink.emit(&report) {
+                eprintln!("Error writing report: {e}");
+                std::process::exit(1);
+            }
+        }
+        OutputFormat::Sarif => {
+            if let Err(e) = sentinel_core::report::sarif::emit_sarif(&report) {
+                eprintln!("Error writing SARIF report: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if ci && !report.quality_gate.passed {
+        eprintln!("Quality gate FAILED");
+        std::process::exit(1);
+    }
+}
+
+fn cmd_calibrate(
+    traces_path: &std::path::Path,
+    energy_path: &std::path::Path,
+    output_path: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+) {
+    let config = load_config(config_path);
+    let raw = read_events(Some(traces_path), config.max_payload_size);
+
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+
+    let energy_content = match std::fs::read_to_string(energy_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error reading energy CSV {}: {e}", energy_path.display());
+            std::process::exit(1);
+        }
+    };
+
+    let readings = match sentinel_core::calibrate::parse_energy_csv(&energy_content) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error parsing energy CSV: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let results = match sentinel_core::calibrate::calibrate(&events, &readings) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error during calibration: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Print warnings for extreme factors
+    for warning in sentinel_core::calibrate::validate_results(&results) {
+        eprintln!("Warning: {warning}");
+    }
+
+    // Print human-readable summary
+    let window_secs = {
+        let min_ts = readings.iter().map(|r| r.timestamp_ms).min().unwrap_or(0);
+        let max_ts = readings.iter().map(|r| r.timestamp_ms).max().unwrap_or(0);
+        max_ts.saturating_sub(min_ts) as f64 / 1000.0
+    };
+    let window_label = if window_secs >= 3600.0 {
+        format!("{:.0}h", window_secs / 3600.0)
+    } else if window_secs >= 60.0 {
+        format!("{:.0}min", window_secs / 60.0)
+    } else {
+        format!("{window_secs:.0}s")
+    };
+    eprintln!(
+        "\nCalibration results ({} services, {} window):",
+        results.len(),
+        window_label
+    );
+    for r in &results {
+        let per_op_uwh = r.energy_per_op_kwh * 1e9; // kWh to µWh
+        let default_uwh = r.default_energy_per_op_kwh * 1e9;
+        eprintln!(
+            "  {}: {:.1}x default (measured {:.2} \u{00b5}Wh/op vs default {:.2} \u{00b5}Wh/op)",
+            r.service, r.factor, per_op_uwh, default_uwh
+        );
+    }
+
+    // Write calibration TOML
+    let toml_content = sentinel_core::calibrate::write_calibration_toml(
+        &results,
+        &traces_path.display().to_string(),
+        &energy_path.display().to_string(),
+    );
+    match std::fs::write(output_path, &toml_content) {
+        Ok(()) => {
+            eprintln!("\nWritten to {}", output_path.display());
+        }
+        Err(e) => {
+            eprintln!("Error writing {}: {e}", output_path.display());
+            std::process::exit(1);
+        }
+    }
+}
+
 fn cmd_explain(
     input: &std::path::Path,
     trace_id: &str,
@@ -329,14 +579,7 @@ fn cmd_explain(
     let config = load_config(config_path);
     let raw = read_events(Some(input), config.max_payload_size);
 
-    let ingest = JsonIngest::new(config.max_payload_size);
-    let events = match ingest.ingest(&raw) {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error ingesting events: {e}");
-            std::process::exit(1);
-        }
-    };
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     let normalized = sentinel_core::normalize::normalize_all(events);
     let traces = sentinel_core::correlate::correlate(normalized);
@@ -406,14 +649,7 @@ fn cmd_demo(config_path: Option<&std::path::Path>) {
     if config.green_default_region.is_none() {
         config.green_default_region = Some("eu-west-3".to_string());
     }
-    let ingest = JsonIngest::new(config.max_payload_size);
-    let events = match ingest.ingest(DEMO_DATA.as_bytes()) {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error loading demo data: {e}");
-            std::process::exit(1);
-        }
-    };
+    let events = ingest_json_or_exit(DEMO_DATA.as_bytes(), config.max_payload_size);
 
     let report = pipeline::analyze(events, &config);
     print_colored_report(&report, "demo");
@@ -428,14 +664,7 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
     let config = Config::default();
     let raw = read_events(input, config.max_payload_size);
 
-    let ingest = JsonIngest::new(config.max_payload_size);
-    let events = match ingest.ingest(&raw) {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error ingesting events: {e}");
-            std::process::exit(1);
-        }
-    };
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     let event_count = events.len();
     if event_count == 0 {
@@ -506,14 +735,7 @@ fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
     let config = load_config(config_path);
     let raw = read_events(Some(input), config.max_payload_size);
 
-    let ingest = JsonIngest::new(config.max_payload_size);
-    let events = match ingest.ingest(&raw) {
-        Ok(events) => events,
-        Err(e) => {
-            eprintln!("Error ingesting events: {e}");
-            std::process::exit(1);
-        }
-    };
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
@@ -753,18 +975,7 @@ fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool
             Severity::Info => dim,
         };
 
-        let type_label = match finding.finding_type {
-            FindingType::NPlusOneSql => "N+1 SQL",
-            FindingType::NPlusOneHttp => "N+1 HTTP",
-            FindingType::RedundantSql => "Redundant SQL",
-            FindingType::RedundantHttp => "Redundant HTTP",
-            FindingType::SlowSql => "Slow SQL",
-            FindingType::SlowHttp => "Slow HTTP",
-            FindingType::ExcessiveFanout => "Excessive Fanout",
-            FindingType::ChattyService => "Chatty Service",
-            FindingType::PoolSaturation => "Pool Saturation",
-            FindingType::SerializedCalls => "Serialized Calls",
-        };
+        let type_label = finding.finding_type.display_label();
 
         let severity_label = match finding.severity {
             Severity::Critical => "CRITICAL",

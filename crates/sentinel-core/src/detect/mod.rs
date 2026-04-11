@@ -8,9 +8,37 @@ pub mod redundant;
 pub mod serialized;
 pub mod slow;
 
+use std::collections::HashMap;
+
 use crate::correlate::Trace;
 use crate::event::EventType;
 use serde::{Deserialize, Serialize};
+
+/// Group spans by `parent_span_id`, returning a map from parent ID to
+/// child span indices. Spans without a parent are skipped.
+///
+/// Used by fanout and serialized call detection.
+pub(super) fn group_children_by_parent(trace: &Trace) -> HashMap<&str, Vec<usize>> {
+    let mut map: HashMap<&str, Vec<usize>> = HashMap::with_capacity(trace.spans.len() / 4 + 1);
+    for (idx, span) in trace.spans.iter().enumerate() {
+        if let Some(ref parent_id) = span.event.parent_span_id {
+            map.entry(parent_id.as_str()).or_default().push(idx);
+        }
+    }
+    map
+}
+
+/// Build a span index mapping `span_id -> index` for O(1) parent lookup.
+///
+/// Used by fanout and serialized call detection.
+pub(super) fn build_span_index(trace: &Trace) -> HashMap<&str, usize> {
+    trace
+        .spans
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.event.span_id.as_str(), i))
+        .collect()
+}
 
 /// A detected performance anti-pattern.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -180,6 +208,23 @@ impl FindingType {
         }
     }
 
+    /// Returns a short human-readable label for CLI and TUI display.
+    #[must_use]
+    pub const fn display_label(&self) -> &'static str {
+        match self {
+            Self::NPlusOneSql => "N+1 SQL",
+            Self::NPlusOneHttp => "N+1 HTTP",
+            Self::RedundantSql => "Redundant SQL",
+            Self::RedundantHttp => "Redundant HTTP",
+            Self::SlowSql => "Slow SQL",
+            Self::SlowHttp => "Slow HTTP",
+            Self::ExcessiveFanout => "Excessive Fanout",
+            Self::ChattyService => "Chatty Service",
+            Self::PoolSaturation => "Pool Saturation",
+            Self::SerializedCalls => "Serialized Calls",
+        }
+    }
+
     /// Whether this finding type represents avoidable I/O operations.
     ///
     /// N+1 and redundant patterns are avoidable (can be batched or cached).
@@ -249,27 +294,30 @@ impl From<&crate::config::Config> for DetectConfig {
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
     for trace in traces {
-        findings.extend(n_plus_one::detect_n_plus_one(
+        // Each detector returns a Vec<Finding>. Using append() instead of
+        // extend() avoids iterator overhead: append moves the backing
+        // allocation in O(1) when the source Vec owns its buffer.
+        findings.append(&mut n_plus_one::detect_n_plus_one(
             trace,
             config.n_plus_one_threshold,
             config.window_ms,
         ));
-        findings.extend(redundant::detect_redundant(trace));
-        findings.extend(slow::detect_slow(
+        findings.append(&mut redundant::detect_redundant(trace));
+        findings.append(&mut slow::detect_slow(
             trace,
             config.slow_threshold_ms,
             config.slow_min_occurrences,
         ));
-        findings.extend(fanout::detect_fanout(trace, config.max_fanout));
-        findings.extend(chatty::detect_chatty(
+        findings.append(&mut fanout::detect_fanout(trace, config.max_fanout));
+        findings.append(&mut chatty::detect_chatty(
             trace,
             config.chatty_service_min_calls,
         ));
-        findings.extend(pool_saturation::detect_pool_saturation(
+        findings.append(&mut pool_saturation::detect_pool_saturation(
             trace,
             config.pool_saturation_concurrent_threshold,
         ));
-        findings.extend(serialized::detect_serialized(
+        findings.append(&mut serialized::detect_serialized(
             trace,
             config.serialized_min_sequential,
         ));

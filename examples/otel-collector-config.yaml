@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/srikanthccv/otelcol-jsonschema/main/schema.json
 # OpenTelemetry Collector configuration for perf-sentinel
 #
 # This config receives OTLP traces from your applications, processes them
@@ -10,6 +11,11 @@
 # Your applications should send traces to the collector at:
 #   gRPC: otel-collector:4317
 #   HTTP: otel-collector:4318
+#
+# Note: if your IDE flags a missing `file_format` property, ignore it.
+# That field was in an older draft of the collector config schema but
+# is rejected by the actual otel/opentelemetry-collector binary (it
+# errors with "'otelcol.configSettings' has invalid keys: file_format").
 
 receivers:
   otlp:
@@ -62,7 +68,10 @@ processors:
 
 exporters:
   # Forward traces to perf-sentinel for anti-pattern detection.
-  otlp/perf-sentinel:
+  # Requires otel/opentelemetry-collector >= v0.123.0 (April 2025) which
+  # introduced the canonical otlp_grpc name. Older collectors still use
+  # the deprecated "otlp" alias.
+  otlp_grpc/perf-sentinel:
     endpoint: perf-sentinel:4317
     tls:
       insecure: true
@@ -70,12 +79,12 @@ exporters:
   # Forward traces to your observability backend (Jaeger, Tempo, etc.).
   # Uncomment and configure as needed.
   #
-  # otlp/jaeger:
+  # otlp_grpc/jaeger:
   #   endpoint: jaeger:4317
   #   tls:
   #     insecure: true
   #
-  # otlp/tempo:
+  # otlp_grpc/tempo:
   #   endpoint: tempo:4317
   #   tls:
   #     insecure: true
@@ -85,6 +94,6 @@ service:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp/perf-sentinel]
+      exporters: [otlp_grpc/perf-sentinel]
       # To also forward to your backend, add it to exporters:
-      # exporters: [otlp/perf-sentinel, otlp/jaeger]
+      # exporters: [otlp_grpc/perf-sentinel, otlp_grpc/jaeger]

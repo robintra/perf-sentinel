@@ -3,6 +3,7 @@
 pub mod carbon;
 pub(crate) mod carbon_profiles;
 pub mod cloud_energy;
+pub mod electricity_maps;
 pub mod scaphandre;
 
 use std::cmp::Ordering;
@@ -12,8 +13,8 @@ use crate::correlate::Trace;
 use crate::detect::{Finding, GreenImpact};
 use crate::report::{GreenSummary, TopOffender};
 use carbon::{
-    CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CO2_MODEL_V3,
-    CarbonContext, CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, GENERIC_PUE,
+    CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2,
+    CO2_MODEL_V3, CarbonContext, CarbonEstimate, CarbonReport, ENERGY_PER_IO_OP_KWH, GENERIC_PUE,
     IntensitySource, REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED,
     RegionBreakdown, UNKNOWN_REGION, energy_coefficient, extract_hostname,
     hourly_profile_for_region_lower, is_valid_region_id, lookup_region_lower, per_op_gco2,
@@ -40,6 +41,8 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<&str, EndpointStats<'_>>, 
     let mut endpoint_stats: HashMap<&str, EndpointStats<'_>> =
         HashMap::with_capacity(traces.len().min(64));
     let mut total_io_ops: usize = 0;
+    // Allocated once, cleared per trace. clear() retains capacity so
+    // subsequent traces reuse the same allocation (no churn).
     let mut seen_endpoints: HashSet<&str> = HashSet::new();
 
     for trace in traces {
@@ -161,10 +164,21 @@ pub fn score_green(
     };
 
     // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
-    // only emitted in mono-region mode with per-op coefficients disabled.
-    // Otherwise the scalar would be inconsistent with the per-region breakdown.
+    // only emitted in mono-region mode when the proxy model is the sole
+    // energy source and no modifiers are active. When per-op coefficients,
+    // measured energy (Scaphandre/cloud), calibration factors, or real-time
+    // intensity change the formula, the scalar would be inconsistent with
+    // the per-region breakdown.
     let per_op_active = carbon.is_some_and(|ctx| ctx.per_operation_coefficients);
-    let default_region_lower = if multi_region_active || per_op_active {
+    let has_energy_modifier = carbon.is_some_and(|ctx| {
+        ctx.energy_snapshot.as_ref().is_some_and(|s| !s.is_empty())
+            || ctx.calibration.is_some()
+            || ctx
+                .real_time_intensity
+                .as_ref()
+                .is_some_and(|rt| !rt.is_empty())
+    });
+    let default_region_lower = if multi_region_active || per_op_active || has_energy_modifier {
         None
     } else {
         carbon
@@ -225,6 +239,8 @@ struct RegionAccumulator {
     max_intensity_source: IntensitySource,
     any_scaphandre: bool,
     any_cloud_specpower: bool,
+    /// Whether any span in this region used a calibrated proxy energy.
+    any_calibrated: bool,
 }
 
 /// Compute carbon report, per-region breakdown, and multi-region flag.
@@ -317,12 +333,16 @@ fn compute_carbon_report(
             // Look up annual intensity + PUE. Regions not in the table
             // get (0.0, generic_pue) so their CO₂ from annual intensity
             // is zero but they still produce a breakdown row. When a
-            // custom hourly profile exists for an out-of-table region,
-            // a generic PUE (1.2) is used so the profile's intensity
-            // is not zeroed by pue=0.
+            // custom hourly profile or real-time intensity exists for an
+            // out-of-table region, a generic PUE (1.2) is used so the
+            // intensity is not zeroed by pue=0.
+            let has_realtime = ctx
+                .real_time_intensity
+                .as_ref()
+                .is_some_and(|rt| rt.contains_key(region_key_borrow));
             let (annual_intensity, pue) =
                 lookup_region_lower(region_key_borrow).unwrap_or_else(|| {
-                    let fallback_pue = if custom_profile.is_some() {
+                    let fallback_pue = if custom_profile.is_some() || has_realtime {
                         GENERIC_PUE
                     } else {
                         0.0
@@ -352,50 +372,72 @@ fn compute_carbon_report(
             } else {
                 (None, None)
             };
-            let (intensity_used, span_source) = match hour_opt {
-                Some(h) => {
-                    // Use the cached profile reference directly instead
-                    // of re-probing the HashMap via resolve_hourly_intensity.
-                    // NOTE: this logic mirrors resolve_hourly_intensity() in
-                    // carbon.rs but uses pre-cached refs to avoid redundant
-                    // HashMap probes on the hot path.
-                    if let Some(cp) = custom_profile {
-                        let val = cp.intensity_at(h, month_opt);
-                        let src = if cp.is_monthly() {
-                            IntensitySource::MonthlyHourly
+            // Real-time intensity from Electricity Maps takes highest precedence.
+            let real_time_val = ctx
+                .real_time_intensity
+                .as_ref()
+                .and_then(|rt| rt.get(region_key_borrow));
+
+            let (intensity_used, span_source) = if let Some(&rt_intensity) = real_time_val {
+                (rt_intensity, IntensitySource::RealTime)
+            } else {
+                match hour_opt {
+                    Some(h) => {
+                        // Use the cached profile reference directly instead
+                        // of re-probing the HashMap via resolve_hourly_intensity.
+                        // NOTE: this logic mirrors resolve_hourly_intensity() in
+                        // carbon.rs but uses pre-cached refs to avoid redundant
+                        // HashMap probes on the hot path.
+                        if let Some(cp) = custom_profile {
+                            let val = cp.intensity_at(h, month_opt);
+                            let src = if cp.is_monthly() {
+                                IntensitySource::MonthlyHourly
+                            } else {
+                                IntensitySource::Hourly
+                            };
+                            (val, src)
+                        } else if let Some(ep) = embedded_profile {
+                            let val = ep.intensity_at(h, month_opt);
+                            let src = if ep.is_monthly() {
+                                IntensitySource::MonthlyHourly
+                            } else {
+                                IntensitySource::Hourly
+                            };
+                            (val, src)
                         } else {
-                            IntensitySource::Hourly
-                        };
-                        (val, src)
-                    } else if let Some(ep) = embedded_profile {
-                        let val = ep.intensity_at(h, month_opt);
-                        let src = if ep.is_monthly() {
-                            IntensitySource::MonthlyHourly
-                        } else {
-                            IntensitySource::Hourly
-                        };
-                        (val, src)
-                    } else {
-                        // Invariant: region_has_hourly implies custom or
-                        // embedded is Some. This branch is unreachable.
-                        debug_assert!(false, "region_has_hourly was true but no profile found");
-                        (annual_intensity, IntensitySource::Annual)
+                            // Invariant: region_has_hourly implies custom or
+                            // embedded is Some. This branch is unreachable.
+                            debug_assert!(false, "region_has_hourly was true but no profile found");
+                            (annual_intensity, IntensitySource::Annual)
+                        }
                     }
+                    None => (annual_intensity, IntensitySource::Annual),
                 }
-                None => (annual_intensity, IntensitySource::Annual),
             };
 
             // Energy (kWh) per op: measured from the energy snapshot
             // (Scaphandre RAPL or cloud SPECpower) if the snapshot is
             // configured and maps this service, else the proxy constant
-            // (optionally weighted by operation type).
-            let proxy_energy_kwh = if ctx.per_operation_coefficients {
+            // (optionally weighted by operation type, optionally calibrated).
+            let mut proxy_energy_kwh = if ctx.per_operation_coefficients {
                 ENERGY_PER_IO_OP_KWH * energy_coefficient(&span.event)
             } else {
                 ENERGY_PER_IO_OP_KWH
             };
+            // Apply calibration factor to the proxy model when configured.
+            let calibrated = if let Some(ref cal) = ctx.calibration {
+                if let Some(factor) = cal.factor_for(&span.event.service) {
+                    proxy_energy_kwh *= factor;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
                 Some(snapshot) => match snapshot.get(&span.event.service) {
+                    // Measured energy overrides proxy (calibrated or not).
                     Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
                     None => (proxy_energy_kwh, None),
                 },
@@ -431,7 +473,11 @@ fn compute_carbon_report(
             match measured_model {
                 Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
                 Some(CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
-                _ => {}
+                _ => {
+                    if calibrated {
+                        acc.any_calibrated = true;
+                    }
+                }
             }
 
             // Network transport energy: cross-region HTTP calls only.
@@ -479,9 +525,14 @@ fn compute_carbon_report(
     let mut any_monthly_hourly_report = false;
     let mut any_scaphandre_report = false;
     let mut any_cloud_specpower_report = false;
+    let mut any_calibrated_report = false;
+    let mut any_realtime_report = false;
     for (region, acc) in per_region {
         operational_gco2 += acc.co2_gco2;
         match acc.max_intensity_source {
+            IntensitySource::RealTime => {
+                any_realtime_report = true;
+            }
             IntensitySource::MonthlyHourly => {
                 any_monthly_hourly_report = true;
                 any_hourly_report = true;
@@ -493,6 +544,7 @@ fn compute_carbon_report(
         }
         any_scaphandre_report |= acc.any_scaphandre;
         any_cloud_specpower_report |= acc.any_cloud_specpower;
+        any_calibrated_report |= acc.any_calibrated;
 
         if let Some((_, pue)) = lookup_region_lower(&region) {
             // Time-weighted mean intensity for display. Guaranteed
@@ -607,15 +659,31 @@ fn compute_carbon_report(
         0.0
     };
 
-    // Top-level model tag. Most precise model wins.
-    let model = if any_scaphandre_report {
+    // Top-level model tag. Most precise source wins. When calibration
+    // factors are active on proxy paths, append "+cal" to the tag.
+    // Electricity Maps real-time intensity has the highest precedence
+    // since it replaces the static carbon table with live grid data.
+    let cal = any_calibrated_report && !any_scaphandre_report && !any_cloud_specpower_report;
+    let model = if any_realtime_report {
+        CO2_MODEL_EMAPS
+    } else if any_scaphandre_report {
         CO2_MODEL_SCAPHANDRE
     } else if any_cloud_specpower_report {
         CO2_MODEL_CLOUD_SPECPOWER
     } else if any_monthly_hourly_report {
-        CO2_MODEL_V3
+        if cal {
+            carbon::CO2_MODEL_V3_CAL
+        } else {
+            CO2_MODEL_V3
+        }
     } else if any_hourly_report {
-        CO2_MODEL_V2
+        if cal {
+            carbon::CO2_MODEL_V2_CAL
+        } else {
+            CO2_MODEL_V2
+        }
+    } else if cal {
+        carbon::CO2_MODEL_V1_CAL
     } else {
         CO2_MODEL
     };
@@ -626,8 +694,16 @@ fn compute_carbon_report(
         None
     };
 
+    // When network transport energy is included, the methodology shifts
+    // from plain "sci_v1_numerator" to "sci_v1_numerator+transport" so
+    // consumers can distinguish (E x I) + M from (E x I) + M + T.
+    let total_methodology = if transport_gco2.is_some() {
+        carbon::METHODOLOGY_SCI_NUMERATOR_TRANSPORT
+    } else {
+        carbon::METHODOLOGY_SCI_NUMERATOR
+    };
     let report = CarbonReport {
-        total: CarbonEstimate::sci_numerator_with_model(total_mid, model),
+        total: CarbonEstimate::new_with_model(total_mid, model, total_methodology),
         avoidable: CarbonEstimate::operational_ratio_with_model(avoidable_mid, model),
         operational_gco2,
         embodied_gco2,
@@ -2015,7 +2091,7 @@ mod tests {
         let row = &summary.regions[0];
         // eu-west-3, July (month 6), hour 3 UTC = 38.0 g/kWh per the
         // Monthly profile in carbon_profiles.rs.
-        let expected = crate::score::carbon::resolve_hourly_intensity(
+        let expected = carbon::resolve_hourly_intensity(
             "eu-west-3",
             3,
             Some(6), // July
@@ -2683,5 +2759,230 @@ mod tests {
             summary.transport_gco2.is_some(),
             "uppercase hostname should match lowercase service_regions key"
         );
+    }
+
+    // --- Real-time intensity (Electricity Maps) integration tests ---
+
+    #[test]
+    fn realtime_intensity_overrides_annual() {
+        // eu-west-3 annual = 56.0, but real-time = 200.0
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let mut rt = HashMap::new();
+        rt.insert("eu-west-3".to_string(), 200.0);
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+
+        // With real-time intensity = 200.0, CO2 should be higher than
+        // annual = 56.0. Verify the model tag reflects Electricity Maps.
+        assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
+        assert_eq!(
+            summary.regions[0].intensity_source,
+            IntensitySource::RealTime
+        );
+        assert!((summary.regions[0].grid_intensity_gco2_kwh - 200.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn realtime_intensity_overrides_hourly_profile() {
+        // eu-west-3 has an hourly profile, but real-time should win.
+        let trace = make_trace_at_hour("trace-1", "eu-west-3", 14, 4);
+        let mut rt = HashMap::new();
+        rt.insert("eu-west-3".to_string(), 300.0);
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: true,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
+        assert_eq!(
+            summary.regions[0].intensity_source,
+            IntensitySource::RealTime
+        );
+    }
+
+    #[test]
+    fn realtime_with_scaphandre_uses_emaps_model() {
+        // Scaphandre provides energy, Electricity Maps provides intensity.
+        // Model tag should show electricity_maps_api (highest intensity source).
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+
+        let mut energy_snap = HashMap::new();
+        energy_snap.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        let mut rt = HashMap::new();
+        rt.insert("eu-west-3".to_string(), 100.0);
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            energy_snapshot: Some(energy_snap),
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        // Electricity Maps takes precedence in model tag
+        assert_eq!(co2.total.model, CO2_MODEL_EMAPS);
+    }
+
+    #[test]
+    fn realtime_for_out_of_table_region_uses_generic_pue() {
+        // A region not in the carbon table but with real-time intensity
+        // should still produce CO2 (using GENERIC_PUE, not 0.0).
+        let trace = make_trace_with_region("trace-1", "moon-base-1", 4);
+        let mut rt = HashMap::new();
+        rt.insert("moon-base-1".to_string(), 150.0);
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert!(
+            co2.total.mid > 0.0,
+            "out-of-table region with real-time intensity should produce non-zero CO2"
+        );
+    }
+
+    // --- Calibration integration tests ---
+
+    #[test]
+    fn calibration_factor_scales_proxy_energy() {
+        // 4 ops with 2.0x calibration factor should produce 2x the CO2
+        // compared to the same trace without calibration.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+
+        let ctx_no_cal = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary_no_cal) =
+            score_green(std::slice::from_ref(&trace), vec![], Some(&ctx_no_cal));
+        let co2_no_cal = summary_no_cal.co2.as_ref().unwrap().total.mid;
+
+        let cal_data = crate::calibrate::CalibrationData {
+            calibration: crate::calibrate::CalibrationSection {
+                base_energy_per_io_op_kwh: ENERGY_PER_IO_OP_KWH,
+                services: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "order-svc".to_string(),
+                        crate::calibrate::ServiceCalibration {
+                            factor: 2.0,
+                            measured_energy_per_op_kwh: ENERGY_PER_IO_OP_KWH * 2.0,
+                        },
+                    );
+                    m
+                },
+            },
+        };
+        let ctx_cal = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            calibration: Some(cal_data),
+            ..CarbonContext::default()
+        };
+        let (_, summary_cal) = score_green(&[trace], vec![], Some(&ctx_cal));
+        let co2_cal = summary_cal.co2.as_ref().unwrap().total.mid;
+
+        assert!(
+            (co2_cal / co2_no_cal - 2.0).abs() < 0.01,
+            "2x calibration factor should double CO2: {co2_cal} vs {co2_no_cal}"
+        );
+    }
+
+    #[test]
+    fn calibration_appends_cal_suffix_to_model_tag() {
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let cal_data = crate::calibrate::CalibrationData {
+            calibration: crate::calibrate::CalibrationSection {
+                base_energy_per_io_op_kwh: ENERGY_PER_IO_OP_KWH,
+                services: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "order-svc".to_string(),
+                        crate::calibrate::ServiceCalibration {
+                            factor: 1.5,
+                            measured_energy_per_op_kwh: ENERGY_PER_IO_OP_KWH * 1.5,
+                        },
+                    );
+                    m
+                },
+            },
+        };
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            calibration: Some(cal_data),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, carbon::CO2_MODEL_V1_CAL);
+    }
+
+    #[test]
+    fn calibration_not_applied_when_scaphandre_overrides() {
+        // When Scaphandre provides measured energy, calibration should be
+        // irrelevant and the model tag should NOT have +cal.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+
+        let mut energy_snap = HashMap::new();
+        energy_snap.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        let cal_data = crate::calibrate::CalibrationData {
+            calibration: crate::calibrate::CalibrationSection {
+                base_energy_per_io_op_kwh: ENERGY_PER_IO_OP_KWH,
+                services: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "order-svc".to_string(),
+                        crate::calibrate::ServiceCalibration {
+                            factor: 3.0,
+                            measured_energy_per_op_kwh: ENERGY_PER_IO_OP_KWH * 3.0,
+                        },
+                    );
+                    m
+                },
+            },
+        };
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            energy_snapshot: Some(energy_snap),
+            calibration: Some(cal_data),
+            ..CarbonContext::default()
+        };
+        let (_, summary) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        // Scaphandre wins, no +cal suffix
+        assert_eq!(co2.total.model, CO2_MODEL_SCAPHANDRE);
     }
 }

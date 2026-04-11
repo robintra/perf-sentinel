@@ -89,8 +89,8 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`.
-- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, or `"monthly_hourly"` depending on which carbon profile was consulted for the region.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces, or `"sci_v1_numerator+transport"` when network transport energy is included) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`).
+- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, `"monthly_hourly"`, or `"real_time"` (Electricity Maps API) depending on which carbon intensity source was used for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology, and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
 
@@ -134,11 +134,11 @@ The full alias table is in `score/carbon_profiles.rs`. If your region key is not
 
 Opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement on Linux hosts with Intel RAPL support. When configured, the `watch` daemon spawns a background task that scrapes the Scaphandre Prometheus endpoint every `scrape_interval_secs` and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` constant for each mapped service.
 
-| Field                  | Type    | Default  | Description                                                                                                                                       |
-|------------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `endpoint`             | string  | *(none)* | Full URL of the Scaphandre Prometheus `/metrics` endpoint. Must start with `http://` (TLS is not supported). Required when the section is present |
-| `scrape_interval_secs` | integer | `5`      | How often to scrape, in seconds. Valid range: 1-3600                                                                                              |
-| `process_map`          | table   | `{}`     | Maps perf-sentinel service names (from span `service.name`) to Scaphandre `exe` labels                                                            |
+| Field                  | Type    | Default  | Description                                                                                                                                                               |
+|------------------------|---------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoint`             | string  | *(none)* | Full URL of the Scaphandre Prometheus `/metrics` endpoint. Must start with `http://` or `https://` (TLS supported via hyper-rustls). Required when the section is present |
+| `scrape_interval_secs` | integer | `5`      | How often to scrape, in seconds. Valid range: 1-3600                                                                                                                      |
+| `process_map`          | table   | `{}`     | Maps perf-sentinel service names (from span `service.name`) to Scaphandre `exe` labels                                                                                    |
 
 ```toml
 [green.scaphandre]
@@ -161,13 +161,13 @@ scrape_interval_secs = 5
 
 Cloud-native energy estimation via CPU utilization + SPECpower interpolation. When configured, the `watch` daemon scrapes CPU% from a Prometheus/VictoriaMetrics endpoint and uses an embedded lookup table (idle/max watts per cloud instance type) to estimate per-service energy consumption. Supports AWS, GCP, Azure, and on-premise hardware with manual watts override.
 
-| Field                   | Type    | Default  | Description                                                             |
-|-------------------------|---------|----------|-------------------------------------------------------------------------|
-| `prometheus_endpoint`   | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090`). Required. |
-| `scrape_interval_secs`  | integer | `15`     | Polling interval in seconds (range: 1-3600).                            |
-| `default_provider`      | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`.                    |
-| `default_instance_type` | string  | *(none)* | Fallback instance type for unmapped services.                           |
-| `cpu_metric`            | string  | *(none)* | Default PromQL metric/query for CPU utilization.                        |
+| Field                   | Type    | Default  | Description                                                                                                                          |
+|-------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `prometheus_endpoint`   | string  | *(none)* | Prometheus HTTP API base URL (e.g. `http://prometheus:9090` or `https://prometheus:9090`). TLS supported via hyper-rustls. Required. |
+| `scrape_interval_secs`  | integer | `15`     | Polling interval in seconds (range: 1-3600).                                                                                         |
+| `default_provider`      | string  | *(none)* | Default cloud provider: `"aws"`, `"gcp"`, `"azure"`.                                                                                 |
+| `default_instance_type` | string  | *(none)* | Fallback instance type for unmapped services.                                                                                        |
+| `cpu_metric`            | string  | *(none)* | Default PromQL metric/query for CPU utilization.                                                                                     |
 
 Per-service entries in `[green.cloud.services]` support two forms:
 
@@ -197,6 +197,52 @@ default_provider = "aws"
 **Fallback behaviour.** If the Prometheus endpoint is unreachable, the daemon falls back to the proxy model for all cloud-configured services. Unknown instance types fall back to a provider-level default.
 
 **Precision bounds.** The SPECpower interpolation model has approximately +/-30% accuracy, better than the proxy model but less precise than Scaphandre RAPL. See `docs/LIMITATIONS.md` for details.
+
+#### `[green.electricity_maps]` (optional, opt-in)
+
+Real-time carbon intensity from the Electricity Maps API. Daemon-only.
+
+| Field                | Type    | Default                              | Description                                                             |
+|----------------------|---------|--------------------------------------|-------------------------------------------------------------------------|
+| `api_key`            | string  | none                                 | API auth token. Prefer `PERF_SENTINEL_EMAPS_TOKEN` env var for security |
+| `endpoint`           | string  | `https://api.electricitymaps.com/v3` | API base URL (`http://` or `https://`)                                  |
+| `poll_interval_secs` | integer | `300`                                | Poll interval in seconds (range: 60-86400). Free tier: use 3600+        |
+
+The `region_map` sub-table maps cloud regions to Electricity Maps zone codes:
+
+```toml
+[green.electricity_maps]
+# Use PERF_SENTINEL_EMAPS_TOKEN env var instead of api_key in config
+poll_interval_secs = 300
+
+[green.electricity_maps.region_map]
+"eu-west-3" = "FR"
+"us-east-1" = "US-NY"
+"ap-northeast-1" = "JP-TK"
+```
+
+**Staleness:** if the last successful poll is older than 3x `poll_interval_secs`, the scraper falls back to embedded hourly profiles.
+
+
+**Rate limits:** the Electricity Maps free tier allows approximately 30 requests per month per zone. For free tier users, set `poll_interval_secs = 3600` or higher. The default of 300s is intended for paid plans.
+
+#### `[green] calibration_file` (optional)
+
+Path to a calibration TOML file generated by `perf-sentinel calibrate`. When present, per-service calibration factors are loaded at config time and multiply the proxy model energy per op. Does not affect Scaphandre or cloud SPECpower measured energy.
+
+```toml
+[green]
+calibration_file = ".perf-sentinel-calibration.toml"
+```
+
+#### `[tempo]` (optional)
+
+Configuration for the `perf-sentinel tempo` subcommand. The subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API, and pipes them through the standard analysis pipeline. All values below can also be set via CLI flags (flags override config).
+
+| Field        | Type    | Default | Description                                        |
+|--------------|---------|---------|----------------------------------------------------|
+| `endpoint`   | string  | none    | Tempo HTTP API base URL (e.g. `http://tempo:3200`) |
+| `max_traces` | integer | `100`   | Maximum traces to fetch in search mode             |
 
 ### `[daemon]`
 

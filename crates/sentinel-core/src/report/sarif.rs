@@ -237,7 +237,7 @@ pub enum SarifError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{Confidence, GreenImpact, Pattern};
+    use crate::detect::Confidence;
 
     fn make_report(findings: Vec<Finding>) -> Report {
         Report {
@@ -256,27 +256,11 @@ mod tests {
     }
 
     fn make_finding(ft: FindingType, sev: Severity) -> Finding {
-        Finding {
-            finding_type: ft,
-            severity: sev,
-            trace_id: "trace-1".to_string(),
-            service: "order-svc".to_string(),
-            source_endpoint: "POST /api/orders/42/submit".to_string(),
-            pattern: Pattern {
-                template: "SELECT * FROM order_item WHERE order_id = ?".to_string(),
-                occurrences: 6,
-                window_ms: 250,
-                distinct_params: 6,
-            },
-            suggestion: "Use WHERE ... IN (?)".to_string(),
-            first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
-            last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
-            green_impact: Some(GreenImpact {
-                estimated_extra_io_ops: 5,
-                io_intensity_score: 6.0,
-            }),
-            confidence: Confidence::default(),
-        }
+        let mut f = crate::test_helpers::make_finding(ft, sev);
+        f.pattern.template = "SELECT * FROM order_item WHERE order_id = ?".to_string();
+        f.pattern.window_ms = 250;
+        f.suggestion = "Use WHERE ... IN (?)".to_string();
+        f
     }
 
     #[test]

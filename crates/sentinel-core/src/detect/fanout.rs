@@ -1,7 +1,5 @@
 //! Fanout detection: identifies parent spans generating excessive child spans.
 
-use std::collections::HashMap;
-
 use crate::correlate::Trace;
 use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
 
@@ -11,25 +9,8 @@ use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
 /// Severity is `Warning` if > `max_fanout`, `Critical` if > 3x `max_fanout`.
 #[must_use]
 pub fn detect_fanout(trace: &Trace, max_fanout: u32) -> Vec<Finding> {
-    // Group spans by parent_span_id
-    let mut children_by_parent: HashMap<&str, Vec<usize>> =
-        HashMap::with_capacity(trace.spans.len() / 4 + 1);
-    for (idx, span) in trace.spans.iter().enumerate() {
-        if let Some(ref parent_id) = span.event.parent_span_id {
-            children_by_parent
-                .entry(parent_id.as_str())
-                .or_default()
-                .push(idx);
-        }
-    }
-
-    // Build span index for O(1) parent lookup
-    let span_index: HashMap<&str, usize> = trace
-        .spans
-        .iter()
-        .enumerate()
-        .map(|(i, s)| (s.event.span_id.as_str(), i))
-        .collect();
+    let children_by_parent = super::group_children_by_parent(trace);
+    let span_index = super::build_span_index(trace);
 
     let mut findings = Vec::new();
 

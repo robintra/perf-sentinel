@@ -211,16 +211,7 @@ mod tests {
 
     #[test]
     fn detects_n_plus_one_sql() {
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500);
@@ -257,16 +248,7 @@ mod tests {
 
     #[test]
     fn below_threshold_no_finding() {
-        let events: Vec<SpanEvent> = (1..=4)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_sql_series_events(4);
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500);
@@ -303,16 +285,7 @@ mod tests {
 
     #[test]
     fn critical_severity_for_10_or_more() {
-        let events: Vec<SpanEvent> = (1..=12)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_sql_series_events_with_stride(12, 10);
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500);
@@ -425,16 +398,7 @@ mod tests {
     #[test]
     fn window_zero_limit_filters_all() {
         // window_limit = 0 -> only events with identical timestamps pass
-        let events: Vec<SpanEvent> = (1..=5)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_sql_series_events(5);
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 0);
@@ -443,16 +407,7 @@ mod tests {
 
     #[test]
     fn severity_boundary_9_is_warning() {
-        let events: Vec<SpanEvent> = (1..=9)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 10),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_sql_series_events_with_stride(9, 10);
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500);
@@ -523,16 +478,7 @@ mod tests {
 
     #[test]
     fn n_plus_one_finding_has_first_last_timestamps() {
-        let events: Vec<SpanEvent> = (1..=6)
-            .map(|i| {
-                make_sql_event(
-                    "trace-1",
-                    &format!("span-{i}"),
-                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
-                )
-            })
-            .collect();
+        let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
         let findings = detect_n_plus_one(&trace, 5, 500);

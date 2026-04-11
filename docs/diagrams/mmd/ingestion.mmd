@@ -18,6 +18,8 @@ flowchart TD
     zipkin_parse["Zipkin JSON v2"]
     native_parse["Native JSON"]
 
+    sanitize["sanitize_span_event()<br/><i>field length caps<br/>cloud_region validation</i>"]
+
     output["Vec of SpanEvent"]
 
     raw --> size
@@ -33,9 +35,10 @@ flowchart TD
     zipkin_check -- "yes" --> zipkin_parse
     zipkin_check -- "no" --> native_parse
 
-    jaeger_parse --> output
-    zipkin_parse --> output
-    native_parse --> output
+    jaeger_parse --> sanitize
+    zipkin_parse --> sanitize
+    native_parse --> sanitize
+    sanitize --> output
 
     style reject fill:#4a2d2d,stroke:#f87171
     style jaeger_parse fill:#4a3b2d,stroke:#fbbf24

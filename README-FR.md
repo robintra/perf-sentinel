@@ -26,7 +26,7 @@ Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations
 - **I/O Intensity Score** = opérations I/O totales pour un endpoint / nombre d'invocations
 - **I/O Waste Ratio** = opérations I/O évitables (issues des findings) / opérations I/O totales
 
-Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. **Plus de 30 régions cloud** disposent de profils d'intensité carbone horaire intégrés, avec une variation saisonnière (mois x heure) pour FR, DE, GB et US-East. En mode daemon, le coefficient énergétique peut être affiné via [Scaphandre](https://github.com/hubblo-org/scaphandre) (RAPL bare-metal) ou l'estimation cloud-native CPU% + SPECpower pour les VMs AWS/GCP/Azure (section `[green.cloud]`). Les utilisateurs peuvent aussi fournir leurs propres profils horaires via `[green] hourly_profiles_file`.
+Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. **Plus de 30 régions cloud** disposent de profils d'intensité carbone horaire intégrés, avec une variation saisonnière (mois x heure) pour FR, DE, GB et US-East. En mode daemon, le coefficient énergétique peut être affiné via [Scaphandre](https://github.com/hubblo-org/scaphandre) (RAPL bare-metal) ou l'estimation cloud-native CPU% + SPECpower pour les VMs AWS/GCP/Azure (section `[green.cloud]`), et l'intensité du réseau électrique peut être récupérée en temps réel via l'**API Electricity Maps**, avec repli automatique sur le modèle proxy I/O. Les utilisateurs peuvent fournir leurs propres profils horaires via `[green] hourly_profiles_file`, ou ajuster les coefficients du modèle proxy depuis des mesures terrain via `perf-sentinel calibrate`.
 
 > **Note :** les estimations CO₂ sont **directionnelles**, pas auditables. Chaque estimation porte un intervalle d'incertitude multiplicative `~2×` (`low = mid/2`, `high = mid×2`) car le modèle proxy I/O est approximatif. perf-sentinel est un **compteur de gaspillage**, pas un outil de comptabilité carbone. Ne l'utilisez pas pour le reporting CSRD ou GHG Protocol Scope 3. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la méthodologie complète.
 
@@ -211,6 +211,23 @@ perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
 
 ```bash
 perf-sentinel inspect --input traces.json
+```
+
+### Ingestion Tempo
+
+```bash
+# Analyser une trace depuis Grafana Tempo
+perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
+
+# Rechercher et analyser les traces par service
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
+```
+
+### Calibration des coefficients
+
+```bash
+# Ajuster les coefficients énergie avec des mesures réelles
+perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
 ```
 
 ### Mode streaming (daemon)
