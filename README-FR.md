@@ -404,6 +404,36 @@ L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`exampl
 
 Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
 
+## Normes et sources de données
+
+Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de normes publiques, de jeux de données de référence et de méthodologie revue par les pairs. La liste d'autorité des citations par référence se trouve dans [`crates/sentinel-core/src/score/carbon.rs`](crates/sentinel-core/src/score/carbon.rs) (docstring de module) et dans [`crates/sentinel-core/src/score/carbon_profiles.rs`](crates/sentinel-core/src/score/carbon_profiles.rs) (commentaires de source par région sur chaque entrée de profil). Cette section est son complément narratif.
+
+### Norme / spécification
+
+- [Software Carbon Intensity v1.0 (ISO/IEC 21031:2024)](https://sci-guide.greensoftware.foundation/), Green Software Foundation. `co2.total` est le numérateur SCI v1.0 `(E × I) + M + T`, pas l'intensité par R. Discussion complète dans [docs/FR/design/05-GREENOPS-AND-CARBON-FR.md](docs/FR/design/05-GREENOPS-AND-CARBON-FR.md).
+
+### Jeux de données de référence
+
+- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/) : intensité carbone annuelle par région cloud, valeurs PUE par fournisseur (AWS 1,135, GCP 1,10, Azure 1,185, générique 1,2) et les tables de coefficients SPECpower (~180 types d'instances) qui alimentent le backend énergie `cloud_specpower`.
+- [Electricity Maps](https://www.electricitymaps.com/) : intensités annuelles moyennes pour plus de 30 régions (2023-2024) utilisées comme référence `io_proxy_v1`, plus l'API temps réel (backend `electricity_maps_api`, opt-in via `[green.electricity_maps]`).
+- [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) : données horaires de production et de consommation utilisées pour dériver les profils mois x heure des zones de marché européennes (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
+- Gestionnaires de réseau nationaux : [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/) (Allemagne), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (Royaume-Uni), [EIA Open Data API](https://www.eia.gov/opendata/) pour les balancing authorities américaines (PJM, CAISO, BPA), [rapports annuels Hydro-Québec](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australie).
+- [Scaphandre](https://github.com/hubblo-org/scaphandre) : mesure de puissance par processus via RAPL Intel / AMD, scrapée depuis son endpoint Prometheus quand la section `[green.scaphandre]` est configurée.
+
+### Méthodologie académique
+
+- Xu et al., *Energy-Efficient Query Processing*, VLDB 2010. Benchmark énergétique par opération DBMS fondamental qui motive les multiplicateurs `SELECT 0,5x` / `INSERT 1,5x` / `UPDATE 1,5x` / `DELETE 1,2x` du modèle proxy.
+- Tsirogiannis et al., *Analyzing the Energy Efficiency of a Database Server*, SIGMOD 2010. Benchmark compagnon qui établit les coefficients par verbe.
+- Siddik et al., *DBJoules: Towards Understanding the Energy Consumption of Database Management Systems*, 2023. Confirme une variance inter-opérations de 7 à 38 % entre verbes, cross-validation pour la feature `per_operation_coefficients`.
+- Guo et al., *Energy-efficient Database Systems: A Systematic Survey*, ACM Computing Surveys 2022. Panorama du domaine.
+- IDEAS 2025 : framework d'estimation énergétique temps réel pour les requêtes SQL, référencé comme direction de travail pour les futures évolutions de `calibrate`.
+- Mytton, Lunden & Malmodin, *Estimating electricity usage of data transmission networks*, Journal of Industrial Ecology 2024. Source du défaut 0,04 kWh/GB sur le terme optionnel `include_network_transport` ; la plage 0,03-0,06 kWh/GB du papier est à l'origine du champ configurable `network_energy_per_byte_kwh`.
+- [API Boavizta](https://www.boavizta.org/en/) / HotCarbon 2024 : modèle bottom-up du cycle de vie carbone embodied d'un serveur, référencé pour le calibrage par défaut de `embodied_per_request_gco2`.
+
+### Ce que ce n'est pas
+
+perf-sentinel est un **compteur de gaspillage directionnel**, pas un outil de comptabilité carbone réglementaire. Chaque `CarbonEstimate` porte un intervalle d'incertitude multiplicative `{ low, mid, high }` 2× parce que le proxy I/O vers énergie est approximatif par construction. N'utilisez pas ces valeurs pour le reporting CSRD, les déclarations GHG Protocol Scope 3, ou tout autre contexte de conformité. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la critique méthodologique complète.
+
 ## Licence
 
 Ce projet est sous licence [GNU Affero General Public License v3.0](LICENSE).
