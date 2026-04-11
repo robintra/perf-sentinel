@@ -1,0 +1,23 @@
+# Docker-specific perf-sentinel config for the collector topology
+# (`docker-compose-collector.yml`).
+#
+# This file only contains the overrides needed to make the daemon reachable
+# from a sibling container (the OpenTelemetry Collector). For every other
+# option (thresholds, detection tuning, GreenOps, Scaphandre, Electricity
+# Maps, cloud energy), see `examples/perf-sentinel.toml`.
+#
+# To combine the optional scrapers with this Docker topology, copy this file
+# and add the sections you need from `perf-sentinel.toml`, then mount the
+# combined result into the container.
+
+[daemon]
+# Bind to all interfaces so the collector in a sibling container can
+# reach the daemon via its service name. The daemon emits a security
+# warning on startup: that is expected and fine in a trusted container
+# network. For external exposure, put a reverse proxy in front (nginx,
+# traefik, envoy) with TLS and authentication.
+listen_address = "0.0.0.0"
+
+# Stamp findings with `daemon_staging` confidence by default. Flip to
+# `"production"` when this compose is adapted for production traffic.
+environment = "staging"

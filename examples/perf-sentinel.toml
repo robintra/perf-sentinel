@@ -1,0 +1,171 @@
+# Reference perf-sentinel config with every section annotated.
+#
+# Copy this file to `.perf-sentinel.toml` in your working directory (or mount
+# it into the container, see `examples/docker-compose-collector.yml`) and
+# uncomment the sections you need.
+#
+# All fields shown with their defaults are what perf-sentinel uses when the
+# file is absent. You only need to list fields you want to override.
+#
+# Full reference: `docs/CONFIGURATION.md`.
+
+# ---------------------------------------------------------------------------
+# Quality gate thresholds (used by `analyze --ci` and the daemon quality gate)
+# ---------------------------------------------------------------------------
+[thresholds]
+# Max number of critical N+1 SQL findings tolerated. Any finding above this
+# fails the quality gate (non-zero exit code).
+n_plus_one_sql_critical_max = 0
+# Max number of warning-level N+1 HTTP findings tolerated.
+n_plus_one_http_warning_max = 3
+# Max avoidable-I/O waste ratio tolerated (0.0 to 1.0).
+io_waste_ratio_max = 0.30
+
+# ---------------------------------------------------------------------------
+# Detection tuning (applies to all detectors)
+# ---------------------------------------------------------------------------
+[detection]
+# Sliding window for N+1 and redundant detection (ms).
+window_duration_ms = 500
+# Minimum occurrences of a normalized template within the window to flag N+1.
+n_plus_one_min_occurrences = 5
+# Slow-query threshold (ms). Spans above this value for a template that
+# repeats across traces are reported as `slow_sql` / `slow_http`.
+slow_query_threshold_ms = 500
+slow_query_min_occurrences = 3
+# Max child spans under a single parent before flagging `excessive_fanout`.
+max_fanout = 20
+# Min distinct targets a service must hit in one trace to be `chatty`.
+chatty_service_min_calls = 15
+# Min concurrent in-flight SQL queries to flag a `pool_saturation` event.
+pool_saturation_concurrent_threshold = 10
+# Min sequential calls to the same target to flag `serialized_but_parallelizable`.
+serialized_min_sequential = 3
+
+# ---------------------------------------------------------------------------
+# GreenOps / carbon scoring
+# ---------------------------------------------------------------------------
+[green]
+# Master toggle. When `false`, no `co2` / `regions` fields are emitted and
+# all Scaphandre / Cloud / Electricity Maps scrapers are disabled.
+enabled = true
+
+# Region used when an event has no `cloud.region` attribute and the service
+# is not listed in `[green.service_regions]`. Must be a valid region ID
+# (e.g. `eu-west-3`, `us-east-1`, `asia-southeast1`). See `docs/CONFIGURATION.md`
+# for the embedded region table.
+default_region = "eu-west-3"
+
+# SCI v1.0 embodied carbon term `M = traces × embodied_per_request_gco2`,
+# region-independent. Default `0.001` g/req covers typical commodity hardware
+# amortization. Raise for GPU-heavy workloads.
+embodied_carbon_per_request_gco2 = 0.001
+
+# Per-operation energy coefficients: SELECT 0.5x, INSERT/UPDATE 1.5x, etc.
+# Sources: Xu VLDB 2010, Tsirogiannis SIGMOD 2010, DBJoules 2023, IDEAS 2025.
+# Leave `true` unless you have specific reasons to treat all I/O as equal.
+per_operation_coefficients = true
+
+# Hourly intensity profiles for 30+ regions (24 UTC values, monthly × hourly
+# where available). When `true`, the model tag becomes `io_proxy_v2`.
+use_hourly_profiles = true
+
+# Include network-transport energy (Mytton et al. 2024, 0.04 kWh/GB default).
+# Adds a `sci_v1_numerator+transport` methodology tag. Opt-in because it
+# requires the `response_size_bytes` field in your spans.
+include_network_transport = false
+# network_energy_per_byte_kwh = 0.00000000004  # 0.04 kWh / GB, default
+
+# Per-service region override when the OTel `cloud.region` resource attribute
+# is absent. Values are case-insensitive, lowercased at load time.
+# [green.service_regions]
+# "order-svc" = "us-east-1"
+# "chat-svc"  = "ap-southeast-1"
+
+# User-supplied hourly profile file (CSV or JSON). Overrides the embedded
+# table for the listed regions. Useful when you have a PPA or private grid
+# mix. Values are validated to be within ±5% of the embedded annual mean.
+# hourly_profiles_file = "/etc/perf-sentinel/hourly-profiles.json"
+
+# Calibration file produced by `perf-sentinel calibrate`. Tunes the I/O→energy
+# coefficient from RAPL measurements on your real infra. The model tag gets
+# a `+cal` suffix (e.g. `io_proxy_v2+cal`) when active.
+# calibration_file = "/etc/perf-sentinel/calibration.toml"
+
+# --- Scaphandre per-process scraper (opt-in, no default egress) ------------
+# Scrapes Scaphandre's Prometheus endpoint to get per-process power draw and
+# compute `energy_per_op_kwh = (watts × interval) / ops / 3_600_000`. Model
+# tag flips to `scaphandre_rapl` when active.
+#
+# Prerequisites: Scaphandre running and exposing a Prometheus endpoint with
+# per-process metrics (`scaph_process_power_consumption_microwatts{exe=...}`).
+# Requires RAPL access, so only works on bare-metal / OVH / Hetzner / Scaleway,
+# not on AWS/GCP/Azure VMs (use `[green.cloud]` for those).
+#
+# [green.scaphandre]
+# endpoint = "http://localhost:8080/metrics"
+# scrape_interval_secs = 5
+# process_map = { "account-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
+
+# --- Cloud CPU% + SPECpower (opt-in, no default egress) --------------------
+# Alternative to Scaphandre for AWS/GCP/Azure VMs that don't expose RAPL.
+# Scrapes CPU utilization from your existing Prometheus (cloudwatch_exporter,
+# gcp monitoring, azure exporter) and applies the SPECpower model.
+# Model tag: `cloud_specpower`.
+#
+# [green.cloud]
+# prometheus_endpoint = "http://prometheus:9090"
+# scrape_interval_secs = 30
+# default_provider = "aws"
+# default_instance_type = "c5.4xlarge"
+# cpu_metric = "aws_ec2_cpuutilization_average"
+#
+# [green.cloud.services]
+# "api-us" = { provider = "aws", instance_type = "c5.4xlarge" }
+# "api-asia" = { provider = "gcp", instance_type = "n2-standard-8" }
+# "analytics" = { provider = "azure", instance_type = "Standard_D8s_v3" }
+# "custom" = { idle_watts = 45.0, max_watts = 120.0 }
+
+# --- Electricity Maps API (opt-in, requires API key) -----------------------
+# Real-time per-region carbon intensity instead of the embedded hourly profile.
+# Falls back to the embedded profile on any scrape failure. Model tag becomes
+# `electricity_maps_api` for regions with a fresh sample.
+#
+# The `api_key` field accepts a literal string or the `env:VAR_NAME` form —
+# prefer the env form so secrets never land in the config file.
+#
+# [green.electricity_maps]
+# api_key = "env:ELECTRICITY_MAPS_API_KEY"
+# endpoint = "https://api.electricitymap.org/v3"
+# poll_interval_secs = 900  # 15 min — respects the free tier rate limit
+# region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
+
+# ---------------------------------------------------------------------------
+# Daemon configuration (only applies to `perf-sentinel watch`)
+# ---------------------------------------------------------------------------
+[daemon]
+# Bind address. Keep `127.0.0.1` for sidecar deployments; use `0.0.0.0`
+# **only** inside containers where network isolation is handled upstream
+# (see `docker-compose-collector.yml`).
+listen_address = "127.0.0.1"
+# OTLP HTTP port (also serves Prometheus `/metrics`).
+listen_port_http = 4318
+# OTLP gRPC port.
+listen_port_grpc = 4317
+# Unix socket for the native JSON ingestion path.
+json_socket = "/tmp/perf-sentinel.sock"
+# Sliding-window memory controls. Tune if you hit the `max_active_traces`
+# cap or see traces evicted before their children arrive.
+max_active_traces = 10000
+trace_ttl_ms = 30000
+# 1.0 = keep every incoming trace. Lower to sub-sample in high-traffic envs.
+sampling_rate = 1.0
+max_events_per_trace = 1000
+# Max single OTLP request payload in bytes (1 MB default).
+max_payload_size = 1048576
+
+# Deployment environment stamped on every finding as `confidence`:
+# - "staging"    → `daemon_staging`    (medium confidence, default)
+# - "production" → `daemon_production` (high confidence)
+# Consumed by perf-lint (IDE integration) to boost or reduce severity.
+environment = "staging"

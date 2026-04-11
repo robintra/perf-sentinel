@@ -20,7 +20,16 @@ services:
 
   perf-sentinel:
     image: ghcr.io/robintra/perf-sentinel:latest
-    # Share the app's network namespace so localhost works
+    # Share the app's network namespace so localhost works. The reference
+    # config (`listen_address = "127.0.0.1"`) is valid here because both
+    # containers see the same loopback. For the collector topology (separate
+    # containers), use `perf-sentinel-docker.toml` instead.
+    command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
+    volumes:
+      - ./perf-sentinel.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+    # environment:
+    #   # Inject secrets via env vars, never in the config file.
+    #   ELECTRICITY_MAPS_API_KEY: "${ELECTRICITY_MAPS_API_KEY}"
     network_mode: "service:app"
     # Prometheus /metrics available at app's IP on port 4318
     read_only: true

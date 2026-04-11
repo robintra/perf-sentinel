@@ -36,7 +36,17 @@ services:
 
   perf-sentinel:
     image: ghcr.io/robintra/perf-sentinel:latest
-    # Equivalent to: perf-sentinel watch
+    # Mount the Docker-specific config so the daemon binds to `0.0.0.0`
+    # (required because the collector is in a sibling container and cannot
+    # reach the daemon's loopback). To enable the optional scrapers
+    # (Scaphandre, Electricity Maps, cloud energy, hourly profiles), copy
+    # the relevant sections from `examples/perf-sentinel.toml` into this file.
+    command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
+    volumes:
+      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+    # environment:
+    #   # Inject secrets via env vars, never in the config file.
+    #   ELECTRICITY_MAPS_API_KEY: "${ELECTRICITY_MAPS_API_KEY}"
     ports:
       - "127.0.0.1:14318:4318"  # Prometheus /metrics + OTLP HTTP from collector
       - "127.0.0.1:14317:4317"  # OTLP gRPC from collector
