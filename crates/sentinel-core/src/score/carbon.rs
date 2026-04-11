@@ -557,6 +557,18 @@ pub(crate) fn resolve_hourly_intensity(
         })
 }
 
+/// Maximum file size for custom profiles (2 MiB). A 30-region monthly
+/// file with formatting is well under 100 KB; 2 MiB is generous.
+const MAX_PROFILE_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Maximum plausible grid intensity (gCO2/kWh). No national grid
+/// exceeds ~950 (South Africa, Mongolia). Values above 1000 likely
+/// indicate a unit confusion (mg vs g, or kgCO2 vs gCO2).
+const MAX_PLAUSIBLE_INTENSITY: f64 = 1000.0;
+
+/// Maximum number of custom profile entries (same cap as `MAX_REGIONS`).
+const MAX_CUSTOM_PROFILES: usize = 256;
+
 /// Load user-supplied hourly profiles from a JSON file.
 ///
 /// Expected format:
@@ -577,44 +589,16 @@ pub(crate) fn resolve_hourly_intensity(
 /// Returns `Err` when the file cannot be read, contains invalid JSON,
 /// has wrong dimensions, negative or non-finite values, or invalid
 /// region keys.
-#[allow(clippy::too_many_lines)]
 pub fn load_custom_profiles(
     path: &std::path::Path,
 ) -> Result<HashMap<String, HourlyProfile>, String> {
-    /// Maximum file size for custom profiles (2 MiB). A 30-region monthly
-    /// file with formatting is well under 100 KB; 2 MiB is generous.
-    const MAX_PROFILE_FILE_BYTES: u64 = 2 * 1024 * 1024;
-
-    /// Maximum plausible grid intensity (gCO2/kWh). No national grid
-    /// exceeds ~950 (South Africa, Mongolia). Values above 1000 likely
-    /// indicate a unit confusion (mg vs g, or kgCO2 vs gCO2).
-    const MAX_PLAUSIBLE_INTENSITY: f64 = 1000.0;
-
-    /// Maximum number of custom profile entries (same cap as `MAX_REGIONS`).
-    const MAX_CUSTOM_PROFILES: usize = 256;
-
-    let metadata =
-        std::fs::metadata(path).map_err(|e| format!("failed to stat '{}': {e}", path.display()))?;
-    if metadata.len() > MAX_PROFILE_FILE_BYTES {
-        return Err(format!(
-            "'{}' is {} bytes, exceeding the {} byte limit",
-            path.display(),
-            metadata.len(),
-            MAX_PROFILE_FILE_BYTES
-        ));
-    }
-
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| format!("failed to read '{}': {e}", path.display()))?;
-
+    let content = read_custom_profiles_file(path)?;
     let raw: serde_json::Value = serde_json::from_str(&content)
         .map_err(|e| format!("invalid JSON in '{}': {e}", path.display()))?;
-
     let profiles_obj = raw
         .get("profiles")
         .and_then(|v| v.as_object())
         .ok_or_else(|| format!("'{}' missing 'profiles' object", path.display()))?;
-
     if profiles_obj.len() > MAX_CUSTOM_PROFILES {
         return Err(format!(
             "'{}' contains {} profiles, exceeding the {} limit",
@@ -633,116 +617,146 @@ pub fn load_custom_profiles(
                     .to_string(),
             );
         }
-
-        let profile_type = value
-            .get("type")
-            .and_then(|t| t.as_str())
-            .ok_or_else(|| format!("region '{region}': missing 'type' field"))?;
-
-        let profile = match profile_type {
-            "flat_year" => {
-                let hours = value
-                    .get("hours")
-                    .and_then(|h| h.as_array())
-                    .ok_or_else(|| format!("region '{region}': missing 'hours' array"))?;
-                if hours.len() != 24 {
-                    return Err(format!(
-                        "region '{region}': flat_year profile must have exactly 24 values, got {}",
-                        hours.len()
-                    ));
-                }
-                let mut arr = [0.0_f64; 24];
-                for (i, v) in hours.iter().enumerate() {
-                    let val = v
-                        .as_f64()
-                        .ok_or_else(|| format!("region '{region}' hour {i}: expected a number"))?;
-                    if !val.is_finite() || val < 0.0 {
-                        return Err(format!(
-                            "region '{region}' hour {i}: value must be finite and non-negative, got {val}"
-                        ));
-                    }
-                    arr[i] = val;
-                }
-                HourlyProfile::FlatYear(arr)
-            }
-            "monthly" => {
-                let months = value
-                    .get("months")
-                    .and_then(|m| m.as_array())
-                    .ok_or_else(|| format!("region '{region}': missing 'months' array"))?;
-                if months.len() != 12 {
-                    return Err(format!(
-                        "region '{region}': monthly profile must have exactly 12 months, got {}",
-                        months.len()
-                    ));
-                }
-                let mut arr = [[0.0_f64; 24]; 12];
-                for (m, month_val) in months.iter().enumerate() {
-                    let month_arr = month_val
-                        .as_array()
-                        .ok_or_else(|| format!("region '{region}' month {m}: expected an array"))?;
-                    if month_arr.len() != 24 {
-                        return Err(format!(
-                            "region '{region}' month {m}: must have exactly 24 values, got {}",
-                            month_arr.len()
-                        ));
-                    }
-                    for (h, v) in month_arr.iter().enumerate() {
-                        let val = v.as_f64().ok_or_else(|| {
-                            format!("region '{region}' month {m} hour {h}: expected a number")
-                        })?;
-                        if !val.is_finite() || val < 0.0 {
-                            return Err(format!(
-                                "region '{region}' month {m} hour {h}: value must be finite and non-negative, got {val}"
-                            ));
-                        }
-                        arr[m][h] = val;
-                    }
-                }
-                HourlyProfile::Monthly(Box::new(arr))
-            }
-            _ => {
-                return Err(format!(
-                    "region '{region}': unknown profile type (expected 'flat_year' or 'monthly')"
-                ));
-            }
-        };
-
-        // Warn if mean diverges >5% from embedded annual (but do not reject).
-        if let Some(&(annual, _)) = REGION_MAP.get(region_lower.as_str())
-            && annual > 0.0
-        {
-            let mean = profile.mean();
-            let deviation = (mean - annual).abs() / annual;
-            if deviation > 0.05 {
-                tracing::warn!(
-                    region = %region_lower,
-                    profile_mean = mean,
-                    annual_value = annual,
-                    deviation_pct = deviation * 100.0,
-                    "Custom hourly profile mean deviates from embedded annual value. \
-                     The profile will be used as-is.",
-                );
-            }
-        }
-
-        // Sanity-check: warn for implausibly high intensity values
-        // even for out-of-table regions. The highest real-world grid
-        // intensity is ~900 gCO2/kWh (coal-heavy grids); 2000 is very
-        // generous as an upper bound.
-        let mean = profile.mean();
-        if mean > MAX_PLAUSIBLE_INTENSITY {
-            tracing::warn!(
-                region = %region_lower,
-                profile_mean = mean,
-                "Custom hourly profile has an unusually high mean intensity. \
-                 Verify the values are in gCO2/kWh, not mg or another unit.",
-            );
-        }
-
+        let profile = parse_single_custom_profile(region, value)?;
+        warn_on_profile_anomalies(&region_lower, &profile);
         result.insert(region_lower, profile);
     }
     Ok(result)
+}
+
+/// Stat-then-read the file, enforcing [`MAX_PROFILE_FILE_BYTES`] before
+/// loading any bytes into memory.
+fn read_custom_profiles_file(path: &std::path::Path) -> Result<String, String> {
+    let metadata =
+        std::fs::metadata(path).map_err(|e| format!("failed to stat '{}': {e}", path.display()))?;
+    if metadata.len() > MAX_PROFILE_FILE_BYTES {
+        return Err(format!(
+            "'{}' is {} bytes, exceeding the {} byte limit",
+            path.display(),
+            metadata.len(),
+            MAX_PROFILE_FILE_BYTES
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {e}", path.display()))
+}
+
+/// Dispatch a single `(region, value)` JSON entry to the flat-year or
+/// monthly parser based on the `"type"` field.
+fn parse_single_custom_profile(
+    region: &str,
+    value: &serde_json::Value,
+) -> Result<HourlyProfile, String> {
+    let profile_type = value
+        .get("type")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| format!("region '{region}': missing 'type' field"))?;
+    match profile_type {
+        "flat_year" => parse_flat_year_profile(region, value),
+        "monthly" => parse_monthly_profile(region, value),
+        _ => Err(format!(
+            "region '{region}': unknown profile type (expected 'flat_year' or 'monthly')"
+        )),
+    }
+}
+
+/// Parse the `hours` array of a `flat_year` profile into a `[f64; 24]`.
+fn parse_flat_year_profile(
+    region: &str,
+    value: &serde_json::Value,
+) -> Result<HourlyProfile, String> {
+    let hours = value
+        .get("hours")
+        .and_then(|h| h.as_array())
+        .ok_or_else(|| format!("region '{region}': missing 'hours' array"))?;
+    if hours.len() != 24 {
+        return Err(format!(
+            "region '{region}': flat_year profile must have exactly 24 values, got {}",
+            hours.len()
+        ));
+    }
+    let mut arr = [0.0_f64; 24];
+    for (i, v) in hours.iter().enumerate() {
+        arr[i] = parse_profile_f64(v, &format!("region '{region}' hour {i}"))?;
+    }
+    Ok(HourlyProfile::FlatYear(arr))
+}
+
+/// Parse the `months` nested array of a `monthly` profile into a
+/// `[[f64; 24]; 12]`. Validates both dimensions strictly.
+fn parse_monthly_profile(region: &str, value: &serde_json::Value) -> Result<HourlyProfile, String> {
+    let months = value
+        .get("months")
+        .and_then(|m| m.as_array())
+        .ok_or_else(|| format!("region '{region}': missing 'months' array"))?;
+    if months.len() != 12 {
+        return Err(format!(
+            "region '{region}': monthly profile must have exactly 12 months, got {}",
+            months.len()
+        ));
+    }
+    let mut arr = [[0.0_f64; 24]; 12];
+    for (m, month_val) in months.iter().enumerate() {
+        let month_arr = month_val
+            .as_array()
+            .ok_or_else(|| format!("region '{region}' month {m}: expected an array"))?;
+        if month_arr.len() != 24 {
+            return Err(format!(
+                "region '{region}' month {m}: must have exactly 24 values, got {}",
+                month_arr.len()
+            ));
+        }
+        for (h, v) in month_arr.iter().enumerate() {
+            arr[m][h] = parse_profile_f64(v, &format!("region '{region}' month {m} hour {h}"))?;
+        }
+    }
+    Ok(HourlyProfile::Monthly(Box::new(arr)))
+}
+
+/// Convert a [`serde_json::Value`] to a finite non-negative `f64` or
+/// return an error prefixed with `context`. Errors are built eagerly
+/// because this is a one-shot config load, not a hot path.
+fn parse_profile_f64(v: &serde_json::Value, context: &str) -> Result<f64, String> {
+    let val = v
+        .as_f64()
+        .ok_or_else(|| format!("{context}: expected a number"))?;
+    if !val.is_finite() || val < 0.0 {
+        return Err(format!(
+            "{context}: value must be finite and non-negative, got {val}"
+        ));
+    }
+    Ok(val)
+}
+
+/// Emit soft warnings on a freshly parsed custom profile:
+/// - Mean divergence > 5% vs the embedded annual value for a known region
+/// - Mean above [`MAX_PLAUSIBLE_INTENSITY`] (likely unit confusion)
+///
+/// Never fails: these are hints to the operator, not validation errors.
+fn warn_on_profile_anomalies(region_lower: &str, profile: &HourlyProfile) {
+    let mean = profile.mean();
+    if let Some(&(annual, _)) = REGION_MAP.get(region_lower)
+        && annual > 0.0
+    {
+        let deviation = (mean - annual).abs() / annual;
+        if deviation > 0.05 {
+            tracing::warn!(
+                region = %region_lower,
+                profile_mean = mean,
+                annual_value = annual,
+                deviation_pct = deviation * 100.0,
+                "Custom hourly profile mean deviates from embedded annual value. \
+                 The profile will be used as-is.",
+            );
+        }
+    }
+    if mean > MAX_PLAUSIBLE_INTENSITY {
+        tracing::warn!(
+            region = %region_lower,
+            profile_mean = mean,
+            "Custom hourly profile has an unusually high mean intensity. \
+             Verify the values are in gCO2/kWh, not mg or another unit.",
+        );
+    }
 }
 
 /// Look up `(intensity, pue)` for a region (case-insensitive).

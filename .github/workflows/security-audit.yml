@@ -28,3 +28,10 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1.2.7
         name: Audit Rust Dependencies
+        with:
+          # Advisories that are documented as non-applicable to this
+          # workspace live in `audit.toml` at the repo root. We also
+          # echo the list here so the workflow stays self-describing
+          # even if `audit.toml` is moved or refactored. See
+          # `audit.toml` for the full exposure analysis.
+          ignore: RUSTSEC-2026-0097

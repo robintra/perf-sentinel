@@ -236,8 +236,8 @@ Le crate `prometheus` 0.14.0 ne supporte pas nativement les exemplars OpenMetric
 **Suivi des trace_id worst-case :**
 
 `MetricsState` stocke les données d'exemplars dans des champs protégés par `RwLock` :
-- `worst_finding_trace: HashMap<(String, String), ExemplarData>` -- indexé par (finding_type, severity), mis à jour à chaque appel `record_batch()`
-- `worst_waste_trace: Option<ExemplarData>` -- le trace_id du finding avec le plus d'I/O évitables
+- `worst_finding_trace: HashMap<(String, String), ExemplarData>` : indexé par (finding_type, severity), mis à jour à chaque appel `record_batch()`
+- `worst_waste_trace: Option<ExemplarData>` : le trace_id du finding avec le plus d'I/O évitables
 
 `RwLock` est utilisé plutôt que `Mutex` car `render()` (chemin de lecture) est appelé fréquemment par les scrapes Prometheus, alors que `record_batch()` (chemin d'écriture) est appelé moins souvent. L'empoisonnement de lock est géré gracieusement via `unwrap_or_else(PoisonError::into_inner)`, de sorte qu'un panic dans un thread ne cascade pas en crashs sur les acquisitions de lock suivantes.
 
@@ -249,13 +249,13 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 
 ## Ingestion pg_stat_statements
 
-`ingest/pg_stat.rs` fournit un chemin d'analyse autonome pour les exports `pg_stat_statements` de PostgreSQL. Contrairement à l'ingestion basée sur les traces, ces données n'ont pas de `trace_id` ni de `span_id` -- elles ne peuvent pas alimenter le pipeline de détection N+1/redondant. Elles fournissent un classement de hotspots et une référence croisée avec les findings de traces.
+`ingest/pg_stat.rs` fournit un chemin d'analyse autonome pour les exports `pg_stat_statements` de PostgreSQL. Contrairement à l'ingestion basée sur les traces, ces données n'ont pas de `trace_id` ni de `span_id`, elles ne peuvent pas alimenter le pipeline de détection N+1/redondant. Elles fournissent un classement de hotspots et une référence croisée avec les findings de traces.
 
 ### Décisions de conception
 
 **Séparé de `IngestSource` :** le trait `IngestSource` retourne `Vec<SpanEvent>`, mais les données `pg_stat_statements` ne correspondent pas à `SpanEvent` (pas de trace_id, span_id, ni timestamp). Elles produisent leur propre type `PgStatReport` avec des classements.
 
-**Auto-détection du format :** suit le même pattern d'heuristique byte-level que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON ; sinon, parse en CSV. Pas de crate csv externe -- le parseur CSV gère le quoting RFC 4180 manuellement (champs entre guillemets doubles, `""` échappé).
+**Auto-détection du format :** suit le même pattern d'heuristique byte-level que `json.rs`. Si le premier octet non-espace est `[` ou `{`, parse en JSON ; sinon, parse en CSV. Pas de crate csv externe, le parseur CSV gère le quoting RFC 4180 manuellement (champs entre guillemets doubles, `""` échappé).
 
 **Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces.
 

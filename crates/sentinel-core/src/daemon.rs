@@ -1337,7 +1337,7 @@ mod tests {
         };
 
         let daemon_handle = tokio::spawn(async move {
-            let _ = super::run(config).await;
+            let _ = run(config).await;
         });
 
         // Poll for the Unix socket to appear (with retries) instead of
@@ -1431,7 +1431,7 @@ mod tests {
             ..Config::default()
         };
         // Bogus port paths still reach .parse(), which fails.
-        let err = super::run(config).await.expect_err("should fail");
+        let err = run(config).await.expect_err("should fail");
         assert!(matches!(err, DaemonError::InvalidAddr(_)));
     }
 

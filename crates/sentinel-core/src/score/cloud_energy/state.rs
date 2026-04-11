@@ -1,6 +1,6 @@
 //! Shared cloud energy state and snapshot access.
 //!
-//! Thin wrapper around [`crate::score::energy_state::AgedEnergyMap`];
+//! Thin wrapper around [`AgedEnergyMap`];
 //! the same shared storage used by
 //! [`crate::score::scaphandre::ScaphandreState`]. Kept as a distinct
 //! nominal type so the daemon's `build_tick_ctx` cannot accidentally

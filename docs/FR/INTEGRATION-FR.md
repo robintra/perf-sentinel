@@ -15,7 +15,7 @@ perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur le port 4317, 
 
 ## Démarrage rapide : CI batch
 
-**Cas d'usage :** exécuter perf-sentinel dans votre pipeline CI pour détecter les requêtes N+1 avant la production. Pas de daemon, pas de Docker -- un binaire qui lit un fichier de traces et retourne le code 1 si le quality gate échoue.
+**Cas d'usage :** exécuter perf-sentinel dans votre pipeline CI pour détecter les requêtes N+1 avant la production. Pas de daemon, pas de Docker, un binaire qui lit un fichier de traces et retourne le code 1 si le quality gate échoue.
 
 ### Étape 1 : Installation
 
@@ -51,7 +51,7 @@ default_region = "eu-west-3"       # optionnel : active les estimations gCO2eq
 
 ### Étape 3 : Collecter les traces
 
-Exportez les traces depuis vos tests d'intégration. Si vos tests tournent avec l'instrumentation OTel, sauvegardez la sortie dans un fichier JSON. Vous pouvez aussi exporter depuis l'UI Jaeger ou Zipkin -- perf-sentinel détecte automatiquement le format.
+Exportez les traces depuis vos tests d'intégration. Si vos tests tournent avec l'instrumentation OTel, sauvegardez la sortie dans un fichier JSON. Vous pouvez aussi exporter depuis l'UI Jaeger ou Zipkin, perf-sentinel détecte automatiquement le format.
 
 ### Étape 4 : Analyser
 
@@ -93,7 +93,7 @@ perf-sentinel analyze --input traces.json --format sarif > results.sarif
 
 ## Démarrage rapide : collector central
 
-**Cas d'usage :** déploiement production où les services envoient déjà des traces à un OpenTelemetry Collector (ou vous souhaitez en ajouter un). Zéro modification de code -- uniquement de la configuration YAML.
+**Cas d'usage :** déploiement production où les services envoient déjà des traces à un OpenTelemetry Collector (ou vous souhaitez en ajouter un). Zéro modification de code, uniquement de la configuration YAML.
 
 ### Étape 1 : Démarrer perf-sentinel + collector
 
@@ -156,10 +156,10 @@ scrape_configs:
 ```
 
 Métriques clés :
-- `perf_sentinel_findings_total{type, severity}` -- findings avec exemplar `trace_id` pour le clic direct
-- `perf_sentinel_io_waste_ratio` -- ratio de gaspillage I/O avec exemplar `trace_id`
-- `perf_sentinel_events_processed_total` -- total de spans ingérés
-- `perf_sentinel_traces_analyzed_total` -- total de traces complétées
+- `perf_sentinel_findings_total{type, severity}` : findings avec exemplar `trace_id` pour le clic direct
+- `perf_sentinel_io_waste_ratio` : ratio de gaspillage I/O avec exemplar `trace_id`
+- `perf_sentinel_events_processed_total` : total de spans ingérés
+- `perf_sentinel_traces_analyzed_total` : total de traces complétées
 
 Voir [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
 
@@ -177,7 +177,7 @@ docker compose -f examples/docker-compose-sidecar.yml up -d
 
 ### Étape 2 : Configurer votre app
 
-Votre app envoie les traces à `localhost:4318` (HTTP) -- pas de saut réseau puisque perf-sentinel partage le même namespace réseau :
+Votre app envoie les traces à `localhost:4318` (HTTP), pas de saut réseau puisque perf-sentinel partage le même namespace réseau :
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
@@ -419,7 +419,7 @@ Déployez perf-sentinel comme Deployment AKS ou Azure Container Instance.
 
 ### Auto-hébergé (Jaeger, Tempo, Zipkin)
 
-Si vous utilisez un backend de traces auto-hébergé, l'approche OTel Collector fonctionne de manière identique. Ajoutez perf-sentinel comme exporteur OTLP supplémentaire à côté de votre exporteur backend existant. Alternativement, utilisez le mode batch de perf-sentinel avec des fichiers de traces exportés depuis l'UI Jaeger (`--input jaeger-export.json`) ou Zipkin (`--input zipkin-traces.json`) -- les formats sont auto-détectés.
+Si vous utilisez un backend de traces auto-hébergé, l'approche OTel Collector fonctionne de manière identique. Ajoutez perf-sentinel comme exporteur OTLP supplémentaire à côté de votre exporteur backend existant. Alternativement, utilisez le mode batch de perf-sentinel avec des fichiers de traces exportés depuis l'UI Jaeger (`--input jaeger-export.json`) ou Zipkin (`--input zipkin-traces.json`), les formats sont auto-détectés.
 
 ---
 

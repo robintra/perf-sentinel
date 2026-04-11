@@ -164,17 +164,29 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
         return Err("only UTC timestamps (ending with 'Z') are supported".to_string());
     }
     let without_z = &s[..s.len() - 1];
+    let (date_part, time_part) = split_date_time(without_z)?;
+    let (year, month, day) = parse_date_ymd(date_part)?;
+    let (hours, minutes, seconds, millis) = parse_time_hms(time_part)?;
+    let days = civil_date_to_days(year, month, day);
+    Ok(days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
+}
 
-    // Split on 'T' or space.
-    let (date_part, time_part) = if let Some(pos) = without_z.find('T') {
-        (&without_z[..pos], &without_z[pos + 1..])
+/// Split the pre-`Z`-stripped timestamp into its date and time halves.
+/// Accepts both `T` and space as the separator. Private helper for
+/// [`parse_iso8601_utc_to_ms`].
+fn split_date_time(without_z: &str) -> Result<(&str, &str), String> {
+    if let Some(pos) = without_z.find('T') {
+        Ok((&without_z[..pos], &without_z[pos + 1..]))
     } else if let Some(pos) = without_z.find(' ') {
-        (&without_z[..pos], &without_z[pos + 1..])
+        Ok((&without_z[..pos], &without_z[pos + 1..]))
     } else {
-        return Err("expected 'T' or space between date and time".to_string());
-    };
+        Err("expected 'T' or space between date and time".to_string())
+    }
+}
 
-    // Parse date: YYYY-MM-DD.
+/// Parse the `YYYY-MM-DD` half into its numeric components. Rejects
+/// years before 1970 and out-of-range month/day values.
+fn parse_date_ymd(date_part: &str) -> Result<(u64, u64, u64), String> {
     let date_parts: Vec<&str> = date_part.split('-').collect();
     if date_parts.len() != 3 {
         return Err("expected date format YYYY-MM-DD".to_string());
@@ -188,40 +200,19 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let day: u64 = date_parts[2]
         .parse()
         .map_err(|_| "invalid day".to_string())?;
-
     if year < 1970 {
         return Err("year must be >= 1970".to_string());
     }
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return Err("month or day out of range".to_string());
     }
+    Ok((year, month, day))
+}
 
-    // Parse time: HH:MM:SS[.fff].
-    let (time_no_frac, millis) = if let Some(dot_pos) = time_part.find('.') {
-        let frac = &time_part[dot_pos + 1..];
-        let ms: u64 = match frac.len() {
-            1 => {
-                frac.parse::<u64>()
-                    .map_err(|_| "invalid fractional seconds")?
-                    * 100
-            }
-            2 => {
-                frac.parse::<u64>()
-                    .map_err(|_| "invalid fractional seconds")?
-                    * 10
-            }
-            3 => frac
-                .parse::<u64>()
-                .map_err(|_| "invalid fractional seconds")?,
-            _ => frac[..3]
-                .parse::<u64>()
-                .map_err(|_| "invalid fractional seconds")?,
-        };
-        (&time_part[..dot_pos], ms)
-    } else {
-        (time_part, 0u64)
-    };
-
+/// Parse the `HH:MM:SS[.fff]` half into its numeric components. Fractional
+/// seconds shorter than 3 digits are left-padded; longer ones are truncated.
+fn parse_time_hms(time_part: &str) -> Result<(u64, u64, u64, u64), String> {
+    let (time_no_frac, millis) = parse_fractional_seconds(time_part)?;
     let time_parts: Vec<&str> = time_no_frac.split(':').collect();
     if time_parts.len() != 3 {
         return Err("expected time format HH:MM:SS".to_string());
@@ -235,15 +226,35 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let seconds: u64 = time_parts[2]
         .parse()
         .map_err(|_| "invalid seconds".to_string())?;
-
     if hours >= 24 || minutes >= 60 || seconds >= 60 {
         return Err("time values out of range".to_string());
     }
+    Ok((hours, minutes, seconds, millis))
+}
 
-    // Howard Hinnant's `days_from_civil` (inverse of the algorithm used
-    // in nanos_to_iso8601). Shifts the year so March is month 0, then
-    // computes era/yoe/doy/doe. See
-    // https://howardhinnant.github.io/date_algorithms.html.
+/// Split `HH:MM:SS[.fff]` at the decimal point and return the seconds
+/// part along with the normalized millisecond value.
+fn parse_fractional_seconds(time_part: &str) -> Result<(&str, u64), String> {
+    let Some(dot_pos) = time_part.find('.') else {
+        return Ok((time_part, 0u64));
+    };
+    let frac = &time_part[dot_pos + 1..];
+    // 1-digit → tenths, 2-digit → hundredths, 3-digit → ms, >3 → truncate.
+    let digits = frac.len().min(3);
+    let ms: u64 = frac[..digits]
+        .parse::<u64>()
+        .map_err(|_| "invalid fractional seconds".to_string())?;
+    let normalized = ms * 10u64.pow(3 - digits as u32);
+    Ok((&time_part[..dot_pos], normalized))
+}
+
+/// Howard Hinnant's `days_from_civil` (inverse of the epoch-to-ISO path
+/// in [`nanos_to_iso8601`]). Shifts the year so March is month 0, then
+/// computes era / yoe / doy / doe. See
+/// <https://howardhinnant.github.io/date_algorithms.html>.
+///
+/// Assumes `parse_date_ymd` has already validated ranges.
+fn civil_date_to_days(year: u64, month: u64, day: u64) -> u64 {
     let (y, m) = if month <= 2 {
         (year - 1, month + 9)
     } else {
@@ -253,11 +264,7 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let yoe = y - era * 400;
     let doy = (153 * m + 2) / 5 + day - 1;
     let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-
-    let total_ms =
-        days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
-    Ok(total_ms)
+    era * 146_097 + doe - 719_468
 }
 
 #[cfg(test)]

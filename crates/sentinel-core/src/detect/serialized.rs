@@ -130,30 +130,44 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
     if n == 0 {
         return vec![];
     }
+    let pred = compute_predecessors(timed);
+    let (dp, included) = fill_dp_table(&pred, n);
+    backtrack_selection(&included, &pred, dp[n - 1], n)
+}
 
-    // p[i] = index of the rightmost span j (j < i) whose end <= timed[i].start,
-    //         or None if no such span exists.
-    // The `j < i` constraint is critical: without it, a span could be its own
-    // predecessor (e.g., zero-duration spans), causing an infinite backtrack loop.
-    // Binary search runs directly on the sorted `timed` slice (no separate vec).
-    let pred: Vec<Option<usize>> = (0..n)
+/// Build the predecessor array for Weighted Interval Scheduling DP.
+///
+/// `p[i]` is the index of the rightmost span `j` (`j < i`) whose end
+/// is `<= timed[i].start`, or `None` if no such span exists. The
+/// `j < i` constraint is critical: without it, a span could be its
+/// own predecessor (e.g., zero-duration spans with identical
+/// timestamps), causing an infinite backtrack loop.
+///
+/// Binary search runs directly on the sorted `timed` slice, so this
+/// is O(n log n) total (n binary searches).
+fn compute_predecessors(timed: &[TimedSpan<'_>]) -> Vec<Option<usize>> {
+    (0..timed.len())
         .map(|i| {
             let start = timed[i].start_ms;
             // partition_point returns the first index where end > start,
             // so the predecessor candidate is at partition_point - 1.
             let pos = timed.partition_point(|s| s.end_ms <= start);
             if pos == 0 {
-                None
-            } else {
-                let p = pos - 1;
-                // Ensure predecessor is strictly before current span.
-                if p < i { Some(p) } else { None }
+                return None;
             }
+            let p = pos - 1;
+            // Ensure predecessor is strictly before current span.
+            if p < i { Some(p) } else { None }
         })
-        .collect();
+        .collect()
+}
 
-    // dp[i] = length of longest non-overlapping subsequence in timed[0..=i].
-    // included[i] = whether span i is part of the optimal solution at position i.
+/// Fill the O(n) Weighted Interval Scheduling DP table.
+///
+/// `dp[i]` = length of the longest non-overlapping subsequence in
+/// `timed[0..=i]`. `included[i]` = whether span `i` is part of the
+/// optimal solution at position `i`. Precondition: `n >= 1`.
+fn fill_dp_table(pred: &[Option<usize>], n: usize) -> (Vec<usize>, Vec<bool>) {
     let mut dp = vec![0usize; n];
     let mut included = vec![false; n];
 
@@ -164,14 +178,12 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
     for i in 1..n {
         // Option A: skip span i, keep previous best.
         let without = dp[i - 1];
-
         // Option B: include span i. Best compatible prefix is dp[p(i)],
         // or 0 if no predecessor exists.
         let with = match pred[i] {
             Some(p) => dp[p] + 1,
             None => 1,
         };
-
         if with >= without {
             dp[i] = with;
             included[i] = true;
@@ -180,14 +192,25 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
             // included[i] remains false
         }
     }
+    (dp, included)
+}
 
-    // Backtrack to reconstruct the selected indices.
-    // Safety: the predecessor index `p` must always be strictly less than
-    // the current index `i` (since spans are sorted by end time and `p(i)`
-    // is the rightmost span ending before `i` starts). We enforce this with
-    // an explicit guard to guarantee termination even on degenerate input
-    // (e.g., zero-duration spans with identical timestamps).
-    let mut selected = Vec::with_capacity(dp[n - 1]);
+/// Walk the `included` + `pred` arrays backwards from the last span
+/// to reconstruct the chosen subsequence, then reverse it to get
+/// chronological order.
+///
+/// Safety: the predecessor index `p` must always be strictly less
+/// than the current index `i` (sorted by end time, `p(i)` is the
+/// rightmost span ending before `i` starts). The explicit guard
+/// `p < i` in the match arm guarantees termination even on
+/// degenerate input.
+fn backtrack_selection(
+    included: &[bool],
+    pred: &[Option<usize>],
+    optimal_len: usize,
+    n: usize,
+) -> Vec<usize> {
+    let mut selected = Vec::with_capacity(optimal_len);
     let mut i = n - 1;
     loop {
         if included[i] {
@@ -202,7 +225,6 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
             i -= 1;
         }
     }
-
     selected.reverse(); // chronological order
     selected
 }

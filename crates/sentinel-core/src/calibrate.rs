@@ -102,69 +102,8 @@ fn parse_timestamp_ms(s: &str) -> Result<u64, String> {
 /// malformed rows.
 pub fn parse_energy_csv(content: &str) -> Result<Vec<EnergyReading>, CalibrationError> {
     let mut lines = content.lines().enumerate();
-
-    // Find header line (skip comments and blank lines)
-    let format = loop {
-        let (line_num, line) = lines.next().ok_or(CalibrationError::EmptyData)?;
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let lower = line.to_ascii_lowercase();
-        if lower.contains("power_watts") {
-            break CsvFormat::PowerWatts;
-        } else if lower.contains("energy_kwh") {
-            break CsvFormat::EnergyKwh;
-        }
-        return Err(CalibrationError::CsvParse {
-            line: line_num + 1,
-            reason: "header must contain 'power_watts' or 'energy_kwh'".to_string(),
-        });
-    };
-
-    // Parse data rows
-    let mut raw_rows: Vec<(u64, String, f64)> = Vec::new();
-
-    for (line_num, line) in lines {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let parts: Vec<&str> = line.splitn(3, ',').collect();
-        if parts.len() != 3 {
-            return Err(CalibrationError::CsvParse {
-                line: line_num + 1,
-                reason: "expected 3 comma-separated columns".to_string(),
-            });
-        }
-        let ts = parse_timestamp_ms(parts[0].trim()).map_err(|reason| {
-            CalibrationError::TimestampParse {
-                line: line_num + 1,
-                value: parts[0].trim().to_string(),
-                reason,
-            }
-        })?;
-        let service = parts[1].trim().to_string();
-        let value: f64 = parts[2]
-            .trim()
-            .parse()
-            .map_err(|_| CalibrationError::CsvParse {
-                line: line_num + 1,
-                reason: format!("invalid numeric value '{}'", parts[2].trim()),
-            })?;
-        if !value.is_finite() || value < 0.0 {
-            return Err(CalibrationError::CsvParse {
-                line: line_num + 1,
-                reason: format!("invalid value: {value} (must be finite and non-negative)"),
-            });
-        }
-        raw_rows.push((ts, service, value));
-    }
-
-    if raw_rows.is_empty() {
-        return Err(CalibrationError::EmptyData);
-    }
-
+    let format = detect_csv_format(&mut lines)?;
+    let raw_rows = collect_csv_data_rows(lines)?;
     match format {
         CsvFormat::EnergyKwh => Ok(raw_rows
             .into_iter()
@@ -176,6 +115,87 @@ pub fn parse_energy_csv(content: &str) -> Result<Vec<EnergyReading>, Calibration
             .collect()),
         CsvFormat::PowerWatts => convert_power_to_energy(raw_rows),
     }
+}
+
+/// Advance `lines` until a non-comment, non-blank header row is found
+/// and return the detected [`CsvFormat`]. Leaves the iterator positioned
+/// just after the header so [`collect_csv_data_rows`] can resume.
+fn detect_csv_format(
+    lines: &mut std::iter::Enumerate<std::str::Lines<'_>>,
+) -> Result<CsvFormat, CalibrationError> {
+    loop {
+        let (line_num, line) = lines.next().ok_or(CalibrationError::EmptyData)?;
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let lower = line.to_ascii_lowercase();
+        if lower.contains("power_watts") {
+            return Ok(CsvFormat::PowerWatts);
+        }
+        if lower.contains("energy_kwh") {
+            return Ok(CsvFormat::EnergyKwh);
+        }
+        return Err(CalibrationError::CsvParse {
+            line: line_num + 1,
+            reason: "header must contain 'power_watts' or 'energy_kwh'".to_string(),
+        });
+    }
+}
+
+/// Consume the remaining `lines` and parse each non-comment row into
+/// a `(timestamp_ms, service, value)` tuple. Returns [`CalibrationError::EmptyData`]
+/// if no data rows were found.
+fn collect_csv_data_rows(
+    lines: std::iter::Enumerate<std::str::Lines<'_>>,
+) -> Result<Vec<(u64, String, f64)>, CalibrationError> {
+    let mut raw_rows: Vec<(u64, String, f64)> = Vec::new();
+    for (line_num, line) in lines {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        raw_rows.push(parse_csv_data_row(line_num, line)?);
+    }
+    if raw_rows.is_empty() {
+        return Err(CalibrationError::EmptyData);
+    }
+    Ok(raw_rows)
+}
+
+/// Parse a single non-comment data row: `timestamp,service,value`.
+/// Validates the 3-column shape, the timestamp, and the numeric value
+/// (must be finite and non-negative). `line_num` is 0-indexed on
+/// entry; all emitted errors use 1-indexed line numbers.
+fn parse_csv_data_row(line_num: usize, line: &str) -> Result<(u64, String, f64), CalibrationError> {
+    let parts: Vec<&str> = line.splitn(3, ',').collect();
+    if parts.len() != 3 {
+        return Err(CalibrationError::CsvParse {
+            line: line_num + 1,
+            reason: "expected 3 comma-separated columns".to_string(),
+        });
+    }
+    let ts =
+        parse_timestamp_ms(parts[0].trim()).map_err(|reason| CalibrationError::TimestampParse {
+            line: line_num + 1,
+            value: parts[0].trim().to_string(),
+            reason,
+        })?;
+    let service = parts[1].trim().to_string();
+    let value: f64 = parts[2]
+        .trim()
+        .parse()
+        .map_err(|_| CalibrationError::CsvParse {
+            line: line_num + 1,
+            reason: format!("invalid numeric value '{}'", parts[2].trim()),
+        })?;
+    if !value.is_finite() || value < 0.0 {
+        return Err(CalibrationError::CsvParse {
+            line: line_num + 1,
+            reason: format!("invalid value: {value} (must be finite and non-negative)"),
+        });
+    }
+    Ok((ts, service, value))
 }
 
 /// Convert power (watts) readings to energy (kWh) by computing intervals

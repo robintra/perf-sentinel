@@ -1,0 +1,63 @@
+# cargo-audit configuration for perf-sentinel.
+#
+# Read by `cargo audit` (CLI) and by the `actions-rust-lang/audit`
+# GitHub Action via its default-config discovery. See
+# https://docs.rs/cargo-audit/latest/cargo_audit/#configuration
+
+[advisories]
+
+# Advisory IDs to ignore with a short explanation of why. The ignore is
+# a workspace-scoped escape hatch for advisories whose affected version
+# is pulled into `Cargo.lock` transitively by a crate we do not actually
+# compile. cargo-audit has no visibility into feature activation, so it
+# flags every `[[package]]` entry in the lockfile regardless of whether
+# the code ships in our binary. When the root cause is uncompiled code,
+# the only remediation is documenting the exposure analysis here.
+ignore = [
+    # RUSTSEC-2026-0097 — `rand` unsound with a custom logger using
+    # `rand::rng()`.
+    #
+    # Affected range: `>=0.7.0, <0.9.3` and `0.10.0`.
+    # Patched range:  `>=0.9.3, <0.10.0` and `>=0.10.1`.
+    #
+    # perf-sentinel pulls two distinct `rand` versions transitively:
+    #
+    #   1. `rand 0.9.3` via opentelemetry-proto -> opentelemetry_sdk.
+    #      This version IS in the patched range and is NOT flagged by
+    #      the advisory. No action needed for this one — it was brought
+    #      in via `cargo update -p rand`.
+    #
+    #   2. `rand 0.8.5` via ratatui-termwiz -> termwiz -> terminfo ->
+    #      phf_codegen -> phf_generator. `ratatui-termwiz` is an OPTIONAL
+    #      backend of ratatui 0.30 that perf-sentinel never activates
+    #      (we use the `crossterm` backend via the default feature set).
+    #      The dependency lands in `Cargo.lock` because Cargo resolves
+    #      every declared optional dep even when the corresponding
+    #      feature is off, but the code is never compiled into the
+    #      binary — run `cargo tree --all-features -p perf-sentinel`
+    #      to confirm neither `ratatui-termwiz` nor `phf_generator`
+    #      appear in the active dependency graph.
+    #
+    # Even if `rand 0.8.5` WERE compiled, the advisory only triggers
+    # when ALL FIVE of these conditions hold simultaneously:
+    #   (a) the `log` and `thread_rng` features of `rand` are enabled,
+    #   (b) a custom logger has been defined,
+    #   (c) the custom logger calls `rand::rng()` and invokes `TryRng`
+    #       methods on the returned `ThreadRng`,
+    #   (d) `ThreadRng` attempts to reseed inside that logger call
+    #       (every 64 kB of generated data),
+    #   (e) trace-level logging is enabled, OR warn-level logging is
+    #       enabled while `getrandom` is unable to provide a seed.
+    #
+    # perf-sentinel defines no custom logger — the CLI initializes
+    # `tracing_subscriber::fmt()` with the default formatter, which
+    # does NOT call into `rand`. Conditions (b)(c) are therefore
+    # impossible to satisfy in our code path. Exposure is zero.
+    #
+    # Revisit this ignore when:
+    #   - a newer `ratatui` version drops `ratatui-termwiz` as an
+    #     optional dep, or
+    #   - the `phf` family upgrades to a newer `rand` backbone, or
+    #   - the rand maintainers backport the fix to a `0.8.x` release.
+    "RUSTSEC-2026-0097",
+]

@@ -265,380 +265,444 @@ struct RegionAccumulator {
     any_calibrated: bool,
 }
 
+/// Aggregated "which intensity sources / measured-energy backends did
+/// the report see?" flags, collected in [`build_region_breakdowns`]
+/// and consumed by [`select_co2_model_tag`].
+///
+/// The six booleans are independent observations that can freely
+/// combine (e.g. a single run can see both hourly and cloud `SPECpower`
+/// at the same time), so a state machine or enum would not model the
+/// domain faithfully. Kept as a flat flag bag with a targeted
+/// `struct_excessive_bools` allow.
+#[derive(Default, Clone, Copy)]
+#[allow(clippy::struct_excessive_bools)]
+struct ReportFlags {
+    any_hourly: bool,
+    any_monthly_hourly: bool,
+    any_scaphandre: bool,
+    any_cloud_specpower: bool,
+    any_calibrated: bool,
+    any_realtime: bool,
+}
+
+/// Mutable state threaded through the span-processing loop in
+/// [`compute_carbon_report`]. Broken out so the per-span and
+/// per-region helpers can take a single `&mut` argument instead of
+/// 5 separate ones.
+#[derive(Default)]
+struct CarbonRunState {
+    per_region: BTreeMap<String, RegionAccumulator>,
+    unknown_ops: usize,
+    overflow_warned: bool,
+    total_transport_gco2: f64,
+    multi_region_active: bool,
+}
+
+/// Per-span intensity lookup result: pre-cached profile references + the
+/// flat annual intensity + PUE fallback, all derived once to feed the
+/// hot-path intensity selection without repeat `HashMap` probes.
+///
+/// `custom_profile` is a borrow into the user-supplied profile map
+/// (lifetime tied to `ctx.custom_hourly_profiles`). `embedded_profile`
+/// is a `HourlyProfileRef<'static>` built from the `'static` table
+/// constants in [`carbon_profiles`]. The two types
+/// expose the same `intensity_at` / `is_monthly` API but are not
+/// interchangeable: hence the two fields.
+struct SpanRegionContext<'a> {
+    region_key: Option<String>,
+    region_ref: &'a str,
+    custom_profile: Option<&'a carbon_profiles::HourlyProfile>,
+    embedded_profile: Option<carbon_profiles::HourlyProfileRef<'static>>,
+    annual_intensity: f64,
+    pue: f64,
+}
+
 /// Compute carbon report, per-region breakdown, and multi-region flag.
 /// Single-pass over spans with interleaved hourly/measured/proxy paths.
 /// See `docs/design/05-GREENOPS-AND-CARBON.md` for the full algorithm.
-#[allow(clippy::too_many_lines)]
 fn compute_carbon_report(
     traces: &[Trace],
     ctx: &CarbonContext,
     total_io_ops: usize,
     avoidable_io_ops: usize,
 ) -> (Option<CarbonReport>, Vec<RegionBreakdown>, bool) {
-    // Multi-region flag seeded from config; updated
-    // from span attributes during the main loop below.
-    let mut multi_region_active = !ctx.service_regions.is_empty();
+    // Multi-region flag seeded from config; updated from span attributes
+    // during the main loop below.
+    let mut state = CarbonRunState {
+        multi_region_active: !ctx.service_regions.is_empty(),
+        ..Default::default()
+    };
 
     // Empty-traces early return. No events → nothing meaningful to report.
     // Still propagate the config-based multi_region_active so that an empty
     // batch with a configured service_regions map is consistent with a
     // non-empty batch from the same config.
     if traces.is_empty() {
-        return (None, Vec::new(), multi_region_active);
+        return (None, Vec::new(), state.multi_region_active);
     }
 
-    // Bucket I/O ops per resolved region. Region keys are lowercased so
-    // case variants (e.g. "EU-West-3" vs "eu-west-3") collapse into one bucket.
-    // BTreeMap gives deterministic iteration order → stable f64 sums across runs.
-    let mut per_region: BTreeMap<String, RegionAccumulator> = BTreeMap::new();
-    let mut unknown_ops: usize = 0;
-    let mut overflow_warned = false;
-    let mut total_transport_gco2: f64 = 0.0;
     for trace in traces {
         for span in &trace.spans {
-            // Detect multi-region by span attribute in the same pass.
-            if span.event.cloud_region.is_some() {
-                multi_region_active = true;
-            }
-            let Some(region_ref) = resolve_region(&span.event, ctx) else {
-                unknown_ops += 1;
-                continue;
-            };
-
-            // Defense-in-depth invariant. All regions reaching this
-            // loop should have been validated at the ingestion boundary
-            // (is_valid_region_id in ingest/otlp.rs and ingest/json.rs)
-            // or rejected at config load. Assert the invariant in debug
-            // builds so any future ingestion gap fails loudly in
-            // test/dev instead of silently reopening log-forging.
-            debug_assert!(
-                is_valid_region_id(region_ref),
-                "unvalidated region '{region_ref}' reached compute_carbon_report; \
-                 ingestion boundary should have sanitized it"
-            );
-
-            // Probe-before-allocate. We still need to
-            // allocate the lowercase key for the accumulator lookup
-            // because the accumulator is a BTreeMap<String, _>, but we
-            // can skip the allocation for the cap check by comparing
-            // against `needs_lowercase`.
-            let needs_lowercase = region_ref.bytes().any(|b| b.is_ascii_uppercase());
-            let region_key: Option<String> = if needs_lowercase {
-                Some(region_ref.to_ascii_lowercase())
-            } else {
-                None
-            };
-
-            // Region cardinality cap check.
-            let region_key_borrow: &str = region_key.as_deref().unwrap_or(region_ref);
-            if per_region.len() >= MAX_REGIONS && !per_region.contains_key(region_key_borrow) {
-                unknown_ops += 1;
-                if !overflow_warned {
-                    tracing::debug!(
-                        "Region cardinality cap ({MAX_REGIONS}) exceeded; \
-                         additional distinct regions folded into 'unknown'."
-                    );
-                    overflow_warned = true;
-                }
-                continue;
-            }
-
-            // Single-probe: look up the profile reference once and reuse
-            // it for both the "has profile?" check, the PUE fallback,
-            // and the intensity read, avoiding redundant HashMap probes
-            // on the hot path.
-            let custom_profile = ctx
-                .custom_hourly_profiles
-                .as_ref()
-                .and_then(|m| m.get(region_key_borrow));
-
-            // Look up annual intensity + PUE. Regions not in the table
-            // get (0.0, generic_pue) so their CO₂ from annual intensity
-            // is zero but they still produce a breakdown row. When a
-            // custom hourly profile or real-time intensity exists for an
-            // out-of-table region, a generic PUE (1.2) is used so the
-            // intensity is not zeroed by pue=0.
-            let has_realtime = ctx
-                .real_time_intensity
-                .as_ref()
-                .is_some_and(|rt| rt.contains_key(region_key_borrow));
-            let (annual_intensity, pue) =
-                lookup_region_lower(region_key_borrow).unwrap_or_else(|| {
-                    let fallback_pue = if custom_profile.is_some() || has_realtime {
-                        GENERIC_PUE
-                    } else {
-                        0.0
-                    };
-                    (0.0, fallback_pue)
-                });
-
-            // Hourly intensity lookup. Consulted when the region has an
-            // embedded or custom hourly profile and the span timestamp
-            // parses to a valid UTC hour. parse_utc_hour returns None
-            // for non-UTC offsets and non-ISO-8601 shapes, in which case
-            // we fall back to the flat annual intensity rather than
-            // silently using a default hour (which would skew the
-            // estimate systematically).
-            let embedded_profile = if custom_profile.is_none() {
-                hourly_profile_for_region_lower(region_key_borrow)
-            } else {
-                None
-            };
-            let region_has_hourly =
-                ctx.use_hourly_profiles && (custom_profile.is_some() || embedded_profile.is_some());
-            let (hour_opt, month_opt) = if region_has_hourly {
-                (
-                    crate::time::parse_utc_hour(&span.event.timestamp),
-                    crate::time::parse_utc_month(&span.event.timestamp),
-                )
-            } else {
-                (None, None)
-            };
-            // Real-time intensity from Electricity Maps takes highest precedence.
-            let real_time_val = ctx
-                .real_time_intensity
-                .as_ref()
-                .and_then(|rt| rt.get(region_key_borrow));
-
-            let (intensity_used, span_source) = if let Some(&rt_intensity) = real_time_val {
-                (rt_intensity, IntensitySource::RealTime)
-            } else {
-                match hour_opt {
-                    Some(h) => {
-                        // Use the cached profile reference directly instead
-                        // of re-probing the HashMap via resolve_hourly_intensity.
-                        // NOTE: this logic mirrors resolve_hourly_intensity() in
-                        // carbon.rs but uses pre-cached refs to avoid redundant
-                        // HashMap probes on the hot path.
-                        if let Some(cp) = custom_profile {
-                            let val = cp.intensity_at(h, month_opt);
-                            let src = if cp.is_monthly() {
-                                IntensitySource::MonthlyHourly
-                            } else {
-                                IntensitySource::Hourly
-                            };
-                            (val, src)
-                        } else if let Some(ep) = embedded_profile {
-                            let val = ep.intensity_at(h, month_opt);
-                            let src = if ep.is_monthly() {
-                                IntensitySource::MonthlyHourly
-                            } else {
-                                IntensitySource::Hourly
-                            };
-                            (val, src)
-                        } else {
-                            // Invariant: region_has_hourly implies custom or
-                            // embedded is Some. This branch is unreachable.
-                            debug_assert!(false, "region_has_hourly was true but no profile found");
-                            (annual_intensity, IntensitySource::Annual)
-                        }
-                    }
-                    None => (annual_intensity, IntensitySource::Annual),
-                }
-            };
-
-            // Energy (kWh) per op: measured from the energy snapshot
-            // (Scaphandre RAPL or cloud SPECpower) if the snapshot is
-            // configured and maps this service, else the proxy constant
-            // (optionally weighted by operation type, optionally calibrated).
-            let mut proxy_energy_kwh = if ctx.per_operation_coefficients {
-                ENERGY_PER_IO_OP_KWH * energy_coefficient(&span.event)
-            } else {
-                ENERGY_PER_IO_OP_KWH
-            };
-            // Apply calibration factor to the proxy model when configured.
-            let calibrated = if let Some(ref cal) = ctx.calibration {
-                if let Some(factor) = cal.factor_for(&span.event.service) {
-                    proxy_energy_kwh *= factor;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
-                Some(snapshot) => match snapshot.get(&span.event.service) {
-                    // Measured energy overrides proxy (calibrated or not).
-                    Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
-                    None => (proxy_energy_kwh, None),
-                },
-                None => (proxy_energy_kwh, None),
-            };
-
-            // Per-op CO₂ via the single-source helper.
-            let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
-
-            // Obtain or insert the accumulator. Three paths to minimize
-            // allocations on the hot per-span loop:
-            //   1. region_key is Some  -> already allocated the lowercase
-            //      key, use entry() which moves the owned String into the map.
-            //   2. region_key is None AND key exists -> single get_mut()
-            //      with a borrowed &str, zero allocation.
-            //   3. region_key is None AND key absent -> allocate once via
-            //      entry(region_ref.to_string()).
-            // This avoids allocating a String for every span when the region
-            // is already lowercase and present (the common case).
-            let acc = if let Some(lowered) = region_key {
-                per_region.entry(lowered).or_default()
-            } else if let Some(existing) = per_region.get_mut(region_ref) {
-                existing
-            } else {
-                per_region.entry(region_ref.to_string()).or_default()
-            };
-            acc.co2_gco2 += op_co2;
-            acc.total_ops += 1;
-            acc.intensity_sum_per_op += intensity_used;
-            if span_source > acc.max_intensity_source {
-                acc.max_intensity_source = span_source;
-            }
-            match measured_model {
-                Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
-                Some(CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
-                _ => {
-                    if calibrated {
-                        acc.any_calibrated = true;
-                    }
-                }
-            }
-
-            // Network transport energy: cross-region HTTP calls only.
-            // Reuse `region_ref` (already resolved above) as the caller region
-            // to avoid a redundant `resolve_region` call on the hot path.
-            if ctx.include_network_transport
-                && span.event.event_type == crate::event::EventType::HttpOut
-                && let Some(bytes) = span.event.response_size_bytes
-            {
-                // Probe-before-allocate: only lowercase the hostname when
-                // it contains uppercase bytes (same pattern as region keys).
-                let callee_region = extract_hostname(&span.event.target)
-                    .and_then(|host| {
-                        if host.bytes().any(|b| b.is_ascii_uppercase()) {
-                            ctx.service_regions.get(&host.to_ascii_lowercase())
-                        } else {
-                            ctx.service_regions.get(host)
-                        }
-                    })
-                    .map(String::as_str);
-
-                if let Some(callee) = callee_region
-                    && !region_ref.eq_ignore_ascii_case(callee)
-                {
-                    // `bytes` is the response body only (request body is not
-                    // available in standard OTel HTTP semantic conventions).
-                    // We use the caller's grid intensity and PUE as a proxy
-                    // for the network infrastructure's actual grid mix, which
-                    // is distributed and unknown. This is a known approximation
-                    // documented in LIMITATIONS.md.
-                    let transport_energy = bytes as f64 * ctx.network_energy_per_byte_kwh;
-                    let transport_co2 = transport_energy * intensity_used * pue;
-                    total_transport_gco2 += transport_co2;
-                }
-            }
+            process_span_for_carbon(&mut state, span, ctx);
         }
     }
 
-    // Build per-region breakdown rows. Regions whose name isn't in the
-    // embedded carbon table get a zeroed row + debug log (so users notice
-    // the misconfiguration without losing the I/O op count).
+    let (mut regions, flags, operational_gco2) =
+        build_region_breakdowns(state.per_region, state.unknown_ops);
+    let model = select_co2_model_tag(flags);
+    let report = finalize_carbon_report(
+        traces.len(),
+        operational_gco2,
+        state.total_transport_gco2,
+        total_io_ops,
+        avoidable_io_ops,
+        state.unknown_ops,
+        ctx.embodied_per_request_gco2,
+        model,
+    );
+    sort_regions_by_co2_desc(&mut regions);
+    (Some(report), regions, state.multi_region_active)
+}
+
+/// Single-span update for the main scoring loop. Resolves the region,
+/// intensity, and energy, then accumulates the per-op CO₂ into the
+/// right bucket of `state.per_region`. Unknown-region and capped-region
+/// cases bump `state.unknown_ops`; the multi-region flag is updated in
+/// the same pass.
+fn process_span_for_carbon(
+    state: &mut CarbonRunState,
+    span: &crate::normalize::NormalizedEvent,
+    ctx: &CarbonContext,
+) {
+    // Detect multi-region by span attribute in the same pass.
+    if span.event.cloud_region.is_some() {
+        state.multi_region_active = true;
+    }
+    let Some(region_ctx) = resolve_span_region(span, ctx, state) else {
+        return;
+    };
+    let (intensity_used, span_source) = resolve_span_intensity(span, &region_ctx, ctx);
+    let (energy_kwh, measured_model, calibrated) = resolve_span_energy(span, ctx);
+    let op_co2 = per_op_gco2(energy_kwh, intensity_used, region_ctx.pue);
+
+    let region_ref = region_ctx.region_ref;
+    let pue = region_ctx.pue;
+    accumulate_span_into_region(
+        &mut state.per_region,
+        region_ctx,
+        op_co2,
+        intensity_used,
+        span_source,
+        measured_model,
+        calibrated,
+    );
+
+    state.total_transport_gco2 +=
+        network_transport_contribution(span, region_ref, intensity_used, pue, ctx);
+}
+
+/// Resolve the region for a span, apply the cardinality cap, and
+/// pre-cache the profile references + annual intensity + PUE. Returns
+/// `None` when the region is unresolvable or the cap rejected it, in
+/// which case the caller must bump `unknown_ops`.
+fn resolve_span_region<'a>(
+    span: &'a crate::normalize::NormalizedEvent,
+    ctx: &'a CarbonContext,
+    state: &mut CarbonRunState,
+) -> Option<SpanRegionContext<'a>> {
+    let Some(region_ref) = resolve_region(&span.event, ctx) else {
+        state.unknown_ops += 1;
+        return None;
+    };
+
+    // Defense-in-depth invariant. All regions reaching this loop should
+    // have been validated at the ingestion boundary (is_valid_region_id
+    // in ingest/otlp.rs and ingest/json.rs) or rejected at config load.
+    // Assert the invariant in debug builds so any future ingestion gap
+    // fails loudly in test/dev instead of silently reopening log-forging.
+    debug_assert!(
+        is_valid_region_id(region_ref),
+        "unvalidated region '{region_ref}' reached compute_carbon_report; \
+         ingestion boundary should have sanitized it"
+    );
+
+    // Probe-before-allocate. We still need to allocate the lowercase key
+    // for the accumulator lookup because the accumulator is a
+    // BTreeMap<String, _>, but we can skip the allocation for the cap
+    // check by comparing against `needs_lowercase`.
+    let needs_lowercase = region_ref.bytes().any(|b| b.is_ascii_uppercase());
+    let region_key: Option<String> = if needs_lowercase {
+        Some(region_ref.to_ascii_lowercase())
+    } else {
+        None
+    };
+    let region_key_borrow: &str = region_key.as_deref().unwrap_or(region_ref);
+
+    // Region cardinality cap check.
+    if state.per_region.len() >= MAX_REGIONS && !state.per_region.contains_key(region_key_borrow) {
+        state.unknown_ops += 1;
+        if !state.overflow_warned {
+            tracing::debug!(
+                "Region cardinality cap ({MAX_REGIONS}) exceeded; \
+                 additional distinct regions folded into 'unknown'."
+            );
+            state.overflow_warned = true;
+        }
+        return None;
+    }
+
+    // Single-probe: look up the profile reference once and reuse it for
+    // both the "has profile?" check, the PUE fallback, and the intensity
+    // read, avoiding redundant `HashMap` probes on the hot path.
+    let custom_profile = ctx
+        .custom_hourly_profiles
+        .as_ref()
+        .and_then(|m| m.get(region_key_borrow));
+
+    // Look up annual intensity + PUE. Regions not in the table get
+    // (0.0, generic_pue) so their CO₂ from annual intensity is zero but
+    // they still produce a breakdown row. When a custom hourly profile
+    // or real-time intensity exists for an out-of-table region, a
+    // generic PUE (1.2) is used so the intensity is not zeroed by pue=0.
+    let has_realtime = ctx
+        .real_time_intensity
+        .as_ref()
+        .is_some_and(|rt| rt.contains_key(region_key_borrow));
+    let (annual_intensity, pue) = lookup_region_lower(region_key_borrow).unwrap_or_else(|| {
+        let fallback_pue = if custom_profile.is_some() || has_realtime {
+            GENERIC_PUE
+        } else {
+            0.0
+        };
+        (0.0, fallback_pue)
+    });
+
+    let embedded_profile = if custom_profile.is_none() {
+        hourly_profile_for_region_lower(region_key_borrow)
+    } else {
+        None
+    };
+
+    Some(SpanRegionContext {
+        region_key,
+        region_ref,
+        custom_profile,
+        embedded_profile,
+        annual_intensity,
+        pue,
+    })
+}
+
+/// Pick the best-available intensity (g/kWh) + its source tag for a
+/// single span. Precedence: Electricity Maps real-time > custom hourly
+/// > embedded hourly > flat annual.
+///
+/// Mirrors `resolve_hourly_intensity` in carbon.rs but uses the
+/// pre-cached profile refs from [`SpanRegionContext`] to avoid
+/// redundant `HashMap` probes on the hot path.
+fn resolve_span_intensity(
+    span: &crate::normalize::NormalizedEvent,
+    region_ctx: &SpanRegionContext<'_>,
+    ctx: &CarbonContext,
+) -> (f64, IntensitySource) {
+    // Real-time intensity from Electricity Maps takes highest precedence.
+    let region_key_borrow: &str = region_ctx
+        .region_key
+        .as_deref()
+        .unwrap_or(region_ctx.region_ref);
+    let real_time_val = ctx
+        .real_time_intensity
+        .as_ref()
+        .and_then(|rt| rt.get(region_key_borrow));
+    if let Some(&rt_intensity) = real_time_val {
+        return (rt_intensity, IntensitySource::RealTime);
+    }
+
+    let region_has_hourly = ctx.use_hourly_profiles
+        && (region_ctx.custom_profile.is_some() || region_ctx.embedded_profile.is_some());
+    if !region_has_hourly {
+        return (region_ctx.annual_intensity, IntensitySource::Annual);
+    }
+
+    // Hourly intensity lookup. parse_utc_hour returns None for non-UTC
+    // offsets and non-ISO-8601 shapes, in which case we fall back to the
+    // flat annual intensity rather than silently using a default hour.
+    let Some(hour) = crate::time::parse_utc_hour(&span.event.timestamp) else {
+        return (region_ctx.annual_intensity, IntensitySource::Annual);
+    };
+    let month_opt = crate::time::parse_utc_month(&span.event.timestamp);
+
+    if let Some(cp) = region_ctx.custom_profile {
+        let val = cp.intensity_at(hour, month_opt);
+        let src = if cp.is_monthly() {
+            IntensitySource::MonthlyHourly
+        } else {
+            IntensitySource::Hourly
+        };
+        return (val, src);
+    }
+    if let Some(ep) = region_ctx.embedded_profile {
+        let val = ep.intensity_at(hour, month_opt);
+        let src = if ep.is_monthly() {
+            IntensitySource::MonthlyHourly
+        } else {
+            IntensitySource::Hourly
+        };
+        return (val, src);
+    }
+
+    // Invariant: region_has_hourly implies custom or embedded is Some.
+    // This branch is unreachable.
+    debug_assert!(false, "region_has_hourly was true but no profile found");
+    (region_ctx.annual_intensity, IntensitySource::Annual)
+}
+
+/// Pick the best-available energy (kWh) for a single span and report
+/// whether it came from a measured snapshot and whether a calibration
+/// factor was applied. Measured energy overrides the proxy model
+/// (calibrated or not); if no snapshot entry exists, the proxy model
+/// is used with optional per-operation weighting and optional per-service
+/// calibration factor.
+fn resolve_span_energy(
+    span: &crate::normalize::NormalizedEvent,
+    ctx: &CarbonContext,
+) -> (f64, Option<&'static str>, bool) {
+    let mut proxy_energy_kwh = if ctx.per_operation_coefficients {
+        ENERGY_PER_IO_OP_KWH * energy_coefficient(&span.event)
+    } else {
+        ENERGY_PER_IO_OP_KWH
+    };
+    let calibrated = if let Some(ref cal) = ctx.calibration {
+        if let Some(factor) = cal.factor_for(&span.event.service) {
+            proxy_energy_kwh *= factor;
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
+        Some(snapshot) => match snapshot.get(&span.event.service) {
+            Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
+            None => (proxy_energy_kwh, None),
+        },
+        None => (proxy_energy_kwh, None),
+    };
+    (energy_kwh, measured_model, calibrated)
+}
+
+/// Add the per-span CO₂ contribution to the right accumulator bucket.
+/// Three allocation paths on the hot loop to minimize per-span work
+/// when the region key is already lowercased and present.
+fn accumulate_span_into_region(
+    per_region: &mut BTreeMap<String, RegionAccumulator>,
+    region_ctx: SpanRegionContext<'_>,
+    op_co2: f64,
+    intensity_used: f64,
+    span_source: IntensitySource,
+    measured_model: Option<&'static str>,
+    calibrated: bool,
+) {
+    let SpanRegionContext {
+        region_key,
+        region_ref,
+        ..
+    } = region_ctx;
+    // Obtain or insert the accumulator. Three paths to minimize
+    // allocations on the hot per-span loop:
+    //   1. region_key is Some  -> already allocated the lowercase key,
+    //      use entry() which moves the owned String into the map.
+    //   2. region_key is None AND key exists -> single get_mut() with a
+    //      borrowed &str, zero allocation.
+    //   3. region_key is None AND key absent -> allocate once via
+    //      entry(region_ref.to_string()).
+    let acc = if let Some(lowered) = region_key {
+        per_region.entry(lowered).or_default()
+    } else if let Some(existing) = per_region.get_mut(region_ref) {
+        existing
+    } else {
+        per_region.entry(region_ref.to_string()).or_default()
+    };
+    acc.co2_gco2 += op_co2;
+    acc.total_ops += 1;
+    acc.intensity_sum_per_op += intensity_used;
+    if span_source > acc.max_intensity_source {
+        acc.max_intensity_source = span_source;
+    }
+    match measured_model {
+        Some(CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
+        Some(CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
+        _ => {
+            if calibrated {
+                acc.any_calibrated = true;
+            }
+        }
+    }
+}
+
+/// Compute the network transport CO₂ contribution for a single span.
+/// Returns 0 unless transport accounting is enabled, the span is an
+/// HTTP-out call with a `response_size_bytes`, the callee's region is
+/// mapped via `ctx.service_regions`, and the caller's region differs
+/// from the callee's (cross-region only).
+fn network_transport_contribution(
+    span: &crate::normalize::NormalizedEvent,
+    caller_region: &str,
+    intensity_used: f64,
+    pue: f64,
+    ctx: &CarbonContext,
+) -> f64 {
+    if !ctx.include_network_transport || span.event.event_type != crate::event::EventType::HttpOut {
+        return 0.0;
+    }
+    let Some(bytes) = span.event.response_size_bytes else {
+        return 0.0;
+    };
+    // Probe-before-allocate: only lowercase the hostname when it contains
+    // uppercase bytes (same pattern as region keys).
+    let callee_region = extract_hostname(&span.event.target)
+        .and_then(|host| {
+            if host.bytes().any(|b| b.is_ascii_uppercase()) {
+                ctx.service_regions.get(&host.to_ascii_lowercase())
+            } else {
+                ctx.service_regions.get(host)
+            }
+        })
+        .map(String::as_str);
+    let Some(callee) = callee_region else {
+        return 0.0;
+    };
+    if caller_region.eq_ignore_ascii_case(callee) {
+        return 0.0;
+    }
+    // `bytes` is the response body only (request body is not available
+    // in standard OTel HTTP semantic conventions). We use the caller's
+    // grid intensity and PUE as a proxy for the network infrastructure's
+    // actual grid mix, which is distributed and unknown. Documented in
+    // LIMITATIONS.md.
+    let transport_energy = bytes as f64 * ctx.network_energy_per_byte_kwh;
+    transport_energy * intensity_used * pue
+}
+
+/// Fold the per-region accumulators into a breakdown vector, collect
+/// the cross-region flags needed for model-tag selection, and compute
+/// the total operational CO₂. Regions whose name is not in the
+/// embedded carbon table get a dedicated out-of-table row with the
+/// generic PUE fallback; the synthetic "unknown" bucket is appended
+/// if there are any unresolvable ops.
+fn build_region_breakdowns(
+    per_region: BTreeMap<String, RegionAccumulator>,
+    unknown_ops: usize,
+) -> (Vec<RegionBreakdown>, ReportFlags, f64) {
     let mut regions: Vec<RegionBreakdown> = Vec::with_capacity(per_region.len() + 1);
+    let mut flags = ReportFlags::default();
     let mut operational_gco2: f64 = 0.0;
-    let mut any_hourly_report = false;
-    let mut any_monthly_hourly_report = false;
-    let mut any_scaphandre_report = false;
-    let mut any_cloud_specpower_report = false;
-    let mut any_calibrated_report = false;
-    let mut any_realtime_report = false;
     for (region, acc) in per_region {
         operational_gco2 += acc.co2_gco2;
-        match acc.max_intensity_source {
-            IntensitySource::RealTime => {
-                any_realtime_report = true;
-            }
-            IntensitySource::MonthlyHourly => {
-                any_monthly_hourly_report = true;
-                any_hourly_report = true;
-            }
-            IntensitySource::Hourly => {
-                any_hourly_report = true;
-            }
-            IntensitySource::Annual => {}
-        }
-        any_scaphandre_report |= acc.any_scaphandre;
-        any_cloud_specpower_report |= acc.any_cloud_specpower;
-        any_calibrated_report |= acc.any_calibrated;
-
-        if let Some((_, pue)) = lookup_region_lower(&region) {
-            // Time-weighted mean intensity for display. Guaranteed
-            // non-zero ops because the loop above only inserts into
-            // the accumulator after incrementing total_ops.
-            let mean_intensity = acc.intensity_sum_per_op / acc.total_ops as f64;
-            let intensity_source = acc.max_intensity_source;
-
-            // The eu-central-1 hourly profile has a mean ~31% above
-            // the flat annual value (442 vs 338 gCO2/kWh). Log once
-            // so users notice the divergence when comparing v1/v2/v3.
-            if intensity_source > IntensitySource::Annual && region == "eu-central-1" {
-                use std::sync::Once;
-                static WARN: Once = Once::new();
-                WARN.call_once(|| {
-                    tracing::debug!(
-                        region = "eu-central-1",
-                        annual_gco2_kwh = 338.0,
-                        hourly_mean_gco2_kwh = 442.0,
-                        "Hourly carbon profile for eu-central-1 (DE) averages \
-                         ~31% above the flat annual value. This reflects recent \
-                         grid data. Disable with [green] use_hourly_profiles = false \
-                         to use the annual baseline instead."
-                    );
-                });
-            }
-
-            regions.push(RegionBreakdown {
-                status: REGION_STATUS_KNOWN,
-                region,
-                grid_intensity_gco2_kwh: mean_intensity,
-                pue,
-                io_ops: acc.total_ops,
-                co2_gco2: acc.co2_gco2,
-                intensity_source,
-            });
-        } else {
-            // Out-of-table region: name resolved but not in our table.
-            // When a custom hourly profile produced non-zero CO2 (via
-            // the generic PUE fallback), report the actual accumulated
-            // values so sum(regions[].co2_gco2) == operational_gco2.
-            let has_co2 = acc.co2_gco2 > 0.0;
-            if !has_co2 {
-                tracing::debug!(
-                    "Region '{region}' is not in the embedded carbon table; \
-                     {ops} I/O ops contribute 0 to operational CO₂. \
-                     See docs/CONFIGURATION.md for the list of supported regions.",
-                    ops = acc.total_ops
-                );
-            }
-            let mean_intensity = if acc.total_ops > 0 && has_co2 {
-                acc.intensity_sum_per_op / acc.total_ops as f64
-            } else {
-                0.0
-            };
-            let pue_display = if has_co2 { GENERIC_PUE } else { 0.0 };
-            regions.push(RegionBreakdown {
-                status: REGION_STATUS_OUT_OF_TABLE,
-                region,
-                grid_intensity_gco2_kwh: mean_intensity,
-                pue: pue_display,
-                io_ops: acc.total_ops,
-                co2_gco2: acc.co2_gco2,
-                intensity_source: if has_co2 {
-                    acc.max_intensity_source
-                } else {
-                    IntensitySource::Annual
-                },
-            });
-        }
+        update_flags_from_accumulator(&mut flags, &acc);
+        regions.push(build_single_region_row(region, &acc));
     }
-
     if unknown_ops > 0 {
         tracing::debug!(
             "{unknown_ops} I/O ops had no resolvable region and were excluded \
@@ -655,20 +719,165 @@ fn compute_carbon_report(
             intensity_source: IntensitySource::Annual,
         });
     }
+    (regions, flags, operational_gco2)
+}
 
+/// Merge a single accumulator's intensity source and measured-energy
+/// flags into the aggregate [`ReportFlags`].
+fn update_flags_from_accumulator(flags: &mut ReportFlags, acc: &RegionAccumulator) {
+    match acc.max_intensity_source {
+        IntensitySource::RealTime => {
+            flags.any_realtime = true;
+        }
+        IntensitySource::MonthlyHourly => {
+            flags.any_monthly_hourly = true;
+            flags.any_hourly = true;
+        }
+        IntensitySource::Hourly => {
+            flags.any_hourly = true;
+        }
+        IntensitySource::Annual => {}
+    }
+    flags.any_scaphandre |= acc.any_scaphandre;
+    flags.any_cloud_specpower |= acc.any_cloud_specpower;
+    flags.any_calibrated |= acc.any_calibrated;
+}
+
+/// Build a single `RegionBreakdown` row from a finished accumulator.
+/// Known regions (present in the embedded carbon table) use the
+/// canonical PUE; out-of-table regions use the generic PUE when a
+/// custom profile produced non-zero CO₂, and a zeroed row otherwise.
+fn build_single_region_row(region: String, acc: &RegionAccumulator) -> RegionBreakdown {
+    if let Some((_, pue)) = lookup_region_lower(&region) {
+        // Time-weighted mean intensity for display. Guaranteed non-zero
+        // ops because the accumulator was only inserted after
+        // incrementing total_ops.
+        let mean_intensity = acc.intensity_sum_per_op / acc.total_ops as f64;
+        let intensity_source = acc.max_intensity_source;
+        maybe_warn_eu_central_1_profile(&region, intensity_source);
+        return RegionBreakdown {
+            status: REGION_STATUS_KNOWN,
+            region,
+            grid_intensity_gco2_kwh: mean_intensity,
+            pue,
+            io_ops: acc.total_ops,
+            co2_gco2: acc.co2_gco2,
+            intensity_source,
+        };
+    }
+    // Out-of-table region: name resolved but not in our table. When a
+    // custom hourly profile produced non-zero CO₂ (via the generic PUE
+    // fallback), report the actual accumulated values so
+    // sum(regions[].co2_gco2) == operational_gco2.
+    let has_co2 = acc.co2_gco2 > 0.0;
+    if !has_co2 {
+        tracing::debug!(
+            "Region '{region}' is not in the embedded carbon table; \
+             {ops} I/O ops contribute 0 to operational CO₂. \
+             See docs/CONFIGURATION.md for the list of supported regions.",
+            ops = acc.total_ops
+        );
+    }
+    let mean_intensity = if acc.total_ops > 0 && has_co2 {
+        acc.intensity_sum_per_op / acc.total_ops as f64
+    } else {
+        0.0
+    };
+    let pue_display = if has_co2 { GENERIC_PUE } else { 0.0 };
+    RegionBreakdown {
+        status: REGION_STATUS_OUT_OF_TABLE,
+        region,
+        grid_intensity_gco2_kwh: mean_intensity,
+        pue: pue_display,
+        io_ops: acc.total_ops,
+        co2_gco2: acc.co2_gco2,
+        intensity_source: if has_co2 {
+            acc.max_intensity_source
+        } else {
+            IntensitySource::Annual
+        },
+    }
+}
+
+/// One-shot operator hint for the `eu-central-1` hourly profile, whose
+/// mean is ~31% above the flat annual value. Logged once per process
+/// to help users understand v1 -> v2 / v3 divergences.
+fn maybe_warn_eu_central_1_profile(region: &str, intensity_source: IntensitySource) {
+    if intensity_source > IntensitySource::Annual && region == "eu-central-1" {
+        use std::sync::Once;
+        static WARN: Once = Once::new();
+        WARN.call_once(|| {
+            tracing::debug!(
+                region = "eu-central-1",
+                annual_gco2_kwh = 338.0,
+                hourly_mean_gco2_kwh = 442.0,
+                "Hourly carbon profile for eu-central-1 (DE) averages \
+                 ~31% above the flat annual value. This reflects recent \
+                 grid data. Disable with [green] use_hourly_profiles = false \
+                 to use the annual baseline instead."
+            );
+        });
+    }
+}
+
+/// Pick the top-level `co2.model` tag given the aggregate flags.
+/// Precedence: real-time > Scaphandre > cloud `SPECpower` > monthly/hourly
+/// proxy > annual proxy. When a calibration factor applied to the proxy
+/// path, the `+cal` variant is returned.
+fn select_co2_model_tag(flags: ReportFlags) -> &'static str {
+    let cal = flags.any_calibrated && !flags.any_scaphandre && !flags.any_cloud_specpower;
+    if flags.any_realtime {
+        CO2_MODEL_EMAPS
+    } else if flags.any_scaphandre {
+        CO2_MODEL_SCAPHANDRE
+    } else if flags.any_cloud_specpower {
+        CO2_MODEL_CLOUD_SPECPOWER
+    } else if flags.any_monthly_hourly {
+        if cal {
+            carbon::CO2_MODEL_V3_CAL
+        } else {
+            CO2_MODEL_V3
+        }
+    } else if flags.any_hourly {
+        if cal {
+            carbon::CO2_MODEL_V2_CAL
+        } else {
+            CO2_MODEL_V2
+        }
+    } else if cal {
+        carbon::CO2_MODEL_V1_CAL
+    } else {
+        CO2_MODEL
+    }
+}
+
+/// Final assembly of the [`CarbonReport`] struct: SCI v1.0 numerator
+/// (E × I + M + T), avoidable CO₂ via region-blind ratio, and the
+/// methodology tag that shifts when network transport is included.
+#[allow(clippy::too_many_arguments)]
+fn finalize_carbon_report(
+    traces_len: usize,
+    operational_gco2: f64,
+    total_transport_gco2: f64,
+    total_io_ops: usize,
+    avoidable_io_ops: usize,
+    unknown_ops: usize,
+    embodied_per_request_gco2: f64,
+    model: &'static str,
+) -> CarbonReport {
     // SCI v1.0 embodied carbon term M = traces × per-trace constant.
-    // Region-independent — emitted unconditionally when we have at least
-    // one trace (empty case was early-returned above).
-    let embodied_gco2 = traces.len() as f64 * ctx.embodied_per_request_gco2;
+    // Region-independent, emitted unconditionally when we have at least
+    // one trace (empty case is early-returned in the caller).
+    let embodied_gco2 = traces_len as f64 * embodied_per_request_gco2;
 
-    // Total = SCI v1.0 numerator (E × I) + M, summed over all analyzed traces.
-    // This is NOT the SCI per-R intensity — consumers compute that themselves
-    // as total_mid / traces.len() if they need it.
+    // Total = SCI v1.0 numerator (E × I) + M, summed over all analyzed
+    // traces. NOT the SCI per-R intensity: consumers compute that
+    // themselves as total_mid / traces.len() if needed.
     let total_mid = operational_gco2 + embodied_gco2 + total_transport_gco2;
 
     // Avoidable CO₂ via region-blind ratio. Denominator excludes the
     // unknown bucket (operational_gco2 already excludes it, so we match).
-    // Embodied is NOT included in avoidable — hardware emissions are fixed
+    // Embodied is NOT included in avoidable: hardware emissions are fixed
     // regardless of whether the application does N+1 queries.
     let accounted_io_ops = total_io_ops.saturating_sub(unknown_ops);
     let avoidable_mid = if accounted_io_ops > 0 {
@@ -681,68 +890,36 @@ fn compute_carbon_report(
         0.0
     };
 
-    // Top-level model tag. Most precise source wins. When calibration
-    // factors are active on proxy paths, append "+cal" to the tag.
-    // Electricity Maps real-time intensity has the highest precedence
-    // since it replaces the static carbon table with live grid data.
-    let cal = any_calibrated_report && !any_scaphandre_report && !any_cloud_specpower_report;
-    let model = if any_realtime_report {
-        CO2_MODEL_EMAPS
-    } else if any_scaphandre_report {
-        CO2_MODEL_SCAPHANDRE
-    } else if any_cloud_specpower_report {
-        CO2_MODEL_CLOUD_SPECPOWER
-    } else if any_monthly_hourly_report {
-        if cal {
-            carbon::CO2_MODEL_V3_CAL
-        } else {
-            CO2_MODEL_V3
-        }
-    } else if any_hourly_report {
-        if cal {
-            carbon::CO2_MODEL_V2_CAL
-        } else {
-            CO2_MODEL_V2
-        }
-    } else if cal {
-        carbon::CO2_MODEL_V1_CAL
-    } else {
-        CO2_MODEL
-    };
-
     let transport_gco2 = if total_transport_gco2 > 0.0 {
         Some(total_transport_gco2)
     } else {
         None
     };
-
-    // When network transport energy is included, the methodology shifts
-    // from plain "sci_v1_numerator" to "sci_v1_numerator+transport" so
-    // consumers can distinguish (E x I) + M from (E x I) + M + T.
     let total_methodology = if transport_gco2.is_some() {
         carbon::METHODOLOGY_SCI_NUMERATOR_TRANSPORT
     } else {
         carbon::METHODOLOGY_SCI_NUMERATOR
     };
-    let report = CarbonReport {
+    CarbonReport {
         total: CarbonEstimate::new_with_model(total_mid, model, total_methodology),
         avoidable: CarbonEstimate::operational_ratio_with_model(avoidable_mid, model),
         operational_gco2,
         embodied_gco2,
         transport_gco2,
-    };
+    }
+}
 
-    // Sort regions vec by CO₂ descending with alphabetical tiebreak.
-    // BTreeMap-based accumulation above gives stable float sums; this final
-    // sort is on a Vec and purely cosmetic — determinism is preserved.
+/// Sort the per-region breakdown by `co2_gco2` descending with an
+/// alphabetical tiebreak. BTreeMap-based accumulation gives stable
+/// f64 sums upstream; this final sort is purely cosmetic and the
+/// result stays deterministic.
+fn sort_regions_by_co2_desc(regions: &mut [RegionBreakdown]) {
     regions.sort_by(|a, b| {
         b.co2_gco2
             .partial_cmp(&a.co2_gco2)
             .unwrap_or(Ordering::Equal)
             .then_with(|| a.region.cmp(&b.region))
     });
-
-    (Some(report), regions, multi_region_active)
 }
 
 #[cfg(test)]

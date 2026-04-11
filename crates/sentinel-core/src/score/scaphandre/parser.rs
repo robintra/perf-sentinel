@@ -116,6 +116,17 @@ fn find_label_block_end(s: &str) -> Option<usize> {
     None
 }
 
+/// One parsed Prometheus label, as returned by [`parse_next_label`].
+/// All string slices borrow from the outer `labels` buffer.
+struct ParsedLabel<'a> {
+    name: &'a str,
+    value: &'a str,
+    needs_unescape: bool,
+    /// Byte offset in `labels.as_bytes()` just past the trailing
+    /// comma / whitespace, i.e. the start of the next label.
+    next_index: usize,
+}
+
 /// Extract the `exe="..."` label value from a labels string (the part
 /// between `{` and `}`, excluding the braces themselves).
 ///
@@ -123,58 +134,92 @@ fn find_label_block_end(s: &str) -> Option<usize> {
 /// `\\` in the value. Does not allocate unless escapes are present
 /// AND a reallocation is needed beyond the initial capacity reserve.
 fn extract_exe_label(labels: &str) -> Option<String> {
-    // Scan for `exe="` (optionally preceded by a comma or start of string).
-    // Prometheus labels are comma-separated name="value" pairs.
+    // Prometheus labels are comma-separated name="value" pairs. Walk
+    // them one at a time via `parse_next_label` and return the first
+    // `exe` match, unescaping lazily only when required.
     let bytes = labels.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
-        // Find the next `=` — the label name ends there.
-        let name_start = i;
-        while i < bytes.len() && bytes[i] != b'=' {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            return None;
-        }
-        let name = &labels[name_start..i];
-        // Skip past '='.
-        i += 1;
-        // Expect '"'.
-        if i >= bytes.len() || bytes[i] != b'"' {
-            return None;
-        }
-        i += 1;
-        // Collect value bytes until the unescaped closing '"'.
-        let value_start = i;
-        let mut needs_unescape = false;
-        while i < bytes.len() {
-            match bytes[i] {
-                b'\\' if i + 1 < bytes.len() => {
-                    needs_unescape = true;
-                    i += 2;
-                }
-                b'"' => break,
-                _ => i += 1,
-            }
-        }
-        if i >= bytes.len() {
-            return None;
-        }
-        if name.trim() == "exe" {
-            let raw_value = &labels[value_start..i];
-            return Some(if needs_unescape {
-                unescape_prometheus_value(raw_value)
+        let parsed = parse_next_label(labels, bytes, i)?;
+        if parsed.name.trim() == "exe" {
+            return Some(if parsed.needs_unescape {
+                unescape_prometheus_value(parsed.value)
             } else {
-                raw_value.to_string()
+                parsed.value.to_string()
             });
         }
-        // Skip closing '"' and any following comma / whitespace.
-        i += 1;
-        while i < bytes.len() && (bytes[i] == b',' || bytes[i] == b' ') {
-            i += 1;
-        }
+        i = parsed.next_index;
     }
     None
+}
+
+/// Parse a single `name="value"` label starting at byte offset `i`.
+///
+/// Returns `None` if the buffer is truncated or the shape is invalid
+/// (missing `=`, missing opening `"`, unterminated value). On success,
+/// returns a [`ParsedLabel`] with the three components plus the offset
+/// just past the following separator, ready for the next iteration.
+fn parse_next_label<'a>(labels: &'a str, bytes: &[u8], i: usize) -> Option<ParsedLabel<'a>> {
+    let (name, after_eq) = read_label_name(labels, bytes, i)?;
+    let (value, needs_unescape, after_close_quote) = read_label_value(labels, bytes, after_eq)?;
+    let next_index = advance_past_separators(bytes, after_close_quote);
+    Some(ParsedLabel {
+        name,
+        value,
+        needs_unescape,
+        next_index,
+    })
+}
+
+/// Read the label name starting at `i` and return `(name, index_after_equals)`.
+/// `None` if the buffer runs out before an `=` is found.
+fn read_label_name<'a>(labels: &'a str, bytes: &[u8], i: usize) -> Option<(&'a str, usize)> {
+    let name_start = i;
+    let mut pos = i;
+    while pos < bytes.len() && bytes[pos] != b'=' {
+        pos += 1;
+    }
+    if pos >= bytes.len() {
+        return None;
+    }
+    // +1 to consume the '='.
+    Some((&labels[name_start..pos], pos + 1))
+}
+
+/// Read a quoted label value starting at `i` (which must point at the
+/// opening `"`). Returns `(value_slice, needs_unescape, index_after_close_quote)`.
+/// `None` if the opening quote is missing or the value is unterminated.
+fn read_label_value<'a>(labels: &'a str, bytes: &[u8], i: usize) -> Option<(&'a str, bool, usize)> {
+    if i >= bytes.len() || bytes[i] != b'"' {
+        return None;
+    }
+    // +1 to consume the opening quote.
+    let value_start = i + 1;
+    let mut pos = value_start;
+    let mut needs_unescape = false;
+    while pos < bytes.len() {
+        match bytes[pos] {
+            b'\\' if pos + 1 < bytes.len() => {
+                needs_unescape = true;
+                pos += 2;
+            }
+            b'"' => break,
+            _ => pos += 1,
+        }
+    }
+    if pos >= bytes.len() {
+        return None;
+    }
+    // +1 to consume the closing quote.
+    Some((&labels[value_start..pos], needs_unescape, pos + 1))
+}
+
+/// Advance past any trailing `,` / whitespace separating two labels.
+fn advance_past_separators(bytes: &[u8], mut i: usize) -> usize {
+    while i < bytes.len() && (bytes[i] == b',' || bytes[i] == b' ') {
+        i += 1;
+    }
+    i
 }
 
 /// Unescape a Prometheus label value. Handles `\"`, `\\`, and `\n`

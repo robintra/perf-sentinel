@@ -15,7 +15,7 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on 
 
 ## Quick start: CI batch analysis
 
-**Use case:** run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker -- just a binary that reads a trace file and exits with code 1 if the quality gate fails.
+**Use case:** run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker, just a binary that reads a trace file and exits with code 1 if the quality gate fails.
 
 ### Step 1: Install
 
@@ -51,7 +51,7 @@ default_region = "eu-west-3"       # optional: enables gCO2eq estimates
 
 ### Step 3: Collect traces
 
-Export traces from your integration tests. If your tests run with OTel instrumentation, save the output to a JSON file. You can also export from Jaeger UI or Zipkin UI -- perf-sentinel auto-detects the format.
+Export traces from your integration tests. If your tests run with OTel instrumentation, save the output to a JSON file. You can also export from Jaeger UI or Zipkin UI, perf-sentinel auto-detects the format.
 
 ### Step 4: Analyze
 
@@ -93,7 +93,7 @@ perf-sentinel analyze --input traces.json --format sarif > results.sarif
 
 ## Quick start: central collector
 
-**Use case:** production deployment where services already send traces to an OpenTelemetry Collector (or you want to add one). Zero code changes -- just YAML configuration.
+**Use case:** production deployment where services already send traces to an OpenTelemetry Collector (or you want to add one). Zero code changes, just YAML configuration.
 
 ### Step 1: Start perf-sentinel + collector
 
@@ -156,10 +156,10 @@ scrape_configs:
 ```
 
 Key metrics:
-- `perf_sentinel_findings_total{type, severity}` -- findings with exemplar `trace_id` for click-through
-- `perf_sentinel_io_waste_ratio` -- current I/O waste ratio with exemplar `trace_id`
-- `perf_sentinel_events_processed_total` -- total spans ingested
-- `perf_sentinel_traces_analyzed_total` -- total traces completed
+- `perf_sentinel_findings_total{type, severity}`: findings with exemplar `trace_id` for click-through
+- `perf_sentinel_io_waste_ratio`: current I/O waste ratio with exemplar `trace_id`
+- `perf_sentinel_events_processed_total`: total spans ingested
+- `perf_sentinel_traces_analyzed_total`: total traces completed
 
 See [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the full config with sampling and filtering options.
 
@@ -177,7 +177,7 @@ docker compose -f examples/docker-compose-sidecar.yml up -d
 
 ### Step 2: Configure your app
 
-Your app sends traces to `localhost:4318` (HTTP) -- no network hop since perf-sentinel shares the same network namespace:
+Your app sends traces to `localhost:4318` (HTTP), no network hop since perf-sentinel shares the same network namespace:
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
@@ -419,7 +419,7 @@ Deploy perf-sentinel as an AKS Deployment or Azure Container Instance.
 
 ### Self-hosted (Jaeger, Tempo, Zipkin)
 
-If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`) -- formats are auto-detected.
+If you use a self-hosted trace backend, the OTel Collector approach works identically. Add perf-sentinel as an additional OTLP exporter alongside your existing backend exporter. Alternatively, use perf-sentinel's batch mode with trace files exported from Jaeger UI (`--input jaeger-export.json`) or Zipkin UI (`--input zipkin-traces.json`), formats are auto-detected.
 
 ---
 

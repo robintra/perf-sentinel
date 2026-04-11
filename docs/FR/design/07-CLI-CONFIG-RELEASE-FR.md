@@ -75,13 +75,13 @@ Les codes d'échappement ANSI sont supprimés quand stdout n'est pas un terminal
 
 `perf-sentinel pg-stat --input FILE` parse les exports `pg_stat_statements` de PostgreSQL (CSV ou JSON, auto-détecté) et produit des classements de hotspots par temps d'exécution total, nombre d'appels et temps d'exécution moyen. Le flag `--traces` permet la référence croisée avec les findings de traces : l'outil exécute `pipeline::analyze()` sur le fichier de traces et marque les entrées `pg_stat_statements` dont le template normalisé apparaît aussi dans les findings.
 
-Cette sous-commande est intentionnellement séparée d'`analyze` car les données `pg_stat_statements` n'ont pas de `trace_id` -- elles ne peuvent pas participer au pipeline de corrélation de traces.
+Cette sous-commande est intentionnellement séparée d'`analyze` car les données `pg_stat_statements` n'ont pas de `trace_id`, elles ne peuvent pas participer au pipeline de corrélation de traces.
 
 ### Inspect : TUI interactif
 
 `perf-sentinel inspect --input FILE` lance une interface terminal construite avec [ratatui](https://ratatui.rs/) et [crossterm](https://docs.rs/crossterm/). Ces dépendances sont dans `sentinel-cli/Cargo.toml` uniquement (pas `sentinel-core`) car le TUI est une préoccupation de présentation.
 
-**Layout :** découpage en 3 panneaux -- liste des traces (haut-gauche, 30%), findings de la trace sélectionnée (haut-droite, 70%), détail du finding avec arbre de spans (bas, 50%). Le panneau de détail réutilise `explain::build_tree()` et `explain::format_tree_text()` pour l'affichage de l'arbre de spans.
+**Layout :** découpage en 3 panneaux, liste des traces (haut-gauche, 30%), findings de la trace sélectionnée (haut-droite, 70%), détail du finding avec arbre de spans (bas, 50%). Le panneau de détail réutilise `explain::build_tree()` et `explain::format_tree_text()` pour l'affichage de l'arbre de spans.
 
 **Gestion d'état :** la struct `App` contient des `findings_by_trace` pré-calculés (indexés à la construction) pour éviter de recalculer à chaque frame. L'état de navigation (selected_trace, selected_finding, active_panel, scroll_offset) est mis à jour par les événements clavier.
 

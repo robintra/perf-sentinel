@@ -1,6 +1,6 @@
 //! Shared Scaphandre state and monotonic timestamp helper.
 //!
-//! Thin wrapper around [`crate::score::energy_state::AgedEnergyMap`];
+//! Thin wrapper around [`AgedEnergyMap`];
 //! see that module for the `ArcSwap`-backed storage design. This file
 //! keeps `ScaphandreState` as a distinct nominal type (so the daemon
 //! code cannot accidentally swap a cloud-energy state for a Scaphandre

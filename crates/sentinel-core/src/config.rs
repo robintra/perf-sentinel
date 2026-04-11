@@ -754,13 +754,24 @@ impl Config {
     }
 
     fn validate_green(&self) -> Result<(), String> {
-        /// Maximum number of entries in `[green.service_regions]`.
-        /// Bounds the config-load memory footprint against fat-finger or
-        /// malicious configs. 1024 is 4× `MAX_REGIONS` (256) and comfortably
-        /// above any realistic multi-cloud deployment size.
-        const MAX_SERVICE_REGIONS: usize = 1024;
+        Self::validate_embodied_carbon(self.green_embodied_carbon_per_request_gco2)?;
+        Self::validate_default_region(self.green_default_region.as_deref())?;
+        Self::validate_service_regions(&self.green_service_regions)?;
+        if let Some(cfg) = &self.green_scaphandre {
+            Self::validate_scaphandre(cfg)?;
+        }
+        if let Some(cfg) = &self.green_cloud_energy {
+            Self::validate_cloud_energy(cfg)?;
+        }
+        Self::validate_network_energy(self.green_network_energy_per_byte_kwh)?;
+        self.validate_hourly_profiles_file()?;
+        if let Some(cfg) = &self.green_electricity_maps {
+            Self::validate_electricity_maps(cfg)?;
+        }
+        Ok(())
+    }
 
-        let value = self.green_embodied_carbon_per_request_gco2;
+    fn validate_embodied_carbon(value: f64) -> Result<(), String> {
         if !value.is_finite() {
             return Err(format!(
                 "embodied_carbon_per_request_gco2 must be finite, got {value}"
@@ -771,28 +782,41 @@ impl Config {
                 "embodied_carbon_per_request_gco2 must be >= 0.0, got {value}"
             ));
         }
-        // Region ID validation. Config is trusted input, fail loud
-        // so typos surface at load time rather than silently producing
-        // zeroed CO₂ rows downstream. Same validator used at the OTLP
-        // ingestion boundary (there, invalid values are silently dropped).
-        if let Some(region) = &self.green_default_region
-            && !crate::score::carbon::is_valid_region_id(region)
-        {
-            return Err(format!(
-                "[green] default_region '{region}' contains invalid characters; \
-                 expected ASCII alphanumeric + '-' or '_', length 1-64"
-            ));
+        Ok(())
+    }
+
+    /// Validate the optional `[green] default_region`. Config is trusted
+    /// input, so typos surface loudly here rather than silently producing
+    /// zeroed CO₂ rows downstream. Same validator used at the OTLP
+    /// ingestion boundary (there, invalid values are silently dropped).
+    fn validate_default_region(region: Option<&str>) -> Result<(), String> {
+        let Some(region) = region else {
+            return Ok(());
+        };
+        if crate::score::carbon::is_valid_region_id(region) {
+            return Ok(());
         }
-        // Cardinality cap on service_regions (defense against fat-finger
-        // configs; AWS has ~33 regions, GCP ~40, Azure ~60, so 1024 leaves
-        // ample headroom).
-        if self.green_service_regions.len() > MAX_SERVICE_REGIONS {
+        Err(format!(
+            "[green] default_region '{region}' contains invalid characters; \
+             expected ASCII alphanumeric + '-' or '_', length 1-64"
+        ))
+    }
+
+    /// Validate the `[green.service_regions]` map: cardinality cap, plus
+    /// region-id syntax on every key/value pair.
+    fn validate_service_regions(map: &HashMap<String, String>) -> Result<(), String> {
+        /// Maximum number of entries in `[green.service_regions]`.
+        /// Bounds the config-load memory footprint against fat-finger or
+        /// malicious configs. 1024 is 4× `MAX_REGIONS` (256) and comfortably
+        /// above any realistic multi-cloud deployment size.
+        const MAX_SERVICE_REGIONS: usize = 1024;
+        if map.len() > MAX_SERVICE_REGIONS {
             return Err(format!(
                 "[green.service_regions] has {} entries; maximum is {MAX_SERVICE_REGIONS}",
-                self.green_service_regions.len()
+                map.len()
             ));
         }
-        for (service, region) in &self.green_service_regions {
+        for (service, region) in map {
             if !crate::score::carbon::is_valid_region_id(service) {
                 return Err(format!(
                     "[green.service_regions] invalid service name '{service}'; \
@@ -806,36 +830,33 @@ impl Config {
                 ));
             }
         }
-        // Delegate the Scaphandre-specific validation to a dedicated helper
-        // so `validate_green` stays under clippy's `too_many_lines` threshold
-        // and the two concerns (carbon + scaphandre) can evolve independently.
-        if let Some(cfg) = &self.green_scaphandre {
-            Self::validate_scaphandre(cfg)?;
-        }
-        if let Some(cfg) = &self.green_cloud_energy {
-            Self::validate_cloud_energy(cfg)?;
-        }
-        let nw = self.green_network_energy_per_byte_kwh;
-        if !nw.is_finite() || nw < 0.0 {
+        Ok(())
+    }
+
+    fn validate_network_energy(value: f64) -> Result<(), String> {
+        if !value.is_finite() || value < 0.0 {
             return Err(format!(
-                "network_energy_per_byte_kwh must be finite and >= 0.0, got {nw}"
+                "network_energy_per_byte_kwh must be finite and >= 0.0, got {value}"
             ));
         }
-        // Validate hourly_profiles_file: reject control characters (log
-        // injection) and ensure the file loaded successfully when configured.
-        if let Some(ref path) = self.green_hourly_profiles_file {
-            if has_control_char(path) {
-                return Err("[green] hourly_profiles_file contains control characters".to_string());
-            }
-            if self.green_custom_hourly_profiles.is_none() {
-                return Err(format!(
-                    "[green] hourly_profiles_file '{path}' was configured but \
-                     failed to load. Remove the field to use embedded profiles only."
-                ));
-            }
+        Ok(())
+    }
+
+    /// Validate `[green] hourly_profiles_file`: reject control characters
+    /// in the path (log injection) and require that the file actually
+    /// loaded when the field is configured.
+    fn validate_hourly_profiles_file(&self) -> Result<(), String> {
+        let Some(path) = &self.green_hourly_profiles_file else {
+            return Ok(());
+        };
+        if has_control_char(path) {
+            return Err("[green] hourly_profiles_file contains control characters".to_string());
         }
-        if let Some(cfg) = &self.green_electricity_maps {
-            Self::validate_electricity_maps(cfg)?;
+        if self.green_custom_hourly_profiles.is_none() {
+            return Err(format!(
+                "[green] hourly_profiles_file '{path}' was configured but \
+                 failed to load. Remove the field to use embedded profiles only."
+            ));
         }
         Ok(())
     }
@@ -1021,81 +1042,117 @@ impl Config {
                 cfg.services.len()
             ));
         }
-
         for (service, svc_cfg) in &cfg.services {
-            if service.is_empty() || service.len() > 256 {
-                return Err(format!(
-                    "[green.cloud.services] service name '{service}' must be 1-256 chars"
-                ));
-            }
-            if has_control_char(service) {
-                return Err(format!(
-                    "[green.cloud.services] service name '{service}' contains control characters"
-                ));
-            }
-            // Validate per-service string fields for control chars.
-            if let Some(q) = svc_cfg.cpu_query()
-                && has_control_char(q)
-            {
-                return Err(format!(
-                    "[green.cloud.services.{service}] cpu_query contains control characters"
-                ));
-            }
+            Self::validate_cloud_service_name(service)?;
+            Self::validate_cloud_service_cpu_query(service, svc_cfg)?;
             match svc_cfg {
                 ServiceCloudConfig::ManualWatts {
                     idle_watts,
                     max_watts,
                     ..
-                } => {
-                    if !idle_watts.is_finite() || *idle_watts < 0.0 {
-                        return Err(format!(
-                            "[green.cloud.services.{service}] idle_watts must be finite and >= 0, \
-                             got {idle_watts}"
-                        ));
-                    }
-                    if !max_watts.is_finite() || *max_watts < 0.0 {
-                        return Err(format!(
-                            "[green.cloud.services.{service}] max_watts must be finite and >= 0, \
-                             got {max_watts}"
-                        ));
-                    }
-                    if max_watts < idle_watts {
-                        return Err(format!(
-                            "[green.cloud.services.{service}] max_watts ({max_watts}) must be \
-                             >= idle_watts ({idle_watts})"
-                        ));
-                    }
-                }
+                } => Self::validate_manual_watts(service, *idle_watts, *max_watts)?,
                 ServiceCloudConfig::InstanceType {
                     provider,
                     instance_type,
                     ..
-                } => {
-                    if let Some(p) = provider
-                        && !matches!(p.as_str(), "aws" | "gcp" | "azure")
-                    {
-                        return Err(format!(
-                            "[green.cloud.services.{service}] provider must be 'aws', 'gcp', \
-                             or 'azure', got '{p}'"
-                        ));
-                    }
-                    if has_control_char(instance_type) {
-                        return Err(format!(
-                            "[green.cloud.services.{service}] instance_type contains control characters"
-                        ));
-                    }
-                    if !instance_type.is_empty()
-                        && !crate::score::cloud_energy::table::is_known_instance_type(instance_type)
-                    {
-                        tracing::warn!(
-                            service = %service,
-                            instance_type = %instance_type,
-                            "[green.cloud.services] instance_type is not in the embedded \
-                             SPECpower table; provider default watts will be used"
-                        );
-                    }
-                }
+                } => Self::validate_instance_type_variant(
+                    service,
+                    provider.as_deref(),
+                    instance_type,
+                )?,
             }
+        }
+        Ok(())
+    }
+
+    /// Shape + control-char check on a cloud service name.
+    fn validate_cloud_service_name(service: &str) -> Result<(), String> {
+        if service.is_empty() || service.len() > 256 {
+            return Err(format!(
+                "[green.cloud.services] service name '{service}' must be 1-256 chars"
+            ));
+        }
+        if has_control_char(service) {
+            return Err(format!(
+                "[green.cloud.services] service name '{service}' contains control characters"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Reject control characters in a service's optional per-service
+    /// `cpu_query` override (log-injection / Prometheus-label-injection
+    /// guard).
+    fn validate_cloud_service_cpu_query(
+        service: &str,
+        svc_cfg: &ServiceCloudConfig,
+    ) -> Result<(), String> {
+        let Some(q) = svc_cfg.cpu_query() else {
+            return Ok(());
+        };
+        if has_control_char(q) {
+            return Err(format!(
+                "[green.cloud.services.{service}] cpu_query contains control characters"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate a [`ServiceCloudConfig::ManualWatts`] arm: both values
+    /// finite and non-negative, and `max_watts >= idle_watts`.
+    fn validate_manual_watts(service: &str, idle_watts: f64, max_watts: f64) -> Result<(), String> {
+        if !idle_watts.is_finite() || idle_watts < 0.0 {
+            return Err(format!(
+                "[green.cloud.services.{service}] idle_watts must be finite and >= 0, \
+                 got {idle_watts}"
+            ));
+        }
+        if !max_watts.is_finite() || max_watts < 0.0 {
+            return Err(format!(
+                "[green.cloud.services.{service}] max_watts must be finite and >= 0, \
+                 got {max_watts}"
+            ));
+        }
+        if max_watts < idle_watts {
+            return Err(format!(
+                "[green.cloud.services.{service}] max_watts ({max_watts}) must be \
+                 >= idle_watts ({idle_watts})"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Validate a [`ServiceCloudConfig::InstanceType`] arm: provider
+    /// allow-list, control-char rejection on `instance_type`, and a
+    /// soft warning when the type is not in the embedded `SPECpower`
+    /// table (not an error, the provider default is used instead).
+    fn validate_instance_type_variant(
+        service: &str,
+        provider: Option<&str>,
+        instance_type: &str,
+    ) -> Result<(), String> {
+        if let Some(p) = provider
+            && !matches!(p, "aws" | "gcp" | "azure")
+        {
+            return Err(format!(
+                "[green.cloud.services.{service}] provider must be 'aws', 'gcp', \
+                 or 'azure', got '{p}'"
+            ));
+        }
+        if has_control_char(instance_type) {
+            return Err(format!(
+                "[green.cloud.services.{service}] instance_type contains control characters"
+            ));
+        }
+        if !instance_type.is_empty()
+            && !crate::score::cloud_energy::table::is_known_instance_type(instance_type)
+        {
+            tracing::warn!(
+                service = %service,
+                instance_type = %instance_type,
+                "[green.cloud.services] instance_type is not in the embedded \
+                 SPECpower table; provider default watts will be used"
+            );
         }
         Ok(())
     }

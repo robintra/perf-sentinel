@@ -16,8 +16,27 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 #[must_use]
 pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
     let threshold = threshold as usize;
+    let sql_by_service = group_sql_indices_by_service(trace);
 
-    // Group SQL span indices by service
+    let mut findings = Vec::new();
+    for (service, indices) in &sql_by_service {
+        // Fast path: can't have more concurrent than total.
+        if indices.len() < threshold {
+            continue;
+        }
+        let peak = compute_peak_concurrency(trace, indices);
+        if (peak as usize) < threshold {
+            continue;
+        }
+        findings.push(build_saturation_finding(trace, service, indices, peak));
+    }
+    findings
+}
+
+/// Partition a trace's SQL span indices by `service` attribute. HTTP
+/// and other event types are skipped. Returns borrowed service names
+/// (lifetime tied to `trace`) so grouping stays allocation-light.
+fn group_sql_indices_by_service(trace: &Trace) -> HashMap<&str, Vec<usize>> {
     let mut sql_by_service: HashMap<&str, Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(16));
     for (i, span) in trace.spans.iter().enumerate() {
@@ -28,82 +47,76 @@ pub fn detect_pool_saturation(trace: &Trace, threshold: u32) -> Vec<Finding> {
                 .push(i);
         }
     }
+    sql_by_service
+}
 
-    let mut findings = Vec::new();
-
-    for (service, indices) in &sql_by_service {
-        // Fast path: can't have more concurrent than total
-        if indices.len() < threshold {
-            continue;
+/// Compute the peak concurrent-span count for a subset of `trace.spans`
+/// via a sweep-line pass. `indices` is the list of SQL spans belonging
+/// to a single service; each one contributes a (start, +1) and (end, -1)
+/// event. Sort places ends before starts at the same instant
+/// (`false < true`), avoiding overcounting when one span ends as
+/// another begins.
+fn compute_peak_concurrency(trace: &Trace, indices: &[usize]) -> u32 {
+    let mut sweep: Vec<(u64, bool)> = Vec::with_capacity(indices.len() * 2);
+    for &idx in indices {
+        let span = &trace.spans[idx];
+        if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
+            let end_ms = start_ms.saturating_add(span.event.duration_us / 1000);
+            sweep.push((start_ms, true)); // span starts
+            sweep.push((end_ms, false)); // span ends
         }
-
-        // Build sweep-line events: (time_ms, is_start).
-        // Sort places ends before starts at the same instant (false < true),
-        // avoiding overcounting when one span ends as another begins.
-        let mut sweep: Vec<(u64, bool)> = Vec::with_capacity(indices.len() * 2);
-        for &idx in indices {
-            let span = &trace.spans[idx];
-            if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
-                let end_ms = start_ms.saturating_add(span.event.duration_us / 1000);
-                sweep.push((start_ms, true)); // span starts
-                sweep.push((end_ms, false)); // span ends
-            }
-        }
-
-        sweep.sort_unstable();
-
-        let mut current: u32 = 0;
-        let mut peak: u32 = 0;
-        for &(_, is_start) in &sweep {
-            if is_start {
-                current += 1;
-            } else {
-                current = current.saturating_sub(1);
-            }
-            if current > peak {
-                peak = current;
-            }
-        }
-
-        if (peak as usize) < threshold {
-            continue;
-        }
-
-        let total_sql = indices.len();
-        let first = &trace.spans[indices[0]];
-
-        let (window_ms, first_ts, last_ts) = super::n_plus_one::compute_window_and_bounds_iter(
-            indices
-                .iter()
-                .map(|&i| trace.spans[i].event.timestamp.as_str()),
-        );
-
-        findings.push(Finding {
-            finding_type: FindingType::PoolSaturation,
-            severity: Severity::Warning,
-            trace_id: trace.trace_id.clone(),
-            service: service.to_string(),
-            source_endpoint: first.event.source.endpoint.clone(),
-            pattern: Pattern {
-                template: service.to_string(),
-                occurrences: peak as usize, // safe: peak <= indices.len() which is usize
-                window_ms,
-                distinct_params: total_sql,
-            },
-            suggestion: format!(
-                "Potential connection pool saturation: service {service} has {peak} concurrent \
-                 SQL spans within {window_ms}ms window. Consider increasing the connection \
-                 pool size, optimizing long-running queries, or using connection pool metrics \
-                 (db.client.connection.pool.*) for precise monitoring"
-            ),
-            first_timestamp: first_ts.to_string(),
-            last_timestamp: last_ts.to_string(),
-            green_impact: None,
-            confidence: Confidence::default(),
-        });
     }
+    sweep.sort_unstable();
 
-    findings
+    let mut current: u32 = 0;
+    let mut peak: u32 = 0;
+    for &(_, is_start) in &sweep {
+        if is_start {
+            current += 1;
+        } else {
+            current = current.saturating_sub(1);
+        }
+        if current > peak {
+            peak = current;
+        }
+    }
+    peak
+}
+
+/// Assemble the `Finding` value for a service that exceeded the pool
+/// saturation threshold. Extracted so `detect_pool_saturation` stays
+/// a simple loop.
+fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], peak: u32) -> Finding {
+    let total_sql = indices.len();
+    let first = &trace.spans[indices[0]];
+    let (window_ms, first_ts, last_ts) = super::n_plus_one::compute_window_and_bounds_iter(
+        indices
+            .iter()
+            .map(|&i| trace.spans[i].event.timestamp.as_str()),
+    );
+    Finding {
+        finding_type: FindingType::PoolSaturation,
+        severity: Severity::Warning,
+        trace_id: trace.trace_id.clone(),
+        service: service.to_string(),
+        source_endpoint: first.event.source.endpoint.clone(),
+        pattern: Pattern {
+            template: service.to_string(),
+            occurrences: peak as usize, // safe: peak <= indices.len() which is usize
+            window_ms,
+            distinct_params: total_sql,
+        },
+        suggestion: format!(
+            "Potential connection pool saturation: service {service} has {peak} concurrent \
+             SQL spans within {window_ms}ms window. Consider increasing the connection \
+             pool size, optimizing long-running queries, or using connection pool metrics \
+             (db.client.connection.pool.*) for precise monitoring"
+        ),
+        first_timestamp: first_ts.to_string(),
+        last_timestamp: last_ts.to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+    }
 }
 
 #[cfg(test)]
