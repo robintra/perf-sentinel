@@ -779,14 +779,13 @@ fn build_tls_acceptor(
     cert_pem: &[u8],
     key_pem: &[u8],
 ) -> Result<tokio_rustls::TlsAcceptor, DaemonError> {
-    use std::io::BufReader;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 
-    let certs: Vec<_> = rustls_pemfile::certs(&mut BufReader::new(cert_pem))
+    let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem)
         .collect::<Result<_, _>>()
         .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS certs: {e}").into()))?;
-    let key = rustls_pemfile::private_key(&mut BufReader::new(key_pem))
-        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS key: {e}").into()))?
-        .ok_or_else(|| DaemonError::TlsConfig("no private key found in TLS key file".into()))?;
+    let key = PrivateKeyDer::from_pem_slice(key_pem)
+        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS key: {e}").into()))?;
 
     let config = tokio_rustls::rustls::ServerConfig::builder()
         .with_no_client_auth()

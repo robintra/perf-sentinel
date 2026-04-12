@@ -1256,7 +1256,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "perf-sentinel"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "crossterm",
@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "perf-sentinel-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "arc-swap",
  "axum",
@@ -1287,7 +1287,6 @@ dependencies = [
  "prometheus",
  "prost",
  "regex",
- "rustls-pemfile",
  "serde",
  "serde_json",
  "tempfile",
@@ -1781,15 +1780,6 @@ dependencies = [
  "rustls-webpki",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]

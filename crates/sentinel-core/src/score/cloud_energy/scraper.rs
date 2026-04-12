@@ -971,7 +971,7 @@ mod tests {
             .await
             .expect_err("503 must error");
         match err {
-            CloudScraperError::Fetch(crate::http_client::FetchError::HttpStatus(503)) => {}
+            CloudScraperError::Fetch(http_client::FetchError::HttpStatus(503)) => {}
             other => panic!("expected Fetch(HttpStatus(503)), got {other:?}"),
         }
         server.await.unwrap();
