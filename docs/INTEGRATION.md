@@ -160,6 +160,7 @@ Key metrics:
 - `perf_sentinel_io_waste_ratio`: current I/O waste ratio with exemplar `trace_id`
 - `perf_sentinel_events_processed_total`: total spans ingested
 - `perf_sentinel_traces_analyzed_total`: total traces completed
+- `perf_sentinel_slow_duration_seconds{type}`: histogram of slow span durations (use `histogram_quantile()` for global percentiles across sharded instances)
 
 See [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the full config with sampling and filtering options.
 

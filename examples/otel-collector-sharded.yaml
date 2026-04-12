@@ -1,0 +1,53 @@
+# OpenTelemetry Collector configuration for sharded perf-sentinel
+#
+# Uses the loadbalancingexporter from otel-collector-contrib to distribute
+# traces across multiple perf-sentinel instances with sticky routing by
+# trace_id (consistent hashing). All spans of a given trace land on the
+# same instance, preserving N+1 detection correctness.
+#
+# Requires: otel/opentelemetry-collector-contrib (not the vanilla collector).
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 256
+
+exporters:
+  # Sticky trace_id routing across perf-sentinel instances.
+  # The loadbalancing exporter uses consistent hashing on trace_id
+  # to guarantee all spans of a trace reach the same backend.
+  loadbalancing:
+    routing_key: traceID
+    protocol:
+      otlp:
+        tls:
+          insecure: true
+    resolver:
+      static:
+        hostnames:
+          - perf-sentinel-0:4317
+          - perf-sentinel-1:4317
+
+  # Forward to observability backend (Tempo, Jaeger) in parallel.
+  # Uncomment as needed.
+  # otlp_grpc/tempo:
+  #   endpoint: tempo:4317
+  #   tls:
+  #     insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [loadbalancing]
+      # To also forward to Tempo:
+      # exporters: [loadbalancing, otlp_grpc/tempo]

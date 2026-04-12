@@ -308,4 +308,137 @@ mod tests {
             assert_eq!(f.confidence, Confidence::CiBatch);
         }
     }
+
+    // ---------------------------------------------------------------
+    // Sharded trace routing correctness
+    // ---------------------------------------------------------------
+
+    /// Simulate sticky `trace_id` sharding across N instances.
+    /// Split events by FNV-1a hash of `trace_id` (same algorithm as
+    /// daemon sampling), run the pipeline on each shard independently,
+    /// then verify that every per-trace finding from the baseline
+    /// (non-sharded) run also appears in the sharded results.
+    ///
+    /// This validates the claim that horizontal scaling via an `OTel`
+    /// Collector `loadbalancingexporter` produces the same per-trace
+    /// detection results as a single daemon instance.
+    #[test]
+    fn sharded_detection_matches_single_instance() {
+        use std::collections::{HashMap, HashSet};
+        const NUM_SHARDS: u64 = 2;
+
+        // Build a dataset with 4 distinct traces, each containing an
+        // N+1 SQL pattern (6 similar queries). Use different services
+        // so the shards are non-trivial.
+        let traces_data = [
+            ("trace-A", "svc-alpha"),
+            ("trace-B", "svc-beta"),
+            ("trace-C", "svc-gamma"),
+            ("trace-D", "svc-delta"),
+        ];
+        let mut all_events: Vec<SpanEvent> = Vec::new();
+        for (trace_id, service) in &traces_data {
+            for i in 0..6 {
+                let ts = format!("2025-07-10T14:32:01.{i:03}Z");
+                let mut ev = crate::test_helpers::make_sql_event(
+                    trace_id,
+                    &format!("span-{trace_id}-{i}"),
+                    &format!("SELECT * FROM orders WHERE id = {}", 100 + i),
+                    &ts,
+                );
+                ev.service = service.to_string();
+                all_events.push(ev);
+            }
+        }
+
+        let config = Config::default();
+
+        // Baseline: all events in a single instance
+        let baseline = analyze(all_events.clone(), &config);
+        assert!(
+            baseline.findings.len() >= 4,
+            "expected at least 4 findings (one N+1 per trace), got {}",
+            baseline.findings.len()
+        );
+
+        // Shard into 2 buckets by FNV-1a hash of trace_id
+        let mut shards: Vec<Vec<SpanEvent>> = vec![vec![]; NUM_SHARDS as usize];
+        for event in &all_events {
+            let hash = fnv1a_hash(event.trace_id.as_bytes());
+            let bucket = (hash % NUM_SHARDS) as usize;
+            shards[bucket].push(event.clone());
+        }
+
+        // Verify each shard got at least one trace (hash distribution)
+        for (i, shard) in shards.iter().enumerate() {
+            assert!(
+                !shard.is_empty(),
+                "shard {i} is empty, hash distribution failed"
+            );
+        }
+
+        // Verify no trace is split across shards
+        let mut trace_to_shard: HashMap<String, usize> = HashMap::new();
+        for (i, shard) in shards.iter().enumerate() {
+            for ev in shard {
+                if let Some(&prev) = trace_to_shard.get(&ev.trace_id) {
+                    assert_eq!(
+                        prev, i,
+                        "trace {} split across shards {prev} and {i}",
+                        ev.trace_id
+                    );
+                }
+                trace_to_shard.insert(ev.trace_id.clone(), i);
+            }
+        }
+
+        // Run pipeline on each shard independently
+        let mut sharded_findings = Vec::new();
+        for shard in shards {
+            let report = analyze(shard, &config);
+            sharded_findings.extend(report.findings);
+        }
+
+        // Build a set of (trace_id, finding_type) for comparison.
+        // Cross-trace findings (slow percentiles) are excluded because
+        // they depend on seeing all traces, which sharding splits.
+        let baseline_set: HashSet<(String, String)> = baseline
+            .findings
+            .iter()
+            .filter(|f| {
+                !matches!(
+                    f.finding_type,
+                    detect::FindingType::SlowSql | detect::FindingType::SlowHttp
+                )
+            })
+            .map(|f| (f.trace_id.clone(), f.finding_type.as_str().to_string()))
+            .collect();
+        let sharded_set: HashSet<(String, String)> = sharded_findings
+            .iter()
+            .filter(|f| {
+                !matches!(
+                    f.finding_type,
+                    detect::FindingType::SlowSql | detect::FindingType::SlowHttp
+                )
+            })
+            .map(|f| (f.trace_id.clone(), f.finding_type.as_str().to_string()))
+            .collect();
+
+        assert_eq!(
+            baseline_set, sharded_set,
+            "sharded findings differ from baseline.\n\
+             baseline: {baseline_set:?}\n\
+             sharded:  {sharded_set:?}"
+        );
+    }
+
+    /// FNV-1a hash (same algorithm as `daemon::hash_trace_id`).
+    fn fnv1a_hash(bytes: &[u8]) -> u64 {
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in bytes {
+            hash ^= u64::from(b);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+        hash
+    }
 }

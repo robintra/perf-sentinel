@@ -1,0 +1,77 @@
+# Sharded perf-sentinel topology
+#
+# Two perf-sentinel instances behind an OTel Collector that routes
+# all spans of a trace to the same instance (consistent hashing on
+# trace_id via the loadbalancingexporter).
+#
+#   app-1 --\                           ┌─> perf-sentinel-0 (watch)
+#   app-2 ---+--> otel-collector ──────>│
+#   app-3 --/   (loadbalancing)         └─> perf-sentinel-1 (watch)
+#
+# Usage:
+#   docker compose -f docker-compose-sharded.yml up
+#
+# Applications send traces to the collector at:
+#   gRPC: localhost:4317
+#   HTTP: localhost:4318
+#
+# perf-sentinel Prometheus metrics:
+#   Instance 0: http://localhost:14318/metrics
+#   Instance 1: http://localhost:24318/metrics
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - ./otel-collector-sharded.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      perf-sentinel-0:
+        condition: service_started
+      perf-sentinel-1:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:13133"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  perf-sentinel-0:
+    image: ghcr.io/robintra/perf-sentinel:latest
+    command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
+    volumes:
+      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+    ports:
+      - "127.0.0.1:14318:4318"
+      - "127.0.0.1:14317:4317"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  perf-sentinel-1:
+    image: ghcr.io/robintra/perf-sentinel:latest
+    command: ["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]
+    volumes:
+      - ./perf-sentinel-docker.toml:/etc/perf-sentinel/.perf-sentinel.toml:ro
+    ports:
+      - "127.0.0.1:24318:4318"
+      - "127.0.0.1:24317:4317"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

@@ -10,7 +10,9 @@ use std::sync::{Arc, RwLock};
 use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
-use prometheus::{Counter, CounterVec, Encoder, Gauge, Opts, Registry, TextEncoder};
+use prometheus::{
+    Counter, CounterVec, Encoder, Gauge, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
+};
 
 use crate::report::Report;
 
@@ -68,6 +70,12 @@ pub struct MetricsState {
     /// Same pattern as [`Self::scaphandre_last_scrape_age_seconds`].
     /// Stays at 0 when cloud energy is not configured.
     pub cloud_energy_last_scrape_age_seconds: Gauge,
+    /// Duration histogram for spans exceeding the slow threshold, labeled
+    /// by event type (`sql` or `http_out`). Enables accurate global
+    /// percentile computation via `histogram_quantile()` across sharded
+    /// daemon instances where cross-trace percentiles would otherwise be
+    /// computed per-instance on a subset of traces.
+    pub slow_duration_seconds: HistogramVec,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -181,6 +189,25 @@ impl MetricsState {
             .register(Box::new(scaphandre_last_scrape_age_seconds.clone()))
             .expect("registration should not fail");
 
+        // Histogram for slow span durations (seconds). Buckets cover the
+        // typical range from 100ms to 30s. Prometheus aggregates these
+        // across instances via histogram_quantile(), solving the
+        // cross-trace percentile degradation in sharded deployments.
+        let slow_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "perf_sentinel_slow_duration_seconds",
+                "Duration of spans exceeding the slow threshold",
+            )
+            .buckets(vec![
+                0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 30.0,
+            ]),
+            &["type"],
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(slow_duration_seconds.clone()))
+            .expect("registration should not fail");
+
         let cloud_energy_last_scrape_age_seconds = Gauge::new(
             "perf_sentinel_cloud_energy_last_scrape_age_seconds",
             "Age in seconds since the last successful cloud energy scrape",
@@ -202,6 +229,7 @@ impl MetricsState {
             service_io_ops_total,
             scaphandre_last_scrape_age_seconds,
             cloud_energy_last_scrape_age_seconds,
+            slow_duration_seconds,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }

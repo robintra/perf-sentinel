@@ -493,6 +493,27 @@ fn process_traces(
         ));
     }
 
+    // Record slow span durations into a Prometheus histogram so that
+    // histogram_quantile() can compute accurate global percentiles
+    // across sharded daemon instances. Handles resolved once before
+    // the loop to avoid per-span HashMap lookups in with_label_values.
+    let slow_threshold_us = detect_config.slow_threshold_ms.saturating_mul(1000);
+    let hist_sql = metrics.slow_duration_seconds.with_label_values(&["sql"]);
+    let hist_http = metrics
+        .slow_duration_seconds
+        .with_label_values(&["http_out"]);
+    for trace in &trace_structs {
+        for span in &trace.spans {
+            if span.event.duration_us > slow_threshold_us {
+                let hist = match span.event.event_type {
+                    crate::event::EventType::Sql => &hist_sql,
+                    crate::event::EventType::HttpOut => &hist_http,
+                };
+                hist.observe(span.event.duration_us as f64 / 1_000_000.0);
+            }
+        }
+    }
+
     let (mut findings, green_summary) = if green_enabled {
         score::score_green(&trace_structs, findings, Some(carbon_ctx))
     } else {
