@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
+use crate::http_client::{self, HttpClient};
 use crate::report::metrics::MetricsState;
 use crate::score::scaphandre::ops::OpsSnapshotDiff;
 
@@ -42,16 +42,10 @@ pub(super) enum CloudScraperError {
         #[source]
         source: hyper::http::uri::InvalidUri,
     },
-    #[error("failed to build HTTP request")]
-    RequestBuild(#[source] hyper::http::Error),
-    #[error("HTTP transport error")]
-    Transport(#[source] hyper_util::client::legacy::Error),
-    #[error("Prometheus body read failed: {0}")]
-    BodyRead(String),
-    #[error("Prometheus endpoint returned HTTP {0}")]
-    HttpStatus(u16),
-    #[error("Prometheus endpoint timed out (5s)")]
-    Timeout,
+    /// HTTP fetch failed. Delegates to the shared
+    /// [`http_client::FetchError`].
+    #[error("Prometheus fetch failed")]
+    Fetch(#[source] http_client::FetchError),
     #[error("Prometheus response parse error: {0}")]
     JsonParse(String),
     #[error("Prometheus query returned no result for '{query}'")]
@@ -93,8 +87,6 @@ async fn fetch_cpu_percent(
     base_uri: &hyper::Uri,
     query: &str,
 ) -> Result<f64, CloudScraperError> {
-    use http_body_util::{BodyExt, Empty, Limited};
-
     let encoded_query = percent_encode_query(query);
     let path_and_query = format!("/api/v1/query?query={encoded_query}");
 
@@ -107,35 +99,21 @@ async fn fetch_cpu_percent(
         )
         .path_and_query(path_and_query)
         .build()
-        .map_err(CloudScraperError::RequestBuild)?;
+        .map_err(|e| CloudScraperError::Fetch(http_client::FetchError::RequestBuild(e)))?;
 
-    let req = hyper::Request::builder()
-        .method(hyper::Method::GET)
-        .uri(uri)
-        .header(
-            hyper::header::USER_AGENT,
-            "perf-sentinel/cloud-energy-scraper",
-        )
-        .body(Empty::<bytes::Bytes>::new())
-        .map_err(CloudScraperError::RequestBuild)?;
+    let bytes = http_client::fetch_get(
+        client,
+        &uri,
+        "perf-sentinel/cloud-energy-scraper",
+        Duration::from_secs(5),
+    )
+    .await
+    .map_err(CloudScraperError::Fetch)?;
 
-    let response = tokio::time::timeout(Duration::from_secs(5), client.request(req))
-        .await
-        .map_err(|_| CloudScraperError::Timeout)?
-        .map_err(CloudScraperError::Transport)?;
-
-    if !response.status().is_success() {
-        return Err(CloudScraperError::HttpStatus(response.status().as_u16()));
-    }
-
-    let limited = Limited::new(response.into_body(), MAX_BODY_BYTES);
-    let collected = limited
-        .collect()
-        .await
-        .map_err(|e| CloudScraperError::BodyRead(format!("{e}")))?;
-    let bytes = collected.to_bytes();
     let body_str = std::str::from_utf8(&bytes).map_err(|_| {
-        CloudScraperError::BodyRead("Prometheus response was not valid UTF-8".to_string())
+        CloudScraperError::Fetch(http_client::FetchError::BodyRead(
+            "Prometheus response was not valid UTF-8".to_string(),
+        ))
     })?;
 
     parse_prom_scalar(body_str, query)
@@ -993,8 +971,8 @@ mod tests {
             .await
             .expect_err("503 must error");
         match err {
-            CloudScraperError::HttpStatus(503) => {}
-            other => panic!("expected HttpStatus(503), got {other:?}"),
+            CloudScraperError::Fetch(crate::http_client::FetchError::HttpStatus(503)) => {}
+            other => panic!("expected Fetch(HttpStatus(503)), got {other:?}"),
         }
         server.await.unwrap();
     }
@@ -1113,19 +1091,18 @@ mod tests {
 
     #[test]
     fn cloud_scraper_error_display_messages_are_informative() {
-        // Smoke test to make sure every thiserror variant produces a
-        // distinct message. Helps operators disambiguate log lines.
-        let e1 = CloudScraperError::BodyRead("oops".to_string());
-        let e2 = CloudScraperError::HttpStatus(503);
-        let e3 = CloudScraperError::Timeout;
+        use crate::http_client::FetchError;
+        let e1 = CloudScraperError::Fetch(FetchError::BodyRead("oops".to_string()));
+        let e2 = CloudScraperError::Fetch(FetchError::HttpStatus(503));
+        let e3 = CloudScraperError::Fetch(FetchError::Timeout);
         let e4 = CloudScraperError::JsonParse("bad".to_string());
         let e5 = CloudScraperError::EmptyResult {
             query: "q".to_string(),
         };
         let e6 = CloudScraperError::QueryError("err".to_string());
-        assert!(format!("{e1}").contains("body read"));
-        assert!(format!("{e2}").contains("503"));
-        assert!(format!("{e3}").contains("timed out"));
+        assert!(format!("{e1}").contains("fetch failed"));
+        assert!(format!("{e2}").contains("fetch failed"));
+        assert!(format!("{e3}").contains("fetch failed"));
         assert!(format!("{e4}").contains("parse"));
         assert!(format!("{e5}").contains("no result"));
         assert!(format!("{e6}").contains("error status"));

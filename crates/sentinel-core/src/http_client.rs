@@ -50,6 +50,60 @@ pub(crate) fn redact_endpoint(uri: &hyper::Uri) -> String {
     }
 }
 
+/// Errors from [`fetch_get`]. Uses the same variants that the individual
+/// scrapers had independently, now unified so callers `.map_err()` into
+/// their domain-specific error type with a one-liner.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum FetchError {
+    #[error("failed to build HTTP request")]
+    RequestBuild(#[source] hyper::http::Error),
+    #[error("HTTP transport error")]
+    Transport(#[source] hyper_util::client::legacy::Error),
+    #[error("body read failed: {0}")]
+    BodyRead(String),
+    #[error("endpoint returned HTTP {0}")]
+    HttpStatus(u16),
+    #[error("request timed out")]
+    Timeout,
+}
+
+/// Perform a `GET` request with a timeout and body size cap.
+///
+/// Returns the response body as raw bytes. Shared by the Scaphandre,
+/// cloud energy, and Electricity Maps scrapers so the fetch/timeout/
+/// body-cap logic lives in one place.
+pub(crate) async fn fetch_get(
+    client: &HttpClient,
+    uri: &hyper::Uri,
+    user_agent: &str,
+    timeout: std::time::Duration,
+) -> Result<bytes::Bytes, FetchError> {
+    use http_body_util::{BodyExt, Empty, Limited};
+
+    let req = hyper::Request::builder()
+        .method(hyper::Method::GET)
+        .uri(uri.clone())
+        .header(hyper::header::USER_AGENT, user_agent)
+        .body(Empty::<bytes::Bytes>::new())
+        .map_err(FetchError::RequestBuild)?;
+
+    let response = tokio::time::timeout(timeout, client.request(req))
+        .await
+        .map_err(|_| FetchError::Timeout)?
+        .map_err(FetchError::Transport)?;
+
+    if !response.status().is_success() {
+        return Err(FetchError::HttpStatus(response.status().as_u16()));
+    }
+
+    let limited = Limited::new(response.into_body(), MAX_BODY_BYTES);
+    let collected = limited
+        .collect()
+        .await
+        .map_err(|e| FetchError::BodyRead(format!("{e}")))?;
+    Ok(collected.to_bytes())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

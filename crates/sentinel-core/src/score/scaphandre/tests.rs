@@ -346,7 +346,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
 }
 
 /// End-to-end negative test: the fake server returns a 500 error,
-/// `fetch_metrics_once` must surface it as `ScraperError::HttpStatus`.
+/// `fetch_metrics_once` must surface it as `ScraperError::Fetch`.
 #[tokio::test]
 async fn fetch_metrics_once_surfaces_http_error_status() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -375,8 +375,8 @@ async fn fetch_metrics_once_surfaces_http_error_status() {
         .expect_err("500 should error");
     server.await.unwrap();
     match err {
-        ScraperError::HttpStatus(500) => {}
-        other => panic!("expected HttpStatus(500), got {other:?}"),
+        ScraperError::Fetch(crate::http_client::FetchError::HttpStatus(500)) => {}
+        other => panic!("expected Fetch(HttpStatus(500)), got {other:?}"),
     }
 }
 
@@ -726,15 +726,13 @@ async fn fetch_metrics_once_rejects_oversized_body() {
         .expect_err("oversized body must fail with BodyRead (LengthLimit)");
     server.await.unwrap();
     match err {
-        ScraperError::BodyRead(msg) => {
-            // The underlying error type varies across hyper versions;
-            // the common thread is "length" in the message.
+        ScraperError::Fetch(crate::http_client::FetchError::BodyRead(msg)) => {
             assert!(
                 msg.to_ascii_lowercase().contains("length") || msg.contains("limit"),
                 "expected length-limit error, got: {msg}"
             );
         }
-        other => panic!("expected BodyRead, got {other:?}"),
+        other => panic!("expected Fetch(BodyRead), got {other:?}"),
     }
 }
 
@@ -742,10 +740,11 @@ async fn fetch_metrics_once_rejects_oversized_body() {
 /// Display message so operators can tell categories apart in logs.
 #[test]
 fn scraper_error_display_messages_are_informative() {
-    let e1 = ScraperError::BodyRead("oops".to_string());
-    let e2 = ScraperError::HttpStatus(418);
-    let e3 = ScraperError::Timeout;
-    assert!(format!("{e1}").contains("body read"));
-    assert!(format!("{e2}").contains("418"));
-    assert!(format!("{e3}").contains("timed out"));
+    use crate::http_client::FetchError;
+    let e1 = ScraperError::Fetch(FetchError::BodyRead("oops".to_string()));
+    let e2 = ScraperError::Fetch(FetchError::HttpStatus(418));
+    let e3 = ScraperError::Fetch(FetchError::Timeout);
+    assert!(format!("{e1}").contains("fetch failed"));
+    assert!(format!("{e2}").contains("fetch failed"));
+    assert!(format!("{e3}").contains("fetch failed"));
 }

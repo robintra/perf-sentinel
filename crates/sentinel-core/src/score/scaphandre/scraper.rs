@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::http_client::{self, HttpClient, MAX_BODY_BYTES};
+use crate::http_client::{self, HttpClient};
 use crate::report::metrics::MetricsState;
 
 use super::config::ScaphandreConfig;
@@ -39,37 +39,14 @@ pub(super) async fn fetch_metrics_once(
     client: &HttpClient,
     uri: &hyper::Uri,
 ) -> Result<String, ScraperError> {
-    use http_body_util::{BodyExt, Empty, Limited};
-
-    let req = hyper::Request::builder()
-        .method(hyper::Method::GET)
-        .uri(uri.clone())
-        .header(
-            hyper::header::USER_AGENT,
-            "perf-sentinel/scaphandre-scraper",
-        )
-        .body(Empty::<bytes::Bytes>::new())
-        .map_err(ScraperError::RequestBuild)?;
-
-    let response = tokio::time::timeout(Duration::from_secs(3), client.request(req))
-        .await
-        .map_err(|_| ScraperError::Timeout)?
-        .map_err(ScraperError::Transport)?;
-
-    if !response.status().is_success() {
-        return Err(ScraperError::HttpStatus(response.status().as_u16()));
-    }
-
-    // Cap the body at MAX_BODY_BYTES. `Limited` produces a
-    // `LengthLimitError` when the cap is exceeded; we map it to the
-    // dedicated `BodyRead` variant so operators can distinguish it
-    // from a transport error.
-    let limited_body = Limited::new(response.into_body(), MAX_BODY_BYTES);
-    let collected = limited_body
-        .collect()
-        .await
-        .map_err(|e| ScraperError::BodyRead(format!("{e}")))?;
-    let bytes = collected.to_bytes();
+    let bytes = http_client::fetch_get(
+        client,
+        uri,
+        "perf-sentinel/scaphandre-scraper",
+        Duration::from_secs(3),
+    )
+    .await
+    .map_err(ScraperError::Fetch)?;
     String::from_utf8(bytes.to_vec()).map_err(ScraperError::Utf8)
 }
 
@@ -92,20 +69,11 @@ pub(super) enum ScraperError {
         #[source]
         source: hyper::http::uri::InvalidUri,
     },
-    #[error("failed to build HTTP request")]
-    RequestBuild(#[source] hyper::http::Error),
-    #[error("HTTP transport error")]
-    Transport(#[source] hyper_util::client::legacy::Error),
-    /// Body read failed or exceeded `MAX_BODY_BYTES`.
-    /// The inner string is the upstream error message — typically a
-    /// `LengthLimitError` from `http_body_util::Limited` when the cap
-    /// trips, or a connection-level read failure otherwise.
-    #[error("Scaphandre body read failed: {0}")]
-    BodyRead(String),
-    #[error("Scaphandre endpoint returned HTTP {0}")]
-    HttpStatus(u16),
-    #[error("Scaphandre endpoint timed out (3s)")]
-    Timeout,
+    /// HTTP fetch failed (request build, transport, timeout, body
+    /// read, or non-2xx status). Delegates to the shared
+    /// [`http_client::FetchError`].
+    #[error("Scaphandre fetch failed")]
+    Fetch(#[source] http_client::FetchError),
     #[error("Scaphandre response was not valid UTF-8")]
     Utf8(#[source] std::string::FromUtf8Error),
 }
