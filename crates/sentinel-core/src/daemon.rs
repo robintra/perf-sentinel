@@ -35,6 +35,9 @@ pub enum DaemonError {
     /// gRPC listener failed to bind.
     #[error("failed to bind gRPC listener: {0}")]
     GrpcBind(std::io::Error),
+    /// TLS configuration or certificate loading failed.
+    #[error("TLS configuration error: {0}")]
+    TlsConfig(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Run the daemon: start all listeners and process events in a loop.
@@ -72,25 +75,45 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let http_listener = tokio::net::TcpListener::bind(http_addr)
         .await
         .map_err(DaemonError::HttpBind)?;
-    let grpc_incoming =
-        tonic::transport::server::TcpIncoming::bind(grpc_addr).map_err(DaemonError::GrpcBind)?;
+    let grpc_listener = tokio::net::TcpListener::bind(grpc_addr)
+        .await
+        .map_err(DaemonError::GrpcBind)?;
+
+    // Optional TLS: load cert+key once, build a shared acceptor.
+    let tls_acceptor = match (&config.tls_cert_path, &config.tls_key_path) {
+        (Some(cert_path), Some(key_path)) => {
+            let (cert, key) = load_tls_pem(cert_path, key_path)?;
+            Some(build_tls_acceptor(&cert, &key)?)
+        }
+        _ => None,
+    };
 
     // JoinHandles captured so Ctrl-C can abort cleanly.
     let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx.clone());
-    let grpc_handle = tokio::spawn(async move {
-        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
-        tracing::info!("OTLP gRPC listening on {grpc_addr}");
-        if let Err(e) = tonic::transport::Server::builder()
-            .timeout(Duration::from_secs(60))
-            .add_service(
-                TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
-            )
-            .serve_with_incoming(grpc_incoming)
-            .await
-        {
-            tracing::error!("gRPC server error: {e}");
-        }
-    });
+    let grpc_handle = {
+        let tls_acceptor = tls_acceptor.clone();
+        tokio::spawn(async move {
+            use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
+            if tls_acceptor.is_some() {
+                tracing::info!("OTLP gRPC+TLS listening on {grpc_addr}");
+            } else {
+                tracing::info!("OTLP gRPC listening on {grpc_addr}");
+            }
+            // Wrap TCP accept with optional TLS, then feed to tonic.
+            // tonic sees plain AsyncRead+Write streams either way.
+            let incoming = tls_tcp_incoming(grpc_listener, tls_acceptor);
+            if let Err(e) = tonic::transport::Server::builder()
+                .timeout(Duration::from_secs(60))
+                .add_service(
+                    TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
+                )
+                .serve_with_incoming(incoming)
+                .await
+            {
+                tracing::error!("gRPC server error: {e}");
+            }
+        })
+    };
 
     // OTLP HTTP + metrics.
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
@@ -103,12 +126,19 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             }))
             .layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60))),
     );
-    let http_handle = tokio::spawn(async move {
-        tracing::info!("OTLP HTTP listening on {http_addr}");
-        if let Err(e) = axum::serve(http_listener, http_router).await {
-            tracing::error!("HTTP server error: {e}");
-        }
-    });
+    let http_handle = if let Some(acceptor) = tls_acceptor {
+        tokio::spawn(async move {
+            tracing::info!("OTLP HTTPS listening on {http_addr}");
+            serve_https(http_listener, http_router, acceptor).await;
+        })
+    } else {
+        tokio::spawn(async move {
+            tracing::info!("OTLP HTTP listening on {http_addr}");
+            if let Err(e) = axum::serve(http_listener, http_router).await {
+                tracing::error!("HTTP server error: {e}");
+            }
+        })
+    };
 
     // JSON socket (Unix only). Socket file unlinked on shutdown.
     #[cfg(unix)]
@@ -573,6 +603,237 @@ fn hash_to_decision(hash: u64, rate: f64) -> bool {
 #[cfg(test)]
 fn should_sample(trace_id: &str, rate: f64) -> bool {
     hash_to_decision(hash_trace_id(trace_id), rate)
+}
+
+// ---------------------------------------------------------------------------
+// TLS helpers
+// ---------------------------------------------------------------------------
+
+/// Maximum time allowed for a TLS handshake to complete. Connections that
+/// do not finish the handshake within this window are dropped, preventing
+/// slowloris-style resource exhaustion.
+const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+/// A stream that is either a plain TCP connection or a TLS-wrapped one.
+/// Implements `AsyncRead + AsyncWrite` so tonic and hyper can use it
+/// transparently without knowing whether TLS is active.
+enum MaybeTlsStream {
+    Plain(tokio::net::TcpStream),
+    Tls(Box<tokio_rustls::server::TlsStream<tokio::net::TcpStream>>),
+}
+
+impl AsyncRead for MaybeTlsStream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => Pin::new(s).poll_read(cx, buf),
+            Self::Tls(s) => Pin::new(s).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for MaybeTlsStream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Self::Plain(s) => Pin::new(s).poll_write(cx, buf),
+            Self::Tls(s) => Pin::new(s).poll_write(cx, buf),
+        }
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => Pin::new(s).poll_flush(cx),
+            Self::Tls(s) => Pin::new(s).poll_flush(cx),
+        }
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Self::Plain(s) => Pin::new(s).poll_shutdown(cx),
+            Self::Tls(s) => Pin::new(s).poll_shutdown(cx),
+        }
+    }
+}
+
+/// tonic requires streams to implement `Connected` for remote addr info.
+impl tonic::transport::server::Connected for MaybeTlsStream {
+    type ConnectInfo = std::net::SocketAddr;
+
+    fn connect_info(&self) -> Self::ConnectInfo {
+        match self {
+            Self::Plain(s) => s.peer_addr().unwrap_or_else(|_| ([0, 0, 0, 0], 0).into()),
+            Self::Tls(s) => s
+                .get_ref()
+                .0
+                .peer_addr()
+                .unwrap_or_else(|_| ([0, 0, 0, 0], 0).into()),
+        }
+    }
+}
+
+/// Create an async stream of connections (plain or TLS) from a TCP listener.
+/// When `tls_acceptor` is `Some`, each accepted TCP connection is upgraded
+/// to TLS before being yielded. Failed TLS handshakes are silently dropped.
+///
+/// Internally spawns a task that feeds a bounded channel; the returned
+/// `ReceiverStream` is consumed by tonic's `serve_with_incoming`.
+fn tls_tcp_incoming(
+    listener: tokio::net::TcpListener,
+    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+) -> tokio_stream::wrappers::ReceiverStream<Result<MaybeTlsStream, std::io::Error>> {
+    let (tx, rx) = mpsc::channel(128);
+
+    tokio::spawn(async move {
+        loop {
+            let (tcp, addr) = match listener.accept().await {
+                Ok(conn) => conn,
+                Err(e) => {
+                    tracing::debug!("TCP accept error: {e}");
+                    continue;
+                }
+            };
+            let stream = if let Some(ref acceptor) = tls_acceptor {
+                match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.clone().accept(tcp))
+                    .await
+                {
+                    Ok(Ok(tls)) => MaybeTlsStream::Tls(Box::new(tls)),
+                    Ok(Err(e)) => {
+                        tracing::debug!("TLS handshake failed from {addr}: {e}");
+                        continue;
+                    }
+                    Err(_) => {
+                        tracing::debug!("TLS handshake timed out from {addr}");
+                        continue;
+                    }
+                }
+            } else {
+                MaybeTlsStream::Plain(tcp)
+            };
+            if tx.send(Ok(stream)).await.is_err() {
+                break; // receiver dropped, shutting down
+            }
+        }
+    });
+
+    tokio_stream::wrappers::ReceiverStream::new(rx)
+}
+
+/// Read TLS certificate and key from disk. Returns raw PEM bytes.
+/// Never logs the key content.
+fn load_tls_pem(cert_path: &str, key_path: &str) -> Result<(Vec<u8>, Vec<u8>), DaemonError> {
+    let cert = std::fs::read(cert_path).map_err(|e| {
+        DaemonError::TlsConfig(format!("failed to read TLS cert '{cert_path}': {e}").into())
+    })?;
+    let key = std::fs::read(key_path).map_err(|e| {
+        DaemonError::TlsConfig(format!("failed to read TLS key '{key_path}': {e}").into())
+    })?;
+    Ok((cert, key))
+}
+
+/// Build a `tokio_rustls::TlsAcceptor` from PEM cert chain + key.
+/// Used for the HTTP/OTLP listener; gRPC uses tonic's native TLS.
+fn build_tls_acceptor(
+    cert_pem: &[u8],
+    key_pem: &[u8],
+) -> Result<tokio_rustls::TlsAcceptor, DaemonError> {
+    use std::io::BufReader;
+
+    let certs: Vec<_> = rustls_pemfile::certs(&mut BufReader::new(cert_pem))
+        .collect::<Result<_, _>>()
+        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS certs: {e}").into()))?;
+    let key = rustls_pemfile::private_key(&mut BufReader::new(key_pem))
+        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS key: {e}").into()))?
+        .ok_or_else(|| DaemonError::TlsConfig("no private key found in TLS key file".into()))?;
+
+    let config = tokio_rustls::rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| DaemonError::TlsConfig(format!("TLS server config: {e}").into()))?;
+
+    Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
+}
+
+/// Serve an axum `Router` over TLS using a manual accept loop.
+///
+/// Each accepted TCP connection is upgraded to TLS via the acceptor,
+/// then served with hyper. Failed TLS handshakes are logged at debug
+/// level and silently dropped (not fatal to the server).
+async fn serve_https(
+    listener: tokio::net::TcpListener,
+    app: axum::Router,
+    tls_acceptor: tokio_rustls::TlsAcceptor,
+) {
+    use tower::ServiceExt;
+
+    loop {
+        let (tcp_stream, remote_addr) = match listener.accept().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                tracing::debug!("TCP accept error: {e}");
+                continue;
+            }
+        };
+
+        let acceptor = tls_acceptor.clone();
+        let app = app.clone();
+
+        tokio::spawn(async move {
+            let tls_stream = match tokio::time::timeout(
+                TLS_HANDSHAKE_TIMEOUT,
+                acceptor.accept(tcp_stream),
+            )
+            .await
+            {
+                Ok(Ok(s)) => s,
+                Ok(Err(e)) => {
+                    tracing::debug!("TLS handshake failed from {remote_addr}: {e}");
+                    return;
+                }
+                Err(_) => {
+                    tracing::debug!("TLS handshake timed out from {remote_addr}");
+                    return;
+                }
+            };
+
+            let io = hyper_util::rt::TokioIo::new(tls_stream);
+
+            // Bridge axum (tower) router to hyper service: convert
+            // Incoming body to axum::body::Body, then oneshot the router.
+            let service =
+                hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                    let app = app.clone();
+                    async move {
+                        let (parts, body) = req.into_parts();
+                        let req = hyper::Request::from_parts(parts, axum::body::Body::new(body));
+                        Ok::<_, std::convert::Infallible>(
+                            app.oneshot(req).await.unwrap_or_else(|err| match err {}),
+                        )
+                    }
+                });
+
+            // auto::Builder negotiates HTTP/1.1 and HTTP/2, matching
+            // the behavior of axum::serve on the non-TLS path. OTLP
+            // clients commonly use HTTP/2 when TLS is active.
+            if let Err(e) =
+                hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
+                    .serve_connection(io, service)
+                    .await
+            {
+                tracing::debug!("HTTPS connection error from {remote_addr}: {e}");
+            }
+        });
+    }
 }
 
 /// Get current time in milliseconds since epoch.

@@ -225,6 +225,8 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `max_events_per_trace` | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire, max 100000). Les événements les plus anciens sont supprimés en cas de dépassement                                                                                                                                                                                 |
 | `max_payload_size`     | entier   | `1048576`                   | Taille maximale en octets d'un payload JSON unique (défaut : 1 Mo, max 100 Mo)                                                                                                                                                                                                                                                      |
 | `environment`          | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs en aval (perf-lint). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config |
+| `tls_cert_path`        | chaîne   | *(absent)*                  | Chemin vers une chaîne de certificats TLS au format PEM pour les récepteurs OTLP. Quand renseigné avec `tls_key_path`, les listeners gRPC et HTTP utilisent TLS. Quand absent, les listeners utilisent TCP en clair |
+| `tls_key_path`         | chaîne   | *(absent)*                  | Chemin vers la clé privée TLS au format PEM. Doit être renseigné avec `tls_cert_path` (les deux ou aucun). Sous Unix, le daemon avertit si le fichier de clé est lisible par le groupe ou les autres |
 
 ## Configuration minimale
 
@@ -268,6 +270,10 @@ trace_ttl_ms = 30000
 sampling_rate = 1.0
 max_events_per_trace = 1000
 max_payload_size = 1048576
+# Optionnel : activer le TLS sur les listeners gRPC et HTTP.
+# Les deux champs doivent être renseignés ensemble (ou les deux absents pour TCP en clair).
+# tls_cert_path = "/etc/tls/server-cert.pem"
+# tls_key_path = "/etc/tls/server-key.pem"
 ```
 
 ## Format plat legacy

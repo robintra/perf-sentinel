@@ -262,6 +262,8 @@ Streaming mode (`perf-sentinel watch`) settings.
 | `max_events_per_trace` | integer | `1000`                      | Maximum events stored per trace (ring buffer, max 100000). Oldest events are dropped when exceeded                                                                                                                                                                                             |
 | `max_payload_size`     | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB, max 100 MB)                                                                                                                                                                                                                    |
 | `environment`          | string  | `"staging"`                 | Deployment environment label. Accepted values: `"staging"` (default, medium confidence) or `"production"` (high confidence). Stamps every finding with the corresponding `confidence` field for downstream consumers (perf-lint). Case-insensitive; any other value is rejected at config load |
+| `tls_cert_path`        | string  | *(absent)*                  | Path to a PEM-encoded TLS certificate chain for the OTLP receivers. When set alongside `tls_key_path`, both gRPC and HTTP listeners use TLS. When absent, listeners use plain TCP |
+| `tls_key_path`         | string  | *(absent)*                  | Path to a PEM-encoded TLS private key. Must be set together with `tls_cert_path` (both or neither). On Unix, the daemon warns if the key file is readable by group or others |
 
 ## Minimal configuration
 
@@ -305,6 +307,10 @@ trace_ttl_ms = 30000
 sampling_rate = 1.0
 max_events_per_trace = 1000
 max_payload_size = 1048576
+# Optional: enable TLS on both gRPC and HTTP listeners.
+# Both fields must be set together (or both absent for plain TCP).
+# tls_cert_path = "/etc/tls/server-cert.pem"
+# tls_key_path = "/etc/tls/server-key.pem"
 ```
 
 ## Legacy flat format

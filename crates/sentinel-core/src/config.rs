@@ -109,6 +109,12 @@ pub struct Config {
     /// so downstream consumers (perf-lint) can boost severity. Ignored in
     /// `analyze` batch mode, which always emits [`Confidence::CiBatch`].
     pub daemon_environment: DaemonEnvironment,
+    /// Path to PEM-encoded TLS certificate chain for the OTLP receivers.
+    /// When set alongside [`tls_key_path`], both gRPC and HTTP listeners
+    /// use TLS. When absent, listeners use plain TCP (default).
+    pub tls_cert_path: Option<String>,
+    /// Path to PEM-encoded TLS private key for the OTLP receivers.
+    pub tls_key_path: Option<String>,
 }
 
 /// Deployment environment for the daemon's `watch` mode.
@@ -184,6 +190,8 @@ impl Default for Config {
             max_events_per_trace: 1_000,
             max_payload_size: 1_048_576, // 1 MB
             daemon_environment: DaemonEnvironment::Staging,
+            tls_cert_path: None,
+            tls_key_path: None,
         }
     }
 }
@@ -367,6 +375,10 @@ struct DaemonSection {
     /// in `Config::validate`; invalid values fail at load time with a
     /// clear error. Case-insensitive.
     environment: Option<String>,
+    /// Path to PEM-encoded TLS certificate chain.
+    tls_cert_path: Option<String>,
+    /// Path to PEM-encoded TLS private key.
+    tls_key_path: Option<String>,
 }
 
 impl From<RawConfig> for Config {
@@ -556,6 +568,8 @@ impl From<RawConfig> for Config {
                 None => defaults.daemon_environment,
                 Some(s) => parse_daemon_environment(s).unwrap_or(DaemonEnvironment::Staging),
             },
+            tls_cert_path: raw.daemon.tls_cert_path,
+            tls_key_path: raw.daemon.tls_key_path,
         }
     }
 }
@@ -749,8 +763,54 @@ impl Config {
         self.validate_detection_params()?;
         self.validate_rates()?;
         self.validate_listen_addr()?;
+        self.validate_tls()?;
         self.validate_green()?;
         Ok(())
+    }
+
+    /// Validate TLS configuration: both paths must be set or both absent.
+    /// When set, verify the files exist and warn if the key is
+    /// world-readable on Unix.
+    fn validate_tls(&self) -> Result<(), String> {
+        match (&self.tls_cert_path, &self.tls_key_path) {
+            (Some(cert), Some(key)) => {
+                if has_control_char(cert) {
+                    return Err("[daemon] tls_cert_path contains control characters".to_string());
+                }
+                if has_control_char(key) {
+                    return Err("[daemon] tls_key_path contains control characters".to_string());
+                }
+                if !std::path::Path::new(cert).exists() {
+                    return Err(format!("[daemon] tls_cert_path '{cert}' does not exist"));
+                }
+                if !std::path::Path::new(key).exists() {
+                    return Err(format!("[daemon] tls_key_path '{key}' does not exist"));
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(meta) = std::fs::metadata(key) {
+                        let mode = meta.permissions().mode();
+                        if mode & 0o077 != 0 {
+                            tracing::warn!(
+                                "TLS key file '{key}' is readable by group/others \
+                                 (mode {mode:o}). Consider restricting to owner-only \
+                                 (chmod 600)."
+                            );
+                        }
+                    }
+                }
+                tracing::info!("TLS enabled for daemon OTLP receivers (cert: {cert})");
+                Ok(())
+            }
+            (None, None) => Ok(()),
+            (Some(_), None) => {
+                Err("[daemon] tls_cert_path is set but tls_key_path is missing".to_string())
+            }
+            (None, Some(_)) => {
+                Err("[daemon] tls_key_path is set but tls_cert_path is missing".to_string())
+            }
+        }
     }
 
     fn validate_green(&self) -> Result<(), String> {
@@ -2498,5 +2558,103 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
         assert!(err.contains("poll_interval"));
+    }
+
+    // ---------------------------------------------------------------
+    // TLS validation
+    // ---------------------------------------------------------------
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_accepts_both_absent() {
+        let cfg = Config::default();
+        assert!(cfg.validate_tls().is_ok());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_rejects_cert_without_key() {
+        let mut cfg = Config::default();
+        cfg.tls_cert_path = Some("/tmp/cert.pem".to_string());
+        let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("tls_key_path is missing"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_rejects_key_without_cert() {
+        let mut cfg = Config::default();
+        cfg.tls_key_path = Some("/tmp/key.pem".to_string());
+        let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("tls_cert_path is missing"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_rejects_nonexistent_cert() {
+        let mut cfg = Config::default();
+        cfg.tls_cert_path = Some("/nonexistent/cert.pem".to_string());
+        cfg.tls_key_path = Some("/nonexistent/key.pem".to_string());
+        let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("does not exist"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_accepts_existing_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let cert = dir.path().join("cert.pem");
+        let key = dir.path().join("key.pem");
+        std::fs::write(&cert, b"fake cert").unwrap();
+        std::fs::write(&key, b"fake key").unwrap();
+
+        let mut cfg = Config::default();
+        cfg.tls_cert_path = Some(cert.to_str().unwrap().to_string());
+        cfg.tls_key_path = Some(key.to_str().unwrap().to_string());
+        assert!(cfg.validate_tls().is_ok());
+    }
+
+    #[test]
+    fn tls_config_fields_round_trip_through_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let cert = dir.path().join("cert.pem");
+        let key = dir.path().join("key.pem");
+        std::fs::write(&cert, b"fake cert").unwrap();
+        std::fs::write(&key, b"fake key").unwrap();
+        let toml = format!(
+            "[daemon]\ntls_cert_path = \"{}\"\ntls_key_path = \"{}\"",
+            cert.display(),
+            key.display()
+        );
+        let cfg = load_from_str(&toml).unwrap();
+        assert_eq!(cfg.tls_cert_path.as_deref(), Some(cert.to_str().unwrap()));
+        assert_eq!(cfg.tls_key_path.as_deref(), Some(key.to_str().unwrap()));
+    }
+
+    #[test]
+    fn tls_config_defaults_to_none() {
+        let cfg = load_from_str("").unwrap();
+        assert!(cfg.tls_cert_path.is_none());
+        assert!(cfg.tls_key_path.is_none());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_rejects_control_chars_in_cert_path() {
+        let mut cfg = Config::default();
+        cfg.tls_cert_path = Some("/tmp/cert\x00.pem".to_string());
+        cfg.tls_key_path = Some("/tmp/key.pem".to_string());
+        let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("control characters"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_tls_rejects_control_chars_in_key_path() {
+        let mut cfg = Config::default();
+        cfg.tls_cert_path = Some("/tmp/cert.pem".to_string());
+        cfg.tls_key_path = Some("/tmp/key\n.pem".to_string());
+        let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("control characters"), "{err}");
     }
 }

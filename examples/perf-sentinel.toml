@@ -169,3 +169,9 @@ max_payload_size = 1048576
 # - "production" → `daemon_production` (high confidence)
 # Consumed by perf-lint (IDE integration) to boost or reduce severity.
 environment = "staging"
+
+# Optional TLS for OTLP gRPC and HTTP listeners. Both fields must be
+# set together (or both absent for plain TCP). The daemon warns if the
+# key file is readable by group or others on Unix.
+# tls_cert_path = "/etc/tls/server-cert.pem"
+# tls_key_path = "/etc/tls/server-key.pem"

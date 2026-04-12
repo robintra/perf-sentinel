@@ -47,9 +47,9 @@ The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io
 ### Why these thresholds
 
 - **IIS_MODERATE (2.0)** is a rule of thumb, not empirical. It reflects the intuition that a typical CRUD endpoint makes 1-2 I/O ops per request. Aggregators, dashboards, and report generators will show many "moderate" endpoints that are legitimate designs, not defects.
-- **IIS_HIGH (5.0)** is anchored on `Config::default().n_plus_one_threshold = 5`. An endpoint whose IIS reaches 5.0 is arithmetically at the point where `detect_n_plus_one` starts emitting findings — hence "high, worth investigating".
+- **IIS_HIGH (5.0)** is anchored on `Config::default().n_plus_one_threshold = 5`. An endpoint whose IIS reaches 5.0 is arithmetically at the point where `detect_n_plus_one` starts emitting findings, hence "high, worth investigating".
 - **IIS_CRITICAL (10.0)** is anchored on the hard-coded `indices.len() >= 10` severity escalation in `crate::detect::n_plus_one`. Same number, same semantics: if a finding hits that count, it's tagged `Severity::Critical` by the detector, and the endpoint-level IIS band tells you the aggregate footprint also crossed the same line.
-- **WASTE_RATIO_HIGH (0.30)** matches the **default** `io_waste_ratio_max`. If you override the quality gate in your `.perf-sentinel.toml`, the CLI/JSON interpretation does NOT follow — the gate is a user policy, the interpretation is a fixed heuristic. These are two independent dimensions by design, otherwise a user who relaxes the gate to accept a noisy legacy service would see the interpretation silently shift and miss the signal.
+- **WASTE_RATIO_HIGH (0.30)** matches the **default** `io_waste_ratio_max`. If you override the quality gate in your `.perf-sentinel.toml`, the CLI/JSON interpretation does NOT follow. The gate is a user policy, the interpretation is a fixed heuristic. These are two independent dimensions by design: a user who relaxes the gate to accept a noisy legacy service should not see the interpretation silently shift and miss the signal.
 - **WASTE_RATIO_CRITICAL (0.50)** flags runs where at least half of the analyzed I/O is avoidable waste.
 
 ### JSON stability contract
@@ -101,17 +101,20 @@ All ingestion boundaries (OTLP, JSON, Jaeger, Zipkin) truncate string fields to 
 
 The release binary targets < 10 MB with `lto = "thin"`, `strip = true` and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
 
-## No Authentication or TLS
+## No authentication (TLS available, auth not built-in)
 
-perf-sentinel does **not** implement authentication or TLS on any of its ingestion endpoints (OTLP gRPC, OTLP HTTP, JSON unix socket, Prometheus `/metrics`). By default, the daemon binds to `127.0.0.1` (loopback only), which is safe for single-machine deployments.
+perf-sentinel does **not** implement authentication on its ingestion endpoints. By default, the daemon binds to `127.0.0.1` (loopback only), which is safe for single-machine deployments.
+
+**TLS is supported** on the OTLP gRPC and HTTP listeners via the `[daemon] tls_cert_path` and `tls_key_path` configuration fields. When both are set, the daemon serves OTLP and `/metrics` over TLS. The JSON unix socket and Prometheus `/metrics` scraping are not separately configurable: `/metrics` shares the HTTP port and inherits its TLS setting. See [`docs/CONFIGURATION.md`](CONFIGURATION.md) for the full reference.
 
 If you expose perf-sentinel to a network:
 
-- Place it behind a reverse proxy that handles TLS and authentication
+- **Enable TLS** via `tls_cert_path` and `tls_key_path` to encrypt traffic in transit
 - Use network policies (Kubernetes `NetworkPolicy`, Docker network isolation, firewall rules) to restrict access
+- For **authentication**, place perf-sentinel behind a reverse proxy (nginx, envoy) that handles bearer tokens or mTLS client certificates
 - Route traces through an OpenTelemetry Collector with its own auth extensions and forward to perf-sentinel on a trusted internal network
 
-Never expose perf-sentinel directly to untrusted networks without a security layer in front.
+Never expose perf-sentinel directly to untrusted networks without at minimum TLS enabled and network-level access controls in place.
 
 ### JSON socket hardening
 

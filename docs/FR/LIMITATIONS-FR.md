@@ -159,17 +159,20 @@ Toutes les frontières d'ingestion (OTLP, JSON, Jaeger, Zipkin) tronquent les ch
 
 Le binaire release cible < 10 Mo avec `lto = "thin"`, `strip = true` et `panic = "abort"`. La table d'intensité carbone embarquée et le support protobuf OTLP contribuent à la taille du binaire. Si vous avez besoin d'un binaire plus petit et n'utilisez pas l'ingestion OTLP, la compilation avec des feature flags (travail futur) pourrait réduire la taille.
 
-## Pas d'authentification ni de TLS
+## Pas d'authentification (TLS disponible, auth non intégrée)
 
-perf-sentinel n'implémente **pas** d'authentification ni de TLS sur ses endpoints d'ingestion (OTLP gRPC, OTLP HTTP, socket unix JSON, Prometheus `/metrics`). Par défaut, le daemon écoute sur `127.0.0.1` (loopback uniquement), ce qui est sûr pour les déploiements sur une seule machine.
+perf-sentinel n'implémente **pas** d'authentification sur ses endpoints d'ingestion. Par défaut, le daemon écoute sur `127.0.0.1` (loopback uniquement), ce qui est sûr pour les déploiements sur une seule machine.
+
+**Le TLS est supporté** sur les listeners OTLP gRPC et HTTP via les champs de configuration `[daemon] tls_cert_path` et `tls_key_path`. Lorsque les deux sont renseignés, le daemon sert OTLP et `/metrics` en TLS. Le socket unix JSON et le scraping Prometheus `/metrics` ne sont pas configurables séparément : `/metrics` partage le port HTTP et hérite de son paramètre TLS. Voir [`docs/CONFIGURATION.md`](../CONFIGURATION.md) pour la référence complète.
 
 Si vous exposez perf-sentinel sur un réseau :
 
-- Placez-le derrière un reverse proxy qui gère le TLS et l'authentification
+- **Activez le TLS** via `tls_cert_path` et `tls_key_path` pour chiffrer le trafic en transit
 - Utilisez des politiques réseau (Kubernetes `NetworkPolicy`, isolation réseau Docker, règles de pare-feu) pour restreindre l'accès
+- Pour l'**authentification**, placez perf-sentinel derrière un reverse proxy (nginx, envoy) qui gère les tokens bearer ou les certificats client mTLS
 - Acheminez les traces via un OpenTelemetry Collector avec ses propres extensions d'authentification et transmettez à perf-sentinel sur un réseau interne de confiance
 
-N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans couche de sécurité en amont.
+N'exposez jamais perf-sentinel directement sur des réseaux non fiables sans au minimum le TLS activé et des contrôles d'accès réseau en place.
 
 ### Durcissement du socket JSON
 
