@@ -295,6 +295,46 @@ impl From<&crate::config::Config> for DetectConfig {
     }
 }
 
+/// Arguments for [`build_per_trace_finding`], grouped to stay under
+/// clippy's argument-count limit.
+pub(crate) struct PerTraceFindingArgs<'a> {
+    pub finding_type: FindingType,
+    pub severity: Severity,
+    pub trace_id: &'a str,
+    pub first_span: &'a crate::normalize::NormalizedEvent,
+    pub template: &'a str,
+    pub occurrences: usize,
+    pub window_ms: u64,
+    pub distinct_params: usize,
+    pub suggestion: String,
+    pub first_timestamp: &'a str,
+    pub last_timestamp: &'a str,
+}
+
+/// Build a [`Finding`] from the common fields shared by per-trace
+/// detectors (N+1, redundant, slow). Avoids duplicating the struct
+/// literal across detection modules.
+pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding {
+    Finding {
+        finding_type: args.finding_type,
+        severity: args.severity,
+        trace_id: args.trace_id.to_string(),
+        service: args.first_span.event.service.clone(),
+        source_endpoint: args.first_span.event.source.endpoint.clone(),
+        pattern: Pattern {
+            template: args.template.to_string(),
+            occurrences: args.occurrences,
+            window_ms: args.window_ms,
+            distinct_params: args.distinct_params,
+        },
+        suggestion: args.suggestion,
+        first_timestamp: args.first_timestamp.to_string(),
+        last_timestamp: args.last_timestamp.to_string(),
+        green_impact: None,
+        confidence: Confidence::default(),
+    }
+}
+
 /// Run all per-trace detectors on a set of traces.
 ///
 /// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`].

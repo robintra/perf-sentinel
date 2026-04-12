@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use crate::correlate::Trace;
 use crate::event::EventType;
 
-use super::{Confidence, Finding, FindingType, Pattern, Severity};
+use super::{Finding, FindingType, Severity};
 
 /// Occurrence count at which an N+1 finding escalates from
 /// `Severity::Warning` to `Severity::Critical`.
@@ -88,26 +88,19 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             ),
         };
 
-        findings.push(Finding {
+        findings.push(super::build_per_trace_finding(super::PerTraceFindingArgs {
             finding_type: FindingType::from_event_type_n_plus_one(event_type),
             severity,
-            trace_id: trace.trace_id.clone(),
-            service: first.event.service.clone(),
-            source_endpoint: first.event.source.endpoint.clone(),
-            pattern: Pattern {
-                template: (*template).to_string(),
-                occurrences: indices.len(),
-                window_ms,
-                distinct_params: distinct_params.len(),
-            },
+            trace_id: &trace.trace_id,
+            first_span: first,
+            template,
+            occurrences: indices.len(),
+            window_ms,
+            distinct_params: distinct_params.len(),
             suggestion,
-            first_timestamp: min_ts.to_string(),
-            last_timestamp: max_ts.to_string(),
-            green_impact: None,
-            // detectors always emit the default (CiBatch);
-            // pipeline/daemon callers post-stamp the real confidence.
-            confidence: Confidence::default(),
-        });
+            first_timestamp: min_ts,
+            last_timestamp: max_ts,
+        }));
     }
 
     findings

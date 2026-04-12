@@ -370,38 +370,7 @@ fn cmd_analyze(
     let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     let report = pipeline::analyze(events, &config);
-
-    // Determine output format: explicit --format takes priority, --ci defaults to json
-    let effective_format = format.unwrap_or(if ci {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Text
-    });
-
-    match effective_format {
-        OutputFormat::Text => {
-            print_colored_report(&report, "report");
-        }
-        OutputFormat::Json => {
-            let sink = JsonReportSink;
-            if let Err(e) = sink.emit(&report) {
-                eprintln!("Error writing report: {e}");
-                std::process::exit(1);
-            }
-        }
-        OutputFormat::Sarif => {
-            if let Err(e) = sentinel_core::report::sarif::emit_sarif(&report) {
-                eprintln!("Error writing SARIF report: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    // In CI mode, exit 1 if quality gate fails (regardless of format)
-    if ci && !report.quality_gate.passed {
-        eprintln!("Quality gate FAILED");
-        std::process::exit(1);
-    }
+    emit_report_and_gate(&report, format, ci, "report");
 }
 
 #[cfg(feature = "tempo")]
@@ -457,36 +426,7 @@ async fn cmd_tempo(
     );
 
     let report = pipeline::analyze(events, &config);
-
-    let effective_format = format.unwrap_or(if ci {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Text
-    });
-
-    match effective_format {
-        OutputFormat::Text => {
-            print_colored_report(&report, "tempo");
-        }
-        OutputFormat::Json => {
-            let sink = JsonReportSink;
-            if let Err(e) = sink.emit(&report) {
-                eprintln!("Error writing report: {e}");
-                std::process::exit(1);
-            }
-        }
-        OutputFormat::Sarif => {
-            if let Err(e) = sentinel_core::report::sarif::emit_sarif(&report) {
-                eprintln!("Error writing SARIF report: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if ci && !report.quality_gate.passed {
-        eprintln!("Quality gate FAILED");
-        std::process::exit(1);
-    }
+    emit_report_and_gate(&report, format, ci, "tempo");
 }
 
 fn cmd_calibrate(
@@ -933,6 +873,40 @@ fn current_rss_bytes() -> Option<usize> {
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     {
         None
+    }
+}
+
+/// Emit a report in the requested format and exit 1 if the quality gate
+/// fails in CI mode. Shared between `cmd_analyze` and `cmd_tempo`.
+fn emit_report_and_gate(report: &Report, format: Option<OutputFormat>, ci: bool, label: &str) {
+    let effective_format = format.unwrap_or(if ci {
+        OutputFormat::Json
+    } else {
+        OutputFormat::Text
+    });
+
+    match effective_format {
+        OutputFormat::Text => {
+            print_colored_report(report, label);
+        }
+        OutputFormat::Json => {
+            let sink = JsonReportSink;
+            if let Err(e) = sink.emit(report) {
+                eprintln!("Error writing report: {e}");
+                std::process::exit(1);
+            }
+        }
+        OutputFormat::Sarif => {
+            if let Err(e) = sentinel_core::report::sarif::emit_sarif(report) {
+                eprintln!("Error writing SARIF report: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    if ci && !report.quality_gate.passed {
+        eprintln!("Quality gate FAILED");
+        std::process::exit(1);
     }
 }
 

@@ -456,6 +456,68 @@ fn build_tick_ctx<'a>(
     std::borrow::Cow::Owned(ctx)
 }
 
+/// Record slow span durations into a Prometheus histogram.
+///
+/// `histogram_quantile()` can then compute accurate global percentiles
+/// across sharded daemon instances. Handles resolved once before the loop
+/// to avoid per-span `HashMap` lookups in `with_label_values`.
+fn record_slow_durations(traces: &[Trace], detect_config: &DetectConfig, metrics: &MetricsState) {
+    let slow_threshold_us = detect_config.slow_threshold_ms.saturating_mul(1000);
+    let hist_sql = metrics.slow_duration_seconds.with_label_values(&["sql"]);
+    let hist_http = metrics
+        .slow_duration_seconds
+        .with_label_values(&["http_out"]);
+    for trace in traces {
+        for span in &trace.spans {
+            if span.event.duration_us > slow_threshold_us {
+                let hist = match span.event.event_type {
+                    crate::event::EventType::Sql => &hist_sql,
+                    crate::event::EventType::HttpOut => &hist_http,
+                };
+                hist.observe(span.event.duration_us as f64 / 1_000_000.0);
+            }
+        }
+    }
+}
+
+/// Update Prometheus counters, gauges, and exemplars, then emit findings
+/// as NDJSON to stdout.
+fn emit_findings_and_update_metrics(
+    trace_count: usize,
+    findings: &[detect::Finding],
+    green_summary: &GreenSummary,
+    metrics: &MetricsState,
+) {
+    use std::io::Write;
+
+    metrics.traces_analyzed_total.inc_by(trace_count as f64);
+    metrics
+        .total_io_ops
+        .inc_by(green_summary.total_io_ops as f64);
+    metrics
+        .avoidable_io_ops
+        .inc_by(green_summary.avoidable_io_ops as f64);
+    let cumulative_total = metrics.total_io_ops.get();
+    if cumulative_total > 0.0 {
+        metrics
+            .io_waste_ratio
+            .set(metrics.avoidable_io_ops.get() / cumulative_total);
+    }
+    metrics.record_exemplars(findings, green_summary);
+
+    let stdout = std::io::stdout();
+    let mut lock = stdout.lock();
+    for finding in findings {
+        metrics
+            .findings_total
+            .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
+            .inc();
+        if serde_json::to_writer(&mut lock, finding).is_ok() {
+            let _ = writeln!(lock);
+        }
+    }
+}
+
 /// Process a batch of completed/expired traces: detect, score, emit NDJSON.
 ///
 /// stamps `confidence` on every finding after detection. The
@@ -493,26 +555,7 @@ fn process_traces(
         ));
     }
 
-    // Record slow span durations into a Prometheus histogram so that
-    // histogram_quantile() can compute accurate global percentiles
-    // across sharded daemon instances. Handles resolved once before
-    // the loop to avoid per-span HashMap lookups in with_label_values.
-    let slow_threshold_us = detect_config.slow_threshold_ms.saturating_mul(1000);
-    let hist_sql = metrics.slow_duration_seconds.with_label_values(&["sql"]);
-    let hist_http = metrics
-        .slow_duration_seconds
-        .with_label_values(&["http_out"]);
-    for trace in &trace_structs {
-        for span in &trace.spans {
-            if span.event.duration_us > slow_threshold_us {
-                let hist = match span.event.event_type {
-                    crate::event::EventType::Sql => &hist_sql,
-                    crate::event::EventType::HttpOut => &hist_http,
-                };
-                hist.observe(span.event.duration_us as f64 / 1_000_000.0);
-            }
-        }
-    }
+    record_slow_durations(&trace_structs, detect_config, metrics);
 
     let (mut findings, green_summary) = if green_enabled {
         score::score_green(&trace_structs, findings, Some(carbon_ctx))
@@ -529,39 +572,7 @@ fn process_traces(
     }
     let findings = findings;
 
-    // Update Prometheus metrics
-    metrics.traces_analyzed_total.inc_by(trace_count as f64);
-    metrics
-        .total_io_ops
-        .inc_by(green_summary.total_io_ops as f64);
-    metrics
-        .avoidable_io_ops
-        .inc_by(green_summary.avoidable_io_ops as f64);
-    // Note: io_waste_ratio is a cumulative all-time ratio, not windowed.
-    // Users can compute a windowed rate from the raw counters using Prometheus rate().
-    let cumulative_total = metrics.total_io_ops.get();
-    if cumulative_total > 0.0 {
-        metrics
-            .io_waste_ratio
-            .set(metrics.avoidable_io_ops.get() / cumulative_total);
-    }
-    // Update exemplar tracking for Grafana click-through
-    metrics.record_exemplars(&findings, &green_summary);
-
-    {
-        use std::io::Write;
-        let stdout = std::io::stdout();
-        let mut lock = stdout.lock();
-        for finding in &findings {
-            metrics
-                .findings_total
-                .with_label_values(&[finding.finding_type.as_str(), finding.severity.as_str()])
-                .inc();
-            if serde_json::to_writer(&mut lock, finding).is_ok() {
-                let _ = writeln!(lock);
-            }
-        }
-    }
+    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, metrics);
 }
 
 /// Apply trace-level sampling: cache decisions per `trace_id` to avoid

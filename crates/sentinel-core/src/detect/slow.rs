@@ -72,24 +72,19 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             EventType::HttpOut => "Consider caching or optimizing endpoint".to_string(),
         };
 
-        findings.push(Finding {
+        findings.push(super::build_per_trace_finding(super::PerTraceFindingArgs {
             finding_type: FindingType::from_event_type_slow(event_type),
             severity,
-            trace_id: trace.trace_id.clone(),
-            service: first.event.service.clone(),
-            source_endpoint: first.event.source.endpoint.clone(),
-            pattern: Pattern {
-                template: (*template).to_string(),
-                occurrences: indices.len(),
-                window_ms,
-                distinct_params: distinct_params.len(),
-            },
+            trace_id: &trace.trace_id,
+            first_span: first,
+            template,
+            occurrences: indices.len(),
+            window_ms,
+            distinct_params: distinct_params.len(),
             suggestion,
-            first_timestamp: min_ts.to_string(),
-            last_timestamp: max_ts.to_string(),
-            green_impact: None,
-            confidence: Confidence::default(),
-        });
+            first_timestamp: min_ts,
+            last_timestamp: max_ts,
+        }));
     }
 
     findings

@@ -107,6 +107,66 @@ impl AgedEnergyMap {
     }
 }
 
+/// Generate a nominally distinct energy-state wrapper around
+/// [`AgedEnergyMap`]. Each invocation creates a new type that delegates
+/// `new`, `snapshot`, `publish`, `current_owned`, and `insert_for_test`
+/// to the shared storage. The types are intentionally NOT unified so the
+/// daemon cannot accidentally swap a Scaphandre state for a cloud-energy
+/// state (or vice versa) when tagging the energy model.
+macro_rules! impl_energy_state {
+    (
+        $(#[$meta:meta])*
+        $vis:vis struct $Name:ident;
+    ) => {
+        $(#[$meta])*
+        $vis struct $Name {
+            inner: $crate::score::energy_state::AgedEnergyMap,
+        }
+
+        impl $Name {
+            #[must_use]
+            $vis fn new() -> std::sync::Arc<Self> {
+                std::sync::Arc::new(Self::default())
+            }
+
+            #[must_use]
+            $vis fn snapshot(
+                &self,
+                now_ms: u64,
+                staleness_ms: u64,
+            ) -> std::collections::HashMap<String, f64> {
+                self.inner.snapshot(now_ms, staleness_ms)
+            }
+
+            pub(super) fn publish(
+                &self,
+                new_table: std::collections::HashMap<String, ServiceEnergy>,
+            ) {
+                self.inner.publish(new_table);
+            }
+
+            pub(super) fn current_owned(
+                &self,
+            ) -> std::collections::HashMap<String, ServiceEnergy> {
+                self.inner.current_owned()
+            }
+
+            #[cfg(test)]
+            pub(crate) fn insert_for_test(
+                &self,
+                service: String,
+                energy_per_op_kwh: f64,
+                last_update_ms: u64,
+            ) {
+                self.inner
+                    .insert_for_test(service, energy_per_op_kwh, last_update_ms);
+            }
+        }
+    };
+}
+
+pub(crate) use impl_energy_state;
+
 #[cfg(test)]
 mod tests {
     use super::*;

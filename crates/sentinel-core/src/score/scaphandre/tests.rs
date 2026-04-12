@@ -175,15 +175,26 @@ fn ops_snapshot_diff_counter_reset_produces_zero_delta() {
     assert!(!deltas.contains_key("order-svc"));
 }
 
-#[test]
-fn apply_scrape_updates_mapped_service() {
+/// Build a standard test fixture: one Java process reading, one
+/// "order-svc" → "java" process map, and a 5s scrape interval.
+fn test_scrape_fixture(
+    power_microwatts: f64,
+    ops: u64,
+) -> (
+    ScaphandreState,
+    Vec<ProcessPower>,
+    HashMap<String, u64>,
+    ScaphandreConfig,
+) {
     let state = ScaphandreState::default();
     let readings = vec![ProcessPower {
         exe: "java".to_string(),
-        power_microwatts: 12_000_000.0, // 12 W
+        power_microwatts,
     }];
     let mut deltas = HashMap::new();
-    deltas.insert("order-svc".to_string(), 8000u64);
+    if ops > 0 {
+        deltas.insert("order-svc".to_string(), ops);
+    }
     let mut process_map = HashMap::new();
     process_map.insert("order-svc".to_string(), "java".to_string());
     let cfg = ScaphandreConfig {
@@ -191,6 +202,12 @@ fn apply_scrape_updates_mapped_service() {
         scrape_interval: Duration::from_secs(5),
         process_map,
     };
+    (state, readings, deltas, cfg)
+}
+
+#[test]
+fn apply_scrape_updates_mapped_service() {
+    let (state, readings, deltas, cfg) = test_scrape_fixture(12_000_000.0, 8000);
     apply_scrape(&state, &readings, &deltas, &cfg, 100);
 
     // 12W × 5s / 8000 ops → 7.5e-9 kWh/op
@@ -205,20 +222,9 @@ fn apply_scrape_keeps_previous_when_ops_zero() {
     // First scrape: 5000 ops, coefficient X.
     // Second scrape: 0 ops → state must NOT be updated (prevents
     // model-tag flapping for idle services).
-    let state = ScaphandreState::default();
-    let readings = vec![ProcessPower {
-        exe: "java".to_string(),
-        power_microwatts: 10_000_000.0,
-    }];
+    let (state, readings, _, cfg) = test_scrape_fixture(10_000_000.0, 5000);
     let mut deltas = HashMap::new();
     deltas.insert("order-svc".to_string(), 5000u64);
-    let mut process_map = HashMap::new();
-    process_map.insert("order-svc".to_string(), "java".to_string());
-    let cfg = ScaphandreConfig {
-        endpoint: "http://localhost:8080/metrics".to_string(),
-        scrape_interval: Duration::from_secs(5),
-        process_map,
-    };
     apply_scrape(&state, &readings, &deltas, &cfg, 100);
     let first = *state.snapshot(100, 60_000).get("order-svc").unwrap();
 
