@@ -11,7 +11,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.050Z",
@@ -25,7 +29,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.100Z",
@@ -39,7 +47,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.150Z",
@@ -53,7 +65,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.200Z",
@@ -67,7 +83,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.250Z",
@@ -81,7 +101,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.300Z",
@@ -95,7 +119,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.350Z",
@@ -109,7 +137,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.400Z",
@@ -123,7 +155,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.450Z",
@@ -137,7 +173,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "OrderItemRepository.findByOrderId",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_lineno": 42,
+    "code_namespace": "com.kinexo.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:02.000Z",
@@ -152,7 +192,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "UserClient.fetchUser",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_lineno": 87,
+    "code_namespace": "com.kinexo.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.050Z",
@@ -167,7 +211,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "UserClient.fetchUser",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_lineno": 87,
+    "code_namespace": "com.kinexo.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.100Z",
@@ -182,7 +230,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "UserClient.fetchUser",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_lineno": 87,
+    "code_namespace": "com.kinexo.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.150Z",
@@ -197,7 +249,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "UserClient.fetchUser",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_lineno": 87,
+    "code_namespace": "com.kinexo.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.200Z",
@@ -212,7 +268,11 @@
     "source": {
       "endpoint": "POST /api/orders/42/submit",
       "method": "OrderService::create_order"
-    }
+    },
+    "code_function": "UserClient.fetchUser",
+    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_lineno": 87,
+    "code_namespace": "com.kinexo.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:03.000Z",
@@ -226,7 +286,11 @@
     "source": {
       "endpoint": "GET /api/settings",
       "method": "SettingsService::get_settings"
-    }
+    },
+    "code_function": "SettingsRepository.findByKey",
+    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_lineno": 31,
+    "code_namespace": "com.kinexo.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:03.050Z",
@@ -240,7 +304,11 @@
     "source": {
       "endpoint": "GET /api/settings",
       "method": "SettingsService::get_settings"
-    }
+    },
+    "code_function": "SettingsRepository.findByKey",
+    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_lineno": 31,
+    "code_namespace": "com.kinexo.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:03.100Z",
@@ -254,7 +322,11 @@
     "source": {
       "endpoint": "GET /api/settings",
       "method": "SettingsService::get_settings"
-    }
+    },
+    "code_function": "SettingsRepository.findByKey",
+    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_lineno": 31,
+    "code_namespace": "com.kinexo.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:04.000Z",
@@ -269,7 +341,11 @@
     "source": {
       "endpoint": "GET /api/profile/me",
       "method": "ProfileService::get_me"
-    }
+    },
+    "code_function": "AuthClient.validateToken",
+    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_lineno": 64,
+    "code_namespace": "com.kinexo.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:04.050Z",
@@ -284,7 +360,11 @@
     "source": {
       "endpoint": "GET /api/profile/me",
       "method": "ProfileService::get_me"
-    }
+    },
+    "code_function": "AuthClient.validateToken",
+    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_lineno": 64,
+    "code_namespace": "com.kinexo.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:04.100Z",
@@ -299,7 +379,11 @@
     "source": {
       "endpoint": "GET /api/profile/me",
       "method": "ProfileService::get_me"
-    }
+    },
+    "code_function": "AuthClient.validateToken",
+    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_lineno": 64,
+    "code_namespace": "com.kinexo.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:05.000Z",
@@ -313,7 +397,11 @@
     "source": {
       "endpoint": "GET /api/reports/monthly",
       "method": "ReportsService::monthly_summary"
-    }
+    },
+    "code_function": "ReportRepository.aggregateMonthly",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_lineno": 128,
+    "code_namespace": "com.kinexo.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:05.800Z",
@@ -327,7 +415,11 @@
     "source": {
       "endpoint": "GET /api/reports/monthly",
       "method": "ReportsService::monthly_summary"
-    }
+    },
+    "code_function": "ReportRepository.aggregateMonthly",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_lineno": 128,
+    "code_namespace": "com.kinexo.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:06.600Z",
@@ -341,7 +433,11 @@
     "source": {
       "endpoint": "GET /api/reports/monthly",
       "method": "ReportsService::monthly_summary"
-    }
+    },
+    "code_function": "ReportRepository.aggregateMonthly",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_lineno": 128,
+    "code_namespace": "com.kinexo.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:08.000Z",
@@ -356,7 +452,11 @@
     "source": {
       "endpoint": "GET /api/reports/quarterly",
       "method": "ReportsService::quarterly_aggregate"
-    }
+    },
+    "code_function": "BillingClient.fetchInvoices",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_lineno": 95,
+    "code_namespace": "com.kinexo.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:08.800Z",
@@ -371,7 +471,11 @@
     "source": {
       "endpoint": "GET /api/reports/quarterly",
       "method": "ReportsService::quarterly_aggregate"
-    }
+    },
+    "code_function": "BillingClient.fetchInvoices",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_lineno": 95,
+    "code_namespace": "com.kinexo.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:09.700Z",
@@ -386,7 +490,11 @@
     "source": {
       "endpoint": "GET /api/reports/quarterly",
       "method": "ReportsService::quarterly_aggregate"
-    }
+    },
+    "code_function": "BillingClient.fetchInvoices",
+    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_lineno": 95,
+    "code_namespace": "com.kinexo.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:11.000Z",
