@@ -1148,97 +1148,121 @@ fn format_colored_report(report: &Report, title: &str, force_color: bool) {
 }
 
 fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
+    let colors = ansi_colors(force_color);
+    println!(
+        "{}Found {} issue(s):{}",
+        colors.bold,
+        findings.len(),
+        colors.reset
+    );
+    println!();
+    for (i, finding) in findings.iter().enumerate() {
+        print_finding_entry(i, finding, colors);
+        println!();
+    }
+}
+
+fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, colors: AnsiColors) {
     let AnsiColors {
         bold,
         cyan,
         dim,
         reset,
         ..
-    } = ansi_colors(force_color);
+    } = colors;
+    let severity_color = severity_color(&finding.severity, colors);
+    let severity_label = severity_label(&finding.severity);
+    let type_label = finding.finding_type.display_label();
 
-    println!("{bold}Found {} issue(s):{reset}", findings.len());
-    println!();
-
-    let colors = ansi_colors(force_color);
-    for (i, finding) in findings.iter().enumerate() {
-        let severity_color = match finding.severity {
-            Severity::Critical => colors.red,
-            Severity::Warning => colors.yellow,
-            Severity::Info => dim,
-        };
-
-        let type_label = finding.finding_type.display_label();
-
-        let severity_label = match finding.severity {
-            Severity::Critical => "CRITICAL",
-            Severity::Warning => "WARNING",
-            Severity::Info => "INFO",
-        };
-
-        println!(
-            "  {bold}{severity_color}[{severity_label}] #{} {type_label}{reset}",
-            i + 1,
-        );
-        println!("    {dim}Trace:{reset}    {}", finding.trace_id);
-        println!("    {dim}Service:{reset}  {}", finding.service);
-        println!("    {dim}Endpoint:{reset} {}", finding.source_endpoint);
-        if let Some(ref loc) = finding.code_location {
-            let mut src = String::new();
-            if let Some(ref ns) = loc.namespace {
-                src.push_str(ns);
-                src.push('.');
-            }
-            if let Some(ref func) = loc.function {
-                src.push_str(func);
-            }
-            let has_name = !src.is_empty();
-            if let Some(ref fp) = loc.filepath {
-                if has_name {
-                    src.push_str(" (");
-                }
-                src.push_str(fp);
-                if let Some(ln) = loc.lineno {
-                    src.push(':');
-                    src.push_str(&ln.to_string());
-                }
-                if has_name {
-                    src.push(')');
-                }
-            }
-            if !src.is_empty() {
-                println!("    {dim}Source:{reset}   {src}");
-            }
+    println!(
+        "  {bold}{severity_color}[{severity_label}] #{} {type_label}{reset}",
+        index + 1,
+    );
+    println!("    {dim}Trace:{reset}    {}", finding.trace_id);
+    println!("    {dim}Service:{reset}  {}", finding.service);
+    println!("    {dim}Endpoint:{reset} {}", finding.source_endpoint);
+    if let Some(ref loc) = finding.code_location {
+        let src = format_code_location(loc);
+        if !src.is_empty() {
+            println!("    {dim}Source:{reset}   {src}");
         }
-        println!("    {dim}Template:{reset} {}", finding.pattern.template);
-        println!(
-            "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
-            finding.pattern.occurrences, finding.pattern.distinct_params, finding.pattern.window_ms
-        );
-        println!(
-            "    {dim}Window:{reset}   {} -> {}",
-            finding.first_timestamp, finding.last_timestamp
-        );
-        println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
-        if let Some(ref impact) = finding.green_impact {
-            println!(
-                "    {dim}Extra I/O:{reset} {} avoidable ops",
-                impact.estimated_extra_io_ops
-            );
-            // Read the pre-computed band from the struct field rather than
-            // calling for_iis() again: keeps the CLI rendering in lockstep
-            // with the JSON output (both reflect the same `score_green`
-            // classification) and prevents silent drift if the thresholds
-            // change in one place but not the other.
-            let level = impact.io_intensity_band;
-            let level_color = interpret_color(level, colors);
-            println!(
-                "    {dim}IIS:{reset}      {:.1} {level_color}({}){reset}",
-                impact.io_intensity_score,
-                level.short_label(),
-            );
-        }
-        println!();
     }
+    println!("    {dim}Template:{reset} {}", finding.pattern.template);
+    println!(
+        "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
+        finding.pattern.occurrences, finding.pattern.distinct_params, finding.pattern.window_ms
+    );
+    println!(
+        "    {dim}Window:{reset}   {} -> {}",
+        finding.first_timestamp, finding.last_timestamp
+    );
+    println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
+    if let Some(ref impact) = finding.green_impact {
+        print_finding_impact(impact, colors);
+    }
+}
+
+fn print_finding_impact(impact: &sentinel_core::detect::GreenImpact, colors: AnsiColors) {
+    let AnsiColors { dim, reset, .. } = colors;
+    println!(
+        "    {dim}Extra I/O:{reset} {} avoidable ops",
+        impact.estimated_extra_io_ops
+    );
+    // Read the pre-computed band from the struct field rather than
+    // calling for_iis() again: keeps the CLI rendering in lockstep with
+    // the JSON output and prevents silent drift if thresholds change.
+    let level = impact.io_intensity_band;
+    let level_color = interpret_color(level, colors);
+    println!(
+        "    {dim}IIS:{reset}      {:.1} {level_color}({}){reset}",
+        impact.io_intensity_score,
+        level.short_label(),
+    );
+}
+
+fn severity_color(severity: &Severity, colors: AnsiColors) -> &'static str {
+    match severity {
+        Severity::Critical => colors.red,
+        Severity::Warning => colors.yellow,
+        Severity::Info => colors.dim,
+    }
+}
+
+fn severity_label(severity: &Severity) -> &'static str {
+    match severity {
+        Severity::Critical => "CRITICAL",
+        Severity::Warning => "WARNING",
+        Severity::Info => "INFO",
+    }
+}
+
+/// Render a `CodeLocation` as `namespace.function (filepath:lineno)`,
+/// omitting parts that are absent. Returns an empty string when the
+/// location has nothing to show.
+fn format_code_location(loc: &sentinel_core::event::CodeLocation) -> String {
+    let mut src = String::new();
+    if let Some(ref ns) = loc.namespace {
+        src.push_str(ns);
+        src.push('.');
+    }
+    if let Some(ref func) = loc.function {
+        src.push_str(func);
+    }
+    let has_name = !src.is_empty();
+    if let Some(ref fp) = loc.filepath {
+        if has_name {
+            src.push_str(" (");
+        }
+        src.push_str(fp);
+        if let Some(ln) = loc.lineno {
+            src.push(':');
+            src.push_str(&ln.to_string());
+        }
+        if has_name {
+            src.push(')');
+        }
+    }
+    src
 }
 
 fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
@@ -1481,259 +1505,302 @@ async fn cmd_query(daemon_url: &str, action: QueryAction) {
             limit,
             format,
         } => {
-            let mut params = vec![format!("limit={limit}")];
-            if let Some(ref s) = service {
-                params.push(format!("service={s}"));
-            }
-            if let Some(ref t) = finding_type {
-                params.push(format!("type={t}"));
-            }
-            if let Some(ref s) = severity {
-                params.push(format!("severity={s}"));
-            }
-            let query_str = params.join("&");
-            let body = fetch(&format!("/api/findings?{query_str}")).await;
-            match format {
-                QueryOutputFormat::Json => {
-                    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&json).unwrap_or_default()
-                    );
-                }
-                QueryOutputFormat::Text => {
-                    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
-                        serde_json::from_slice(&body).unwrap_or_default();
-                    let findings: Vec<sentinel_core::detect::Finding> =
-                        stored.into_iter().map(|sf| sf.finding).collect();
-                    if findings.is_empty() {
-                        let AnsiColors { green, reset, .. } = ansi_colors(false);
-                        println!("{green}No findings from daemon.{reset}");
-                    } else {
-                        let AnsiColors {
-                            bold,
-                            cyan,
-                            dim,
-                            reset,
-                            ..
-                        } = ansi_colors(false);
-                        println!();
-                        println!(
-                            "{bold}{cyan}=== perf-sentinel daemon findings ({} results) ==={reset}",
-                            findings.len()
-                        );
-                        println!("{dim}Source: {daemon_url}{reset}");
-                        println!();
-                        print_findings(&findings, false);
-                    }
-                }
-            }
+            let path = build_findings_path(
+                limit,
+                service.as_deref(),
+                finding_type.as_deref(),
+                severity.as_deref(),
+            );
+            let body = fetch(&path).await;
+            render_findings_response(&body, format, daemon_url);
         }
         QueryAction::Explain { trace_id, format } => {
             let body = fetch(&format!("/api/explain/{trace_id}")).await;
-            match format {
-                QueryOutputFormat::Json => {
-                    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&json).unwrap_or_default()
-                    );
-                }
-                QueryOutputFormat::Text => {
-                    if let Ok(tree) =
-                        serde_json::from_slice::<sentinel_core::explain::ExplainTree>(&body)
-                    {
-                        let text = sentinel_core::explain::format_tree_text(&tree, true);
-                        println!("{text}");
-                    } else {
-                        // May be an error response from the daemon.
-                        let json: serde_json::Value =
-                            serde_json::from_slice(&body).unwrap_or_default();
-                        if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-                            eprintln!("Error: {err}");
-                        } else {
-                            println!(
-                                "{}",
-                                serde_json::to_string_pretty(&json).unwrap_or_default()
-                            );
-                        }
-                    }
-                }
-            }
+            render_explain_response(&body, format);
         }
         #[cfg(feature = "tui")]
         QueryAction::Inspect => {
             let body = fetch("/api/findings?limit=10000").await;
-            let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
-                serde_json::from_slice(&body).unwrap_or_default();
-            let findings: Vec<sentinel_core::detect::Finding> =
-                stored.into_iter().map(|sf| sf.finding).collect();
-            if findings.is_empty() {
-                let AnsiColors { green, reset, .. } = ansi_colors(false);
-                println!("{green}No findings from daemon. Nothing to inspect.{reset}");
-                return;
-            }
-            // Build minimal Trace stubs from distinct trace_ids in findings.
-            // The TUI shows findings in panels. For each trace, fetch the
-            // explain tree upfront from the daemon so the detail panel can
-            // render real span trees (the daemon has them in its window,
-            // but they do not ship with /api/findings).
-            //
-            // Fetches run in parallel with bounded concurrency via a
-            // `JoinSet`. Previously this loop was sequential, which meant
-            // 100 traces * 50ms RTT = 5s TUI startup. With concurrency 16
-            // the same workload completes in ~300ms. Server-side the
-            // query API reads from in-memory state (no I/O), so high
-            // client concurrency is safe.
-            let trace_ids: std::collections::BTreeSet<String> =
-                findings.iter().map(|f| f.trace_id.clone()).collect();
-            let pre_rendered_trees =
-                fetch_explain_trees(&client, trimmed.to_string(), timeout, &trace_ids, 16).await;
-            let traces: Vec<sentinel_core::correlate::Trace> = trace_ids
-                .into_iter()
-                .map(|tid| sentinel_core::correlate::Trace {
-                    trace_id: tid,
-                    spans: vec![],
-                })
-                .collect();
-            let detect_config = sentinel_core::detect::DetectConfig {
-                n_plus_one_threshold: 5,
-                window_ms: 500,
-                slow_threshold_ms: 500,
-                slow_min_occurrences: 3,
-                max_fanout: 20,
-                chatty_service_min_calls: 15,
-                pool_saturation_concurrent_threshold: 10,
-                serialized_min_sequential: 3,
-            };
-            let mut app = tui::App::new(findings, traces, detect_config)
-                .with_pre_rendered_trees(pre_rendered_trees);
-            if let Err(e) = tui::run(&mut app) {
-                eprintln!("TUI error: {e}");
-                std::process::exit(1);
-            }
+            run_inspect_action(&body, &client, trimmed, timeout).await;
         }
         QueryAction::Correlations { format } => {
             let body = fetch("/api/correlations").await;
-            match format {
-                QueryOutputFormat::Json => {
-                    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&json).unwrap_or_default()
-                    );
-                }
-                QueryOutputFormat::Text => {
-                    let correlations: Vec<
-                        sentinel_core::detect::correlate_cross::CrossTraceCorrelation,
-                    > = serde_json::from_slice(&body).unwrap_or_default();
-                    if correlations.is_empty() {
-                        let AnsiColors { green, reset, .. } = ansi_colors(false);
-                        println!("{green}No active cross-trace correlations.{reset}");
-                    } else {
-                        let AnsiColors {
-                            bold,
-                            cyan,
-                            red,
-                            yellow,
-                            dim,
-                            reset,
-                            ..
-                        } = ansi_colors(false);
-                        println!();
-                        println!(
-                            "{bold}{cyan}=== Cross-trace correlations ({} active) ==={reset}",
-                            correlations.len()
-                        );
-                        println!();
-                        for (i, c) in correlations.iter().enumerate() {
-                            let conf_color = if c.confidence >= 0.8 {
-                                red
-                            } else if c.confidence >= 0.5 {
-                                yellow
-                            } else {
-                                dim
-                            };
-                            println!(
-                                "  {bold}#{} {}{reset} in {}",
-                                i + 1,
-                                c.source.finding_type.as_str(),
-                                c.source.service
-                            );
-                            println!(
-                                "    {dim}->{reset} {} in {}",
-                                c.target.finding_type.as_str(),
-                                c.target.service
-                            );
-                            println!(
-                                "    {dim}Observed:{reset} {} times, \
-                                 {dim}median lag:{reset} {:.1}ms, \
-                                 {conf_color}confidence: {:.0}%{reset}",
-                                c.co_occurrence_count,
-                                c.median_lag_ms,
-                                c.confidence * 100.0
-                            );
-                            println!(
-                                "    {dim}Period:{reset} {} .. {}",
-                                c.first_seen, c.last_seen
-                            );
-                            println!();
-                        }
-                    }
-                }
-            }
+            render_correlations_response(&body, format);
         }
         QueryAction::Status { format } => {
             let body = fetch("/api/status").await;
-            match format {
-                QueryOutputFormat::Json => {
-                    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&json).unwrap_or_default()
-                    );
-                }
-                QueryOutputFormat::Text => {
-                    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
-                    let AnsiColors {
-                        bold,
-                        cyan,
-                        green,
-                        dim,
-                        reset,
-                        ..
-                    } = ansi_colors(false);
-                    println!();
-                    println!("{bold}{cyan}=== perf-sentinel daemon status ==={reset}");
-                    println!();
-                    if let Some(v) = json.get("version").and_then(serde_json::Value::as_str) {
-                        println!("  {dim}Version:{reset}          {green}{v}{reset}");
-                    }
-                    if let Some(u) = json
-                        .get("uptime_seconds")
-                        .and_then(serde_json::Value::as_u64)
-                    {
-                        let h = u / 3600;
-                        let m = (u % 3600) / 60;
-                        let s = u % 60;
-                        println!("  {dim}Uptime:{reset}           {h}h {m}m {s}s");
-                    }
-                    if let Some(t) = json
-                        .get("active_traces")
-                        .and_then(serde_json::Value::as_u64)
-                    {
-                        println!("  {dim}Active traces:{reset}    {t}");
-                    }
-                    if let Some(f) = json
-                        .get("stored_findings")
-                        .and_then(serde_json::Value::as_u64)
-                    {
-                        println!("  {dim}Stored findings:{reset}  {f}");
-                    }
-                    println!();
-                }
-            }
+            render_status_response(&body, format);
         }
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn build_findings_path(
+    limit: usize,
+    service: Option<&str>,
+    finding_type: Option<&str>,
+    severity: Option<&str>,
+) -> String {
+    let mut params = vec![format!("limit={limit}")];
+    if let Some(s) = service {
+        params.push(format!("service={s}"));
+    }
+    if let Some(t) = finding_type {
+        params.push(format!("type={t}"));
+    }
+    if let Some(s) = severity {
+        params.push(format!("severity={s}"));
+    }
+    format!("/api/findings?{}", params.join("&"))
+}
+
+#[cfg(feature = "daemon")]
+fn print_pretty_json(body: &[u8]) {
+    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json).unwrap_or_default()
+    );
+}
+
+#[cfg(feature = "daemon")]
+fn render_findings_response(body: &[u8], format: QueryOutputFormat, daemon_url: &str) {
+    match format {
+        QueryOutputFormat::Json => print_pretty_json(body),
+        QueryOutputFormat::Text => print_findings_text(body, daemon_url),
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn print_findings_text(body: &[u8], daemon_url: &str) {
+    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
+        serde_json::from_slice(body).unwrap_or_default();
+    let findings: Vec<sentinel_core::detect::Finding> =
+        stored.into_iter().map(|sf| sf.finding).collect();
+    if findings.is_empty() {
+        let AnsiColors { green, reset, .. } = ansi_colors(false);
+        println!("{green}No findings from daemon.{reset}");
+        return;
+    }
+    let AnsiColors {
+        bold,
+        cyan,
+        dim,
+        reset,
+        ..
+    } = ansi_colors(false);
+    println!();
+    println!(
+        "{bold}{cyan}=== perf-sentinel daemon findings ({} results) ==={reset}",
+        findings.len()
+    );
+    println!("{dim}Source: {daemon_url}{reset}");
+    println!();
+    print_findings(&findings, false);
+}
+
+#[cfg(feature = "daemon")]
+fn render_explain_response(body: &[u8], format: QueryOutputFormat) {
+    match format {
+        QueryOutputFormat::Json => print_pretty_json(body),
+        QueryOutputFormat::Text => print_explain_text(body),
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn print_explain_text(body: &[u8]) {
+    if let Ok(tree) = serde_json::from_slice::<sentinel_core::explain::ExplainTree>(body) {
+        let text = sentinel_core::explain::format_tree_text(&tree, true);
+        println!("{text}");
+        return;
+    }
+    // Daemon returned an error response (or unparseable JSON).
+    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
+        eprintln!("Error: {err}");
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json).unwrap_or_default()
+        );
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn render_correlations_response(body: &[u8], format: QueryOutputFormat) {
+    match format {
+        QueryOutputFormat::Json => print_pretty_json(body),
+        QueryOutputFormat::Text => print_correlations_text(body),
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn print_correlations_text(body: &[u8]) {
+    let correlations: Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> =
+        serde_json::from_slice(body).unwrap_or_default();
+    if correlations.is_empty() {
+        let AnsiColors { green, reset, .. } = ansi_colors(false);
+        println!("{green}No active cross-trace correlations.{reset}");
+        return;
+    }
+    let colors = ansi_colors(false);
+    let AnsiColors {
+        bold, cyan, reset, ..
+    } = colors;
+    println!();
+    println!(
+        "{bold}{cyan}=== Cross-trace correlations ({} active) ==={reset}",
+        correlations.len()
+    );
+    println!();
+    for (i, c) in correlations.iter().enumerate() {
+        print_correlation_entry(i, c, colors);
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn print_correlation_entry(
+    index: usize,
+    c: &sentinel_core::detect::correlate_cross::CrossTraceCorrelation,
+    colors: AnsiColors,
+) {
+    let AnsiColors {
+        bold,
+        red,
+        yellow,
+        dim,
+        reset,
+        ..
+    } = colors;
+    let conf_color = if c.confidence >= 0.8 {
+        red
+    } else if c.confidence >= 0.5 {
+        yellow
+    } else {
+        dim
+    };
+    println!(
+        "  {bold}#{} {}{reset} in {}",
+        index + 1,
+        c.source.finding_type.as_str(),
+        c.source.service
+    );
+    println!(
+        "    {dim}->{reset} {} in {}",
+        c.target.finding_type.as_str(),
+        c.target.service
+    );
+    println!(
+        "    {dim}Observed:{reset} {} times, \
+         {dim}median lag:{reset} {:.1}ms, \
+         {conf_color}confidence: {:.0}%{reset}",
+        c.co_occurrence_count,
+        c.median_lag_ms,
+        c.confidence * 100.0
+    );
+    println!(
+        "    {dim}Period:{reset} {} .. {}",
+        c.first_seen, c.last_seen
+    );
+    println!();
+}
+
+#[cfg(feature = "daemon")]
+fn render_status_response(body: &[u8], format: QueryOutputFormat) {
+    match format {
+        QueryOutputFormat::Json => print_pretty_json(body),
+        QueryOutputFormat::Text => print_status_text(body),
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn print_status_text(body: &[u8]) {
+    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
+    let AnsiColors {
+        bold,
+        cyan,
+        green,
+        dim,
+        reset,
+        ..
+    } = ansi_colors(false);
+    println!();
+    println!("{bold}{cyan}=== perf-sentinel daemon status ==={reset}");
+    println!();
+    if let Some(v) = json.get("version").and_then(serde_json::Value::as_str) {
+        println!("  {dim}Version:{reset}          {green}{v}{reset}");
+    }
+    if let Some(u) = json
+        .get("uptime_seconds")
+        .and_then(serde_json::Value::as_u64)
+    {
+        let h = u / 3600;
+        let m = (u % 3600) / 60;
+        let s = u % 60;
+        println!("  {dim}Uptime:{reset}           {h}h {m}m {s}s");
+    }
+    if let Some(t) = json
+        .get("active_traces")
+        .and_then(serde_json::Value::as_u64)
+    {
+        println!("  {dim}Active traces:{reset}    {t}");
+    }
+    if let Some(f) = json
+        .get("stored_findings")
+        .and_then(serde_json::Value::as_u64)
+    {
+        println!("  {dim}Stored findings:{reset}  {f}");
+    }
+    println!();
+}
+
+#[cfg(all(feature = "daemon", feature = "tui"))]
+async fn run_inspect_action(
+    body: &[u8],
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    timeout: std::time::Duration,
+) {
+    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
+        serde_json::from_slice(body).unwrap_or_default();
+    let findings: Vec<sentinel_core::detect::Finding> =
+        stored.into_iter().map(|sf| sf.finding).collect();
+    if findings.is_empty() {
+        let AnsiColors { green, reset, .. } = ansi_colors(false);
+        println!("{green}No findings from daemon. Nothing to inspect.{reset}");
+        return;
+    }
+    // Build minimal Trace stubs from distinct trace_ids. The TUI detail
+    // panel needs span trees, but `/api/findings` does not ship them.
+    // Fetch them upfront in parallel via `fetch_explain_trees` so the TUI
+    // opens immediately instead of stalling on per-trace round-trips
+    // (100 traces * 50ms RTT = 5s without concurrency; ~300ms with 16).
+    let trace_ids: std::collections::BTreeSet<String> =
+        findings.iter().map(|f| f.trace_id.clone()).collect();
+    let pre_rendered_trees =
+        fetch_explain_trees(client, base_url.to_string(), timeout, &trace_ids, 16).await;
+    let traces: Vec<sentinel_core::correlate::Trace> = trace_ids
+        .into_iter()
+        .map(|tid| sentinel_core::correlate::Trace {
+            trace_id: tid,
+            spans: vec![],
+        })
+        .collect();
+    let detect_config = sentinel_core::detect::DetectConfig {
+        n_plus_one_threshold: 5,
+        window_ms: 500,
+        slow_threshold_ms: 500,
+        slow_min_occurrences: 3,
+        max_fanout: 20,
+        chatty_service_min_calls: 15,
+        pool_saturation_concurrent_threshold: 10,
+        serialized_min_sequential: 3,
+    };
+    let mut app =
+        tui::App::new(findings, traces, detect_config).with_pre_rendered_trees(pre_rendered_trees);
+    if let Err(e) = tui::run(&mut app) {
+        eprintln!("TUI error: {e}");
+        std::process::exit(1);
     }
 }
 

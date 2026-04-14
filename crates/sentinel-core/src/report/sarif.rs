@@ -140,6 +140,7 @@ pub struct SarifRegion {
 
 // ── Conversion ──────────────────────────────────────────────────────
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn severity_to_sarif_level(severity: &Severity) -> &'static str {
     match severity {
         Severity::Critical => "error",

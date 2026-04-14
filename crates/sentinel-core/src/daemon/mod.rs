@@ -292,186 +292,98 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             (None, None, 0)
         };
 
-    // Cardinality cap on the per-service Prometheus counter.
-    // Prevents OOM from a malicious OTLP sender injecting millions of
-    // unique service.name values. Events beyond the cap are still
-    // processed for detection, just not metered per-service.
-    let max_service_cardinality: usize = 1024;
-    let mut known_services: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut service_cap_warned = false;
-
     // Main event loop
     let mut ticker = interval(Duration::from_millis(evict_ms.max(100)));
     // Prevent burst-catchup if process_traces takes longer than the tick
     // interval. Both the Scaphandre and cloud scrapers already use Delay.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
+    let energy_handles = EnergyScraperHandles {
+        scaphandre: scraper_handle.as_ref(),
+        cloud: cloud_handle.as_ref(),
+        emaps: emaps_handle.as_ref(),
+    };
+    let listener_handles = ListenerHandles {
+        grpc: &grpc_handle,
+        http: &http_handle,
+        json_socket: json_socket_handle.as_ref(),
+    };
+    let energy_sources = EnergySources {
+        base_carbon_ctx: &base_carbon_ctx,
+        scaphandre_state: scaphandre_state.as_deref(),
+        scaphandre_staleness_ms: staleness_ms,
+        cloud_state: cloud_state.as_deref(),
+        cloud_staleness_ms,
+        emaps_state: emaps_state.as_deref(),
+        emaps_staleness_ms,
+    };
+    // Cardinality cap on the per-service Prometheus counter prevents OOM
+    // from a malicious OTLP sender injecting millions of unique
+    // `service.name` values. Events beyond the cap still flow through
+    // detection, they just stop incrementing the per-service counter.
+    let mut service_meter = ServiceMeter {
+        known_services: std::collections::HashSet::new(),
+        max_service_cardinality: 1024,
+        service_cap_warned: false,
+    };
+
     loop {
         tokio::select! {
             Some(events) = rx.recv() => {
-                let events = apply_sampling(events, sampling_rate);
-                let event_count = events.len();
-                // Normalize OUTSIDE the lock to minimize lock hold time.
-                let normalized: Vec<_> = events
-                    .into_iter()
-                    .map(normalize::normalize)
-                    .collect();
-                // Increment the per-service I/O op counter with a
-                // cardinality cap. The Scaphandre/cloud energy scrapers
-                // read this counter at each tick via snapshot-diff.
-                for event in &normalized {
-                    let service = event.event.service.as_str();
-                    if known_services.contains(service) {
-                        // Fast path: known service, no allocation.
-                        metrics
-                            .service_io_ops_total
-                            .with_label_values(&[service])
-                            .inc();
-                    } else if known_services.len() < max_service_cardinality {
-                        // New service under the cap: allocate once.
-                        known_services.insert(service.to_string());
-                        metrics
-                            .service_io_ops_total
-                            .with_label_values(&[service])
-                            .inc();
-                    } else if !service_cap_warned {
-                        tracing::warn!(
-                            cap = max_service_cardinality,
-                            "Service cardinality cap reached; new services will \
-                             not have per-service I/O op counters"
-                        );
-                        service_cap_warned = true;
-                    }
-                }
-                let now_ms = current_time_ms();
-                let mut lru_evicted = Vec::new();
-                {
-                    // Lock held for O(batch_size) push() calls. Each push
-                    // is O(1) amortized (LRU insert/promote). Batch size is
-                    // bounded by the mpsc channel capacity (1024) and
-                    // max_payload_size, so lock duration is bounded.
-                    let mut w = window.lock().await;
-                    for event in normalized {
-                        if let Some(evicted) = w.push(event, now_ms) {
-                            lru_evicted.push(evicted);
-                        }
-                    }
-                    metrics.active_traces.set(w.active_traces() as f64);
-                }
-                metrics.events_processed_total.inc_by(event_count as f64);
-                // Process LRU-evicted traces so their findings are not lost.
-                if !lru_evicted.is_empty() {
-                    let tick_ctx = build_tick_ctx(
-                        &base_carbon_ctx,
-                        scaphandre_state.as_deref(),
-                        staleness_ms,
-                        cloud_state.as_deref(),
-                        cloud_staleness_ms,
-                        emaps_state.as_deref(),
-                        emaps_staleness_ms,
-                    );
-                    process_traces(
-                        lru_evicted,
-                        ProcessTracesCtx {
-                            detect_config: &detect_config,
-                            green_enabled,
-                            carbon_ctx: &tick_ctx,
-                            metrics: &metrics,
-                            confidence,
-                            findings_store: &findings_store,
-                            correlator: correlator.as_deref(),
-                        },
-                    ).await;
-                }
-            }
-            _ = ticker.tick() => {
-                let now_ms = current_time_ms();
-                let expired = {
-                    let mut w = window.lock().await;
-                    let expired = w.evict_expired(now_ms);
-                    metrics.active_traces.set(w.active_traces() as f64);
-                    expired
-                };
-                if !expired.is_empty() {
-                    let tick_ctx = build_tick_ctx(
-                        &base_carbon_ctx,
-                        scaphandre_state.as_deref(),
-                        staleness_ms,
-                        cloud_state.as_deref(),
-                        cloud_staleness_ms,
-                        emaps_state.as_deref(),
-                        emaps_staleness_ms,
-                    );
-                    process_traces(
-                        expired,
-                        ProcessTracesCtx {
-                            detect_config: &detect_config,
-                            green_enabled,
-                            carbon_ctx: &tick_ctx,
-                            metrics: &metrics,
-                            confidence,
-                            findings_store: &findings_store,
-                            correlator: correlator.as_deref(),
-                        },
-                    ).await;
-                }
-            }
-            _ = tokio::signal::ctrl_c() => {
-                tracing::info!("Shutting down daemon, processing remaining traces...");
-                // Abort all spawned tasks BEFORE draining the window
-                // and processing the remaining traces. This stops
-                // any in-flight `tracing::error!` from the listener
-                // tasks landing AFTER the "Shutting down" message,
-                // and prevents the runtime from leaking the tasks
-                // when `daemon::run` returns.
-                //
-                // Order matters slightly: kill the Scaphandre scraper
-                // first so its log lines don't interleave with the
-                // shutdown message, then the listeners.
-                if let Some(handle) = &emaps_handle {
-                    handle.abort();
-                }
-                if let Some(handle) = &cloud_handle {
-                    handle.abort();
-                }
-                if let Some(handle) = &scraper_handle {
-                    handle.abort();
-                }
-                grpc_handle.abort();
-                http_handle.abort();
-                if let Some(handle) = &json_socket_handle {
-                    handle.abort();
-                }
-                let remaining = {
-                    let mut w = window.lock().await;
-                    w.drain_all()
-                };
-                let tick_ctx = build_tick_ctx(
-                    &base_carbon_ctx,
-                    scaphandre_state.as_deref(),
-                    staleness_ms,
-                    cloud_state.as_deref(),
-                    cloud_staleness_ms,
-                    emaps_state.as_deref(),
-                    emaps_staleness_ms,
-                );
-                process_traces(
-                    remaining,
-                    ProcessTracesCtx {
+                let lru_evicted = ingest_event_batch(
+                    events,
+                    sampling_rate,
+                    &window,
+                    &metrics,
+                    &mut service_meter,
+                ).await;
+                flush_evicted(
+                    lru_evicted,
+                    &energy_sources,
+                    ProcessTracesCtxParts {
                         detect_config: &detect_config,
                         green_enabled,
-                        carbon_ctx: &tick_ctx,
                         metrics: &metrics,
                         confidence,
                         findings_store: &findings_store,
                         correlator: correlator.as_deref(),
                     },
                 ).await;
-                // Best-effort socket cleanup. `run_json_socket` doesn't
-                // unlink the Unix socket file on exit, so without this
-                // a leftover socket file blocks the next daemon start
-                // until manual `rm`. Ignore errors — if the file is
-                // gone or unreachable, the next bind will fail loudly.
+            }
+            _ = ticker.tick() => {
+                let expired = evict_expired_traces(&window, &metrics).await;
+                flush_evicted(
+                    expired,
+                    &energy_sources,
+                    ProcessTracesCtxParts {
+                        detect_config: &detect_config,
+                        green_enabled,
+                        metrics: &metrics,
+                        confidence,
+                        findings_store: &findings_store,
+                        correlator: correlator.as_deref(),
+                    },
+                ).await;
+            }
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Shutting down daemon, processing remaining traces...");
+                shutdown_listeners(energy_handles, listener_handles);
+                let remaining = {
+                    let mut w = window.lock().await;
+                    w.drain_all()
+                };
+                flush_evicted(
+                    remaining,
+                    &energy_sources,
+                    ProcessTracesCtxParts {
+                        detect_config: &detect_config,
+                        green_enabled,
+                        metrics: &metrics,
+                        confidence,
+                        findings_store: &findings_store,
+                        correlator: correlator.as_deref(),
+                    },
+                ).await;
                 #[cfg(unix)]
                 {
                     let _ = std::fs::remove_file(&config.json_socket);
@@ -482,6 +394,178 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     }
 
     Ok(())
+}
+
+/// Per-service I/O op counter state with a cardinality cap. Prevents OOM
+/// from a malicious OTLP sender injecting millions of unique
+/// `service.name` values.
+struct ServiceMeter {
+    known_services: std::collections::HashSet<String>,
+    max_service_cardinality: usize,
+    service_cap_warned: bool,
+}
+
+impl ServiceMeter {
+    fn record(&mut self, service: &str, metrics: &MetricsState) {
+        if self.known_services.contains(service) {
+            metrics
+                .service_io_ops_total
+                .with_label_values(&[service])
+                .inc();
+        } else if self.known_services.len() < self.max_service_cardinality {
+            self.known_services.insert(service.to_string());
+            metrics
+                .service_io_ops_total
+                .with_label_values(&[service])
+                .inc();
+        } else if !self.service_cap_warned {
+            tracing::warn!(
+                cap = self.max_service_cardinality,
+                "Service cardinality cap reached; new services will \
+                 not have per-service I/O op counters"
+            );
+            self.service_cap_warned = true;
+        }
+    }
+}
+
+/// Lifetime-bound bundle of energy/intensity scraper state used to build
+/// the per-tick `CarbonContext`. Borrowed by `flush_evicted`.
+struct EnergySources<'a> {
+    base_carbon_ctx: &'a score::carbon::CarbonContext,
+    scaphandre_state: Option<&'a ScaphandreState>,
+    scaphandre_staleness_ms: u64,
+    cloud_state: Option<&'a CloudEnergyState>,
+    cloud_staleness_ms: u64,
+    emaps_state: Option<&'a ElectricityMapsState>,
+    emaps_staleness_ms: u64,
+}
+
+/// Borrowed parts of `ProcessTracesCtx` shared across all flush sites.
+struct ProcessTracesCtxParts<'a> {
+    detect_config: &'a DetectConfig,
+    green_enabled: bool,
+    metrics: &'a MetricsState,
+    confidence: Confidence,
+    findings_store: &'a findings_store::FindingsStore,
+    correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+}
+
+/// `JoinHandle`s for the optional energy / intensity scrapers.
+#[derive(Clone, Copy)]
+struct EnergyScraperHandles<'a> {
+    scaphandre: Option<&'a tokio::task::JoinHandle<()>>,
+    cloud: Option<&'a tokio::task::JoinHandle<()>>,
+    emaps: Option<&'a tokio::task::JoinHandle<()>>,
+}
+
+/// `JoinHandle`s for the listener tasks bound at startup.
+#[derive(Clone, Copy)]
+struct ListenerHandles<'a> {
+    grpc: &'a tokio::task::JoinHandle<()>,
+    http: &'a tokio::task::JoinHandle<()>,
+    json_socket: Option<&'a tokio::task::JoinHandle<()>>,
+}
+
+/// Sample, normalize, meter, and push a batch of events into the window.
+/// Returns the LRU-evicted traces so the caller can route them through
+/// detect+score+store.
+async fn ingest_event_batch(
+    events: Vec<SpanEvent>,
+    sampling_rate: f64,
+    window: &Arc<Mutex<TraceWindow>>,
+    metrics: &MetricsState,
+    service_meter: &mut ServiceMeter,
+) -> Vec<(String, Vec<normalize::NormalizedEvent>)> {
+    let events = apply_sampling(events, sampling_rate);
+    let event_count = events.len();
+    // Normalize OUTSIDE the lock to minimize lock hold time.
+    let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
+    for event in &normalized {
+        service_meter.record(event.event.service.as_str(), metrics);
+    }
+    let now_ms = current_time_ms();
+    let mut lru_evicted = Vec::new();
+    {
+        // Lock held for O(batch_size) push() calls. Each push is O(1)
+        // amortized (LRU insert/promote). Batch size is bounded by the
+        // mpsc channel capacity (1024) and max_payload_size.
+        let mut w = window.lock().await;
+        for event in normalized {
+            if let Some(evicted) = w.push(event, now_ms) {
+                lru_evicted.push(evicted);
+            }
+        }
+        metrics.active_traces.set(w.active_traces() as f64);
+    }
+    metrics.events_processed_total.inc_by(event_count as f64);
+    lru_evicted
+}
+
+/// Pop TTL-expired traces under the lock and refresh the active gauge.
+async fn evict_expired_traces(
+    window: &Arc<Mutex<TraceWindow>>,
+    metrics: &MetricsState,
+) -> Vec<(String, Vec<normalize::NormalizedEvent>)> {
+    let now_ms = current_time_ms();
+    let mut w = window.lock().await;
+    let expired = w.evict_expired(now_ms);
+    metrics.active_traces.set(w.active_traces() as f64);
+    expired
+}
+
+/// Build a tick `CarbonContext` and route the traces through detect+score.
+/// No-op when `traces` is empty.
+async fn flush_evicted(
+    traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
+    sources: &EnergySources<'_>,
+    parts: ProcessTracesCtxParts<'_>,
+) {
+    if traces.is_empty() {
+        return;
+    }
+    let tick_ctx = build_tick_ctx(
+        sources.base_carbon_ctx,
+        sources.scaphandre_state,
+        sources.scaphandre_staleness_ms,
+        sources.cloud_state,
+        sources.cloud_staleness_ms,
+        sources.emaps_state,
+        sources.emaps_staleness_ms,
+    );
+    process_traces(
+        traces,
+        ProcessTracesCtx {
+            detect_config: parts.detect_config,
+            green_enabled: parts.green_enabled,
+            carbon_ctx: &tick_ctx,
+            metrics: parts.metrics,
+            confidence: parts.confidence,
+            findings_store: parts.findings_store,
+            correlator: parts.correlator,
+        },
+    )
+    .await;
+}
+
+/// Abort all spawned tasks before the daemon returns. Order matters:
+/// scrapers first so their log lines don't interleave with the shutdown
+/// message, then the listeners.
+fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandles<'_>) {
+    if let Some(handle) = energy.emaps {
+        handle.abort();
+    }
+    if let Some(handle) = energy.cloud {
+        handle.abort();
+    }
+    if let Some(handle) = energy.scaphandre {
+        handle.abort();
+    }
+    listeners.grpc.abort();
+    listeners.http.abort();
+    if let Some(handle) = listeners.json_socket {
+        handle.abort();
+    }
 }
 
 /// Build a per-tick `CarbonContext` by optionally patching the base

@@ -262,84 +262,18 @@ impl CrossTraceCorrelator {
     /// O(occurrences) per-tick rebuild that a `clear + repopulate`
     /// approach would require.
     pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) {
-        // 1. Evict entries older than the window, decrementing
-        //    source_totals as we go. The `loop + match` pattern avoids
-        //    both an `.expect()` on the pop and the duplication of the
-        //    staleness check across peek and pop.
         let cutoff = now_ms.saturating_sub(self.config.window_ms);
-        loop {
-            match self.occurrences.front() {
-                Some(front) if front.timestamp_ms < cutoff => {
-                    // `pop_front` cannot return `None` here because the
-                    // `match` arm just confirmed the front exists. The
-                    // `if let` avoids any `.expect()` / `.unwrap()`.
-                    if let Some(expired) = self.occurrences.pop_front() {
-                        Self::decrement_source_total(&mut self.source_totals, &expired.endpoint);
-                    }
-                }
-                _ => break,
-            }
-        }
-
-        // 2. Prune stale pair counts (single HashMap scan, O(pairs)).
+        self.evict_stale(cutoff);
         self.pair_counts
             .retain(|_, state| state.last_seen_ms >= cutoff);
 
-        // 3. For each incoming finding, check for co-occurrences with
-        //    recent findings from different services.
         for finding in findings {
-            // Build the endpoint once per finding, wrap in Arc so the
-            // inner loop can clone only the Arc (pointer bump) instead
-            // of 3 Strings per matching occurrence.
-            let endpoint_value = CorrelationEndpoint {
+            let endpoint = std::sync::Arc::new(CorrelationEndpoint {
                 finding_type: finding.finding_type.clone(),
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
-            };
-            let endpoint = std::sync::Arc::new(endpoint_value);
-
-            // Scan recent occurrences for entries from different services
-            // within the lag threshold.
-            for occ in self.occurrences.iter().rev() {
-                let age = now_ms.saturating_sub(occ.timestamp_ms);
-                if age > self.config.lag_threshold_ms {
-                    break;
-                }
-                if occ.endpoint.service == endpoint.service {
-                    continue;
-                }
-
-                let key = PairKey {
-                    source: occ.endpoint.clone(), // Arc clone: pointer bump
-                    target: endpoint.clone(),     // Arc clone: pointer bump
-                };
-                // Lag fits in f64 for any reasonable window. `as f64` loses
-                // precision only for values above 2^53 ms (~285k years).
-                #[allow(clippy::cast_precision_loss)]
-                let lag = now_ms.saturating_sub(occ.timestamp_ms) as f64;
-                let state = self.pair_counts.entry(key).or_insert_with(|| PairState {
-                    co_occurrence_count: 0,
-                    lags_ms: Vec::new(),
-                    total_observations: 0,
-                    // Seed the PRNG from first_seen_ms so different pairs
-                    // evolve independent sample streams. Pairs created at
-                    // the same tick get the same seed; we mix in the
-                    // endpoint's hash to diversify.
-                    rng_state: now_ms
-                        ^ (hash_endpoint(&occ.endpoint) << 17)
-                        ^ hash_endpoint(&endpoint),
-                    first_seen_ms: now_ms,
-                    last_seen_ms: now_ms,
-                });
-                state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
-                state.record_lag(lag);
-                state.last_seen_ms = now_ms;
-            }
-
-            // Add to the occurrence window and bump source_totals.
-            // `source_totals` still keys by value (not Arc) so lookups from
-            // `active_correlations` that only have a `&CorrelationEndpoint`
-            // via `PairKey.source.as_ref()` stay cheap.
+            });
+            self.record_co_occurrences(&endpoint, now_ms);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
             self.occurrences.push_back(FindingOccurrence {
                 endpoint,
@@ -347,28 +281,91 @@ impl CrossTraceCorrelator {
             });
         }
 
-        // 5. Enforce max_tracked_pairs cap. Evict the pairs with the lowest
-        //    co_occurrence_count using `select_nth_unstable_by_key` (O(n)
-        //    average) instead of a full sort (O(n log n)). The split point
-        //    is exactly `to_remove`: entries at indices `[0..to_remove)` in
-        //    the returned slice are guaranteed <= the pivot.
-        //
-        //    Invariant: `to_remove < keys.len()`. The outer `if` gates on
-        //    `len() > max_tracked_pairs`, so `len() >= max_tracked_pairs + 1`
-        //    and therefore `to_remove = len() - max_tracked_pairs >= 1` and
-        //    `to_remove <= len() - 1`. This keeps `select_nth_unstable_by_key`
-        //    within bounds (it panics on an out-of-bounds pivot index).
-        if self.pair_counts.len() > self.config.max_tracked_pairs {
-            let to_remove = self.pair_counts.len() - self.config.max_tracked_pairs;
-            let mut keys: Vec<(PairKey, u32)> = self
-                .pair_counts
-                .iter()
-                .map(|(k, v)| (k.clone(), v.co_occurrence_count))
-                .collect();
-            let (lowest, _, _) = keys.select_nth_unstable_by_key(to_remove, |(_, c)| *c);
-            for (key, _) in lowest {
-                self.pair_counts.remove(key);
+        self.enforce_pair_cap();
+    }
+
+    /// Drop occurrences older than `cutoff`, decrementing `source_totals`.
+    ///
+    /// The `loop + match` pattern avoids both an `.expect()` on the pop
+    /// and the duplication of the staleness check across peek and pop.
+    fn evict_stale(&mut self, cutoff: u64) {
+        loop {
+            match self.occurrences.front() {
+                Some(front) if front.timestamp_ms < cutoff => {
+                    if let Some(expired) = self.occurrences.pop_front() {
+                        Self::decrement_source_total(&mut self.source_totals, &expired.endpoint);
+                    }
+                }
+                _ => break,
             }
+        }
+    }
+
+    /// Scan recent occurrences for entries from a different service within
+    /// `lag_threshold_ms` and increment the matching pair counters.
+    fn record_co_occurrences(
+        &mut self,
+        endpoint: &std::sync::Arc<CorrelationEndpoint>,
+        now_ms: u64,
+    ) {
+        for occ in self.occurrences.iter().rev() {
+            let age = now_ms.saturating_sub(occ.timestamp_ms);
+            if age > self.config.lag_threshold_ms {
+                break;
+            }
+            if occ.endpoint.service == endpoint.service {
+                continue;
+            }
+
+            let key = PairKey {
+                source: occ.endpoint.clone(), // Arc clone: pointer bump
+                target: endpoint.clone(),     // Arc clone: pointer bump
+            };
+            // Lag fits in f64 for any reasonable window. `as f64` loses
+            // precision only for values above 2^53 ms (~285k years).
+            #[allow(clippy::cast_precision_loss)]
+            let lag = age as f64;
+            let state = self.pair_counts.entry(key).or_insert_with(|| PairState {
+                co_occurrence_count: 0,
+                lags_ms: Vec::new(),
+                total_observations: 0,
+                // Seed the PRNG from first_seen_ms so different pairs
+                // evolve independent sample streams. Pairs created at
+                // the same tick get the same seed; we mix in the
+                // endpoint's hash to diversify.
+                rng_state: now_ms ^ (hash_endpoint(&occ.endpoint) << 17) ^ hash_endpoint(endpoint),
+                first_seen_ms: now_ms,
+                last_seen_ms: now_ms,
+            });
+            state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
+            state.record_lag(lag);
+            state.last_seen_ms = now_ms;
+        }
+    }
+
+    /// Enforce `max_tracked_pairs` cap. Evicts the pairs with the lowest
+    /// `co_occurrence_count` using `select_nth_unstable_by_key` (O(n)
+    /// average) instead of a full sort (O(n log n)). The split point is
+    /// exactly `to_remove`: entries at indices `[0..to_remove)` in the
+    /// returned slice are guaranteed <= the pivot.
+    ///
+    /// Invariant: `to_remove < keys.len()`. The outer `if` gates on
+    /// `len() > max_tracked_pairs`, so `to_remove >= 1` and
+    /// `to_remove <= len() - 1`. This keeps `select_nth_unstable_by_key`
+    /// within bounds (it panics on an out-of-bounds pivot index).
+    fn enforce_pair_cap(&mut self) {
+        if self.pair_counts.len() <= self.config.max_tracked_pairs {
+            return;
+        }
+        let to_remove = self.pair_counts.len() - self.config.max_tracked_pairs;
+        let mut keys: Vec<(PairKey, u32)> = self
+            .pair_counts
+            .iter()
+            .map(|(k, v)| (k.clone(), v.co_occurrence_count))
+            .collect();
+        let (lowest, _, _) = keys.select_nth_unstable_by_key(to_remove, |(_, c)| *c);
+        for (key, _) in lowest {
+            self.pair_counts.remove(key);
         }
     }
 
