@@ -41,12 +41,24 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
             .or_default() += 1;
     }
 
-    // Sort by count descending, take top 2
-    let mut sorted: Vec<(&str, usize)> = template_counts.iter().map(|(&k, &v)| (k, v)).collect();
-    sorted.sort_unstable_by(|a, b| b.1.cmp(&a.1));
-    let top_str: String = sorted
+    // Find top-2 by count. For large trace fan-ins (dozens of distinct
+    // endpoints) this is O(k) via `select_nth_unstable_by` instead of
+    // the O(k log k) full sort we used previously. Only runs on
+    // chatty-flagged traces, so the difference is cosmetic, but avoids
+    // gratuitous work on traces with high endpoint cardinality.
+    let mut entries: Vec<(&str, usize)> = template_counts.iter().map(|(&k, &v)| (k, v)).collect();
+    let top_two = if entries.len() <= 2 {
+        entries.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        entries
+    } else {
+        // Partition so the first 2 are >= the rest, then sort just those 2.
+        entries.select_nth_unstable_by(1, |a, b| b.1.cmp(&a.1));
+        entries.truncate(2);
+        entries.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        entries
+    };
+    let top_str: String = top_two
         .iter()
-        .take(2)
         .map(|(tmpl, cnt)| format!("{tmpl} x{cnt}"))
         .collect::<Vec<_>>()
         .join(", ");
@@ -84,6 +96,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         last_timestamp: last_ts.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
+        code_location: None,
     }]
 }
 

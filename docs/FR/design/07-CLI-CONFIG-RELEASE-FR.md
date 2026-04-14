@@ -95,6 +95,68 @@ Le workspace utilise des feature flags Cargo pour garder les dépendances daemon
 | `daemon` | `sentinel-cli`  | Transmet à `sentinel-core/daemon`. Active la sous-commande `watch`.                                                                     |
 | `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Active la sous-commande `inspect`.                                                                              |
 
+### Localisation du code source dans les findings
+
+Les findings peuvent inclure un champ optionnel `code_location` contenant les attributs OTel `code.*` extraits du span :
+
+```rust
+pub struct CodeLocation {
+    pub function: Option<String>,
+    pub filepath: Option<String>,
+    pub lineno: Option<u32>,
+    pub namespace: Option<String>,
+}
+```
+
+Ces attributs sont extraits dans `ingest/otlp.rs` depuis les attributs du span lui-même (pas du parent) : `code.function`, `code.filepath`, `code.lineno`, `code.namespace`. Quand ils sont présents, le rapport CLI affiche la source ("Source: OrderService.processItems (OrderService.java:42)").
+
+**Intégration SARIF.** La sortie SARIF v2.1.0 traduit `code_location` en `physicalLocation` :
+
+```json
+{
+  "physicalLocation": {
+    "artifactLocation": { "uri": "src/OrderService.java" },
+    "region": { "startLine": 42 }
+  }
+}
+```
+
+Cela permet les annotations en ligne dans GitHub Code Scanning et GitLab SAST. Le champ `region` n'est émis que si `lineno` est présent.
+
+**Dégradation gracieuse.** La plupart des agents OTel auto-instrumentés n'émettent pas `code.lineno`. Dans ce cas, `code_location` est `None` et le finding apparaît sans ligne source, sans bruit supplémentaire.
+
+**Sanitization de `code.filepath`.** L'attribut OTel `code.filepath` est contrôlé par le client (un span hostile peut y mettre n'importe quelle chaîne). Avant de l'émettre comme `artifactLocation.uri` SARIF, `sanitize_sarif_filepath` rejette toute valeur qui pourrait phisher un consommateur ou contourner les résolveurs de code scanning. Le sanitizer renvoie `None` (et donc omet le `physicalLocations` array) pour :
+
+- Chemins absolus (POSIX `/...`, Windows `\...`).
+- Tout colon. Les chemins sources légitimes dans les apps instrumentées ne contiennent pas de colons. Rejet inconditionnel pour éviter les bypasses subtils autour de `javascript:`, `data:`, `file:`, etc.
+- Segments de path traversal. Littéral `..` et variantes percent-encodées (`%2e%2e`, `%2E%2E`, casse mixte, `.%2e`, `%2e.`).
+- Séquences double-encodées (`%25...`) qui décodent en `%` au premier passage puis en caractère réel au second.
+- Préfixes UTF-8 overlong (`%c0`, `%c1`) qui décodent en encodages non-canoniques de caractères ASCII dans les décodeurs laxistes.
+- Caractères de contrôle (newlines, NUL, etc.) qui pourraient casser le tokenizer du consommateur SARIF ou injecter dans les logs.
+- Caractères Unicode BiDi et invisibles (`U+061C`, `U+180E`, `U+202A..U+202E`, `U+2066..U+2069`, `U+200B..U+200F`, `U+FEFF`) qui peuvent confondre l'affichage des noms de fichier (Trojan Source, CVE-2021-42574).
+
+Les findings dont le filepath est rejeté apparaissent toujours dans le rapport SARIF, seul le tableau `physicalLocations` est omis (les `logicalLocations` et autres champs restent).
+
+### Sous-commande `query`
+
+`perf-sentinel query --daemon http://localhost:4318 <action>` interroge l'API HTTP du daemon en cours d'exécution. Cinq actions sont disponibles :
+
+| Action | Endpoint API | Sortie | Description |
+|---|---|---|---|
+| `findings` | `/api/findings` | terminal coloré (défaut) ou JSON | Lister les findings récents avec filtres `--service`, `--type`, `--severity`, `--limit` |
+| `explain` | `/api/explain/{trace_id}` | arbre coloré (défaut) ou JSON | Afficher l'arbre de trace avec findings en ligne (depuis la mémoire du daemon) |
+| `inspect` | `/api/findings` | TUI ratatui | TUI interactif 3 panneaux alimenté par les données live du daemon |
+| `correlations` | `/api/correlations` | tableau coloré (défaut) ou JSON | Afficher les corrélations cross-trace actives |
+| `status` | `/api/status` | résumé coloré (défaut) ou JSON | Afficher l'état du daemon : version, uptime, traces actives, findings stockés |
+
+Toutes les actions sauf `inspect` acceptent `--format text|json`. Le défaut est `text` (sortie colorée), comme la commande `analyze`. `--format json` produit du JSON brut pour le scripting.
+
+**Sortie colorée.** `findings` réutilise `print_findings()` de la commande `analyze`. `explain` désérialise la réponse en `ExplainTree` et appelle `format_tree_text()`. `inspect` récupère d'abord les findings via `/api/findings?limit=10000`, puis pour chaque `trace_id` distinct récupère l'arbre via `/api/explain/{trace_id}` et le passe au TUI via `App::with_pre_rendered_trees`. Les traces encore dans la fenêtre du daemon affichent leur vrai arbre de spans ; les traces évincées s'affichent sans arbre (skip silencieux). `correlations` affiche un tableau avec la confiance en pourcentage coloré (rouge >= 80%, jaune >= 50%). `status` affiche les clés/valeurs avec l'uptime formaté (Xh Ym Zs).
+
+La sous-commande est protégée par le feature flag `daemon`. Elle utilise le client HTTP partagé (`http_client::build_client`) avec un timeout de 10 secondes.
+
+Le flag `--daemon` spécifie l'URL de base du daemon (défaut `http://localhost:4318`). C'est le même port que l'endpoint OTLP HTTP, les routes `/api/*` sont servies par le même serveur axum.
+
 Les deux features sont dans le `default` du CLI. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
 
 ```toml

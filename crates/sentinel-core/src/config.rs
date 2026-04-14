@@ -115,6 +115,14 @@ pub struct Config {
     pub tls_cert_path: Option<String>,
     /// Path to PEM-encoded TLS private key for the OTLP receivers.
     pub tls_key_path: Option<String>,
+    /// Maximum number of findings retained by the daemon query API.
+    pub max_retained_findings: usize,
+    /// Whether the daemon query API is enabled.
+    pub daemon_api_enabled: bool,
+    /// Whether cross-trace correlation is enabled (opt-in, default false).
+    pub correlation_enabled: bool,
+    /// Cross-trace correlation config. Only used when `correlation_enabled` is true.
+    pub correlation_config: crate::detect::correlate_cross::CorrelationConfig,
 }
 
 /// Deployment environment for the daemon's `watch` mode.
@@ -192,6 +200,10 @@ impl Default for Config {
             daemon_environment: DaemonEnvironment::Staging,
             tls_cert_path: None,
             tls_key_path: None,
+            max_retained_findings: 10_000,
+            daemon_api_enabled: true,
+            correlation_enabled: false,
+            correlation_config: crate::detect::correlate_cross::CorrelationConfig::default(),
         }
     }
 }
@@ -379,6 +391,24 @@ struct DaemonSection {
     tls_cert_path: Option<String>,
     /// Path to PEM-encoded TLS private key.
     tls_key_path: Option<String>,
+    /// Maximum number of findings kept by the daemon query API.
+    max_retained_findings: Option<usize>,
+    /// Whether the daemon query API is enabled.
+    api_enabled: Option<bool>,
+    /// Cross-trace correlation section.
+    correlation: CorrelationSection,
+}
+
+/// Raw deserialization target for `[daemon.correlation]`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct CorrelationSection {
+    enabled: Option<bool>,
+    window_minutes: Option<u64>,
+    lag_threshold_ms: Option<u64>,
+    min_co_occurrences: Option<u32>,
+    min_confidence: Option<f64>,
+    max_tracked_pairs: Option<usize>,
 }
 
 impl From<RawConfig> for Config {
@@ -570,6 +600,32 @@ impl From<RawConfig> for Config {
             },
             tls_cert_path: raw.daemon.tls_cert_path,
             tls_key_path: raw.daemon.tls_key_path,
+            max_retained_findings: raw
+                .daemon
+                .max_retained_findings
+                .unwrap_or(defaults.max_retained_findings),
+            daemon_api_enabled: raw
+                .daemon
+                .api_enabled
+                .unwrap_or(defaults.daemon_api_enabled),
+            correlation_enabled: raw
+                .daemon
+                .correlation
+                .enabled
+                .unwrap_or(defaults.correlation_enabled),
+            correlation_config: {
+                let c = &raw.daemon.correlation;
+                let d = crate::detect::correlate_cross::CorrelationConfig::default();
+                crate::detect::correlate_cross::CorrelationConfig {
+                    window_ms: c
+                        .window_minutes
+                        .map_or(d.window_ms, |m| m.saturating_mul(60_000)),
+                    lag_threshold_ms: c.lag_threshold_ms.unwrap_or(d.lag_threshold_ms),
+                    min_co_occurrences: c.min_co_occurrences.unwrap_or(d.min_co_occurrences),
+                    min_confidence: c.min_confidence.unwrap_or(d.min_confidence),
+                    max_tracked_pairs: c.max_tracked_pairs.unwrap_or(d.max_tracked_pairs),
+                }
+            },
         }
     }
 }
@@ -937,6 +993,18 @@ impl Config {
             );
         }
         validate_http_authority(&cfg.api_endpoint, "[green.electricity_maps] endpoint")?;
+        // Warn (but do not fail) when a non-empty auth token travels to an
+        // http:// endpoint. The Electricity Maps production API is served
+        // over https in practice; an http:// endpoint usually means a local
+        // test server or a misconfiguration. Flag it so users do not
+        // silently ship credentials in cleartext.
+        if cfg.api_endpoint.starts_with("http://") && !cfg.auth_token.is_empty() {
+            tracing::warn!(
+                "[green.electricity_maps] auth token will be sent over http:// \
+                 (no TLS). Use https:// for production or set the endpoint to \
+                 a loopback/private address if this is intentional."
+            );
+        }
         let secs = cfg.poll_interval.as_secs();
         check_range(
             "[green.electricity_maps] poll_interval_secs",
@@ -1331,7 +1399,12 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
 }
 
 /// Errors that can occur during configuration loading.
+///
+/// `#[non_exhaustive]` so that adding future variants (e.g. a new
+/// validation failure when a new config section lands) stays a
+/// SemVer-minor change.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ConfigError {
     /// TOML parsing error.
     #[error("config parse error: {0}")]

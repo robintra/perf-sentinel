@@ -47,11 +47,12 @@ Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:
 
 For each detected anti-pattern, perf-sentinel reports:
 
-- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, excessive fanout, chatty service, pool saturation, or serialized calls
+- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, excessive fanout, chatty service, pool saturation, or serialized calls. Cross-trace correlations are also surfaced in daemon mode
 - **Normalized template:** the query or URL with parameters replaced by placeholders (`?`, `{id}`)
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
 - **Suggestion:** e.g. "batch this query", "use a batch endpoint", "consider adding an index"
+- **Source location:** when OTel spans carry `code.function`, `code.filepath`, `code.lineno` attributes, findings display the originating source file and line. SARIF reports include `physicalLocations` for inline GitHub/GitLab annotations
 - **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, structured `co2` object (`low`/`mid`/`high`, SCI v1.0 operational + embodied terms), per-region breakdown when multi-region scoring is active
 
 ![demo](docs/img/analyze/demo.gif)
@@ -290,6 +291,9 @@ perf-sentinel pg-stat --input pg_stat.csv
 
 # Cross-reference with trace findings
 perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
+
+# Scrape pg_stat_statements metrics from a postgres_exporter Prometheus endpoint
+perf-sentinel pg-stat --prometheus http://prometheus:9090
 ```
 
 ### Interactive inspection (TUI)
@@ -313,6 +317,32 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 ```bash
 # Tune I/O-to-energy coefficients from real measurements
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
+```
+
+### Query a running daemon
+
+All query sub-actions default to colored terminal output. Use `--format json` for scripting.
+
+```bash
+# List recent findings (colored text by default)
+perf-sentinel query findings
+perf-sentinel query findings --service order-svc --severity critical
+
+# Explain a trace tree with inline findings
+perf-sentinel query explain --trace-id abc123
+
+# Interactive TUI with live daemon data
+perf-sentinel query inspect
+
+# View cross-trace correlations
+perf-sentinel query correlations
+
+# Check daemon health
+perf-sentinel query status
+
+# JSON output for scripting
+perf-sentinel query findings --format json
+perf-sentinel query status --format json
 ```
 
 ### Streaming mode (daemon)

@@ -1,0 +1,79 @@
+---
+title: Daemon query API architecture
+---
+flowchart TD
+    subgraph client["perf-sentinel query CLI"]
+        q_findings["query findings<br/><i>--service --type --severity --limit<br/>--format text|json</i>"]
+        q_findings_trace["query explain<br/><i>--trace-id ID<br/>(findings by trace)</i>"]
+        q_explain["query explain<br/><i>--trace-id ID<br/>--format text|json</i>"]
+        q_inspect["query inspect<br/><i>ratatui 3-panel TUI<br/>live daemon data</i>"]
+        q_correlations["query correlations<br/><i>--format text|json</i>"]
+        q_status["query status<br/><i>--format text|json</i>"]
+    end
+
+    subgraph output["Output rendering"]
+        colored["Colored terminal<br/><i>default: --format text</i>"]
+        json_out["JSON stdout<br/><i>--format json</i>"]
+        tui_out["ratatui TUI<br/><i>query inspect</i>"]
+    end
+
+    subgraph http_server["HTTP server :4318"]
+        otlp["POST /v1/traces<br/><i>OTLP HTTP ingestion</i>"]
+        metrics["GET /metrics<br/><i>Prometheus + exemplars</i>"]
+
+        subgraph api_routes["Query API routes (axum Router)"]
+            ep_findings["GET /api/findings<br/><i>?service= &amp;type=<br/>&amp;severity= &amp;limit=</i>"]
+            ep_findings_trace["GET /api/findings/{trace_id}"]
+            ep_explain["GET /api/explain/{trace_id}"]
+            ep_correlations["GET /api/correlations"]
+            ep_status["GET /api/status"]
+        end
+    end
+
+    subgraph daemon_state["Daemon internal state"]
+        subgraph findings_store["FindingsStore"]
+            ring["VecDeque&lt;StoredFinding&gt;<br/><i>ring buffer<br/>max_retained_findings<br/>RwLock&lt;read: API, write: process_traces&gt;</i>"]
+        end
+
+        subgraph trace_window["TraceWindow"]
+            lru["LRU cache<br/><i>active traces<br/>Mutex shared</i>"]
+        end
+
+        subgraph correlator["CrossTraceCorrelator"]
+            pairs["Tracked pairs<br/><i>rolling window (10 min)<br/>co-occurrence counts<br/>confidence scoring<br/>reservoir sampling (256 lags)</i>"]
+        end
+
+        metrics_state["MetricsState<br/><i>counters, gauges<br/>uptime, trace count</i>"]
+    end
+
+    process["process_traces()<br/><i>detect &rarr; confidence stamp<br/>&rarr; correlate &rarr; score</i>"]
+
+    process -- "push_batch()" --> ring
+    process -- "ingest_findings()" --> pairs
+
+    q_findings -- "HTTP GET" --> ep_findings
+    q_findings_trace -- "HTTP GET" --> ep_findings_trace
+    q_explain -- "HTTP GET" --> ep_explain
+    q_inspect -- "HTTP GET" --> ep_findings
+    q_correlations -- "HTTP GET" --> ep_correlations
+    q_status -- "HTTP GET" --> ep_status
+
+    q_findings --> colored & json_out
+    q_explain --> colored & json_out
+    q_inspect --> tui_out
+    q_correlations --> colored & json_out
+    q_status --> colored & json_out
+
+    ep_findings -- "query(&filter)" --> ring
+    ep_findings_trace -- "by_trace_id()" --> ring
+    ep_explain -- "peek_clone(trace_id)" --> lru
+    ep_correlations -- "active_correlations()" --> pairs
+    ep_status -- "read counters" --> metrics_state
+
+    style client fill:#2d3b4a,stroke:#60a5fa
+    style http_server fill:#2d4a3e,stroke:#4ade80
+    style api_routes fill:#2d4a3e,stroke:#4ade80
+    style daemon_state fill:#3b2d4a,stroke:#a78bfa
+    style findings_store fill:#4a3b2d,stroke:#fbbf24
+    style trace_window fill:#3b2d4a,stroke:#a78bfa
+    style correlator fill:#4a3b2d,stroke:#fbbf24

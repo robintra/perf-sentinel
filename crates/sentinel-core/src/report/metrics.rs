@@ -593,6 +593,7 @@ mod tests {
                 io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(6.0),
             }),
             confidence: Confidence::default(),
+            code_location: None,
         }
     }
 

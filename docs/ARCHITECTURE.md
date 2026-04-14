@@ -106,6 +106,23 @@ JSON unix socket       /                               |
 - Findings are emitted as newline-delimited JSON to stdout.
 - Prometheus metrics are exposed on the same HTTP port (4318) at `/metrics`.
 
+### Daemon query API
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/query-api_dark.svg">
+  <img alt="Daemon query API architecture" src="diagrams/svg/query-api.svg">
+</picture>
+
+In `watch` mode, the daemon exposes its internal state via HTTP endpoints on port 4318 alongside `/v1/traces` and `/metrics`:
+
+- `GET /api/findings` (filterable, capped at 1000)
+- `GET /api/findings/{trace_id}`
+- `GET /api/explain/{trace_id}` (tree with findings inline, from daemon memory)
+- `GET /api/correlations` (cross-trace correlations, capped at 1000)
+- `GET /api/status` (uptime, active traces, stored findings count)
+
+A `FindingsStore` ring buffer retains recent findings for the API (sized by `[daemon] max_retained_findings`, default 10k). The companion CLI subcommand `perf-sentinel query` renders these endpoints in colored terminal output. Gated by `[daemon] api_enabled` (default true); see [`docs/LIMITATIONS.md`](LIMITATIONS.md#daemon-query-api) for the no-auth threat model.
+
 ## Module responsibilities
 
 | Module           | Path              | Responsibility                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |

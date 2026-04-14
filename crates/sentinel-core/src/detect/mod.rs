@@ -1,6 +1,7 @@
 //! Detection stage: identifies performance anti-patterns in traces.
 
 pub mod chatty;
+pub mod correlate_cross;
 pub mod fanout;
 pub mod n_plus_one;
 pub mod pool_saturation;
@@ -41,20 +42,28 @@ pub(super) fn build_span_index(trace: &Trace) -> HashMap<&str, usize> {
 }
 
 /// A detected performance anti-pattern.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
+    /// The anti-pattern category (N+1, redundant, slow, fanout, etc.).
     #[serde(rename = "type")]
     pub finding_type: FindingType,
+    /// Severity level: critical, warning, or info.
     pub severity: Severity,
+    /// Trace identifier where the anti-pattern was detected.
     pub trace_id: String,
+    /// Name of the service emitting the spans involved in the finding.
     pub service: String,
+    /// Normalized inbound endpoint (route template) hosting the pattern.
     pub source_endpoint: String,
+    /// Details of the matched pattern: template, occurrences, window, params.
     pub pattern: Pattern,
+    /// Human-readable remediation hint for this finding.
     pub suggestion: String,
     /// Earliest timestamp among spans in the detected group.
     pub first_timestamp: String,
     /// Latest timestamp among spans in the detected group.
     pub last_timestamp: String,
+    /// `GreenOps` impact estimate. Absent when green scoring is disabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub green_impact: Option<GreenImpact>,
     /// Source context of this finding: CI batch run, staging daemon, or
@@ -68,10 +77,14 @@ pub struct Finding {
     /// layer oblivious to runtime context.
     #[serde(default)]
     pub confidence: Confidence,
+    /// Source code location from `OTel` `code.*` span attributes.
+    /// `None` when the instrumentation agent does not emit these attributes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_location: Option<crate::event::CodeLocation>,
 }
 
 /// Types of performance anti-patterns.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FindingType {
     NPlusOneSql,
@@ -87,7 +100,7 @@ pub enum FindingType {
 }
 
 /// Severity levels for findings.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Critical,
@@ -149,16 +162,20 @@ impl Confidence {
 }
 
 /// Pattern details for a finding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pattern {
+    /// Normalized query or URL template shared by the matched spans.
     pub template: String,
+    /// Number of spans that matched this template within the window.
     pub occurrences: usize,
+    /// Time span, in milliseconds, covering all matched occurrences.
     pub window_ms: u64,
+    /// Count of distinct parameter sets observed across occurrences.
     pub distinct_params: usize,
 }
 
 /// `GreenOps` impact for a single finding.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GreenImpact {
     /// Extra I/O operations caused by this anti-pattern (occurrences - 1).
     pub estimated_extra_io_ops: usize,
@@ -309,6 +326,7 @@ pub(crate) struct PerTraceFindingArgs<'a> {
     pub suggestion: String,
     pub first_timestamp: &'a str,
     pub last_timestamp: &'a str,
+    pub code_location: Option<crate::event::CodeLocation>,
 }
 
 /// Build a [`Finding`] from the common fields shared by per-trace
@@ -332,6 +350,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         last_timestamp: args.last_timestamp.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
+        code_location: args.code_location,
     }
 }
 
@@ -699,5 +718,54 @@ mod tests {
         assert!(has_n1, "should detect N+1");
         assert!(has_redundant, "should detect redundant");
         assert!(has_slow, "should detect slow");
+    }
+
+    // --- Serde roundtrip for Finding (Deserialize added for query CLI) ---
+
+    #[test]
+    fn finding_serde_roundtrip() {
+        let finding =
+            crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let json = serde_json::to_string(&finding).unwrap();
+        let back: Finding = serde_json::from_str(&json).unwrap();
+        assert_eq!(finding.finding_type, back.finding_type);
+        assert_eq!(finding.severity, back.severity);
+        assert_eq!(finding.trace_id, back.trace_id);
+        assert_eq!(finding.service, back.service);
+        assert_eq!(finding.pattern.template, back.pattern.template);
+        assert_eq!(finding.confidence, back.confidence);
+    }
+
+    #[test]
+    fn finding_with_code_location_serde_roundtrip() {
+        let mut finding =
+            crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.code_location = Some(crate::event::CodeLocation {
+            function: Some("processItems".to_string()),
+            filepath: Some("src/Order.java".to_string()),
+            lineno: Some(42),
+            namespace: Some("com.example".to_string()),
+        });
+        let json = serde_json::to_string(&finding).unwrap();
+        let back: Finding = serde_json::from_str(&json).unwrap();
+        let loc = back.code_location.unwrap();
+        assert_eq!(loc.function.as_deref(), Some("processItems"));
+        assert_eq!(loc.lineno, Some(42));
+    }
+
+    #[test]
+    fn finding_type_deserializes_from_snake_case() {
+        let ft: FindingType = serde_json::from_str(r#""n_plus_one_sql""#).unwrap();
+        assert_eq!(ft, FindingType::NPlusOneSql);
+        let ft: FindingType = serde_json::from_str(r#""chatty_service""#).unwrap();
+        assert_eq!(ft, FindingType::ChattyService);
+    }
+
+    #[test]
+    fn severity_deserializes_from_snake_case() {
+        let s: Severity = serde_json::from_str(r#""critical""#).unwrap();
+        assert_eq!(s, Severity::Critical);
+        let s: Severity = serde_json::from_str(r#""warning""#).unwrap();
+        assert_eq!(s, Severity::Warning);
     }
 }

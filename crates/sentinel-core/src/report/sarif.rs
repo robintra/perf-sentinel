@@ -75,6 +75,18 @@ pub struct SarifResult {
     /// `daemon_production = 90`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<u32>,
+    /// Physical source code locations from `OTel` `code.*` span attributes.
+    /// Enables inline annotations in GitHub/GitLab code scanning when
+    /// the instrumentation agent emits source code attributes.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub locations: Vec<SarifLocation>,
+}
+
+/// Wrapper for SARIF `location` objects containing physical locations.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifLocation {
+    pub physical_location: SarifPhysicalLocation,
 }
 
 /// Custom properties attached to a [`SarifResult`].
@@ -101,6 +113,29 @@ pub struct SarifMessage {
 pub struct SarifLogicalLocation {
     pub name: String,
     pub kind: String,
+}
+
+/// Physical source code location. Populated when the finding carries
+/// a [`CodeLocation`](crate::event::CodeLocation) with at least a filepath.
+/// Enables inline annotations in GitHub/GitLab code scanning.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifPhysicalLocation {
+    pub artifact_location: SarifArtifactLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<SarifRegion>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifArtifactLocation {
+    pub uri: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifRegion {
+    pub start_line: u32,
 }
 
 // ── Conversion ──────────────────────────────────────────────────────
@@ -186,7 +221,139 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
             confidence: finding.confidence.as_str(),
         }),
         rank: Some(finding.confidence.sarif_rank()),
+        locations: finding
+            .code_location
+            .as_ref()
+            .and_then(|loc| {
+                loc.filepath.as_ref().and_then(|fp| {
+                    sanitize_sarif_filepath(fp).map(|uri| {
+                        vec![SarifLocation {
+                            physical_location: SarifPhysicalLocation {
+                                artifact_location: SarifArtifactLocation { uri },
+                                region: loc.lineno.map(|ln| SarifRegion { start_line: ln }),
+                            },
+                        }]
+                    })
+                })
+            })
+            .unwrap_or_default(),
     }
+}
+
+/// Sanitize a `code.filepath` span attribute before emitting it as a SARIF
+/// `artifactLocation.uri`. Rejects potentially hostile inputs that could
+/// phish a user when the SARIF report is rendered by GitHub/GitLab code
+/// scanning UIs. The `code.filepath` attribute is attacker-controlled
+/// (a hostile span can set it to anything).
+///
+/// Returns `None` when the filepath should not be emitted at all.
+fn sanitize_sarif_filepath(fp: &str) -> Option<String> {
+    // Reject absolute paths (POSIX `/etc/...` and Windows `\Foo\Bar`).
+    if fp.starts_with('/') || fp.starts_with('\\') {
+        return None;
+    }
+
+    // Reject ANY colon. This is stricter than the previous drive-letter
+    // exception: legitimate source paths in instrumented apps do not
+    // contain colons, and accepting them opens subtle bypasses
+    // (`A:B:C://...`, `javascript:`, `data:`, etc.). If a user genuinely
+    // has a colon in their source path (extremely rare), they can strip
+    // it in their instrumentation layer.
+    if fp.contains(':') {
+        return None;
+    }
+
+    // Reject path traversal segments. Both literal `..` and percent-encoded
+    // variants (`%2e%2e`, `%2E%2E`, mixed case) are rejected because SARIF
+    // consumers may percent-decode the URI before resolving it.
+    if fp.split(&['/', '\\'][..]).any(|seg| seg == "..") {
+        return None;
+    }
+    if contains_percent_encoded_dot(fp) {
+        return None;
+    }
+
+    // Reject double-encoded percent sequences. `%252e` decodes to `%2e`
+    // under single-decode, then to `.` under a second decode. Any `%25`
+    // in a source path is suspicious enough to reject.
+    if fp.contains("%25") {
+        return None;
+    }
+
+    // Reject overlong UTF-8 encoding of `.`. `%c0%ae` and `%e0%80%ae`
+    // are non-canonical encodings of U+002E that some lax decoders
+    // accept (classic IIS unicode bug). Blanket-reject any `%c0`/`%c1`
+    // (2-byte overlong prefixes) and `%e0%80` (3-byte overlong prefix)
+    // as cheap defense-in-depth.
+    if fp.contains("%c0")
+        || fp.contains("%C0")
+        || fp.contains("%c1")
+        || fp.contains("%C1")
+        || fp.contains("%e0%80")
+        || fp.contains("%E0%80")
+    {
+        return None;
+    }
+
+    // Reject control characters (newlines, NUL, etc.) that could break
+    // the SARIF consumer's tokenizer or inject into logs.
+    if fp.chars().any(char::is_control) {
+        return None;
+    }
+
+    // Reject Unicode BiDi overrides and invisible format characters.
+    // `char::is_control` doesn't catch these (they're format chars, not
+    // control chars), but they can confuse SARIF-rendered UIs by making
+    // a filename display differently than it reads. See Trojan Source
+    // (CVE-2021-42574) for the class of attack.
+    if fp.chars().any(is_bidi_or_invisible) {
+        return None;
+    }
+
+    Some(fp.to_string())
+}
+
+/// Detect percent-encoded `.` (`%2e` / `%2E`) pairs that form a
+/// `..` traversal after decoding. Handles mixed case.
+fn contains_percent_encoded_dot(fp: &str) -> bool {
+    let bytes = fp.as_bytes();
+    let mut i = 0;
+    while i + 5 < bytes.len() {
+        // Match `%2e%2e` case-insensitively.
+        if bytes[i] == b'%'
+            && (bytes[i + 1] == b'2')
+            && (bytes[i + 2] == b'e' || bytes[i + 2] == b'E')
+            && bytes[i + 3] == b'%'
+            && bytes[i + 4] == b'2'
+            && (bytes[i + 5] == b'e' || bytes[i + 5] == b'E')
+        {
+            return true;
+        }
+        i += 1;
+    }
+    // Also catch mixed literal/encoded forms like `.%2e` or `%2e.`.
+    if fp.contains(".%2e") || fp.contains(".%2E") {
+        return true;
+    }
+    if fp.contains("%2e.") || fp.contains("%2E.") {
+        return true;
+    }
+    false
+}
+
+/// Return true for Unicode `BiDi` override and invisible format characters
+/// that can confuse text renderers (Trojan Source class of attack,
+/// CVE-2021-42574).
+fn is_bidi_or_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}' // Arabic Letter Mark (BiDi formatting)
+        | '\u{180E}' // Mongolian Vowel Separator (deprecated invisible)
+        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
+        | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
+        | '\u{200B}'..='\u{200F}' // ZWSP, ZWNJ, ZWJ, LRM, RLM
+        | '\u{FEFF}' // BOM / zero-width no-break space
+    )
 }
 
 const SARIF_SCHEMA: &str = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json";
@@ -227,7 +394,10 @@ pub fn emit_sarif(report: &Report) -> Result<(), SarifError> {
 }
 
 /// Errors from SARIF emission.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SarifError {
     /// JSON serialization failed.
     #[error("SARIF serialization error: {0}")]
@@ -404,5 +574,217 @@ mod tests {
         assert_eq!(sarif.runs[0].results[0].rank, Some(30));
         assert_eq!(sarif.runs[0].results[1].rank, Some(60));
         assert_eq!(sarif.runs[0].results[2].rank, Some(90));
+    }
+
+    // ── sanitize_sarif_filepath ──────────────────────────────────
+
+    #[test]
+    fn sanitize_accepts_relative_path() {
+        assert_eq!(
+            sanitize_sarif_filepath("src/Order.java"),
+            Some("src/Order.java".to_string())
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("order-service/src/main/OrderService.java"),
+            Some("order-service/src/main/OrderService.java".to_string())
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_url_schemes() {
+        assert_eq!(
+            sanitize_sarif_filepath("http://attacker.example/steal"),
+            None
+        );
+        assert_eq!(sanitize_sarif_filepath("https://evil.com/xss"), None);
+        assert_eq!(sanitize_sarif_filepath("file:///etc/passwd"), None);
+        assert_eq!(sanitize_sarif_filepath("javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_absolute_paths() {
+        assert_eq!(sanitize_sarif_filepath("/etc/passwd"), None);
+        assert_eq!(sanitize_sarif_filepath("\\Windows\\System32"), None);
+        assert_eq!(sanitize_sarif_filepath("C:\\secret.txt"), None);
+        assert_eq!(sanitize_sarif_filepath("D:/secrets"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_path_traversal() {
+        assert_eq!(sanitize_sarif_filepath("../etc/passwd"), None);
+        assert_eq!(sanitize_sarif_filepath("src/../../../etc/passwd"), None);
+        assert_eq!(sanitize_sarif_filepath("a\\..\\b"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_control_characters() {
+        assert_eq!(sanitize_sarif_filepath("src\nevil"), None);
+        assert_eq!(sanitize_sarif_filepath("src\0Order.java"), None);
+        assert_eq!(sanitize_sarif_filepath("src\rOrder.java"), None);
+    }
+
+    #[test]
+    fn sanitize_rejects_bidi_override_characters() {
+        // Trojan Source: a Right-to-Left Override embedded in a filename
+        // makes the rendered text look different from what it resolves to.
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{202E}cod.rs"),
+            None,
+            "RLO override must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{202D}evil.rs"),
+            None,
+            "LRO override must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{2066}hidden"),
+            None,
+            "LRI must be rejected"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_invisible_format_characters() {
+        // Zero-width characters and BOM can hide path components in UIs.
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{200B}sneaky.rs"),
+            None,
+            "zero-width space must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("\u{FEFF}src/Order.rs"),
+            None,
+            "BOM must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{061C}evil.rs"),
+            None,
+            "Arabic Letter Mark must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/\u{180E}hidden.rs"),
+            None,
+            "Mongolian Vowel Separator must be rejected"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_double_encoded_sequences() {
+        // `%252e%252e` decodes to `%2e%2e` on first pass, then `..` on
+        // second pass. Any `%25` in a filepath is suspicious.
+        assert_eq!(
+            sanitize_sarif_filepath("src/%252e%252e/etc"),
+            None,
+            "double-encoded traversal must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%25nasty"),
+            None,
+            "any %25 must be rejected"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_overlong_utf8_encoding() {
+        // `%c0%ae` is an overlong UTF-8 encoding of `.` that some lax
+        // decoders accept (classic IIS Unicode bug).
+        assert_eq!(
+            sanitize_sarif_filepath("src/%c0%ae%c0%ae/etc"),
+            None,
+            "overlong UTF-8 dot must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%C0%AE"),
+            None,
+            "uppercase overlong UTF-8 must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%c1%anything"),
+            None,
+            "any %c1 must be rejected"
+        );
+        // 3-byte overlong UTF-8: `%e0%80%ae` decodes to `.` in lax decoders.
+        // A pair forms `..`, which a permissive consumer could then resolve
+        // as path traversal.
+        assert_eq!(
+            sanitize_sarif_filepath("src/%e0%80%ae%e0%80%ae/etc/passwd"),
+            None,
+            "3-byte overlong UTF-8 dot must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%E0%80%AE"),
+            None,
+            "uppercase 3-byte overlong UTF-8 must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%e0%80something"),
+            None,
+            "any %e0%80 prefix must be rejected"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_percent_encoded_traversal() {
+        assert_eq!(sanitize_sarif_filepath("src/%2e%2e/etc/passwd"), None);
+        assert_eq!(sanitize_sarif_filepath("src/%2E%2E/etc/passwd"), None);
+        assert_eq!(
+            sanitize_sarif_filepath("src/%2e%2E/etc/passwd"),
+            None,
+            "mixed case %2e%2E must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/.%2e/etc"),
+            None,
+            "literal dot + encoded dot must be rejected"
+        );
+        assert_eq!(
+            sanitize_sarif_filepath("src/%2e./etc"),
+            None,
+            "encoded dot + literal dot must be rejected"
+        );
+    }
+
+    #[test]
+    fn sanitize_rejects_any_colon() {
+        // Previous implementation had a drive-letter exception; new
+        // implementation rejects any colon unconditionally. Legitimate
+        // source paths do not contain colons.
+        assert_eq!(sanitize_sarif_filepath("a:b"), None);
+        assert_eq!(sanitize_sarif_filepath("src:Order.java"), None);
+        assert_eq!(sanitize_sarif_filepath("data:text/html,x"), None);
+    }
+
+    #[test]
+    fn finding_to_sarif_rejects_hostile_filepath() {
+        let mut f = crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.code_location = Some(crate::event::CodeLocation {
+            function: Some("exploit".to_string()),
+            filepath: Some("http://attacker.example/steal".to_string()),
+            lineno: Some(42),
+            namespace: None,
+        });
+        let result = finding_to_result(&f);
+        assert!(
+            result.locations.is_empty(),
+            "hostile URI must not be emitted in SARIF"
+        );
+    }
+
+    #[test]
+    fn finding_to_sarif_emits_safe_filepath() {
+        let mut f = crate::test_helpers::make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.code_location = Some(crate::event::CodeLocation {
+            function: Some("processItems".to_string()),
+            filepath: Some("src/Order.java".to_string()),
+            lineno: Some(42),
+            namespace: None,
+        });
+        let result = finding_to_result(&f);
+        assert_eq!(result.locations.len(), 1);
+        assert_eq!(
+            result.locations[0].physical_location.artifact_location.uri,
+            "src/Order.java"
+        );
     }
 }

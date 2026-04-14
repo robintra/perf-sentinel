@@ -351,3 +351,77 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 ```
 
 The seven detectors run sequentially on each trace. `append(&mut ...)` is used instead of `extend()` to move the backing allocation in O(1) without iterator overhead. Cross-trace slow percentile analysis runs separately in `pipeline.rs` after per-trace detection and before scoring.
+
+## Cross-trace temporal correlation (daemon mode)
+
+In daemon mode (`perf-sentinel watch`), perf-sentinel sees findings from all traces over time. The `CrossTraceCorrelator` detects recurring temporal co-occurrences between findings from different services: "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds."
+
+### Internal state
+
+```rust
+pub struct CrossTraceCorrelator {
+    occurrences: VecDeque<FindingOccurrence>,
+    pair_counts: HashMap<PairKey, PairState>,
+    source_totals: HashMap<CorrelationEndpoint, u32>,
+    config: CorrelationConfig,
+}
+```
+
+Three data structures track the correlation state:
+
+- **`occurrences`**: a `VecDeque` of recent finding occurrences, ordered by timestamp. Each entry records a `CorrelationEndpoint` (finding_type, service, template) and a `timestamp_ms`. This is the rolling window.
+- **`pair_counts`**: a `HashMap` keyed by `PairKey` (source endpoint, target endpoint). Each value holds the co-occurrence count, a bounded reservoir of observed lag values, a `total_observations` counter, a per-pair `SplitMix64` PRNG state, and first/last seen timestamps. This is the correlation accumulator.
+- **`source_totals`**: a `HashMap` counting how many times each `CorrelationEndpoint` is currently in the window. Used as the denominator in the confidence calculation. Maintained incrementally (incremented on `push_back`, decremented on `pop_front`); entries are removed when the count reaches zero so the map stays bounded by the number of distinct endpoints, not the number of occurrences.
+
+### The `ingest()` algorithm
+
+`ingest()` is called from `process_traces` after findings are produced and confidence is stamped. It takes a `&[Finding]` batch and a `now_ms` timestamp. The algorithm has five steps:
+
+1. **Evict stale entries.** Walk `occurrences` from front to back, popping entries older than `now_ms - window_ms` (default 10 minutes), and decrement `source_totals` for each evicted endpoint. This is O(k) where k is the number of expired entries.
+
+2. **Prune stale pair counts.** A single `HashMap::retain` pass over `pair_counts` removes pairs whose `last_seen_ms` is outside the window. O(pairs).
+
+3. **Scan for co-occurrences.** For each incoming finding, construct a `CorrelationEndpoint`. Iterate `occurrences` backwards (most recent first). For each recent occurrence from a **different service** within `lag_threshold_ms` (default 5 seconds), increment the pair counter and record the lag via reservoir sampling (see below). The backwards scan breaks early once it reaches entries beyond the lag threshold, keeping this O(l) where l is the number of occurrences within the lag window.
+
+4. **Append to window.** Push the new finding occurrence onto the back of `occurrences` and increment its `source_totals` count.
+
+5. **Enforce pair cap.** If `pair_counts.len()` exceeds `max_tracked_pairs` (default 10,000), use `select_nth_unstable_by_key` (O(n) average) to find the lowest-count entries and remove them until the cap is met. This eviction prioritizes retaining the most significant correlations.
+
+### The `active_correlations()` filter
+
+`active_correlations()` iterates over `pair_counts` and applies two thresholds:
+
+- `min_co_occurrences` (default 5): pairs that have co-occurred fewer times are filtered out.
+- `min_confidence` (default 0.7): confidence is `co_occurrence_count / source_total_occurrences`. Pairs below this ratio are filtered out.
+
+For each qualifying pair, the function computes `median_lag_ms` and converts `first_seen_ms`/`last_seen_ms` to ISO 8601 via `time::millis_to_iso8601`.
+
+### Reservoir sampling for lag values
+
+A hot pair firing thousands of times within the window would otherwise grow `lags_ms` without bound (megabytes per pair). To keep memory per pair flat, `record_lag` uses Algorithm R reservoir sampling capped at `MAX_LAG_SAMPLES = 256`:
+
+- While the reservoir has space, append unconditionally.
+- Once full, draw `r` uniformly in `[0, total_observations)` via `SplitMix64`. If `r < MAX_LAG_SAMPLES`, replace `lags_ms[r]`. Conditional on `r < k`, `r` is itself uniform in `[0, k)`, so the slot pick is unbiased without a second PRNG draw.
+
+The PRNG is a `SplitMix64` state per `PairState`, seeded at construction from `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` is a deterministic FNV-1a over the endpoint's `finding_type`, `service`, and `template` strings (NOT the `DefaultHasher`, which uses a per-process `RandomState` and would make the correlator non-deterministic across runs). Two daemon runs replaying the same trace file produce identical reservoir samples and therefore identical median lags.
+
+### Median lag calculation
+
+The `median()` helper sorts a clone of the lag values and returns the middle element (odd length) or the midpoint of the two middle elements (even length). Sorting is bounded by `MAX_LAG_SAMPLES` thanks to the reservoir, so the median computation is O(k log k) with k = 256 regardless of how often the pair fires.
+
+### Memory management
+
+Three mechanisms bound memory usage:
+
+- **Rolling window eviction**: the `occurrences` deque is pruned on every `ingest()` call. Entries older than `window_ms` are removed and their `source_totals` count is decremented. Entries reaching count zero are removed from the map.
+- **Pair count pruning**: `pair_counts` entries whose `last_seen_ms` falls outside the window are removed.
+- **Reservoir cap**: each `PairState.lags_ms` is bounded at `MAX_LAG_SAMPLES = 256` f64 (~2 KB per pair), regardless of how often the pair fires.
+- **Pair cap with lowest-count eviction**: when `pair_counts.len()` exceeds `max_tracked_pairs`, the least significant pairs (lowest co-occurrence count) are evicted via `select_nth_unstable_by_key`.
+
+### Integration point
+
+The correlator is created conditionally in the daemon's `run()` function based on `config.correlation_enabled` (default false). It is wrapped in `Arc<Mutex<CrossTraceCorrelator>>` and passed to `process_traces`. After findings are produced and pushed to the `FindingsStore`, the correlator's `ingest()` method is called with the findings and the current timestamp.
+
+### Batch mode exclusion
+
+The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-trace correlation requires a stream of findings over time to detect recurring patterns. A single batch run typically processes a fixed set of traces without the temporal dimension needed for meaningful correlation.

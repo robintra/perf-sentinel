@@ -100,6 +100,7 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             suggestion,
             first_timestamp: min_ts,
             last_timestamp: max_ts,
+            code_location: first.event.code_location(),
         }));
     }
 

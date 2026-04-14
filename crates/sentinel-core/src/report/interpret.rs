@@ -51,7 +51,7 @@
 /// representation is lowercase (`"healthy"` / `"moderate"` / `"high"` /
 /// `"critical"`) and is stable across versions — see the module docstring
 /// for the stability contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InterpretationLevel {
     /// Signal is below the moderate threshold. Nothing to investigate.

@@ -22,7 +22,10 @@ use prost::Message;
 // ---------------------------------------------------------------
 
 /// Errors from Tempo API interactions.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TempoError {
     #[error("invalid Tempo endpoint: {0}")]
     InvalidEndpoint(String),

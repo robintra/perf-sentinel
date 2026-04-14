@@ -44,6 +44,12 @@ pub struct App {
     pub scroll_offset: u16,
     /// Cached detail tree text per trace: (`trace_idx`, rendered tree).
     cached_detail: Option<(usize, String)>,
+    /// Pre-rendered span trees keyed by `trace_id`, populated by callers
+    /// that don't have raw spans in memory (e.g. `query inspect` which
+    /// fetches trees from the daemon's `/api/explain/{trace_id}` endpoint).
+    /// When `Some(text)`, takes precedence over the `detect + build_tree`
+    /// path that requires `traces[i].spans` to be populated.
+    pre_rendered_trees: std::collections::HashMap<String, String>,
 }
 
 impl App {
@@ -97,7 +103,22 @@ impl App {
             active_panel: Panel::Traces,
             scroll_offset: 0,
             cached_detail: None,
+            pre_rendered_trees: std::collections::HashMap::new(),
         }
+    }
+
+    /// Attach pre-rendered span trees keyed by `trace_id`. Used by
+    /// `query inspect` to populate the detail panel from daemon
+    /// responses when the CLI has no raw spans.
+    ///
+    /// `pub(crate)` because the TUI module is internal to the
+    /// `perf-sentinel` binary crate, not a published library API.
+    pub(crate) fn with_pre_rendered_trees(
+        mut self,
+        trees: std::collections::HashMap<String, String>,
+    ) -> Self {
+        self.pre_rendered_trees = trees;
+        self
     }
 
     /// Number of traces available.
@@ -173,9 +194,26 @@ impl App {
             return Some(text.clone());
         }
 
-        let finding = self.current_finding()?;
-        let trace_vec_idx = self.trace_index.get(&finding.trace_id).copied()?;
+        let trace_id = self.trace_ids.get(trace_idx)?.clone();
+
+        // Prefer the pre-rendered tree (populated by `query inspect` from
+        // daemon API responses) over the local detect + build_tree path.
+        // This lets the TUI display real span trees even when the caller
+        // has no raw spans in memory.
+        if let Some(text) = self.pre_rendered_trees.get(&trace_id) {
+            let text = text.clone();
+            self.cached_detail = Some((trace_idx, text.clone()));
+            return Some(text);
+        }
+
+        let trace_vec_idx = self.trace_index.get(&trace_id).copied()?;
         let trace = &self.traces[trace_vec_idx];
+        // When spans are empty (e.g. stub traces from `query inspect` without
+        // pre-rendered trees), skip the build_tree path that would produce
+        // an empty, confusing panel.
+        if trace.spans.is_empty() {
+            return None;
+        }
         let per_trace_findings =
             sentinel_core::detect::detect(std::slice::from_ref(trace), &self.detect_config);
         let tree = explain::build_tree(trace, &per_trace_findings);
@@ -573,6 +611,7 @@ mod tests {
                         sentinel_core::report::interpret::InterpretationLevel::for_iis(6.0),
                 }),
                 confidence: Confidence::default(),
+                code_location: None,
             },
             Finding {
                 finding_type: FindingType::RedundantSql,
@@ -591,6 +630,7 @@ mod tests {
                 last_timestamp: "2025-07-10T14:32:02.100Z".to_string(),
                 green_impact: None,
                 confidence: Confidence::default(),
+                code_location: None,
             },
         ];
 
@@ -797,5 +837,162 @@ mod tests {
         assert_eq!(app.selected_trace, 1);
         assert_eq!(app.selected_finding, 0);
         assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn pre_rendered_trees_take_precedence_over_detect_path() {
+        // `query inspect` fetches explain trees from the daemon and passes
+        // them via `with_pre_rendered_trees`. This path must be preferred
+        // over the local `detect + build_tree` path so users see real span
+        // trees when the CLI has no raw spans.
+        let mut app = make_test_app();
+        let mut trees = std::collections::HashMap::new();
+        let trace_id = app.trace_ids[0].clone();
+        trees.insert(trace_id, "pre-rendered tree from daemon".to_string());
+        app.pre_rendered_trees = trees;
+
+        let text = app.detail_tree_text();
+        assert_eq!(text.as_deref(), Some("pre-rendered tree from daemon"));
+    }
+
+    #[test]
+    fn empty_spans_without_pre_rendered_tree_returns_none() {
+        // Without pre-rendered trees, a stub trace with no spans should
+        // not produce an empty tree panel. `make_test_app` ships with
+        // `spans: vec![]` on every trace, matching the `query inspect` flow.
+        let mut app = make_test_app();
+        let text = app.detail_tree_text();
+        assert!(text.is_none(), "empty spans must not produce a tree");
+    }
+
+    #[test]
+    fn with_pre_rendered_trees_builder_populates_field() {
+        let mut trees = std::collections::HashMap::new();
+        trees.insert("trace-a".to_string(), "tree-a".to_string());
+        let app = make_test_app().with_pre_rendered_trees(trees);
+        assert_eq!(
+            app.pre_rendered_trees.get("trace-a").map(String::as_str),
+            Some("tree-a")
+        );
+    }
+
+    // ── Rendering tests via TestBackend ────────────────────────────
+    //
+    // ratatui ships a headless `TestBackend` that lets us exercise the
+    // `draw` function and its helpers without a real terminal. These
+    // tests verify that the three panels render without panicking and
+    // include the expected content, covering the render code paths
+    // that a coverage tool would otherwise flag as untested.
+
+    fn render_once(app: &mut App, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("terminal init");
+        // Pre-compute the detail tree text as the real run loop does.
+        app.detail_tree_text();
+        terminal
+            .draw(|f| draw(f, app))
+            .expect("draw should not fail");
+        terminal.backend().buffer().clone()
+    }
+
+    /// Extract all text content from a buffer for substring assertions.
+    fn buffer_text(buf: &ratatui::buffer::Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                let cell = &buf[(x, y)];
+                out.push_str(cell.symbol());
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn draw_renders_all_three_panels() {
+        let mut app = make_test_app();
+        let buf = render_once(&mut app, 120, 40);
+        let text = buffer_text(&buf);
+        // Three panel titles should be visible.
+        assert!(text.contains("Traces"), "trace panel missing");
+        assert!(text.contains("Findings"), "findings panel missing");
+        assert!(text.contains("Detail"), "detail panel missing");
+    }
+
+    #[test]
+    fn draw_renders_selected_trace_findings() {
+        let mut app = make_test_app();
+        // Fixture has trace-1 selected by default.
+        let buf = render_once(&mut app, 120, 40);
+        let text = buffer_text(&buf);
+        // The N+1 finding's type should appear somewhere in the findings panel.
+        assert!(
+            text.contains("n_plus_one_sql") || text.contains("N+1"),
+            "expected N+1 finding to render; got: {text}"
+        );
+    }
+
+    #[test]
+    fn draw_reflects_selected_trace_change() {
+        let mut app = make_test_app();
+        let before = buffer_text(&render_once(&mut app, 120, 40));
+        app.move_down(); // select next trace (still on Traces panel)
+        let after = buffer_text(&render_once(&mut app, 120, 40));
+        assert_ne!(
+            before, after,
+            "buffer should differ after switching selected trace"
+        );
+    }
+
+    #[test]
+    fn draw_renders_with_pre_rendered_tree() {
+        let mut app = make_test_app();
+        let mut trees = std::collections::HashMap::new();
+        let trace_id = app.trace_ids[0].clone();
+        trees.insert(trace_id, "pre-rendered tree from daemon".to_string());
+        app.pre_rendered_trees = trees;
+
+        let buf = render_once(&mut app, 120, 40);
+        let text = buffer_text(&buf);
+        assert!(
+            text.contains("pre-rendered tree from daemon") || text.contains("Span tree"),
+            "pre-rendered tree should surface in the detail panel"
+        );
+    }
+
+    #[test]
+    fn draw_handles_small_terminal_without_panic() {
+        // Minimum viable terminal size should not panic even if panels
+        // are cramped.
+        let mut app = make_test_app();
+        let _buf = render_once(&mut app, 40, 10);
+    }
+
+    #[test]
+    fn draw_focus_changes_active_panel_border_style() {
+        // Active panel change updates border color, not text content.
+        // Compare the cell style of the first trace panel cell across
+        // states to confirm the render path reads `active_panel`.
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let mut app = make_test_app();
+        let render = |app: &mut App| {
+            let backend = TestBackend::new(120, 40);
+            let mut terminal = Terminal::new(backend).unwrap();
+            app.detail_tree_text();
+            terminal.draw(|f| draw(f, app)).unwrap();
+            // Cell (0, 0) is the top-left corner of the Traces panel border.
+            terminal.backend().buffer()[(0, 0)].style()
+        };
+        let before = render(&mut app);
+        app.next_panel();
+        let after = render(&mut app);
+        // The border style must differ (color change on focus).
+        assert_ne!(
+            before, after,
+            "border style must differ when active panel changes"
+        );
     }
 }

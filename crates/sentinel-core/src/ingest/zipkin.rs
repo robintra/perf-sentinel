@@ -41,7 +41,10 @@ impl IngestSource for ZipkinIngest {
 }
 
 /// Errors that can occur during Zipkin JSON ingestion.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ZipkinIngestError {
     #[error("payload too large: {size} bytes exceeds maximum of {max} bytes")]
     PayloadTooLarge { size: usize, max: usize },
@@ -134,6 +137,12 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         .or_else(|| span.name.clone())
         .unwrap_or_default();
 
+    // code.* attributes from span tags.
+    let code_function = get_tag("code.function").map(String::from);
+    let code_filepath = get_tag("code.filepath").map(String::from);
+    let code_lineno = get_tag("code.lineno").and_then(|s| s.parse::<u32>().ok());
+    let code_namespace = get_tag("code.namespace").map(String::from);
+
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(timestamp),
         trace_id: span.trace_id.clone(),
@@ -151,6 +160,10 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         source: EventSource { endpoint, method },
         status_code,
         response_size_bytes: None,
+        code_function,
+        code_filepath,
+        code_lineno,
+        code_namespace,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

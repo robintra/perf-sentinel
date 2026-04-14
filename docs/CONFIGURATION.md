@@ -14,9 +14,10 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 | `analyze`  | Batch analysis of trace files. Reads from file or stdin          |
 | `explain`  | Tree view of a specific trace with findings annotated inline     |
 | `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection    |
+| `query`    | Query a running daemon for findings, correlations, or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
 | `demo`     | Run analysis on an embedded demo dataset                         |
 | `bench`    | Benchmark throughput on a trace file                             |
-| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON) for SQL hotspots |
+| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)    |
 | `inspect`  | Interactive TUI to browse traces, findings and span trees        |
 
 ## Sections
@@ -264,6 +265,32 @@ Streaming mode (`perf-sentinel watch`) settings.
 | `environment`          | string  | `"staging"`                 | Deployment environment label. Accepted values: `"staging"` (default, medium confidence) or `"production"` (high confidence). Stamps every finding with the corresponding `confidence` field for downstream consumers (perf-lint). Case-insensitive; any other value is rejected at config load |
 | `tls_cert_path`        | string  | *(absent)*                  | Path to a PEM-encoded TLS certificate chain for the OTLP receivers. When set alongside `tls_key_path`, both gRPC and HTTP listeners use TLS. When absent, listeners use plain TCP |
 | `tls_key_path`         | string  | *(absent)*                  | Path to a PEM-encoded TLS private key. Must be set together with `tls_cert_path` (both or neither). On Unix, the daemon warns if the key file is readable by group or others |
+| `api_enabled`          | boolean | `true`                      | Enable the daemon query API endpoints (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Set to `false` to disable the API while keeping OTLP ingestion and `/metrics` active |
+| `max_retained_findings`| integer | `10000`                     | Maximum number of recent findings retained in the daemon's ring buffer for the query API. Older findings are evicted when the limit is reached. Set to `0` to disable the store entirely and reclaim its memory (recommended when `api_enabled = false`) |
+
+#### `[daemon.correlation]` (optional)
+
+Cross-trace temporal correlation in daemon mode. When enabled, the daemon detects recurring co-occurrences between findings from different services or traces (e.g. "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds").
+
+| Field                 | Type    | Default | Description                                                                                                   |
+|-----------------------|---------|---------|---------------------------------------------------------------------------------------------------------------|
+| `enabled`             | boolean | `false` | Enable cross-trace correlation. Requires `watch` daemon mode with sustained traffic to produce useful results |
+| `window_minutes`      | integer | `10`    | Rolling window in minutes over which co-occurrences are tracked                                               |
+| `lag_threshold_ms`    | integer | `2000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                           |
+| `min_co_occurrences`  | integer | `3`     | Minimum number of co-occurrences before a correlation is reported                                             |
+| `min_confidence`      | float   | `0.5`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
+| `max_tracked_pairs`   | integer | `1000`  | Maximum number of finding pairs tracked simultaneously. Prevents unbounded memory growth from high-cardinality findings   |
+
+```toml
+[daemon.correlation]
+enabled = true
+window_minutes = 10
+lag_threshold_ms = 2000
+min_co_occurrences = 3
+min_confidence = 0.5
+```
+
+Correlations are exposed via `GET /api/correlations` (when `api_enabled = true`) and emitted as NDJSON on the daemon's stdout stream.
 
 ## Minimal configuration
 
@@ -311,6 +338,14 @@ max_payload_size = 1048576
 # Both fields must be set together (or both absent for plain TCP).
 # tls_cert_path = "/etc/tls/server-cert.pem"
 # tls_key_path = "/etc/tls/server-key.pem"
+api_enabled = true
+max_retained_findings = 10000
+
+# Optional: cross-trace correlation (daemon mode only)
+# [daemon.correlation]
+# enabled = true
+# window_minutes = 10
+# lag_threshold_ms = 2000
 ```
 
 ## Legacy flat format

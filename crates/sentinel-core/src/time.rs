@@ -50,6 +50,11 @@ pub(crate) fn micros_to_iso8601(micros: u64) -> String {
     nanos_to_iso8601(micros.saturating_mul(1000))
 }
 
+/// Convert epoch milliseconds to ISO 8601 UTC string.
+pub(crate) fn millis_to_iso8601(ms: u64) -> String {
+    nanos_to_iso8601(ms.saturating_mul(1_000_000))
+}
+
 /// Extract the UTC hour (0-23) from an ISO 8601 timestamp string.
 ///
 /// Accepts the canonical `YYYY-MM-DDTHH:MM:SS[.fff]Z` form and the

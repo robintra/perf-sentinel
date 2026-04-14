@@ -1398,6 +1398,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         }
     }
 
@@ -1627,6 +1631,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         }
     }
 
@@ -1648,6 +1656,10 @@ mod tests {
             },
             status_code: Some(200),
             response_size_bytes,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         }
     }
 

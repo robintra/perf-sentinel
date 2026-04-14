@@ -4,6 +4,9 @@
 //! OTLP HTTP, JSON socket), accumulates them in a `TraceWindow`, and emits
 //! findings as NDJSON on stdout when traces expire.
 
+pub mod findings_store;
+pub mod query_api;
+
 use std::sync::Arc;
 
 use tokio::sync::{Mutex, mpsc};
@@ -24,7 +27,13 @@ use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::scaphandre::ScaphandreState;
 
 /// Errors that can occur when running the daemon.
+///
+/// Marked `#[non_exhaustive]` so that adding future variants (e.g. a
+/// new failure mode for a newly-integrated listener) stays a
+/// SemVer-minor change. External consumers that `match` on this enum
+/// must use a catch-all arm.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DaemonError {
     /// Listen address could not be parsed as a socket address.
     #[error("invalid listen address: {0}")]
@@ -37,7 +46,49 @@ pub enum DaemonError {
     GrpcBind(std::io::Error),
     /// TLS configuration or certificate loading failed.
     #[error("TLS configuration error: {0}")]
-    TlsConfig(#[source] Box<dyn std::error::Error + Send + Sync>),
+    TlsConfig(#[source] TlsConfigError),
+}
+
+/// Typed sub-enum for TLS configuration failures.
+///
+/// Replaces the prior `Box<dyn std::error::Error>` variant with five
+/// concrete cases so callers can match on `TlsConfigError` and get
+/// structured context instead of a `format!`-flattened string.
+///
+/// Marked `#[non_exhaustive]` so that adding future variants (e.g. a
+/// handshake-specific failure or an unsupported protocol version) stays
+/// a SemVer-minor change.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum TlsConfigError {
+    /// Could not read the PEM-encoded certificate chain from disk.
+    #[error("failed to read TLS cert '{path}'")]
+    ReadCert {
+        /// Path to the cert file that could not be opened.
+        path: String,
+        /// Underlying I/O error (permissions, missing file, etc.).
+        #[source]
+        source: std::io::Error,
+    },
+    /// Could not read the PEM-encoded private key from disk.
+    #[error("failed to read TLS key '{path}'")]
+    ReadKey {
+        /// Path to the key file that could not be opened.
+        path: String,
+        /// Underlying I/O error (permissions, missing file, etc.).
+        #[source]
+        source: std::io::Error,
+    },
+    /// The certificate chain PEM could not be parsed.
+    #[error("failed to parse TLS cert chain")]
+    ParseCerts(#[source] tokio_rustls::rustls::pki_types::pem::Error),
+    /// The private key PEM could not be parsed.
+    #[error("failed to parse TLS private key")]
+    ParseKey(#[source] tokio_rustls::rustls::pki_types::pem::Error),
+    /// `rustls::ServerConfig::with_single_cert` rejected the cert+key pair
+    /// (e.g. mismatched key, unsupported algorithm).
+    #[error("rustls server config rejected the cert+key pair")]
+    ServerConfig(#[source] tokio_rustls::rustls::Error),
 }
 
 /// Run the daemon: start all listeners and process events in a loop.
@@ -115,10 +166,41 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         })
     };
 
-    // OTLP HTTP + metrics.
+    // FindingsStore for the query API.
+    let findings_store = Arc::new(findings_store::FindingsStore::new(
+        config.max_retained_findings,
+    ));
+
+    // Optional cross-trace correlator. Created here (before the query API
+    // router) so the `/api/correlations` endpoint can read its state.
+    let correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>> = if config
+        .correlation_enabled
+    {
+        tracing::info!("Cross-trace correlation enabled");
+        Some(Arc::new(Mutex::new(
+            detect::correlate_cross::CrossTraceCorrelator::new(config.correlation_config.clone()),
+        )))
+    } else {
+        None
+    };
+
+    // OTLP HTTP + metrics + optional query API.
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
     let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
-    let http_router = otlp_router.merge(metrics_router).layer(
+    let mut http_router = otlp_router.merge(metrics_router);
+    if config.daemon_api_enabled {
+        let query_state = Arc::new(query_api::QueryApiState {
+            findings_store: findings_store.clone(),
+            window: window.clone(),
+            detect_config: DetectConfig::from(&config),
+            start_time: std::time::Instant::now(),
+            correlator: correlator.clone(),
+        });
+        http_router = http_router.merge(query_api::query_api_router(query_state));
+    } else {
+        tracing::info!("Daemon query API disabled by config");
+    }
+    let http_router = http_router.layer(
         tower::ServiceBuilder::new()
             .layer(axum::error_handling::HandleErrorLayer::new(|_| async {
                 tracing::debug!("HTTP request timed out");
@@ -290,12 +372,16 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     );
                     process_traces(
                         lru_evicted,
-                        &detect_config,
-                        green_enabled,
-                        &tick_ctx,
-                        &metrics,
-                        confidence,
-                    );
+                        ProcessTracesCtx {
+                            detect_config: &detect_config,
+                            green_enabled,
+                            carbon_ctx: &tick_ctx,
+                            metrics: &metrics,
+                            confidence,
+                            findings_store: &findings_store,
+                            correlator: correlator.as_deref(),
+                        },
+                    ).await;
                 }
             }
             _ = ticker.tick() => {
@@ -318,12 +404,16 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                     );
                     process_traces(
                         expired,
-                        &detect_config,
-                        green_enabled,
-                        &tick_ctx,
-                        &metrics,
-                        confidence,
-                    );
+                        ProcessTracesCtx {
+                            detect_config: &detect_config,
+                            green_enabled,
+                            carbon_ctx: &tick_ctx,
+                            metrics: &metrics,
+                            confidence,
+                            findings_store: &findings_store,
+                            correlator: correlator.as_deref(),
+                        },
+                    ).await;
                 }
             }
             _ = tokio::signal::ctrl_c() => {
@@ -367,12 +457,16 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
                 );
                 process_traces(
                     remaining,
-                    &detect_config,
-                    green_enabled,
-                    &tick_ctx,
-                    &metrics,
-                    confidence,
-                );
+                    ProcessTracesCtx {
+                        detect_config: &detect_config,
+                        green_enabled,
+                        carbon_ctx: &tick_ctx,
+                        metrics: &metrics,
+                        confidence,
+                        findings_store: &findings_store,
+                        correlator: correlator.as_deref(),
+                    },
+                ).await;
                 // Best-effort socket cleanup. `run_json_socket` doesn't
                 // unlink the Unix socket file on exit, so without this
                 // a leftover socket file blocks the next daemon start
@@ -520,18 +614,29 @@ fn emit_findings_and_update_metrics(
 
 /// Process a batch of completed/expired traces: detect, score, emit NDJSON.
 ///
+/// Shared context passed to [`process_traces`] on every tick.
+///
+/// Groups the configuration, state, and downstream sinks so the function
+/// signature stays readable. All fields are borrowed for the duration of
+/// the call, no ownership transfer.
+struct ProcessTracesCtx<'a> {
+    detect_config: &'a DetectConfig,
+    green_enabled: bool,
+    carbon_ctx: &'a score::carbon::CarbonContext,
+    metrics: &'a MetricsState,
+    confidence: Confidence,
+    findings_store: &'a findings_store::FindingsStore,
+    correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+}
+
 /// stamps `confidence` on every finding after detection. The
 /// value is derived from `config.daemon_environment` in `run()` and passed
 /// here unchanged. `analyze` batch mode does not call this function; it
 /// uses `pipeline::analyze_with_traces` which hardcodes
 /// `Confidence::CiBatch`.
-fn process_traces(
+async fn process_traces(
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
-    detect_config: &DetectConfig,
-    green_enabled: bool,
-    carbon_ctx: &score::carbon::CarbonContext,
-    metrics: &MetricsState,
-    confidence: Confidence,
+    ctx: ProcessTracesCtx<'_>,
 ) {
     if traces.is_empty() {
         return;
@@ -543,22 +648,22 @@ fn process_traces(
         .map(|(trace_id, spans)| Trace { trace_id, spans })
         .collect();
 
-    let mut findings = detect::detect(&trace_structs, detect_config);
+    let mut findings = detect::detect(&trace_structs, ctx.detect_config);
 
     // Cross-trace slow percentile analysis. The internal detector
     // requires >= 2 distinct traces per template, so we gate on 2.
     if trace_structs.len() >= 2 {
         findings.extend(detect::slow::detect_slow_cross_trace(
             &trace_structs,
-            detect_config.slow_threshold_ms,
-            detect_config.slow_min_occurrences,
+            ctx.detect_config.slow_threshold_ms,
+            ctx.detect_config.slow_min_occurrences,
         ));
     }
 
-    record_slow_durations(&trace_structs, detect_config, metrics);
+    record_slow_durations(&trace_structs, ctx.detect_config, ctx.metrics);
 
-    let (mut findings, green_summary) = if green_enabled {
-        score::score_green(&trace_structs, findings, Some(carbon_ctx))
+    let (mut findings, green_summary) = if ctx.green_enabled {
+        score::score_green(&trace_structs, findings, Some(ctx.carbon_ctx))
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
         (findings, GreenSummary::disabled(total_io_ops))
@@ -568,11 +673,20 @@ fn process_traces(
     // `Confidence::default()` (= CiBatch); overwrite with the real value
     // captured from Config at daemon startup.
     for finding in &mut findings {
-        finding.confidence = confidence;
+        finding.confidence = ctx.confidence;
     }
     let findings = findings;
 
-    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, metrics);
+    let now_ms = current_time_ms();
+    if !findings.is_empty() {
+        ctx.findings_store.push_batch(&findings, now_ms).await;
+    }
+
+    if let Some(correlator) = ctx.correlator {
+        correlator.lock().await.ingest(&findings, now_ms);
+    }
+
+    emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
 }
 
 /// Apply trace-level sampling: cache decisions per `trace_id` to avoid
@@ -764,11 +878,17 @@ fn tls_tcp_incoming(
 /// Read TLS certificate and key from disk. Returns raw PEM bytes.
 /// Never logs the key content.
 fn load_tls_pem(cert_path: &str, key_path: &str) -> Result<(Vec<u8>, Vec<u8>), DaemonError> {
-    let cert = std::fs::read(cert_path).map_err(|e| {
-        DaemonError::TlsConfig(format!("failed to read TLS cert '{cert_path}': {e}").into())
+    let cert = std::fs::read(cert_path).map_err(|source| {
+        DaemonError::TlsConfig(TlsConfigError::ReadCert {
+            path: cert_path.to_string(),
+            source,
+        })
     })?;
-    let key = std::fs::read(key_path).map_err(|e| {
-        DaemonError::TlsConfig(format!("failed to read TLS key '{key_path}': {e}").into())
+    let key = std::fs::read(key_path).map_err(|source| {
+        DaemonError::TlsConfig(TlsConfigError::ReadKey {
+            path: key_path.to_string(),
+            source,
+        })
     })?;
     Ok((cert, key))
 }
@@ -783,14 +903,14 @@ fn build_tls_acceptor(
 
     let certs: Vec<CertificateDer<'static>> = CertificateDer::pem_slice_iter(cert_pem)
         .collect::<Result<_, _>>()
-        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS certs: {e}").into()))?;
+        .map_err(|e| DaemonError::TlsConfig(TlsConfigError::ParseCerts(e)))?;
     let key = PrivateKeyDer::from_pem_slice(key_pem)
-        .map_err(|e| DaemonError::TlsConfig(format!("failed to parse TLS key: {e}").into()))?;
+        .map_err(|e| DaemonError::TlsConfig(TlsConfigError::ParseKey(e)))?;
 
     let config = tokio_rustls::rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
-        .map_err(|e| DaemonError::TlsConfig(format!("TLS server config: {e}").into()))?;
+        .map_err(|e| DaemonError::TlsConfig(TlsConfigError::ServerConfig(e)))?;
 
     Ok(tokio_rustls::TlsAcceptor::from(Arc::new(config)))
 }
@@ -868,11 +988,21 @@ async fn serve_https(
 }
 
 /// Get current time in milliseconds since epoch.
+///
+/// Returns 0 and logs a warning if the system clock is set before the
+/// Unix epoch (effectively a configuration error). Downstream code treats
+/// the timestamp as a monotonic-ish sort key; a single zero tick produces
+/// visible bucketing but no correctness issue.
 fn current_time_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+    if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+    } else {
+        tracing::warn!(
+            "System clock is before Unix epoch; using 0 as current_time_ms. \
+             Check system time configuration."
+        );
+        0
+    }
 }
 
 /// Run the JSON socket listener on Unix platforms.
@@ -1007,6 +1137,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         })
     }
 
@@ -1027,22 +1161,40 @@ mod tests {
         score::carbon::CarbonContext::default()
     }
 
-    #[test]
-    fn process_traces_empty_does_nothing() {
-        let metrics = MetricsState::new();
-        let ctx = empty_carbon_ctx();
-        process_traces(
-            vec![],
-            &default_detect_config(),
-            true,
-            &ctx,
-            &metrics,
-            Confidence::DaemonStaging,
-        );
+    /// Build a `ProcessTracesCtx` for tests with sensible defaults.
+    fn test_ctx<'a>(
+        detect_config: &'a DetectConfig,
+        carbon_ctx: &'a score::carbon::CarbonContext,
+        metrics: &'a MetricsState,
+        findings_store: &'a findings_store::FindingsStore,
+        green_enabled: bool,
+    ) -> ProcessTracesCtx<'a> {
+        ProcessTracesCtx {
+            detect_config,
+            green_enabled,
+            carbon_ctx,
+            metrics,
+            confidence: Confidence::DaemonStaging,
+            findings_store,
+            correlator: None,
+        }
     }
 
-    #[test]
-    fn process_traces_with_n_plus_one() {
+    #[tokio::test]
+    async fn process_traces_empty_does_nothing() {
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        process_traces(
+            vec![],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn process_traces_with_n_plus_one() {
         // 6 events with different params -> N+1 finding
         let events: Vec<_> = (1..=6)
             .map(|i| {
@@ -1054,18 +1206,17 @@ mod tests {
             .collect();
         let metrics = MetricsState::new();
         let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
         process_traces(
             vec![("t1".to_string(), events)],
-            &default_detect_config(),
-            true,
-            &ctx,
-            &metrics,
-            Confidence::DaemonStaging,
-        );
+            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+        )
+        .await;
     }
 
-    #[test]
-    fn process_traces_clean_no_finding() {
+    #[tokio::test]
+    async fn process_traces_clean_no_finding() {
         // 2 events with different templates -> no finding
         let events = vec![
             make_normalized("t1", "SELECT * FROM users WHERE id = 1"),
@@ -1073,14 +1224,13 @@ mod tests {
         ];
         let metrics = MetricsState::new();
         let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
         process_traces(
             vec![("t1".to_string(), events)],
-            &default_detect_config(),
-            true,
-            &ctx,
-            &metrics,
-            Confidence::DaemonStaging,
-        );
+            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+        )
+        .await;
     }
 
     #[test]
@@ -1114,6 +1264,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         });
 
         w.push(event, 0);
@@ -1132,8 +1286,8 @@ mod tests {
         assert_eq!(w.active_traces(), 0);
     }
 
-    #[test]
-    fn process_traces_updates_metrics() {
+    #[tokio::test]
+    async fn process_traces_updates_metrics() {
         let events: Vec<_> = (1..=6)
             .map(|i| {
                 make_normalized(
@@ -1144,22 +1298,21 @@ mod tests {
             .collect();
         let metrics = MetricsState::new();
         let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
         process_traces(
             vec![("t1".to_string(), events)],
-            &default_detect_config(),
-            true,
-            &ctx,
-            &metrics,
-            Confidence::DaemonStaging,
-        );
+            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+        )
+        .await;
 
         let output = metrics.render();
         assert!(output.contains("perf_sentinel_traces_analyzed_total"));
         assert!(output.contains("perf_sentinel_findings_total"));
     }
 
-    #[test]
-    fn process_traces_green_disabled() {
+    #[tokio::test]
+    async fn process_traces_green_disabled() {
         let events: Vec<_> = (1..=6)
             .map(|i| {
                 make_normalized(
@@ -1170,14 +1323,13 @@ mod tests {
             .collect();
         let metrics = MetricsState::new();
         let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
         process_traces(
             vec![("t1".to_string(), events)],
-            &default_detect_config(),
-            false, // green_enabled = false
-            &ctx,
-            &metrics,
-            Confidence::DaemonStaging,
-        );
+            test_ctx(&detect_config, &ctx, &metrics, &store, false),
+        )
+        .await;
         // avoidable_io_ops counter should stay at 0 when green is disabled
         assert!((metrics.avoidable_io_ops.get() - 0.0).abs() < f64::EPSILON);
         // but total_io_ops should still be counted
@@ -1311,6 +1463,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         }
     }
 
@@ -1741,5 +1897,69 @@ mod tests {
         assert!(format!("{e2}").contains("HTTP listener"));
         let e3 = DaemonError::GrpcBind(std::io::Error::other("boom"));
         assert!(format!("{e3}").contains("gRPC listener"));
+    }
+
+    // ── TLS error-path coverage ─────────────────────────────────
+
+    #[test]
+    fn load_tls_pem_returns_read_cert_error_for_missing_file() {
+        let err = load_tls_pem("/nonexistent/cert.pem", "/nonexistent/key.pem").unwrap_err();
+        match err {
+            DaemonError::TlsConfig(TlsConfigError::ReadCert { path, .. }) => {
+                assert_eq!(path, "/nonexistent/cert.pem");
+            }
+            other => panic!("expected ReadCert error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn load_tls_pem_returns_read_key_error_when_cert_exists_but_key_missing() {
+        // Create a temp cert so the first read succeeds.
+        let dir = tempfile::tempdir().unwrap();
+        let cert_path = dir.path().join("cert.pem");
+        std::fs::write(&cert_path, b"dummy").unwrap();
+        let err = load_tls_pem(cert_path.to_str().unwrap(), "/nonexistent/key.pem").unwrap_err();
+        match err {
+            DaemonError::TlsConfig(TlsConfigError::ReadKey { path, .. }) => {
+                assert_eq!(path, "/nonexistent/key.pem");
+            }
+            other => panic!("expected ReadKey error, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_tls_acceptor_rejects_invalid_cert_pem() {
+        let bad_cert = b"not a pem certificate";
+        let bad_key = b"not a pem key";
+        // TlsAcceptor does not implement Debug, so we can't `.unwrap_err()`.
+        // Match on the Result directly.
+        match build_tls_acceptor(bad_cert, bad_key) {
+            Ok(_) => panic!("expected build_tls_acceptor to reject invalid PEM"),
+            Err(DaemonError::TlsConfig(
+                TlsConfigError::ParseCerts(_) | TlsConfigError::ParseKey(_),
+            )) => {}
+            Err(other) => panic!("expected ParseCerts or ParseKey, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tls_config_error_display_contains_source_context() {
+        let err = DaemonError::TlsConfig(TlsConfigError::ReadCert {
+            path: "/etc/foo.pem".to_string(),
+            source: std::io::Error::other("permission denied"),
+        });
+        let msg = format!("{err}");
+        assert!(msg.contains("TLS"));
+        assert!(msg.contains("/etc/foo.pem"));
+    }
+
+    // ── current_time_ms branch coverage ─────────────────────────
+
+    #[test]
+    fn current_time_ms_is_positive_under_normal_clock() {
+        // Under any normal test environment the system clock is well
+        // past the Unix epoch; the warning branch is only reachable
+        // via clock misconfiguration.
+        assert!(current_time_ms() > 0);
     }
 }

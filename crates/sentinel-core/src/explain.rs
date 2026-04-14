@@ -3,11 +3,11 @@
 use crate::correlate::Trace;
 use crate::detect::Finding;
 use crate::normalize::NormalizedEvent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 /// A node in the explain tree, representing a single span.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpanNode {
     pub span_id: String,
     pub parent_span_id: Option<String>,
@@ -17,12 +17,12 @@ pub struct SpanNode {
     pub duration_us: u64,
     pub timestamp: String,
     pub children: Vec<SpanNode>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub findings: Vec<InlineFinding>,
 }
 
 /// A finding annotated on a span node.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InlineFinding {
     #[serde(rename = "type")]
     pub finding_type: String,
@@ -44,7 +44,7 @@ impl InlineFinding {
 }
 
 /// The complete explain tree for a trace.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExplainTree {
     pub trace_id: String,
     /// Trace-level findings that cannot be anchored to a single span.
@@ -56,7 +56,7 @@ pub struct ExplainTree {
     /// endpoint rather than a span template, so the match finds nothing.
     /// Those findings land here instead of being silently dropped from the
     /// tree view.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub trace_level_findings: Vec<InlineFinding>,
     pub roots: Vec<SpanNode>,
 }
@@ -390,6 +390,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         }
     }
 
@@ -527,6 +528,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:00.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         }
     }
 
@@ -626,6 +628,10 @@ mod tests {
                 },
                 status_code: None,
                 response_size_bytes: None,
+                code_function: None,
+                code_filepath: None,
+                code_lineno: None,
+                code_namespace: None,
             },
             template: "SELECT ?".to_string(),
             params: vec!["1".to_string()],
@@ -648,6 +654,10 @@ mod tests {
                 },
                 status_code: None,
                 response_size_bytes: None,
+                code_function: None,
+                code_filepath: None,
+                code_lineno: None,
+                code_namespace: None,
             },
             template: "SELECT ?".to_string(),
             params: vec!["2".to_string()],
@@ -679,5 +689,22 @@ mod tests {
         let tree = build_tree(&trace, &[finding]);
 
         assert!(tree.roots[0].findings.is_empty());
+    }
+
+    #[test]
+    fn explain_tree_serde_roundtrip() {
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT * FROM order_item WHERE order_id = 1",
+            "2025-07-10T14:32:01.050Z",
+        )];
+        let trace = make_trace(events);
+        let finding = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        let tree = build_tree(&trace, &[finding]);
+        let json_str = format_tree_json(&tree).unwrap();
+        let back: ExplainTree = serde_json::from_str(&json_str).unwrap();
+        assert_eq!(back.trace_id, "trace-1");
+        assert!(!back.roots.is_empty());
     }
 }

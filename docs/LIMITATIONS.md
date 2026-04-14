@@ -377,9 +377,64 @@ The detector reports at most one finding per parent span: the single longest non
 
 Serialized call findings are NOT counted as avoidable I/O. They represent a latency optimization opportunity, not an I/O reduction.
 
+## Cross-trace correlation
+
+Cross-trace temporal correlation (`[daemon.correlation]`) requires daemon mode (`perf-sentinel watch`) with sustained, representative traffic. Correlations are statistical: they detect temporal co-occurrences, not causal relationships. A high correlation between an N+1 in service A and pool saturation in service B means they frequently co-occur within the configured time lag, not that one causes the other.
+
+Limitations:
+
+- **Cold start.** The correlator needs time to accumulate enough observations. With `min_co_occurrences = 3` and a 10-minute window, you need at least 3 co-occurrences within 10 minutes before a correlation surfaces. Low-traffic environments may never reach this threshold.
+- **Batch mode not supported.** The `analyze` command does not run the correlator. Cross-trace correlation is inherently a streaming concern.
+- **Cardinality.** The `max_tracked_pairs` cap (default 1000) prevents unbounded memory growth. If you have many distinct finding types across many services, some pairs may be evicted before reaching the co-occurrence threshold.
+
+## OTel source code attributes
+
+Findings include a `code_location` field (with `function`, `filepath`, `lineno`, `namespace`) when the OTel spans carry the corresponding `code.*` attributes. This enables source-level annotations in SARIF reports (GitHub/GitLab inline annotations).
+
+Limitations:
+
+- **Most OTel auto-instrumentation agents do not emit `code.lineno` or `code.filepath`.** Manual instrumentation or agent-specific configuration is required. Without these attributes, findings appear without source location (no noise, graceful degradation).
+- **`code.function` is the most commonly available attribute.** If only `code.function` is present, the CLI displays it but SARIF cannot produce a `physicalLocation` (which requires at least a file path).
+- **Line numbers may be approximate.** Some agents report the method entry point, not the exact line of the I/O call.
+- **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, perf-sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters, and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
+
+## Daemon query API
+
+The `perf-sentinel query` subcommand and the `/api/*` HTTP endpoints expose the daemon's internal state. The query API has no built-in authentication or authorization. Access control must be handled externally via network policies or a reverse proxy, same as the OTLP ingestion endpoints. See "No authentication" above.
+
+- **Kill-switch.** Setting `[daemon] api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion and `/metrics` active. Use this when the daemon runs in an environment where even loopback exposure of findings is unacceptable. Note that `/metrics` still exposes finding counts via `perf_sentinel_findings_total` and related counters, so the query API flag does not remove all observable output.
+- **Memory is not reclaimed by `api_enabled = false` alone.** The `FindingsStore` ring buffer is still populated each tick even when the API is disabled, because detection runs before the API check. To reclaim that memory, set `[daemon] max_retained_findings = 0`. This short-circuits the store's `push_batch` and keeps the daemon's RSS minimal when the query API is off.
+- **Response size caps.** `/api/findings` caps at 1000 entries per request (`?limit=` parameter is clamped). `/api/correlations` truncates to the top 1000 by confidence. These caps protect against expensive large-response requests when the daemon has built up a large memory footprint.
+- **Retained findings are bounded.** The `FindingsStore` ring buffer (default 10,000 findings) evicts the oldest entries when full. For high-traffic daemons, increase `max_retained_findings` or accept that older findings will not be queryable.
+- **No persistence.** The daemon stores findings in memory only. A restart clears all retained findings and correlation state.
+
+## Automated pg_stat ingestion from Prometheus
+
+The `--prometheus` flag on `pg-stat` scrapes metrics exposed by `postgres_exporter`. This requires:
+
+- A running `postgres_exporter` instance configured to collect `pg_stat_statements` metrics.
+- The Prometheus endpoint must be reachable from the machine running perf-sentinel.
+- Only the metrics available in the Prometheus exporter are used. Some fields present in the raw `pg_stat_statements` view (e.g. `blk_read_time`, `blk_write_time`) may not be exposed by all exporter versions.
+
+The existing `--input` file path mode is unchanged and remains the recommended approach for CI pipelines.
+
+## Secrets and credentials
+
+perf-sentinel never stores secrets in config output. For scrapers that need credentials, the env-var-preferred pattern applies across the board:
+
+- **Electricity Maps API key**: `PERF_SENTINEL_EMAPS_TOKEN` env var. A `[green.electricity_maps] api_key` in the config file works but emits a warning at load time, because checked-in config files are a common source of accidental credential leaks.
+- **PostgreSQL connection string** for `pg-stat --connection-string`: `PERF_SENTINEL_PG_CONNECTION` env var. Passing a connection string with a plaintext password on the CLI also works but emits a warning (recommend `.pgpass` for production).
+- **Scraper endpoint URLs** (Scaphandre, cloud energy, Electricity Maps, pg-stat Prometheus): credentials in the URL (`http://user:pass@host`) are rejected at config load. Use the scraper's native auth mechanism instead.
+- **TLS key file**: `[daemon] tls_key_path` permissions are checked at startup; a world- or group-readable key emits a warning.
+
+The daemon never writes secrets to stdout/stderr: all scraper error paths use `redact_endpoint` to strip userinfo from any URL before logging.
+
+When the daemon runs with `api_enabled = true`, the query API exposes findings (not secrets) but has no authentication. Restrict loopback access via network policies or a reverse proxy, or set `api_enabled = false` to disable the API surface entirely.
+
 ## Electricity Maps API
 
 - **API key required.** The Electricity Maps integration requires an API key (free or paid tier). The key should be provided via the `PERF_SENTINEL_EMAPS_TOKEN` environment variable rather than in the config file.
+- **HTTPS strongly recommended.** When the configured endpoint is `http://` (cleartext) and an auth token is set, perf-sentinel emits a warning at config load. The Electricity Maps production API is served over HTTPS only; an `http://` endpoint is almost always a misconfiguration or a local test setup.
 - **Rate limits.** The free tier allows approximately 30 requests per month per zone. With the default `poll_interval_secs = 300` (5 minutes), this budget would be exhausted in under 3 hours. Free tier users should set `poll_interval_secs = 3600` or higher, or use the embedded hourly profiles instead.
 - **Daemon only.** The Electricity Maps scraper runs only in `perf-sentinel watch` mode. Batch mode (`analyze`, `tempo`, `calibrate`) uses the embedded profiles.
 - **Staleness fallback.** If the API is unreachable for longer than 3x the poll interval, the scraper falls back to embedded hourly or annual profiles.
@@ -399,5 +454,5 @@ The carbon estimation uses a fixed energy constant (`0.1 uWh per I/O operation`)
 - **No trace correlation.** `pg_stat_statements` data has no `trace_id` or `span_id`. It cannot be used for per-trace anti-pattern detection (N+1, redundant). It provides complementary hotspot analysis and cross-referencing with trace-based findings.
 - **CSV parsing.** The CSV parser handles RFC 4180 quoting (double-quoted fields, escaped `""`), but assumes UTF-8 input. Non-UTF-8 files will fail to parse.
 - **Pre-normalized queries.** PostgreSQL normalizes `pg_stat_statements` queries at the server level. perf-sentinel applies its own normalization on top for cross-referencing, which may produce slightly different templates.
-- **No live connection.** perf-sentinel reads exported CSV or JSON files. It does not connect to PostgreSQL directly.
+- **No direct PostgreSQL connection.** In file mode (`--input`), perf-sentinel reads exported CSV or JSON files. The `--prometheus` flag scrapes `postgres_exporter` metrics instead of connecting to PostgreSQL directly. See "Automated pg_stat ingestion from Prometheus" above for Prometheus-specific limitations.
 - **Entry count.** The parser pre-allocates memory based on input size, capped at 100,000 entries. Files exceeding 1,000,000 entries (CSV rows or JSON array elements) are rejected with an error to prevent memory exhaustion.

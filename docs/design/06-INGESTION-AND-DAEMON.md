@@ -278,3 +278,120 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 ### Cross-referencing
 
 `cross_reference()` accepts `&mut [PgStatEntry]` and `&[Finding]`. It builds a `HashSet` of finding templates and marks entries whose `normalized_template` matches. This is O(n + m) where n = entries, m = findings. The `seen_in_traces` flag enables the CLI to highlight queries that appear in both data sources, useful for validating OTLP trace capture fidelity against database-native ground truth.
+
+## Automated pg_stat Prometheus scrape
+
+`fetch_from_prometheus(endpoint, top_n)` queries a Prometheus HTTP API for `pg_stat_statements` metrics, removing the need for manual CSV export.
+
+### Query and conversion
+
+The function builds a PromQL `topk(N, pg_stat_statements_seconds_total)` instant query and sends it to the Prometheus `/api/v1/query` endpoint via the shared `http_client::fetch_get` helper. The response is a standard Prometheus JSON envelope:
+
+```json
+{
+  "data": {
+    "result": [
+      {
+        "metric": { "query": "SELECT ...", "datname": "mydb" },
+        "value": [1234567890, "1.234"]
+      }
+    ]
+  }
+}
+```
+
+`parse_prometheus_response` extracts the `query` (or `queryid`) label as the raw SQL text, the `datname` label as the database name, and the value as total execution time in seconds. Each result is converted to a `PgStatEntry` with its SQL normalized through `normalize::sql::normalize_sql()` for consistency with trace-based findings.
+
+### CLI integration
+
+The `--prometheus` flag on `perf-sentinel pg-stat` enables this path:
+
+```
+perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
+```
+
+This flag is gated behind the `daemon` feature because it requires the `hyper` HTTP client stack. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
+
+## Daemon query API
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/query-api_dark.svg">
+  <img alt="Daemon query API architecture" src="../diagrams/svg/query-api.svg">
+</picture>
+
+The daemon exposes its internal state via HTTP endpoints alongside the existing `/v1/traces` and `/metrics` routes on port 4318.
+
+### `FindingsStore` ring buffer
+
+`FindingsStore` is a thread-safe ring buffer backed by `tokio::sync::RwLock<VecDeque<StoredFinding>>`. Each `StoredFinding` wraps a `Finding` with a `stored_at_ms` monotonic timestamp.
+
+- **`push_batch(findings, now_ms)`**: builds the new `StoredFinding` entries outside the lock, then acquires a brief write lock to `extend` the buffer and `drain` any excess. Evicts the oldest entries when the buffer exceeds `max_size` (default 10,000 from config `max_retained_findings`). The initial capacity is `min(max_size, INITIAL_CAPACITY_CEILING)` with a 4096 ceiling to amortize reallocations without a surprising RSS hit at startup.
+- **`max_size == 0` short-circuit**: when set to 0, `push_batch` returns immediately without allocating. This lets operators who disable the query API (`api_enabled = false`) reclaim the store's memory by also setting `max_retained_findings = 0`.
+- **`query(filter)`**: acquires a read lock, iterates in reverse (newest first), applies optional `service`, `finding_type`, and `severity` filters, and returns up to `limit` results (default 100, capped at `MAX_FINDINGS_LIMIT = 1000`).
+- **`by_trace_id(trace_id)`**: acquires a read lock and returns all findings for a specific trace.
+
+`RwLock` is chosen over `Mutex` because `process_traces` (writer) runs once per tick, while the API handlers (readers) may serve concurrent requests. Multiple read locks do not block each other. Clones happen outside the write lock so readers are not blocked by `Finding::clone()` allocations.
+
+### `QueryApiState` shared state
+
+```rust
+pub struct QueryApiState {
+    pub findings_store: Arc<FindingsStore>,
+    pub window: Arc<tokio::sync::Mutex<TraceWindow>>,
+    pub detect_config: DetectConfig,
+    pub start_time: std::time::Instant,
+    pub correlator: Option<Arc<tokio::sync::Mutex<CrossTraceCorrelator>>>,
+}
+```
+
+This struct is wrapped in `Arc` and passed as axum `State` to all route handlers. It provides access to the findings ring buffer, the trace window (for explain), the detection config (for re-running detectors on explain requests), and the optional cross-trace correlator (for `/api/correlations`).
+
+### API endpoints
+
+Five endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion and `/metrics` active.
+
+| Endpoint | Method | Cap | Description |
+|---|---|---|---|
+| `/api/findings` | GET | `?limit=` clamped to `MAX_FINDINGS_LIMIT = 1000` | Query recent findings with optional `?service=`, `?type=`, `?severity=`, `?limit=` filters |
+| `/api/findings/{trace_id}` | GET | none | All findings for a specific trace |
+| `/api/explain/{trace_id}` | GET | none | Trace tree with findings inline, built from daemon memory |
+| `/api/correlations` | GET | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None` |
+| `/api/status` | GET | none | Daemon health: version, uptime, active traces, stored findings count |
+
+### Explain without eviction via `peek_clone`
+
+The `/api/explain/{trace_id}` handler needs to read a trace's spans from the `TraceWindow` without promoting it in the LRU cache or evicting it. `TraceWindow::peek_clone(trace_id)` uses the underlying `LruCache::peek()` method (read-only, no promotion) and clones the spans into a fresh `Vec<NormalizedEvent>`. The handler then reconstructs a `Trace`, runs per-trace detectors, and builds the explain tree via `explain::build_tree` and `explain::format_tree_json`.
+
+If the trace has already been evicted from the window (TTL expired or LRU displaced), the handler returns `{"error": "trace not found in daemon memory"}`.
+
+## Cross-trace correlator integration
+
+### Conditional creation
+
+In `daemon::run()`, the correlator is created only when `config.correlation_enabled` is true (default false, opt-in via `[daemon.correlation] enabled = true`). When created, it is wrapped in `Arc<Mutex<CrossTraceCorrelator>>`:
+
+```rust
+let correlator = if config.correlation_enabled {
+    Some(Arc::new(Mutex::new(
+        CrossTraceCorrelator::new(config.correlation_config.clone()),
+    )))
+} else {
+    None
+};
+```
+
+### Invocation in `process_traces`
+
+The correlator reference (`Option<&Mutex<CrossTraceCorrelator>>`) is passed to `process_traces`. After findings are produced, scored, and pushed to the `FindingsStore`, the correlator's `ingest()` method is called:
+
+```rust
+if let Some(correlator) = correlator {
+    correlator.lock().await.ingest(&findings, now_ms);
+}
+```
+
+This ordering ensures that the `FindingsStore` always has the findings before the correlator processes them.
+
+### NDJSON output
+
+Active correlations are not emitted to NDJSON stdout alongside findings. They are exposed via the `/api/correlations` HTTP endpoint and the `perf-sentinel query correlations` CLI subcommand. This separation avoids mixing findings (per-trace, per-tick) with correlations (aggregated, cross-trace) in the same output stream.

@@ -2,14 +2,18 @@
 //!
 //! Provides a TLS-capable hyper client, body size limits, and endpoint
 //! redaction. Used by the Scaphandre scraper, cloud energy scraper,
-//! Electricity Maps scraper, and Tempo ingestion module.
+//! Electricity Maps scraper, Tempo ingestion module, and the `query`
+//! CLI subcommand.
+
+/// Re-export `hyper::Uri` so callers don't need a direct hyper dependency.
+pub use hyper::Uri;
 
 /// Hyper-util legacy client with TLS support via rustls.
 ///
 /// Supports both `http://` and `https://` endpoints. Built once per
 /// task via [`build_client`] and reused across requests so the
 /// underlying connection pool stays warm.
-pub(crate) type HttpClient = hyper_util::client::legacy::Client<
+pub type HttpClient = hyper_util::client::legacy::Client<
     hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
     http_body_util::Empty<bytes::Bytes>,
 >;
@@ -18,14 +22,15 @@ pub(crate) type HttpClient = hyper_util::client::legacy::Client<
 ///
 /// 8 MiB is generous: real scrape responses are typically <1 MiB.
 /// The cap prevents a misbehaving endpoint from exhausting RAM.
-pub(crate) const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
 /// Build a fresh hyper-util client with TLS support. Called once per
 /// task at startup; the client is then reused for every fetch.
 ///
 /// Uses rustls with Mozilla root certificates (webpki-roots) for
 /// HTTPS endpoints. Plain HTTP endpoints also work.
-pub(crate) fn build_client() -> HttpClient {
+#[must_use]
+pub fn build_client() -> HttpClient {
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
 
@@ -39,7 +44,7 @@ pub(crate) fn build_client() -> HttpClient {
 
 /// Strip userinfo (`http://user:pass@host/`) from a `Uri` before
 /// logging. Rebuilds the URL with only scheme, host, port, and path.
-pub(crate) fn redact_endpoint(uri: &hyper::Uri) -> String {
+pub fn redact_endpoint(uri: &Uri) -> String {
     let scheme = uri.scheme_str().unwrap_or("http");
     let host = uri.host().unwrap_or("?");
     let path_and_query = uri.path_and_query().map_or("/", |p| p.as_str());
@@ -53,8 +58,11 @@ pub(crate) fn redact_endpoint(uri: &hyper::Uri) -> String {
 /// Errors from [`fetch_get`]. Uses the same variants that the individual
 /// scrapers had independently, now unified so callers `.map_err()` into
 /// their domain-specific error type with a one-liner.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FetchError {
+#[non_exhaustive]
+pub enum FetchError {
     #[error("failed to build HTTP request")]
     RequestBuild(#[source] hyper::http::Error),
     #[error("HTTP transport error")]
@@ -72,9 +80,14 @@ pub(crate) enum FetchError {
 /// Returns the response body as raw bytes. Shared by the Scaphandre,
 /// cloud energy, and Electricity Maps scrapers so the fetch/timeout/
 /// body-cap logic lives in one place.
-pub(crate) async fn fetch_get(
+///
+/// # Errors
+///
+/// Returns [`FetchError`] on request build failure, transport error,
+/// non-2xx status, body read failure, or timeout.
+pub async fn fetch_get(
     client: &HttpClient,
-    uri: &hyper::Uri,
+    uri: &Uri,
     user_agent: &str,
     timeout: std::time::Duration,
 ) -> Result<bytes::Bytes, FetchError> {
@@ -123,19 +136,19 @@ mod tests {
         // Userinfo (`user:pass@`) is dropped by `hyper::Uri::host()`,
         // which is exactly what we want: no chance of leaking secrets
         // into logs via the rebuilt URL.
-        let uri: hyper::Uri = "http://user:pass@example.com/metrics".parse().unwrap();
+        let uri: Uri = "http://user:pass@example.com/metrics".parse().unwrap();
         assert_eq!(redact_endpoint(&uri), "http://example.com/metrics");
     }
 
     #[test]
     fn redact_endpoint_preserves_explicit_port() {
-        let uri: hyper::Uri = "http://metrics.local:9090/metrics".parse().unwrap();
+        let uri: Uri = "http://metrics.local:9090/metrics".parse().unwrap();
         assert_eq!(redact_endpoint(&uri), "http://metrics.local:9090/metrics");
     }
 
     #[test]
     fn redact_endpoint_preserves_https_scheme() {
-        let uri: hyper::Uri = "https://api.electricitymap.org/v3/carbon-intensity/latest?zone=FR"
+        let uri: Uri = "https://api.electricitymap.org/v3/carbon-intensity/latest?zone=FR"
             .parse()
             .unwrap();
         let redacted = redact_endpoint(&uri);
@@ -145,7 +158,7 @@ mod tests {
 
     #[test]
     fn redact_endpoint_strips_credentials_with_explicit_port() {
-        let uri: hyper::Uri = "http://admin:secret@localhost:8080/scrape".parse().unwrap();
+        let uri: Uri = "http://admin:secret@localhost:8080/scrape".parse().unwrap();
         // Only the userinfo must be gone; the port must stay.
         let redacted = redact_endpoint(&uri);
         assert_eq!(redacted, "http://localhost:8080/scrape");
@@ -155,7 +168,7 @@ mod tests {
 
     #[test]
     fn redact_endpoint_handles_root_path() {
-        let uri: hyper::Uri = "http://host/".parse().unwrap();
+        let uri: Uri = "http://host/".parse().unwrap();
         assert_eq!(redact_endpoint(&uri), "http://host/");
     }
 
@@ -189,7 +202,7 @@ mod tests {
         });
 
         let client = build_client();
-        let uri: hyper::Uri = endpoint.parse().unwrap();
+        let uri: Uri = endpoint.parse().unwrap();
         let req = hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri(&uri)

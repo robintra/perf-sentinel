@@ -41,7 +41,10 @@ impl IngestSource for JaegerIngest {
 }
 
 /// Errors that can occur during Jaeger JSON ingestion.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JaegerIngestError {
     #[error("payload too large: {size} bytes exceeds maximum of {max} bytes")]
     PayloadTooLarge { size: usize, max: usize },
@@ -171,6 +174,12 @@ fn convert_jaeger_span(
         .unwrap_or_default();
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
+    // code.* attributes from span tags.
+    let code_function = find_tag(tags, "code.function");
+    let code_filepath = find_tag(tags, "code.filepath");
+    let code_lineno = find_tag(tags, "code.lineno").and_then(|s| s.parse::<u32>().ok());
+    let code_namespace = find_tag(tags, "code.namespace");
+
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(span.start_time),
         trace_id: trace_id.to_string(),
@@ -188,6 +197,10 @@ fn convert_jaeger_span(
         source: EventSource { endpoint, method },
         status_code,
         response_size_bytes: None,
+        code_function,
+        code_filepath,
+        code_lineno,
+        code_namespace,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

@@ -47,11 +47,12 @@ Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031
 
 Pour chaque anti-pattern détecté, perf-sentinel remonte :
 
-- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions, ou appels sérialisés
+- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions, ou appels sérialisés. Les corrélations cross-trace sont aussi remontées en mode daemon
 - **Template normalisé :** la requête ou l'URL avec les paramètres remplacés par des placeholders (`?`, `{id}`)
 - **Occurrences :** combien de fois le pattern s'est déclenché dans la fenêtre de détection
 - **Endpoint source :** quel endpoint applicatif l'a généré (ex : `GET /api/orders`)
 - **Suggestion :** par exemple *"batch cette requête"*, *"utilise un batch endpoint"*, *"ajouter un index"*
+- **Localisation source :** quand les spans OTel portent les attributs `code.function`, `code.filepath`, `code.lineno`, les findings affichent le fichier source et la ligne d'origine. Les rapports SARIF incluent des `physicalLocations` pour les annotations inline GitHub/GitLab
 - **Impact GreenOps :** estimation des I/O évitables, I/O Intensity Score, objet `co2` structuré (`low`/`mid`/`high`, termes opérationnel + embodié SCI v1.0), breakdown par région quand le scoring multi-région est actif
 
 ![demo](docs/img/analyze/demo.gif)
@@ -290,6 +291,9 @@ perf-sentinel pg-stat --input pg_stat.csv
 
 # Référence croisée avec les findings de traces
 perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
+
+# Scraper les métriques pg_stat_statements depuis un endpoint Prometheus postgres_exporter
+perf-sentinel pg-stat --prometheus http://prometheus:9090
 ```
 
 ### Inspection interactive (TUI)
@@ -313,6 +317,32 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 ```bash
 # Ajuster les coefficients énergie avec des mesures réelles
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
+```
+
+### Interroger un daemon en cours d'exécution
+
+Toutes les sous-actions affichent une sortie colorée par défaut. Utilisez `--format json` pour le scripting.
+
+```bash
+# Lister les findings récents (sortie colorée par défaut)
+perf-sentinel query findings
+perf-sentinel query findings --service order-svc --severity critical
+
+# Expliquer un arbre de trace avec findings en ligne
+perf-sentinel query explain --trace-id abc123
+
+# TUI interactif avec les données live du daemon
+perf-sentinel query inspect
+
+# Afficher les corrélations cross-trace
+perf-sentinel query correlations
+
+# Vérifier l'état du daemon
+perf-sentinel query status
+
+# Sortie JSON pour le scripting
+perf-sentinel query findings --format json
+perf-sentinel query status --format json
 ```
 
 ### Mode streaming (daemon)

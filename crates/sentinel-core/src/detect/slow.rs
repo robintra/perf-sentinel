@@ -84,6 +84,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             suggestion,
             first_timestamp: min_ts,
             last_timestamp: max_ts,
+            code_location: first.event.code_location(),
         }));
     }
 
@@ -219,6 +220,7 @@ fn build_cross_trace_finding(
         last_timestamp: last_ts.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
+        code_location: None,
     })
 }
 

@@ -49,3 +49,6 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 | `report/metrics.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `sentinel-cli/src/main.rs` | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
 | `sentinel-cli/src/tui.rs`  | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
+| `detect/correlate_cross.rs` | [04 : Détection](04-DETECTION-FR.md)                  |
+| `daemon/findings_store.rs` | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/query_api.rs`      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |

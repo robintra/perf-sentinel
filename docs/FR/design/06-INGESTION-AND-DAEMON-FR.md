@@ -262,3 +262,102 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 ### Référence croisée
 
 `cross_reference()` accepte `&mut [PgStatEntry]` et `&[Finding]`. Il construit un `HashSet` des templates de findings et marque les entrées dont le `normalized_template` correspond. Complexité O(n + m) où n = entrées, m = findings. Le flag `seen_in_traces` permet à la CLI de mettre en évidence les requêtes présentes dans les deux sources de données.
+
+## Scrape Prometheus pour pg_stat
+
+La fonction `fetch_from_prometheus(endpoint, top_n)` dans `ingest/pg_stat.rs` permet de récupérer les données `pg_stat_statements` directement depuis l'API HTTP de Prometheus, sans export CSV/JSON manuel.
+
+### Fonctionnement
+
+1. Construire une requête PromQL `topk(N, pg_stat_statements_seconds_total)` pour obtenir les N requêtes les plus consommatrices.
+2. Envoyer une requête `GET /api/v1/query?query=...` au endpoint Prometheus configuré via le client HTTP partagé (`http_client::build_client`).
+3. Parser la réponse JSON au format standard Prometheus (`data.result[]`).
+4. Extraire les labels `query` ou `queryid` du champ `metric` pour chaque résultat.
+5. Convertir la valeur en millisecondes (la métrique est en secondes), normaliser le SQL via `normalize_sql()`, et produire des `PgStatEntry`.
+
+Le timeout est fixé à 30 secondes. Les erreurs de transport et de format sont rapportées via des variantes dédiées de `PgStatError` (`PrometheusRequest`, `PrometheusFormat`).
+
+### Usage CLI
+
+```bash
+perf-sentinel pg-stat --prometheus http://prometheus:9090
+```
+
+Le flag `--prometheus` est mutuellement exclusif avec `--input`. Le `--traces` pour la référence croisée fonctionne de la même manière qu'avec un fichier local.
+
+## API de requête du daemon
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/query-api_dark.svg">
+  <img alt="Architecture de l'API de requête du daemon" src="../../diagrams/svg/query-api.svg">
+</picture>
+
+En mode `watch`, le daemon expose une API HTTP de consultation aux côtés des endpoints existants `/v1/traces` et `/metrics`. Cela permet d'interroger l'état interne du daemon sans accéder directement à stdout.
+
+### FindingsStore
+
+`daemon/findings_store.rs` implémente un buffer circulaire thread-safe pour les findings récents :
+
+```rust
+pub struct FindingsStore {
+    inner: RwLock<VecDeque<StoredFinding>>,
+    max_size: usize,
+}
+```
+
+Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans bloquer entre eux, tout en garantissant l'exclusivité pour les écritures (insertion depuis `process_traces`). La capacité initiale du VecDeque est plafonnée à `min(max_size, INITIAL_CAPACITY_CEILING)` avec un plafond de 4096 pour amortir les réallocations sans gonfler le RSS au démarrage.
+
+**Court-circuit `max_size == 0` :** quand `max_retained_findings = 0`, `push_batch` retourne immédiatement sans allouer. Cela permet aux opérateurs qui désactivent l'API (`api_enabled = false`) de récupérer la mémoire du store en mettant aussi `max_retained_findings = 0`.
+
+**Clones hors lock :** `push_batch` construit les nouvelles entrées `StoredFinding` AVANT d'acquérir le write lock, puis fait un `extend + drain` rapide sous lock. Les lecteurs API ne sont pas bloqués par les allocations `Finding::clone()`.
+
+**Eviction :** quand le buffer atteint sa capacité maximale (défaut 10 000), chaque nouvel ajout via `push_batch` évince les plus anciens via `drain(..excess)`. Cela maintient un coût mémoire borné.
+
+**Filtrage :** `query()` parcourt le buffer en ordre inverse (plus récent d'abord) et applique des filtres optionnels par service, type de finding et sévérité. La limite par défaut est de 100 résultats, plafonnée à `MAX_FINDINGS_LIMIT = 1000`.
+
+### Endpoints HTTP
+
+`daemon/query_api.rs` définit cinq routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP et `/metrics`.
+
+| Endpoint | Méthode | Plafond | Description |
+|---|---|---|---|
+| `/api/findings` | GET | `?limit=` plafonné à `MAX_FINDINGS_LIMIT = 1000` | Findings récents, avec filtres `?service=`, `?type=`, `?severity=`, `?limit=` |
+| `/api/findings/{trace_id}` | GET | aucun | Findings pour un trace_id spécifique |
+| `/api/explain/{trace_id}` | GET | aucun | Arbre de trace avec findings en ligne (depuis la mémoire du daemon) |
+| `/api/correlations` | GET | tronqué à `MAX_CORRELATIONS_LIMIT = 1000` (trié par confiance décroissante) | Corrélations cross-trace actives. Vide quand `correlator` est `None` |
+| `/api/status` | GET | aucun | Santé du daemon : version, uptime, traces actives, findings stockés |
+
+L'état partagé est encapsulé dans `QueryApiState` :
+
+```rust
+pub struct QueryApiState {
+    pub findings_store: Arc<FindingsStore>,
+    pub window: Arc<tokio::sync::Mutex<TraceWindow>>,
+    pub detect_config: DetectConfig,
+    pub start_time: std::time::Instant,
+    pub correlator: Option<Arc<tokio::sync::Mutex<CrossTraceCorrelator>>>,
+}
+```
+
+Le endpoint `/api/explain/{trace_id}` consulte la TraceWindow pour récupérer les spans (s'ils sont encore en mémoire), exécute les détecteurs par trace, puis construit l'arbre via `explain::build_tree` et `explain::format_tree_json`. Si la trace a déjà été évincée, il retourne un objet JSON avec un champ `error`.
+
+### Configuration
+
+```toml
+[daemon]
+api_enabled = true
+max_retained_findings = 10000
+```
+
+`api_enabled` est à `true` par défaut. Quand `api_enabled = false`, les routes `/api/*` ne sont pas montées, mais le `FindingsStore` est toujours peuplé à chaque tick (la détection tourne avant la vérification du flag). Pour libérer aussi la mémoire du store, mettez `max_retained_findings = 0` : `push_batch` court-circuite alors sans allouer.
+
+## Intégration du corrélateur cross-trace
+
+Le `CrossTraceCorrelator` (décrit dans [04 : Détection](04-DETECTION-FR.md)) est instancié dans la boucle événementielle du daemon quand `[daemon.correlation] enabled = true`. À chaque tick :
+
+1. `process_traces` produit un lot de findings.
+2. Les findings sont insérés dans le FindingsStore via `push_batch`.
+3. Les findings sont passés au corrélateur via `ingest(findings, now_ms)`.
+4. `GET /api/correlations` appelle `active_correlations()` pour retourner les paires au-dessus des seuils configurés.
+
+Le corrélateur est possédé par la boucle du daemon (pas dans un Arc/Mutex séparé), puisque seul le ticker y accède. Cela évite le coût de synchronisation.

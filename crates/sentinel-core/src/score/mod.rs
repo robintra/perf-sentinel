@@ -971,6 +971,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![finding], None);
@@ -1096,6 +1097,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let (findings, _) = score_green(&[trace], vec![finding], None);
@@ -1140,6 +1142,7 @@ mod tests {
                 last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
                 green_impact: None,
                 confidence: Confidence::default(),
+                code_location: None,
             },
             Finding {
                 finding_type: FindingType::RedundantSql,
@@ -1158,6 +1161,7 @@ mod tests {
                 last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
                 green_impact: None,
                 confidence: Confidence::default(),
+                code_location: None,
             },
         ];
 
@@ -1257,6 +1261,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let ctx = ctx_with_region("eu-west-3");
@@ -1401,6 +1406,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.150Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![slow_finding], None);
@@ -1457,6 +1463,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
         let slow_finding = Finding {
             finding_type: FindingType::SlowSql,
@@ -1475,6 +1482,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:02.150Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![n1_finding, slow_finding], None);
@@ -1568,6 +1576,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
         // disable hourly profiles so avoidable ratio math
         // stays deterministic (the test compares to operational × 5/6).
@@ -1982,6 +1991,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.300Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         };
 
         let ctx = CarbonContext {

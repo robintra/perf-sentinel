@@ -382,9 +382,64 @@ Les rapports où au moins un service a utilisé l'estimation cloud sont tagués 
 
 **Mode batch.** Le mode batch `analyze` ne lance jamais le scraper Prometheus et n'utilise jamais les données cloud. Même si `[green.cloud]` est présent dans la config, la commande `analyze` l'ignore entièrement et utilise toujours le modèle proxy. Seul le daemon `watch` intègre l'estimation cloud.
 
+## Corrélation cross-trace
+
+La corrélation temporelle cross-trace (`[daemon.correlation]`) nécessite le mode daemon (`perf-sentinel watch`) avec un trafic soutenu et représentatif. Les corrélations sont statistiques : elles détectent des co-occurrences temporelles, pas des relations causales. Une corrélation élevée entre un N+1 dans le service A et une saturation du pool dans le service B signifie qu'ils co-surviennent fréquemment dans le délai configuré, pas que l'un cause l'autre.
+
+Limitations :
+
+- **Démarrage à froid.** Le corrélateur a besoin de temps pour accumuler suffisamment d'observations. Avec `min_co_occurrences = 3` et une fenêtre de 10 minutes, il faut au moins 3 co-occurrences en 10 minutes avant qu'une corrélation remonte. Les environnements à faible trafic peuvent ne jamais atteindre ce seuil.
+- **Mode batch non supporté.** La commande `analyze` ne lance pas le corrélateur. La corrélation cross-trace est intrinsèquement une préoccupation du streaming.
+- **Cardinalité.** Le plafond `max_tracked_pairs` (défaut 1000) empêche la croissance mémoire non bornée. Si vous avez de nombreux types de findings distincts sur de nombreux services, certaines paires peuvent être évincées avant d'atteindre le seuil de co-occurrences.
+
+## Attributs de code source OTel
+
+Les findings incluent un champ `code_location` (avec `function`, `filepath`, `lineno`, `namespace`) quand les spans OTel portent les attributs `code.*` correspondants. Cela permet des annotations au niveau source dans les rapports SARIF (annotations inline GitHub/GitLab).
+
+Limitations :
+
+- **La plupart des agents d'auto-instrumentation OTel n'émettent pas `code.lineno` ou `code.filepath`.** Une instrumentation manuelle ou une configuration spécifique de l'agent est nécessaire. Sans ces attributs, les findings apparaissent sans localisation source (pas de bruit, dégradation gracieuse).
+- **`code.function` est l'attribut le plus souvent disponible.** Si seul `code.function` est présent, la CLI l'affiche mais SARIF ne peut pas produire de `physicalLocation` (qui nécessite au minimum un chemin de fichier).
+- **Les numéros de ligne peuvent être approximatifs.** Certains agents rapportent le point d'entrée de la méthode, pas la ligne exacte de l'appel I/O.
+- **Les valeurs `code.filepath` hostiles sont supprimées du SARIF.** L'attribut OTel `code.filepath` est contrôlé par le client. Avant émission comme `artifactLocation.uri` SARIF, perf-sentinel rejette les chaînes de type URI, les chemins absolus, le path traversal (littéral et percent-encodé), les séquences double-encodées, les préfixes UTF-8 overlong, les caractères de contrôle, et les caractères Unicode BiDi/invisibles (classe Trojan Source). Les findings au filepath rejeté apparaissent toujours dans le rapport, sans `physicalLocations`.
+
+## API de requêtage du daemon
+
+La sous-commande `perf-sentinel query` et les endpoints HTTP `/api/*` exposent l'état interne du daemon. L'API de requêtage n'a pas d'authentification ni d'autorisation intégrée. Le contrôle d'accès doit être géré extérieurement via des politiques réseau ou un reverse proxy, comme pour les endpoints d'ingestion OTLP. Voir "Pas d'authentification" ci-dessus.
+
+- **Kill-switch.** Mettre `[daemon] api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP et `/metrics`. Utilisez cette option quand le daemon tourne dans un environnement où même l'exposition en loopback des findings est inacceptable. Notez que `/metrics` expose toujours les compteurs de findings via `perf_sentinel_findings_total` et métriques associées : le flag de l'API ne supprime donc pas toute sortie observable.
+- **La mémoire n'est pas libérée par `api_enabled = false` seul.** Le buffer circulaire `FindingsStore` est toujours peuplé à chaque tick même quand l'API est désactivée, car la détection tourne avant la vérification de l'API. Pour libérer cette mémoire, mettez `[daemon] max_retained_findings = 0`. Cela court-circuite le `push_batch` du store et garde le RSS du daemon minimal quand l'API de requêtage est désactivée.
+- **Taille de réponse plafonnée.** `/api/findings` plafonne à 1000 entrées par requête (le paramètre `?limit=` est tronqué). `/api/correlations` tronque au top 1000 par confiance. Ces plafonds protègent contre les requêtes coûteuses quand le daemon a accumulé une grosse empreinte mémoire.
+- **Les findings retenus sont bornés.** Le buffer circulaire `FindingsStore` (défaut 10 000 findings) évince les entrées les plus anciennes quand il est plein. Pour les daemons à fort trafic, augmentez `max_retained_findings` ou acceptez que les findings plus anciens ne seront pas interrogeables.
+- **Pas de persistance.** Le daemon stocke les findings en mémoire uniquement. Un redémarrage efface tous les findings retenus et l'état de corrélation.
+
+## Ingestion automatisée pg_stat depuis Prometheus
+
+Le flag `--prometheus` de `pg-stat` scrape les métriques exposées par `postgres_exporter`. Cela nécessite :
+
+- Une instance `postgres_exporter` en cours d'exécution configurée pour collecter les métriques `pg_stat_statements`.
+- L'endpoint Prometheus doit être joignable depuis la machine exécutant perf-sentinel.
+- Seules les métriques disponibles dans l'exporteur Prometheus sont utilisées. Certains champs présents dans la vue `pg_stat_statements` brute (ex. `blk_read_time`, `blk_write_time`) peuvent ne pas être exposés par toutes les versions de l'exporteur.
+
+Le mode `--input` par fichier existant est inchangé et reste l'approche recommandée pour les pipelines CI.
+
+## Secrets et credentials
+
+perf-sentinel ne stocke jamais de secrets dans sa sortie de config. Pour les scrapers qui ont besoin de credentials, le pattern "variable d'environnement préférée" s'applique partout :
+
+- **Clé API Electricity Maps** : variable `PERF_SENTINEL_EMAPS_TOKEN`. Un `[green.electricity_maps] api_key` dans le fichier de config fonctionne mais émet un warning au chargement, car les fichiers de config committés sont une source fréquente de fuites de credentials.
+- **Connection string PostgreSQL** pour `pg-stat --connection-string` : variable `PERF_SENTINEL_PG_CONNECTION`. Passer une connection string avec mot de passe en clair sur la CLI fonctionne aussi mais émet un warning (recommandé : `.pgpass` en production).
+- **URLs d'endpoints scraper** (Scaphandre, cloud energy, Electricity Maps, pg-stat Prometheus) : les credentials dans l'URL (`http://user:pass@host`) sont rejetés au chargement de la config. Utilisez le mécanisme d'authentification natif du scraper.
+- **Fichier de clé TLS** : les permissions de `[daemon] tls_key_path` sont vérifiées au démarrage ; une clé lisible par le groupe ou les autres émet un warning.
+
+Le daemon n'écrit jamais de secrets sur stdout/stderr : tous les chemins d'erreur des scrapers utilisent `redact_endpoint` pour retirer les userinfo de toute URL avant de logger.
+
+Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les findings (pas les secrets) mais sans authentification. Restreignez l'accès loopback via des politiques réseau ou un reverse proxy, ou mettez `api_enabled = false` pour désactiver toute la surface API.
+
 ## API Electricity Maps
 
 - **Clé API requise.** L'intégration Electricity Maps nécessite une clé API (tier gratuit ou payant). La clé doit être fournie via la variable `PERF_SENTINEL_EMAPS_TOKEN` plutôt que dans le fichier de config.
+- **HTTPS fortement recommandé.** Quand l'endpoint configuré est `http://` (cleartext) et qu'un auth token est défini, perf-sentinel émet un warning au chargement de la config. L'API production d'Electricity Maps est servie uniquement en HTTPS ; un endpoint `http://` est presque toujours une erreur de configuration ou un setup de test local.
 - **Limites de débit.** Le tier gratuit permet environ 30 requêtes par mois par zone. Avec le `poll_interval_secs = 300` par défaut, ce budget serait épuisé en moins de 3 heures. Les utilisateurs du tier gratuit doivent utiliser `poll_interval_secs = 3600` ou plus.
 - **Mode daemon uniquement.** Le scraper Electricity Maps ne fonctionne qu'en mode `perf-sentinel watch`.
 - **Repli en cas de staleness.** Si l'API est inaccessible plus longtemps que 3x l'intervalle de sondage, le scraper retombe sur les profils horaires embarqués.
@@ -404,5 +459,5 @@ L'estimation carbone utilise une constante énergétique fixe (`0,1 uWh par opé
 - **Pas de corrélation par trace.** Les données `pg_stat_statements` n'ont pas de `trace_id` ni de `span_id`. Elles ne peuvent pas servir à la détection d'anti-patterns par trace (N+1, redondant). Elles fournissent une analyse complémentaire de hotspots et une référence croisée avec les findings basés sur les traces.
 - **Parsing CSV.** Le parseur CSV gère le quoting RFC 4180 (champs entre guillemets doubles, `""` échappé), mais suppose une entrée UTF-8. Les fichiers non-UTF-8 échoueront au parsing.
 - **Requêtes pré-normalisées.** PostgreSQL normalise les requêtes `pg_stat_statements` au niveau du serveur. perf-sentinel applique sa propre normalisation par-dessus pour la référence croisée, ce qui peut produire des templates légèrement différents.
-- **Pas de connexion live.** perf-sentinel lit des fichiers CSV ou JSON exportés. Il ne se connecte pas directement à PostgreSQL.
+- **Pas de connexion directe à PostgreSQL.** En mode fichier (`--input`), perf-sentinel lit des fichiers CSV ou JSON exportés. Le flag `--prometheus` scrape les métriques `postgres_exporter` au lieu de se connecter directement à PostgreSQL. Voir "Ingestion automatisée pg_stat depuis Prometheus" ci-dessus pour les limitations spécifiques au mode Prometheus.
 - **Nombre d'entrées.** Le parseur pré-alloue la mémoire en fonction de la taille de l'entrée, plafonné à 100 000 entrées. Les fichiers dépassant 1 000 000 d'entrées (lignes CSV ou éléments de tableau JSON) sont rejetés avec une erreur pour prévenir l'épuisement mémoire.

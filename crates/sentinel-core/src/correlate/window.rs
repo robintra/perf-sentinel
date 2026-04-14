@@ -151,6 +151,15 @@ impl TraceWindow {
     pub fn active_traces(&self) -> usize {
         self.traces.len()
     }
+
+    /// Clone a trace's spans without evicting or promoting it in the LRU.
+    /// Returns `None` if the trace is not in the window.
+    #[must_use]
+    pub fn peek_clone(&self, trace_id: &str) -> Option<Vec<NormalizedEvent>> {
+        self.traces
+            .peek(trace_id)
+            .map(|buf| buf.events.iter().cloned().collect())
+    }
 }
 
 #[cfg(test)]
@@ -177,6 +186,10 @@ mod tests {
             },
             status_code: None,
             response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         };
         normalize::normalize(event)
     }

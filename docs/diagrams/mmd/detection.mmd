@@ -22,11 +22,27 @@ flowchart TD
 
     findings["Vec&lt;Finding&gt;"]
 
+    daemon_check{"Daemon mode?"}
+
+    correlate_cross["Cross-trace correlation<br/><i>CrossTraceCorrelator<br/>rolling window (10 min)<br/>co-occurrence across services<br/>confidence scoring</i>"]
+
+    correlations["Vec&lt;CrossTraceCorrelation&gt;"]
+
+    output_batch["Output<br/><i>batch: findings only</i>"]
+    output_daemon["Output<br/><i>daemon: findings +<br/>correlations</i>"]
+
     traces --> pertrace
     traces --> cross
     pertrace --> sort
     cross --> sort
     sort --> findings
 
+    findings --> daemon_check
+    daemon_check -- "yes" --> correlate_cross
+    daemon_check -- "no (batch)" --> output_batch
+    correlate_cross --> correlations
+    correlations --> output_daemon
+
     style pertrace fill:#3b2d4a,stroke:#a78bfa
     style cross fill:#4a3b2d,stroke:#fbbf24
+    style correlate_cross fill:#2d3b4a,stroke:#60a5fa

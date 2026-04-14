@@ -106,6 +106,23 @@ Socket unix JSON       /                               |
 - Les findings sont émis en JSON délimité par des sauts de ligne sur stdout.
 - Les métriques Prometheus sont exposées sur le même port HTTP (4318) à `/metrics`.
 
+### API de requête du daemon
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/query-api_dark.svg">
+  <img alt="Architecture de l'API de requête du daemon" src="../diagrams/svg/query-api.svg">
+</picture>
+
+En mode `watch`, le daemon expose son état interne via des endpoints HTTP sur le port 4318 aux côtés de `/v1/traces` et `/metrics` :
+
+- `GET /api/findings` (filtrable, plafonné à 1000)
+- `GET /api/findings/{trace_id}`
+- `GET /api/explain/{trace_id}` (arbre de trace avec findings en ligne, depuis la mémoire du daemon)
+- `GET /api/correlations` (corrélations cross-trace, plafonné à 1000)
+- `GET /api/status` (uptime, traces actives, nombre de findings stockés)
+
+Un `FindingsStore` (ring buffer) retient les findings récents pour l'API (dimensionné par `[daemon] max_retained_findings`, défaut 10k). La sous-commande compagnon `perf-sentinel query` rend ces endpoints en sortie coloré terminal. Gated par `[daemon] api_enabled` (défaut true). Voir [`docs/FR/LIMITATIONS-FR.md`](LIMITATIONS-FR.md#api-de-requêtage-du-daemon) pour le threat model sans authentification.
+
 ## Responsabilités des modules
 
 | Module           | Chemin            | Responsabilité                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |

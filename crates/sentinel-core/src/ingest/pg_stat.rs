@@ -62,7 +62,10 @@ pub enum PgStatFormat {
 }
 
 /// Errors that can occur during `pg_stat_statements` parsing.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum PgStatError {
     #[error("payload too large: {size} bytes exceeds maximum of {max} bytes")]
     PayloadTooLarge { size: usize, max: usize },
@@ -74,6 +77,12 @@ pub enum PgStatError {
     MissingColumn(String),
     #[error("empty input")]
     EmptyInput,
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[error("Prometheus request failed: {0}")]
+    PrometheusRequest(String),
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[error("Prometheus response parse error: {0}")]
+    PrometheusFormat(String),
 }
 
 /// Raw JSON entry matching common `pg_stat_statements` export formats.
@@ -381,6 +390,161 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
     Ok(entries)
 }
 
+// ── Prometheus scrape path ─────────────────────────────────────────
+
+/// Fetch `pg_stat_statements` data from a Prometheus endpoint.
+///
+/// Queries the Prometheus HTTP API for `pg_stat_statements_seconds_total`
+/// metrics exposed by `postgres_exporter`, converts them to
+/// [`PgStatEntry`] structs, and normalizes SQL templates.
+///
+/// # Errors
+///
+/// Returns [`PgStatError::PrometheusRequest`] on transport errors
+/// and [`PgStatError::PrometheusFormat`] if the response cannot be parsed.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+pub async fn fetch_from_prometheus(
+    endpoint: &str,
+    top_n: usize,
+) -> Result<Vec<PgStatEntry>, PgStatError> {
+    // Validate the endpoint URL before issuing the request. Consistent with
+    // the Scaphandre and cloud energy scrapers, we reject malformed URLs,
+    // non-http(s) schemes, and credentials in the authority.
+    validate_prometheus_endpoint(endpoint)?;
+
+    let client = crate::http_client::build_client();
+    // PromQL query. The parentheses and underscores are safe for URL
+    // query strings, so we only need to encode the comma.
+    let query = format!("topk({top_n}%2C%20pg_stat_statements_seconds_total)");
+    let url = format!("{endpoint}/api/v1/query?query={query}");
+    let uri: crate::http_client::Uri = url
+        .parse()
+        .map_err(|e| PgStatError::PrometheusRequest(format!("invalid URL: {e}")))?;
+
+    let timeout = std::time::Duration::from_secs(30);
+    let body = crate::http_client::fetch_get(&client, &uri, "perf-sentinel/pg-stat", timeout)
+        .await
+        .map_err(|e| {
+            // Redact the endpoint before surfacing the transport error, so
+            // credentials accidentally embedded in the URL never leak to
+            // stdout/stderr.
+            PgStatError::PrometheusRequest(format!(
+                "{e} (endpoint: {})",
+                crate::http_client::redact_endpoint(&uri)
+            ))
+        })?;
+
+    parse_prometheus_response(&body)
+}
+
+/// Validate a user-supplied Prometheus endpoint string.
+///
+/// Rejects URLs that:
+/// - fail to parse as a hyper `Uri`
+/// - have a scheme other than `http` or `https`
+/// - carry userinfo (credentials in the authority, e.g. `user:pass@host`)
+///   since credentials must flow via env vars or a `.pgpass`-style file
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
+    let uri: crate::http_client::Uri = endpoint
+        .parse()
+        .map_err(|e| PgStatError::PrometheusRequest(format!("invalid endpoint URL: {e}")))?;
+
+    match uri.scheme_str() {
+        Some("http" | "https") => {}
+        Some(other) => {
+            return Err(PgStatError::PrometheusRequest(format!(
+                "unsupported scheme `{other}`, only http and https are accepted"
+            )));
+        }
+        None => {
+            return Err(PgStatError::PrometheusRequest(
+                "endpoint URL must include a scheme (http:// or https://)".to_string(),
+            ));
+        }
+    }
+
+    // Check for userinfo. `hyper::Uri::authority()` returns the full
+    // `[user[:pass]@]host[:port]` string; if it contains `@`, credentials
+    // are embedded.
+    if let Some(authority) = uri.authority()
+        && authority.as_str().contains('@')
+    {
+        return Err(PgStatError::PrometheusRequest(
+            "credentials in the URL are not accepted; use env vars instead".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+/// Parse a Prometheus instant query response into `PgStatEntry` structs.
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+fn parse_prometheus_response(body: &[u8]) -> Result<Vec<PgStatEntry>, PgStatError> {
+    let json: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|e| PgStatError::PrometheusFormat(format!("invalid JSON: {e}")))?;
+
+    let results = json
+        .get("data")
+        .and_then(|d| d.get("result"))
+        .and_then(|r| r.as_array())
+        .ok_or_else(|| PgStatError::PrometheusFormat("missing data.result array".to_string()))?;
+
+    let mut entries = Vec::with_capacity(results.len());
+    for result in results {
+        let metric = result.get("metric").unwrap_or(&serde_json::Value::Null);
+        let query_text = metric
+            .get("query")
+            .or_else(|| metric.get("queryid"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // value is [timestamp, "string_value"]
+        let value = result
+            .get("value")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| arr.get(1))
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(0.0);
+
+        let total_exec_time_ms = value * 1000.0; // seconds to ms
+
+        // Prometheus label values are always strings. `.as_str() + parse` is
+        // the correct path; the previous `.as_u64().map(|_| "")` branch was
+        // dead code that silently produced 0 for non-string values.
+        let calls = metric
+            .get("calls")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        #[allow(clippy::cast_precision_loss)]
+        let mean_exec_time_ms = if calls > 0 {
+            total_exec_time_ms / (calls as f64)
+        } else {
+            total_exec_time_ms
+        };
+
+        let normalized = normalize_sql(&query_text);
+
+        entries.push(PgStatEntry {
+            query: query_text,
+            normalized_template: normalized.template,
+            calls,
+            total_exec_time_ms,
+            mean_exec_time_ms,
+            rows: 0,
+            shared_blks_hit: 0,
+            shared_blks_read: 0,
+            seen_in_traces: false,
+        });
+    }
+
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,6 +812,7 @@ mod tests {
             last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
             green_impact: None,
             confidence: Confidence::default(),
+            code_location: None,
         }
     }
 
@@ -711,5 +876,93 @@ mod tests {
         let csv = "query,calls,total_exec_time,mean_exec_time\nSELECT 1,abc,500.0,5.0";
         let result = parse_pg_stat(csv.as_bytes(), 1_048_576);
         assert!(matches!(result, Err(PgStatError::CsvParse { line: 2, .. })));
+    }
+
+    // -- Prometheus response parsing --
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn parse_prometheus_response_basic() {
+        let json = br#"{
+            "status": "success",
+            "data": {
+                "resultType": "vector",
+                "result": [
+                    {
+                        "metric": {
+                            "__name__": "pg_stat_statements_seconds_total",
+                            "query": "SELECT * FROM orders WHERE id = $1"
+                        },
+                        "value": [1720000000, "4.5"]
+                    },
+                    {
+                        "metric": {
+                            "__name__": "pg_stat_statements_seconds_total",
+                            "query": "INSERT INTO audit_log VALUES ($1)"
+                        },
+                        "value": [1720000000, "1.2"]
+                    }
+                ]
+            }
+        }"#;
+
+        let entries = parse_prometheus_response(json).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert!((entries[0].total_exec_time_ms - 4500.0).abs() < f64::EPSILON);
+        assert!((entries[1].total_exec_time_ms - 1200.0).abs() < f64::EPSILON);
+        // Templates should be normalized.
+        assert!(entries[0].normalized_template.contains('?'));
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn parse_prometheus_response_empty_result() {
+        let json = br#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
+        let entries = parse_prometheus_response(json).unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn parse_prometheus_response_invalid_json() {
+        let result = parse_prometheus_response(b"not json");
+        assert!(matches!(result, Err(PgStatError::PrometheusFormat(_))));
+    }
+
+    // -- Prometheus endpoint URL validation --
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn validate_endpoint_accepts_http_and_https() {
+        assert!(validate_prometheus_endpoint("http://prometheus:9090").is_ok());
+        assert!(validate_prometheus_endpoint("https://prometheus.example.com").is_ok());
+        assert!(validate_prometheus_endpoint("http://127.0.0.1:9090").is_ok());
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn validate_endpoint_rejects_malformed_url() {
+        let result = validate_prometheus_endpoint("not a url");
+        assert!(matches!(result, Err(PgStatError::PrometheusRequest(_))));
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn validate_endpoint_rejects_userinfo() {
+        let result = validate_prometheus_endpoint("http://user:pass@prometheus:9090");
+        assert!(
+            matches!(result, Err(PgStatError::PrometheusRequest(msg)) if msg.contains("credentials")),
+            "must reject userinfo in URL"
+        );
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[test]
+    fn validate_endpoint_rejects_non_http_scheme() {
+        let result = validate_prometheus_endpoint("ftp://prometheus:9090");
+        assert!(
+            matches!(result, Err(PgStatError::PrometheusRequest(msg)) if msg.contains("scheme")),
+            "must reject non-http(s) schemes"
+        );
     }
 }

@@ -302,3 +302,92 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
 ```
 
 Les sept détecteurs s'exécutent séquentiellement sur chaque trace. `append(&mut ...)` est utilisé à la place de `extend()` pour transférer les buffers en O(1) sans passer par un itérateur. L'analyse des percentiles lents cross-trace s'exécute séparément dans `pipeline.rs` après la détection par trace et avant le scoring.
+
+## Corrélation temporelle cross-trace (mode daemon)
+
+En mode `watch`, perf-sentinel observe l'ensemble des findings sur tous les traces au fil du temps. Le module `detect/correlate_cross.rs` fournit un moteur de corrélation qui identifie les co-occurrences récurrentes entre findings de services différents : par exemple, "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes."
+
+### Structure du corrélateur
+
+`CrossTraceCorrelator` est une struct possédée par la boucle événementielle du daemon. Elle maintient trois collections :
+
+```rust
+pub struct CrossTraceCorrelator {
+    occurrences: VecDeque<FindingOccurrence>,
+    pair_counts: HashMap<PairKey, PairState>,
+    source_totals: HashMap<CorrelationEndpoint, u32>,
+    config: CorrelationConfig,
+}
+```
+
+- `occurrences` : fenêtre glissante des findings récents, stockée dans un VecDeque pour une éviction O(1) par l'avant.
+- `pair_counts` : compteurs de co-occurrences par paire (source, cible). Chaque entrée contient le compteur, un reservoir borné de délais observés, un compteur `total_observations`, un état PRNG `SplitMix64` par paire, et les timestamps first/last seen.
+- `source_totals` : nombre d'occurrences par endpoint actuellement dans la fenêtre, utilisé comme dénominateur pour le score de confiance. Maintenu de manière incrémentale (incrémenté au `push_back`, décrémenté au `pop_front`). Les entrées sont supprimées quand le compteur atteint zéro, ce qui borne la map au nombre d'endpoints distincts plutôt qu'au nombre d'occurrences.
+
+### Algorithme d'ingestion
+
+La méthode `ingest()` est appelée à chaque tick du daemon avec le lot de findings courant. L'algorithme a cinq étapes :
+
+1. **Eviction des entrées périmées.** Parcourir `occurrences` de l'avant vers l'arrière, retirer les entrées plus anciennes que `now_ms - window_ms` (défaut 10 min) et décrémenter `source_totals` pour chaque endpoint évincé. O(k) où k est le nombre d'entrées expirées.
+2. **Nettoyage des paires obsolètes.** Une seule passe `HashMap::retain` sur `pair_counts` retire les paires dont `last_seen_ms` est hors de la fenêtre. O(pairs).
+3. **Recherche de co-occurrences.** Pour chaque finding entrant, parcourir les occurrences en ordre inverse (plus récent en premier). Si une occurrence provient d'un service **différent** et que le délai ne dépasse pas `lag_threshold_ms` (défaut 5 000 ms), incrémenter le compteur de la paire et enregistrer le délai via reservoir sampling (voir ci-dessous). Le scan s'arrête tôt dès qu'on atteint des entrées au-delà du seuil de délai. O(l) où l est le nombre d'occurrences dans la fenêtre de délai.
+4. **Ajout à la fenêtre.** Ajouter le finding aux occurrences et incrémenter son compteur dans `source_totals`.
+5. **Application du cap mémoire.** Si `pair_counts` dépasse `max_tracked_pairs` (défaut 10 000), utiliser `select_nth_unstable_by_key` (O(n) en moyenne) pour trouver les paires avec le compteur le plus bas et les évincer jusqu'à respecter le cap.
+
+### Score de confiance
+
+```
+confidence = co_occurrence_count / source_total_occurrences
+```
+
+Une paire n'est rapportée que si `co_occurrence_count >= min_co_occurrences` (défaut 5) et `confidence >= min_confidence` (défaut 0.7).
+
+### Reservoir sampling pour les délais
+
+Une paire chaude qui se déclenche des milliers de fois dans la fenêtre ferait sinon croître `lags_ms` sans borne (mégaoctets par paire). Pour garder la mémoire par paire constante, `record_lag` utilise l'algorithme R de reservoir sampling plafonné à `MAX_LAG_SAMPLES = 256` :
+
+- Tant que le reservoir a de la place, append inconditionnel.
+- Une fois plein, tirer `r` uniformément dans `[0, total_observations)` via `SplitMix64`. Si `r < MAX_LAG_SAMPLES`, remplacer `lags_ms[r]`. Conditionnellement à `r < k`, `r` est lui-même uniforme dans `[0, k)`, donc le choix du slot est non-biaisé sans tirage PRNG supplémentaire.
+
+Le PRNG est un état `SplitMix64` par `PairState`, seedé à la construction depuis `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` est un FNV-1a déterministe sur les champs `finding_type`, `service` et `template` de l'endpoint (PAS le `DefaultHasher` qui utilise un `RandomState` par process et rendrait le corrélateur non-déterministe entre runs). Deux runs du daemon rejouant le même fichier de traces produisent des samples reservoir identiques et donc des médianes identiques.
+
+### Calcul de la médiane
+
+Le helper `median()` trie un clone des valeurs de délai et retourne l'élément médian (longueur impaire) ou la moyenne des deux médians (longueur paire). Le tri est borné par `MAX_LAG_SAMPLES` grâce au reservoir, donc le calcul de la médiane est O(k log k) avec k = 256 quelle que soit la fréquence de la paire.
+
+### Identifiant de chaque extrémité
+
+Chaque côté d'une paire est identifié par un `CorrelationEndpoint` :
+
+```rust
+pub struct CorrelationEndpoint {
+    pub finding_type: FindingType,
+    pub service: String,
+    pub template: String,
+}
+```
+
+Cela signifie que deux N+1 sur le même service mais avec des templates différents sont traités comme des endpoints distincts.
+
+### Cap mémoire
+
+Plusieurs mécanismes bornent l'usage mémoire :
+
+- **Eviction de la fenêtre glissante** : `occurrences` est nettoyé à chaque `ingest()`. Les entrées plus anciennes que `window_ms` sont supprimées et leur compteur dans `source_totals` est décrémenté (entrée retirée si elle atteint zéro).
+- **Nettoyage de pair_counts** : les paires dont `last_seen_ms` est hors de la fenêtre sont retirées.
+- **Cap reservoir** : chaque `PairState.lags_ms` est borné à `MAX_LAG_SAMPLES = 256` f64 (~2 KB par paire), quelle que soit la fréquence de la paire.
+- **Cap pairs avec éviction des plus faibles** : quand `pair_counts.len()` dépasse `max_tracked_pairs`, les paires les moins significatives (compteur le plus bas) sont évincées via `select_nth_unstable_by_key`.
+
+### Configuration
+
+```toml
+[daemon.correlation]
+enabled = true
+window_ms = 600000
+lag_threshold_ms = 5000
+min_co_occurrences = 5
+min_confidence = 0.7
+max_tracked_pairs = 10000
+```
+
+L'option `enabled` (défaut false) active la corrélation. Les résultats sont exposés via `GET /api/correlations` et dans la sortie NDJSON du daemon.

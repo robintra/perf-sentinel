@@ -33,9 +33,25 @@ flowchart TB
 
     process["process_traces()<br/><i>detect &rarr; score</i>"]
 
+    confidence["Confidence stamping<br/><i>CiBatch / DaemonStaging<br/>/ DaemonProduction</i>"]
+
+    correlator["CrossTraceCorrelator<br/><i>rolling window (10 min)<br/>co-occurrence scoring<br/>reservoir sampling, 256 lag samples</i>"]
+
+    subgraph findings_ring["FindingsStore"]
+        ring_buf["Ring buffer<br/><i>VecDeque, max_retained_findings<br/>RwLock shared<br/>(max_size=0 disables)</i>"]
+    end
+
     stdout["stdout<br/><i>NDJSON findings</i>"]
     metrics_state["MetricsState<br/><i>counters &amp; gauges</i>"]
     metrics_endpoint["GET /metrics<br/><i>Prometheus + exemplars</i>"]
+
+    subgraph query_api["Query API (same :4318 port)"]
+        api_findings["GET /api/findings<br/><i>?service= &amp;type= &amp;severity=</i>"]
+        api_findings_trace["GET /api/findings/{trace_id}"]
+        api_explain["GET /api/explain/{trace_id}"]
+        api_correlations["GET /api/correlations"]
+        api_status["GET /api/status"]
+    end
 
     grpc --> channel
     http --> channel
@@ -54,12 +70,25 @@ flowchart TB
     ttl -- "expired traces" --> tick_ctx
     tick_ctx --> process
 
-    process --> stdout
-    process -- "update" --> metrics_state
+    process --> confidence
+    confidence --> correlator
+    confidence --> stdout
+    confidence -- "push_batch()" --> findings_ring
+    confidence -- "update" --> metrics_state
     metrics_state -- "render on scrape" --> metrics_endpoint
 
     http -. "serves on same port" .-> metrics_endpoint
+    http -. "serves on same port" .-> query_api
+
+    findings_ring -. "read" .-> api_findings
+    findings_ring -. "read" .-> api_findings_trace
+    window -. "peek_clone()" .-> api_explain
+    correlator -. "active_correlations()" .-> api_correlations
+    metrics_state -. "read" .-> api_status
 
     style eventloop fill:#2d3b4a,stroke:#60a5fa
     style window fill:#3b2d4a,stroke:#a78bfa
     style scrapers fill:#2d4a3e,stroke:#4ade80
+    style findings_ring fill:#4a3b2d,stroke:#fbbf24
+    style query_api fill:#2d4a3e,stroke:#4ade80
+    style correlator fill:#4a3b2d,stroke:#fbbf24

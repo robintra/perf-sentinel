@@ -16,15 +16,19 @@ use crate::event::{EventSource, EventType, SpanEvent};
 // ── Conversion helpers ──────────────────────────────────────────────
 
 /// Convert bytes to a lowercase hex string using a lookup table.
+///
+/// Builds the String directly via byte append (all written bytes are
+/// ASCII hex, so `unsafe { String::from_utf8_unchecked }` would be
+/// sound but is avoided; we use safe `from_utf8` which optimizes
+/// cleanly since the buffer is pre-validated by construction).
 fn bytes_to_hex(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut buf = Vec::with_capacity(bytes.len() * 2);
+    let mut out = String::with_capacity(bytes.len() * 2);
     for &b in bytes {
-        buf.push(HEX[(b >> 4) as usize]);
-        buf.push(HEX[(b & 0x0f) as usize]);
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
     }
-    // All bytes come from HEX (ASCII 0-9, a-f), always valid UTF-8.
-    String::from_utf8(buf).expect("hex table is ASCII")
+    out
 }
 
 use crate::time::nanos_to_iso8601;
@@ -215,6 +219,12 @@ fn convert_span(
             .map(str::to_string)
     });
 
+    // code.* attributes: extract from the span's own attributes.
+    let code_function = get_str_attribute(attrs, "code.function").map(str::to_string);
+    let code_filepath = get_str_attribute(attrs, "code.filepath").map(str::to_string);
+    let code_lineno = get_int_attribute(attrs, "code.lineno").and_then(|v| u32::try_from(v).ok());
+    let code_namespace = get_str_attribute(attrs, "code.namespace").map(str::to_string);
+
     let mut event = SpanEvent {
         timestamp,
         trace_id,
@@ -232,6 +242,10 @@ fn convert_span(
         },
         status_code,
         response_size_bytes,
+        code_function,
+        code_filepath,
+        code_lineno,
+        code_namespace,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

@@ -2,7 +2,7 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Seven subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat` and `inspect`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Eight subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect` and `query`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
@@ -106,6 +106,96 @@ perf-sentinel-core = { version = "0.3", default-features = false }
 ```
 
 This compiles the full batch pipeline (normalize, correlate, detect, score, report) without any HTTP client code. Config types (`ScaphandreConfig`, `CloudEnergyConfig`) are always available so the TOML parser works regardless of features; only the runtime scrapers and state types are gated.
+
+## Source code location on findings
+
+### `CodeLocation` struct
+
+When OTel spans carry source code attributes (`code.function`, `code.filepath`, `code.lineno`, `code.namespace`), these are extracted during OTLP conversion and stored on `SpanEvent` as four optional fields. The detection pipeline propagates them to `Finding.code_location: Option<CodeLocation>`:
+
+```rust
+pub struct CodeLocation {
+    pub function: Option<String>,
+    pub filepath: Option<String>,
+    pub lineno: Option<u32>,
+    pub namespace: Option<String>,
+}
+```
+
+All four fields are optional and independently present. Most auto-instrumented OTel agents emit `code.function` and `code.namespace` but not `code.filepath` or `code.lineno`. The system degrades gracefully: findings without source attributes appear without a source line, with no noise in the output.
+
+### CLI display
+
+When `code_location` is present, the CLI renders a "Source:" line below the finding's endpoint:
+
+```
+    Source:   com.example.OrderService.processItems (OrderService.java:42)
+```
+
+The format is `namespace.function (filepath:lineno)`, with each part omitted if absent. The rendering logic builds the string incrementally: namespace and function are joined with a dot, filepath and lineno are appended in parentheses only when the name portion is also present.
+
+### SARIF `physicalLocation` enhancement
+
+When a finding carries a `CodeLocation` with at least a `filepath`, the SARIF output includes a `locations` array with a `physicalLocation` entry:
+
+```json
+{
+  "physicalLocation": {
+    "artifactLocation": { "uri": "OrderService.java" },
+    "region": { "startLine": 42 }
+  }
+}
+```
+
+The `region.startLine` field is included only when `lineno` is available. This enables inline annotations in GitHub Code Scanning and GitLab SAST when the SARIF report is uploaded as a code scanning result.
+
+### `code.filepath` sanitization
+
+The `code.filepath` OTel attribute is attacker-controlled (a hostile span can set it to any string). Before emitting it as the SARIF `artifactLocation.uri`, `sanitize_sarif_filepath` rejects values that could phish a viewer or bypass code scanning resolvers. The sanitizer drops the URI entirely (returns `None`) for any of:
+
+- Absolute paths (POSIX `/...`, Windows `\...`).
+- Any colon. Legitimate source paths in instrumented apps do not contain colons; rejecting unconditionally avoids subtle bypasses around `javascript:`, `data:`, `file:`, etc.
+- Path traversal segments. Both literal `..` and percent-encoded variants (`%2e%2e`, `%2E%2E`, mixed case, `.%2e`, `%2e.`) are caught.
+- Double-encoded percent sequences (`%25...`) that decode to a percent on first pass and to a real character on a second pass.
+- Overlong UTF-8 prefixes (`%c0`, `%c1`) that decode to non-canonical encodings of ASCII characters in lax decoders.
+- Control characters (newlines, NUL, etc.) that could break a SARIF consumer's tokenizer or inject into logs.
+- Unicode BiDi overrides and invisible format characters (`U+061C`, `U+180E`, `U+202A..U+202E`, `U+2066..U+2069`, `U+200B..U+200F`, `U+FEFF`) that can confuse rendered filenames (Trojan Source class of attack, CVE-2021-42574).
+
+Findings with a rejected filepath still appear in the SARIF report; only the `physicalLocations` array is omitted (the `logicalLocations` and other fields remain).
+
+## `query` subcommand
+
+`perf-sentinel query` queries a running daemon's HTTP API. It requires the `daemon` feature flag.
+
+### Sub-actions
+
+| Sub-action | API endpoint | Output | Description |
+|---|---|---|---|
+| `findings` | `/api/findings` | colored text (default) or JSON | List recent findings with `--service`, `--finding-type`, `--severity`, `--limit` filters |
+| `explain` | `/api/explain/{trace_id}` | colored tree (default) or JSON | Show the explain tree for a trace from daemon memory |
+| `inspect` | `/api/findings` | ratatui TUI | Interactive 3-panel TUI fed from live daemon data |
+| `correlations` | `/api/correlations` | colored table (default) or JSON | Show active cross-trace correlations |
+| `status` | `/api/status` | colored summary (default) or JSON | Show daemon health (version, uptime, active traces, stored findings count) |
+
+All sub-actions except `inspect` accept `--format text|json`. The default is `text` (colored terminal output), matching the `analyze` command's default. `--format json` outputs raw JSON for scripting and automation.
+
+### Colored output
+
+`findings` reuses the existing `print_findings()` function from the `analyze` command, so the colored output is identical: severity-colored labels, source code location, template, suggestion, green impact.
+
+`explain` deserializes the daemon's JSON response into an `ExplainTree` and calls `format_tree_text()` for the colored span tree with inline findings, identical to `perf-sentinel explain`.
+
+`inspect` fetches all findings from `/api/findings?limit=10000`, then for each distinct `trace_id` it fetches the explain tree from `/api/explain/{trace_id}` and deserializes it into an `ExplainTree`. The pre-rendered colored trees are passed to the TUI via `App::with_pre_rendered_trees`, so the detail panel shows real span trees (not empty stubs) for every trace still in the daemon's `TraceWindow`. Traces that aged out return the detail panel without a tree (silent skip, no confusing empty panel).
+
+`correlations` renders a custom colored table with confidence percentage color-coded (red >= 80%, yellow >= 50%).
+
+`status` renders a key-value display with version, formatted uptime (Xh Ym Zs), active traces, and stored findings count.
+
+### Implementation
+
+The `cmd_query` function builds a closure around `http_client::fetch_get` that handles connection failures with a helpful error message ("Is `perf-sentinel watch` running?"). Each sub-action constructs the appropriate URL path, fetches the response, and renders it according to the `--format` flag.
+
+The default daemon URL is `http://localhost:4318`, matching the daemon's default HTTP listen port. Users can override it with `--daemon http://host:port`.
 
 ## Configuration parsing
 

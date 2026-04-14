@@ -10,9 +10,10 @@ flowchart LR
     watch["watch ⚙ daemon<br/><i>daemon mode<br/>--config path</i>"]
     demo["demo<br/><i>embedded dataset</i>"]
     bench["bench<br/><i>--input file<br/>--iterations N</i>"]
-    pgstat["pg-stat<br/><i>--input csv|json<br/>--top-n N --traces file</i>"]
+    pgstat["pg-stat<br/><i>--input csv|json<br/>--prometheus URL<br/>--top-n N --traces file</i>"]
     tempo["tempo ⚙ tempo<br/><i>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h</i>"]
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
+    query["query<br/><i>--daemon URL<br/>(subcommand)</i>"]
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
     tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
@@ -24,6 +25,21 @@ flowchart LR
     ranking["rank_entries()<br/><i>top-N hotspots</i>"]
     cal_engine["calibrate()<br/><i>correlate ops + energy</i>"]
 
+    subgraph pgstat_sources["pg-stat data sources"]
+        pg_file["CSV / JSON file<br/><i>--input path</i>"]
+        pg_prom["Prometheus API<br/><i>--prometheus URL<br/>pg_stat_statements_*</i>"]
+    end
+
+    subgraph query_actions["query sub-actions"]
+        q_findings["findings<br/><i>--service --type<br/>--severity --limit<br/>--format text|json</i>"]
+        q_explain["explain<br/><i>--trace-id ID<br/>--format text|json</i>"]
+        q_inspect["inspect ⚙ tui<br/><i>live TUI from daemon</i>"]
+        q_correlations["correlations<br/><i>--format text|json</i>"]
+        q_status["status<br/><i>--format text|json</i>"]
+    end
+
+    daemon_api["Daemon HTTP API<br/><i>:4318 /api/*</i>"]
+
     report_text["Colored<br/>terminal"]
     report_json["JSON<br/>report"]
     report_sarif["SARIF<br/>v2.1.0"]
@@ -32,7 +48,7 @@ flowchart LR
     report_toml["Calibration<br/>TOML"]
     report_bench["JSON<br/>perf metrics"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate & query
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
@@ -58,11 +74,23 @@ flowchart LR
 
     bench --> bench_pipeline --> report_bench
 
-    pgstat --> ranking
+    pgstat --> pgstat_sources
+    pg_file --> ranking
+    pg_prom --> ranking
     ranking --> report_text
     ranking --> report_json
 
     calibrate --> cal_engine --> report_toml
+
+    query --> query_actions
+    q_findings --> daemon_api
+    q_explain --> daemon_api
+    q_inspect --> daemon_api
+    q_correlations --> daemon_api
+    q_status --> daemon_api
+    daemon_api --> report_text
+    daemon_api --> report_json
+    q_inspect --> inspect_pipeline
 
     style analyze_pipeline fill:#2d4a3e,stroke:#4ade80
     style tempo_pipeline fill:#2d4a3e,stroke:#4ade80
@@ -71,3 +99,6 @@ flowchart LR
     style inspect_pipeline fill:#2d4a3e,stroke:#4ade80
     style cal_engine fill:#4a3b2d,stroke:#fbbf24
     style daemon fill:#3b2d4a,stroke:#a78bfa
+    style query_actions fill:#2d3b4a,stroke:#60a5fa
+    style pgstat_sources fill:#4a3b2d,stroke:#fbbf24
+    style daemon_api fill:#3b2d4a,stroke:#a78bfa

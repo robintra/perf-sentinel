@@ -105,7 +105,10 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
 }
 
 /// Errors that can occur during JSON ingestion.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JsonIngestError {
     #[error("payload too large: {size} bytes exceeds maximum of {max} bytes")]
     PayloadTooLarge { size: usize, max: usize },

@@ -15,10 +15,10 @@ For user-facing documentation, see the parent `docs/` directory:
 | [01: Pipeline and Types](01-PIPELINE-AND-TYPES.md)               | Pipeline vs hexagonal architecture, type chain, workspace split, deterministic output, quality gate |
 | [02: Normalization](02-NORMALIZATION.md)                         | SQL state machine, HTTP normalizer, micro-optimizations (batch push, IN-list skip, hand-coded UUID) |
 | [03: Correlation and Streaming](03-CORRELATION-AND-STREAMING.md) | Batch HashMap grouping, LRU cache, ring buffer, TTL eviction, memory budget                         |
-| [04: Detection](04-DETECTION.md)                                 | N+1, redundant and slow detection algorithms, borrowed keys, iterator-based window                  |
+| [04: Detection](04-DETECTION.md)                                 | N+1, redundant and slow detection algorithms, borrowed keys, iterator-based window, cross-trace correlation |
 | [05: GreenOps and Carbon](05-GREENOPS-AND-CARBON.md)             | IIS formula, waste ratio dedup, CO2 conversion, SCI alignment                                       |
-| [06: Ingestion and Daemon](06-INGESTION-AND-DAEMON.md)           | OTLP conversion, daemon event loop, sampling, security hardening                                    |
-| [07: CLI, Config and Release](07-CLI-CONFIG-RELEASE.md)          | Bench command, config parsing, release profile, distribution                                        |
+| [06: Ingestion and Daemon](06-INGESTION-AND-DAEMON.md)           | OTLP conversion, daemon event loop, sampling, security hardening, query API, Prometheus pg_stat     |
+| [07: CLI, Config and Release](07-CLI-CONFIG-RELEASE.md)          | Bench command, config parsing, release profile, distribution, source location, query subcommand     |
 
 ## Source file mapping
 
@@ -37,13 +37,16 @@ For user-facing documentation, see the parent `docs/` directory:
 | `detect/n_plus_one.rs`     | [04: Detection](04-DETECTION.md)                   |
 | `detect/redundant.rs`      | [04: Detection](04-DETECTION.md)                   |
 | `detect/slow.rs`           | [04: Detection](04-DETECTION.md)                   |
+| `detect/correlate_cross.rs`| [04: Detection](04-DETECTION.md)                   |
 | `score/mod.rs`             | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
 | `score/carbon.rs`          | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
 | `ingest/mod.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/json.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/otlp.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/pg_stat.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/mod.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/findings_store.rs` | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/query_api.rs`      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `config.rs`                | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
 | `report/mod.rs`, `json.rs` | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
 | `report/metrics.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |

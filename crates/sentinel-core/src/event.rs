@@ -26,16 +26,13 @@ pub const MAX_ID_LENGTH: usize = 128;
 /// Truncate an ID field (`trace_id`, `span_id`) to [`MAX_ID_LENGTH`].
 ///
 /// Uses char-boundary-aware truncation to avoid panicking on multi-byte UTF-8.
+/// Delegates to [`truncate_field`] after a one-time clone to keep the
+/// char-boundary walk in a single place.
 #[must_use]
 pub fn sanitize_id(id: &str) -> String {
-    if id.len() <= MAX_ID_LENGTH {
-        return id.to_string();
-    }
-    let mut end = MAX_ID_LENGTH;
-    while end > 0 && !id.is_char_boundary(end) {
-        end -= 1;
-    }
-    id[..end].to_string()
+    let mut s = id.to_string();
+    truncate_field(&mut s, MAX_ID_LENGTH);
+    s
 }
 
 /// Maximum length for the `service` field (bytes).
@@ -51,6 +48,15 @@ pub const MAX_TARGET_LENGTH: usize = 65_536;
 
 /// Maximum length for `source.endpoint` and `source.method` (bytes).
 pub const MAX_SOURCE_LENGTH: usize = 512;
+
+/// Maximum length for `code_function` and `code_namespace` (bytes).
+pub const MAX_CODE_FUNCTION_LENGTH: usize = 512;
+
+/// Maximum length for `code_filepath` (bytes).
+pub const MAX_CODE_FILEPATH_LENGTH: usize = 1024;
+
+/// Maximum length for `code_namespace` (bytes).
+pub const MAX_CODE_NAMESPACE_LENGTH: usize = 512;
 
 /// Truncate a string to `max_len` bytes on a char boundary.
 fn truncate_field(s: &mut String, max_len: usize) {
@@ -90,6 +96,43 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
     truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
     truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
+    if let Some(ref mut f) = event.code_function {
+        truncate_field(f, MAX_CODE_FUNCTION_LENGTH);
+    }
+    if let Some(ref mut f) = event.code_filepath {
+        truncate_field(f, MAX_CODE_FILEPATH_LENGTH);
+    }
+    if let Some(ref mut f) = event.code_namespace {
+        truncate_field(f, MAX_CODE_NAMESPACE_LENGTH);
+    }
+}
+
+/// Source code location extracted from `OTel` `code.*` span attributes.
+///
+/// Not all instrumentation agents emit these attributes. When present,
+/// they allow findings to point to the exact function and file where the
+/// anti-pattern originates.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CodeLocation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filepath: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lineno: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+}
+
+impl CodeLocation {
+    /// Returns `true` when all fields are `None`.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.function.is_none()
+            && self.filepath.is_none()
+            && self.lineno.is_none()
+            && self.namespace.is_none()
+    }
 }
 
 /// A single span event representing an I/O operation (SQL query, HTTP call).
@@ -128,6 +171,40 @@ pub struct SpanEvent {
     /// absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response_size_bytes: Option<u64>,
+    /// `OTel` `code.function` attribute: the function name in the instrumented code.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_function: Option<String>,
+    /// `OTel` `code.filepath` attribute: the source file path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_filepath: Option<String>,
+    /// `OTel` `code.lineno` attribute: the line number in the source file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_lineno: Option<u32>,
+    /// `OTel` `code.namespace` attribute: the namespace (e.g. Java package).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_namespace: Option<String>,
+}
+
+impl SpanEvent {
+    /// Build a [`CodeLocation`] from this span's `code_*` fields.
+    ///
+    /// Returns `None` when all four fields are absent.
+    #[must_use]
+    pub fn code_location(&self) -> Option<CodeLocation> {
+        if self.code_function.is_none()
+            && self.code_filepath.is_none()
+            && self.code_lineno.is_none()
+            && self.code_namespace.is_none()
+        {
+            return None;
+        }
+        Some(CodeLocation {
+            function: self.code_function.clone(),
+            filepath: self.code_filepath.clone(),
+            lineno: self.code_lineno,
+            namespace: self.code_namespace.clone(),
+        })
+    }
 }
 
 #[cfg(test)]
@@ -356,5 +433,102 @@ mod tests {
         assert!(event.service.len() <= MAX_SERVICE_LENGTH);
         // Must be valid UTF-8 (String invariant guarantees this, but verify)
         assert!(event.service.is_char_boundary(event.service.len()));
+    }
+
+    // ------------------------------------------------------------------
+    // CodeLocation and code_* fields
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn code_location_is_empty_when_all_none() {
+        let loc = CodeLocation {
+            function: None,
+            filepath: None,
+            lineno: None,
+            namespace: None,
+        };
+        assert!(loc.is_empty());
+    }
+
+    #[test]
+    fn code_location_not_empty_with_function() {
+        let loc = CodeLocation {
+            function: Some("processItems".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: None,
+        };
+        assert!(!loc.is_empty());
+    }
+
+    #[test]
+    fn span_event_code_location_none_when_all_absent() {
+        let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        assert!(event.code_location().is_none());
+    }
+
+    #[test]
+    fn span_event_code_location_some_when_present() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_function = Some("processItems".to_string());
+        event.code_filepath = Some("src/OrderService.java".to_string());
+        event.code_lineno = Some(42);
+        event.code_namespace = Some("com.example".to_string());
+        let loc = event.code_location().unwrap();
+        assert_eq!(loc.function.as_deref(), Some("processItems"));
+        assert_eq!(loc.filepath.as_deref(), Some("src/OrderService.java"));
+        assert_eq!(loc.lineno, Some(42));
+        assert_eq!(loc.namespace.as_deref(), Some("com.example"));
+    }
+
+    #[test]
+    fn serde_roundtrip_with_code_fields() {
+        let json = r#"{
+            "timestamp": "2025-07-10T14:32:01.123Z",
+            "trace_id": "abc123",
+            "span_id": "span-1",
+            "service": "svc",
+            "type": "sql",
+            "operation": "SELECT",
+            "target": "SELECT 1",
+            "duration_us": 100,
+            "source": { "endpoint": "GET /test", "method": "test" },
+            "code_function": "processItems",
+            "code_filepath": "src/OrderService.java",
+            "code_lineno": 42,
+            "code_namespace": "com.example"
+        }"#;
+        let event: SpanEvent = serde_json::from_str(json).unwrap();
+        assert_eq!(event.code_function.as_deref(), Some("processItems"));
+        assert_eq!(event.code_lineno, Some(42));
+        let serialized = serde_json::to_string(&event).unwrap();
+        let back: SpanEvent = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(event, back);
+    }
+
+    #[test]
+    fn code_fields_omitted_when_none() {
+        let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(!json.contains("code_function"));
+        assert!(!json.contains("code_filepath"));
+        assert!(!json.contains("code_lineno"));
+        assert!(!json.contains("code_namespace"));
+    }
+
+    #[test]
+    fn sanitize_truncates_long_code_function() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_function = Some("x".repeat(1000));
+        sanitize_span_event(&mut event);
+        assert!(event.code_function.as_ref().unwrap().len() <= MAX_CODE_FUNCTION_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_truncates_long_code_filepath() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_filepath = Some("x".repeat(2000));
+        sanitize_span_event(&mut event);
+        assert!(event.code_filepath.as_ref().unwrap().len() <= MAX_CODE_FILEPATH_LENGTH);
     }
 }

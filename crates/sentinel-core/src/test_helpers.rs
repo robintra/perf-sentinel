@@ -36,6 +36,10 @@ pub fn make_sql_event_with_duration(
         },
         status_code: None,
         response_size_bytes: None,
+        code_function: None,
+        code_filepath: None,
+        code_lineno: None,
+        code_namespace: None,
     }
 }
 
@@ -63,6 +67,10 @@ pub fn make_http_event_with_duration(
         },
         status_code: Some(200),
         response_size_bytes: None,
+        code_function: None,
+        code_filepath: None,
+        code_lineno: None,
+        code_namespace: None,
     }
 }
 
@@ -152,6 +160,7 @@ pub fn make_finding(
             io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(6.0),
         }),
         confidence: crate::detect::Confidence::default(),
+        code_location: None,
     }
 }
 

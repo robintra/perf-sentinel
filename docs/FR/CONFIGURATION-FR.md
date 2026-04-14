@@ -14,9 +14,10 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 | `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin       |
 | `explain`     | Vue arborescente d'une trace avec findings annotés en ligne               |
 | `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming         |
+| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live |
 | `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                    |
 | `bench`       | Benchmark du débit sur un fichier de traces                               |
-| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON) pour les hotspots SQL |
+| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)         |
 | `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans      |
 
 ## Sections
@@ -227,6 +228,32 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `environment`          | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs en aval (perf-lint). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config |
 | `tls_cert_path`        | chaîne   | *(absent)*                  | Chemin vers une chaîne de certificats TLS au format PEM pour les récepteurs OTLP. Quand renseigné avec `tls_key_path`, les listeners gRPC et HTTP utilisent TLS. Quand absent, les listeners utilisent TCP en clair |
 | `tls_key_path`         | chaîne   | *(absent)*                  | Chemin vers la clé privée TLS au format PEM. Doit être renseigné avec `tls_cert_path` (les deux ou aucun). Sous Unix, le daemon avertit si le fichier de clé est lisible par le groupe ou les autres |
+| `api_enabled`          | booléen  | `true`                      | Active les endpoints de l'API de requêtage du daemon (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Mettre à `false` pour désactiver l'API tout en conservant l'ingestion OTLP et `/metrics` |
+| `max_retained_findings`| entier   | `10000`                     | Nombre maximum de findings récents conservés dans le buffer circulaire du daemon pour l'API de requêtage. Les findings les plus anciens sont évincés quand la limite est atteinte. Mettre à `0` désactive complètement le store et libère sa mémoire (recommandé quand `api_enabled = false`) |
+
+#### `[daemon.correlation]` (optionnel)
+
+Corrélation temporelle cross-trace en mode daemon. Quand activé, le daemon détecte les co-occurrences récurrentes entre findings de services ou traces différents (ex. "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes").
+
+| Champ                 | Type     | Défaut  | Description                                                                                                          |
+|-----------------------|----------|---------|----------------------------------------------------------------------------------------------------------------------|
+| `enabled`             | booléen  | `false` | Active la corrélation cross-trace. Nécessite le mode daemon `watch` avec un trafic soutenu pour des résultats utiles |
+| `window_minutes`      | entier   | `10`    | Fenêtre glissante en minutes sur laquelle les co-occurrences sont suivies                                             |
+| `lag_threshold_ms`    | entier   | `2000`  | Décalage temporel maximum en millisecondes entre deux findings pour les considérer co-occurrents                     |
+| `min_co_occurrences`  | entier   | `3`     | Nombre minimum de co-occurrences avant de remonter une corrélation                                                    |
+| `min_confidence`      | flottant | `0.5`   | Score de confiance minimum (0.0 à 1.0) pour remonter une corrélation. Calculé comme `co_occurrence_count / total_occurrences_of_A` |
+| `max_tracked_pairs`   | entier   | `1000`  | Nombre maximum de paires de findings suivies simultanément. Empêche la croissance mémoire non bornée                  |
+
+```toml
+[daemon.correlation]
+enabled = true
+window_minutes = 10
+lag_threshold_ms = 2000
+min_co_occurrences = 3
+min_confidence = 0.5
+```
+
+Les corrélations sont exposées via `GET /api/correlations` (quand `api_enabled = true`) et émises en NDJSON sur le flux stdout du daemon.
 
 ## Configuration minimale
 
@@ -274,6 +301,14 @@ max_payload_size = 1048576
 # Les deux champs doivent être renseignés ensemble (ou les deux absents pour TCP en clair).
 # tls_cert_path = "/etc/tls/server-cert.pem"
 # tls_key_path = "/etc/tls/server-key.pem"
+api_enabled = true
+max_retained_findings = 10000
+
+# Optionnel : corrélation cross-trace (mode daemon uniquement)
+# [daemon.correlation]
+# enabled = true
+# window_minutes = 10
+# lag_threshold_ms = 2000
 ```
 
 ## Format plat legacy

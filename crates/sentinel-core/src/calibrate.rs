@@ -18,7 +18,10 @@ use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 // ---------------------------------------------------------------
 
 /// Errors that can occur during calibration.
+///
+/// `#[non_exhaustive]` for SemVer-minor variant additions.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CalibrationError {
     /// A CSV row had the wrong number of columns, unparseable numeric
     /// values, or an unknown header layout. `line` is 1-indexed.
@@ -513,6 +516,10 @@ mod tests {
                 endpoint: "GET /api/test".to_string(),
                 method: "test".to_string(),
             },
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
         }
     }
 
