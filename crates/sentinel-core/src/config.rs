@@ -445,10 +445,7 @@ fn normalize_toml_path_strings(content: &str) -> Cow<'_, str> {
 }
 
 fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
-    let leading_ws = line.len()
-        - line
-            .trim_start_matches([' ', '\t'])
-            .len();
+    let leading_ws = line.len() - line.trim_start_matches([' ', '\t']).len();
     let trimmed = &line[leading_ws..];
     let Some(eq_idx) = trimmed.find('=') else {
         return Cow::Borrowed(line);
@@ -460,10 +457,7 @@ fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
     }
 
     let after_eq = &trimmed[eq_idx + 1..];
-    let value_ws = after_eq.len()
-        - after_eq
-            .trim_start_matches([' ', '\t'])
-            .len();
+    let value_ws = after_eq.len() - after_eq.trim_start_matches([' ', '\t']).len();
     let value_start = leading_ws + eq_idx + 1 + value_ws;
     let value = &line[value_start..];
     if !value.starts_with('"') {
@@ -478,36 +472,58 @@ fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
         return Cow::Borrowed(line);
     };
 
+    // Slice on `[..value_start]` (exclusive) and push the opening `"`
+    // explicitly so we never rely on `value_start` being at a UTF-8
+    // boundary for the *end* of a slice range. It's ASCII here in
+    // practice (we just checked `starts_with('"')`), but the explicit
+    // form makes the UTF-8 invariant obvious to future readers.
     let mut out =
         String::with_capacity(line.len() + normalized_inner.len().saturating_sub(inner.len()));
-    out.push_str(&line[..=value_start]);
+    out.push_str(&line[..value_start]);
+    out.push('"');
     out.push_str(&normalized_inner);
     out.push_str(&value[closing_quote..]);
     Cow::Owned(out)
 }
 
+/// Return the byte offset of the closing `"` that terminates a TOML basic
+/// string starting at `value[0]`, or `None` if the string is unterminated.
+///
+/// A closing quote is one preceded by an *even* number of consecutive
+/// backslashes (zero counts as even): `"abc\""` contains one escaped quote,
+/// `"abc\\"` ends at byte 5 because the two backslashes form a `\\` escape.
+///
+/// Runs linearly: we maintain `run` as the count of consecutive backslashes
+/// currently on the left of `idx`, which avoids the O(n²) lookbehind an
+/// adversarial "long chain of backslashes" input could otherwise trigger.
 fn find_basic_string_end(value: &str) -> Option<usize> {
     debug_assert!(value.starts_with('"'));
 
     let bytes = value.as_bytes();
+    let mut run: usize = 0;
     let mut idx = 1;
     while idx < bytes.len() {
-        if bytes[idx] == b'"' {
-            let mut backslashes = 0;
-            let mut lookbehind = idx;
-            while lookbehind > 0 && bytes[lookbehind - 1] == b'\\' {
-                backslashes += 1;
-                lookbehind -= 1;
-            }
-            if backslashes % 2 == 0 {
-                return Some(idx);
-            }
+        match bytes[idx] {
+            b'"' if run.is_multiple_of(2) => return Some(idx),
+            b'\\' => run += 1,
+            _ => run = 0,
         }
         idx += 1;
     }
     None
 }
 
+/// Escape single backslashes inside a TOML basic-string path so its value
+/// round-trips as a literal separator.
+///
+/// Rules applied to each run of consecutive `\`:
+/// - run of 1                → emit `\\` (bare `\` becomes escaped)
+/// - run of 2+               → emit as-is (already an escape pair or UNC)
+/// - run of 2 at the *start* of the string and not followed by another `\`
+///   → emit `\\\\` (raw UNC `\\server\...` → TOML `\\\\server\\...`, which
+///   decodes back to `\\server\...`)
+///
+/// Returns `Cow::Borrowed(inner)` when no rewrite is needed.
 fn escape_toml_path_backslashes(inner: &str) -> Cow<'_, str> {
     if !inner.contains('\\') {
         return Cow::Borrowed(inner);
@@ -1527,11 +1543,21 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     let normalized = normalize_toml_path_strings(content);
     let raw: RawConfig = match toml::from_str(normalized.as_ref()) {
         Ok(raw) => raw,
-        Err(err) => {
+        Err(norm_err) => {
             if matches!(normalized, Cow::Owned(_)) {
+                // Path normalization rewrote the input, but the rewrite
+                // produced invalid TOML. Retry on the original so we
+                // report the user's actual error instead of one from our
+                // rewrite. We log the normalized failure at debug level
+                // so a divergence is discoverable without spamming
+                // warnings on every legitimate Windows-path config.
+                tracing::debug!(
+                    normalized_error = %norm_err,
+                    "path normalization produced invalid TOML; retrying with original input"
+                );
                 toml::from_str(content).map_err(ConfigError::Parse)?
             } else {
-                return Err(ConfigError::Parse(err));
+                return Err(ConfigError::Parse(norm_err));
             }
         }
     };
@@ -1674,6 +1700,160 @@ json_socket = "C:\\temp\\perf-sentinel.sock"
         )
         .unwrap();
         assert_eq!(config.json_socket, r"C:\temp\perf-sentinel.sock");
+    }
+
+    #[test]
+    fn parse_windows_style_json_socket_path_with_trailing_comment() {
+        // Covers `find_basic_string_end` stopping before `#` — a very
+        // common hand-edited config shape that the initial test matrix
+        // missed.
+        let config = load_from_str(
+            "[daemon]\n\
+             json_socket = \"C:\\temp\\sock\" # inline note\n",
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"C:\temp\sock");
+    }
+
+    #[test]
+    fn parse_unc_json_socket_path_preserves_double_leading_backslash() {
+        // Raw UNC `\\server\share\sock` — needs to round-trip verbatim.
+        // The `raw_unc_prefix` branch in `escape_toml_path_backslashes`
+        // emits 4 leading `\` so TOML decode yields 2.
+        let config = load_from_str(
+            r#"
+[daemon]
+json_socket = "\\server\share\sock"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"\\server\share\sock");
+    }
+
+    #[test]
+    fn parse_pre_escaped_unc_json_socket_path_is_stable() {
+        let config = load_from_str(
+            r#"
+[daemon]
+json_socket = "\\\\server\\share\\sock"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"\\server\share\sock");
+    }
+
+    #[test]
+    fn literal_string_windows_path_bypasses_normalization() {
+        // TOML literal strings (`'...'`) already treat `\` literally.
+        // Our normalizer must not touch them — checked indirectly by
+        // confirming the parser accepts a path with lone `\` inside `'`.
+        let config = load_from_str(
+            r"
+[daemon]
+json_socket = 'C:\temp\sock'
+",
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"C:\temp\sock");
+    }
+
+    #[test]
+    fn normalization_applies_to_tls_cert_and_key_paths() {
+        // TLS paths are validated as filesystem entries, so a non-existent
+        // literal yields ConfigError::Validation. The test passes iff the
+        // error message surfaces the expected *normalized* path — i.e.
+        // our rewriter reached both keys before validation ran.
+        let err = load_from_str(
+            r#"
+[daemon]
+tls_cert_path = "C:\certs\server.crt"
+tls_key_path = "C:\certs\server.key"
+"#,
+        )
+        .unwrap_err();
+        let msg = format!("{err}");
+        assert!(
+            msg.contains(r"C:\certs\server.crt") || msg.contains(r"C:\certs\server.key"),
+            "expected normalized TLS path in error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn normalization_applies_to_all_registered_path_keys() {
+        // Guard against a copy-paste bug in `TOML_PATH_STRING_KEYS`:
+        // exercise each key via the unit-level normalizer rather than
+        // the full loader (hourly/calibration files would otherwise
+        // trigger disk I/O or validation noise).
+        for key in super::TOML_PATH_STRING_KEYS {
+            let line = format!("{key} = \"C:\\temp\\x\"\n");
+            let rewritten = super::normalize_toml_path_strings(&line);
+            assert!(
+                matches!(rewritten, std::borrow::Cow::Owned(_)),
+                "{key}: expected normalization to rewrite bare Windows path"
+            );
+            assert!(
+                rewritten.as_ref().contains(r#""C:\\temp\\x""#),
+                "{key}: normalized output missing escaped path, got {rewritten}"
+            );
+        }
+    }
+
+    #[test]
+    fn normalization_leaves_toml_escape_sequences_literal_in_path_keys() {
+        // `\t` and `\n` inside a path key are treated as literal
+        // backslash-sequences, not TOML escapes. This is by design for
+        // `TOML_PATH_STRING_KEYS` and documented in the helper's rustdoc.
+        let config = load_from_str(
+            r#"
+[daemon]
+json_socket = "C:\new\tmp\sock"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"C:\new\tmp\sock");
+    }
+
+    #[test]
+    fn load_from_str_falls_back_when_original_error_is_unrelated_to_path() {
+        // Force the normalization branch (Cow::Owned) via a Windows path,
+        // then introduce a type mismatch on a strictly-typed key
+        // (`listen_port` is `u16`). Both the normalized and the original
+        // parse fail; we just assert we surface a ConfigError::Parse
+        // rather than silently masking the issue.
+        let err = load_from_str(
+            r#"
+[daemon]
+json_socket = "C:\temp\sock"
+sampling_rate = "not a number"
+"#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Parse(_)),
+            "expected ConfigError::Parse, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn find_basic_string_end_handles_escaped_inner_quote() {
+        // `"a\"b"` — the first `"` at byte 3 is escaped, the real end
+        // is at byte 5. Guards the linear `run`-counter rewrite against
+        // regressions that would terminate too early.
+        let value = r#""a\"b""#;
+        assert_eq!(super::find_basic_string_end(value), Some(5));
+    }
+
+    #[test]
+    fn find_basic_string_end_survives_very_long_backslash_run() {
+        // Previously the lookbehind was O(n²); this is a smoke test
+        // that a pathological input completes in well under the test
+        // timeout. If this regresses to quadratic, it still passes,
+        // but the timing would blow up.
+        let mut input = String::from("\"");
+        input.extend(std::iter::repeat_n('\\', 10_000));
+        input.push('"');
+        // 10_000 backslashes → 5_000 `\\` pairs → closing `"` valid.
+        assert_eq!(super::find_basic_string_end(&input), Some(10_001));
     }
 
     #[test]

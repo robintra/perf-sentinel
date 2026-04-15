@@ -950,6 +950,9 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
 /// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
 #[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
 fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64, f64) {
+    if durations_ns.is_empty() {
+        return (0.0, 0.0);
+    }
     let mut per_event_ns: Vec<f64> = durations_ns
         .iter()
         .map(|&d| d as f64 / event_count as f64)
@@ -957,10 +960,13 @@ fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64
     per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
     let len = per_event_ns.len();
-    let p50_idx = ((len as f64 * 0.50).ceil() as usize).saturating_sub(1);
+    let last = len - 1;
+    let p50_idx = ((len as f64 * 0.50).ceil() as usize)
+        .saturating_sub(1)
+        .min(last);
     let p99_idx = ((len as f64 * 0.99).ceil() as usize)
         .saturating_sub(1)
-        .min(len.saturating_sub(1));
+        .min(last);
     (
         per_event_ns[p50_idx] / 1000.0,
         per_event_ns[p99_idx] / 1000.0,
@@ -1267,5 +1273,37 @@ mod tests {
 
         assert!((p50_us - 50.0).abs() < f64::EPSILON);
         assert!((p99_us - 99.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_single_sample() {
+        // n = 1: both percentiles collapse to the only value.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[7_000], 1);
+        assert!((p50_us - 7.0).abs() < f64::EPSILON);
+        assert!((p99_us - 7.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_two_samples() {
+        // n = 2: ceil(2*0.50)=1 → p50_idx = 0, ceil(2*0.99)=2 → p99_idx = 1.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[1_000, 3_000], 1);
+        assert!((p50_us - 1.0).abs() < f64::EPSILON);
+        assert!((p99_us - 3.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_handle_sample_size_just_past_hundred() {
+        // n = 101: ceil(101*0.99)=100 → p99_idx = 99 → value 100µs.
+        let durations_ns: Vec<u64> = (1..=101).map(|n| n * 1_000).collect();
+        let (_, p99_us) = compute_latency_percentiles(&durations_ns, 1);
+        assert!((p99_us - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn bench_percentiles_return_zeros_on_empty_slice() {
+        // Guards against indexing panic when no samples were recorded.
+        let (p50_us, p99_us) = compute_latency_percentiles(&[], 1);
+        assert!((p50_us - 0.0).abs() < f64::EPSILON);
+        assert!((p99_us - 0.0).abs() < f64::EPSILON);
     }
 }
