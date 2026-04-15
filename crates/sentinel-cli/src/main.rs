@@ -5,17 +5,18 @@
 #![allow(clippy::cast_sign_loss)] // i64 (libc::ru_maxrss) -> usize for RSS bytes on macOS
 #![allow(clippy::items_after_statements)] // bench report struct defined near its use
 
+#[cfg(feature = "daemon")]
+mod query;
+mod render;
 #[cfg(feature = "tui")]
 mod tui;
 
 use clap::{Parser, Subcommand};
+use render::{emit_report_and_gate, print_colored_report};
 use sentinel_core::config::Config;
-use sentinel_core::detect::Severity;
 use sentinel_core::ingest::IngestSource;
 use sentinel_core::ingest::json::JsonIngest;
 use sentinel_core::pipeline;
-use sentinel_core::report::json::JsonReportSink;
-use sentinel_core::report::{Report, ReportSink};
 use std::io::Read;
 use std::path::PathBuf;
 use tracing::info;
@@ -382,7 +383,7 @@ async fn main() {
             // `main` is `#[tokio::main]`, so await the async command
             // directly. A nested `Runtime::new().block_on(...)` here
             // panics with "Cannot start a runtime from within a runtime."
-            cmd_query(&daemon, action).await;
+            query::cmd_query(&daemon, action).await;
         }
     }
 }
@@ -1019,791 +1020,6 @@ fn current_rss_bytes() -> Option<usize> {
     }
 }
 
-/// Emit a report in the requested format and exit 1 if the quality gate
-/// fails in CI mode. Shared between `cmd_analyze` and `cmd_tempo`.
-fn emit_report_and_gate(report: &Report, format: Option<OutputFormat>, ci: bool, label: &str) {
-    let effective_format = format.unwrap_or(if ci {
-        OutputFormat::Json
-    } else {
-        OutputFormat::Text
-    });
-
-    match effective_format {
-        OutputFormat::Text => {
-            print_colored_report(report, label);
-        }
-        OutputFormat::Json => {
-            let sink = JsonReportSink;
-            if let Err(e) = sink.emit(report) {
-                eprintln!("Error writing report: {e}");
-                std::process::exit(1);
-            }
-        }
-        OutputFormat::Sarif => {
-            if let Err(e) = sentinel_core::report::sarif::emit_sarif(report) {
-                eprintln!("Error writing SARIF report: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
-
-    if ci && !report.quality_gate.passed {
-        eprintln!("Quality gate FAILED");
-        std::process::exit(1);
-    }
-}
-
-fn print_colored_report(report: &Report, title: &str) {
-    format_colored_report(report, title, false);
-}
-
-/// ANSI color codes bundled for CLI rendering.
-///
-/// Named fields avoid the "count underscores in a 7-tuple" pattern that
-/// made it easy to misuse the old `AnsiColors` tuple alias. Every field
-/// is either a SGR escape sequence or an empty string (when the output
-/// is not a terminal).
-#[derive(Clone, Copy)]
-struct AnsiColors {
-    bold: &'static str,
-    cyan: &'static str,
-    red: &'static str,
-    yellow: &'static str,
-    green: &'static str,
-    dim: &'static str,
-    reset: &'static str,
-}
-
-fn ansi_colors(force_color: bool) -> AnsiColors {
-    use std::io::IsTerminal;
-    if force_color || std::io::stdout().is_terminal() {
-        AnsiColors {
-            bold: "\x1b[1m",
-            cyan: "\x1b[36m",
-            red: "\x1b[31m",
-            yellow: "\x1b[33m",
-            green: "\x1b[32m",
-            dim: "\x1b[2m",
-            reset: "\x1b[0m",
-        }
-    } else {
-        AnsiColors {
-            bold: "",
-            cyan: "",
-            red: "",
-            yellow: "",
-            green: "",
-            dim: "",
-            reset: "",
-        }
-    }
-}
-
-/// Map an [`InterpretationLevel`] to the ANSI color used for CLI
-/// rendering. Mirrors the palette used for finding severities:
-/// Critical=red, High=yellow, Healthy=green. Moderate returns an empty
-/// string (uncolored) to keep it informational without visually competing
-/// with High.
-///
-/// [`InterpretationLevel`]: sentinel_core::InterpretationLevel
-fn interpret_color(level: sentinel_core::InterpretationLevel, colors: AnsiColors) -> &'static str {
-    use sentinel_core::InterpretationLevel::{Critical, Healthy, High, Moderate};
-    match level {
-        Critical => colors.red,
-        High => colors.yellow,
-        Moderate => "",
-        Healthy => colors.green,
-    }
-}
-
-fn format_colored_report(report: &Report, title: &str, force_color: bool) {
-    let colors = ansi_colors(force_color);
-    let AnsiColors {
-        bold,
-        cyan,
-        green,
-        dim,
-        reset,
-        ..
-    } = colors;
-
-    println!();
-    println!("{bold}{cyan}=== perf-sentinel {title} ==={reset}");
-    println!(
-        "{dim}Analyzed {} events across {} traces in {}ms{reset}",
-        report.analysis.events_processed,
-        report.analysis.traces_analyzed,
-        report.analysis.duration_ms
-    );
-    println!();
-
-    if report.findings.is_empty() {
-        println!("{green}No performance anti-patterns detected.{reset}");
-    } else {
-        print_findings(&report.findings, force_color);
-    }
-
-    print_green_summary(&report.green_summary, force_color);
-    print_quality_gate(&report.quality_gate, force_color);
-}
-
-fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
-    let colors = ansi_colors(force_color);
-    println!(
-        "{}Found {} issue(s):{}",
-        colors.bold,
-        findings.len(),
-        colors.reset
-    );
-    println!();
-    for (i, finding) in findings.iter().enumerate() {
-        print_finding_entry(i, finding, colors);
-        println!();
-    }
-}
-
-fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, colors: AnsiColors) {
-    let AnsiColors {
-        bold,
-        cyan,
-        dim,
-        reset,
-        ..
-    } = colors;
-    let severity_color = severity_color(&finding.severity, colors);
-    let severity_label = severity_label(&finding.severity);
-    let type_label = finding.finding_type.display_label();
-
-    println!(
-        "  {bold}{severity_color}[{severity_label}] #{} {type_label}{reset}",
-        index + 1,
-    );
-    println!("    {dim}Trace:{reset}    {}", finding.trace_id);
-    println!("    {dim}Service:{reset}  {}", finding.service);
-    println!("    {dim}Endpoint:{reset} {}", finding.source_endpoint);
-    if let Some(ref loc) = finding.code_location {
-        let src = format_code_location(loc);
-        if !src.is_empty() {
-            println!("    {dim}Source:{reset}   {src}");
-        }
-    }
-    println!("    {dim}Template:{reset} {}", finding.pattern.template);
-    println!(
-        "    {dim}Hits:{reset}     {} occurrences, {} distinct params, {}ms window",
-        finding.pattern.occurrences, finding.pattern.distinct_params, finding.pattern.window_ms
-    );
-    println!(
-        "    {dim}Window:{reset}   {} -> {}",
-        finding.first_timestamp, finding.last_timestamp
-    );
-    println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
-    if let Some(ref impact) = finding.green_impact {
-        print_finding_impact(impact, colors);
-    }
-}
-
-fn print_finding_impact(impact: &sentinel_core::detect::GreenImpact, colors: AnsiColors) {
-    let AnsiColors { dim, reset, .. } = colors;
-    println!(
-        "    {dim}Extra I/O:{reset} {} avoidable ops",
-        impact.estimated_extra_io_ops
-    );
-    // Read the pre-computed band from the struct field rather than
-    // calling for_iis() again: keeps the CLI rendering in lockstep with
-    // the JSON output and prevents silent drift if thresholds change.
-    let level = impact.io_intensity_band;
-    let level_color = interpret_color(level, colors);
-    println!(
-        "    {dim}IIS:{reset}      {:.1} {level_color}({}){reset}",
-        impact.io_intensity_score,
-        level.short_label(),
-    );
-}
-
-fn severity_color(severity: &Severity, colors: AnsiColors) -> &'static str {
-    match severity {
-        Severity::Critical => colors.red,
-        Severity::Warning => colors.yellow,
-        Severity::Info => colors.dim,
-    }
-}
-
-fn severity_label(severity: &Severity) -> &'static str {
-    match severity {
-        Severity::Critical => "CRITICAL",
-        Severity::Warning => "WARNING",
-        Severity::Info => "INFO",
-    }
-}
-
-/// Render a `CodeLocation` as `namespace.function (filepath:lineno)`,
-/// omitting parts that are absent. Returns an empty string when the
-/// location has nothing to show.
-fn format_code_location(loc: &sentinel_core::event::CodeLocation) -> String {
-    let mut src = String::new();
-    if let Some(ref ns) = loc.namespace {
-        src.push_str(ns);
-        src.push('.');
-    }
-    if let Some(ref func) = loc.function {
-        src.push_str(func);
-    }
-    let has_name = !src.is_empty();
-    if let Some(ref fp) = loc.filepath {
-        if has_name {
-            src.push_str(" (");
-        }
-        src.push_str(fp);
-        if let Some(ln) = loc.lineno {
-            src.push(':');
-            src.push_str(&ln.to_string());
-        }
-        if has_name {
-            src.push(')');
-        }
-    }
-    src
-}
-
-fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_color: bool) {
-    let colors = ansi_colors(force_color);
-    let AnsiColors {
-        bold,
-        cyan,
-        dim,
-        reset,
-        ..
-    } = colors;
-
-    println!("{bold}{cyan}--- GreenOps Summary ---{reset}");
-    println!("  Total I/O ops:     {}", summary.total_io_ops);
-    println!("  Avoidable I/O ops: {}", summary.avoidable_io_ops);
-    // Read the pre-computed band from the struct field (see print_findings).
-    let waste_level = summary.io_waste_ratio_band;
-    let waste_color = interpret_color(waste_level, colors);
-    println!(
-        "  I/O waste ratio:   {:.1}% {waste_color}({}){reset}",
-        summary.io_waste_ratio * 100.0,
-        waste_level.short_label(),
-    );
-
-    // Render the structured CO₂ report when present.
-    if let Some(carbon) = summary.co2.as_ref() {
-        println!(
-            "  Est. CO\u{2082}:          {:.6} g (low {:.6}, high {:.6}, model {})",
-            carbon.total.mid, carbon.total.low, carbon.total.high, carbon.total.model,
-        );
-        println!(
-            "  Avoidable CO\u{2082}:     {:.6} g (low {:.6}, high {:.6})",
-            carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
-        );
-        println!(
-            "  Operational:       {:.6} g    Embodied: {:.6} g    Methodology: {}",
-            carbon.operational_gco2, carbon.embodied_gco2, carbon.total.methodology,
-        );
-        if let Some(transport) = carbon.transport_gco2 {
-            println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
-        }
-    }
-
-    // Per-region breakdown when more than one region was resolved.
-    if summary.regions.len() > 1 {
-        println!();
-        println!("  {bold}Per-region breakdown:{reset}");
-        for region in &summary.regions {
-            println!(
-                "    - {}: {} I/O ops, {:.6} gCO\u{2082}",
-                region.region, region.io_ops, region.co2_gco2,
-            );
-        }
-    }
-
-    if !summary.top_offenders.is_empty() {
-        println!();
-        println!("  {bold}Top offenders:{reset}");
-        for offender in &summary.top_offenders {
-            // Read the pre-computed band from the struct field (see print_findings).
-            let level = offender.io_intensity_band;
-            let level_color = interpret_color(level, colors);
-            let co2_str = offender
-                .co2_grams
-                .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
-            println!(
-                "    - {}: IIS {:.1} {level_color}({}){reset} (service: {}){co2_str}",
-                offender.endpoint,
-                offender.io_intensity_score,
-                level.short_label(),
-                offender.service,
-            );
-        }
-    }
-
-    // Mandatory disclaimer: only shown when we actually emitted CO₂
-    // estimates, to avoid noise when green scoring is disabled.
-    // The "2× multiplicative uncertainty" framing matches the constants:
-    // low = mid/2, high = mid×2 (log-symmetric interval, geometric mean = mid).
-    if summary.co2.is_some() {
-        println!();
-        println!(
-            "  {dim}Note: CO\u{2082} estimates have ~2\u{00d7} multiplicative uncertainty \
-             (low = mid/2, high = mid\u{00d7}2). See docs/LIMITATIONS.md.{reset}"
-        );
-    }
-
-    // One-liner on the interpret bands: they are anchored on the
-    // *default* detector thresholds, not on the user's config. An
-    // endpoint still labelled "high" after raising `n_plus_one_threshold`
-    // in .perf-sentinel.toml is not a bug; see README "How to read the
-    // report" for the full explanation.
-    println!(
-        "  {dim}Note: `(healthy/moderate/high/critical)` bands use fixed heuristic \
-         thresholds, independent of your `n_plus_one_threshold` / \
-         `io_waste_ratio_max` overrides. See README \"How to read the report\".{reset}"
-    );
-
-    println!();
-}
-
-fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bool) {
-    let AnsiColors {
-        bold,
-        red,
-        green,
-        reset,
-        ..
-    } = ansi_colors(force_color);
-
-    let gate_color = if gate.passed { green } else { red };
-    let gate_label = if gate.passed { "PASSED" } else { "FAILED" };
-    println!("{bold}Quality gate: {gate_color}{gate_label}{reset}");
-    println!();
-}
-
-/// Fetch `/api/explain/{trace_id}` for each `trace_id` in parallel with
-/// bounded concurrency. Returns a map of successfully-parsed trees keyed
-/// by `trace_id`. Traces that return an error response (e.g. aged out of
-/// the daemon window) are silently skipped.
-///
-/// Used by `query inspect` to pre-populate the TUI detail panel without
-/// the multi-second startup latency a sequential loop would incur.
-#[cfg(feature = "daemon")]
-async fn fetch_explain_trees(
-    client: &sentinel_core::http_client::HttpClient,
-    base_url: String,
-    timeout: std::time::Duration,
-    trace_ids: &std::collections::BTreeSet<String>,
-    concurrency: usize,
-) -> std::collections::HashMap<String, String> {
-    use tokio::task::JoinSet;
-
-    let mut results: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut set: JoinSet<(String, Option<String>)> = JoinSet::new();
-    let mut iter = trace_ids.iter();
-
-    // Prime the join set with up to `concurrency` in-flight fetches.
-    // `by_ref().take(concurrency)` stops cleanly when either the budget
-    // or the trace_ids iterator is exhausted, whichever comes first.
-    for tid in iter.by_ref().take(concurrency) {
-        spawn_explain_fetch(&mut set, client, &base_url, timeout, tid.clone());
-    }
-
-    while let Some(join_result) = set.join_next().await {
-        if let Ok((tid, tree_text)) = join_result
-            && let Some(text) = tree_text
-        {
-            results.insert(tid, text);
-        }
-        // Maintain the concurrency window by launching the next pending
-        // fetch as soon as one completes.
-        if let Some(tid) = iter.next() {
-            spawn_explain_fetch(&mut set, client, &base_url, timeout, tid.clone());
-        }
-    }
-
-    results
-}
-
-#[cfg(feature = "daemon")]
-fn spawn_explain_fetch(
-    set: &mut tokio::task::JoinSet<(String, Option<String>)>,
-    client: &sentinel_core::http_client::HttpClient,
-    base_url: &str,
-    timeout: std::time::Duration,
-    trace_id: String,
-) {
-    let client = client.clone();
-    let base = base_url.to_string();
-    set.spawn(async move {
-        let Ok(uri) =
-            format!("{base}/api/explain/{trace_id}").parse::<sentinel_core::http_client::Uri>()
-        else {
-            return (trace_id, None);
-        };
-        let Ok(body) =
-            sentinel_core::http_client::fetch_get(&client, &uri, "perf-sentinel-query", timeout)
-                .await
-        else {
-            return (trace_id, None);
-        };
-        let text = serde_json::from_slice::<sentinel_core::explain::ExplainTree>(&body)
-            .ok()
-            .map(|tree| sentinel_core::explain::format_tree_text(&tree, false));
-        (trace_id, text)
-    });
-}
-
-#[cfg(feature = "daemon")]
-async fn cmd_query(daemon_url: &str, action: QueryAction) {
-    let client = sentinel_core::http_client::build_client();
-    let timeout = std::time::Duration::from_secs(10);
-
-    // Validate the daemon URL upfront so misconfigurations fail with a
-    // clear error before the first request goes out.
-    let trimmed = daemon_url.trim_end_matches('/');
-    let base_uri: sentinel_core::http_client::Uri = trimmed.parse().unwrap_or_else(|e| {
-        eprintln!("Invalid daemon URL `{daemon_url}`: {e}");
-        std::process::exit(1);
-    });
-    if !matches!(base_uri.scheme_str(), Some("http" | "https")) {
-        eprintln!("Invalid daemon URL `{daemon_url}`: scheme must be http or https");
-        std::process::exit(1);
-    }
-
-    let fetch = |path: &str| {
-        let uri: sentinel_core::http_client::Uri =
-            format!("{trimmed}{path}").parse().unwrap_or_else(|e| {
-                eprintln!("Invalid daemon URL path `{path}`: {e}");
-                std::process::exit(1);
-            });
-        let client = &client;
-        async move {
-            match sentinel_core::http_client::fetch_get(
-                client,
-                &uri,
-                "perf-sentinel-query",
-                timeout,
-            )
-            .await
-            {
-                Ok(body) => body,
-                Err(e) => {
-                    eprintln!(
-                        "Failed to connect to daemon at {daemon_url}: {e}\n\
-                         Is `perf-sentinel watch` running?"
-                    );
-                    std::process::exit(1);
-                }
-            }
-        }
-    };
-
-    match action {
-        QueryAction::Findings {
-            service,
-            finding_type,
-            severity,
-            limit,
-            format,
-        } => {
-            let path = build_findings_path(
-                limit,
-                service.as_deref(),
-                finding_type.as_deref(),
-                severity.as_deref(),
-            );
-            let body = fetch(&path).await;
-            render_findings_response(&body, format, daemon_url);
-        }
-        QueryAction::Explain { trace_id, format } => {
-            let body = fetch(&format!("/api/explain/{trace_id}")).await;
-            render_explain_response(&body, format);
-        }
-        #[cfg(feature = "tui")]
-        QueryAction::Inspect => {
-            let body = fetch("/api/findings?limit=10000").await;
-            run_inspect_action(&body, &client, trimmed, timeout).await;
-        }
-        QueryAction::Correlations { format } => {
-            let body = fetch("/api/correlations").await;
-            render_correlations_response(&body, format);
-        }
-        QueryAction::Status { format } => {
-            let body = fetch("/api/status").await;
-            render_status_response(&body, format);
-        }
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn build_findings_path(
-    limit: usize,
-    service: Option<&str>,
-    finding_type: Option<&str>,
-    severity: Option<&str>,
-) -> String {
-    let mut params = vec![format!("limit={limit}")];
-    if let Some(s) = service {
-        params.push(format!("service={s}"));
-    }
-    if let Some(t) = finding_type {
-        params.push(format!("type={t}"));
-    }
-    if let Some(s) = severity {
-        params.push(format!("severity={s}"));
-    }
-    format!("/api/findings?{}", params.join("&"))
-}
-
-#[cfg(feature = "daemon")]
-fn print_pretty_json(body: &[u8]) {
-    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&json).unwrap_or_default()
-    );
-}
-
-#[cfg(feature = "daemon")]
-fn render_findings_response(body: &[u8], format: QueryOutputFormat, daemon_url: &str) {
-    match format {
-        QueryOutputFormat::Json => print_pretty_json(body),
-        QueryOutputFormat::Text => print_findings_text(body, daemon_url),
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn print_findings_text(body: &[u8], daemon_url: &str) {
-    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
-        serde_json::from_slice(body).unwrap_or_default();
-    let findings: Vec<sentinel_core::detect::Finding> =
-        stored.into_iter().map(|sf| sf.finding).collect();
-    if findings.is_empty() {
-        let AnsiColors { green, reset, .. } = ansi_colors(false);
-        println!("{green}No findings from daemon.{reset}");
-        return;
-    }
-    let AnsiColors {
-        bold,
-        cyan,
-        dim,
-        reset,
-        ..
-    } = ansi_colors(false);
-    println!();
-    println!(
-        "{bold}{cyan}=== perf-sentinel daemon findings ({} results) ==={reset}",
-        findings.len()
-    );
-    println!("{dim}Source: {daemon_url}{reset}");
-    println!();
-    print_findings(&findings, false);
-}
-
-#[cfg(feature = "daemon")]
-fn render_explain_response(body: &[u8], format: QueryOutputFormat) {
-    match format {
-        QueryOutputFormat::Json => print_pretty_json(body),
-        QueryOutputFormat::Text => print_explain_text(body),
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn print_explain_text(body: &[u8]) {
-    if let Ok(tree) = serde_json::from_slice::<sentinel_core::explain::ExplainTree>(body) {
-        let text = sentinel_core::explain::format_tree_text(&tree, true);
-        println!("{text}");
-        return;
-    }
-    // Daemon returned an error response (or unparseable JSON).
-    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-    if let Some(err) = json.get("error").and_then(|v| v.as_str()) {
-        eprintln!("Error: {err}");
-    } else {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&json).unwrap_or_default()
-        );
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn render_correlations_response(body: &[u8], format: QueryOutputFormat) {
-    match format {
-        QueryOutputFormat::Json => print_pretty_json(body),
-        QueryOutputFormat::Text => print_correlations_text(body),
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn print_correlations_text(body: &[u8]) {
-    let correlations: Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> =
-        serde_json::from_slice(body).unwrap_or_default();
-    if correlations.is_empty() {
-        let AnsiColors { green, reset, .. } = ansi_colors(false);
-        println!("{green}No active cross-trace correlations.{reset}");
-        return;
-    }
-    let colors = ansi_colors(false);
-    let AnsiColors {
-        bold, cyan, reset, ..
-    } = colors;
-    println!();
-    println!(
-        "{bold}{cyan}=== Cross-trace correlations ({} active) ==={reset}",
-        correlations.len()
-    );
-    println!();
-    for (i, c) in correlations.iter().enumerate() {
-        print_correlation_entry(i, c, colors);
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn print_correlation_entry(
-    index: usize,
-    c: &sentinel_core::detect::correlate_cross::CrossTraceCorrelation,
-    colors: AnsiColors,
-) {
-    let AnsiColors {
-        bold,
-        red,
-        yellow,
-        dim,
-        reset,
-        ..
-    } = colors;
-    let conf_color = if c.confidence >= 0.8 {
-        red
-    } else if c.confidence >= 0.5 {
-        yellow
-    } else {
-        dim
-    };
-    println!(
-        "  {bold}#{} {}{reset} in {}",
-        index + 1,
-        c.source.finding_type.as_str(),
-        c.source.service
-    );
-    println!(
-        "    {dim}->{reset} {} in {}",
-        c.target.finding_type.as_str(),
-        c.target.service
-    );
-    println!(
-        "    {dim}Observed:{reset} {} times, \
-         {dim}median lag:{reset} {:.1}ms, \
-         {conf_color}confidence: {:.0}%{reset}",
-        c.co_occurrence_count,
-        c.median_lag_ms,
-        c.confidence * 100.0
-    );
-    println!(
-        "    {dim}Period:{reset} {} .. {}",
-        c.first_seen, c.last_seen
-    );
-    println!();
-}
-
-#[cfg(feature = "daemon")]
-fn render_status_response(body: &[u8], format: QueryOutputFormat) {
-    match format {
-        QueryOutputFormat::Json => print_pretty_json(body),
-        QueryOutputFormat::Text => print_status_text(body),
-    }
-}
-
-#[cfg(feature = "daemon")]
-fn print_status_text(body: &[u8]) {
-    let json: serde_json::Value = serde_json::from_slice(body).unwrap_or_default();
-    let AnsiColors {
-        bold,
-        cyan,
-        green,
-        dim,
-        reset,
-        ..
-    } = ansi_colors(false);
-    println!();
-    println!("{bold}{cyan}=== perf-sentinel daemon status ==={reset}");
-    println!();
-    if let Some(v) = json.get("version").and_then(serde_json::Value::as_str) {
-        println!("  {dim}Version:{reset}          {green}{v}{reset}");
-    }
-    if let Some(u) = json
-        .get("uptime_seconds")
-        .and_then(serde_json::Value::as_u64)
-    {
-        let h = u / 3600;
-        let m = (u % 3600) / 60;
-        let s = u % 60;
-        println!("  {dim}Uptime:{reset}           {h}h {m}m {s}s");
-    }
-    if let Some(t) = json
-        .get("active_traces")
-        .and_then(serde_json::Value::as_u64)
-    {
-        println!("  {dim}Active traces:{reset}    {t}");
-    }
-    if let Some(f) = json
-        .get("stored_findings")
-        .and_then(serde_json::Value::as_u64)
-    {
-        println!("  {dim}Stored findings:{reset}  {f}");
-    }
-    println!();
-}
-
-#[cfg(all(feature = "daemon", feature = "tui"))]
-async fn run_inspect_action(
-    body: &[u8],
-    client: &sentinel_core::http_client::HttpClient,
-    base_url: &str,
-    timeout: std::time::Duration,
-) {
-    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
-        serde_json::from_slice(body).unwrap_or_default();
-    let findings: Vec<sentinel_core::detect::Finding> =
-        stored.into_iter().map(|sf| sf.finding).collect();
-    if findings.is_empty() {
-        let AnsiColors { green, reset, .. } = ansi_colors(false);
-        println!("{green}No findings from daemon. Nothing to inspect.{reset}");
-        return;
-    }
-    // Build minimal Trace stubs from distinct trace_ids. The TUI detail
-    // panel needs span trees, but `/api/findings` does not ship them.
-    // Fetch them upfront in parallel via `fetch_explain_trees` so the TUI
-    // opens immediately instead of stalling on per-trace round-trips
-    // (100 traces * 50ms RTT = 5s without concurrency; ~300ms with 16).
-    let trace_ids: std::collections::BTreeSet<String> =
-        findings.iter().map(|f| f.trace_id.clone()).collect();
-    let pre_rendered_trees =
-        fetch_explain_trees(client, base_url.to_string(), timeout, &trace_ids, 16).await;
-    let traces: Vec<sentinel_core::correlate::Trace> = trace_ids
-        .into_iter()
-        .map(|tid| sentinel_core::correlate::Trace {
-            trace_id: tid,
-            spans: vec![],
-        })
-        .collect();
-    let detect_config = sentinel_core::detect::DetectConfig {
-        n_plus_one_threshold: 5,
-        window_ms: 500,
-        slow_threshold_ms: 500,
-        slow_min_occurrences: 3,
-        max_fanout: 20,
-        chatty_service_min_calls: 15,
-        pool_saturation_concurrent_threshold: 10,
-        serialized_min_sequential: 3,
-    };
-    let mut app =
-        tui::App::new(findings, traces, detect_config).with_pre_rendered_trees(pre_rendered_trees);
-    if let Err(e) = tui::run(&mut app) {
-        eprintln!("TUI error: {e}");
-        std::process::exit(1);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1873,7 +1089,7 @@ mod tests {
     fn report_no_findings() {
         let report = make_report(vec![], vec![], true, vec![]);
         // Should not panic and should print "No performance anti-patterns detected."
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1884,7 +1100,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1895,7 +1111,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1906,7 +1122,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1917,7 +1133,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1928,7 +1144,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1944,7 +1160,7 @@ mod tests {
                 passed: false,
             }],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1961,7 +1177,7 @@ mod tests {
             true,
             vec![],
         );
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]
@@ -1984,7 +1200,7 @@ mod tests {
             false,
             vec![],
         );
-        format_colored_report(&report, "report", true);
+        render::format_colored_report(&report, "report", true);
     }
 
     #[test]
@@ -2017,7 +1233,7 @@ mod tests {
                 rules: vec![],
             },
         };
-        format_colored_report(&report, "report", false);
+        render::format_colored_report(&report, "report", false);
     }
 
     #[test]

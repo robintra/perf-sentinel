@@ -133,6 +133,40 @@ impl CodeLocation {
             && self.lineno.is_none()
             && self.namespace.is_none()
     }
+
+    /// Render the location as `namespace.function (filepath:lineno)`,
+    /// omitting absent parts. Returns an empty string when the location
+    /// has nothing displayable, so callers can skip the line entirely
+    /// rather than printing a bare `Source:` label.
+    ///
+    /// Single source of truth for the CLI text output, the SARIF
+    /// `physicalLocation` message, and the TUI detail panel.
+    #[must_use]
+    pub fn display_string(&self) -> String {
+        let mut src = String::new();
+        if let Some(ref ns) = self.namespace {
+            src.push_str(ns);
+            src.push('.');
+        }
+        if let Some(ref func) = self.function {
+            src.push_str(func);
+        }
+        let has_name = !src.is_empty();
+        if let Some(ref fp) = self.filepath {
+            if has_name {
+                src.push_str(" (");
+            }
+            src.push_str(fp);
+            if let Some(ln) = self.lineno {
+                src.push(':');
+                src.push_str(&ln.to_string());
+            }
+            if has_name {
+                src.push(')');
+            }
+        }
+        src
+    }
 }
 
 /// A single span event representing an I/O operation (SQL query, HTTP call).
@@ -210,6 +244,57 @@ impl SpanEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_location_display_string_full() {
+        let loc = CodeLocation {
+            function: Some("OrderItemRepository.findByOrderId".to_string()),
+            filepath: Some("order-service/src/main/java/OrderItemRepository.java".to_string()),
+            lineno: Some(42),
+            namespace: Some("com.kinexo.order.repository".to_string()),
+        };
+        assert_eq!(
+            loc.display_string(),
+            "com.kinexo.order.repository.OrderItemRepository.findByOrderId \
+             (order-service/src/main/java/OrderItemRepository.java:42)"
+        );
+    }
+
+    #[test]
+    fn code_location_display_string_function_only() {
+        let loc = CodeLocation {
+            function: Some("fetchUser".to_string()),
+            filepath: None,
+            lineno: None,
+            namespace: None,
+        };
+        assert_eq!(loc.display_string(), "fetchUser");
+    }
+
+    #[test]
+    fn code_location_display_string_filepath_only() {
+        let loc = CodeLocation {
+            function: None,
+            filepath: Some("src/main.rs".to_string()),
+            lineno: Some(7),
+            namespace: None,
+        };
+        // No function or namespace, so no parentheses wrap; filepath
+        // still emits with its line number.
+        assert_eq!(loc.display_string(), "src/main.rs:7");
+    }
+
+    #[test]
+    fn code_location_display_string_empty_when_all_none() {
+        let loc = CodeLocation {
+            function: None,
+            filepath: None,
+            lineno: None,
+            namespace: None,
+        };
+        assert_eq!(loc.display_string(), "");
+        assert!(loc.is_empty());
+    }
 
     fn sample_sql_json() -> &'static str {
         r#"{

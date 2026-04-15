@@ -532,7 +532,7 @@ fn draw_detail_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::R
     ];
 
     if let Some(ref loc) = finding.code_location {
-        let src = format_code_location(loc);
+        let src = loc.display_string();
         if !src.is_empty() {
             lines.insert(
                 6,
@@ -593,34 +593,6 @@ fn severity_label(severity: &Severity) -> &'static str {
 
 fn finding_type_label(ft: &FindingType) -> &'static str {
     ft.display_label()
-}
-
-/// Render a `CodeLocation` as `namespace.function (filepath:lineno)`,
-/// omitting absent parts. Empty when the location has nothing to show.
-fn format_code_location(loc: &sentinel_core::event::CodeLocation) -> String {
-    let mut src = String::new();
-    if let Some(ref ns) = loc.namespace {
-        src.push_str(ns);
-        src.push('.');
-    }
-    if let Some(ref func) = loc.function {
-        src.push_str(func);
-    }
-    let has_name = !src.is_empty();
-    if let Some(ref fp) = loc.filepath {
-        if has_name {
-            src.push_str(" (");
-        }
-        src.push_str(fp);
-        if let Some(ln) = loc.lineno {
-            src.push(':');
-            src.push_str(&ln.to_string());
-        }
-        if has_name {
-            src.push(')');
-        }
-    }
-    src
 }
 
 #[cfg(test)]

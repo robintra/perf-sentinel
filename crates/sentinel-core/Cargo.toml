@@ -40,7 +40,7 @@ opentelemetry-proto = { version = "0.31.0", features = ["gen-tonic-messages", "t
 axum = "0.8.8"
 tower = { version = "0.5.3", features = ["timeout"] }
 prometheus = "0.14.0"
-lru = "0.16.3"
+lru = "0.17.0"
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }

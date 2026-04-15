@@ -100,29 +100,106 @@ pub enum TlsConfigError {
 /// # Panics
 ///
 /// Panics if `config.max_active_traces` is 0 (config validation prevents this).
-#[allow(clippy::too_many_lines)]
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
-
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
         max_events_per_trace: config.max_events_per_trace,
         trace_ttl_ms: config.trace_ttl_ms,
         max_active_traces: std::num::NonZeroUsize::new(config.max_active_traces)
             .expect("config validates max_active_traces >= 1"),
     })));
-
-    let max_payload = config.max_payload_size;
-
-    // Create Prometheus metrics state
     let metrics = Arc::new(MetricsState::new());
+    let findings_store = Arc::new(findings_store::FindingsStore::new(
+        config.max_retained_findings,
+    ));
+    let correlator = setup_correlator(&config);
 
-    // Parse and validate addresses before spawning
+    let (grpc_handle, http_handle, json_socket_handle) = spawn_listeners(
+        &config,
+        tx.clone(),
+        window.clone(),
+        findings_store.clone(),
+        correlator.clone(),
+        metrics.clone(),
+    )
+    .await?;
+
+    let scaphandre = setup_scaphandre_scraper(&config, &metrics);
+    let cloud = setup_cloud_scraper(&config, &metrics);
+    let emaps = setup_emaps_scraper(&config);
+
+    let base_carbon_ctx = config.carbon_context();
+    let detect_config = DetectConfig::from(&config);
+    let energy_sources = EnergySources {
+        base_carbon_ctx: &base_carbon_ctx,
+        scaphandre_state: scaphandre.state.as_deref(),
+        scaphandre_staleness_ms: scaphandre.staleness_ms,
+        cloud_state: cloud.state.as_deref(),
+        cloud_staleness_ms: cloud.staleness_ms,
+        emaps_state: emaps.state.as_deref(),
+        emaps_staleness_ms: emaps.staleness_ms,
+    };
+    let shutdown = ShutdownTargets {
+        energy: EnergyScraperHandles {
+            scaphandre: scaphandre.handle.as_ref(),
+            cloud: cloud.handle.as_ref(),
+            emaps: emaps.handle.as_ref(),
+        },
+        listeners: ListenerHandles {
+            grpc: &grpc_handle,
+            http: &http_handle,
+            json_socket: json_socket_handle.as_ref(),
+        },
+    };
+
+    run_event_loop(
+        &mut rx,
+        &window,
+        &metrics,
+        &findings_store,
+        correlator.as_deref(),
+        &detect_config,
+        &energy_sources,
+        shutdown,
+        EventLoopConfig {
+            green_enabled: config.green_enabled,
+            sampling_rate: config.sampling_rate,
+            evict_ms: config.trace_ttl_ms / 2,
+            confidence: config.confidence(),
+        },
+    )
+    .await;
+
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(&config.json_socket);
+    }
+    Ok(())
+}
+
+/// Assemble the optional TLS acceptor and spawn the gRPC, HTTP (or HTTPS),
+/// and JSON socket listeners. All three handles are returned so the caller
+/// can abort them on Ctrl-C.
+async fn spawn_listeners(
+    config: &Config,
+    tx: mpsc::Sender<Vec<SpanEvent>>,
+    window: Arc<Mutex<TraceWindow>>,
+    findings_store: Arc<findings_store::FindingsStore>,
+    correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
+    metrics: Arc<MetricsState>,
+) -> Result<
+    (
+        tokio::task::JoinHandle<()>,
+        tokio::task::JoinHandle<()>,
+        Option<tokio::task::JoinHandle<()>>,
+    ),
+    DaemonError,
+> {
     let grpc_addr: std::net::SocketAddr =
         format!("{}:{}", config.listen_addr, config.listen_port_grpc).parse()?;
     let http_addr: std::net::SocketAddr =
         format!("{}:{}", config.listen_addr, config.listen_port).parse()?;
 
-    // Bind both listeners before spawning (fail fast if ports are taken)
     let http_listener = tokio::net::TcpListener::bind(http_addr)
         .await
         .map_err(DaemonError::HttpBind)?;
@@ -130,201 +207,291 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         .await
         .map_err(DaemonError::GrpcBind)?;
 
-    // Optional TLS: load cert+key once, build a shared acceptor.
-    let tls_acceptor = match (&config.tls_cert_path, &config.tls_key_path) {
-        (Some(cert_path), Some(key_path)) => {
-            let (cert, key) = load_tls_pem(cert_path, key_path)?;
-            Some(build_tls_acceptor(&cert, &key)?)
+    let tls_acceptor = load_optional_tls(config)?;
+
+    let grpc_handle = spawn_grpc_listener(
+        grpc_listener,
+        grpc_addr,
+        tls_acceptor.clone(),
+        tx.clone(),
+        config.max_payload_size,
+    );
+    let http_router = build_http_router(
+        config,
+        tx.clone(),
+        window,
+        findings_store,
+        correlator,
+        metrics,
+    );
+    let http_handle = spawn_http_listener(http_listener, http_addr, tls_acceptor, http_router);
+    let json_socket_handle = spawn_json_socket_listener(config, tx);
+
+    Ok((grpc_handle, http_handle, json_socket_handle))
+}
+
+/// Load the TLS cert+key pair when both paths are configured. Returns
+/// `Ok(None)` when TLS is disabled.
+fn load_optional_tls(config: &Config) -> Result<Option<tokio_rustls::TlsAcceptor>, DaemonError> {
+    let (Some(cert_path), Some(key_path)) = (&config.tls_cert_path, &config.tls_key_path) else {
+        return Ok(None);
+    };
+    let (cert, key) = load_tls_pem(cert_path, key_path)?;
+    Ok(Some(build_tls_acceptor(&cert, &key)?))
+}
+
+/// Spawn the OTLP gRPC listener (plain or TLS-wrapped).
+fn spawn_grpc_listener(
+    listener: tokio::net::TcpListener,
+    addr: std::net::SocketAddr,
+    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+    tx: mpsc::Sender<Vec<SpanEvent>>,
+    max_payload: usize,
+) -> tokio::task::JoinHandle<()> {
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx);
+    tokio::spawn(async move {
+        use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
+        if tls_acceptor.is_some() {
+            tracing::info!("OTLP gRPC+TLS listening on {addr}");
+        } else {
+            tracing::info!("OTLP gRPC listening on {addr}");
         }
-        _ => None,
-    };
+        let incoming = tls_tcp_incoming(listener, tls_acceptor);
+        if let Err(e) = tonic::transport::Server::builder()
+            .timeout(Duration::from_secs(60))
+            .add_service(
+                TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
+            )
+            .serve_with_incoming(incoming)
+            .await
+        {
+            tracing::error!("gRPC server error: {e}");
+        }
+    })
+}
 
-    // JoinHandles captured so Ctrl-C can abort cleanly.
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx.clone());
-    let grpc_handle = {
-        let tls_acceptor = tls_acceptor.clone();
-        tokio::spawn(async move {
-            use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
-            if tls_acceptor.is_some() {
-                tracing::info!("OTLP gRPC+TLS listening on {grpc_addr}");
-            } else {
-                tracing::info!("OTLP gRPC listening on {grpc_addr}");
-            }
-            // Wrap TCP accept with optional TLS, then feed to tonic.
-            // tonic sees plain AsyncRead+Write streams either way.
-            let incoming = tls_tcp_incoming(grpc_listener, tls_acceptor);
-            if let Err(e) = tonic::transport::Server::builder()
-                .timeout(Duration::from_secs(60))
-                .add_service(
-                    TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
-                )
-                .serve_with_incoming(incoming)
-                .await
-            {
-                tracing::error!("gRPC server error: {e}");
-            }
-        })
-    };
-
-    // FindingsStore for the query API.
-    let findings_store = Arc::new(findings_store::FindingsStore::new(
-        config.max_retained_findings,
-    ));
-
-    // Optional cross-trace correlator. Created here (before the query API
-    // router) so the `/api/correlations` endpoint can read its state.
-    let correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>> = if config
-        .correlation_enabled
-    {
-        tracing::info!("Cross-trace correlation enabled");
-        Some(Arc::new(Mutex::new(
-            detect::correlate_cross::CrossTraceCorrelator::new(config.correlation_config.clone()),
-        )))
-    } else {
-        None
-    };
-
-    // OTLP HTTP + metrics + optional query API.
-    let otlp_router = crate::ingest::otlp::otlp_http_router(tx.clone(), max_payload);
-    let metrics_router = crate::report::metrics::metrics_route(metrics.clone());
+/// Assemble the OTLP HTTP + metrics + optional query API router, with the
+/// request-timeout layer.
+fn build_http_router(
+    config: &Config,
+    tx: mpsc::Sender<Vec<SpanEvent>>,
+    window: Arc<Mutex<TraceWindow>>,
+    findings_store: Arc<findings_store::FindingsStore>,
+    correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
+    metrics: Arc<MetricsState>,
+) -> axum::Router {
+    let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
+    let metrics_router = crate::report::metrics::metrics_route(metrics);
     let mut http_router = otlp_router.merge(metrics_router);
     if config.daemon_api_enabled {
         let query_state = Arc::new(query_api::QueryApiState {
-            findings_store: findings_store.clone(),
-            window: window.clone(),
-            detect_config: DetectConfig::from(&config),
+            findings_store,
+            window,
+            detect_config: DetectConfig::from(config),
             start_time: std::time::Instant::now(),
-            correlator: correlator.clone(),
+            correlator,
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {
         tracing::info!("Daemon query API disabled by config");
     }
-    let http_router = http_router.layer(
+    http_router.layer(
         tower::ServiceBuilder::new()
             .layer(axum::error_handling::HandleErrorLayer::new(|_| async {
                 tracing::debug!("HTTP request timed out");
                 axum::http::StatusCode::REQUEST_TIMEOUT
             }))
             .layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60))),
-    );
-    let http_handle = if let Some(acceptor) = tls_acceptor {
+    )
+}
+
+/// Spawn the OTLP HTTP listener, picking the TLS or plain variant based on
+/// whether an acceptor was configured.
+fn spawn_http_listener(
+    listener: tokio::net::TcpListener,
+    addr: std::net::SocketAddr,
+    tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
+    router: axum::Router,
+) -> tokio::task::JoinHandle<()> {
+    if let Some(acceptor) = tls_acceptor {
         tokio::spawn(async move {
-            tracing::info!("OTLP HTTPS listening on {http_addr}");
-            serve_https(http_listener, http_router, acceptor).await;
+            tracing::info!("OTLP HTTPS listening on {addr}");
+            serve_https(listener, router, acceptor).await;
         })
     } else {
         tokio::spawn(async move {
-            tracing::info!("OTLP HTTP listening on {http_addr}");
-            if let Err(e) = axum::serve(http_listener, http_router).await {
+            tracing::info!("OTLP HTTP listening on {addr}");
+            if let Err(e) = axum::serve(listener, router).await {
                 tracing::error!("HTTP server error: {e}");
             }
         })
-    };
+    }
+}
 
-    // JSON socket (Unix only). Socket file unlinked on shutdown.
+/// Spawn the Unix JSON socket listener when the target is Unix. On other
+/// platforms logs a warning and returns `None`.
+// `#[cfg(not(unix))]` branch returns `None`, so the `Option` is required.
+#[allow(clippy::unnecessary_wraps)]
+fn spawn_json_socket_listener(
+    config: &Config,
+    tx: mpsc::Sender<Vec<SpanEvent>>,
+) -> Option<tokio::task::JoinHandle<()>> {
     #[cfg(unix)]
-    let json_socket_handle: Option<tokio::task::JoinHandle<()>> = {
+    {
         let socket_path = config.json_socket.clone();
-        let socket_tx = tx.clone();
         let max_payload = config.max_payload_size;
         Some(tokio::spawn(async move {
-            run_json_socket(&socket_path, socket_tx, max_payload).await;
+            run_json_socket(&socket_path, tx, max_payload).await;
         }))
-    };
+    }
     #[cfg(not(unix))]
-    let json_socket_handle: Option<tokio::task::JoinHandle<()>> = {
+    {
+        let _ = (config, tx);
         tracing::warn!("JSON socket ingestion not available on this platform; use OTLP HTTP/gRPC");
         None
-    };
+    }
+}
 
-    let detect_config = DetectConfig::from(&config);
-    // Base carbon context used as a template. The actual context passed
-    // to `process_traces` each tick is cloned from this with
-    // `energy_snapshot` patched in from the shared energy states
-    // (Scaphandre and/or cloud SPECpower).
-    let base_carbon_ctx = config.carbon_context();
-    let green_enabled = config.green_enabled;
-    let sampling_rate = config.sampling_rate;
-    let evict_ms = config.trace_ttl_ms / 2;
-    // cache the confidence label once. The daemon stamps this
-    // on every finding in `process_traces`. `analyze` batch mode uses
-    // `Confidence::CiBatch` instead (stamped in `pipeline::analyze_with_traces`).
-    let confidence = config.confidence();
+/// Build the optional cross-trace correlator from the config. The daemon
+/// shares the same `Arc` with `QueryApiState` so the `/api/correlations`
+/// endpoint and the ingestion loop see the same state.
+fn setup_correlator(
+    config: &Config,
+) -> Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>> {
+    if !config.correlation_enabled {
+        return None;
+    }
+    tracing::info!("Cross-trace correlation enabled");
+    Some(Arc::new(Mutex::new(
+        detect::correlate_cross::CrossTraceCorrelator::new(config.correlation_config.clone()),
+    )))
+}
 
-    // optionally spawn the Scaphandre scraper. Absent config
-    // → None → scoring uses the proxy model. Present config → spawn a
-    // background task that updates `scaphandre_state` every
-    // `scrape_interval_secs` and the staleness threshold used by the
-    // snapshot read is 3× the interval (hung-scraper defense).
-    let (scaphandre_state, scraper_handle, staleness_ms) = if let Some(scaph_cfg) =
-        config.green_scaphandre.clone()
-    {
-        let staleness = scaph_cfg.scrape_interval.as_millis() as u64 * 3;
-        let state = ScaphandreState::new();
-        let handle = score::scaphandre::spawn_scraper(scaph_cfg, state.clone(), metrics.clone());
-        (Some(state), Some(handle), staleness)
-    } else {
-        (None, None, 0)
-    };
+/// Handles and staleness threshold for an optional energy/intensity
+/// scraper. `state` is `None` when the scraper is disabled; `staleness_ms`
+/// is `0` in that case and ignored by the snapshot read.
+struct ScraperSetup<S> {
+    state: Option<Arc<S>>,
+    handle: Option<tokio::task::JoinHandle<()>>,
+    staleness_ms: u64,
+}
 
-    // Same pattern for cloud energy scraper.
-    let (cloud_state, cloud_handle, cloud_staleness_ms) =
-        if let Some(cloud_cfg) = config.green_cloud_energy.clone() {
-            let staleness = cloud_cfg.scrape_interval.as_millis() as u64 * 3;
-            let state = CloudEnergyState::new();
-            let handle =
-                score::cloud_energy::spawn_cloud_scraper(cloud_cfg, state.clone(), metrics.clone());
-            (Some(state), Some(handle), staleness)
-        } else {
-            (None, None, 0)
+/// Spawn the Scaphandre scraper when `[green.scaphandre]` is configured.
+/// Staleness threshold is 3x the scrape interval (hung-scraper defense).
+fn setup_scaphandre_scraper(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> ScraperSetup<ScaphandreState> {
+    let Some(scaph_cfg) = config.green_scaphandre.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
         };
+    };
+    let staleness_ms = scaph_cfg.scrape_interval.as_millis() as u64 * 3;
+    let state = ScaphandreState::new();
+    let handle = score::scaphandre::spawn_scraper(scaph_cfg, state.clone(), metrics.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
 
-    // Same pattern for Electricity Maps real-time intensity scraper.
-    let (emaps_state, emaps_handle, emaps_staleness_ms) =
-        if let Some(emaps_cfg) = config.green_electricity_maps.clone() {
-            let staleness = emaps_cfg.poll_interval.as_millis() as u64 * 3;
-            let state = ElectricityMapsState::new();
-            let handle =
-                score::electricity_maps::spawn_electricity_maps_scraper(emaps_cfg, state.clone());
-            (Some(state), Some(handle), staleness)
-        } else {
-            (None, None, 0)
+/// Spawn the cloud energy (`SPECpower`) scraper when `[green.cloud]` is
+/// configured. Same staleness convention as Scaphandre.
+fn setup_cloud_scraper(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> ScraperSetup<CloudEnergyState> {
+    let Some(cloud_cfg) = config.green_cloud_energy.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
         };
+    };
+    let staleness_ms = cloud_cfg.scrape_interval.as_millis() as u64 * 3;
+    let state = CloudEnergyState::new();
+    let handle =
+        score::cloud_energy::spawn_cloud_scraper(cloud_cfg, state.clone(), metrics.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
 
-    // Main event loop
-    let mut ticker = interval(Duration::from_millis(evict_ms.max(100)));
+/// Spawn the Electricity Maps real-time intensity scraper when
+/// `[green.electricity_maps]` is configured.
+fn setup_emaps_scraper(config: &Config) -> ScraperSetup<ElectricityMapsState> {
+    let Some(emaps_cfg) = config.green_electricity_maps.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
+        };
+    };
+    let staleness_ms = emaps_cfg.poll_interval.as_millis() as u64 * 3;
+    let state = ElectricityMapsState::new();
+    let handle = score::electricity_maps::spawn_electricity_maps_scraper(emaps_cfg, state.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
+
+/// Bundle of handles aborted on Ctrl-C.
+struct ShutdownTargets<'a> {
+    energy: EnergyScraperHandles<'a>,
+    listeners: ListenerHandles<'a>,
+}
+
+/// Config slice the main event loop needs — the values that are pulled out
+/// of `Config` once at startup and never change.
+#[derive(Clone, Copy)]
+struct EventLoopConfig {
+    green_enabled: bool,
+    sampling_rate: f64,
+    evict_ms: u64,
+    confidence: Confidence,
+}
+
+/// Drive the daemon's main `tokio::select!` loop: receive events, run the
+/// TTL ticker, and handle Ctrl-C. Returns when Ctrl-C is received.
+#[allow(clippy::too_many_arguments)]
+async fn run_event_loop(
+    rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
+    window: &Arc<Mutex<TraceWindow>>,
+    metrics: &MetricsState,
+    findings_store: &findings_store::FindingsStore,
+    correlator: Option<&Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+    detect_config: &DetectConfig,
+    energy_sources: &EnergySources<'_>,
+    shutdown: ShutdownTargets<'_>,
+    loop_cfg: EventLoopConfig,
+) {
+    let mut ticker = interval(Duration::from_millis(loop_cfg.evict_ms.max(100)));
     // Prevent burst-catchup if process_traces takes longer than the tick
-    // interval. Both the Scaphandre and cloud scrapers already use Delay.
+    // interval. The Scaphandre and cloud scrapers already use Delay.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-    let energy_handles = EnergyScraperHandles {
-        scaphandre: scraper_handle.as_ref(),
-        cloud: cloud_handle.as_ref(),
-        emaps: emaps_handle.as_ref(),
-    };
-    let listener_handles = ListenerHandles {
-        grpc: &grpc_handle,
-        http: &http_handle,
-        json_socket: json_socket_handle.as_ref(),
-    };
-    let energy_sources = EnergySources {
-        base_carbon_ctx: &base_carbon_ctx,
-        scaphandre_state: scaphandre_state.as_deref(),
-        scaphandre_staleness_ms: staleness_ms,
-        cloud_state: cloud_state.as_deref(),
-        cloud_staleness_ms,
-        emaps_state: emaps_state.as_deref(),
-        emaps_staleness_ms,
-    };
     // Cardinality cap on the per-service Prometheus counter prevents OOM
     // from a malicious OTLP sender injecting millions of unique
-    // `service.name` values. Events beyond the cap still flow through
-    // detection, they just stop incrementing the per-service counter.
+    // `service.name` values.
     let mut service_meter = ServiceMeter {
         known_services: std::collections::HashSet::new(),
         max_service_cardinality: 1024,
         service_cap_warned: false,
+    };
+    let parts = || ProcessTracesCtxParts {
+        detect_config,
+        green_enabled: loop_cfg.green_enabled,
+        metrics,
+        confidence: loop_cfg.confidence,
+        findings_store,
+        correlator,
     };
 
     loop {
@@ -332,68 +499,29 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             Some(events) = rx.recv() => {
                 let lru_evicted = ingest_event_batch(
                     events,
-                    sampling_rate,
-                    &window,
-                    &metrics,
+                    loop_cfg.sampling_rate,
+                    window,
+                    metrics,
                     &mut service_meter,
                 ).await;
-                flush_evicted(
-                    lru_evicted,
-                    &energy_sources,
-                    ProcessTracesCtxParts {
-                        detect_config: &detect_config,
-                        green_enabled,
-                        metrics: &metrics,
-                        confidence,
-                        findings_store: &findings_store,
-                        correlator: correlator.as_deref(),
-                    },
-                ).await;
+                flush_evicted(lru_evicted, energy_sources, parts()).await;
             }
             _ = ticker.tick() => {
-                let expired = evict_expired_traces(&window, &metrics).await;
-                flush_evicted(
-                    expired,
-                    &energy_sources,
-                    ProcessTracesCtxParts {
-                        detect_config: &detect_config,
-                        green_enabled,
-                        metrics: &metrics,
-                        confidence,
-                        findings_store: &findings_store,
-                        correlator: correlator.as_deref(),
-                    },
-                ).await;
+                let expired = evict_expired_traces(window, metrics).await;
+                flush_evicted(expired, energy_sources, parts()).await;
             }
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Shutting down daemon, processing remaining traces...");
-                shutdown_listeners(energy_handles, listener_handles);
+                shutdown_listeners(shutdown.energy, shutdown.listeners);
                 let remaining = {
                     let mut w = window.lock().await;
                     w.drain_all()
                 };
-                flush_evicted(
-                    remaining,
-                    &energy_sources,
-                    ProcessTracesCtxParts {
-                        detect_config: &detect_config,
-                        green_enabled,
-                        metrics: &metrics,
-                        confidence,
-                        findings_store: &findings_store,
-                        correlator: correlator.as_deref(),
-                    },
-                ).await;
-                #[cfg(unix)]
-                {
-                    let _ = std::fs::remove_file(&config.json_socket);
-                }
+                flush_evicted(remaining, energy_sources, parts()).await;
                 break;
             }
         }
     }
-
-    Ok(())
 }
 
 /// Per-service I/O op counter state with a cardinality cap. Prevents OOM
