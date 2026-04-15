@@ -31,7 +31,9 @@ Les lots d'entrée sont clonés **avant** le début de la mesure. Cela garantit 
 ```rust
 per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 let p50_idx = ((per_event_ns.len() as f64 * 0.50).ceil() as usize).saturating_sub(1);
-let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize).min(per_event_ns.len() - 1);
+let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize)
+    .saturating_sub(1)
+    .min(per_event_ns.len() - 1);
 ```
 
 Le calcul d'index basé sur le plafond suit la [méthode du rang le plus proche](https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method) pour les percentiles. Le `.saturating_sub(1)` convertit du rang basé sur 1 vers l'index basé sur 0. Le `.min(len - 1)` empêche l'accès hors limites quand `ceil` arrondit à `len`.

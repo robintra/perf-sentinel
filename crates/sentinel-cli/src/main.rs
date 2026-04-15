@@ -958,7 +958,9 @@ fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64
 
     let len = per_event_ns.len();
     let p50_idx = ((len as f64 * 0.50).ceil() as usize).saturating_sub(1);
-    let p99_idx = ((len as f64 * 0.99).ceil() as usize).min(len.saturating_sub(1));
+    let p99_idx = ((len as f64 * 0.99).ceil() as usize)
+        .saturating_sub(1)
+        .min(len.saturating_sub(1));
     (
         per_event_ns[p50_idx] / 1000.0,
         per_event_ns[p99_idx] / 1000.0,
@@ -1256,5 +1258,14 @@ mod tests {
 
         let config = load_config(Some(&config_path));
         assert_eq!(config.n_plus_one_threshold, 15);
+    }
+
+    #[test]
+    fn bench_percentiles_follow_nearest_rank_indices() {
+        let durations_ns: Vec<u64> = (1..=100).map(|n| n * 1_000).collect();
+        let (p50_us, p99_us) = compute_latency_percentiles(&durations_ns, 1);
+
+        assert!((p50_us - 50.0).abs() < f64::EPSILON);
+        assert!((p99_us - 99.0).abs() < f64::EPSILON);
     }
 }

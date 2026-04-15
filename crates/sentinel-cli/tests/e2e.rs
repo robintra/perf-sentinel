@@ -112,7 +112,7 @@ fn cli_help_shows_subcommands() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("analyze"));
-    assert!(stdout.contains("watch"));
+    assert_eq!(stdout.contains("watch"), cfg!(feature = "daemon"));
     assert!(stdout.contains("demo"));
 }
 

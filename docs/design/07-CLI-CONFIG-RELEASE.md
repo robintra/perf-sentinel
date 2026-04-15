@@ -33,7 +33,9 @@ Input batches are cloned **before** timing begins. This ensures the benchmark me
 ```rust
 per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Equal));
 let p50_idx = ((per_event_ns.len() as f64 * 0.50).ceil() as usize).saturating_sub(1);
-let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize).min(per_event_ns.len() - 1);
+let p99_idx = ((per_event_ns.len() as f64 * 0.99).ceil() as usize)
+    .saturating_sub(1)
+    .min(per_event_ns.len() - 1);
 ```
 
 The ceiling-based index computation follows the [nearest-rank method](https://en.wikipedia.org/wiki/Percentile#The_nearest-rank_method) for percentiles. The `.saturating_sub(1)` converts from 1-based rank to 0-based index. The `.min(len - 1)` prevents out-of-bounds access when `ceil` rounds up to `len`.

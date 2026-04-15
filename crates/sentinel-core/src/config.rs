@@ -3,6 +3,7 @@
 //! Supports both the new sectioned format (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`)
 //! and the legacy flat format for backward compatibility.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use serde::Deserialize;
@@ -409,6 +410,149 @@ struct CorrelationSection {
     min_co_occurrences: Option<u32>,
     min_confidence: Option<f64>,
     max_tracked_pairs: Option<usize>,
+}
+
+const TOML_PATH_STRING_KEYS: &[&str] = &[
+    "hourly_profiles_file",
+    "calibration_file",
+    "json_socket",
+    "tls_cert_path",
+    "tls_key_path",
+];
+
+/// Rewrite path-like config fields so Windows-style backslashes are treated
+/// as literal separators instead of TOML escapes.
+///
+/// This is intentionally narrow: only known path keys are touched, only when
+/// they use a basic string (`"..."`), and existing escaped pairs (`\\`) are
+/// left intact. That lets Windows users write `C:\Users\...` while preserving
+/// already-valid TOML like `C:\\Users\\...`.
+fn normalize_toml_path_strings(content: &str) -> Cow<'_, str> {
+    let mut changed = false;
+    let mut normalized = String::with_capacity(content.len());
+
+    for line in content.split_inclusive('\n') {
+        let rewritten = normalize_toml_path_line(line);
+        changed |= matches!(rewritten, Cow::Owned(_));
+        normalized.push_str(rewritten.as_ref());
+    }
+
+    if changed {
+        Cow::Owned(normalized)
+    } else {
+        Cow::Borrowed(content)
+    }
+}
+
+fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
+    let leading_ws = line.len()
+        - line
+            .trim_start_matches([' ', '\t'])
+            .len();
+    let trimmed = &line[leading_ws..];
+    let Some(eq_idx) = trimmed.find('=') else {
+        return Cow::Borrowed(line);
+    };
+
+    let key = trimmed[..eq_idx].trim();
+    if !TOML_PATH_STRING_KEYS.contains(&key) {
+        return Cow::Borrowed(line);
+    }
+
+    let after_eq = &trimmed[eq_idx + 1..];
+    let value_ws = after_eq.len()
+        - after_eq
+            .trim_start_matches([' ', '\t'])
+            .len();
+    let value_start = leading_ws + eq_idx + 1 + value_ws;
+    let value = &line[value_start..];
+    if !value.starts_with('"') {
+        return Cow::Borrowed(line);
+    }
+
+    let Some(closing_quote) = find_basic_string_end(value) else {
+        return Cow::Borrowed(line);
+    };
+    let inner = &value[1..closing_quote];
+    let Cow::Owned(normalized_inner) = escape_toml_path_backslashes(inner) else {
+        return Cow::Borrowed(line);
+    };
+
+    let mut out =
+        String::with_capacity(line.len() + normalized_inner.len().saturating_sub(inner.len()));
+    out.push_str(&line[..=value_start]);
+    out.push_str(&normalized_inner);
+    out.push_str(&value[closing_quote..]);
+    Cow::Owned(out)
+}
+
+fn find_basic_string_end(value: &str) -> Option<usize> {
+    debug_assert!(value.starts_with('"'));
+
+    let bytes = value.as_bytes();
+    let mut idx = 1;
+    while idx < bytes.len() {
+        if bytes[idx] == b'"' {
+            let mut backslashes = 0;
+            let mut lookbehind = idx;
+            while lookbehind > 0 && bytes[lookbehind - 1] == b'\\' {
+                backslashes += 1;
+                lookbehind -= 1;
+            }
+            if backslashes % 2 == 0 {
+                return Some(idx);
+            }
+        }
+        idx += 1;
+    }
+    None
+}
+
+fn escape_toml_path_backslashes(inner: &str) -> Cow<'_, str> {
+    if !inner.contains('\\') {
+        return Cow::Borrowed(inner);
+    }
+
+    let bytes = inner.as_bytes();
+    let mut out = String::with_capacity(inner.len() + 4);
+    let mut changed = false;
+    let mut idx = 0;
+
+    while idx < bytes.len() {
+        if bytes[idx] != b'\\' {
+            let start = idx;
+            while idx < bytes.len() && bytes[idx] != b'\\' {
+                idx += 1;
+            }
+            out.push_str(&inner[start..idx]);
+            continue;
+        }
+
+        let run_start = idx;
+        while idx < bytes.len() && bytes[idx] == b'\\' {
+            idx += 1;
+        }
+        let run_len = idx - run_start;
+        let raw_unc_prefix = run_start == 0 && run_len == 2 && bytes.get(idx) != Some(&b'\\');
+        let emit_len = if raw_unc_prefix {
+            4
+        } else if run_len == 1 {
+            2
+        } else {
+            run_len
+        };
+
+        changed |= emit_len != run_len;
+        for _ in 0..emit_len {
+            out.push('\\');
+        }
+    }
+
+    if changed {
+        Cow::Owned(out)
+    } else {
+        Cow::Borrowed(inner)
+    }
 }
 
 impl From<RawConfig> for Config {
@@ -1380,7 +1524,17 @@ impl Config {
 /// Returns `ConfigError::Parse` if the TOML is malformed, or
 /// `ConfigError::Validation` if a field value is out of bounds.
 pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
-    let raw: RawConfig = toml::from_str(content).map_err(ConfigError::Parse)?;
+    let normalized = normalize_toml_path_strings(content);
+    let raw: RawConfig = match toml::from_str(normalized.as_ref()) {
+        Ok(raw) => raw,
+        Err(err) => {
+            if matches!(normalized, Cow::Owned(_)) {
+                toml::from_str(content).map_err(ConfigError::Parse)?
+            } else {
+                return Err(ConfigError::Parse(err));
+            }
+        }
+    };
     // validate the daemon environment string BEFORE the lossy
     // `Config::from` conversion collapses unknown values into the default.
     // This way "envrionment = \"prod\"" (typo) is rejected with a clear
@@ -1496,6 +1650,30 @@ max_payload_size = 2097152
         assert!((config.sampling_rate - 0.5).abs() < f64::EPSILON);
         assert_eq!(config.max_events_per_trace, 500);
         assert_eq!(config.max_payload_size, 2_097_152);
+    }
+
+    #[test]
+    fn parse_windows_style_json_socket_path_in_basic_string() {
+        let config = load_from_str(
+            r#"
+[daemon]
+json_socket = "C:\temp\perf-sentinel.sock"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"C:\temp\perf-sentinel.sock");
+    }
+
+    #[test]
+    fn parse_escaped_windows_style_json_socket_path_stays_stable() {
+        let config = load_from_str(
+            r#"
+[daemon]
+json_socket = "C:\\temp\\perf-sentinel.sock"
+"#,
+        )
+        .unwrap();
+        assert_eq!(config.json_socket, r"C:\temp\perf-sentinel.sock");
     }
 
     #[test]
@@ -2103,6 +2281,21 @@ default_region = "eu-west-3"
         let result =
             load_from_str("[green]\nhourly_profiles_file = \"/nonexistent/profiles.json\"\n");
         let err = result.unwrap_err();
+        assert!(
+            format!("{err}").contains("failed to load"),
+            "expected load failure error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn hourly_profiles_windows_path_reports_load_failure_not_parse_error() {
+        let err = load_from_str(
+            r#"
+[green]
+hourly_profiles_file = "C:\temp\profiles.json"
+"#,
+        )
+        .unwrap_err();
         assert!(
             format!("{err}").contains("failed to load"),
             "expected load failure error, got: {err}"
