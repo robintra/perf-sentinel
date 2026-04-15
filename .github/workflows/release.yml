@@ -107,21 +107,65 @@ jobs:
         with:
           toolchain: stable
 
+      # Strict publish: succeed on a real upload, succeed on an idempotent
+      # re-run (crate version already on crates.io), fail loudly on any
+      # other error. The previous `|| echo warning` pattern hid a real
+      # compile failure during `cargo publish --verify` behind a green job
+      # — see post-mortem on https://github.com/robintra/perf-sentinel/releases/tag/v0.4.0.
       - name: Publish perf-sentinel-core
-        run: cargo publish -p perf-sentinel-core || echo "::warning::perf-sentinel-core already published, skipping"
+        shell: bash
+        run: |
+          set +e
+          cargo publish -p perf-sentinel-core 2>&1 | tee /tmp/publish-core.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::notice::perf-sentinel-core published"
+            exit 0
+          fi
+          if grep -qE "already (uploaded|exists on crates\.io)" /tmp/publish-core.log; then
+            echo "::warning::perf-sentinel-core already on crates.io (idempotent re-run), skipping"
+            exit 0
+          fi
+          echo "::error::perf-sentinel-core publish failed with a non-duplicate error; see log above"
+          exit 1
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
+      # Fail hard after the retry budget is exhausted so the next step
+      # doesn't silently compound the error. The previous loop always
+      # exited 0 whether or not the crate showed up in the index.
       - name: Wait for crates.io index update
+        shell: bash
         run: |
           for i in $(seq 1 30); do
-            cargo search perf-sentinel-core 2>/dev/null | grep -q "^perf-sentinel-core " && break
-            echo "Waiting for perf-sentinel-core to appear in crates.io index... (attempt $i)"
+            if cargo search perf-sentinel-core 2>/dev/null | grep -q "^perf-sentinel-core "; then
+              echo "::notice::perf-sentinel-core is visible on the crates.io index"
+              exit 0
+            fi
+            echo "Waiting for perf-sentinel-core to appear in crates.io index... (attempt $i/30)"
             sleep 10
           done
+          echo "::error::perf-sentinel-core did not appear on the crates.io index after 5 minutes"
+          exit 1
 
       - name: Publish perf-sentinel
-        run: cargo publish -p perf-sentinel || echo "::warning::perf-sentinel already published, skipping"
+        shell: bash
+        run: |
+          set +e
+          cargo publish -p perf-sentinel 2>&1 | tee /tmp/publish-cli.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::notice::perf-sentinel published"
+            exit 0
+          fi
+          if grep -qE "already (uploaded|exists on crates\.io)" /tmp/publish-cli.log; then
+            echo "::warning::perf-sentinel already on crates.io (idempotent re-run), skipping"
+            exit 0
+          fi
+          echo "::error::perf-sentinel publish failed with a non-duplicate error; see log above"
+          exit 1
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
 
