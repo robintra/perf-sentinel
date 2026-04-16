@@ -135,22 +135,26 @@ jobs:
       # Fail hard after the retry budget is exhausted so the next step
       # doesn't silently compound the error. The previous loop always
       # exited 0 whether or not the crate showed up in the index.
+      #
+      # Uses the crates.io REST API (refreshed on publish) instead of
+      # `cargo search` (which reads the sparse index and can lag for
+      # 10+ minutes after a successful publish, as observed on v0.4.1).
+      # Asserts the *exact* version string to avoid green-on-stale-cache
+      # false positives when a previous version was already indexed.
       - name: Wait for crates.io index update
         shell: bash
         run: |
-          # 60 attempts x 20s = 20 minutes. The previous 5-minute window
-          # tripped the watcher on v0.4.1 even though the crate eventually
-          # indexed; crates.io indexing latency can spike to 10+ minutes
-          # at peak hours.
+          target_version="${GITHUB_REF_NAME#v}"
           for i in $(seq 1 60); do
-            if cargo search perf-sentinel-core 2>/dev/null | grep -q "^perf-sentinel-core "; then
-              echo "::notice::perf-sentinel-core is visible on the crates.io index"
+            if curl -fsS "https://crates.io/api/v1/crates/perf-sentinel-core/${target_version}" \
+                 | grep -q "\"num\":\"${target_version}\""; then
+              echo "::notice::perf-sentinel-core ${target_version} visible on crates.io"
               exit 0
             fi
-            echo "Waiting for perf-sentinel-core to appear in crates.io index... (attempt $i/60)"
+            echo "Waiting for perf-sentinel-core ${target_version}... (attempt $i/60)"
             sleep 20
           done
-          echo "::error::perf-sentinel-core did not appear on the crates.io index after 20 minutes"
+          echo "::error::perf-sentinel-core ${target_version} did not appear on crates.io after 20 minutes"
           exit 1
 
       - name: Publish perf-sentinel
