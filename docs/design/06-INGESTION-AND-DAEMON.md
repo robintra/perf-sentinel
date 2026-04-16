@@ -344,23 +344,23 @@ pub struct QueryApiState {
 }
 ```
 
-This struct is wrapped in `Arc` and passed as axum `State` to all route handlers. It provides access to the findings ring buffer, the trace window (for explain), the detection config (for re-running detectors on explain requests), and the optional cross-trace correlator (for `/api/correlations`).
+This struct is wrapped in `Arc` and passed as axum `State` to all route handlers. It provides access to the findings ring buffer, the trace window (for explain), the detection config (for re-running detectors on explain requests) and the optional cross-trace correlator (for `/api/correlations`).
 
 ### API endpoints
 
 Five endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion and `/metrics` active.
 
-| Endpoint | Method | Cap | Description |
-|---|---|---|---|
-| `/api/findings` | GET | `?limit=` clamped to `MAX_FINDINGS_LIMIT = 1000` | Query recent findings with optional `?service=`, `?type=`, `?severity=`, `?limit=` filters |
-| `/api/findings/{trace_id}` | GET | none | All findings for a specific trace |
-| `/api/explain/{trace_id}` | GET | none | Trace tree with findings inline, built from daemon memory |
-| `/api/correlations` | GET | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None` |
-| `/api/status` | GET | none | Daemon health: version, uptime, active traces, stored findings count |
+| Endpoint                   | Method | Cap                                                                      | Description                                                                                |
+|----------------------------|--------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| `/api/findings`            | GET    | `?limit=` clamped to `MAX_FINDINGS_LIMIT = 1000`                         | Query recent findings with optional `?service=`, `?type=`, `?severity=`, `?limit=` filters |
+| `/api/findings/{trace_id}` | GET    | none                                                                     | All findings for a specific trace                                                          |
+| `/api/explain/{trace_id}`  | GET    | none                                                                     | Trace tree with findings inline, built from daemon memory                                  |
+| `/api/correlations`        | GET    | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None`     |
+| `/api/status`              | GET    | none                                                                     | Daemon health: version, uptime, active traces, stored findings count                       |
 
 ### Explain without eviction via `peek_clone`
 
-The `/api/explain/{trace_id}` handler needs to read a trace's spans from the `TraceWindow` without promoting it in the LRU cache or evicting it. `TraceWindow::peek_clone(trace_id)` uses the underlying `LruCache::peek()` method (read-only, no promotion) and clones the spans into a fresh `Vec<NormalizedEvent>`. The handler then reconstructs a `Trace`, runs per-trace detectors, and builds the explain tree via `explain::build_tree` and `explain::format_tree_json`.
+The `/api/explain/{trace_id}` handler needs to read a trace's spans from the `TraceWindow` without promoting it in the LRU cache or evicting it. `TraceWindow::peek_clone(trace_id)` uses the underlying `LruCache::peek()` method (read-only, no promotion) and clones the spans into a fresh `Vec<NormalizedEvent>`. The handler then reconstructs a `Trace`, runs per-trace detectors and builds the explain tree via `explain::build_tree` and `explain::format_tree_json`.
 
 If the trace has already been evicted from the window (TTL expired or LRU displaced), the handler returns `{"error": "trace not found in daemon memory"}`.
 
@@ -382,7 +382,7 @@ let correlator = if config.correlation_enabled {
 
 ### Invocation in `process_traces`
 
-The correlator reference (`Option<&Mutex<CrossTraceCorrelator>>`) is passed to `process_traces`. After findings are produced, scored, and pushed to the `FindingsStore`, the correlator's `ingest()` method is called:
+The correlator reference (`Option<&Mutex<CrossTraceCorrelator>>`) is passed to `process_traces`. After findings are produced, scored and pushed to the `FindingsStore`, the correlator's `ingest()` method is called:
 
 ```rust
 if let Some(correlator) = correlator {

@@ -425,7 +425,7 @@ Champs :  $.finding.type,
 ```
 
 Couplez cela avec l'endpoint Prometheus `/metrics` déjà exposé par le
-daemon pour les tendances time-series, et utilisez l'API de requêtage
+daemon pour les tendances time-series et utilisez l'API de requêtage
 pour la **liste de findings concrets** sur lesquels l'utilisateur peut
 cliquer.
 

@@ -743,11 +743,11 @@ les trois variables identifiées dans le bloc de commentaire en tête du
 template (version pinnée, chemin du fichier de traces, chemin de la
 config) et c'est terminé.
 
-| Fournisseur       | Template                                                          | Ce qui apparaît                                            |
-|-------------------|-------------------------------------------------------------------|------------------------------------------------------------|
-| GitHub Actions    | [`github-actions.yml`](../ci-templates/github-actions.yml)        | SARIF dans GitHub Code Scanning + commentaire sticky sur la PR |
-| GitLab CI         | [`gitlab-ci.yml`](../ci-templates/gitlab-ci.yml)                  | Artifact SARIF + widget Code Quality sur la MR             |
-| Jenkins           | [`jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy)        | Arbre de findings Warnings Next Generation + courbe de tendance |
+| Fournisseur    | Template                                                   | Ce qui apparaît                                                 |
+|----------------|------------------------------------------------------------|-----------------------------------------------------------------|
+| GitHub Actions | [`github-actions.yml`](../ci-templates/github-actions.yml) | SARIF dans GitHub Code Scanning + commentaire sticky sur la PR  |
+| GitLab CI      | [`gitlab-ci.yml`](../ci-templates/gitlab-ci.yml)           | Artifact SARIF + widget Code Quality sur la MR                  |
+| Jenkins        | [`jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy) | Arbre de findings Warnings Next Generation + courbe de tendance |
 
 ### Philosophie du quality gate
 
@@ -879,6 +879,110 @@ environment = "production"
 La valeur est tamponnée sur chaque finding émis par cette instance de daemon. Les valeurs invalides (tout sauf `staging`/`production`, insensible à la casse) sont rejetées au chargement de la config avec une erreur claire. Le mode batch `analyze` ignore ce champ et émet toujours `ci_batch`.
 
 **Interop perf-lint.** perf-lint lit le champ `confidence` sur les findings runtime importés et applique un multiplicateur de sévérité : les findings `ci_batch` sont affichés en hints, `daemon_staging` en warnings, `daemon_production` en errors. Ainsi un finding observé sur du trafic production réel apparaît plus bruyamment dans l'IDE qu'un finding observé uniquement dans une fixture CI.
+
+---
+
+## Détection de régressions sur PR (sous-commande `diff`)
+
+La sous-commande `diff` compare deux jeux de traces et émet un rapport delta qui liste les findings nouveaux, les findings résolus, les changements de sévérité et les deltas de comptage I/O par endpoint. L'usage naturel est un check PR qui compare les traces de la branche PR à celles de la branche de base.
+
+```yaml
+# .github/workflows/perf-sentinel-diff.yml
+name: perf-sentinel diff
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    env:
+      PERF_SENTINEL_VERSION: "0.4.2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer perf-sentinel
+        run: |
+          set -euo pipefail
+          BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+          curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+          curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+          grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+          install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+
+      # Lancer les tests d'intégration sur la branche PR et capturer les traces.
+      - name: Collecter les traces de la branche PR
+        run: ./scripts/run-integration-tests.sh
+        env:
+          OTEL_EXPORTER_OTLP_FILE_PATH: pr-traces.json
+
+      # Re-jouer sur la branche de base.
+      - name: Collecter les traces de la branche de base
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }} -- .
+          ./scripts/run-integration-tests.sh
+        env:
+          OTEL_EXPORTER_OTLP_FILE_PATH: base-traces.json
+
+      - name: Diff
+        run: |
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format json \
+            --output diff.json
+          # SARIF pour GitHub Code Scanning (uniquement les nouveaux findings).
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format sarif \
+            --output diff.sarif
+
+      - name: Uploader le SARIF
+        if: hashFiles('diff.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: diff.sarif
+          category: perf-sentinel-diff
+
+      - name: Commenter le résumé de régression sur la PR
+        run: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          RESOLVED=$(jq '.resolved_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical" or (.after_severity == "warning" and .before_severity == "info"))] | length' diff.json)
+          {
+            echo "## diff perf-sentinel vs base"
+            echo
+            echo "- $NEW finding(s) nouveau(x)"
+            echo "- $RESOLVED finding(s) résolu(s)"
+            echo "- $REGRESSIONS régression(s) de sévérité"
+          } > pr-comment.md
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: perf-sentinel-diff
+          path: pr-comment.md
+
+      - name: Échouer sur régression
+        run: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical")] | length' diff.json)
+          if [ "$NEW" -gt 0 ] || [ "$REGRESSIONS" -gt 0 ]; then
+            echo "::error::le diff introduit $NEW finding(s) nouveau(x) et $REGRESSIONS régression(s) critique(s)"
+            exit 1
+          fi
+```
+
+Ajustez la logique de seuil de la dernière étape selon la politique de votre équipe. Certaines équipes gatent sur tout nouveau finding, d'autres tolèrent les nouveaux findings Info et n'échouent que sur des régressions Warning ou Critical.
 
 ---
 

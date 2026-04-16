@@ -57,19 +57,10 @@ pub fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::make_finding;
+    use crate::test_helpers::{make_finding, make_test_green_summary};
 
     fn empty_green_summary() -> GreenSummary {
-        GreenSummary {
-            total_io_ops: 0,
-            avoidable_io_ops: 0,
-            io_waste_ratio: 0.0,
-            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::Healthy,
-            top_offenders: vec![],
-            co2: None,
-            regions: vec![],
-            transport_gco2: None,
-        }
+        GreenSummary::disabled(0)
     }
 
     #[test]
@@ -168,18 +159,7 @@ mod tests {
     #[test]
     fn io_waste_ratio_fails_gate() {
         let config = Config::default(); // io_waste_ratio_max = 0.30
-        let summary = GreenSummary {
-            total_io_ops: 10,
-            avoidable_io_ops: 5,
-            io_waste_ratio: 0.5,
-            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
-                0.5,
-            ),
-            top_offenders: vec![],
-            co2: None,
-            regions: vec![],
-            transport_gco2: None,
-        };
+        let summary = make_test_green_summary(10, 5, 0.5);
         let gate = evaluate(&[], &summary, &config);
 
         assert!(!gate.passed);
@@ -203,18 +183,7 @@ mod tests {
             make_finding(FindingType::NPlusOneSql, Severity::Critical),
             make_finding(FindingType::NPlusOneSql, Severity::Critical),
         ];
-        let summary = GreenSummary {
-            total_io_ops: 10,
-            avoidable_io_ops: 8,
-            io_waste_ratio: 0.8,
-            io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
-                0.8,
-            ),
-            top_offenders: vec![],
-            co2: None,
-            regions: vec![],
-            transport_gco2: None,
-        };
+        let summary = make_test_green_summary(10, 8, 0.8);
         let gate = evaluate(&findings, &summary, &config);
 
         assert!(gate.passed, "2 critical SQL <= 5, 0.8 <= 0.90");

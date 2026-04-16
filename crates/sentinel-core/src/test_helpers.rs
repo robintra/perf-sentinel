@@ -3,6 +3,32 @@
 use crate::correlate::Trace;
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::normalize;
+use crate::report::GreenSummary;
+use crate::report::interpret::InterpretationLevel;
+
+/// Build a `GreenSummary` for tests that need a non-default
+/// `(total_io_ops, avoidable_io_ops, io_waste_ratio)` triple. Other
+/// fields are left at their `disabled` defaults. Co-locates the boilerplate
+/// (eight identical field initializers) in one place so individual tests
+/// stay focused on the values they care about.
+#[must_use]
+pub fn make_test_green_summary(
+    total_io_ops: usize,
+    avoidable_io_ops: usize,
+    io_waste_ratio: f64,
+) -> GreenSummary {
+    GreenSummary {
+        total_io_ops,
+        avoidable_io_ops,
+        io_waste_ratio,
+        io_waste_ratio_band: InterpretationLevel::for_waste_ratio(io_waste_ratio),
+        top_offenders: vec![],
+        co2: None,
+        regions: vec![],
+        transport_gco2: None,
+        per_endpoint_io_ops: vec![],
+    }
+}
 
 pub fn make_sql_event(trace_id: &str, span_id: &str, target: &str, ts: &str) -> SpanEvent {
     make_sql_event_with_duration(trace_id, span_id, target, ts, 800)
@@ -157,7 +183,7 @@ pub fn make_finding(
         green_impact: Some(crate::detect::GreenImpact {
             estimated_extra_io_ops: 5,
             io_intensity_score: 6.0,
-            io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(6.0),
+            io_intensity_band: InterpretationLevel::for_iis(6.0),
         }),
         confidence: crate::detect::Confidence::default(),
         code_location: None,

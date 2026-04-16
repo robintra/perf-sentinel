@@ -764,11 +764,11 @@ provider, drop it into your repository, adapt the three variables called out
 in the template's leading comment block (version pin, trace path, config
 path) and you are done.
 
-| Provider          | Template                                                       | What it surfaces                              |
-|-------------------|----------------------------------------------------------------|-----------------------------------------------|
-| GitHub Actions    | [`github-actions.yml`](./ci-templates/github-actions.yml)      | SARIF in GitHub Code Scanning + sticky PR comment |
-| GitLab CI         | [`gitlab-ci.yml`](./ci-templates/gitlab-ci.yml)                | SARIF artifact + Code Quality widget on the MR    |
-| Jenkins           | [`jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy)      | Warnings Next Generation issue tree + trend chart |
+| Provider       | Template                                                  | What it surfaces                                  |
+|----------------|-----------------------------------------------------------|---------------------------------------------------|
+| GitHub Actions | [`github-actions.yml`](./ci-templates/github-actions.yml) | SARIF in GitHub Code Scanning + sticky PR comment |
+| GitLab CI      | [`gitlab-ci.yml`](./ci-templates/gitlab-ci.yml)           | SARIF artifact + Code Quality widget on the MR    |
+| Jenkins        | [`jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy) | Warnings Next Generation issue tree + trend chart |
 
 ### Quality-gate philosophy
 
@@ -902,9 +902,113 @@ The value is stamped on every finding emitted by that daemon instance. Invalid v
 
 ---
 
+## PR regression detection (`diff` subcommand)
+
+The `diff` subcommand compares two trace sets and emits a delta report listing new findings, resolved findings, severity changes and per-endpoint I/O op count deltas. The natural fit is a PR check that compares the PR branch's traces against the base branch's traces.
+
+```yaml
+# .github/workflows/perf-sentinel-diff.yml
+name: perf-sentinel diff
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    env:
+      PERF_SENTINEL_VERSION: "0.4.2"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install perf-sentinel
+        run: |
+          set -euo pipefail
+          BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+          curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+          curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+          grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+          install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+
+      # Run integration tests on the PR branch and capture traces.
+      - name: Collect PR-branch traces
+        run: ./scripts/run-integration-tests.sh
+        env:
+          OTEL_EXPORTER_OTLP_FILE_PATH: pr-traces.json
+
+      # Re-run on the base branch.
+      - name: Collect base-branch traces
+        run: |
+          git checkout ${{ github.event.pull_request.base.sha }} -- .
+          ./scripts/run-integration-tests.sh
+        env:
+          OTEL_EXPORTER_OTLP_FILE_PATH: base-traces.json
+
+      - name: Diff
+        run: |
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format json \
+            --output diff.json
+          # SARIF for GitHub Code Scanning (only new findings).
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format sarif \
+            --output diff.sarif
+
+      - name: Upload SARIF
+        if: hashFiles('diff.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: diff.sarif
+          category: perf-sentinel-diff
+
+      - name: Comment regression summary on PR
+        run: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          RESOLVED=$(jq '.resolved_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical" or (.after_severity == "warning" and .before_severity == "info"))] | length' diff.json)
+          {
+            echo "## perf-sentinel diff vs base"
+            echo
+            echo "- $NEW new finding(s)"
+            echo "- $RESOLVED resolved finding(s)"
+            echo "- $REGRESSIONS severity regression(s)"
+          } > pr-comment.md
+
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: perf-sentinel-diff
+          path: pr-comment.md
+
+      - name: Fail on regression
+        run: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical")] | length' diff.json)
+          if [ "$NEW" -gt 0 ] || [ "$REGRESSIONS" -gt 0 ]; then
+            echo "::error::diff introduces $NEW new finding(s) and $REGRESSIONS critical regression(s)"
+            exit 1
+          fi
+```
+
+Tweak the threshold logic in the final step to match your team's policy. Some teams gate on any new finding, others tolerate Info-level new findings and only fail on Warning or Critical regressions.
+
+---
+
 ## Daemon query API
 
-The daemon exposes an HTTP query API on the same port as OTLP HTTP and `/metrics` (default `4318`). It lets external systems pull recent findings, trace explanations, cross-trace correlations, and daemon liveness without parsing NDJSON logs. Useful for Prometheus alerting, custom Grafana panels, or SRE runbooks.
+The daemon exposes an HTTP query API on the same port as OTLP HTTP and `/metrics` (default `4318`). It lets external systems pull recent findings, trace explanations, cross-trace correlations and daemon liveness without parsing NDJSON logs. Useful for Prometheus alerting, custom Grafana panels or SRE runbooks.
 
 ```bash
 # Daemon liveness
@@ -914,7 +1018,7 @@ curl -sS http://127.0.0.1:4318/api/status
 curl -sS "http://127.0.0.1:4318/api/findings?severity=critical&limit=10"
 ```
 
-See [`docs/QUERY-API.md`](./QUERY-API.md) for the full per-endpoint reference, real captured response examples, use cases (Prometheus alerting, Grafana dashboard, SRE runbook), and the stability contract.
+See [`docs/QUERY-API.md`](./QUERY-API.md) for the full per-endpoint reference, real captured response examples, use cases (Prometheus alerting, Grafana dashboard, SRE runbook) and the stability contract.
 
 ---
 

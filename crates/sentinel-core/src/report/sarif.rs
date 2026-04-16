@@ -392,6 +392,15 @@ const SARIF_SCHEMA: &str = "https://raw.githubusercontent.com/oasis-tcs/sarif-sp
 /// Convert a perf-sentinel Report to a SARIF log.
 #[must_use]
 pub fn report_to_sarif(report: &Report) -> SarifLog {
+    findings_to_sarif(&report.findings)
+}
+
+/// Convert a slice of findings to a SARIF log. Used by `report_to_sarif`
+/// and by `perf-sentinel diff --format sarif` (which only emits the
+/// `new_findings` from a `DiffReport`, since "resolved" is not a
+/// SARIF-native concept).
+#[must_use]
+pub fn findings_to_sarif(findings: &[Finding]) -> SarifLog {
     SarifLog {
         schema: SARIF_SCHEMA.to_string(),
         version: "2.1.0".to_string(),
@@ -404,7 +413,7 @@ pub fn report_to_sarif(report: &Report) -> SarifLog {
                     rules: build_rules(),
                 },
             },
-            results: report.findings.iter().map(finding_to_result).collect(),
+            results: findings.iter().map(finding_to_result).collect(),
         }],
     }
 }

@@ -3,20 +3,20 @@
 The perf-sentinel daemon exposes an HTTP query API that lets external
 systems pull findings, trace explanations, cross-trace correlations, and
 daemon liveness. Use it to feed Prometheus alerts, Grafana dashboards,
-on-call runbooks, or custom CI gate scripts without parsing NDJSON logs.
+on-call runbooks or custom CI gate scripts without parsing NDJSON logs.
 
 The API shipped in v0.4.0. This page documents it as a
 first-class product surface with a stability contract.
 
 ## Endpoint overview
 
-| Method | Path                       | Purpose                                                                        |
-|--------|----------------------------|--------------------------------------------------------------------------------|
-| GET    | `/api/status`              | Daemon liveness, version, uptime, in-flight counts                             |
-| GET    | `/api/findings`            | Recent findings from the ring buffer, with service, type, and severity filters |
-| GET    | `/api/findings/{trace_id}` | All findings for one trace                                                     |
-| GET    | `/api/explain/{trace_id}`  | Span tree for a trace still in daemon memory, findings annotated inline        |
-| GET    | `/api/correlations`        | Active cross-trace temporal correlations                                       |
+| Method | Path                       | Purpose                                                                       |
+|--------|----------------------------|-------------------------------------------------------------------------------|
+| GET    | `/api/status`              | Daemon liveness, version, uptime, in-flight counts                            |
+| GET    | `/api/findings`            | Recent findings from the ring buffer, with service, type and severity filters |
+| GET    | `/api/findings/{trace_id}` | All findings for one trace                                                    |
+| GET    | `/api/explain/{trace_id}`  | Span tree for a trace still in daemon memory, findings annotated inline       |
+| GET    | `/api/correlations`        | Active cross-trace temporal correlations                                      |
 
 All endpoints return `application/json`. No authentication. The daemon
 listens on `127.0.0.1` by default (see `[daemon] listen_address` in
@@ -413,7 +413,7 @@ Fields:  $.finding.type,
 ```
 
 Pair this with the Prometheus `/metrics` endpoint already exposed by the
-daemon for time-series trends, and use the query API for the **list of
+daemon for time-series trends and use the query API for the **list of
 concrete findings** the user can click into.
 
 ### SRE runbook: page on a stuck scraper
@@ -451,9 +451,9 @@ The query API carries a stability promise starting at v0.4.1.
 
 - All paths listed in [Endpoint overview](#endpoint-overview).
 - All fields listed in the endpoint sections above. Field names and
-  shapes will not be renamed, removed, or retyped in a minor release.
+  shapes will not be renamed, removed or retyped in a minor release.
 - Enum values (`finding.type`, `finding.severity`, `finding.confidence`,
-  `io_intensity_band`, and so on): existing variants remain. New
+  `io_intensity_band` and so on): existing variants remain. New
   variants may be added in minor releases. Clients must tolerate
   unknown enum values and not crash on them.
 - The behavior of the five error responses in

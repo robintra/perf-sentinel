@@ -14,7 +14,7 @@
 //! - **Rust**: Diesel, `SeaORM`, `RustGeneric` fallback
 //!
 //! The detection is intentionally cheap and deterministic: we only look
-//! at fields already present on [`crate::detect::Finding`] (no span-level
+//! at fields already present on [`Finding`] (no span-level
 //! access, no extra heap allocations on the hot path), and missing
 //! information always degrades gracefully to `suggested_fix = None`.
 

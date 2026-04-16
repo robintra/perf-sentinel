@@ -2,7 +2,7 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Eight subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect` and `query`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Nine subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query` and `diff`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
@@ -171,13 +171,13 @@ Findings with a rejected filepath still appear in the SARIF report; only the `ph
 
 ### Sub-actions
 
-| Sub-action | API endpoint | Output | Description |
-|---|---|---|---|
-| `findings` | `/api/findings` | colored text (default) or JSON | List recent findings with `--service`, `--finding-type`, `--severity`, `--limit` filters |
-| `explain` | `/api/explain/{trace_id}` | colored tree (default) or JSON | Show the explain tree for a trace from daemon memory |
-| `inspect` | `/api/findings` | ratatui TUI | Interactive 3-panel TUI fed from live daemon data |
-| `correlations` | `/api/correlations` | colored table (default) or JSON | Show active cross-trace correlations |
-| `status` | `/api/status` | colored summary (default) or JSON | Show daemon health (version, uptime, active traces, stored findings count) |
+| Sub-action     | API endpoint              | Output                            | Description                                                                              |
+|----------------|---------------------------|-----------------------------------|------------------------------------------------------------------------------------------|
+| `findings`     | `/api/findings`           | colored text (default) or JSON    | List recent findings with `--service`, `--finding-type`, `--severity`, `--limit` filters |
+| `explain`      | `/api/explain/{trace_id}` | colored tree (default) or JSON    | Show the explain tree for a trace from daemon memory                                     |
+| `inspect`      | `/api/findings`           | ratatui TUI                       | Interactive 3-panel TUI fed from live daemon data                                        |
+| `correlations` | `/api/correlations`       | colored table (default) or JSON   | Show active cross-trace correlations                                                     |
+| `status`       | `/api/status`             | colored summary (default) or JSON | Show daemon health (version, uptime, active traces, stored findings count)               |
 
 All sub-actions except `inspect` accept `--format text|json`. The default is `text` (colored terminal output), matching the `analyze` command's default. `--format json` outputs raw JSON for scripting and automation.
 
@@ -346,3 +346,32 @@ The alternative `opt-level = "s"` (optimize for size) was considered but rejecte
 3. **Docker** (`FROM scratch`, `USER 65534`): minimal image for Kubernetes deployments
 
 GitHub Actions are pinned to commit SHAs for supply-chain security. The `cross` tool used for ARM cross-compilation is pinned to a specific version (`--version 0.2.5`) to prevent unexpected behavior from upstream releases. The release workflow generates SHA256 checksums for all binaries.
+
+## Diff subcommand
+
+`perf-sentinel diff --before <traces-old.json> --after <traces-new.json> [--config foo.toml] [--format text|json|sarif] [--output file]`
+
+Compares two trace sets and emits a delta report. Primary use case: PR CI integration that surfaces regressions and improvements introduced by a change. The handler runs `pipeline::analyze` on each trace file with the **same** `Config`, then calls `diff::diff_runs(&before_report, &after_report)`.
+
+### Identity tuple
+
+Findings are matched across runs by the tuple `(finding_type, service, source_endpoint, pattern.template)`. Templates are normalized at detection time so direct equality suffices, no re-normalization at diff time. When the same identity tuple appears multiple times in one run (e.g. an N+1 template firing on different traces), the diff engine collapses the duplicates by keeping the worst-severity one. This avoids treating a count difference for the same template as a severity change.
+
+### Output sections
+
+The `DiffReport` carries four lists:
+
+- `new_findings`: identity tuples present in `after` but absent from `before`.
+- `resolved_findings`: present in `before` but absent from `after`.
+- `severity_changes`: same identity in both runs, different severity. Sorted regressions first.
+- `endpoint_metric_deltas`: per-endpoint I/O op count deltas, sorted by `delta` descending (regressions first). Sourced from `green_summary.per_endpoint_io_ops`, which the pipeline always populates regardless of `[green] enabled`.
+
+### Output formats
+
+- **text** (default): summary header followed by four sections, color-coded (red for regressions, green for improvements). Designed for terminal review.
+- **json**: full `DiffReport` serialized via `serde_json::to_writer_pretty`. The stable JSON shape mirrors the diff module's struct layout.
+- **sarif**: only the `new_findings` are emitted as SARIF results, since "resolved" and "severity changed" have no native SARIF concept. Suitable for PR-annotation pipelines (GitHub Code Scanning, GitLab Code Quality) that only need to surface regressions.
+
+### No `--ci` flag
+
+The `analyze --ci` quality gate is intentionally not duplicated on `diff`: the diff itself is the signal. A non-empty `new_findings` list, a regression in `severity_changes` or a positive `endpoint_metric_deltas` entry are all signals the CI consumer can decide to fail on, depending on its policy.

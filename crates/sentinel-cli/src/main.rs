@@ -211,6 +211,26 @@ enum Commands {
         #[command(subcommand)]
         action: QueryAction,
     },
+
+    /// Compare two trace sets and emit a delta report (regressions and improvements).
+    Diff {
+        /// Path to the baseline trace file (e.g. base branch, last release).
+        #[arg(long)]
+        before: PathBuf,
+        /// Path to the candidate trace file (e.g. PR branch, current build).
+        #[arg(long)]
+        after: PathBuf,
+        /// Path to a .perf-sentinel.toml config file. Applied to both runs.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (default), json, sarif.
+        /// SARIF emits only `new_findings` (resolved findings have no SARIF concept).
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+        /// Optional output file. Defaults to stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 /// Output format for query sub-actions.
@@ -385,6 +405,19 @@ async fn main() {
             // panics with "Cannot start a runtime from within a runtime."
             query::cmd_query(&daemon, action).await;
         }
+        Commands::Diff {
+            before,
+            after,
+            config,
+            format,
+            output,
+        } => cmd_diff(
+            &before,
+            &after,
+            config.as_deref(),
+            format,
+            output.as_deref(),
+        ),
     }
 }
 
@@ -487,6 +520,31 @@ fn cmd_analyze(
 
     let report = pipeline::analyze(events, &config);
     emit_report_and_gate(&report, format, ci, "report");
+}
+
+fn cmd_diff(
+    before: &std::path::Path,
+    after: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+    format: Option<OutputFormat>,
+    output: Option<&std::path::Path>,
+) {
+    let config = load_config(config_path);
+    // Run analyze on both trace files with the SAME config so per-endpoint
+    // counts and severity assignments are comparable.
+    let before_raw = read_events(Some(before), config.max_payload_size);
+    let before_events = ingest_json_or_exit(&before_raw, config.max_payload_size);
+    let before_report = pipeline::analyze(before_events, &config);
+
+    let after_raw = read_events(Some(after), config.max_payload_size);
+    let after_events = ingest_json_or_exit(&after_raw, config.max_payload_size);
+    let after_report = pipeline::analyze(after_events, &config);
+
+    let diff = sentinel_core::diff::diff_runs(&before_report, &after_report);
+    if let Err(e) = render::emit_diff(&diff, format, output) {
+        eprintln!("Error writing diff: {e}");
+        std::process::exit(1);
+    }
 }
 
 #[cfg(feature = "tempo")]
@@ -1059,6 +1117,7 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
+                per_endpoint_io_ops: vec![],
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
@@ -1236,6 +1295,7 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
+                per_endpoint_io_ops: vec![],
             },
             quality_gate: QualityGate {
                 passed: true,

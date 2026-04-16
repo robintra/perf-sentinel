@@ -5,10 +5,12 @@ pub mod json;
 pub mod metrics;
 pub mod sarif;
 
+use crate::correlate::Trace;
 use crate::detect::Finding;
 use crate::report::interpret::InterpretationLevel;
 use crate::score::carbon::{CarbonReport, RegionBreakdown};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 /// A complete analysis report.
 #[derive(Debug, Clone, Serialize)]
@@ -56,6 +58,58 @@ pub struct GreenSummary {
     /// cross-region HTTP call had response size data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
+    /// Raw I/O operation count per `(service, endpoint)`. Populated by
+    /// the pipeline regardless of `[green] enabled`. Used by the `diff`
+    /// subcommand to compute per-endpoint regressions and improvements
+    /// between two trace sets. Sorted by `service` then `endpoint` for
+    /// deterministic JSON output. Empty when no traces were analyzed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub per_endpoint_io_ops: Vec<PerEndpointIoOps>,
+}
+
+/// Raw I/O operation count for a single `(service, endpoint)` pair.
+///
+/// Stable JSON shape from v0.4.2 onward. Field names will not be renamed
+/// or removed in a minor release.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PerEndpointIoOps {
+    pub service: String,
+    pub endpoint: String,
+    pub io_ops: usize,
+}
+
+/// Single-pass per-endpoint I/O op counter. Returns the counts sorted by
+/// `(service, endpoint)` for deterministic output. O(N) over the total
+/// span count.
+///
+/// Used by the pipeline to populate `GreenSummary.per_endpoint_io_ops`
+/// regardless of `[green] enabled`. The data is small (one entry per
+/// `(service, endpoint)` pair, typically dozens to hundreds for a normal
+/// trace batch) and the cost of always computing it is negligible
+/// compared to the rest of the pipeline.
+#[must_use]
+pub fn compute_per_endpoint_io_ops(traces: &[Trace]) -> Vec<PerEndpointIoOps> {
+    // BTreeMap so the resulting Vec is naturally sorted by key without
+    // a separate sort pass. Key is `(service, endpoint)` so two traces
+    // for the same endpoint on different services stay distinct.
+    let mut counts: BTreeMap<(&str, &str), usize> = BTreeMap::new();
+    for trace in traces {
+        for span in &trace.spans {
+            let key = (
+                span.event.service.as_str(),
+                span.event.source.endpoint.as_str(),
+            );
+            *counts.entry(key).or_insert(0) += 1;
+        }
+    }
+    counts
+        .into_iter()
+        .map(|((service, endpoint), io_ops)| PerEndpointIoOps {
+            service: service.to_string(),
+            endpoint: endpoint.to_string(),
+            io_ops,
+        })
+        .collect()
 }
 
 impl GreenSummary {
@@ -71,6 +125,7 @@ impl GreenSummary {
             co2: None,
             regions: vec![],
             transport_gco2: None,
+            per_endpoint_io_ops: vec![],
         }
     }
 }

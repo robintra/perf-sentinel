@@ -558,6 +558,7 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
+                per_endpoint_io_ops: vec![],
             },
             quality_gate: QualityGate {
                 passed: true,

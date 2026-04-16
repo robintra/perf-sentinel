@@ -251,6 +251,10 @@ pub fn score_green(
         transport_gco2: co2.as_ref().and_then(|r| r.transport_gco2),
         co2,
         regions,
+        // Set by `pipeline::analyze_with_traces` after this function
+        // returns. Left empty here so `score_green` callers in tests
+        // don't need to know about the per-endpoint counter.
+        per_endpoint_io_ops: vec![],
     };
 
     (enriched, green_summary)

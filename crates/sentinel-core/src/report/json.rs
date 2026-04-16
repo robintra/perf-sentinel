@@ -37,16 +37,7 @@ mod tests {
                 traces_analyzed: 0,
             },
             findings: vec![],
-            green_summary: GreenSummary {
-                total_io_ops: 0,
-                avoidable_io_ops: 0,
-                io_waste_ratio: 0.0,
-                io_waste_ratio_band: crate::report::interpret::InterpretationLevel::Healthy,
-                top_offenders: vec![],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-            },
+            green_summary: GreenSummary::disabled(0),
             quality_gate: QualityGate {
                 passed: true,
                 rules: vec![],
@@ -91,18 +82,7 @@ mod tests {
                 code_location: None,
                 suggested_fix: None,
             }],
-            green_summary: GreenSummary {
-                total_io_ops: 10,
-                avoidable_io_ops: 5,
-                io_waste_ratio: 0.5,
-                io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
-                    0.5,
-                ),
-                top_offenders: vec![],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-            },
+            green_summary: crate::test_helpers::make_test_green_summary(10, 5, 0.5),
             quality_gate: QualityGate {
                 passed: true,
                 rules: vec![],

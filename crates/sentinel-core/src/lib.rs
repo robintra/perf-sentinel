@@ -14,6 +14,7 @@ pub mod correlate;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 pub mod detect;
+pub mod diff;
 pub mod event;
 pub mod explain;
 #[cfg(any(feature = "daemon", feature = "tempo"))]

@@ -9,16 +9,17 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 
 ## Sous-commandes
 
-| Sous-commande | Description                                                                                                                               |
-|---------------|-------------------------------------------------------------------------------------------------------------------------------------------|
-| `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                       |
-| `explain`     | Vue arborescente d'une trace avec findings annotés en ligne                                                                               |
-| `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                         |
-| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live |
-| `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                                                                                    |
-| `bench`       | Benchmark du débit sur un fichier de traces                                                                                               |
-| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                         |
-| `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                      |
+| Sous-commande | Description                                                                                                                                                 |
+|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                                         |
+| `explain`     | Vue arborescente d'une trace avec findings annotés en ligne                                                                                                 |
+| `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                                           |
+| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live                   |
+| `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                                                                                                      |
+| `bench`       | Benchmark du débit sur un fichier de traces                                                                                                                 |
+| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                                           |
+| `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                                        |
+| `diff`        | Compare deux jeux de traces et émet un rapport delta (findings nouveaux/résolus, changements de sévérité, deltas I/O par endpoint). Sortie texte/JSON/SARIF |
 
 ## Sections
 
@@ -58,7 +59,7 @@ Configuration du scoring GreenOps alignée sur [SCI v1.0](https://github.com/Gre
 | `embodied_carbon_per_request_gco2` | flottant | `0.001`   | Terme `M` SCI v1.0 : émissions de fabrication matérielle amorties par requête (par trace), en gCO₂eq. Indépendant de la région. Mettre à `0.0` pour désactiver le carbone embodié                                                                                                                                                                                                                                                              |
 | `use_hourly_profiles`              | booléen  | `true`    | Quand `true`, l'étape de scoring utilise des intensités réseau spécifiques à l'heure pour les 30+ régions disposant de profils horaires embarqués. Les régions avec profils mois x heure (FR, DE, GB, US-East) prennent aussi en compte la variation saisonnière. Les rapports sont tagués `model = "io_proxy_v3"` (mois x heure) ou `"io_proxy_v2"` (horaire annuel plat). Mettre à `false` pour figer les rapports sur le modèle annuel plat |
 | `hourly_profiles_file`             | chaîne   | *(aucun)* | Chemin vers un fichier JSON de profils horaires personnalisés. Peut être absolu ou relatif au fichier de config. Les profils personnalisés prennent priorité sur les profils embarqués pour la même clé de région                                                                                                                                                                                                                              |
-| `per_operation_coefficients`       | booléen  | `true`    | Quand `true`, le modèle proxy pondère l'énergie par opération : SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x) et tailles de payload HTTP (petit <10 Ko : 0.8x, moyen 10 Ko-1 Mo : 1.2x, grand >1 Mo : 2.0x). Ne s'applique pas quand l'énergie mesurée par Scaphandre ou cloud SPECpower est disponible. Mettre à `false` pour utiliser le coefficient plat `ENERGY_PER_IO_OP_KWH`                                                   |
+| `per_operation_coefficients`       | booléen  | `true`    | Quand `true`, le modèle proxy pondère l'énergie par opération : SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x) et tailles de payload HTTP (petit <10 Ko : 0.8x, moyen 10 Ko-1 Mo : 1.2x, grand >1 Mo : 2.0x). Ne s'applique pas quand l'énergie mesurée par Scaphandre ou cloud SPECpower est disponible. Mettre à `false` pour utiliser le coefficient plat `ENERGY_PER_IO_OP_KWH`                                                    |
 | `include_network_transport`        | booléen  | `false`   | Quand `true`, ajoute un terme d'énergie de transport réseau pour les appels HTTP inter-régions. Requiert `response_size_bytes` sur les spans HTTP (attribut OTel `http.response.body.size`) et la région cible mappée via `[green.service_regions]`. Les appels intra-région sont exclus. Le CO₂ transport apparaît comme `transport_gco2` dans le rapport JSON                                                                                |
 | `network_energy_per_byte_kwh`      | flottant | `4e-11`   | Énergie par octet pour le transport réseau (kWh/octet). Défaut 0.04 kWh/Go, milieu de la fourchette 0.03-0.06 de Mytton et al. (2024). Utilisé uniquement quand `include_network_transport = true`                                                                                                                                                                                                                                             |
 

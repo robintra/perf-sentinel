@@ -354,3 +354,161 @@ fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bo
     println!("{bold}Quality gate: {gate_color}{gate_label}{reset}");
     println!();
 }
+
+/// Emit a `DiffReport` in the requested format to the given writer.
+///
+/// `output = None` writes to stdout. Format defaults to text. The SARIF
+/// path emits only the `new_findings` (resolved findings have no SARIF
+/// equivalent) so existing PR-annotation pipelines that consume SARIF
+/// surface only regressions.
+///
+/// # Errors
+///
+/// Returns an error if the output file cannot be opened or if
+/// serialization fails.
+pub(crate) fn emit_diff(
+    diff: &sentinel_core::diff::DiffReport,
+    format: Option<OutputFormat>,
+    output: Option<&std::path::Path>,
+) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut writer: Box<dyn Write> = match output {
+        Some(path) => Box::new(std::fs::File::create(path)?),
+        None => Box::new(std::io::stdout().lock()),
+    };
+    let effective_format = format.unwrap_or(OutputFormat::Text);
+    match effective_format {
+        OutputFormat::Text => write_diff_text(&mut writer, diff)?,
+        OutputFormat::Json => {
+            serde_json::to_writer_pretty(&mut writer, diff).map_err(std::io::Error::other)?;
+            writeln!(writer)?;
+        }
+        OutputFormat::Sarif => {
+            let sarif = sentinel_core::report::sarif::findings_to_sarif(&diff.new_findings);
+            serde_json::to_writer_pretty(&mut writer, &sarif).map_err(std::io::Error::other)?;
+            writeln!(writer)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_diff_text(
+    writer: &mut dyn std::io::Write,
+    diff: &sentinel_core::diff::DiffReport,
+) -> std::io::Result<()> {
+    let colors = ansi_colors(false);
+    let AnsiColors {
+        bold,
+        cyan,
+        red,
+        yellow,
+        green,
+        dim,
+        reset,
+    } = colors;
+
+    let new_count = diff.new_findings.len();
+    let resolved_count = diff.resolved_findings.len();
+    let changed_count = diff.severity_changes.len();
+    let regression_count = diff
+        .severity_changes
+        .iter()
+        .filter(|c| c.after_severity < c.before_severity)
+        .count();
+    let endpoint_change_count = diff.endpoint_metric_deltas.len();
+
+    writeln!(writer)?;
+    writeln!(writer, "{bold}{cyan}=== perf-sentinel diff ==={reset}")?;
+    writeln!(
+        writer,
+        "  {red}{new_count} new{reset}, \
+         {green}{resolved_count} resolved{reset}, \
+         {yellow}{changed_count} severity changed{reset} ({regression_count} regression(s)), \
+         {endpoint_change_count} endpoint count change(s)"
+    )?;
+    writeln!(writer)?;
+
+    if !diff.new_findings.is_empty() {
+        writeln!(writer, "{bold}{red}New findings ({new_count}):{reset}")?;
+        for f in &diff.new_findings {
+            writeln!(
+                writer,
+                "  {red}+{reset} [{}] {} on {} ({})",
+                severity_label(&f.severity),
+                f.finding_type.display_label(),
+                f.source_endpoint,
+                f.service,
+            )?;
+            writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
+        }
+        writeln!(writer)?;
+    }
+
+    if !diff.resolved_findings.is_empty() {
+        writeln!(
+            writer,
+            "{bold}{green}Resolved findings ({resolved_count}):{reset}"
+        )?;
+        for f in &diff.resolved_findings {
+            writeln!(
+                writer,
+                "  {green}-{reset} [{}] {} on {} ({})",
+                severity_label(&f.severity),
+                f.finding_type.display_label(),
+                f.source_endpoint,
+                f.service,
+            )?;
+            writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
+        }
+        writeln!(writer)?;
+    }
+
+    if !diff.severity_changes.is_empty() {
+        writeln!(
+            writer,
+            "{bold}{yellow}Severity changes ({changed_count}):{reset}"
+        )?;
+        for change in &diff.severity_changes {
+            let arrow = if change.after_severity < change.before_severity {
+                format!("{red}->{reset}")
+            } else {
+                format!("{green}->{reset}")
+            };
+            writeln!(
+                writer,
+                "  [{}] {arrow} [{}] {} on {} ({})",
+                severity_label(&change.before_severity),
+                severity_label(&change.after_severity),
+                change.finding.finding_type.display_label(),
+                change.finding.source_endpoint,
+                change.finding.service,
+            )?;
+        }
+        writeln!(writer)?;
+    }
+
+    if !diff.endpoint_metric_deltas.is_empty() {
+        writeln!(
+            writer,
+            "{bold}{cyan}Endpoint I/O op deltas ({endpoint_change_count}):{reset}"
+        )?;
+        for d in &diff.endpoint_metric_deltas {
+            let (color, sign) = if d.delta > 0 { (red, "+") } else { (green, "") };
+            writeln!(
+                writer,
+                "  {color}{sign}{}{reset}  {} on {} ({} -> {})",
+                d.delta, d.endpoint, d.service, d.before_io_ops, d.after_io_ops,
+            )?;
+        }
+        writeln!(writer)?;
+    }
+
+    if new_count == 0 && resolved_count == 0 && changed_count == 0 && endpoint_change_count == 0 {
+        writeln!(
+            writer,
+            "{green}No differences detected between the two trace sets.{reset}"
+        )?;
+    }
+    Ok(())
+}

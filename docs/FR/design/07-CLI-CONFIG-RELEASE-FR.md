@@ -2,7 +2,7 @@
 
 ## Conception du CLI
 
-Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Sept sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat` et `inspect`.
+Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Neuf sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query` et `diff`.
 
 ### Analyze : rapport coloré par défaut, JSON avec `--ci`
 
@@ -143,13 +143,13 @@ Les findings dont le filepath est rejeté apparaissent toujours dans le rapport 
 
 `perf-sentinel query --daemon http://localhost:4318 <action>` interroge l'API HTTP du daemon en cours d'exécution. Cinq actions sont disponibles :
 
-| Action | Endpoint API | Sortie | Description |
-|---|---|---|---|
-| `findings` | `/api/findings` | terminal coloré (défaut) ou JSON | Lister les findings récents avec filtres `--service`, `--type`, `--severity`, `--limit` |
-| `explain` | `/api/explain/{trace_id}` | arbre coloré (défaut) ou JSON | Afficher l'arbre de trace avec findings en ligne (depuis la mémoire du daemon) |
-| `inspect` | `/api/findings` | TUI ratatui | TUI interactif 3 panneaux alimenté par les données live du daemon |
-| `correlations` | `/api/correlations` | tableau coloré (défaut) ou JSON | Afficher les corrélations cross-trace actives |
-| `status` | `/api/status` | résumé coloré (défaut) ou JSON | Afficher l'état du daemon : version, uptime, traces actives, findings stockés |
+| Action         | Endpoint API              | Sortie                           | Description                                                                             |
+|----------------|---------------------------|----------------------------------|-----------------------------------------------------------------------------------------|
+| `findings`     | `/api/findings`           | terminal coloré (défaut) ou JSON | Lister les findings récents avec filtres `--service`, `--type`, `--severity`, `--limit` |
+| `explain`      | `/api/explain/{trace_id}` | arbre coloré (défaut) ou JSON    | Afficher l'arbre de trace avec findings en ligne (depuis la mémoire du daemon)          |
+| `inspect`      | `/api/findings`           | TUI ratatui                      | TUI interactif 3 panneaux alimenté par les données live du daemon                       |
+| `correlations` | `/api/correlations`       | tableau coloré (défaut) ou JSON  | Afficher les corrélations cross-trace actives                                           |
+| `status`       | `/api/status`             | résumé coloré (défaut) ou JSON   | Afficher l'état du daemon : version, uptime, traces actives, findings stockés           |
 
 Toutes les actions sauf `inspect` acceptent `--format text|json`. Le défaut est `text` (sortie colorée), comme la commande `analyze`. `--format json` produit du JSON brut pour le scripting.
 
@@ -314,3 +314,32 @@ L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée ma
 3. **Docker** (`FROM scratch`, `USER 65534`) : image minimale pour les déploiements Kubernetes
 
 Les GitHub Actions sont épinglées aux SHAs de commit pour la sécurité de la chaîne d'approvisionnement. L'outil `cross` utilisé pour la cross-compilation ARM est épinglé à une version spécifique (`--version 0.2.5`) pour éviter des comportements inattendus lors de mises à jour upstream. Le workflow de release génère des checksums SHA256 pour tous les binaires.
+
+## Sous-commande diff
+
+`perf-sentinel diff --before <traces-old.json> --after <traces-new.json> [--config foo.toml] [--format text|json|sarif] [--output file]`
+
+Compare deux jeux de traces et émet un rapport delta. Cas d'usage principal : intégration CI sur les PR pour faire ressortir les régressions et améliorations introduites par un changement. Le handler exécute `pipeline::analyze` sur chaque fichier de traces avec la **même** `Config`, puis appelle `diff::diff_runs(&before_report, &after_report)`.
+
+### Tuple d'identité
+
+Les findings sont appariés entre les runs via le tuple `(finding_type, service, source_endpoint, pattern.template)`. Les templates sont normalisés au moment de la détection donc l'égalité directe suffit, pas de re-normalisation au moment du diff. Quand le même tuple d'identité apparaît plusieurs fois dans un run (par exemple un template N+1 qui déclenche sur plusieurs traces), le moteur de diff collapse les doublons en gardant celui de pire sévérité. Cela évite de traiter une différence de comptage pour le même template comme un changement de sévérité.
+
+### Sections de sortie
+
+Le `DiffReport` porte quatre listes :
+
+- `new_findings` : tuples d'identité présents dans `after` mais absents de `before`.
+- `resolved_findings` : présents dans `before` mais absents de `after`.
+- `severity_changes` : même identité dans les deux runs, sévérité différente. Triés régressions en premier.
+- `endpoint_metric_deltas` : deltas de comptage I/O par endpoint, triés par `delta` décroissant (régressions en premier). Sourcés depuis `green_summary.per_endpoint_io_ops`, que le pipeline peuple toujours indépendamment de `[green] enabled`.
+
+### Formats de sortie
+
+- **text** (défaut) : en-tête de résumé suivi de quatre sections, code couleur (rouge pour les régressions, vert pour les améliorations). Conçu pour la revue en terminal.
+- **json** : `DiffReport` complet sérialisé via `serde_json::to_writer_pretty`. La forme JSON stable reflète le layout des structs du module diff.
+- **sarif** : seuls les `new_findings` sont émis comme résultats SARIF, puisque "resolved" et "severity changed" n'ont pas d'équivalent SARIF natif. Convient aux pipelines d'annotation de PR (GitHub Code Scanning, GitLab Code Quality) qui n'ont besoin que de faire ressortir les régressions.
+
+### Pas de flag `--ci`
+
+Le quality gate `analyze --ci` n'est intentionnellement pas dupliqué sur `diff` : le diff lui-même est le signal. Une liste `new_findings` non-vide, une régression dans `severity_changes` ou une entrée positive dans `endpoint_metric_deltas` sont autant de signaux sur lesquels le consommateur CI peut décider d'échouer, selon sa politique.

@@ -42,7 +42,7 @@ pub fn analyze_with_traces(
     );
     findings.extend(cross_trace);
 
-    let (mut findings, green_summary) = if config.green_enabled {
+    let (mut findings, mut green_summary) = if config.green_enabled {
         let carbon_ctx = config.carbon_context();
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
@@ -52,6 +52,12 @@ pub fn analyze_with_traces(
             crate::report::GreenSummary::disabled(total_io_ops),
         )
     };
+
+    // Per-endpoint I/O op counts feed `perf-sentinel diff`. Always
+    // populated, regardless of `[green] enabled`, so a CI run with
+    // green scoring off still yields a usable diff. The cost is a
+    // single O(N) pass over the spans we already correlated.
+    green_summary.per_endpoint_io_ops = crate::report::compute_per_endpoint_io_ops(&traces);
 
     // Sort findings for deterministic output (HashMap iteration order is random)
     detect::sort_findings(&mut findings);

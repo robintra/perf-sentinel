@@ -9,16 +9,17 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 
 ## Subcommands
 
-| Subcommand | Description                                                                                                                                                   |
-|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `analyze`  | Batch analysis of trace files. Reads from file or stdin                                                                                                       |
-| `explain`  | Tree view of a specific trace with findings annotated inline                                                                                                  |
-| `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                 |
+| Subcommand | Description                                                                                                                                                  |
+|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`  | Batch analysis of trace files. Reads from file or stdin                                                                                                      |
+| `explain`  | Tree view of a specific trace with findings annotated inline                                                                                                 |
+| `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                |
 | `query`    | Query a running daemon for findings, correlations or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
-| `demo`     | Run analysis on an embedded demo dataset                                                                                                                      |
-| `bench`    | Benchmark throughput on a trace file                                                                                                                          |
-| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                 |
-| `inspect`  | Interactive TUI to browse traces, findings and span trees                                                                                                     |
+| `demo`     | Run analysis on an embedded demo dataset                                                                                                                     |
+| `bench`    | Benchmark throughput on a trace file                                                                                                                         |
+| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                |
+| `inspect`  | Interactive TUI to browse traces, findings and span trees                                                                                                    |
+| `diff`     | Compare two trace sets and emit a delta report (new/resolved findings, severity changes, per-endpoint I/O op deltas). Text/JSON/SARIF output                 |
 
 ## Sections
 
@@ -58,7 +59,7 @@ GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-
 | `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                                                              |
 | `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for the 30+ regions with embedded hourly profiles. Regions with monthly x hourly profiles (FR, DE, GB, US-East) also account for seasonal variation. Reports are tagged `model = "io_proxy_v3"` (monthly x hourly) or `"io_proxy_v2"` (flat-year hourly). Set to `false` to pin reports to the flat-annual model |
 | `hourly_profiles_file`             | string  | *(none)* | Path to a JSON file with user-supplied hourly profiles. Can be absolute or relative to the config file. Profiles in this file take precedence over embedded profiles for the same region key. See "User-supplied profiles" below                                                                                                                                                           |
-| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x) and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations   |
+| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x) and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations    |
 | `include_network_transport`        | boolean | `false`  | When `true`, adds a network transport energy term for cross-region HTTP calls. Requires `response_size_bytes` on HTTP spans (OTel `http.response.body.size` attribute) and callee region mapped via `[green.service_regions]`. Same-region calls are excluded. Transport CO₂ appears as `transport_gco2` in the JSON report                                                                |
 | `network_energy_per_byte_kwh`      | float   | `4e-11`  | Energy per byte for network transport (kWh/byte). Default 0.04 kWh/GB, midpoint of 0.03-0.06 range from Mytton et al. (2024). Only used when `include_network_transport = true`                                                                                                                                                                                                            |
 

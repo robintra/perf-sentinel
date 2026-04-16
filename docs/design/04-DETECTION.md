@@ -447,7 +447,7 @@ Serialized in JSON as a nested object under `finding.suggested_fix`, skipped whe
 
 The detector is a pure function that only reads `finding.code_location` (already populated by each detector from the span's OTel `code.*` attributes). No span-level access, no extra allocations. Decision chain:
 
-1. No `code_location`, or no `filepath` → return `None`.
+1. No `code_location` or no `filepath` → return `None`.
 2. Map the file extension to a language: `.java` → Java, `.cs` → C#, `.rs` → Rust. Anything else → return `None`.
 3. Walk that language's rules in declared order (most specific first). Return the first framework whose namespace hint matches.
 4. Fall back to the language's generic framework (`JavaGeneric`, `CsharpGeneric`, `RustGeneric`) when no rule matches.
@@ -493,30 +493,30 @@ Order matters within a language: the first matching framework wins. JPA hints in
 
 A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups missing from the table leave `suggested_fix` as `None`. Current entries:
 
-| Finding type   | Framework             | Recommendation anchor                                                                             |
-|----------------|-----------------------|---------------------------------------------------------------------------------------------------|
-| `NPlusOneSql`  | `JavaJpa`             | `JOIN FETCH` or `@EntityGraph`, Hibernate User Guide                                              |
-| `NPlusOneSql`  | `JavaQuarkusReactive` | Mutiny `Session.fetch()` + `@NamedEntityGraph`, Quarkus Hibernate Reactive guide                  |
-| `NPlusOneSql`  | `JavaQuarkus`         | JPQL/Panache `JOIN FETCH`, `@EntityGraph`, or `Session.fetchProfile`, Quarkus Hibernate ORM guide |
-| `NPlusOneSql`  | `JavaHelidonSe`       | Helidon `DbClient` named query with JOIN, or `:ids` JDBC parameter binding                        |
-| `NPlusOneSql`  | `JavaHelidonMp`       | JPA `@EntityGraph` or JPQL `JOIN FETCH` (MP entities are JPA-managed under Hibernate)             |
-| `NPlusOneHttp` | `JavaWebFlux`         | `Flux.merge()` / `Flux.zip()` for parallelism, or batch endpoint                                  |
-| `NPlusOneHttp` | `JavaQuarkusReactive` | `Uni.combine().all().unis(...)` for parallelism, Mutiny combining guide                           |
-| `NPlusOneHttp` | `JavaQuarkus`         | `CompletableFuture.allOf` on `ManagedExecutor`, batch via Quarkus REST Client                     |
-| `NPlusOneHttp` | `JavaHelidonSe`       | Helidon SE `WebClient` + `Single.zip` / `Multi.merge` for parallelism, or batch endpoint          |
-| `NPlusOneHttp` | `JavaHelidonMp`       | MicroProfile Rest Client + `CompletableFuture.allOf` on the `@ManagedExecutorConfig` executor, or batch endpoint |
-| `NPlusOneHttp` | `JavaGeneric`         | Batch endpoint or request-scoped `@Cacheable`                                                     |
-| `RedundantSql` | `JavaQuarkusReactive` | `@CacheResult` or `Uni.memoize().indefinitely()`                                                  |
-| `RedundantSql` | `JavaQuarkus`         | `@CacheResult` (Quarkus cache extension) or `@RequestScoped` HashMap deduplication                |
-| `RedundantSql` | `JavaGeneric`         | Service-level cache (Caffeine, Spring Cache)                                                      |
-| `NPlusOneSql`  | `CsharpEfCore`        | `.Include()` / `.ThenInclude()`, `.AsSplitQuery()` for Cartesian explosion                        |
-| `RedundantSql` | `CsharpEfCore`        | `IMemoryCache`, scoped DbContext for per-request short-circuit                                    |
-| `NPlusOneHttp` | `CsharpGeneric`       | `Task.WhenAll` for parallel calls, batch endpoint, response caching on `HttpClient`               |
-| `NPlusOneSql`  | `RustDiesel`          | `belonging_to` + `grouped_by`, or `.inner_join` / `.left_join` for single query                   |
-| `NPlusOneSql`  | `RustSeaOrm`          | `find_with_related` / `find_also_related`, or `QuerySelect::join`                                 |
-| `RedundantSql` | `RustDiesel`          | `moka` cache or request-local `OnceCell`                                                          |
-| `RedundantSql` | `RustSeaOrm`          | `moka` cache or request-local `OnceCell`                                                          |
-| `NPlusOneHttp` | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` for parallelism, or batch endpoint                   |
+| Finding type   | Framework             | Recommendation anchor                                                                                           |
+|----------------|-----------------------|-----------------------------------------------------------------------------------------------------------------|
+| `NPlusOneSql`  | `JavaJpa`             | `JOIN FETCH` or `@EntityGraph`, Hibernate User Guide                                                            |
+| `NPlusOneSql`  | `JavaQuarkusReactive` | Mutiny `Session.fetch()` + `@NamedEntityGraph`, Quarkus Hibernate Reactive guide                                |
+| `NPlusOneSql`  | `JavaQuarkus`         | JPQL/Panache `JOIN FETCH`, `@EntityGraph` or `Session.fetchProfile`, Quarkus Hibernate ORM guide                |
+| `NPlusOneSql`  | `JavaHelidonSe`       | Helidon `DbClient` named query with JOIN or `:ids` JDBC parameter binding                                       |
+| `NPlusOneSql`  | `JavaHelidonMp`       | JPA `@EntityGraph` or JPQL `JOIN FETCH` (MP entities are JPA-managed under Hibernate)                           |
+| `NPlusOneHttp` | `JavaWebFlux`         | `Flux.merge()` / `Flux.zip()` for parallelism or batch endpoint                                                 |
+| `NPlusOneHttp` | `JavaQuarkusReactive` | `Uni.combine().all().unis(...)` for parallelism, Mutiny combining guide                                         |
+| `NPlusOneHttp` | `JavaQuarkus`         | `CompletableFuture.allOf` on `ManagedExecutor`, batch via Quarkus REST Client                                   |
+| `NPlusOneHttp` | `JavaHelidonSe`       | Helidon SE `WebClient` + `Single.zip` / `Multi.merge` for parallelism or batch endpoint                         |
+| `NPlusOneHttp` | `JavaHelidonMp`       | MicroProfile Rest Client + `CompletableFuture.allOf` on the `@ManagedExecutorConfig` executor or batch endpoint |
+| `NPlusOneHttp` | `JavaGeneric`         | Batch endpoint or request-scoped `@Cacheable`                                                                   |
+| `RedundantSql` | `JavaQuarkusReactive` | `@CacheResult` or `Uni.memoize().indefinitely()`                                                                |
+| `RedundantSql` | `JavaQuarkus`         | `@CacheResult` (Quarkus cache extension) or `@RequestScoped` HashMap deduplication                              |
+| `RedundantSql` | `JavaGeneric`         | Service-level cache (Caffeine, Spring Cache)                                                                    |
+| `NPlusOneSql`  | `CsharpEfCore`        | `.Include()` / `.ThenInclude()`, `.AsSplitQuery()` for Cartesian explosion                                      |
+| `RedundantSql` | `CsharpEfCore`        | `IMemoryCache`, scoped DbContext for per-request short-circuit                                                  |
+| `NPlusOneHttp` | `CsharpGeneric`       | `Task.WhenAll` for parallel calls, batch endpoint, response caching on `HttpClient`                             |
+| `NPlusOneSql`  | `RustDiesel`          | `belonging_to` + `grouped_by` or `.inner_join` / `.left_join` for single query                                  |
+| `NPlusOneSql`  | `RustSeaOrm`          | `find_with_related` / `find_also_related` or `QuerySelect::join`                                                |
+| `RedundantSql` | `RustDiesel`          | `moka` cache or request-local `OnceCell`                                                                        |
+| `RedundantSql` | `RustSeaOrm`          | `moka` cache or request-local `OnceCell`                                                                        |
+| `NPlusOneHttp` | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` for parallelism or batch endpoint                                  |
 
 ### Extension path for contributors
 
@@ -533,4 +533,4 @@ To add a new language:
 2. Add the file extension match in `language_from_filepath`.
 3. Define a new `*_RULES` slice and a generic fallback variant on `Framework`.
 
-No wiring changes elsewhere: the `detect()` orchestrator already calls `suggestions::enrich` at the end of the per-trace detection pass, and the CLI / JSON / SARIF rendering already handle an optional `suggested_fix`.
+No wiring changes elsewhere: the `detect()` orchestrator already calls `suggestions::enrich` at the end of the per-trace detection pass and the CLI / JSON / SARIF rendering already handle an optional `suggested_fix`.
