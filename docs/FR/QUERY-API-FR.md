@@ -7,18 +7,18 @@ alimenter des alertes Prometheus, des dashboards Grafana, des runbooks
 on-call ou des scripts de gate CI personnalisés sans parser les logs
 NDJSON.
 
-L'API a été livrée en v0.4.0 (Phase 6). Cette page la documente comme
+L'API a été livrée en v0.4.0. Cette page la documente comme
 surface produit de premier plan, avec un contrat de stabilité.
 
 ## Vue d'ensemble des endpoints
 
-| Méthode | Chemin                       | Rôle                                                                                                |
-|---------|------------------------------|-----------------------------------------------------------------------------------------------------|
-| GET     | `/api/status`                | Liveness du daemon, version, uptime, compteurs en cours                                             |
-| GET     | `/api/findings`              | Findings récents depuis le ring buffer, avec filtres service, type et severity                      |
-| GET     | `/api/findings/{trace_id}`   | Tous les findings d'une trace                                                                        |
-| GET     | `/api/explain/{trace_id}`    | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne                      |
-| GET     | `/api/correlations`          | Corrélations temporelles cross-trace actives                                                        |
+| Méthode | Chemin                     | Rôle                                                                           |
+|---------|----------------------------|--------------------------------------------------------------------------------|
+| GET     | `/api/status`              | Liveness du daemon, version, uptime, compteurs en cours                        |
+| GET     | `/api/findings`            | Findings récents depuis le ring buffer, avec filtres service, type et severity |
+| GET     | `/api/findings/{trace_id}` | Tous les findings d'une trace                                                  |
+| GET     | `/api/explain/{trace_id}`  | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne |
+| GET     | `/api/correlations`        | Corrélations temporelles cross-trace actives                                   |
 
 Tous les endpoints retournent du `application/json`. Pas
 d'authentification. Le daemon écoute sur `127.0.0.1` par défaut (voir
@@ -79,11 +79,11 @@ d'ingestion côté daemon.
 
 **Paramètres de requête :**
 
-| Nom        | Type    | Défaut | Description                                                                                          |
-|------------|---------|--------|------------------------------------------------------------------------------------------------------|
-| `service`  | string  | aucun  | Match exact sur le champ `finding.service`                                                           |
-| `type`     | string  | aucun  | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                 |
-| `severity` | string  | aucun  | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                     |
+| Nom        | Type    | Défaut | Description                                                                                                             |
+|------------|---------|--------|-------------------------------------------------------------------------------------------------------------------------|
+| `service`  | string  | aucun  | Match exact sur le champ `finding.service`                                                                              |
+| `type`     | string  | aucun  | Match exact sur `finding.type` en snake_case (ex. `n_plus_one_sql`, `redundant_sql`)                                    |
+| `severity` | string  | aucun  | Match exact sur `finding.severity` en snake_case (`critical`, `warning`, `info`)                                        |
 | `limit`    | integer | `100`  | Nombre maximum d'entrées retournées, capé côté serveur à `1000` (les valeurs supérieures sont silencieusement ramenées) |
 
 Les paramètres inconnus sont ignorés. Les valeurs malformées (ex.
@@ -166,21 +166,21 @@ L'objet `finding` exposé par `/api/findings` et
 `perf-sentinel analyze --format json`. Champs stables à partir de
 v0.4.1 :
 
-| Champ              | Type                | Description                                                                                       |
-|--------------------|---------------------|---------------------------------------------------------------------------------------------------|
-| `type`             | string (enum)       | `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
-| `severity`         | string (enum)       | `critical`, `warning`, `info`                                                                     |
-| `trace_id`         | string              | Trace ID où le pattern a été détecté                                                              |
-| `service`          | string              | Service qui a émis l'anti-pattern                                                                 |
-| `source_endpoint`  | string              | Endpoint entrant normalisé qui héberge le pattern                                                 |
-| `pattern`          | object              | `{ template, occurrences, window_ms, distinct_params }`                                           |
-| `suggestion`       | string              | Indication de remédiation lisible                                                                 |
-| `first_timestamp`  | string (ISO 8601)   | Premier span du groupe détecté                                                                    |
-| `last_timestamp`   | string (ISO 8601)   | Dernier span du groupe détecté                                                                    |
-| `confidence`       | string (enum)       | `ci_batch`, `daemon_staging`, `daemon_production`                                                 |
-| `green_impact`     | object (optionnel)  | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` quand le scoring green est activé |
-| `code_location`    | object (optionnel)  | `{ function?, filepath?, lineno?, namespace? }` quand les attributs OTel `code.*` sont présents |
-| `suggested_fix`    | object (optionnel)  | `{ pattern, framework, recommendation, reference_url? }` quand le framework peut être inféré (Java/JPA en v1) |
+| Champ             | Type               | Description                                                                                                                                                                  |
+|-------------------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `type`            | string (enum)      | `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls` |
+| `severity`        | string (enum)      | `critical`, `warning`, `info`                                                                                                                                                |
+| `trace_id`        | string             | Trace ID où le pattern a été détecté                                                                                                                                         |
+| `service`         | string             | Service qui a émis l'anti-pattern                                                                                                                                            |
+| `source_endpoint` | string             | Endpoint entrant normalisé qui héberge le pattern                                                                                                                            |
+| `pattern`         | object             | `{ template, occurrences, window_ms, distinct_params }`                                                                                                                      |
+| `suggestion`      | string             | Indication de remédiation lisible                                                                                                                                            |
+| `first_timestamp` | string (ISO 8601)  | Premier span du groupe détecté                                                                                                                                               |
+| `last_timestamp`  | string (ISO 8601)  | Dernier span du groupe détecté                                                                                                                                               |
+| `confidence`      | string (enum)      | `ci_batch`, `daemon_staging`, `daemon_production`                                                                                                                            |
+| `green_impact`    | object (optionnel) | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` quand le scoring green est activé                                                                        |
+| `code_location`   | object (optionnel) | `{ function?, filepath?, lineno?, namespace? }` quand les attributs OTel `code.*` sont présents                                                                              |
+| `suggested_fix`   | object (optionnel) | `{ pattern, framework, recommendation, reference_url? }` quand le framework peut être inféré (Java/JPA en v1)                                                                |
 
 ### GET /api/findings/{trace_id}
 
@@ -250,17 +250,17 @@ ne fonctionne que pendant la TTL de la fenêtre.
 **Forme de la réponse (trace en mémoire) :** objet avec un tableau
 `roots`. Chaque nœud décrit un span avec :
 
-| Champ              | Type            | Description                                                              |
-|--------------------|-----------------|--------------------------------------------------------------------------|
-| `span_id`          | string          | Identifiant du span                                                      |
-| `parent_span_id`   | string \| null  | Identifiant du span parent, `null` pour les spans racines                |
-| `service`          | string          | Service qui a émis le span                                               |
-| `operation`        | string          | Nom de l'opération (ex. `SELECT`, `GET`, `POST`)                         |
-| `template`         | string          | Requête SQL ou route HTTP normalisée                                     |
-| `timestamp`        | string          | Timestamp de début ISO 8601                                              |
-| `duration_us`      | number          | Durée en microsecondes                                                   |
-| `findings`         | array           | Findings rattachés à ce span, chacun `{ type, severity, suggestion, occurrences }` |
-| `children`         | array           | Nœuds spans enfants, récursif                                            |
+| Champ            | Type           | Description                                                                        |
+|------------------|----------------|------------------------------------------------------------------------------------|
+| `span_id`        | string         | Identifiant du span                                                                |
+| `parent_span_id` | string \| null | Identifiant du span parent, `null` pour les spans racines                          |
+| `service`        | string         | Service qui a émis le span                                                         |
+| `operation`      | string         | Nom de l'opération (ex. `SELECT`, `GET`, `POST`)                                   |
+| `template`       | string         | Requête SQL ou route HTTP normalisée                                               |
+| `timestamp`      | string         | Timestamp de début ISO 8601                                                        |
+| `duration_us`    | number         | Durée en microsecondes                                                             |
+| `findings`       | array          | Findings rattachés à ce span, chacun `{ type, severity, suggestion, occurrences }` |
+| `children`       | array          | Nœuds spans enfants, récursif                                                      |
 
 **Forme de la réponse (trace inconnue ou évincée) :** un objet avec un
 seul champ `error`.
@@ -361,14 +361,14 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 
 ## Réponses d'erreur
 
-| Condition                                           | Status | Corps                                              |
-|-----------------------------------------------------|--------|----------------------------------------------------|
-| `trace_id` inconnu sur `/api/findings/{trace_id}`   | 200    | `[]`                                               |
-| `trace_id` inconnu sur `/api/explain/{trace_id}`    | 200    | `{"error": "trace not found in daemon memory"}`    |
-| Corrélations désactivées ou correlator inactif      | 200    | `[]`                                               |
-| Paramètre de requête malformé (ex. `limit=abc`)     | 400    | erreur en texte brut générée par axum              |
-| Chemin inconnu (ex. `/api/does-not-exist`)          | 404    | corps vide                                         |
-| Méthode autre que GET                                | 405    | erreur en texte brut générée par axum              |
+| Condition                                         | Status | Corps                                           |
+|---------------------------------------------------|--------|-------------------------------------------------|
+| `trace_id` inconnu sur `/api/findings/{trace_id}` | 200    | `[]`                                            |
+| `trace_id` inconnu sur `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}` |
+| Corrélations désactivées ou correlator inactif    | 200    | `[]`                                            |
+| Paramètre de requête malformé (ex. `limit=abc`)   | 400    | erreur en texte brut générée par axum           |
+| Chemin inconnu (ex. `/api/does-not-exist`)        | 404    | corps vide                                      |
+| Méthode autre que GET                             | 405    | erreur en texte brut générée par axum           |
 
 L'API n'émet pas de 5xx en fonctionnement normal. Un crash du processus
 retourne ce que la pile TCP émet (connection reset).

@@ -1027,3 +1027,117 @@ fn cli_analyze_sarif_output_includes_fixes_array() {
         "SARIF fix text should carry the JPA recommendation, got: {text}"
     );
 }
+
+#[test]
+fn cli_analyze_emits_suggested_fix_for_csharp_ef_core_n_plus_one() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_csharp_ef_core.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let n1 = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .and_then(|fs| {
+            fs.iter()
+                .find(|f| f.get("type").and_then(Value::as_str) == Some("n_plus_one_sql"))
+        })
+        .expect("expected an n_plus_one_sql finding");
+
+    let fix = n1
+        .get("suggested_fix")
+        .expect("EF Core finding should carry a suggested_fix");
+    assert_eq!(
+        fix.get("framework").and_then(Value::as_str),
+        Some("csharp_ef_core"),
+        "framework should be csharp_ef_core, got: {fix}"
+    );
+    let recommendation = fix.get("recommendation").and_then(Value::as_str).unwrap();
+    assert!(
+        recommendation.contains(".Include()") || recommendation.contains("AsSplitQuery"),
+        "EF Core recommendation should mention .Include() or AsSplitQuery, got: {recommendation}"
+    );
+}
+
+#[test]
+fn cli_analyze_emits_suggested_fix_for_rust_diesel_n_plus_one() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_rust_diesel.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let n1 = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .and_then(|fs| {
+            fs.iter()
+                .find(|f| f.get("type").and_then(Value::as_str) == Some("n_plus_one_sql"))
+        })
+        .expect("expected an n_plus_one_sql finding");
+
+    let fix = n1
+        .get("suggested_fix")
+        .expect("Diesel finding should carry a suggested_fix");
+    assert_eq!(
+        fix.get("framework").and_then(Value::as_str),
+        Some("rust_diesel"),
+        "framework should be rust_diesel, got: {fix}"
+    );
+    let recommendation = fix.get("recommendation").and_then(Value::as_str).unwrap();
+    assert!(
+        recommendation.contains("belonging_to") || recommendation.contains("inner_join"),
+        "Diesel recommendation should mention belonging_to or inner_join, got: {recommendation}"
+    );
+}
+
+#[test]
+fn cli_analyze_emits_suggested_fix_for_quarkus_non_reactive_n_plus_one() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_java_quarkus.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let n1 = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .and_then(|fs| {
+            fs.iter()
+                .find(|f| f.get("type").and_then(Value::as_str) == Some("n_plus_one_sql"))
+        })
+        .expect("expected an n_plus_one_sql finding");
+
+    let fix = n1
+        .get("suggested_fix")
+        .expect("Quarkus non-reactive finding should carry a suggested_fix");
+    assert_eq!(
+        fix.get("framework").and_then(Value::as_str),
+        Some("java_quarkus"),
+        "framework should be java_quarkus (non-reactive), not java_quarkus_reactive, got: {fix}"
+    );
+    let recommendation = fix.get("recommendation").and_then(Value::as_str).unwrap();
+    assert!(
+        recommendation.contains("JOIN FETCH") || recommendation.contains("@EntityGraph"),
+        "Quarkus non-reactive recommendation should mention JOIN FETCH or @EntityGraph, got: {recommendation}"
+    );
+}

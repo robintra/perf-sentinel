@@ -394,7 +394,7 @@ L'option `enabled` (défaut false) active la corrélation. Les résultats sont e
 
 ## Corrections actionnables (suggestions framework-aware)
 
-À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`. Le scope v1 est strictement Java/JPA pour valider l'approche. Les autres frameworks arrivent via des contributions communautaires plus tard.
+À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`. La première version livrait Java/JPA uniquement. L'état actuel couvre Java (JPA, WebFlux, Quarkus reactive, Quarkus non-réactif, Helidon SE, Helidon MP), C# (.NET 8 à 10 avec EF Core / Pomelo MySQL) et Rust (Diesel, SeaORM), avec un fallback générique par langage pour le fan-out HTTP et le caching request-scoped.
 
 ### Structure `SuggestedFix`
 
@@ -414,27 +414,87 @@ Sérialisé en JSON comme objet imbriqué sous `finding.suggested_fix`, omis qua
 Le détecteur est une fonction pure qui lit uniquement `finding.code_location` (déjà peuplé par chaque détecteur depuis les attributs OTel `code.*` du span). Pas d'accès au niveau span, pas d'allocation supplémentaire. Chaîne de décision :
 
 1. Pas de `code_location`, ou pas de `filepath` → retourne `None`.
-2. `filepath` ne finit pas en `.java` (insensible à la casse) → retourne `None`.
-3. `namespace` contient l'une des valeurs `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa` → retourne `JavaJpa`.
-4. Sinon (filepath Java sans hint JPA) → retourne `JavaGeneric`.
+2. Mapper l'extension du fichier vers un langage : `.java` → Java, `.cs` → C#, `.rs` → Rust. Tout le reste → retourne `None`.
+3. Parcourir les règles du langage dans l'ordre déclaré (plus spécifique en premier). Retourne le premier framework dont le hint namespace matche.
+4. Fallback sur le framework générique du langage (`JavaGeneric`, `CsharpGeneric`, `RustGeneric`) quand aucune règle ne matche.
+
+Le match namespace est segment-boundary-aware : un hint `diesel::` matche `diesel::query_dsl::FilterDsl` et `crate::diesel::reexport` mais **pas** `crate::mydiesel::query`. Les caractères de séparation sont `.` (Java, C#) et `::` (Rust). Cela évite les faux positifs venant du code utilisateur qui contient un nom de framework dans un identifiant.
+
+### Règles par langage
+
+L'ordre compte au sein d'un langage : le premier framework qui matche gagne. Les hints JPA passent intentionnellement après ceux de Quarkus reactive parce que `org.hibernate.reactive` contient `org.hibernate`.
+
+**Java (`JAVA_RULES`) :**
+
+| Framework                | Hints namespace                                                                                                                       |
+|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `JavaHelidonMp`          | `io.helidon.microprofile`                                                                                                             |
+| `JavaHelidonSe`          | `io.helidon`                                                                                                                          |
+| `JavaQuarkusReactive`    | `io.quarkus.hibernate.reactive`, `io.quarkus.panache.reactive`, `io.quarkus.reactive`, `org.hibernate.reactive`, `io.smallrye.mutiny` |
+| `JavaQuarkus`            | `io.quarkus.hibernate.orm`, `io.quarkus.panache.common`, `io.quarkus`                                                                 |
+| `JavaWebFlux`            | `org.springframework.web.reactive`, `reactor.core`                                                                                    |
+| `JavaJpa`                | `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa`                                           |
+| `JavaGeneric` (fallback) | (tout fichier `.java` sans les hints ci-dessus)                                                                                       |
+
+`JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit matcher l'un des hints réactifs plus spécifiques en premier. Helidon ne chevauche aucun autre framework.
+
+**C# (`CSHARP_RULES`) :**
+
+| Framework                  | Hints namespace                                               |
+|----------------------------|---------------------------------------------------------------|
+| `CsharpEfCore`             | `Microsoft.EntityFrameworkCore`, `Pomelo.EntityFrameworkCore` |
+| `CsharpGeneric` (fallback) | (tout fichier `.cs` sans les hints ci-dessus)                 |
+
+**Rust (`RUST_RULES`) :**
+
+| Framework                | Hints namespace                               |
+|--------------------------|-----------------------------------------------|
+| `RustDiesel`             | `diesel::`                                    |
+| `RustSeaOrm`             | `sea_orm::`                                   |
+| `RustGeneric` (fallback) | (tout fichier `.rs` sans les hints ci-dessus) |
 
 ### Table de mapping
 
-Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. Entrées v1 :
+Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. Entrées actuelles :
 
-| Type de finding     | Framework      | Ancre de la recommandation                               |
-|---------------------|----------------|----------------------------------------------------------|
-| `NPlusOneSql`       | `JavaJpa`      | `JOIN FETCH` ou `@EntityGraph`, Hibernate User Guide     |
-| `NPlusOneHttp`      | `JavaGeneric`  | Endpoint batch ou `@Cacheable` request-scoped            |
-| `RedundantSql`      | `JavaGeneric`  | Cache service-level (Caffeine, Spring Cache)             |
+| Type de finding | Framework             | Ancre de la recommandation                                                                       |
+|-----------------|-----------------------|--------------------------------------------------------------------------------------------------|
+| `NPlusOneSql`   | `JavaJpa`             | `JOIN FETCH` ou `@EntityGraph`, Hibernate User Guide                                             |
+| `NPlusOneSql`   | `JavaQuarkusReactive` | Mutiny `Session.fetch()` + `@NamedEntityGraph`, guide Quarkus Hibernate Reactive                 |
+| `NPlusOneSql`   | `JavaQuarkus`         | JPQL/Panache `JOIN FETCH`, `@EntityGraph` ou `Session.fetchProfile`, guide Quarkus Hibernate ORM |
+| `NPlusOneSql`   | `JavaHelidonSe`       | Requête nommée Helidon `DbClient` avec JOIN, ou binding JDBC `:ids`                              |
+| `NPlusOneSql`   | `JavaHelidonMp`       | JPA `@EntityGraph` ou JPQL `JOIN FETCH` (les entités MP sont gérées par JPA via Hibernate)        |
+| `NPlusOneHttp`  | `JavaWebFlux`         | `Flux.merge()` / `Flux.zip()` pour le parallélisme, ou endpoint batch                            |
+| `NPlusOneHttp`  | `JavaQuarkusReactive` | `Uni.combine().all().unis(...)` pour le parallélisme, guide Mutiny combining                     |
+| `NPlusOneHttp`  | `JavaQuarkus`         | `CompletableFuture.allOf` sur `ManagedExecutor`, batch via Quarkus REST Client                   |
+| `NPlusOneHttp`  | `JavaHelidonSe`       | Helidon SE `WebClient` + `Single.zip` / `Multi.merge` pour le parallélisme, ou endpoint batch    |
+| `NPlusOneHttp`  | `JavaHelidonMp`       | MicroProfile Rest Client + `CompletableFuture.allOf` sur l'executor `@ManagedExecutorConfig`, ou endpoint batch |
+| `NPlusOneHttp`  | `JavaGeneric`         | Endpoint batch ou `@Cacheable` request-scoped                                                    |
+| `RedundantSql`  | `JavaQuarkusReactive` | `@CacheResult` ou `Uni.memoize().indefinitely()`                                                 |
+| `RedundantSql`  | `JavaQuarkus`         | `@CacheResult` (extension cache Quarkus) ou déduplication HashMap `@RequestScoped`               |
+| `RedundantSql`  | `JavaGeneric`         | Cache service-level (Caffeine, Spring Cache)                                                     |
+| `NPlusOneSql`   | `CsharpEfCore`        | `.Include()` / `.ThenInclude()`, `.AsSplitQuery()` pour l'explosion cartésienne                  |
+| `RedundantSql`  | `CsharpEfCore`        | `IMemoryCache`, DbContext scopé pour le short-circuit per-request                                |
+| `NPlusOneHttp`  | `CsharpGeneric`       | `Task.WhenAll` pour les appels parallèles, endpoint batch, response caching `HttpClient`         |
+| `NPlusOneSql`   | `RustDiesel`          | `belonging_to` + `grouped_by`, ou `.inner_join` / `.left_join` pour une seule query              |
+| `NPlusOneSql`   | `RustSeaOrm`          | `find_with_related` / `find_also_related`, ou `QuerySelect::join`                                |
+| `RedundantSql`  | `RustDiesel`          | Cache `moka` ou `OnceCell` request-local                                                         |
+| `RedundantSql`  | `RustSeaOrm`          | Cache `moka` ou `OnceCell` request-local                                                         |
+| `NPlusOneHttp`  | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` pour le parallélisme, ou endpoint batch             |
 
 ### Chemin d'extension pour les contributeurs
 
 Pour ajouter un nouveau framework :
 
 1. Étendre l'enum privé `Framework` dans `detect/suggestions.rs`.
-2. Étendre `detect_framework` avec les nouvelles heuristiques. Les garder cheap, pures, déterministes, ne lisant que `finding.code_location`.
+2. Choisir un langage et ajouter une entrée `(Framework, &[hint])` au slice de règles de ce langage. Placer les frameworks plus spécifiques avant les moins spécifiques.
 3. Ajouter des entrées à la static `FIXES` pour chaque paire `(FindingType, Framework)` à mapper.
 4. Ajouter des tests unitaires sous le module `tests` du même fichier.
+
+Pour ajouter un nouveau langage :
+
+1. Étendre l'enum `Language` et ses méthodes `rules()` / `generic()`.
+2. Ajouter le match d'extension de fichier dans `language_from_filepath`.
+3. Définir un nouveau slice `*_RULES` et une variante générique fallback sur `Framework`.
 
 Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déjà `suggestions::enrich` à la fin de la passe de détection per-trace, et les rendus CLI / JSON / SARIF gèrent déjà un `suggested_fix` optionnel.
