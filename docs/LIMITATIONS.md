@@ -337,8 +337,8 @@ The optional network transport energy term estimates the energy cost of moving b
 
 Key limitations:
 
-- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance, and infrastructure.
-- **No CDN or compression effects.** Content delivery networks, HTTP compression, and connection reuse all reduce the effective transport energy but are not modeled.
+- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance and infrastructure.
+- **No CDN or compression effects.** Content delivery networks, HTTP compression and connection reuse all reduce the effective transport energy but are not modeled.
 - **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
 - **No last-mile modeling.** The estimate covers backbone transport. The energy cost of the last mile (edge network, client device) is excluded.
 - **Linear proportionality assumption.** The kWh/GB model assumes energy scales linearly with data volume. Mytton et al. (2024) show this is a simplification: network equipment has a significant fixed baseload power regardless of traffic. The estimate is directional, not precise.
@@ -396,7 +396,7 @@ Limitations:
 - **Most OTel auto-instrumentation agents do not emit `code.lineno` or `code.filepath`.** Manual instrumentation or agent-specific configuration is required. Without these attributes, findings appear without source location (no noise, graceful degradation).
 - **`code.function` is the most commonly available attribute.** If only `code.function` is present, the CLI displays it but SARIF cannot produce a `physicalLocation` (which requires at least a file path).
 - **Line numbers may be approximate.** Some agents report the method entry point, not the exact line of the I/O call.
-- **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, perf-sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters, and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
+- **Hostile `code.filepath` values are dropped from SARIF.** The OTel `code.filepath` attribute is attacker-controlled. Before emission as a SARIF `artifactLocation.uri`, perf-sentinel rejects URI-like strings, absolute paths, path traversal (literal and percent-encoded), double-encoded percent sequences, overlong UTF-8 prefixes, control characters and BiDi/invisible Unicode (Trojan Source class). Findings with rejected filepaths still appear in the report, only without `physicalLocations`.
 
 ## Daemon query API
 
@@ -429,13 +429,13 @@ perf-sentinel never stores secrets in config output. For scrapers that need cred
 
 The daemon never writes secrets to stdout/stderr: all scraper error paths use `redact_endpoint` to strip userinfo from any URL before logging.
 
-When the daemon runs with `api_enabled = true`, the query API exposes findings (not secrets) but has no authentication. Restrict loopback access via network policies or a reverse proxy, or set `api_enabled = false` to disable the API surface entirely.
+When the daemon runs with `api_enabled = true`, the query API exposes findings (not secrets) but has no authentication. Restrict loopback access via network policies or a reverse proxy or set `api_enabled = false` to disable the API surface entirely.
 
 ## Electricity Maps API
 
 - **API key required.** The Electricity Maps integration requires an API key (free or paid tier). The key should be provided via the `PERF_SENTINEL_EMAPS_TOKEN` environment variable rather than in the config file.
 - **HTTPS strongly recommended.** When the configured endpoint is `http://` (cleartext) and an auth token is set, perf-sentinel emits a warning at config load. The Electricity Maps production API is served over HTTPS only; an `http://` endpoint is almost always a misconfiguration or a local test setup.
-- **Rate limits.** The free tier allows approximately 30 requests per month per zone. With the default `poll_interval_secs = 300` (5 minutes), this budget would be exhausted in under 3 hours. Free tier users should set `poll_interval_secs = 3600` or higher, or use the embedded hourly profiles instead.
+- **Rate limits.** The free tier allows approximately 30 requests per month per zone. With the default `poll_interval_secs = 300` (5 minutes), this budget would be exhausted in under 3 hours. Free tier users should set `poll_interval_secs = 3600` or higher or use the embedded hourly profiles instead.
 - **Daemon only.** The Electricity Maps scraper runs only in `perf-sentinel watch` mode. Batch mode (`analyze`, `tempo`, `calibrate`) uses the embedded profiles.
 - **Staleness fallback.** If the API is unreachable for longer than 3x the poll interval, the scraper falls back to embedded hourly or annual profiles.
 

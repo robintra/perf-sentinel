@@ -446,7 +446,7 @@ instance_type = "n2-standard-8"
 
 **Daemon only.** Like Scaphandre, cloud energy estimation is a daemon-only feature. The `analyze` batch command always uses the proxy model.
 
-**What cloud SPECpower does NOT do.** See `docs/LIMITATIONS.md` "Cloud SPECpower precision bounds" for the full discussion. The SPECpower model captures CPU-proportional power but not memory, I/O, or network power. Shared tenancy is not corrected. Accuracy is approximately +/-30%.
+**What cloud SPECpower does NOT do.** See `docs/LIMITATIONS.md` "Cloud SPECpower precision bounds" for the full discussion. The SPECpower model captures CPU-proportional power but not memory, I/O or network power. Shared tenancy is not corrected. Accuracy is approximately +/-30%.
 
 ## Per-operation energy coefficients
 
@@ -485,7 +485,7 @@ let proxy_energy_kwh = if ctx.per_operation_coefficients {
 
 When measured energy is available (Scaphandre or cloud SPECpower), the coefficient is NOT applied. Measured data is always more accurate than heuristic multipliers.
 
-**Hot path detail.** The `energy_coefficient()` function is `#[inline]` and avoids allocation: it uses `split_ascii_whitespace().next()` (lazy, stops at the first space) for verb extraction, and `eq_ignore_ascii_case` for matching instead of lowercasing. The most common verb (SELECT) matches on the first comparison.
+**Hot path detail.** The `energy_coefficient()` function is `#[inline]` and avoids allocation: it uses `split_ascii_whitespace().next()` (lazy, stops at the first space) for verb extraction and `eq_ignore_ascii_case` for matching instead of lowercasing. The most common verb (SELECT) matches on the first comparison.
 
 **Config toggle.** `[green] per_operation_coefficients = true` (default). Set to `false` to use the flat constant. The model tag stays `io_proxy_v1` or `io_proxy_v2` regardless of this toggle. The per-operation coefficients are a refinement of the proxy model, not a new model class.
 

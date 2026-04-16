@@ -756,6 +756,56 @@ io_waste_ratio_max = 0.30
 
 ---
 
+## CI integration recipes
+
+Ready-to-copy templates for the three major CI providers live in
+[`docs/ci-templates/`](./ci-templates/). Pick the one that matches your
+provider, drop it into your repository, adapt the three variables called out
+in the template's leading comment block (version pin, trace path, config
+path) and you are done.
+
+| Provider          | Template                                                       | What it surfaces                              |
+|-------------------|----------------------------------------------------------------|-----------------------------------------------|
+| GitHub Actions    | [`github-actions.yml`](./ci-templates/github-actions.yml)      | SARIF in GitHub Code Scanning + sticky PR comment |
+| GitLab CI         | [`gitlab-ci.yml`](./ci-templates/gitlab-ci.yml)                | SARIF artifact + Code Quality widget on the MR    |
+| Jenkins           | [`jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy)      | Warnings Next Generation issue tree + trend chart |
+
+### Quality-gate philosophy
+
+All three templates run `perf-sentinel analyze --ci` as the gating step. The
+`--ci` flag does one thing: when any threshold defined in
+`[thresholds]` of `.perf-sentinel.toml` is breached, the process exits with
+code `1`. The CI provider then turns that into a red build, which is the
+signal you want on a pull request.
+
+The recommended setup runs perf-sentinel **twice** in the same job: once
+without `--ci` to always produce a SARIF artifact (so reviewers can inspect
+findings even when the gate fails) and once with `--ci` to enforce the
+gate. The Jenkins and GitLab templates do this explicitly. The GitHub
+template uses `continue-on-error` to achieve the same effect in a single
+invocation.
+
+### Where SARIF surfaces in each provider
+
+- **GitHub Code Scanning** lists each finding under the Security tab of the
+  repository, with inline source annotations on the PR diff when the
+  `code_location` field is present. Requires `permissions.security-events:
+  write` on the workflow.
+- **GitLab Code Quality** widget shows up on the merge request page, with
+  severity colors derived from the perf-sentinel `severity` field
+  (`critical -> critical`, `warning -> major`, `info -> info`).
+- **Jenkins Warnings Next Generation** publishes a structured issue tree
+  with a trend chart per build. The plugin natively understands SARIF
+  v2.1.0 and supports its own `qualityGates` declaration as a defense in
+  depth on top of the perf-sentinel `--ci` exit code.
+
+For a worked Spring Boot + Maven + Jenkins example with the
+`kinexoPipeline` shared library, see
+[`ENTERPRISE-JAVA-INTEGRATION-FR.md`](../ENTERPRISE-JAVA-INTEGRATION-FR.md)
+(French only, for now).
+
+---
+
 ## Ingestion formats
 
 perf-sentinel auto-detects the input format when using `perf-sentinel analyze --input`:
@@ -889,14 +939,14 @@ process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet"
 
 The `process_map` maps perf-sentinel service names to the `exe` label in Scaphandre's `scaph_process_power_consumption_microwatts` metric. The daemon scrapes this endpoint every `scrape_interval_secs` and computes a per-service energy-per-op coefficient using the formula: `energy_kwh = (power_watts * interval) / ops / 3_600_000`.
 
-Services not present in `process_map`, or when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre; the `analyze` batch command always uses the proxy model.
+Services not present in `process_map` or when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre; the `analyze` batch command always uses the proxy model.
 
 ### Cloud-native energy estimation (AWS / GCP / Azure)
 
 For cloud VMs that do not expose RAPL (most non-bare-metal instances), perf-sentinel can estimate per-service energy using CPU utilization metrics from a Prometheus endpoint and the SPECpower model.
 
 **Prerequisites:**
-- A Prometheus-compatible endpoint with CPU utilization metrics (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter, or node_exporter).
+- A Prometheus-compatible endpoint with CPU utilization metrics (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter or node_exporter).
 - perf-sentinel does NOT query cloud provider APIs directly.
 
 **Configuration:**
@@ -935,9 +985,9 @@ When neither Scaphandre nor cloud energy are available but you have reference en
 
 **1. Measure.** Run a reference workload and collect both traces (standard perf-sentinel JSON format) and energy measurements (CSV with `timestamp,service,power_watts` or `timestamp,service,energy_kwh` columns, auto-detected from the header).
 
-**2. Calibrate.** Run `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. The subcommand correlates I/O ops with energy readings per service and time window, computes `factor = measured_per_op / default_proxy`, and writes a TOML file. Factors > 10x or < 0.1x emit warnings (likely measurement error).
+**2. Calibrate.** Run `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. The subcommand correlates I/O ops with energy readings per service and time window, computes `factor = measured_per_op / default_proxy` and writes a TOML file. Factors > 10x or < 0.1x emit warnings (likely measurement error).
 
-**3. Use.** Load the calibration file at config time via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. The scoring loop multiplies the proxy energy by the per-service factor, and the model tag gets a `+cal` suffix (e.g. `io_proxy_v2+cal`). Calibration only applies to the proxy model: Scaphandre/cloud measured energy still overrides.
+**3. Use.** Load the calibration file at config time via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. The scoring loop multiplies the proxy energy by the per-service factor and the model tag gets a `+cal` suffix (e.g. `io_proxy_v2+cal`). Calibration only applies to the proxy model: Scaphandre/cloud measured energy still overrides.
 
 ---
 

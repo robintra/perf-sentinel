@@ -734,6 +734,58 @@ io_waste_ratio_max = 0.30
 
 ---
 
+## Recettes d'intégration CI
+
+Des templates prêts à copier pour les trois principaux fournisseurs CI sont
+disponibles dans [`docs/ci-templates/`](../ci-templates/). Choisissez celui
+qui correspond à votre fournisseur, déposez-le dans votre dépôt, adaptez
+les trois variables identifiées dans le bloc de commentaire en tête du
+template (version pinnée, chemin du fichier de traces, chemin de la
+config) et c'est terminé.
+
+| Fournisseur       | Template                                                          | Ce qui apparaît                                            |
+|-------------------|-------------------------------------------------------------------|------------------------------------------------------------|
+| GitHub Actions    | [`github-actions.yml`](../ci-templates/github-actions.yml)        | SARIF dans GitHub Code Scanning + commentaire sticky sur la PR |
+| GitLab CI         | [`gitlab-ci.yml`](../ci-templates/gitlab-ci.yml)                  | Artifact SARIF + widget Code Quality sur la MR             |
+| Jenkins           | [`jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy)        | Arbre de findings Warnings Next Generation + courbe de tendance |
+
+### Philosophie du quality gate
+
+Les trois templates exécutent `perf-sentinel analyze --ci` comme étape de
+gating. Le flag `--ci` ne fait qu'une seule chose : si l'un des seuils
+définis dans la section `[thresholds]` de `.perf-sentinel.toml` est
+dépassé, le processus sort avec le code `1`. Le fournisseur CI traduit cela
+en build rouge, ce qui est le signal recherché sur une pull request.
+
+La configuration recommandée exécute perf-sentinel **deux fois** dans le
+même job : une fois sans `--ci` pour toujours produire un artifact SARIF
+(les reviewers peuvent inspecter les findings même quand le gate échoue),
+et une fois avec `--ci` pour appliquer le gate. Les templates Jenkins et
+GitLab font cela explicitement. Le template GitHub utilise
+`continue-on-error` pour obtenir le même effet en une seule invocation.
+
+### Où SARIF apparaît selon le fournisseur
+
+- **GitHub Code Scanning** liste chaque finding dans l'onglet Security du
+  dépôt, avec des annotations en ligne sur le diff de la PR quand le champ
+  `code_location` est présent. Nécessite `permissions.security-events:
+  write` sur le workflow.
+- **Le widget Code Quality de GitLab** apparaît sur la page de merge
+  request, avec des couleurs de sévérité dérivées du champ `severity` de
+  perf-sentinel (`critical -> critical`, `warning -> major`, `info ->
+  info`).
+- **Jenkins Warnings Next Generation** publie un arbre de findings
+  structuré avec une courbe de tendance par build. Le plugin comprend
+  nativement SARIF v2.1.0 et supporte sa propre déclaration `qualityGates`
+  comme défense en profondeur en plus du code de sortie `--ci` de
+  perf-sentinel.
+
+Pour un exemple complet Spring Boot + Maven + Jenkins avec la shared
+library `kinexoPipeline`, voir
+[`ENTERPRISE-JAVA-INTEGRATION-FR.md`](../../ENTERPRISE-JAVA-INTEGRATION-FR.md).
+
+---
+
 ## Formats d'ingestion
 
 perf-sentinel auto-détecte le format d'entrée avec `perf-sentinel analyze --input` :

@@ -240,7 +240,7 @@ calibration_file = ".perf-sentinel-calibration.toml"
 
 #### `[tempo]` (optional)
 
-Configuration for the `perf-sentinel tempo` subcommand. The subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API, and pipes them through the standard analysis pipeline. All values below can also be set via CLI flags (flags override config).
+Configuration for the `perf-sentinel tempo` subcommand. The subcommand runs in **batch mode** (not daemon), fetches traces from a Grafana Tempo HTTP API and pipes them through the standard analysis pipeline. All values below can also be set via CLI flags (flags override config).
 
 | Field        | Type    | Default | Description                                        |
 |--------------|---------|---------|----------------------------------------------------|

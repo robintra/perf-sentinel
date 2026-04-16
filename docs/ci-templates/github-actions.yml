@@ -1,0 +1,132 @@
+# perf-sentinel GitHub Actions workflow
+#
+# Runs perf-sentinel in batch mode against an integration-test trace fixture,
+# uploads SARIF findings to GitHub Code Scanning, comments on PRs when
+# findings change, and enforces a quality gate via a non-zero exit code on
+# threshold breach.
+#
+# What you must adapt before using this template:
+#   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
+#      'latest'). Bump deliberately and review the CHANGELOG before each bump.
+#   2. PERF_SENTINEL_TRACES: path to a trace file produced by your integration
+#      test stage. The trace file must be present in the workspace at the
+#      moment perf-sentinel runs. Common patterns:
+#        - emit traces from your test runner via OTel JSON exporter to
+#          target/traces.json (Java/Maven, see ENTERPRISE-JAVA-INTEGRATION-FR.md
+#          for a worked example).
+#        - capture traces via tcpdump or sidecar collector during a docker
+#          compose integration run.
+#   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
+#      [thresholds] section to set quality-gate severity floors.
+#
+# See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
+# the full integration guide and the quality-gate philosophy.
+
+name: perf-sentinel
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write   # required for github/codeql-action/upload-sarif
+  pull-requests: write     # required to comment on PRs
+
+jobs:
+  perf-sentinel:
+    name: Performance anti-pattern scan
+    runs-on: ubuntu-latest
+    env:
+      PERF_SENTINEL_VERSION: "0.4.2"
+      PERF_SENTINEL_TRACES: "test-traces.json"
+      PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Place your integration-test stage here. It must produce the trace file
+      # at $PERF_SENTINEL_TRACES before perf-sentinel runs. Example:
+      #
+      # - name: Run integration tests with OTel tracing
+      #   run: ./scripts/run-integration-tests.sh
+      #   env:
+      #     OTEL_TRACES_EXPORTER: otlp_file
+      #     OTEL_EXPORTER_OTLP_FILE_PATH: ${{ env.PERF_SENTINEL_TRACES }}
+
+      - name: Install perf-sentinel from GitHub Releases
+        run: |
+          set -euo pipefail
+          BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+          curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+          curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+          # Verify integrity before executing. Fails the build if the binary
+          # was tampered with or the release is corrupted.
+          grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+          install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+          perf-sentinel --version
+
+      - name: Run perf-sentinel analyze
+        id: analyze
+        # Continue on error so we can still upload SARIF and comment on PRs
+        # even when the quality gate fails. The final step re-asserts the
+        # exit code below.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          perf-sentinel analyze \
+            --ci \
+            --input "${PERF_SENTINEL_TRACES}" \
+            --config "${PERF_SENTINEL_CONFIG}" \
+            --format sarif \
+            --output findings.sarif
+          echo "exit_code=$?" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload SARIF to GitHub Code Scanning
+        if: always() && hashFiles('findings.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: findings.sarif
+          category: perf-sentinel
+
+      - name: Generate PR comment summary
+        if: github.event_name == 'pull_request' && hashFiles('findings.sarif') != ''
+        run: |
+          set -euo pipefail
+          # Re-run analyze with JSON output to extract finding counts.
+          perf-sentinel analyze \
+            --input "${PERF_SENTINEL_TRACES}" \
+            --config "${PERF_SENTINEL_CONFIG}" \
+            --format json \
+            --output report.json || true
+          {
+            echo "## perf-sentinel report"
+            echo
+            echo '```'
+            jq -r '
+              "Findings: \(.findings | length)",
+              "  Critical: \([.findings[] | select(.severity == "critical")] | length)",
+              "  Warning : \([.findings[] | select(.severity == "warning")]  | length)",
+              "  Info    : \([.findings[] | select(.severity == "info")]     | length)",
+              "",
+              "I/O waste ratio: \(.green_summary.io_waste_ratio) (\(.green_summary.io_waste_ratio_band))",
+              "Quality gate  : \(if .quality_gate.passed then "PASS" else "FAIL" end)"
+            ' report.json
+            echo '```'
+          } > pr-comment.md
+
+      - name: Post PR comment
+        if: github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: perf-sentinel
+          path: pr-comment.md
+
+      - name: Enforce quality gate
+        if: steps.analyze.outcome == 'failure'
+        run: |
+          echo "::error::perf-sentinel quality gate failed. See SARIF findings in the Security tab."
+          exit 1

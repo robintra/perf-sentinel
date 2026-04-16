@@ -1,0 +1,111 @@
+# perf-sentinel GitLab CI pipeline
+#
+# Runs perf-sentinel in batch mode against an integration-test trace fixture
+# and publishes a Code Quality artifact so findings appear in the GitLab MR
+# Code Quality widget. Uses --ci so the job fails when the quality gate is
+# breached.
+#
+# What you must adapt before using this template:
+#   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
+#      'latest'). Bump deliberately and review the CHANGELOG before each bump.
+#   2. PERF_SENTINEL_TRACES: path to a trace file produced by your integration
+#      test stage. Make sure your previous job (test stage) emits the trace
+#      file as an artifact, then declare a `dependencies:` or `needs:` so the
+#      file is restored into this job's workspace.
+#   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
+#      [thresholds] section to set quality-gate severity floors.
+#
+# See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
+# the full integration guide and the quality-gate philosophy.
+
+stages:
+  - test
+  - perf-sentinel
+
+variables:
+  PERF_SENTINEL_VERSION: "0.4.2"
+  PERF_SENTINEL_TRACES: "test-traces.json"
+  PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
+
+# Place your integration-test job here. It must produce the trace file at
+# $PERF_SENTINEL_TRACES and publish it as an artifact so the perf-sentinel
+# job can pick it up via `dependencies:`. Example:
+#
+# integration-tests:
+#   stage: test
+#   script:
+#     - ./scripts/run-integration-tests.sh
+#   artifacts:
+#     paths:
+#       - test-traces.json
+#     expire_in: 1 day
+
+perf-sentinel:
+  stage: perf-sentinel
+  image: debian:bookworm-slim
+  # dependencies:
+  #   - integration-tests   # uncomment once your test job exists
+  before_script:
+    - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates jq
+    - |
+      set -euo pipefail
+      BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+      curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+      curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+      # Verify integrity before executing. Fails the job if the binary was
+      # tampered with or the release is corrupted.
+      grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+      install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+      perf-sentinel --version
+  script:
+    # SARIF artifact for archive and inspection.
+    - |
+      perf-sentinel analyze \
+        --input "${PERF_SENTINEL_TRACES}" \
+        --config "${PERF_SENTINEL_CONFIG}" \
+        --format sarif \
+        --output findings.sarif
+    # JSON report for downstream tooling and the Code Quality conversion.
+    - |
+      perf-sentinel analyze \
+        --input "${PERF_SENTINEL_TRACES}" \
+        --config "${PERF_SENTINEL_CONFIG}" \
+        --format json \
+        --output perf-sentinel-report.json || true
+    # Convert findings to GitLab Code Quality format. GitLab expects an array
+    # of {description, fingerprint, severity, location.path, location.lines}.
+    - |
+      jq '[
+        .findings[] | {
+          description: ("[" + .type + "] " + .suggestion),
+          fingerprint: (.trace_id + "-" + .type + "-" + .source_endpoint),
+          severity: (
+            if .severity == "critical" then "critical"
+            elif .severity == "warning" then "major"
+            else "info" end
+          ),
+          location: {
+            path: (.code_location.code_filepath // "unknown"),
+            lines: { begin: (.code_location.code_lineno // 1) }
+          }
+        }
+      ]' perf-sentinel-report.json > gl-code-quality-report.json
+    # Re-run with --ci to enforce the quality gate. Exit code 1 if any
+    # threshold is breached.
+    - |
+      perf-sentinel analyze \
+        --ci \
+        --input "${PERF_SENTINEL_TRACES}" \
+        --config "${PERF_SENTINEL_CONFIG}" \
+        --format json > /dev/null
+  artifacts:
+    when: always
+    paths:
+      - findings.sarif
+      - perf-sentinel-report.json
+    reports:
+      codequality: gl-code-quality-report.json
+    expire_in: 1 week
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
