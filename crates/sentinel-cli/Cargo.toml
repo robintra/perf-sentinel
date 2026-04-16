@@ -22,8 +22,8 @@ daemon = ["perf-sentinel-core/daemon"]
 tempo = ["perf-sentinel-core/tempo"]
 
 [dependencies]
-perf-sentinel-core = { version = "0.4.0", path = "../sentinel-core" }
-clap = { version = "4.6.0", features = ["derive"] }
+perf-sentinel-core = { version = "0.4.1", path = "../sentinel-core" }
+clap = { version = "4.6.1", features = ["derive"] }
 tokio = { version = "1.52.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
