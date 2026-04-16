@@ -9,16 +9,16 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 
 ## Subcommands
 
-| Subcommand | Description                                                      |
-|------------|------------------------------------------------------------------|
-| `analyze`  | Batch analysis of trace files. Reads from file or stdin          |
-| `explain`  | Tree view of a specific trace with findings annotated inline     |
-| `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection    |
+| Subcommand | Description                                                                                                                                                   |
+|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`  | Batch analysis of trace files. Reads from file or stdin                                                                                                       |
+| `explain`  | Tree view of a specific trace with findings annotated inline                                                                                                  |
+| `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                 |
 | `query`    | Query a running daemon for findings, correlations, or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
-| `demo`     | Run analysis on an embedded demo dataset                         |
-| `bench`    | Benchmark throughput on a trace file                             |
-| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)    |
-| `inspect`  | Interactive TUI to browse traces, findings and span trees        |
+| `demo`     | Run analysis on an embedded demo dataset                                                                                                                      |
+| `bench`    | Benchmark throughput on a trace file                                                                                                                          |
+| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                 |
+| `inspect`  | Interactive TUI to browse traces, findings and span trees                                                                                                     |
 
 ## Sections
 
@@ -251,35 +251,48 @@ Configuration for the `perf-sentinel tempo` subcommand. The subcommand runs in *
 
 Streaming mode (`perf-sentinel watch`) settings.
 
-| Field                  | Type    | Default                     | Description                                                                                                                                                                                                                                                                                    |
-|------------------------|---------|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `listen_address`       | string  | `"127.0.0.1"`               | IP address to bind for OTLP and metrics endpoints. Use `127.0.0.1` for local-only access. **Warning:** setting a non-loopback address exposes unauthenticated endpoints to the network, use a reverse proxy or network policy                                                                  |
-| `listen_port_http`     | integer | `4318`                      | Port for OTLP HTTP receiver and Prometheus `/metrics` endpoint (range: 1-65535)                                                                                                                                                                                                                |
-| `listen_port_grpc`     | integer | `4317`                      | Port for OTLP gRPC receiver (range: 1-65535)                                                                                                                                                                                                                                                   |
-| `json_socket`          | string  | `"/tmp/perf-sentinel.sock"` | Unix socket path for JSON event ingestion                                                                                                                                                                                                                                                      |
-| `max_active_traces`    | integer | `10000`                     | Maximum number of traces held in memory. When exceeded, the oldest trace is evicted (LRU)                                                                                                                                                                                                      |
-| `trace_ttl_ms`         | integer | `30000`                     | Time-to-live for traces in milliseconds. Traces older than this are evicted and analyzed                                                                                                                                                                                                       |
-| `sampling_rate`        | float   | `1.0`                       | Fraction of traces to analyze (0.0 to 1.0). Set below 1.0 to reduce load in high-traffic environments                                                                                                                                                                                          |
-| `max_events_per_trace` | integer | `1000`                      | Maximum events stored per trace (ring buffer, max 100000). Oldest events are dropped when exceeded                                                                                                                                                                                             |
-| `max_payload_size`     | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB, max 100 MB)                                                                                                                                                                                                                    |
-| `environment`          | string  | `"staging"`                 | Deployment environment label. Accepted values: `"staging"` (default, medium confidence) or `"production"` (high confidence). Stamps every finding with the corresponding `confidence` field for downstream consumers (perf-lint). Case-insensitive; any other value is rejected at config load |
-| `tls_cert_path`        | string  | *(absent)*                  | Path to a PEM-encoded TLS certificate chain for the OTLP receivers. When set alongside `tls_key_path`, both gRPC and HTTP listeners use TLS. When absent, listeners use plain TCP |
-| `tls_key_path`         | string  | *(absent)*                  | Path to a PEM-encoded TLS private key. Must be set together with `tls_cert_path` (both or neither). On Unix, the daemon warns if the key file is readable by group or others |
-| `api_enabled`          | boolean | `true`                      | Enable the daemon query API endpoints (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Set to `false` to disable the API while keeping OTLP ingestion and `/metrics` active |
-| `max_retained_findings`| integer | `10000`                     | Maximum number of recent findings retained in the daemon's ring buffer for the query API. Older findings are evicted when the limit is reached. Set to `0` to disable the store entirely and reclaim its memory (recommended when `api_enabled = false`) |
+| Field                   | Type    | Default                     | Description                                                                                                                                                                                                                                                                                    |
+|-------------------------|---------|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `listen_address`        | string  | `"127.0.0.1"`               | IP address to bind for OTLP and metrics endpoints. Use `127.0.0.1` for local-only access. **Warning:** setting a non-loopback address exposes unauthenticated endpoints to the network, use a reverse proxy or network policy                                                                  |
+| `listen_port_http`      | integer | `4318`                      | Port for OTLP HTTP receiver and Prometheus `/metrics` endpoint (range: 1-65535)                                                                                                                                                                                                                |
+| `listen_port_grpc`      | integer | `4317`                      | Port for OTLP gRPC receiver (range: 1-65535)                                                                                                                                                                                                                                                   |
+| `json_socket`           | string  | `"/tmp/perf-sentinel.sock"` | Unix socket path for JSON event ingestion                                                                                                                                                                                                                                                      |
+| `max_active_traces`     | integer | `10000`                     | Maximum number of traces held in memory. When exceeded, the oldest trace is evicted (LRU). Range: 1 to 1,000,000                                                                                                                                                                               |
+| `trace_ttl_ms`          | integer | `30000`                     | Time-to-live for traces in milliseconds. Traces older than this are evicted and analyzed. Range: 100 to 3,600,000                                                                                                                                                                              |
+| `sampling_rate`         | float   | `1.0`                       | Fraction of traces to analyze (0.0 to 1.0). Set below 1.0 to reduce load in high-traffic environments                                                                                                                                                                                          |
+| `max_events_per_trace`  | integer | `1000`                      | Maximum events stored per trace (ring buffer). Oldest events are dropped when exceeded. Range: 1 to 100,000                                                                                                                                                                                    |
+| `max_payload_size`      | integer | `1048576`                   | Maximum size in bytes for a single JSON payload (default: 1 MB). Range: 1,024 to 104,857,600 (100 MB)                                                                                                                                                                                          |
+| `environment`           | string  | `"staging"`                 | Deployment environment label. Accepted values: `"staging"` (default, medium confidence) or `"production"` (high confidence). Stamps every finding with the corresponding `confidence` field for downstream consumers (perf-lint). Case-insensitive; any other value is rejected at config load |
+| `tls_cert_path`         | string  | *(absent)*                  | Path to a PEM-encoded TLS certificate chain for the OTLP receivers. When set alongside `tls_key_path`, both gRPC and HTTP listeners use TLS. When absent, listeners use plain TCP                                                                                                              |
+| `tls_key_path`          | string  | *(absent)*                  | Path to a PEM-encoded TLS private key. Must be set together with `tls_cert_path` (both or neither). On Unix, the daemon warns if the key file is readable by group or others                                                                                                                   |
+| `api_enabled`           | boolean | `true`                      | Enable the daemon query API endpoints (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Set to `false` to disable the API while keeping OTLP ingestion and `/metrics` active                                                                                   |
+| `max_retained_findings` | integer | `10000`                     | Maximum number of recent findings retained in the daemon's ring buffer for the query API. Older findings are evicted when the limit is reached. Range: 0 to 10,000,000, where `0` disables the store entirely and reclaims its memory (recommended when `api_enabled = false`)                 |
+
+##### Comfort zones and startup warnings
+
+Daemon limits accept any value inside their hard bounds (rejected at config load), but `perf-sentinel watch` emits a one-shot `WARN` log at startup when a value falls outside the recommended comfort zone. The warning is informational: the daemon still runs. Use it as a sanity check that an unusual value was deliberate.
+
+| Field                   | Comfort zone             | Why values outside the zone are unusual                                                                                     |
+|-------------------------|--------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `max_payload_size`      | 256 KiB to 16 MiB        | Smaller may reject legitimate OTLP batches; larger increases ingest latency and RSS                                         |
+| `max_active_traces`     | 1,000 to 100,000         | Smaller triggers aggressive LRU eviction; larger grows memory roughly linearly                                              |
+| `max_events_per_trace`  | 100 to 10,000            | Smaller truncates complex traces; larger rarely improves detection quality                                                  |
+| `max_retained_findings` | 100 to 100,000 (or `0`)  | Smaller evicts findings before `/api/findings` can serve them; larger holds a backlog. `0` disables the store and is silent |
+| `trace_ttl_ms`          | 1,000 to 600,000         | Below 1s flushes traces before slow spans land; above 10min keeps near-dead traces                                          |
+| `max_fanout`            | 5 to 1,000               | Smaller floods the findings store with noise; larger suppresses most fan-out detections                                     |
 
 #### `[daemon.correlation]` (optional)
 
 Cross-trace temporal correlation in daemon mode. When enabled, the daemon detects recurring co-occurrences between findings from different services or traces (e.g. "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds").
 
-| Field                 | Type    | Default | Description                                                                                                   |
-|-----------------------|---------|---------|---------------------------------------------------------------------------------------------------------------|
-| `enabled`             | boolean | `false` | Enable cross-trace correlation. Requires `watch` daemon mode with sustained traffic to produce useful results |
-| `window_minutes`      | integer | `10`    | Rolling window in minutes over which co-occurrences are tracked                                               |
-| `lag_threshold_ms`    | integer | `2000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                           |
-| `min_co_occurrences`  | integer | `3`     | Minimum number of co-occurrences before a correlation is reported                                             |
-| `min_confidence`      | float   | `0.5`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
-| `max_tracked_pairs`   | integer | `1000`  | Maximum number of finding pairs tracked simultaneously. Prevents unbounded memory growth from high-cardinality findings   |
+| Field                | Type    | Default | Description                                                                                                               |
+|----------------------|---------|---------|---------------------------------------------------------------------------------------------------------------------------|
+| `enabled`            | boolean | `false` | Enable cross-trace correlation. Requires `watch` daemon mode with sustained traffic to produce useful results             |
+| `window_minutes`     | integer | `10`    | Rolling window in minutes over which co-occurrences are tracked                                                           |
+| `lag_threshold_ms`   | integer | `2000`  | Maximum time lag in milliseconds between two findings to consider them co-occurring                                       |
+| `min_co_occurrences` | integer | `3`     | Minimum number of co-occurrences before a correlation is reported                                                         |
+| `min_confidence`     | float   | `0.5`   | Minimum confidence score (0.0 to 1.0) to report a correlation. Computed as `co_occurrence_count / total_occurrences_of_A` |
+| `max_tracked_pairs`  | integer | `1000`  | Maximum number of finding pairs tracked simultaneously. Prevents unbounded memory growth from high-cardinality findings   |
 
 ```toml
 [daemon.correlation]

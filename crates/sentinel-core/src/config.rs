@@ -920,6 +920,40 @@ fn check_min<T: PartialOrd + std::fmt::Display>(
     Ok(())
 }
 
+/// Emit a single startup warning when `val` is inside the hard bounds but
+/// outside the recommended "comfort zone" `[comfort_lo, comfort_hi]`.
+///
+/// `note` describes the practical consequence of the unusual value, so
+/// operators can tell at a glance whether they meant it (e.g. "tight
+/// trace ring buffer; complex traces will be truncated"). Logged once
+/// per field at config load, not per event.
+fn warn_outside_comfort_zone<T>(
+    name: &str,
+    val: &T,
+    comfort_lo: &T,
+    comfort_hi: &T,
+    note_low: &str,
+    note_high: &str,
+) where
+    T: PartialOrd + std::fmt::Display,
+{
+    if val < comfort_lo {
+        tracing::warn!(
+            field = %name,
+            value = %val,
+            recommended_min = %comfort_lo,
+            "{name} = {val} is below the recommended floor {comfort_lo}; {note_low}"
+        );
+    } else if val > comfort_hi {
+        tracing::warn!(
+            field = %name,
+            value = %val,
+            recommended_max = %comfort_hi,
+            "{name} = {val} is above the recommended ceiling {comfort_hi}; {note_high}"
+        );
+    }
+}
+
 /// `true` if `s` contains any ASCII control character (< 0x20 or DEL).
 fn has_control_char(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || b == 0x7F)
@@ -1459,10 +1493,74 @@ impl Config {
             &1,
             &100_000,
         )?;
+        // 0 is documented as "disable the findings store entirely". Cap
+        // the upper end at 10M so a typo can't OOM the daemon.
+        check_range(
+            "max_retained_findings",
+            &self.max_retained_findings,
+            &0,
+            &10_000_000,
+        )?;
         check_range("trace_ttl_ms", &self.trace_ttl_ms, &100, &3_600_000)?;
         check_range("listen_port_http", &self.listen_port, &1, &65535)?;
         check_range("listen_port_grpc", &self.listen_port_grpc, &1, &65535)?;
+        self.warn_unusual_daemon_limits();
         Ok(())
+    }
+
+    /// Soft warnings for daemon-limit values that parse but lie outside
+    /// the practical "comfort zone" around each default. Emitted once at
+    /// startup so operators get a heads-up without any rejection.
+    ///
+    /// Comfort zones bracket each default by roughly 1 to 2 orders of
+    /// magnitude; the bands were picked from the same defaults already
+    /// in `Config::default()`.
+    fn warn_unusual_daemon_limits(&self) {
+        warn_outside_comfort_zone(
+            "max_payload_size",
+            &self.max_payload_size,
+            &(256 * 1024),
+            &(16 * 1024 * 1024),
+            "tiny payloads may reject legitimate OTLP batches",
+            "large payloads increase ingest latency and memory pressure",
+        );
+        warn_outside_comfort_zone(
+            "max_active_traces",
+            &self.max_active_traces,
+            &1_000,
+            &100_000,
+            "aggressive LRU eviction is likely under load",
+            "memory footprint grows roughly linearly with this cap",
+        );
+        warn_outside_comfort_zone(
+            "max_events_per_trace",
+            &self.max_events_per_trace,
+            &100,
+            &10_000,
+            "complex traces will be truncated by the per-trace ring buffer",
+            "very wide ring buffers rarely improve detection quality",
+        );
+        // Skip the comfort-zone check when the store is intentionally
+        // disabled (max_retained_findings == 0); warning on that would
+        // be noise.
+        if self.max_retained_findings > 0 {
+            warn_outside_comfort_zone(
+                "max_retained_findings",
+                &self.max_retained_findings,
+                &100,
+                &100_000,
+                "old findings will be evicted before /api/findings can serve them",
+                "the findings store will hold a large in-memory backlog",
+            );
+        }
+        warn_outside_comfort_zone(
+            "trace_ttl_ms",
+            &self.trace_ttl_ms,
+            &1_000,
+            &600_000,
+            "TTL below 1s flushes traces before slow spans land",
+            "TTL above 10min keeps near-dead traces in the active set",
+        );
     }
 
     fn validate_detection_params(&self) -> Result<(), String> {
@@ -1475,6 +1573,14 @@ impl Config {
             &1,
         )?;
         check_range("max_fanout", &self.max_fanout, &1, &100_000)?;
+        warn_outside_comfort_zone(
+            "max_fanout",
+            &self.max_fanout,
+            &5,
+            &1_000,
+            "very low fanout floods the findings store with noise",
+            "very high fanout suppresses most fan-out detections",
+        );
         check_min(
             "chatty_service_min_calls",
             &self.chatty_service_min_calls,
@@ -1784,11 +1890,11 @@ tls_key_path = "C:\certs\server.key"
         // exercise each key via the unit-level normalizer rather than
         // the full loader (hourly/calibration files would otherwise
         // trigger disk I/O or validation noise).
-        for key in super::TOML_PATH_STRING_KEYS {
+        for key in TOML_PATH_STRING_KEYS {
             let line = format!("{key} = \"C:\\temp\\x\"\n");
-            let rewritten = super::normalize_toml_path_strings(&line);
+            let rewritten = normalize_toml_path_strings(&line);
             assert!(
-                matches!(rewritten, std::borrow::Cow::Owned(_)),
+                matches!(rewritten, Cow::Owned(_)),
                 "{key}: expected normalization to rewrite bare Windows path"
             );
             assert!(
@@ -1840,7 +1946,7 @@ sampling_rate = "not a number"
         // is at byte 5. Guards the linear `run`-counter rewrite against
         // regressions that would terminate too early.
         let value = r#""a\"b""#;
-        assert_eq!(super::find_basic_string_end(value), Some(5));
+        assert_eq!(find_basic_string_end(value), Some(5));
     }
 
     #[test]
@@ -1853,7 +1959,7 @@ sampling_rate = "not a number"
         input.extend(std::iter::repeat_n('\\', 10_000));
         input.push('"');
         // 10_000 backslashes → 5_000 `\\` pairs → closing `"` valid.
-        assert_eq!(super::find_basic_string_end(&input), Some(10_001));
+        assert_eq!(find_basic_string_end(&input), Some(10_001));
     }
 
     #[test]
@@ -2257,6 +2363,130 @@ default_region = "eu-west-3"
     fn accepts_max_events_per_trace_at_100k() {
         let result = load_from_str("[daemon]\nmax_events_per_trace = 100000");
         assert!(result.is_ok());
+    }
+
+    // --- comfort-zone warnings (parse OK, hard caps unchanged) ---
+
+    #[test]
+    fn config_defaults_sit_inside_every_comfort_zone() {
+        // Locks the invariant that the canonical defaults never trigger
+        // a startup warning. If a default is moved, this test forces an
+        // explicit re-check of the matching comfort band.
+        let cfg = Config::default();
+        assert!(
+            (256 * 1024..=16 * 1024 * 1024).contains(&cfg.max_payload_size),
+            "default max_payload_size {} is outside its comfort zone",
+            cfg.max_payload_size
+        );
+        assert!(
+            (1_000..=100_000).contains(&cfg.max_active_traces),
+            "default max_active_traces {} is outside its comfort zone",
+            cfg.max_active_traces
+        );
+        assert!(
+            (100..=10_000).contains(&cfg.max_events_per_trace),
+            "default max_events_per_trace {} is outside its comfort zone",
+            cfg.max_events_per_trace
+        );
+        assert!(
+            (100..=100_000).contains(&cfg.max_retained_findings),
+            "default max_retained_findings {} is outside its comfort zone",
+            cfg.max_retained_findings
+        );
+        assert!(
+            (1_000..=600_000).contains(&cfg.trace_ttl_ms),
+            "default trace_ttl_ms {} is outside its comfort zone",
+            cfg.trace_ttl_ms
+        );
+        assert!(
+            (5..=1_000).contains(&cfg.max_fanout),
+            "default max_fanout {} is outside its comfort zone",
+            cfg.max_fanout
+        );
+    }
+
+    #[test]
+    fn accepts_max_active_traces_below_comfort_floor_with_warning() {
+        // 500 < comfort floor (1_000) but well within hard floor (1).
+        let result = load_from_str("[daemon]\nmax_active_traces = 500");
+        assert!(result.is_ok(), "expected parse OK, got {result:?}");
+    }
+
+    #[test]
+    fn accepts_max_active_traces_above_comfort_ceiling_with_warning() {
+        // 500_000 > comfort ceiling (100_000) but within hard ceiling (1_000_000).
+        let result = load_from_str("[daemon]\nmax_active_traces = 500000");
+        assert!(result.is_ok(), "expected parse OK, got {result:?}");
+    }
+
+    #[test]
+    fn accepts_max_events_per_trace_outside_comfort_zone() {
+        // 10 < comfort floor (100); 50_000 > comfort ceiling (10_000).
+        // Both inside hard bounds [1, 100_000].
+        for value in [10, 50_000] {
+            let result = load_from_str(&format!("[daemon]\nmax_events_per_trace = {value}\n"));
+            assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_trace_ttl_outside_comfort_but_inside_hard_bounds() {
+        // 200ms < comfort floor (1s); 1_800_000 (30min) > comfort ceiling (10min).
+        for value in [200_u64, 1_800_000_u64] {
+            let result = load_from_str(&format!("[daemon]\ntrace_ttl_ms = {value}\n"));
+            assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_max_fanout_outside_comfort_but_inside_hard_bounds() {
+        // 2 < comfort floor (5); 5_000 > comfort ceiling (1_000).
+        for value in [2, 5_000] {
+            let result = load_from_str(&format!("[detection]\nmax_fanout = {value}\n"));
+            assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
+        }
+    }
+
+    #[test]
+    fn accepts_max_payload_size_outside_comfort_but_inside_hard_bounds() {
+        // 64 KiB < comfort floor (256 KiB); 32 MiB > comfort ceiling (16 MiB).
+        for value in [64 * 1024_u64, 32 * 1024 * 1024_u64] {
+            let result = load_from_str(&format!("[daemon]\nmax_payload_size = {value}\n"));
+            assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
+        }
+    }
+
+    // --- max_retained_findings hard cap (was unbounded before) ---
+
+    #[test]
+    fn accepts_zero_max_retained_findings_disables_store() {
+        // `0` is a documented way to disable the findings store and
+        // reclaim its memory. It must keep parsing.
+        let result = load_from_str("[daemon]\nmax_retained_findings = 0");
+        assert!(result.is_ok(), "expected 0 to parse, got {result:?}");
+    }
+
+    #[test]
+    fn rejects_max_retained_findings_above_10m() {
+        let result = load_from_str("[daemon]\nmax_retained_findings = 10000001");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("max_retained_findings"), "got: {err}");
+    }
+
+    #[test]
+    fn accepts_max_retained_findings_at_10m_hard_ceiling() {
+        let result = load_from_str("[daemon]\nmax_retained_findings = 10000000");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn accepts_max_retained_findings_outside_comfort_but_inside_hard_bounds() {
+        // 50 < comfort floor (100); 500_000 > comfort ceiling (100_000).
+        for value in [50, 500_000] {
+            let result = load_from_str(&format!("[daemon]\nmax_retained_findings = {value}\n"));
+            assert!(result.is_ok(), "expected {value} to parse, got {result:?}");
+        }
     }
 
     #[test]
