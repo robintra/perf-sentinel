@@ -794,7 +794,7 @@ For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
 ```
 
-Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level`, `logicalLocations` (service + endpoint), a custom `properties.confidence` tag, and a standard SARIF `rank` value (0-100) derived from the confidence.
+Upload the SARIF file to your code scanning dashboard. Each finding maps to a SARIF result with `ruleId`, `level`, `logicalLocations` (service + endpoint), a custom `properties.confidence` tag and a standard SARIF `rank` value (0-100) derived from the confidence.
 
 ## Finding confidence field
 
@@ -868,7 +868,7 @@ default_region = "eu-west-3"
 "auth-svc"  = "eu-west-3"
 ```
 
-The region resolution chain is: span `cloud.region` attribute > `service_regions[service]` > `default_region` > synthetic `"unknown"` bucket. The JSON report includes a `regions[]` array sorted by CO2 descending, with each row showing the region name, grid intensity, PUE, I/O op count, and operational CO2.
+The region resolution chain is: span `cloud.region` attribute > `service_regions[service]` > `default_region` > synthetic `"unknown"` bucket. The JSON report includes a `regions[]` array sorted by CO2 descending, with each row showing the region name, grid intensity, PUE, I/O op count and operational CO2.
 
 ### Scaphandre integration (on-premise / bare metal)
 
@@ -876,7 +876,7 @@ For on-premise or bare-metal servers with Intel RAPL support, perf-sentinel can 
 
 **Prerequisites:**
 - Scaphandre installed and running on each host, exposing a Prometheus `/metrics` endpoint.
-- RAPL access available (bare metal, or VM with RAPL passthrough).
+- RAPL access available (bare metal or VM with RAPL passthrough).
 
 **Configuration:**
 

@@ -11,7 +11,7 @@ use crate::QueryOutputFormat;
 use crate::render::{AnsiColors, ansi_colors, print_findings};
 
 /// Entry point for the `query` subcommand. Validates the daemon URL,
-/// dispatches to the per-action handler, and exits with a clear error if
+/// dispatches to the per-action handler and exits with a clear error if
 /// the daemon is unreachable.
 pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
     let client = sentinel_core::http_client::build_client();

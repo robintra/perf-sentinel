@@ -72,7 +72,7 @@ impl App {
         // `sort_unstable_by` is preferred over `sort_by`: the correlate
         // stage guarantees unique `trace_id` per `Trace` (all spans with
         // the same trace_id are folded into one entry), so sort stability
-        // has no semantic value here, and the unstable variant avoids the
+        // has no semantic value here and the unstable variant avoids the
         // merge-sort allocation.
         traces.sort_unstable_by(|a, b| a.trace_id.cmp(&b.trace_id));
 
@@ -160,7 +160,7 @@ impl App {
     /// Used by [`App::move_down`] to clamp the Detail-panel scroll offset
     /// so `Down`/`j` cannot scroll past the content. Long wrapped lines
     /// count as one logical line, so the clamp is slightly conservative
-    /// on wrapped output — the tradeoff vs. reading the panel width at
+    /// on wrapped output, the tradeoff vs. reading the panel width at
     /// event-handling time (which ratatui does not expose) is accepted.
     fn detail_panel_line_count(&self) -> u16 {
         let Some(finding) = self.current_finding() else {
@@ -184,7 +184,7 @@ impl App {
     /// Get the cached detail tree text, computing it if needed.
     ///
     /// Cached per trace (not per finding) since the tree is the same for all
-    /// findings in a trace — `build_tree` annotates all findings inline.
+    /// findings in a trace, `build_tree` annotates all findings inline.
     fn detail_tree_text(&mut self) -> Option<String> {
         let trace_idx = self.selected_trace;
 

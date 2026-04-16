@@ -42,13 +42,13 @@ C'est un choix de conception : le ratio de gaspillage mesure combien d'I/O pourr
 
 ## Interprétation des scores
 
-La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côté de `io_intensity_score` et `io_waste_ratio`, et la même classification est émise dans le rapport JSON sous forme de champs siblings `io_intensity_band` et `io_waste_ratio_band`. Les tables de référence sont dans le README principal.
+La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côté de `io_intensity_score` et `io_waste_ratio` et la même classification est émise dans le rapport JSON sous forme de champs siblings `io_intensity_band` et `io_waste_ratio_band`. Les tables de référence sont dans le README principal.
 
 ### Pourquoi ces seuils
 
 - **IIS_MODERATE (2.0)** est une règle de pouce, pas empirique. Elle reflète l'intuition qu'un endpoint CRUD typique fait 1-2 opérations I/O par requête. Les agrégateurs, dashboards et générateurs de rapports verront beaucoup d'endpoints "moderate" qui sont des designs légitimes, pas des défauts.
 - **IIS_HIGH (5.0)** est ancré sur `Config::default().n_plus_one_threshold = 5`. Un endpoint dont l'IIS atteint 5.0 est arithmétiquement au point où `detect_n_plus_one` commence à émettre des findings : d'où "high, à investiguer".
-- **IIS_CRITICAL (10.0)** est ancré sur l'escalade de sévérité hard-codée `indices.len() >= 10` dans `crate::detect::n_plus_one`. Même nombre, même sémantique : si un finding atteint ce compte, il est tagué `Severity::Critical` par le détecteur, et la band IIS au niveau endpoint indique que l'empreinte agrégée a franchi la même limite.
+- **IIS_CRITICAL (10.0)** est ancré sur l'escalade de sévérité hard-codée `indices.len() >= 10` dans `crate::detect::n_plus_one`. Même nombre, même sémantique : si un finding atteint ce compte, il est tagué `Severity::Critical` par le détecteur et la band IIS au niveau endpoint indique que l'empreinte agrégée a franchi la même limite.
 - **WASTE_RATIO_HIGH (0.30)** correspond à la valeur **par défaut** de `io_waste_ratio_max`. Si vous surchargez la quality gate dans votre `.perf-sentinel.toml`, l'interprétation CLI/JSON ne suit **pas** : la gate est une policy utilisateur, l'interprétation est une heuristique fixe. Ces deux dimensions sont indépendantes par design, sinon un utilisateur qui relâche la gate pour accepter un service legacy bruyant verrait l'interprétation se décaler silencieusement et manquerait le signal.
 - **WASTE_RATIO_CRITICAL (0.50)** signale les runs où au moins la moitié de l'I/O analysée est du gaspillage évitable.
 
@@ -278,7 +278,7 @@ Des profils d'intensité carbone horaire UTC sont embarqués pour plus de 30 ré
 
 Les alias de codes pays (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) et synonymes fournisseurs cloud (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) sont supportés et résolvent vers le même profil.
 
-Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure (et au mois quand disponible) pour chaque span basée sur son timestamp UTC. Les régions sans profil utilisent toujours la valeur annuelle plate. Les rapports sont tagués `model = "io_proxy_v3"` (mois x heure), `"io_proxy_v2"` (horaire annuel plat), ou `"io_proxy_v1"` (annuel), et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"`, `"hourly"`, ou `"monthly_hourly"`).
+Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring utilise l'intensité spécifique à l'heure (et au mois quand disponible) pour chaque span basée sur son timestamp UTC. Les régions sans profil utilisent toujours la valeur annuelle plate. Les rapports sont tagués `model = "io_proxy_v3"` (mois x heure), `"io_proxy_v2"` (horaire annuel plat) ou `"io_proxy_v1"` (annuel) et chaque ligne de breakdown par région porte un champ `intensity_source` (`"annual"`, `"hourly"` ou `"monthly_hourly"`).
 
 **Ce que ça fait et ne fait pas.** Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Les profils mois x heure capturent aussi la variance saisonnière pour les 4 régions listées. Il ne capture PAS :
 
@@ -351,7 +351,7 @@ perf-sentinel embarque une intégration opt-in pour l'estimation d'énergie clou
 
 **Exigences plateforme.** L'intégration cloud nécessite :
 
-- **Un endpoint Prometheus/VictoriaMetrics accessible** exposant les métriques d'utilisation CPU pour les services cibles (ex. `container_cpu_usage_seconds_total` via cAdvisor, `CPUUtilization` via cloudwatch_exporter, ou équivalent GCP/Azure).
+- **Un endpoint Prometheus/VictoriaMetrics accessible** exposant les métriques d'utilisation CPU pour les services cibles (ex. `container_cpu_usage_seconds_total` via cAdvisor, `CPUUtilization` via cloudwatch_exporter ou équivalent GCP/Azure).
 - **Un mapping type d'instance → watts** dans la table embarquée. La table couvre les types d'instance courants AWS (c5, m5, r5, c6g, m6g, etc.), GCP (n2-standard, e2, c2, etc.) et Azure (Standard_D, Standard_E, Standard_F, etc.). Les types inconnus retombent sur un défaut au niveau fournisseur.
 
 Sur les instances non supportées ou quand le endpoint Prometheus est inaccessible, le scoring retombe silencieusement sur le modèle proxy.
@@ -401,7 +401,7 @@ Limitations :
 - **La plupart des agents d'auto-instrumentation OTel n'émettent pas `code.lineno` ou `code.filepath`.** Une instrumentation manuelle ou une configuration spécifique de l'agent est nécessaire. Sans ces attributs, les findings apparaissent sans localisation source (pas de bruit, dégradation gracieuse).
 - **`code.function` est l'attribut le plus souvent disponible.** Si seul `code.function` est présent, la CLI l'affiche mais SARIF ne peut pas produire de `physicalLocation` (qui nécessite au minimum un chemin de fichier).
 - **Les numéros de ligne peuvent être approximatifs.** Certains agents rapportent le point d'entrée de la méthode, pas la ligne exacte de l'appel I/O.
-- **Les valeurs `code.filepath` hostiles sont supprimées du SARIF.** L'attribut OTel `code.filepath` est contrôlé par le client. Avant émission comme `artifactLocation.uri` SARIF, perf-sentinel rejette les chaînes de type URI, les chemins absolus, le path traversal (littéral et percent-encodé), les séquences double-encodées, les préfixes UTF-8 overlong, les caractères de contrôle, et les caractères Unicode BiDi/invisibles (classe Trojan Source). Les findings au filepath rejeté apparaissent toujours dans le rapport, sans `physicalLocations`.
+- **Les valeurs `code.filepath` hostiles sont supprimées du SARIF.** L'attribut OTel `code.filepath` est contrôlé par le client. Avant émission comme `artifactLocation.uri` SARIF, perf-sentinel rejette les chaînes de type URI, les chemins absolus, le path traversal (littéral et percent-encodé), les séquences double-encodées, les préfixes UTF-8 overlong, les caractères de contrôle et les caractères Unicode BiDi/invisibles (classe Trojan Source). Les findings au filepath rejeté apparaissent toujours dans le rapport, sans `physicalLocations`.
 
 ## API de requêtage du daemon
 
@@ -434,7 +434,7 @@ perf-sentinel ne stocke jamais de secrets dans sa sortie de config. Pour les scr
 
 Le daemon n'écrit jamais de secrets sur stdout/stderr : tous les chemins d'erreur des scrapers utilisent `redact_endpoint` pour retirer les userinfo de toute URL avant de logger.
 
-Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les findings (pas les secrets) mais sans authentification. Restreignez l'accès loopback via des politiques réseau ou un reverse proxy, ou mettez `api_enabled = false` pour désactiver toute la surface API.
+Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les findings (pas les secrets) mais sans authentification. Restreignez l'accès loopback via des politiques réseau ou un reverse proxy ou mettez `api_enabled = false` pour désactiver toute la surface API.
 
 ## API Electricity Maps
 

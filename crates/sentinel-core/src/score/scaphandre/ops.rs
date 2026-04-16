@@ -46,7 +46,7 @@ impl OpsSnapshotDiff {
     /// via a zero-copy `Arc` promotion.
     ///
     /// Services that went backwards (counter reset, restart) produce
-    /// a delta of 0 — this is safer than a huge wraparound number.
+    /// a delta of 0, this is safer than a huge wraparound number.
     ///
     /// The returned map only contains services with a strictly
     /// positive delta, so idle services are omitted and
@@ -62,7 +62,7 @@ impl OpsSnapshotDiff {
             }
         }
         // Promote `current` into an Arc and replace the previous
-        // snapshot. No deep clone of the keys — the `Arc` just bumps
+        // snapshot. No deep clone of the keys, the `Arc` just bumps
         // the refcount of the already-allocated HashMap.
         self.last = Some(Arc::new(current));
         out
@@ -113,7 +113,7 @@ pub fn compute_energy_per_op_kwh(
 /// mapped service, looks up its process's current power, and calls
 /// [`compute_energy_per_op_kwh`] to derive the coefficient. If the
 /// op delta is 0 for a service, the existing entry (if any) is left
-/// unchanged — see the rationale in [`compute_energy_per_op_kwh`].
+/// unchanged, see the rationale in [`compute_energy_per_op_kwh`].
 ///
 /// Uses the `ArcSwap` pattern: builds a new `HashMap` starting from
 /// the current published one (so previous entries that don't get

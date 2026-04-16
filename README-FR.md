@@ -11,11 +11,11 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-Analyse les traces d'exécution (requêtes SQL, appels HTTP) pour détecter les requêtes N+1, les appels redondants, et évalue l'intensité I/O par endpoint (GreenOps).
+Analyse les traces d'exécution (requêtes SQL, appels HTTP) pour détecter les requêtes N+1, les appels redondants et évalue l'intensité I/O par endpoint (GreenOps).
 
 ## Pourquoi perf-sentinel ?
 
-Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n'a de visibilité sur le chemin complet. Les outils existants sont soit spécifiques à un runtime (Hypersistence Utils -> JPA uniquement), soit lourds et propriétaires (Datadog, New Relic), soit limités aux tests unitaires sans vision cross-service.
+Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O et personne n'a de visibilité sur le chemin complet. Les outils existants sont soit spécifiques à un runtime (Hypersistence Utils -> JPA uniquement), soit lourds et propriétaires (Datadog, New Relic), soit limités aux tests unitaires sans vision cross-service.
 
 perf-sentinel adopte une approche différente : **l'analyse au niveau protocole**. Il observe les traces produites par l'application (requêtes SQL, appels HTTP) quel que soit le langage ou l'ORM utilisé. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
@@ -26,7 +26,7 @@ Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations
 - **I/O Intensity Score** = opérations I/O totales pour un endpoint / nombre d'invocations
 - **I/O Waste Ratio** = opérations I/O évitables (issues des findings) / opérations I/O totales
 
-Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. **Plus de 30 régions cloud** disposent de profils d'intensité carbone horaire intégrés, avec une variation saisonnière (mois x heure) pour FR, DE, GB et US-East. En mode daemon, le coefficient énergétique peut être affiné via [Scaphandre](https://github.com/hubblo-org/scaphandre) (RAPL bare-metal) ou l'estimation cloud-native CPU% + SPECpower pour les VMs AWS/GCP/Azure (section `[green.cloud]`), et l'intensité du réseau électrique peut être récupérée en temps réel via l'**API Electricity Maps**, avec repli automatique sur le modèle proxy I/O. Les utilisateurs peuvent fournir leurs propres profils horaires via `[green] hourly_profiles_file`, ou ajuster les coefficients du modèle proxy depuis des mesures terrain via `perf-sentinel calibrate`.
+Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) de la Green Software Foundation. Le champ `co2.total` contient le **numérateur SCI** `(E × I) + M` sommé sur les traces analysées, pas le score d'intensité par requête. Le scoring multi-région est automatique quand les spans OTel portent l'attribut `cloud.region`. **Plus de 30 régions cloud** disposent de profils d'intensité carbone horaire intégrés, avec une variation saisonnière (mois x heure) pour FR, DE, GB et US-East. En mode daemon, le coefficient énergétique peut être affiné via [Scaphandre](https://github.com/hubblo-org/scaphandre) (RAPL bare-metal) ou l'estimation cloud-native CPU% + SPECpower pour les VMs AWS/GCP/Azure (section `[green.cloud]`) et l'intensité du réseau électrique peut être récupérée en temps réel via l'**API Electricity Maps**, avec repli automatique sur le modèle proxy I/O. Les utilisateurs peuvent fournir leurs propres profils horaires via `[green] hourly_profiles_file` ou ajuster les coefficients du modèle proxy depuis des mesures terrain via `perf-sentinel calibrate`.
 
 > **Note :** les estimations CO₂ sont **directionnelles**, pas auditables. Chaque estimation porte un intervalle d'incertitude multiplicative `~2×` (`low = mid/2`, `high = mid×2`) car le modèle proxy I/O est approximatif. perf-sentinel est un **compteur de gaspillage**, pas un outil de comptabilité carbone. Ne l'utilisez pas pour le reporting CSRD ou GHG Protocol Scope 3. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la méthodologie complète.
 
@@ -47,7 +47,7 @@ Aligné avec le modèle **Software Carbon Intensity** ([SCI v1.0 / ISO/IEC 21031
 
 Pour chaque anti-pattern détecté, perf-sentinel remonte :
 
-- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions, ou appels sérialisés. Les corrélations cross-trace sont aussi remontées en mode daemon
+- **Type :** N+1 SQL, N+1 HTTP, requête redondante, SQL lent, HTTP lent, fanout excessif, service bavard (chatty service), saturation du pool de connexions ou appels sérialisés. Les corrélations cross-trace sont aussi remontées en mode daemon
 - **Template normalisé :** la requête ou l'URL avec les paramètres remplacés par des placeholders (`?`, `{id}`)
 - **Occurrences :** combien de fois le pattern s'est déclenché dans la fenêtre de détection
 - **Endpoint source :** quel endpoint applicatif l'a généré (ex : `GET /api/orders`)
@@ -462,7 +462,7 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 
 ### Ce que ce n'est pas
 
-perf-sentinel est un **compteur de gaspillage directionnel**, pas un outil de comptabilité carbone réglementaire. Chaque `CarbonEstimate` porte un intervalle d'incertitude multiplicative `{ low, mid, high }` 2× parce que le proxy I/O vers énergie est approximatif par construction. N'utilisez pas ces valeurs pour le reporting CSRD, les déclarations GHG Protocol Scope 3, ou tout autre contexte de conformité. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la critique méthodologique complète.
+perf-sentinel est un **compteur de gaspillage directionnel**, pas un outil de comptabilité carbone réglementaire. Chaque `CarbonEstimate` porte un intervalle d'incertitude multiplicative `{ low, mid, high }` 2× parce que le proxy I/O vers énergie est approximatif par construction. N'utilisez pas ces valeurs pour le reporting CSRD, les déclarations GHG Protocol Scope 3 ou tout autre contexte de conformité. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la critique méthodologique complète.
 
 ## Licence
 

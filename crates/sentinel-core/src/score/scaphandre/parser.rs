@@ -32,7 +32,7 @@ pub struct ProcessPower {
 /// go_*, process_*, etc.) are skipped. Comments (lines starting with
 /// `#`) are skipped. Label values may contain escaped quotes (`\"`) and
 /// escaped backslashes (`\\`), which are unescaped into the returned
-/// string — this is rare but can occur for JVM processes with quoted
+/// string, this is rare but can occur for JVM processes with quoted
 /// args in their `cmdline` label.
 #[must_use]
 pub fn parse_scaphandre_metrics(body: &str) -> Vec<ProcessPower> {
@@ -46,7 +46,7 @@ pub fn parse_scaphandre_metrics(body: &str) -> Vec<ProcessPower> {
         // A valid line is of the form:
         //   metric_name{label="value",...} 42.5[ timestamp]
         // We look for the metric_name followed by '{' (labels) or ' '
-        // (no labels — shouldn't happen for per-process power but
+        // (no labels, shouldn't happen for per-process power but
         // handle defensively).
         let Some(rest) = line.strip_prefix(METRIC_NAME) else {
             continue;

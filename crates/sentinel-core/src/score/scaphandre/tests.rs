@@ -384,7 +384,7 @@ async fn fetch_metrics_once_surfaces_http_error_status() {
 
 /// A metric name that *starts with* the target prefix but is a different
 /// metric (`scaph_process_power_consumption_microwatts_total`) must be
-/// rejected — otherwise a Scaphandre version that ships a companion
+/// rejected, otherwise a Scaphandre version that ships a companion
 /// `_total` histogram would be confused with the live gauge.
 ///
 /// This also exercises the `_ => continue` arm in `parse_scaphandre_metrics`
@@ -450,7 +450,7 @@ fn parse_skips_line_with_non_numeric_value() {
 
 /// `unescape_prometheus_value` handles `\"`, `\\`, `\n`, and unknown
 /// escapes. These cases are only reachable via a label value that
-/// contains backslashes — exercise them through the public parser.
+/// contains backslashes, exercise them through the public parser.
 #[test]
 fn parse_unescapes_quote_backslash_and_newline_in_exe_label() {
     // JVM-style command lines can embed quotes via `\"`. Scaphandre
@@ -512,7 +512,7 @@ async fn spawn_scraper_happy_path_updates_state() {
 
     // The mock serves one reading per connection. The scraper task
     // ticks at 50ms, so during a 200ms test window we expect ~3-4
-    // successful scrapes — we spawn a loop of accepted connections
+    // successful scrapes, we spawn a loop of accepted connections
     // that all respond with the same canned body.
     let body = "scaph_process_power_consumption_microwatts{exe=\"java\"} 10000000\n";
     let response = format!(
@@ -631,7 +631,7 @@ async fn spawn_scraper_500_keeps_running_and_state_empty() {
     server.abort();
     let _ = server.await;
 
-    // State must remain empty — no successful scrape means no readings.
+    // State must remain empty, no successful scrape means no readings.
     let snap = state.snapshot(crate::score::scaphandre::state::monotonic_ms(), 60_000);
     assert!(snap.is_empty(), "500 scrapes must not populate state");
 }
@@ -686,7 +686,7 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
 // --- Additional fetch_metrics_once error path tests ---
 
 /// The body limit is 8 MiB. Serve a response with a bogus
-/// `Content-Length` > 8 MiB but minimal actual body — the hyper client
+/// `Content-Length` > 8 MiB but minimal actual body, the hyper client
 /// will try to read up to Content-Length and hit the Limited guard.
 #[tokio::test]
 async fn fetch_metrics_once_rejects_oversized_body() {

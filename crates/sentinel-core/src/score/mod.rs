@@ -101,7 +101,7 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<&str, EndpointStats<'_>>, 
 /// - **Operational CO₂** per region using the SCI `O = E × I` term, with
 ///   per-region bucketing via [`resolve_region`].
 /// - **Embodied CO₂** via the SCI `M` term (`traces.len() × embodied_per_request_gco2`).
-/// - **Confidence intervals** (low/mid/high) — 2× multiplicative uncertainty
+/// - **Confidence intervals** (low/mid/high), 2× multiplicative uncertainty
 ///   bracket around the I/O proxy midpoint.
 /// - **Avoidable CO₂** via the region-blind ratio
 ///   `operational × (avoidable_io_ops / accounted_io_ops)`, where
@@ -190,7 +190,7 @@ pub fn score_green(
     // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
     // only emitted in mono-region mode when the proxy model is the sole
     // energy source and no modifiers are active. When per-op coefficients,
-    // measured energy (Scaphandre/cloud), calibration factors, or real-time
+    // measured energy (Scaphandre/cloud), calibration factors or real-time
     // intensity change the formula, the scalar would be inconsistent with
     // the per-region breakdown.
     let per_op_active = carbon.is_some_and(|ctx| ctx.per_operation_coefficients);
@@ -1218,7 +1218,7 @@ mod tests {
     }
 
     /// Build a [`CarbonContext`] with a single default region and zero embodied
-    /// term — used by tests that want to verify operational CO₂ in isolation.
+    /// term, used by tests that want to verify operational CO₂ in isolation.
     fn ctx_with_region(region: &str) -> CarbonContext {
         // these legacy helper-built contexts disable hourly
         // profiles so existing-era tests keep asserting the
@@ -1371,7 +1371,7 @@ mod tests {
             .unwrap();
         assert_eq!(mars.io_ops, 1);
         assert!((mars.co2_gco2 - 0.0).abs() < f64::EPSILON);
-        // Top offender CO₂ stays None — the per-offender scalar uses
+        // Top offender CO₂ stays None, the per-offender scalar uses
         // io_ops_to_co2_grams which returns None for unknown regions.
         for offender in &summary.top_offenders {
             assert!(offender.co2_grams.is_none());
@@ -1563,7 +1563,7 @@ mod tests {
     #[test]
     fn avoidable_excludes_embodied() {
         // 6 spans, 5 marked avoidable via N+1 finding. Avoidable should equal
-        // operational × (5/6), with NO embodied term — embodied is fixed and
+        // operational × (5/6), with NO embodied term, embodied is fixed and
         // can't be eliminated by fixing query patterns.
         let trace = make_trace_with_region("t1", "eu-west-3", 6);
         let finding = Finding {
@@ -1702,7 +1702,7 @@ mod tests {
     #[test]
     fn regions_sorted_by_co2_desc() {
         // The regions breakdown is sorted by co2_gco2
-        // descending (with alphabetical tiebreak) for actionability —
+        // descending (with alphabetical tiebreak) for actionability ,
         // users see the highest-impact regions first. BTreeMap accumulation
         // keeps the per-region float sums deterministic; the final Vec sort
         // is purely cosmetic ordering.
@@ -2211,7 +2211,7 @@ mod tests {
         //        = 2.30178e-4
         //
         // NOTE: if CARBON_TABLE[eu-central-1] is ever recalibrated, this
-        // test will fail loudly — that's the point. Update both the
+        // test will fail loudly, that's the point. Update both the
         // constant here and the hourly profile invariant comment in
         // carbon.rs at the same time.
         let trace = make_trace_at_hour("t_de", "eu-central-1", 12, 6);

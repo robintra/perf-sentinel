@@ -2,7 +2,7 @@
 # (main.png, detail.png, detail-scrolled.png, critical.png, info.png).
 #
 # Showcases the `perf-sentinel inspect` TUI mode, a 3-panel interactive
-# explorer for traces, findings, and finding details. The tape launches
+# explorer for traces, findings and finding details. The tape launches
 # the TUI, navigates down through the trace list one position at a time
 # with ~2s pauses so the viewer can watch the findings panel color flip
 # between severity levels (yellow WARNING → red CRITICAL → cyan INFO),

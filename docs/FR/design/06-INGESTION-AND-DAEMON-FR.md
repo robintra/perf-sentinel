@@ -273,7 +273,7 @@ La fonction `fetch_from_prometheus(endpoint, top_n)` dans `ingest/pg_stat.rs` pe
 2. Envoyer une requête `GET /api/v1/query?query=...` au endpoint Prometheus configuré via le client HTTP partagé (`http_client::build_client`).
 3. Parser la réponse JSON au format standard Prometheus (`data.result[]`).
 4. Extraire les labels `query` ou `queryid` du champ `metric` pour chaque résultat.
-5. Convertir la valeur en millisecondes (la métrique est en secondes), normaliser le SQL via `normalize_sql()`, et produire des `PgStatEntry`.
+5. Convertir la valeur en millisecondes (la métrique est en secondes), normaliser le SQL via `normalize_sql()` et produire des `PgStatEntry`.
 
 Le timeout est fixé à 30 secondes. Les erreurs de transport et de format sont rapportées via des variantes dédiées de `PgStatError` (`PrometheusRequest`, `PrometheusFormat`).
 

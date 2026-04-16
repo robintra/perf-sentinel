@@ -42,13 +42,13 @@ This is by design: the waste ratio measures how much I/O could be eliminated (N+
 
 ## Score interpretation
 
-The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io_intensity_score` and `io_waste_ratio`, and the same classification ships in the JSON report as sibling fields `io_intensity_band` and `io_waste_ratio_band`. Reference tables live in the main README.
+The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io_intensity_score` and `io_waste_ratio` and the same classification ships in the JSON report as sibling fields `io_intensity_band` and `io_waste_ratio_band`. Reference tables live in the main README.
 
 ### Why these thresholds
 
-- **IIS_MODERATE (2.0)** is a rule of thumb, not empirical. It reflects the intuition that a typical CRUD endpoint makes 1-2 I/O ops per request. Aggregators, dashboards, and report generators will show many "moderate" endpoints that are legitimate designs, not defects.
+- **IIS_MODERATE (2.0)** is a rule of thumb, not empirical. It reflects the intuition that a typical CRUD endpoint makes 1-2 I/O ops per request. Aggregators, dashboards and report generators will show many "moderate" endpoints that are legitimate designs, not defects.
 - **IIS_HIGH (5.0)** is anchored on `Config::default().n_plus_one_threshold = 5`. An endpoint whose IIS reaches 5.0 is arithmetically at the point where `detect_n_plus_one` starts emitting findings, hence "high, worth investigating".
-- **IIS_CRITICAL (10.0)** is anchored on the hard-coded `indices.len() >= 10` severity escalation in `crate::detect::n_plus_one`. Same number, same semantics: if a finding hits that count, it's tagged `Severity::Critical` by the detector, and the endpoint-level IIS band tells you the aggregate footprint also crossed the same line.
+- **IIS_CRITICAL (10.0)** is anchored on the hard-coded `indices.len() >= 10` severity escalation in `crate::detect::n_plus_one`. Same number, same semantics: if a finding hits that count, it's tagged `Severity::Critical` by the detector and the endpoint-level IIS band tells you the aggregate footprint also crossed the same line.
 - **WASTE_RATIO_HIGH (0.30)** matches the **default** `io_waste_ratio_max`. If you override the quality gate in your `.perf-sentinel.toml`, the CLI/JSON interpretation does NOT follow. The gate is a user policy, the interpretation is a fixed heuristic. These are two independent dimensions by design: a user who relaxes the gate to accept a noisy legacy service should not see the interpretation silently shift and miss the signal.
 - **WASTE_RATIO_CRITICAL (0.50)** flags runs where at least half of the analyzed I/O is avoidable waste.
 
@@ -199,7 +199,7 @@ When OTel spans carry the `cloud.region` resource attribute, perf-sentinel autom
 
 I/O ops with no resolvable region land in a synthetic `"unknown"` bucket and contribute zero operational CO₂ (a `tracing::warn!` is emitted). Embodied carbon is still emitted because hardware emissions are region-independent.
 
-See `docs/design/05-GREENOPS-AND-CARBON.md` for the full methodology, formula, and SCI v1.0 alignment notes.
+See `docs/design/05-GREENOPS-AND-CARBON.md` for the full methodology, formula and SCI v1.0 alignment notes.
 
 ### Hourly carbon profiles
 
@@ -220,7 +220,7 @@ Embedded hourly UTC profiles are available for 30+ cloud regions across all majo
 
 Country-code aliases (`fr`, `de`, `gb`, `ie`, `se`, `no`, `jp`, `br`, etc.) and cloud-provider synonyms (`westeurope`, `northeurope`, `uksouth`, `francecentral`, etc.) are supported and resolve to the same profile.
 
-When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific (and month-specific when available) intensity for each span based on the span's UTC timestamp. Regions without a profile always use the flat annual value. Reports are tagged with `model = "io_proxy_v3"` (monthly x hourly), `"io_proxy_v2"` (flat-year hourly), or `"io_proxy_v1"` (annual), and each per-region breakdown row carries an `intensity_source` field (`"annual"`, `"hourly"`, or `"monthly_hourly"`).
+When `[green] use_hourly_profiles = true` (the default), the scoring stage uses the hour-specific (and month-specific when available) intensity for each span based on the span's UTC timestamp. Regions without a profile always use the flat annual value. Reports are tagged with `model = "io_proxy_v3"` (monthly x hourly), `"io_proxy_v2"` (flat-year hourly) or `"io_proxy_v1"` (annual) and each per-region breakdown row carries an `intensity_source` field (`"annual"`, `"hourly"` or `"monthly_hourly"`).
 
 **What this does and doesn't do.** The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). Monthly x hourly profiles also capture seasonal variance for the 4 listed regions. It does **not** capture:
 
@@ -337,7 +337,7 @@ The optional network transport energy term estimates the energy cost of moving b
 
 Key limitations:
 
-- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year, and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance, and infrastructure.
+- **Wide estimate range.** Published values range from 0.06 to 0.08 kWh/GB depending on the study, year and scope (backbone only vs. full path). The actual cost depends on the number of hops, distance, and infrastructure.
 - **No CDN or compression effects.** Content delivery networks, HTTP compression, and connection reuse all reduce the effective transport energy but are not modeled.
 - **Cross-region detection is config-based.** The callee region is determined by looking up the target hostname in `[green.service_regions]`. If the hostname is not mapped, perf-sentinel conservatively assumes same-region (no transport term). This means transport energy is only computed when the user explicitly configures cross-region service mappings.
 - **No last-mile modeling.** The estimate covers backbone transport. The energy cost of the last mile (edge network, client device) is excluded.

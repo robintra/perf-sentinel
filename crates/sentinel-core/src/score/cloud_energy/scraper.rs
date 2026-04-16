@@ -936,7 +936,7 @@ mod tests {
     // Integration tests with a mock HTTP server on an ephemeral port
     // ------------------------------------------------------------------
     //
-    // Shared helpers from `crate::test_helpers` — same pattern used by
+    // Shared helpers from `crate::test_helpers`, same pattern used by
     // scaphandre, electricity_maps, and tempo tests.
 
     use crate::test_helpers::{http_200_text, http_status, spawn_one_shot_server};

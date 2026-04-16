@@ -47,7 +47,7 @@ pub struct Finding {
     /// The anti-pattern category (N+1, redundant, slow, fanout, etc.).
     #[serde(rename = "type")]
     pub finding_type: FindingType,
-    /// Severity level: critical, warning, or info.
+    /// Severity level: critical, warning or info.
     pub severity: Severity,
     /// Trace identifier where the anti-pattern was detected.
     pub trace_id: String,
@@ -122,7 +122,7 @@ pub enum Confidence {
     /// Lowest confidence: limited traffic shapes, controlled environment.
     ///
     /// Marked `#[default]` so detectors that emit `Confidence::default()`
-    /// get the safest fallback (lowest confidence) — a forgotten stamp
+    /// get the safest fallback (lowest confidence), a forgotten stamp
     /// never inflates perf-lint's severity.
     #[default]
     CiBatch,
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn detector_findings_default_to_ci_batch_confidence() {
-        // Detectors emit `Confidence::default()` — the pipeline/daemon
+        // Detectors emit `Confidence::default()`, the pipeline/daemon
         // caller is responsible for stamping the real value. Verify the
         // default here so a regression that changes Confidence::default()
         // surfaces loudly.

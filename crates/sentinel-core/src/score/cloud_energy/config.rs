@@ -47,7 +47,7 @@ pub struct CloudEnergyConfig {
     pub scrape_interval: Duration,
     /// Default cloud provider for services that don't specify one.
     /// Used as the `SPECpower` table fallback key. One of `"aws"`,
-    /// `"gcp"`, `"azure"`, or `None` for generic.
+    /// `"gcp"`, `"azure"` or `None` for generic.
     pub default_provider: Option<String>,
     /// Default instance type for services that specify neither
     /// `instance_type` nor manual watts.

@@ -3,7 +3,7 @@
 //! Parses CSV or JSON exports of `pg_stat_statements` into a `PgStatReport`
 //! with top-N rankings by total execution time, call count, and mean execution time.
 //!
-//! Unlike trace-based ingestion, `pg_stat_statements` has no `trace_id` — it provides
+//! Unlike trace-based ingestion, `pg_stat_statements` has no `trace_id`, it provides
 //! a complementary view of SQL hotspots at the database level.
 
 use crate::detect::Finding;

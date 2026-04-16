@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn oversized_cloud_region_is_sanitized_to_none() {
-        // 65 chars — exceeds the 64-char cap.
+        // 65 chars, exceeds the 64-char cap.
         let long_region = "a".repeat(65);
         let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
         let req = make_request_with_resource_attrs(

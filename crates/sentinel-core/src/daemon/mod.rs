@@ -449,7 +449,7 @@ struct ShutdownTargets<'a> {
     listeners: ListenerHandles<'a>,
 }
 
-/// Config slice the main event loop needs — the values that are pulled out
+/// Config slice the main event loop needs, the values that are pulled out
 /// of `Config` once at startup and never change.
 #[derive(Clone, Copy)]
 struct EventLoopConfig {
@@ -1234,7 +1234,7 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
         Ok(meta) if meta.file_type().is_symlink() => {
             tracing::error!(
                 "Refusing to bind Unix socket at {path}: path is a \
-                 symlink — remove it manually after verifying the \
+                 symlink, remove it manually after verifying the \
                  target is safe"
             );
             return;
@@ -1259,7 +1259,7 @@ async fn run_json_socket(path: &str, tx: mpsc::Sender<Vec<SpanEvent>>, max_paylo
         use std::os::unix::fs::PermissionsExt;
         if let Err(e) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
             tracing::error!(
-                "Failed to set socket permissions on {path}: {e} — refusing to listen on insecure socket"
+                "Failed to set socket permissions on {path}: {e}, refusing to listen on insecure socket"
             );
             let _ = std::fs::remove_file(path);
             return;

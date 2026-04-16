@@ -236,7 +236,7 @@ Cela préserve l'**échelle relative** (une réduction de 50% du gaspillage donn
 
 Chaque span résout vers une région effective via une chaîne à 3 niveaux (premier match gagne) :
 
-1. **`event.cloud_region`** : extrait de l'attribut de ressource OTel `cloud.region` (avec fallback sur attribut de span pour les SDKs qui le mettent sur les spans individuels). Le plus autoritatif. Les valeurs sont assainies à la frontière d'ingestion : les chaînes invalides (non-ASCII-alphanumérique-tiret-underscore, longueur > 64, ou vides) sont silencieusement écartées.
+1. **`event.cloud_region`** : extrait de l'attribut de ressource OTel `cloud.region` (avec fallback sur attribut de span pour les SDKs qui le mettent sur les spans individuels). Le plus autoritatif. Les valeurs sont assainies à la frontière d'ingestion : les chaînes invalides (non-ASCII-alphanumérique-tiret-underscore, longueur > 64 ou vides) sont silencieusement écartées.
 2. **`[green.service_regions][event.service.to_lowercase()]`** : surcharge config pour les environnements où OTel ne le fournit pas (ex. ingestion Jaeger / Zipkin). Insensible à la casse (le loader de config met les clés en minuscules).
 3. **`[green] default_region`** : fallback global.
 
@@ -448,7 +448,7 @@ Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) p
 
 **Où cela s'intègre.** Dans la boucle de spans de `compute_carbon_report`, le chemin proxy applique le coefficient. Quand de l'énergie mesurée est disponible (Scaphandre ou cloud SPECpower), le coefficient n'est PAS appliqué.
 
-**Détail hot path.** La fonction `energy_coefficient()` est `#[inline]` et n'alloue pas : elle utilise `split_ascii_whitespace().next()` (lazy, s'arrête au premier espace) pour l'extraction du verbe, et `eq_ignore_ascii_case` pour le matching au lieu de `to_ascii_lowercase()`. Le verbe le plus courant (SELECT) matche dès la première comparaison.
+**Détail hot path.** La fonction `energy_coefficient()` est `#[inline]` et n'alloue pas : elle utilise `split_ascii_whitespace().next()` (lazy, s'arrête au premier espace) pour l'extraction du verbe et `eq_ignore_ascii_case` pour le matching au lieu de `to_ascii_lowercase()`. Le verbe le plus courant (SELECT) matche dès la première comparaison.
 
 **Config.** `[green] per_operation_coefficients = true` (défaut). Le tag de modèle reste `io_proxy_v1` ou `io_proxy_v2`. Les coefficients par opération sont un raffinement du modèle proxy, pas une nouvelle classe de modèle.
 

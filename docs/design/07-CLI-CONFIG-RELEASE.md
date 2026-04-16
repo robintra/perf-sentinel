@@ -10,7 +10,7 @@ The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](
 
 This follows the convention of tools like `cargo test` (colored output by default, `--format json` for CI).
 
-The `--format` flag provides explicit control over the output format: `text` (colored terminal, default), `json` (structured report), or `sarif` (SARIF v2.1.0 for code scanning). When `--ci` is used without `--format`, the output defaults to JSON for backward compatibility.
+The `--format` flag provides explicit control over the output format: `text` (colored terminal, default), `json` (structured report) or `sarif` (SARIF v2.1.0 for code scanning). When `--ci` is used without `--format`, the output defaults to JSON for backward compatibility.
 
 ### Explain: per-trace tree view
 
@@ -191,11 +191,11 @@ All sub-actions except `inspect` accept `--format text|json`. The default is `te
 
 `correlations` renders a custom colored table with confidence percentage color-coded (red >= 80%, yellow >= 50%).
 
-`status` renders a key-value display with version, formatted uptime (Xh Ym Zs), active traces, and stored findings count.
+`status` renders a key-value display with version, formatted uptime (Xh Ym Zs), active traces and stored findings count.
 
 ### Implementation
 
-The `cmd_query` function builds a closure around `http_client::fetch_get` that handles connection failures with a helpful error message ("Is `perf-sentinel watch` running?"). Each sub-action constructs the appropriate URL path, fetches the response, and renders it according to the `--format` flag.
+The `cmd_query` function builds a closure around `http_client::fetch_get` that handles connection failures with a helpful error message ("Is `perf-sentinel watch` running?"). Each sub-action constructs the appropriate URL path, fetches the response and renders it according to the `--format` flag.
 
 The default daemon URL is `http://localhost:4318`, matching the daemon's default HTTP listen port. Users can override it with `--daemon http://host:port`.
 
@@ -237,19 +237,20 @@ n_plus_one_threshold: raw.detection.n_plus_one_min_occurrences
 
 Every numeric field has explicit bounds in `validate()`:
 
-| Field                        | Min   | Max                  | Rationale                          |
-|------------------------------|-------|----------------------|------------------------------------|
-| `max_payload_size`           | 1,024 | 104,857,600 (100 MB) | Prevent disabling input protection |
-| `max_active_traces`          | 1     | 1,000,000            | Prevent unbounded memory           |
-| `max_events_per_trace`       | 1     | 100,000              | Prevent per-trace OOM              |
-| `n_plus_one_threshold`       | 1     | *(none)*             | At least 1 occurrence to detect    |
-| `window_duration_ms`         | 1     | *(none)*             | Non-zero window                    |
-| `slow_query_threshold_ms`    | 1     | *(none)*             | Non-zero threshold                 |
-| `slow_query_min_occurrences` | 1     | *(none)*             | At least 1 occurrence              |
-| `max_fanout`                 | 1     | 100,000              | Prevent disabling detection        |
-| `trace_ttl_ms`               | 100   | *(none)*             | Minimum eviction interval          |
-| `sampling_rate`              | 0.0   | 1.0                  | Valid probability                  |
-| `io_waste_ratio_max`         | 0.0   | 1.0                  | Valid ratio                        |
+| Field                        | Min   | Max                  | Rationale                                                                            |
+|------------------------------|-------|----------------------|--------------------------------------------------------------------------------------|
+| `max_payload_size`           | 1,024 | 104,857,600 (100 MB) | Prevent disabling input protection                                                   |
+| `max_active_traces`          | 1     | 1,000,000            | Prevent unbounded memory                                                             |
+| `max_events_per_trace`       | 1     | 100,000              | Prevent per-trace OOM                                                                |
+| `max_retained_findings`      | 0     | 10,000,000           | Prevent OOM on the findings store. `0` is documented as "disable the store entirely" |
+| `n_plus_one_threshold`       | 1     | *(none)*             | At least 1 occurrence to detect                                                      |
+| `window_duration_ms`         | 1     | *(none)*             | Non-zero window                                                                      |
+| `slow_query_threshold_ms`    | 1     | *(none)*             | Non-zero threshold                                                                   |
+| `slow_query_min_occurrences` | 1     | *(none)*             | At least 1 occurrence                                                                |
+| `max_fanout`                 | 1     | 100,000              | Prevent disabling detection                                                          |
+| `trace_ttl_ms`               | 100   | 3,600,000 (1 h)      | Minimum eviction interval                                                            |
+| `sampling_rate`              | 0.0   | 1.0                  | Valid probability                                                                    |
+| `io_waste_ratio_max`         | 0.0   | 1.0                  | Valid ratio                                                                          |
 
 The non-loopback `listen_addr` check emits a warning but does not reject:
 
@@ -263,6 +264,45 @@ tracing::warn!(
 ```
 
 This allows advanced users to bind to `0.0.0.0` when running behind a reverse proxy, while making the security implications explicit.
+
+### Windows path normalization
+
+`.perf-sentinel.toml` accepts path-keyed fields (`hourly_profiles_file`, `calibration_file`, `json_socket`, `tls_cert_path`, `tls_key_path`) as basic TOML strings, where `\` is normally an escape introducer. A literal Windows path like `C:\temp\sock` written in a basic string raises a TOML parse error because `\t` is interpreted as a tab escape.
+
+To make Windows configs work without forcing operators to write doubled backslashes (`C:\\temp\\sock`), `load_from_str` runs a narrow pre-processor before the TOML parse:
+
+1. **`normalize_toml_path_strings`** scans the raw input line by line. For lines whose key is in `TOML_PATH_STRING_KEYS` and whose value is a basic string (`"..."`), it rewrites the value with `escape_toml_path_backslashes`.
+2. **`escape_toml_path_backslashes`** walks the inner string in runs of consecutive `\`:
+   - run of 1: emit `\\` (bare `\` becomes a TOML escape pair).
+   - run of 2 or more: emit as-is (already a valid escape pair or an embedded `\\\\` that the user wrote intentionally).
+   - run of 2 at the *very start* of the value, not followed by another `\`: emit `\\\\` (4 backslashes) so a raw UNC `\\server\share` decodes back to `\\server\share`.
+3. **`find_basic_string_end`** locates the closing `"` of the basic string with a linear consecutive-backslash counter (the number of `\` immediately before the `"` must be even). The previous lookbehind implementation was O(n²) on adversarial inputs full of `\`.
+4. **Fallback**: if the normalized input fails to parse but the original would have worked, `load_from_str` retries with the original and emits a `tracing::debug!` line so the divergence stays diagnosable without warning on every legit Windows-path config.
+
+Untouched by this normalization: TOML literal strings (`'C:\temp\sock'`, which already treat `\` literally) and any key not in `TOML_PATH_STRING_KEYS`. As a side effect, TOML escape sequences (`\t`, `\n`, `\u00XX`) inside the targeted keys are treated as literal byte pairs rather than escapes. This is by design for filesystem paths and is documented in the helper's rustdoc.
+
+A small UTF-8 invariant: `normalize_toml_path_line` builds the rewritten line by slicing on `[..value_start]` (exclusive) and pushing the opening `"` explicitly, so `value_start` is never used as the end of an inclusive byte range. The byte at `value_start` is ASCII `"` in practice, but the explicit form locks the invariant for future readers.
+
+### Comfort-zone warnings
+
+Beyond the hard validation bounds, `validate_daemon_limits` and `validate_detection_params` emit a one-shot `tracing::warn!` at config load when a value falls outside a recommended "comfort zone" around the default. The warning is informational: the daemon still runs.
+
+Comfort zones bracket each default by roughly 1 to 2 orders of magnitude. They were picked from the same defaults already in `Config::default()`:
+
+| Field                   | Comfort zone             | Note                                    |
+|-------------------------|--------------------------|-----------------------------------------|
+| `max_payload_size`      | 256 KiB to 16 MiB        |                                         |
+| `max_active_traces`     | 1,000 to 100,000         |                                         |
+| `max_events_per_trace`  | 100 to 10,000            |                                         |
+| `max_retained_findings` | 100 to 100,000           | Skipped silently when value is `0`      |
+| `trace_ttl_ms`          | 1,000 to 600,000         |                                         |
+| `max_fanout`            | 5 to 1,000               |                                         |
+
+The `warn_outside_comfort_zone` helper takes the field name, the value, both bounds and two short notes (one for "below floor", one for "above ceiling") describing the practical consequence (eviction pressure, ingest latency, detection noise...). The helper logs structured fields (`field`, `value`, `recommended_min` or `recommended_max`) so the warning is queryable in Loki / Elasticsearch.
+
+Invariant locked by `config_defaults_sit_inside_every_comfort_zone`: `Config::default()` must never trigger a startup warning. If a default is moved outside its comfort zone, this test fails and forces an explicit re-check of the band.
+
+User-facing summary of the bands lives in `docs/CONFIGURATION.md` next to the field tables.
 
 ## Release profile
 

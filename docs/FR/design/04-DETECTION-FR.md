@@ -200,7 +200,7 @@ Les findings de services bavards ont `green_impact.estimated_extra_io_ops = 0`. 
 
 ### Différence avec le fanout
 
-Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le service bavard détecte une **trace entière** avec trop d'appels HTTP sortants, indépendamment de la structure parent-enfant. Une trace peut déclencher les deux si un seul parent génère tous les appels, ou seulement le service bavard si les appels sont répartis sur plusieurs parents.
+Le fanout excessif détecte un **parent unique** avec trop d'enfants directs. Le service bavard détecte une **trace entière** avec trop d'appels HTTP sortants, indépendamment de la structure parent-enfant. Une trace peut déclencher les deux si un seul parent génère tous les appels ou seulement le service bavard si les appels sont répartis sur plusieurs parents.
 
 ## Détection de saturation du pool de connexions
 
@@ -321,7 +321,7 @@ pub struct CrossTraceCorrelator {
 ```
 
 - `occurrences` : fenêtre glissante des findings récents, stockée dans un VecDeque pour une éviction O(1) par l'avant.
-- `pair_counts` : compteurs de co-occurrences par paire (source, cible). Chaque entrée contient le compteur, un reservoir borné de délais observés, un compteur `total_observations`, un état PRNG `SplitMix64` par paire, et les timestamps first/last seen.
+- `pair_counts` : compteurs de co-occurrences par paire (source, cible). Chaque entrée contient le compteur, un reservoir borné de délais observés, un compteur `total_observations`, un état PRNG `SplitMix64` par paire et les timestamps first/last seen.
 - `source_totals` : nombre d'occurrences par endpoint actuellement dans la fenêtre, utilisé comme dénominateur pour le score de confiance. Maintenu de manière incrémentale (incrémenté au `push_back`, décrémenté au `pop_front`). Les entrées sont supprimées quand le compteur atteint zéro, ce qui borne la map au nombre d'endpoints distincts plutôt qu'au nombre d'occurrences.
 
 ### Algorithme d'ingestion

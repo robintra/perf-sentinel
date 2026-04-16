@@ -1,6 +1,6 @@
 # Detection algorithms
 
-Detection is the fourth pipeline stage. It analyzes correlated traces to identify seven types of anti-patterns: N+1 queries, redundant calls, slow operations, excessive fanout, chatty services, connection pool saturation, and serialized-but-parallelizable calls.
+Detection is the fourth pipeline stage. It analyzes correlated traces to identify seven types of anti-patterns: N+1 queries, redundant calls, slow operations, excessive fanout, chatty services, connection pool saturation and serialized-but-parallelizable calls.
 
 ## Shared pattern: borrowed HashMap keys
 
@@ -225,7 +225,7 @@ emit finding with top_endpoints in suggestion
 
 ### Difference from fanout
 
-Excessive fanout detects a **single parent** with too many direct children. Chatty service detects an **entire trace** with too many outbound HTTP calls, independently of the parent-child structure. A trace can trigger both when a single parent generates all the calls, or only chatty service when the calls are spread across multiple parents.
+Excessive fanout detects a **single parent** with too many direct children. Chatty service detects an **entire trace** with too many outbound HTTP calls, independently of the parent-child structure. A trace can trigger both when a single parent generates all the calls or only chatty service when the calls are spread across multiple parents.
 
 ### Not part of waste ratio
 
@@ -370,14 +370,14 @@ pub struct CrossTraceCorrelator {
 Three data structures track the correlation state:
 
 - **`occurrences`**: a `VecDeque` of recent finding occurrences, ordered by timestamp. Each entry records a `CorrelationEndpoint` (finding_type, service, template) and a `timestamp_ms`. This is the rolling window.
-- **`pair_counts`**: a `HashMap` keyed by `PairKey` (source endpoint, target endpoint). Each value holds the co-occurrence count, a bounded reservoir of observed lag values, a `total_observations` counter, a per-pair `SplitMix64` PRNG state, and first/last seen timestamps. This is the correlation accumulator.
+- **`pair_counts`**: a `HashMap` keyed by `PairKey` (source endpoint, target endpoint). Each value holds the co-occurrence count, a bounded reservoir of observed lag values, a `total_observations` counter, a per-pair `SplitMix64` PRNG state and first/last seen timestamps. This is the correlation accumulator.
 - **`source_totals`**: a `HashMap` counting how many times each `CorrelationEndpoint` is currently in the window. Used as the denominator in the confidence calculation. Maintained incrementally (incremented on `push_back`, decremented on `pop_front`); entries are removed when the count reaches zero so the map stays bounded by the number of distinct endpoints, not the number of occurrences.
 
 ### The `ingest()` algorithm
 
 `ingest()` is called from `process_traces` after findings are produced and confidence is stamped. It takes a `&[Finding]` batch and a `now_ms` timestamp. The algorithm has five steps:
 
-1. **Evict stale entries.** Walk `occurrences` from front to back, popping entries older than `now_ms - window_ms` (default 10 minutes), and decrement `source_totals` for each evicted endpoint. This is O(k) where k is the number of expired entries.
+1. **Evict stale entries.** Walk `occurrences` from front to back, popping entries older than `now_ms - window_ms` (default 10 minutes) and decrement `source_totals` for each evicted endpoint. This is O(k) where k is the number of expired entries.
 
 2. **Prune stale pair counts.** A single `HashMap::retain` pass over `pair_counts` removes pairs whose `last_seen_ms` is outside the window. O(pairs).
 
@@ -403,7 +403,7 @@ A hot pair firing thousands of times within the window would otherwise grow `lag
 - While the reservoir has space, append unconditionally.
 - Once full, draw `r` uniformly in `[0, total_observations)` via `SplitMix64`. If `r < MAX_LAG_SAMPLES`, replace `lags_ms[r]`. Conditional on `r < k`, `r` is itself uniform in `[0, k)`, so the slot pick is unbiased without a second PRNG draw.
 
-The PRNG is a `SplitMix64` state per `PairState`, seeded at construction from `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` is a deterministic FNV-1a over the endpoint's `finding_type`, `service`, and `template` strings (NOT the `DefaultHasher`, which uses a per-process `RandomState` and would make the correlator non-deterministic across runs). Two daemon runs replaying the same trace file produce identical reservoir samples and therefore identical median lags.
+The PRNG is a `SplitMix64` state per `PairState`, seeded at construction from `now_ms ^ (hash_endpoint(source) << 17) ^ hash_endpoint(target)`. `hash_endpoint` is a deterministic FNV-1a over the endpoint's `finding_type`, `service` and `template` strings (NOT the `DefaultHasher`, which uses a per-process `RandomState` and would make the correlator non-deterministic across runs). Two daemon runs replaying the same trace file produce identical reservoir samples and therefore identical median lags.
 
 ### Median lag calculation
 

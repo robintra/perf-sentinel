@@ -24,12 +24,12 @@ use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 #[non_exhaustive]
 pub enum CalibrationError {
     /// A CSV row had the wrong number of columns, unparseable numeric
-    /// values, or an unknown header layout. `line` is 1-indexed.
+    /// values or an unknown header layout. `line` is 1-indexed.
     #[error("CSV parse error at line {line}: {reason}")]
     CsvParse { line: usize, reason: String },
 
     /// An ISO 8601 timestamp column could not be parsed. Covers missing
-    /// `Z` suffix, non-UTC offsets, and out-of-range date/time fields.
+    /// `Z` suffix, non-UTC offsets and out-of-range date/time fields.
     #[error("failed to parse timestamp '{value}' at line {line}: {reason}")]
     TimestampParse {
         line: usize,
@@ -54,7 +54,7 @@ pub enum CalibrationError {
 
     /// A semantic validation check failed on an otherwise well-formed
     /// calibration TOML: negative or non-finite factor, missing base
-    /// energy, or a service factor outside the accepted range.
+    /// energy or a service factor outside the accepted range.
     #[error("validation error: {0}")]
     Validation(String),
 }
@@ -959,7 +959,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
 
     #[test]
     fn calibrate_skips_events_with_unparsable_timestamp() {
-        // The trace event has a garbage timestamp — calibrate() must skip
+        // The trace event has a garbage timestamp, calibrate() must skip
         // it silently via the `let Ok(ts) = ... else continue` path and
         // still produce a valid result for the other events.
         let mut bad_event = make_event("svc-a", "2025-07-10T14:00:05Z");

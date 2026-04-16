@@ -4,7 +4,7 @@
 //! arithmetic in the crate. Both directions are here: epoch → ISO 8601
 //! (via [`nanos_to_iso8601`] / [`micros_to_iso8601`]) and ISO 8601 →
 //! epoch ms (via [`parse_iso8601_utc_to_ms`]). Do not reimplement the
-//! Howard-Hinnant `days_from_civil` formulas anywhere else — call these
+//! Howard-Hinnant `days_from_civil` formulas anywhere else, call these
 //! helpers so a single bug fix propagates to every call site.
 
 /// Convert nanoseconds since epoch to an ISO 8601 timestamp string.
@@ -64,14 +64,14 @@ pub(crate) fn millis_to_iso8601(ms: u64) -> String {
 /// - non-numeric hour digits at positions 11-12
 /// - hours outside `0..24`
 /// - strings that do not end with `Z` (non-UTC offsets like `+02:00`
-///   are rejected rather than silently shifted — the embedded hourly
+///   are rejected rather than silently shifted, the embedded hourly
 ///   carbon profile table is UTC-anchored, so naive offset handling
 ///   would poison CO₂ estimates)
 ///
 /// Used by the hourly carbon profile path in
 /// `score::compute_carbon_report`. Callers that receive `None` should
 /// fall back to the flat annual intensity for the region (no sentinel
-/// hour — a wrong hour would silently skew the estimate).
+/// hour, a wrong hour would silently skew the estimate).
 #[must_use]
 pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
     // Strict ASCII-only parsing. If the string contains non-ASCII bytes
@@ -99,8 +99,8 @@ pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
         return None;
     }
     // Must end with 'Z' to be UTC. This rejects the `+HH:MM` / `-HH:MM`
-    // offset forms deliberately — they would require a proper offset
-    // subtraction that we don't support yet, and silently treating
+    // offset forms deliberately, they would require a proper offset
+    // subtraction that we don't support yet and silently treating
     // local hours as UTC would bias the carbon estimate systematically.
     if !ts.ends_with('Z') {
         return None;
@@ -117,7 +117,7 @@ pub(crate) fn parse_utc_hour(ts: &str) -> Option<u8> {
 /// alongside `parse_utc_hour` which provides the stricter check.
 ///
 /// Returns `None` for strings shorter than 7 bytes, non-numeric month
-/// digits, or months outside 01..=12. The returned value is 0-indexed
+/// digits or months outside 01..=12. The returned value is 0-indexed
 /// for direct use as an array index into `[[f64; 24]; 12]`.
 #[must_use]
 pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
@@ -161,7 +161,7 @@ pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
 /// # Errors
 ///
 /// Returns `Err` with a short human-readable message for non-UTC
-/// timestamps, unparseable fields, out-of-range values, or years before
+/// timestamps, unparseable fields, out-of-range values or years before
 /// 1970.
 pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let s = s.trim();
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn parse_utc_hour_no_fraction() {
-        // "2025-07-10T09:30:00Z" — no millisecond fraction is still valid.
+        // "2025-07-10T09:30:00Z", no millisecond fraction is still valid.
         assert_eq!(parse_utc_hour("2025-07-10T09:30:00Z"), Some(9));
     }
 

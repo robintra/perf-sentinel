@@ -3,7 +3,7 @@
 //! Both the Scaphandre scraper and the cloud `SPECpower` scraper publish
 //! per-service `energy_per_op_kwh` readings to the scoring path on
 //! every tick. The two states previously duplicated the entire
-//! `ArcSwap<HashMap<String, ServiceEnergy>>` pattern — same fields,
+//! `ArcSwap<HashMap<String, ServiceEnergy>>` pattern, same fields,
 //! same `snapshot` / `publish` / `current_owned` / `insert_for_test`
 //! implementation. This module centralizes the storage; the two
 //! public types ([`crate::score::scaphandre::ScaphandreState`] and
@@ -27,7 +27,7 @@ use arc_swap::ArcSwap;
 /// One row in the shared state: a measured coefficient with a
 /// freshness timestamp.
 ///
-/// `last_update_ms` is monotonic milliseconds since process start —
+/// `last_update_ms` is monotonic milliseconds since process start ,
 /// produced by [`crate::score::scaphandre::state::monotonic_ms`]. The
 /// scoring snapshot uses the `staleness_ms` parameter to discard
 /// entries older than `3 × scrape_interval` (so a hung scraper does
@@ -55,7 +55,7 @@ impl AgedEnergyMap {
     ///
     /// The returned `HashMap<String, f64>` is owned: the scoring path
     /// hands this directly to `CarbonContext.energy_snapshot`. Keys are
-    /// cloned once per fresh row — typically single digits of services.
+    /// cloned once per fresh row, typically single digits of services.
     #[must_use]
     pub(crate) fn snapshot(&self, now_ms: u64, staleness_ms: u64) -> HashMap<String, f64> {
         let current = self.inner.load_full();

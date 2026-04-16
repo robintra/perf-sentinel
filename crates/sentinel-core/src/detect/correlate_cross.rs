@@ -178,7 +178,7 @@ fn splitmix64(state: &mut u64) -> u64 {
 /// correlations by replaying trace files: two runs on the same input
 /// should produce the same median-lag values. FNV-1a has a fixed seed
 /// and no observable security-relevant side channel (the correlator is
-/// not adversarial — inputs come from our own detectors).
+/// not adversarial, inputs come from our own detectors).
 fn hash_endpoint(ep: &CorrelationEndpoint) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x100_0000_01b3;

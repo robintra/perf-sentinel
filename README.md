@@ -15,9 +15,9 @@ Analyzes runtime traces (SQL queries, HTTP calls) to detect N+1 queries, redunda
 
 ## Why perf-sentinel?
 
-Performance anti-patterns like N+1 queries exist in any application that does I/O: monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic), or limited to unit tests without cross-service visibility.
+Performance anti-patterns like N+1 queries exist in any application that does I/O: monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O and nobody has visibility on the full path. Existing tools are either runtime-specific (Hypersistence Utils -> JPA only), heavy and proprietary (Datadog, New Relic) or limited to unit tests without cross-service visibility.
 
-perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core, or SeaORM, it sees the queries they generate.
+perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
 
 ## GreenOps: built-in carbon-aware scoring
 
@@ -26,7 +26,7 @@ Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O opera
 - **I/O Intensity Score** = total I/O ops for an endpoint / number of invocations
 - **I/O Waste Ratio** = avoidable I/O ops (from findings) / total I/O ops
 
-Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. **30+ cloud regions** have embedded hourly carbon intensity profiles, with monthly x hourly seasonal variation for FR, DE, GB, and US-East. In daemon mode, energy estimation can be refined via **Scaphandre RAPL** (bare metal) or **cloud-native CPU% + SPECpower** (AWS/GCP/Azure), and grid intensity can be pulled live from the **Electricity Maps API**, with automatic fallback to the I/O proxy model. Users can supply their own hourly profiles via `[green] hourly_profiles_file`, or tune the proxy coefficients from on-site measurements via `perf-sentinel calibrate`.
+Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci)) from the Green Software Foundation. The `co2.total` field holds the **SCI numerator** `(E × I) + M` summed over analyzed traces, not the per-request intensity score. Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. **30+ cloud regions** have embedded hourly carbon intensity profiles, with monthly x hourly seasonal variation for FR, DE, GB and US-East. In daemon mode, energy estimation can be refined via **Scaphandre RAPL** (bare metal) or **cloud-native CPU% + SPECpower** (AWS/GCP/Azure) and grid intensity can be pulled live from the **Electricity Maps API**, with automatic fallback to the I/O proxy model. Users can supply their own hourly profiles via `[green] hourly_profiles_file` or tune the proxy coefficients from on-site measurements via `perf-sentinel calibrate`.
 
 > **Note:** CO₂ estimates are **directional**, not regulatory-grade. Every estimate carries a `~2×` multiplicative uncertainty bracket (`low = mid/2`, `high = mid×2`) because the I/O proxy model is rough. perf-sentinel is a **waste counter**, not a carbon-accounting tool. Do not use it for CSRD or GHG Protocol Scope 3 reporting. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology.
 
@@ -47,7 +47,7 @@ Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:
 
 For each detected anti-pattern, perf-sentinel reports:
 
-- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, excessive fanout, chatty service, pool saturation, or serialized calls. Cross-trace correlations are also surfaced in daemon mode
+- **Type:** N+1 SQL, N+1 HTTP, redundant query, slow SQL, slow HTTP, excessive fanout, chatty service, pool saturation or serialized calls. Cross-trace correlations are also surfaced in daemon mode
 - **Normalized template:** the query or URL with parameters replaced by placeholders (`?`, `{id}`)
 - **Occurrences:** how many times the pattern fired within the detection window
 - **Source endpoint:** which application endpoint triggered it (e.g. `GET /api/orders`)
@@ -61,7 +61,7 @@ Or drill into a single trace with the `explain` tree view, which annotates findi
 
 ![explain tree view](docs/img/explain/demo.gif)
 
-Or browse traces, findings, and span trees interactively with the `inspect` TUI (3-panel layout, keyboard navigation):
+Or browse traces, findings and span trees interactively with the `inspect` TUI (3-panel layout, keyboard navigation):
 
 ![inspect TUI](docs/img/inspect/demo.gif)
 
@@ -110,7 +110,7 @@ Finally, tune the I/O-to-energy coefficients to your real infrastructure with `c
 
 **pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries three ways (by total execution time, by call count, by mean latency). Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
 
-![pg-stat: top hotspots by total time, calls, and mean latency](docs/img/pg-stat/hotspots.png)
+![pg-stat: top hotspots by total time, calls and mean latency](docs/img/pg-stat/hotspots.png)
 
 **Calibrate mode** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`):
 
@@ -204,7 +204,7 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
 
 ### How to read the report
 
-The CLI renders a `(healthy / moderate / high / critical)` qualifier next to I/O Intensity Score and I/O waste ratio. The same classification ships as sibling fields in the JSON report (`io_intensity_band`, `io_waste_ratio_band`), so downstream tools like SARIF converters, Grafana panels, or IDE plugins can consume our heuristics or apply their own on the raw numbers.
+The CLI renders a `(healthy / moderate / high / critical)` qualifier next to I/O Intensity Score and I/O waste ratio. The same classification ships as sibling fields in the JSON report (`io_intensity_band`, `io_waste_ratio_band`), so downstream tools like SARIF converters, Grafana panels or IDE plugins can consume our heuristics or apply their own on the raw numbers.
 
 | IIS       | Band       | Anchor                                            |
 |-----------|------------|---------------------------------------------------|
@@ -436,7 +436,7 @@ For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRA
 
 ## Standards and data sources
 
-perf-sentinel's carbon estimates rest on an auditable chain of public standards, reference datasets, and peer-reviewed methodology. The authoritative per-reference citation list lives in [`crates/sentinel-core/src/score/carbon.rs`](crates/sentinel-core/src/score/carbon.rs) (module docstring) and in [`crates/sentinel-core/src/score/carbon_profiles.rs`](crates/sentinel-core/src/score/carbon_profiles.rs) (per-region source comments on every profile entry). This section is the narrative companion.
+perf-sentinel's carbon estimates rest on an auditable chain of public standards, reference datasets and peer-reviewed methodology. The authoritative per-reference citation list lives in [`crates/sentinel-core/src/score/carbon.rs`](crates/sentinel-core/src/score/carbon.rs) (module docstring) and in [`crates/sentinel-core/src/score/carbon_profiles.rs`](crates/sentinel-core/src/score/carbon_profiles.rs) (per-region source comments on every profile entry). This section is the narrative companion.
 
 ### Standard / specification
 
@@ -444,7 +444,7 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 
 ### Reference datasets
 
-- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values (AWS 1.135, GCP 1.10, Azure 1.185, generic 1.2), and the SPECpower coefficient tables (~180 instance types) that feed the `cloud_specpower` energy backend.
+- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values (AWS 1.135, GCP 1.10, Azure 1.185, generic 1.2) and the SPECpower coefficient tables (~180 instance types) that feed the `cloud_specpower` energy backend.
 - [Electricity Maps](https://www.electricitymaps.com/): annual average intensities for 30+ regions (2023-2024) used as the `io_proxy_v1` baseline, plus the real-time API (`electricity_maps_api` backend, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/): hourly generation and load data used to derive the monthly x hourly profiles for European bidding zones (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
 - National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).
@@ -462,7 +462,7 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 
 ### What this is not
 
-perf-sentinel is a **directional waste counter**, not a regulatory carbon-accounting tool. Every `CarbonEstimate` ships with a `{ low, mid, high }` 2× multiplicative uncertainty bracket because the I/O-to-energy proxy is approximate by construction. Do not use these values for CSRD reporting, GHG Protocol Scope 3 disclosures, or any other compliance context. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology critique.
+perf-sentinel is a **directional waste counter**, not a regulatory carbon-accounting tool. Every `CarbonEstimate` ships with a `{ low, mid, high }` 2× multiplicative uncertainty bracket because the I/O-to-energy proxy is approximate by construction. Do not use these values for CSRD reporting, GHG Protocol Scope 3 disclosures or any other compliance context. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology critique.
 
 ## License
 

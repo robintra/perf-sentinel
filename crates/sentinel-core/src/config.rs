@@ -137,10 +137,10 @@ pub struct Config {
 /// with a clear validation error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DaemonEnvironment {
-    /// Staging traffic — medium confidence. Default.
+    /// Staging traffic, medium confidence. Default.
     #[default]
     Staging,
-    /// Production traffic — high confidence.
+    /// Production traffic, high confidence.
     Production,
 }
 
@@ -213,7 +213,7 @@ impl Config {
     /// Map the daemon environment to a [`Confidence`] value.
     ///
     /// Used by `daemon::run` to stamp findings after detection. `analyze`
-    /// batch mode does not call this — it hardcodes [`Confidence::CiBatch`]
+    /// batch mode does not call this; it hardcodes [`Confidence::CiBatch`]
     /// in `pipeline::analyze_with_traces` instead.
     #[must_use]
     pub const fn confidence(&self) -> Confidence {
@@ -319,7 +319,7 @@ struct GreenSection {
 /// Raw deserialization target for `[green.scaphandre]`.
 ///
 /// Converted to a `ScaphandreConfig` during `RawConfig → Config` only
-/// when `endpoint` is set — an empty table (no fields) leaves
+/// when `endpoint` is set: an empty table (no fields) leaves
 /// `Config::green_scaphandre = None`.
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -423,10 +423,8 @@ const TOML_PATH_STRING_KEYS: &[&str] = &[
 /// Rewrite path-like config fields so Windows-style backslashes are treated
 /// as literal separators instead of TOML escapes.
 ///
-/// This is intentionally narrow: only known path keys are touched, only when
-/// they use a basic string (`"..."`), and existing escaped pairs (`\\`) are
-/// left intact. That lets Windows users write `C:\Users\...` while preserving
-/// already-valid TOML like `C:\\Users\\...`.
+/// See `docs/design/07-CLI-CONFIG-RELEASE.md` > "Windows path normalization"
+/// for the full algorithm, the UNC rule, and the fallback design.
 fn normalize_toml_path_strings(content: &str) -> Cow<'_, str> {
     let mut changed = false;
     let mut normalized = String::with_capacity(content.len());
@@ -472,11 +470,9 @@ fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
         return Cow::Borrowed(line);
     };
 
-    // Slice on `[..value_start]` (exclusive) and push the opening `"`
-    // explicitly so we never rely on `value_start` being at a UTF-8
-    // boundary for the *end* of a slice range. It's ASCII here in
-    // practice (we just checked `starts_with('"')`), but the explicit
-    // form makes the UTF-8 invariant obvious to future readers.
+    // Push the opening `"` explicitly so `value_start` is never used as
+    // the end of an inclusive byte range. See design doc 07 > "Windows
+    // path normalization" for the UTF-8 invariant.
     let mut out =
         String::with_capacity(line.len() + normalized_inner.len().saturating_sub(inner.len()));
     out.push_str(&line[..value_start]);
@@ -487,15 +483,10 @@ fn normalize_toml_path_line(line: &str) -> Cow<'_, str> {
 }
 
 /// Return the byte offset of the closing `"` that terminates a TOML basic
-/// string starting at `value[0]`, or `None` if the string is unterminated.
+/// string starting at `value[0]` or `None` if the string is unterminated.
 ///
-/// A closing quote is one preceded by an *even* number of consecutive
-/// backslashes (zero counts as even): `"abc\""` contains one escaped quote,
-/// `"abc\\"` ends at byte 5 because the two backslashes form a `\\` escape.
-///
-/// Runs linearly: we maintain `run` as the count of consecutive backslashes
-/// currently on the left of `idx`, which avoids the O(n²) lookbehind an
-/// adversarial "long chain of backslashes" input could otherwise trigger.
+/// Linear: the `run` counter avoids an O(n²) lookbehind on inputs full of
+/// `\`. See design doc 07 > "Windows path normalization" for context.
 fn find_basic_string_end(value: &str) -> Option<usize> {
     debug_assert!(value.starts_with('"'));
 
@@ -516,14 +507,9 @@ fn find_basic_string_end(value: &str) -> Option<usize> {
 /// Escape single backslashes inside a TOML basic-string path so its value
 /// round-trips as a literal separator.
 ///
-/// Rules applied to each run of consecutive `\`:
-/// - run of 1                → emit `\\` (bare `\` becomes escaped)
-/// - run of 2+               → emit as-is (already an escape pair or UNC)
-/// - run of 2 at the *start* of the string and not followed by another `\`
-///   → emit `\\\\` (raw UNC `\\server\...` → TOML `\\\\server\\...`, which
-///   decodes back to `\\server\...`)
-///
-/// Returns `Cow::Borrowed(inner)` when no rewrite is needed.
+/// See design doc 07 > "Windows path normalization" for the per-run rules
+/// (single `\`, escape pairs, raw UNC prefix). Returns `Cow::Borrowed(inner)`
+/// when no rewrite is needed.
 fn escape_toml_path_backslashes(inner: &str) -> Cow<'_, str> {
     if !inner.contains('\\') {
         return Cow::Borrowed(inner);
@@ -945,10 +931,8 @@ fn check_min<T: PartialOrd + std::fmt::Display>(
 /// Emit a single startup warning when `val` is inside the hard bounds but
 /// outside the recommended "comfort zone" `[comfort_lo, comfort_hi]`.
 ///
-/// `note` describes the practical consequence of the unusual value, so
-/// operators can tell at a glance whether they meant it (e.g. "tight
-/// trace ring buffer; complex traces will be truncated"). Logged once
-/// per field at config load, not per event.
+/// See design doc 07 > "Comfort-zone warnings" for the rationale and the
+/// list of bands per field.
 fn warn_outside_comfort_zone<T>(
     name: &str,
     val: &T,
@@ -1530,13 +1514,11 @@ impl Config {
         Ok(())
     }
 
-    /// Soft warnings for daemon-limit values that parse but lie outside
-    /// the practical "comfort zone" around each default. Emitted once at
-    /// startup so operators get a heads-up without any rejection.
+    /// Soft startup warnings for daemon-limit values inside the hard
+    /// bounds but outside their recommended comfort zone.
     ///
-    /// Comfort zones bracket each default by roughly 1 to 2 orders of
-    /// magnitude; the bands were picked from the same defaults already
-    /// in `Config::default()`.
+    /// See design doc 07 > "Comfort-zone warnings" for the band table
+    /// and the rationale.
     fn warn_unusual_daemon_limits(&self) {
         warn_outside_comfort_zone(
             "max_payload_size",
@@ -1673,12 +1655,8 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
         Ok(raw) => raw,
         Err(norm_err) => {
             if matches!(normalized, Cow::Owned(_)) {
-                // Path normalization rewrote the input, but the rewrite
-                // produced invalid TOML. Retry on the original so we
-                // report the user's actual error instead of one from our
-                // rewrite. We log the normalized failure at debug level
-                // so a divergence is discoverable without spamming
-                // warnings on every legitimate Windows-path config.
+                // Path normalization fallback. See design doc 07 >
+                // "Windows path normalization" for the rationale.
                 tracing::debug!(
                     normalized_error = %norm_err,
                     "path normalization produced invalid TOML; retrying with original input"
@@ -1689,10 +1667,9 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
             }
         }
     };
-    // validate the daemon environment string BEFORE the lossy
-    // `Config::from` conversion collapses unknown values into the default.
-    // This way "envrionment = \"prod\"" (typo) is rejected with a clear
-    // error instead of silently downgrading to Staging.
+    // Validate before the lossy `Config::from` conversion: a typo like
+    // `envrionment = "prod"` would otherwise silently downgrade to
+    // Staging instead of erroring.
     if let Some(env_str) = raw.daemon.environment.as_deref()
         && parse_daemon_environment(env_str).is_none()
     {
@@ -1832,9 +1809,8 @@ json_socket = "C:\\temp\\perf-sentinel.sock"
 
     #[test]
     fn parse_windows_style_json_socket_path_with_trailing_comment() {
-        // Covers `find_basic_string_end` stopping before `#` — a very
-        // common hand-edited config shape that the initial test matrix
-        // missed.
+        // Covers `find_basic_string_end` stopping before `#`, a common
+        // hand-edited config shape the initial test matrix missed.
         let config = load_from_str(
             "[daemon]\n\
              json_socket = \"C:\\temp\\sock\" # inline note\n",
@@ -1845,8 +1821,8 @@ json_socket = "C:\\temp\\perf-sentinel.sock"
 
     #[test]
     fn parse_unc_json_socket_path_preserves_double_leading_backslash() {
-        // Raw UNC `\\server\share\sock` — needs to round-trip verbatim.
-        // The `raw_unc_prefix` branch in `escape_toml_path_backslashes`
+        // Raw UNC `\\server\share\sock` must round-trip verbatim. The
+        // `raw_unc_prefix` branch in `escape_toml_path_backslashes`
         // emits 4 leading `\` so TOML decode yields 2.
         let config = load_from_str(
             r#"
@@ -1873,7 +1849,7 @@ json_socket = "\\\\server\\share\\sock"
     #[test]
     fn literal_string_windows_path_bypasses_normalization() {
         // TOML literal strings (`'...'`) already treat `\` literally.
-        // Our normalizer must not touch them — checked indirectly by
+        // Our normalizer must not touch them; checked indirectly by
         // confirming the parser accepts a path with lone `\` inside `'`.
         let config = load_from_str(
             r"
@@ -1889,8 +1865,8 @@ json_socket = 'C:\temp\sock'
     fn normalization_applies_to_tls_cert_and_key_paths() {
         // TLS paths are validated as filesystem entries, so a non-existent
         // literal yields ConfigError::Validation. The test passes iff the
-        // error message surfaces the expected *normalized* path — i.e.
-        // our rewriter reached both keys before validation ran.
+        // error message surfaces the expected *normalized* path, i.e. our
+        // rewriter reached both keys before validation ran.
         let err = load_from_str(
             r#"
 [daemon]
@@ -1964,9 +1940,9 @@ sampling_rate = "not a number"
 
     #[test]
     fn find_basic_string_end_handles_escaped_inner_quote() {
-        // `"a\"b"` — the first `"` at byte 3 is escaped, the real end
-        // is at byte 5. Guards the linear `run`-counter rewrite against
-        // regressions that would terminate too early.
+        // `"a\"b"`: the first `"` at byte 3 is escaped, real end at byte
+        // 5. Guards the linear `run`-counter rewrite against regressions
+        // that would terminate too early.
         let value = r#""a\"b""#;
         assert_eq!(find_basic_string_end(value), Some(5));
     }
@@ -2177,7 +2153,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn rejects_invalid_default_region_characters() {
-        // Space in region name — log-injection protection at config load.
+        // Space in region name: log-injection protection at config load.
         let result = load_from_str("[green]\ndefault_region = \"eu west 3\"");
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -2189,7 +2165,7 @@ default_region = "eu-west-3"
 
     #[test]
     fn rejects_oversized_default_region() {
-        // 65 chars — just over the 64-char cap.
+        // 65 chars, just over the 64-char cap.
         let long_region = "a".repeat(65);
         let toml = format!("[green]\ndefault_region = \"{long_region}\"");
         let result = load_from_str(&toml);
@@ -2745,7 +2721,7 @@ hourly_profiles_file = "C:\temp\profiles.json"
     #[test]
     fn scaphandre_empty_section_parses_to_none() {
         // An empty [green.scaphandre] table (no endpoint) is treated
-        // as "Scaphandre not configured" — the scraper is not spawned.
+        // as "Scaphandre not configured": the scraper is not spawned.
         let config = load_from_str("[green.scaphandre]\n").unwrap();
         assert!(config.green_scaphandre.is_none());
     }
@@ -3079,7 +3055,7 @@ network_energy_per_byte_kwh = 0.00000000008
 
     #[test]
     fn validate_http_authority_accepts_bare_ipv6() {
-        // `[::1]` without port — should not error on the port-parse branch.
+        // `[::1]` without port: should not error on the port-parse branch.
         assert!(validate_http_authority("http://[::1]/metrics", "test").is_ok());
     }
 
@@ -3124,7 +3100,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
     // Local imports used by all the electricity_maps tests below.
     // `HashMap` and `Duration` are already in scope via `use super::*;`
     // at the top of this module, but Qodana flags the fully-qualified
-    // forms as unnecessary — using the short names reads cleaner anyway.
+    // forms as unnecessary; using the short names reads cleaner anyway.
     use crate::score::electricity_maps::ElectricityMapsConfig;
 
     #[test]

@@ -1,8 +1,8 @@
 //! Shared HTTP(S) client utilities for scrapers and API clients.
 //!
-//! Provides a TLS-capable hyper client, body size limits, and endpoint
+//! Provides a TLS-capable hyper client, body size limits and endpoint
 //! redaction. Used by the Scaphandre scraper, cloud energy scraper,
-//! Electricity Maps scraper, Tempo ingestion module, and the `query`
+//! Electricity Maps scraper, Tempo ingestion module and the `query`
 //! CLI subcommand.
 
 /// Re-export `hyper::Uri` so callers don't need a direct hyper dependency.
@@ -43,7 +43,7 @@ pub fn build_client() -> HttpClient {
 }
 
 /// Strip userinfo (`http://user:pass@host/`) from a `Uri` before
-/// logging. Rebuilds the URL with only scheme, host, port, and path.
+/// logging. Rebuilds the URL with only scheme, host, port and path.
 pub fn redact_endpoint(uri: &Uri) -> String {
     let scheme = uri.scheme_str().unwrap_or("http");
     let host = uri.host().unwrap_or("?");
@@ -78,13 +78,13 @@ pub enum FetchError {
 /// Perform a `GET` request with a timeout and body size cap.
 ///
 /// Returns the response body as raw bytes. Shared by the Scaphandre,
-/// cloud energy, and Electricity Maps scrapers so the fetch/timeout/
+/// cloud energy and Electricity Maps scrapers so the fetch/timeout/
 /// body-cap logic lives in one place.
 ///
 /// # Errors
 ///
 /// Returns [`FetchError`] on request build failure, transport error,
-/// non-2xx status, body read failure, or timeout.
+/// non-2xx status, body read failure or timeout.
 pub async fn fetch_get(
     client: &HttpClient,
     uri: &Uri,
@@ -177,7 +177,7 @@ mod tests {
     /// connector would refuse plain HTTP (e.g., a misconfigured rustls
     /// builder or a feature-flag drift on `hyper-rustls`). The mock
     /// server is hand-rolled to avoid pulling in wiremock / httptest
-    /// just for a smoke test — same pattern as the scraper test modules.
+    /// just for a smoke test, same pattern as the scraper test modules.
     #[tokio::test]
     async fn build_client_can_perform_plain_http_round_trip() {
         use http_body_util::{BodyExt, Empty, Limited};

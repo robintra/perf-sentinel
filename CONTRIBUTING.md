@@ -1,6 +1,6 @@
 # Contributing to perf-sentinel
 
-Thank you for your interest in contributing to perf-sentinel! This document covers the development setup, coding conventions, and how to submit changes.
+Thank you for your interest in contributing to perf-sentinel! This document covers the development setup, coding conventions and how to submit changes.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ The pipeline architecture is: `event -> normalize -> correlate -> detect -> scor
 
 ### Language
 
-- All code, comments, doc comments, error messages, and CLI output must be in **English**.
+- All code, comments, doc comments, error messages and CLI output must be in **English**.
 - French is used only in `README-FR.md`.
 
 ### Commit messages

@@ -563,7 +563,7 @@ const MAX_PROFILE_FILE_BYTES: u64 = 2 * 1024 * 1024;
 
 /// Maximum plausible grid intensity (gCO2/kWh). No national grid
 /// exceeds ~950 (South Africa, Mongolia). Values above 1000 likely
-/// indicate a unit confusion (mg vs g, or kgCO2 vs gCO2).
+/// indicate a unit confusion (mg vs g or kgCO2 vs gCO2).
 const MAX_PLAUSIBLE_INTENSITY: f64 = 1000.0;
 
 /// Maximum number of custom profile entries (same cap as `MAX_REGIONS`).
@@ -587,7 +587,7 @@ const MAX_CUSTOM_PROFILES: usize = 256;
 /// # Errors
 ///
 /// Returns `Err` when the file cannot be read, contains invalid JSON,
-/// has wrong dimensions, negative or non-finite values, or invalid
+/// has wrong dimensions, negative or non-finite values or invalid
 /// region keys.
 pub fn load_custom_profiles(
     path: &std::path::Path,
@@ -1603,7 +1603,7 @@ mod tests {
             energy_snapshot: None,
             ..CarbonContext::default()
         };
-        // Mixed-case service name on the event — should still match.
+        // Mixed-case service name on the event, should still match.
         let event = make_event("Order-Svc", None);
         assert_eq!(resolve_region(&event, &ctx), Some("us-east-1"));
         // Upper-case service name.

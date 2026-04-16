@@ -269,7 +269,7 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 
 ### Design decisions
 
-**Separate from `IngestSource`:** the `IngestSource` trait returns `Vec<SpanEvent>`, but `pg_stat_statements` data does not map to `SpanEvent` (no trace_id, span_id, or timestamp). It produces its own `PgStatReport` type with rankings.
+**Separate from `IngestSource`:** the `IngestSource` trait returns `Vec<SpanEvent>`, but `pg_stat_statements` data does not map to `SpanEvent` (no trace_id, span_id or timestamp). It produces its own `PgStatReport` type with rankings.
 
 **Auto-format detection:** follows the same byte-level heuristic pattern as `json.rs`. If the first non-whitespace byte is `[` or `{`, parse as JSON; otherwise, parse as CSV. No external csv crate, the CSV parser handles RFC 4180 quoting manually (double-quoted fields, escaped `""`).
 
@@ -300,7 +300,7 @@ The function builds a PromQL `topk(N, pg_stat_statements_seconds_total)` instant
 }
 ```
 
-`parse_prometheus_response` extracts the `query` (or `queryid`) label as the raw SQL text, the `datname` label as the database name, and the value as total execution time in seconds. Each result is converted to a `PgStatEntry` with its SQL normalized through `normalize::sql::normalize_sql()` for consistency with trace-based findings.
+`parse_prometheus_response` extracts the `query` (or `queryid`) label as the raw SQL text, the `datname` label as the database name and the value as total execution time in seconds. Each result is converted to a `PgStatEntry` with its SQL normalized through `normalize::sql::normalize_sql()` for consistency with trace-based findings.
 
 ### CLI integration
 
@@ -327,7 +327,7 @@ The daemon exposes its internal state via HTTP endpoints alongside the existing 
 
 - **`push_batch(findings, now_ms)`**: builds the new `StoredFinding` entries outside the lock, then acquires a brief write lock to `extend` the buffer and `drain` any excess. Evicts the oldest entries when the buffer exceeds `max_size` (default 10,000 from config `max_retained_findings`). The initial capacity is `min(max_size, INITIAL_CAPACITY_CEILING)` with a 4096 ceiling to amortize reallocations without a surprising RSS hit at startup.
 - **`max_size == 0` short-circuit**: when set to 0, `push_batch` returns immediately without allocating. This lets operators who disable the query API (`api_enabled = false`) reclaim the store's memory by also setting `max_retained_findings = 0`.
-- **`query(filter)`**: acquires a read lock, iterates in reverse (newest first), applies optional `service`, `finding_type`, and `severity` filters, and returns up to `limit` results (default 100, capped at `MAX_FINDINGS_LIMIT = 1000`).
+- **`query(filter)`**: acquires a read lock, iterates in reverse (newest first), applies optional `service`, `finding_type` and `severity` filters and returns up to `limit` results (default 100, capped at `MAX_FINDINGS_LIMIT = 1000`).
 - **`by_trace_id(trace_id)`**: acquires a read lock and returns all findings for a specific trace.
 
 `RwLock` is chosen over `Mutex` because `process_traces` (writer) runs once per tick, while the API handlers (readers) may serve concurrent requests. Multiple read locks do not block each other. Clones happen outside the write lock so readers are not blocked by `Finding::clone()` allocations.

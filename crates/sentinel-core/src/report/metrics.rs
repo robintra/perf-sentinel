@@ -139,7 +139,7 @@ impl MetricsState {
         .expect("metric creation should not fail");
 
         // per-service I/O op counter. Single source of
-        // truth for per-service op counts — the Scaphandre scraper
+        // truth for per-service op counts, the Scaphandre scraper
         // reads this via snapshot-diff instead of maintaining a
         // parallel counter that would drift under concurrent writes.
         let service_io_ops_total = CounterVec::new(
@@ -257,7 +257,7 @@ impl MetricsState {
                 // prometheus 0.14.
                 let counter_value = metric.get_counter().value();
                 // Cumulative counts should always be representable as
-                // u64 — saturate to u64::MAX on overflow so the delta
+                // u64, saturate to u64::MAX on overflow so the delta
                 // math still produces sane values.
                 // Saturate to u64 safely: clamp the float to the
                 // representable range first, then cast. Counter

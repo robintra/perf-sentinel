@@ -51,7 +51,7 @@ pub(super) async fn fetch_metrics_once(
 }
 
 /// Errors the scraper task might emit. They are never returned to the
-/// caller — the scraper task logs them via `tracing` with the
+/// caller, the scraper task logs them via `tracing` with the
 /// warn-once pattern and continues running.
 ///
 /// `#[from]` and `#[source]` attributes preserve the underlying error
@@ -61,7 +61,7 @@ pub(super) async fn fetch_metrics_once(
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ScraperError {
     /// Endpoint URI failed to parse at config-load or scraper-startup time.
-    /// The `endpoint` field is the redacted URL (no userinfo) — see
+    /// The `endpoint` field is the redacted URL (no userinfo), see
     /// [`http_client::redact_endpoint`].
     #[error("invalid Scaphandre endpoint URI '{endpoint}'")]
     InvalidUri {
@@ -70,7 +70,7 @@ pub(super) enum ScraperError {
         source: hyper::http::uri::InvalidUri,
     },
     /// HTTP fetch failed (request build, transport, timeout, body
-    /// read, or non-2xx status). Delegates to the shared
+    /// read or non-2xx status). Delegates to the shared
     /// [`http_client::FetchError`].
     #[error("Scaphandre fetch failed")]
     Fetch(#[source] http_client::FetchError),
@@ -83,7 +83,7 @@ pub(super) enum ScraperError {
 /// Returns a `JoinHandle` that the daemon captures and aborts on
 /// Ctrl-C shutdown. The task runs until aborted or until the endpoint
 /// produces an unrecoverable error (the current implementation keeps
-/// running across failures — see the warn-once log pattern below).
+/// running across failures, see the warn-once log pattern below).
 ///
 /// The task reads the per-service op counter from the `Arc<MetricsState>`
 /// (shared with the daemon's event intake path) at each tick, computes
@@ -110,7 +110,7 @@ pub fn spawn_scraper(
 /// Owns one [`HttpClient`] for the lifetime of the scraper task so
 /// hyper-util can pool the underlying TCP connection between scrapes.
 /// Parses the endpoint URI once at startup; if the URI is malformed
-/// the task logs and exits cleanly without retrying — a user-facing
+/// the task logs and exits cleanly without retrying, a user-facing
 /// config error should fail loud, not warn-spam every 5 s.
 async fn run_scraper_loop(
     cfg: ScaphandreConfig,
@@ -121,7 +121,7 @@ async fn run_scraper_loop(
 
     // Parse the URI once. The config validator at config.rs::validate_green
     // already runs the same parse at config-load time, so this should never
-    // fail in practice — but we keep the runtime guard so the scraper task
+    // fail in practice, but we keep the runtime guard so the scraper task
     // exits cleanly instead of panicking on a hot-reloaded bad URL.
     let uri = match hyper::Uri::from_str(&cfg.endpoint) {
         Ok(u) => u,
@@ -178,7 +178,7 @@ async fn run_scraper_loop(
                 let readings = parse_scaphandre_metrics(&body);
                 let now = monotonic_ms();
                 apply_scrape(&state, &readings, &deltas, &cfg, now);
-                // Update the "last successful scrape age" gauge to 0 —
+                // Update the "last successful scrape age" gauge to 0 ,
                 // Grafana rate() / alerting rules catch hung scrapers
                 // by watching the gauge climb.
                 metrics.scaphandre_last_scrape_age_seconds.set(0.0);

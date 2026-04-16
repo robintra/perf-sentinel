@@ -21,7 +21,7 @@
 //!   endpoints that are legitimate.
 //! - [`WASTE_RATIO_HIGH`] (0.30) is anchored on the **default**
 //!   `io_waste_ratio_max`. Users who override the quality gate in their
-//!   `.perf-sentinel.toml` still see this fixed heuristic — the gate is a
+//!   `.perf-sentinel.toml` still see this fixed heuristic, the gate is a
 //!   user policy, the interpretation is a fixed heuristic. By design.
 //!
 //! # JSON stability contract
@@ -49,7 +49,7 @@
 /// label by [`InterpretationLevel::short_label`]. The CLI maps each level
 /// to an ANSI color in `sentinel-cli/src/main.rs`. The serde
 /// representation is lowercase (`"healthy"` / `"moderate"` / `"high"` /
-/// `"critical"`) and is stable across versions — see the module docstring
+/// `"critical"`) and is stable across versions, see the module docstring
 /// for the stability contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -101,7 +101,7 @@ impl InterpretationLevel {
     /// order `(moderate, high, critical)` both public wrappers use.
     ///
     /// `NaN` falls through to [`Healthy`] because NaN compares false
-    /// against every threshold — intentional: missing data should not
+    /// against every threshold, intentional: missing data should not
     /// render as a red CLI warning.
     ///
     /// [`for_iis`]: Self::for_iis
@@ -258,19 +258,19 @@ mod tests {
     }
 
     /// `IIS_HIGH` is anchored on the default `n_plus_one_threshold`
-    /// (crates/sentinel-core/src/config.rs — `Config::default`).
+    /// (crates/sentinel-core/src/config.rs, `Config::default`).
     ///
     /// This test reads the runtime value of `Config::default().n_plus_one_threshold`
     /// and asserts they match. A bare literal comparison (`IIS_HIGH == 5.0`)
     /// would not catch the case where someone bumps the config default but
-    /// forgets to update `IIS_HIGH` — the point of a drift guard is to
+    /// forgets to update `IIS_HIGH`, the point of a drift guard is to
     /// follow the anchor, not to freeze a magic number.
     ///
     /// `f64::from(u32)` is lossless today. If someone widens
     /// `n_plus_one_threshold` from `u32` to `usize`, `f64::from(usize)`
     /// does not exist and this test will stop compiling, forcing a
     /// manual decision on how to cast. That hard break is the drift
-    /// guard here: do NOT paper over it with `as f64` — the type
+    /// guard here: do NOT paper over it with `as f64`, the type
     /// change should get human attention.
     #[test]
     fn iis_high_matches_n_plus_one_threshold_default() {
@@ -405,7 +405,7 @@ mod tests {
     /// `+Infinity` must classify as `Critical` (it satisfies every `>=`
     /// threshold). `-Infinity` must classify as `Healthy` (it satisfies
     /// none). These document the behavior for downstream renderers that
-    /// format `f64` scores with `{:.1}` / `{:.6}` — Rust's `Display` impl
+    /// format `f64` scores with `{:.1}` / `{:.6}`, Rust's `Display` impl
     /// for infinities prints `"inf"` / `"-inf"` without panicking, so the
     /// CLI stays crash-safe even on adversarial inputs.
     #[test]

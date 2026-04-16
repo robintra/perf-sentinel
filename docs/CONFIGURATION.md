@@ -14,7 +14,7 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 | `analyze`  | Batch analysis of trace files. Reads from file or stdin                                                                                                       |
 | `explain`  | Tree view of a specific trace with findings annotated inline                                                                                                  |
 | `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                 |
-| `query`    | Query a running daemon for findings, correlations, or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
+| `query`    | Query a running daemon for findings, correlations or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
 | `demo`     | Run analysis on an embedded demo dataset                                                                                                                      |
 | `bench`    | Benchmark throughput on a trace file                                                                                                                          |
 | `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                 |
@@ -58,7 +58,7 @@ GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-
 | `embodied_carbon_per_request_gco2` | float   | `0.001`  | SCI v1.0 `M` term: hardware manufacturing emissions amortized per request (per trace), in gCO₂eq. Region-independent. Set to `0.0` to disable embodied carbon                                                                                                                                                                                                                              |
 | `use_hourly_profiles`              | boolean | `true`   | When `true`, the scoring stage uses time-of-day-specific grid intensities for the 30+ regions with embedded hourly profiles. Regions with monthly x hourly profiles (FR, DE, GB, US-East) also account for seasonal variation. Reports are tagged `model = "io_proxy_v3"` (monthly x hourly) or `"io_proxy_v2"` (flat-year hourly). Set to `false` to pin reports to the flat-annual model |
 | `hourly_profiles_file`             | string  | *(none)* | Path to a JSON file with user-supplied hourly profiles. Can be absolute or relative to the config file. Profiles in this file take precedence over embedded profiles for the same region key. See "User-supplied profiles" below                                                                                                                                                           |
-| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x), and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations   |
+| `per_operation_coefficients`       | boolean | `true`   | When `true`, the proxy model weights energy per I/O op by operation type: SQL SELECT (0.5x), INSERT/UPDATE (1.5x), DELETE (1.2x) and HTTP payload size tiers (small <10 KB: 0.8x, medium 10 KB-1 MB: 1.2x, large >1 MB: 2.0x). Does not apply when Scaphandre or cloud SPECpower measured energy is available. Set to `false` to use the flat `ENERGY_PER_IO_OP_KWH` for all operations   |
 | `include_network_transport`        | boolean | `false`  | When `true`, adds a network transport energy term for cross-region HTTP calls. Requires `response_size_bytes` on HTTP spans (OTel `http.response.body.size` attribute) and callee region mapped via `[green.service_regions]`. Same-region calls are excluded. Transport CO₂ appears as `transport_gco2` in the JSON report                                                                |
 | `network_energy_per_byte_kwh`      | float   | `4e-11`  | Energy per byte for network transport (kWh/byte). Default 0.04 kWh/GB, midpoint of 0.03-0.06 range from Mytton et al. (2024). Only used when `include_network_transport = true`                                                                                                                                                                                                            |
 
@@ -90,14 +90,14 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces, or `"sci_v1_numerator+transport"` when network transport energy is included) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`).
-- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, `"monthly_hourly"`, or `"real_time"` (Electricity Maps API) depending on which carbon intensity source was used for the region.
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces or `"sci_v1_numerator+transport"` when network transport energy is included) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`).
+- **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, `"monthly_hourly"` or `"real_time"` (Electricity Maps API) depending on which carbon intensity source was used for the region.
 
-Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology, and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
+Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
 
 #### User-supplied hourly profiles
 
-Set `[green] hourly_profiles_file` to a JSON file to provide your own hourly profiles. This is useful for datacenter operators with their own power purchase agreements (PPAs), or for overriding the embedded data with local measurements.
+Set `[green] hourly_profiles_file` to a JSON file to provide your own hourly profiles. This is useful for datacenter operators with their own power purchase agreements (PPAs) or for overriding the embedded data with local measurements.
 
 ```json
 {
@@ -121,7 +121,7 @@ User-supplied profiles take precedence over embedded profiles for the same regio
 
 #### Hourly profile region aliases
 
-Country-code aliases and cloud-provider synonyms are resolved to the same hourly profile. For example, `"fr"`, `"francecentral"`, and `"europe-west9"` all map to the `eu-west-3` (France) profile. Notable mappings:
+Country-code aliases and cloud-provider synonyms are resolved to the same hourly profile. For example, `"fr"`, `"francecentral"` and `"europe-west9"` all map to the `eu-west-3` (France) profile. Notable mappings:
 
 - `"us"`, `"eastus"` -> `us-east-1` (US-East, the most common US deployment region)
 - `"westeurope"`, `"nl"` -> `eu-west-4` (Netherlands)
@@ -154,13 +154,13 @@ scrape_interval_secs = 5
 
 **Ignored in `analyze` batch mode.** Only the `watch` daemon spawns the scraper. The `analyze` command always uses the proxy model regardless of this section.
 
-**Fallback behaviour.** When the endpoint is unreachable, a service is not present in `process_map`, or a service had zero ops in the current scrape window, the scoring stage falls back to the proxy model for those spans. The first failure logs at `warn` level; subsequent failures log at `debug` to avoid spam. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators detect a hung scraper.
+**Fallback behaviour.** When the endpoint is unreachable, a service is not present in `process_map` or a service had zero ops in the current scrape window, the scoring stage falls back to the proxy model for those spans. The first failure logs at `warn` level; subsequent failures log at `debug` to avoid spam. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators detect a hung scraper.
 
 **Precision bounds (important).** Scaphandre improves the **per-service** energy coefficient but does NOT give per-finding attribution. RAPL is process-level, not span-level: two findings in the same process during the same scrape window share the same coefficient. See `docs/LIMITATIONS.md#scaphandre-precision-bounds` for the full discussion.
 
 #### `[green.cloud]` (optional, opt-in)
 
-Cloud-native energy estimation via CPU utilization + SPECpower interpolation. When configured, the `watch` daemon scrapes CPU% from a Prometheus/VictoriaMetrics endpoint and uses an embedded lookup table (idle/max watts per cloud instance type) to estimate per-service energy consumption. Supports AWS, GCP, Azure, and on-premise hardware with manual watts override.
+Cloud-native energy estimation via CPU utilization + SPECpower interpolation. When configured, the `watch` daemon scrapes CPU% from a Prometheus/VictoriaMetrics endpoint and uses an embedded lookup table (idle/max watts per cloud instance type) to estimate per-service energy consumption. Supports AWS, GCP, Azure and on-premise hardware with manual watts override.
 
 | Field                   | Type    | Default  | Description                                                                                                                          |
 |-------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------|
@@ -236,7 +236,7 @@ Path to a calibration TOML file generated by `perf-sentinel calibrate`. When pre
 calibration_file = ".perf-sentinel-calibration.toml"
 ```
 
-**`perf-sentinel calibrate` input size limits.** Both inputs are capped to protect against unbounded memory use: the `--traces` file uses `config.max_payload_size` (default 1 MiB, same as `analyze`), and the `--measured-energy` CSV is capped at 64 MiB. Calibrate exits with a clear error if either file exceeds its limit. 64 MiB is generous for thousands of RAPL samples per minute; if you need more, bump `max_payload_size` and file an issue describing the workload.
+**`perf-sentinel calibrate` input size limits.** Both inputs are capped to protect against unbounded memory use: the `--traces` file uses `config.max_payload_size` (default 1 MiB, same as `analyze`) and the `--measured-energy` CSV is capped at 64 MiB. Calibrate exits with a clear error if either file exceeds its limit. 64 MiB is generous for thousands of RAPL samples per minute; if you need more, bump `max_payload_size` and file an issue describing the workload.
 
 #### `[tempo]` (optional)
 

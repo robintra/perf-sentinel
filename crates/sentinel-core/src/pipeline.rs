@@ -57,10 +57,10 @@ pub fn analyze_with_traces(
     detect::sort_findings(&mut findings);
 
     // stamp confidence on every finding. `analyze` is the batch
-    // path — always CiBatch regardless of the daemon environment config.
+    // path, always CiBatch regardless of the daemon environment config.
     // The real daemon path (daemon::process_traces) stamps Staging or
     // Production from Config::confidence(). Detectors themselves never
-    // reason about confidence — they emit Confidence::default() and the
+    // reason about confidence, they emit Confidence::default() and the
     // pipeline caller overrides it here.
     for finding in &mut findings {
         finding.confidence = Confidence::CiBatch;
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn pipeline_empty_traces_no_co2() {
         // With 0 events, compute_carbon_report early-returns
-        // (None, vec![]) — nothing meaningful to report.
+        // (None, vec![]), nothing meaningful to report.
         // Avoids emitting a noisy all-zeros co2 object for empty daemon ticks.
         let config = Config::default();
         let report = analyze(vec![], &config);
@@ -295,7 +295,7 @@ mod tests {
         use crate::test_helpers::make_n_plus_one_events;
         let events = make_n_plus_one_events();
         // Even with a production environment in config, batch analyze
-        // must stamp CiBatch — confidence is mode-driven, not config-driven,
+        // must stamp CiBatch, confidence is mode-driven, not config-driven,
         // for `analyze` (the config `daemon_environment` only affects
         // `watch` daemon mode).
         let config = Config {

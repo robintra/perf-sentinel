@@ -148,7 +148,7 @@ A `FindingsStore` ring buffer retains recent findings for the API (sized by `[da
 | `SpanEvent`       | event            | Raw I/O event (SQL query or HTTP call) with metadata and optional parent_span_id                                                                       |
 | `NormalizedEvent` | normalize        | SpanEvent enriched with normalized template and extracted parameters                                                                                   |
 | `Trace`           | correlate        | Collection of NormalizedEvents sharing the same trace_id                                                                                               |
-| `Finding`         | detect           | Detected anti-pattern with type, severity, pattern details, timestamps, green_impact, and `confidence` (CI batch / daemon staging / daemon production) |
+| `Finding`         | detect           | Detected anti-pattern with type, severity, pattern details, timestamps, green_impact and `confidence` (CI batch / daemon staging / daemon production) |
 | `GreenSummary`    | score            | Aggregate I/O stats: total ops, avoidable ops, waste ratio, top offenders, optional CO2                                                                |
 | `QualityGate`     | quality_gate     | Pass/fail result with individual rule evaluations                                                                                                      |
 | `Report`          | report           | Complete analysis output: analysis metadata, findings, green summary, quality gate                                                                     |

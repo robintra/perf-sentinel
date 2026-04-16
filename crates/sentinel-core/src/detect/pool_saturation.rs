@@ -109,7 +109,7 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
         suggestion: format!(
             "Potential connection pool saturation: service {service} has {peak} concurrent \
              SQL spans within {window_ms}ms window. Consider increasing the connection \
-             pool size, optimizing long-running queries, or using connection pool metrics \
+             pool size, optimizing long-running queries or using connection pool metrics \
              (db.client.connection.pool.*) for precise monitoring"
         ),
         first_timestamp: first_ts.to_string(),

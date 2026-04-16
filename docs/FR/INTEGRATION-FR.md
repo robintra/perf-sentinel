@@ -854,7 +854,7 @@ Pour les serveurs on-premise ou bare metal avec support Intel RAPL, perf-sentine
 
 **Prérequis :**
 - Scaphandre installé et en cours d'exécution, exposant un endpoint Prometheus `/metrics`.
-- Accès RAPL disponible (bare metal, ou VM avec RAPL passthrough).
+- Accès RAPL disponible (bare metal ou VM avec RAPL passthrough).
 
 **Configuration :**
 
@@ -872,7 +872,7 @@ Le `process_map` mappe les noms de service perf-sentinel au label `exe` dans la 
 Pour les VMs cloud sans accès RAPL, perf-sentinel peut estimer l'énergie par service via les métriques d'utilisation CPU depuis un endpoint Prometheus et le modèle SPECpower.
 
 **Prérequis :**
-- Un endpoint Prometheus avec des métriques d'utilisation CPU (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter, ou node_exporter).
+- Un endpoint Prometheus avec des métriques d'utilisation CPU (via cloudwatch_exporter, stackdriver-exporter, azure-metrics-exporter ou node_exporter).
 - perf-sentinel n'interroge PAS les APIs des fournisseurs cloud directement.
 
 **Configuration :**
@@ -911,9 +911,9 @@ Quand ni Scaphandre ni l'estimation cloud ne sont disponibles mais que vous avez
 
 **1. Mesurer.** Exécuter une charge de référence et collecter à la fois les traces (format JSON perf-sentinel) et les mesures d'énergie (CSV avec colonnes `timestamp,service,power_watts` ou `timestamp,service,energy_kwh`, auto-détecté depuis l'en-tête).
 
-**2. Calibrer.** Exécuter `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. La sous-commande corrèle les ops I/O avec les lectures d'énergie par service et fenêtre temporelle, calcule `factor = mesuré_par_op / proxy_par_défaut`, et écrit un fichier TOML. Les facteurs > 10x ou < 0.1x émettent des avertissements (probable erreur de mesure).
+**2. Calibrer.** Exécuter `perf-sentinel calibrate --traces traces.json --measured-energy energy.csv --output calibration.toml`. La sous-commande corrèle les ops I/O avec les lectures d'énergie par service et fenêtre temporelle, calcule `factor = mesuré_par_op / proxy_par_défaut` et écrit un fichier TOML. Les facteurs > 10x ou < 0.1x émettent des avertissements (probable erreur de mesure).
 
-**3. Utiliser.** Charger le fichier de calibration au démarrage via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. La boucle de scoring multiplie l'énergie proxy par le facteur du service, et le tag de modèle reçoit un suffixe `+cal` (par exemple `io_proxy_v2+cal`). La calibration ne s'applique qu'au modèle proxy : l'énergie mesurée Scaphandre/cloud reste prioritaire.
+**3. Utiliser.** Charger le fichier de calibration au démarrage via `[green] calibration_file = ".perf-sentinel-calibration.toml"`. La boucle de scoring multiplie l'énergie proxy par le facteur du service et le tag de modèle reçoit un suffixe `+cal` (par exemple `io_proxy_v2+cal`). La calibration ne s'applique qu'au modèle proxy : l'énergie mesurée Scaphandre/cloud reste prioritaire.
 
 ---
 

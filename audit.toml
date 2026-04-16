@@ -46,7 +46,7 @@ ignore = [
     #       methods on the returned `ThreadRng`,
     #   (d) `ThreadRng` attempts to reseed inside that logger call
     #       (every 64 kB of generated data),
-    #   (e) trace-level logging is enabled, OR warn-level logging is
+    #   (e) trace-level logging is enabled or warn-level logging is
     #       enabled while `getrandom` is unable to provide a seed.
     #
     # perf-sentinel defines no custom logger — the CLI initializes

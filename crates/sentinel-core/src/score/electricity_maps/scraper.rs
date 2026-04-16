@@ -206,7 +206,7 @@ mod tests {
     // ---------------------------------------------------------------
     //
     // The mock server helpers live in `crate::test_helpers` and are
-    // shared with the scaphandre, cloud_energy, and tempo tests — one
+    // shared with the scaphandre, cloud_energy, and tempo tests, one
     // implementation of "bind ephemeral port + one-shot reply".
 
     use crate::test_helpers::{http_200_text, http_status, spawn_one_shot_server};
@@ -286,7 +286,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_intensity_rejects_negative_carbon_intensity() {
-        // Valid schema, but the value is negative — the API should never
+        // Valid schema, but the value is negative, the API should never
         // return this, but we validate defensively to avoid silently
         // flipping the sign of CO₂ estimates.
         let body = r#"{"carbonIntensity":-5.0}"#;
@@ -313,7 +313,7 @@ mod tests {
         // submit a literal that serde_json IS willing to parse as f64
         // but is non-finite. Since that's not possible with standard
         // JSON, this test instead verifies the guard branch via a
-        // synthetic "very small" number path — or we can hit the guard
+        // synthetic "very small" number path, or we can hit the guard
         // by constructing the error manually for the JsonParse path.
         //
         // In practice the `is_finite()` check is belt-and-braces. The
@@ -323,7 +323,7 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_intensity_rejects_invalid_uri() {
-        // Garbage endpoint — hits the `InvalidUri` error variant.
+        // Garbage endpoint, hits the `InvalidUri` error variant.
         let client = http_client::build_client();
         let err = fetch_intensity(&client, "not a uri :: bad", "tok", "FR")
             .await

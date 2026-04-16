@@ -111,7 +111,7 @@ jobs:
       # re-run (crate version already on crates.io), fail loudly on any
       # other error. The previous `|| echo warning` pattern hid a real
       # compile failure during `cargo publish --verify` behind a green job
-      # — see post-mortem on https://github.com/robintra/perf-sentinel/releases/tag/v0.4.0.
+      # See post-mortem on https://github.com/robintra/perf-sentinel/releases/tag/v0.4.0.
       - name: Publish perf-sentinel-core
         shell: bash
         run: |

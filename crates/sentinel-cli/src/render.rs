@@ -1,5 +1,5 @@
 //! Colored CLI rendering helpers: ANSI palette, findings/offender/gate
-//! pretty-printers, and the top-level `emit_report_and_gate` used by every
+//! pretty-printers and the top-level `emit_report_and_gate` used by every
 //! command that produces a `Report`.
 
 use sentinel_core::detect::Severity;

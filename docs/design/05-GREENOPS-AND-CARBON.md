@@ -240,7 +240,7 @@ This preserves the **relative scale** (a 50% waste reduction yields a 50% drop i
 
 Each span resolves to an effective region via a 3-level chain (first match wins):
 
-1. **`event.cloud_region`**: extracted from the OTel `cloud.region` resource attribute (with span-level fallback for SDKs that put it on individual spans). Most authoritative. Values are sanitized at the ingest boundary: invalid region strings (non-ASCII-alphanumeric-dash-underscore, length > 64, or empty) are silently dropped.
+1. **`event.cloud_region`**: extracted from the OTel `cloud.region` resource attribute (with span-level fallback for SDKs that put it on individual spans). Most authoritative. Values are sanitized at the ingest boundary: invalid region strings (non-ASCII-alphanumeric-dash-underscore, length > 64 or empty) are silently dropped.
 2. **`[green.service_regions][event.service.to_lowercase()]`**: config override for environments where OTel doesn't provide it (e.g. Jaeger / Zipkin ingestion). Case-insensitive (config loader lowercases keys).
 3. **`[green] default_region`**: global fallback.
 
@@ -354,7 +354,7 @@ When the dispatch selects the hourly path for a region, the region's `RegionBrea
 
 ## Scaphandre per-process energy integration
 
-The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 µWh per op). This is a two-order-of-magnitude approximation, and it treats all services and all workload shapes identically. perf-sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
+The proxy model uses a fixed `ENERGY_PER_IO_OP_KWH` constant (0.1 µWh per op). This is a two-order-of-magnitude approximation and it treats all services and all workload shapes identically. perf-sentinel offers opt-in support for replacing the proxy with a measured service-level coefficient derived from [Scaphandre's](https://github.com/hubblo-org/scaphandre) per-process power readings.
 
 **How it fits the architecture.** Scaphandre is an external, user-installed process. perf-sentinel does NOT bundle or fork Scaphandre. It scrapes the Prometheus `/metrics` endpoint Scaphandre already exposes. The `score/scaphandre/` module owns:
 
@@ -404,7 +404,7 @@ For cloud VMs (AWS, GCP, Azure) that do not expose Intel RAPL to guests, perf-se
 **Architecture.** The `cloud_energy/` directory contains:
 
 - `config.rs`: `CloudEnergyConfig` and per-service `ServiceCloudConfig` (provider, region, instance_type, optional idle/max watts overrides).
-- `table.rs`: embedded SPECpower lookup table with idle and max watt values for ~60 common instance types across AWS (c5, m5, r5, t3 families), GCP (n2, e2, c2 families), and Azure (D, E, F series). Data sourced from Cloud Carbon Footprint.
+- `table.rs`: embedded SPECpower lookup table with idle and max watt values for ~60 common instance types across AWS (c5, m5, r5, t3 families), GCP (n2, e2, c2 families) and Azure (D, E, F series). Data sourced from Cloud Carbon Footprint.
 - `scraper.rs`: Prometheus JSON API scraper. Queries `avg(rate(cpu_metric[interval]))` per service, fetches JSON from the Prometheus endpoint.
 - `state.rs`: `CloudEnergyState` backed by `ArcSwap` for lock-free reads from the scoring path.
 - `mod.rs`: re-exports and module documentation.
@@ -419,7 +419,7 @@ kwh               = joules / 3_600_000
 energy_per_op_kwh = kwh / ops_in_window
 ```
 
-`idle_watts` and `max_watts` come from the SPECpower table lookup by instance type, or from user-provided overrides in the config. The op count comes from the same `MetricsState::service_io_ops_total` counter used by Scaphandre.
+`idle_watts` and `max_watts` come from the SPECpower table lookup by instance type or from user-provided overrides in the config. The op count comes from the same `MetricsState::service_io_ops_total` counter used by Scaphandre.
 
 **Config example.**
 

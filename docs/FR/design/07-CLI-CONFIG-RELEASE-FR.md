@@ -205,19 +205,20 @@ n_plus_one_threshold: raw.detection.n_plus_one_min_occurrences
 
 Chaque champ numérique a des bornes explicites dans `validate()` :
 
-| Champ                        | Min   | Max                  | Raison                                     |
-|------------------------------|-------|----------------------|--------------------------------------------|
-| `max_payload_size`           | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection |
-| `max_active_traces`          | 1     | 1 000 000            | Empêcher la mémoire non bornée             |
-| `max_events_per_trace`       | 1     | 100 000              | Empêcher l'OOM par trace                   |
-| `n_plus_one_threshold`       | 1     | *(aucun)*            | Au moins 1 occurrence pour détecter        |
-| `window_duration_ms`         | 1     | *(aucun)*            | Fenêtre non nulle                          |
-| `slow_query_threshold_ms`    | 1     | *(aucun)*            | Seuil non nul                              |
-| `slow_query_min_occurrences` | 1     | *(aucun)*            | Au moins 1 occurrence                      |
-| `max_fanout`                 | 1     | 100 000              | Empêcher la désactivation de la détection  |
-| `trace_ttl_ms`               | 100   | *(aucun)*            | Intervalle d'éviction minimum              |
-| `sampling_rate`              | 0.0   | 1.0                  | Probabilité valide                         |
-| `io_waste_ratio_max`         | 0.0   | 1.0                  | Ratio valide                               |
+| Champ                        | Min   | Max                  | Raison                                                                                              |
+|------------------------------|-------|----------------------|-----------------------------------------------------------------------------------------------------|
+| `max_payload_size`           | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection                                                          |
+| `max_active_traces`          | 1     | 1 000 000            | Empêcher la mémoire non bornée                                                                      |
+| `max_events_per_trace`       | 1     | 100 000              | Empêcher l'OOM par trace                                                                            |
+| `max_retained_findings`      | 0     | 10 000 000           | Empêcher l'OOM sur le store de findings. `0` est documenté comme "désactiver complètement le store" |
+| `n_plus_one_threshold`       | 1     | *(aucun)*            | Au moins 1 occurrence pour détecter                                                                 |
+| `window_duration_ms`         | 1     | *(aucun)*            | Fenêtre non nulle                                                                                   |
+| `slow_query_threshold_ms`    | 1     | *(aucun)*            | Seuil non nul                                                                                       |
+| `slow_query_min_occurrences` | 1     | *(aucun)*            | Au moins 1 occurrence                                                                               |
+| `max_fanout`                 | 1     | 100 000              | Empêcher la désactivation de la détection                                                           |
+| `trace_ttl_ms`               | 100   | 3 600 000 (1 h)      | Intervalle d'éviction minimum                                                                       |
+| `sampling_rate`              | 0.0   | 1.0                  | Probabilité valide                                                                                  |
+| `io_waste_ratio_max`         | 0.0   | 1.0                  | Ratio valide                                                                                        |
 
 La vérification de `listen_addr` non-loopback émet un avertissement mais ne rejette pas :
 
@@ -231,6 +232,45 @@ tracing::warn!(
 ```
 
 Cela permet aux utilisateurs avancés de lier à `0.0.0.0` derrière un reverse proxy, tout en rendant explicites les implications de sécurité.
+
+### Normalisation des chemins Windows
+
+`.perf-sentinel.toml` accepte des champs à valeur de chemin (`hourly_profiles_file`, `calibration_file`, `json_socket`, `tls_cert_path`, `tls_key_path`) écrits comme basic strings TOML, où `\` est normalement un caractère d'échappement. Un chemin Windows littéral comme `C:\temp\sock` écrit dans une basic string déclenche une erreur de parsing TOML car `\t` est interprété comme une tabulation.
+
+Pour faire fonctionner les configs Windows sans forcer les opérateurs à doubler les backslashes (`C:\\temp\\sock`), `load_from_str` exécute un pré-processeur étroit avant le parsing TOML :
+
+1. **`normalize_toml_path_strings`** parcourt l'entrée brute ligne par ligne. Pour les lignes dont la clé est dans `TOML_PATH_STRING_KEYS` et dont la valeur est une basic string (`"..."`), il réécrit la valeur via `escape_toml_path_backslashes`.
+2. **`escape_toml_path_backslashes`** parcourt la chaîne par runs de `\` consécutifs :
+   - run de 1 : émettre `\\` (un `\` isolé devient une paire d'échappement TOML).
+   - run de 2 ou plus : émettre tel quel (paire d'échappement déjà valide ou `\\\\` écrit volontairement).
+   - run de 2 au tout début de la valeur, non suivi d'un autre `\` : émettre `\\\\` (4 backslashes) pour qu'un UNC brut `\\server\share` se décode en `\\server\share`.
+3. **`find_basic_string_end`** localise le `"` fermant de la basic string avec un compteur linéaire de backslashes consécutifs (le nombre de `\` immédiatement avant le `"` doit être pair). L'implémentation précédente faisait un lookbehind O(n²) sur des entrées adverses pleines de `\`.
+4. **Repli** : si l'entrée normalisée échoue à parser mais que l'originale aurait fonctionné, `load_from_str` retente avec l'originale et émet une ligne `tracing::debug!` pour que la divergence reste diagnosticable sans bruit sur chaque config Windows légitime.
+
+Non touchés par cette normalisation : les literal strings TOML (`'C:\temp\sock'`, qui traitent déjà `\` littéralement) et toute clé absente de `TOML_PATH_STRING_KEYS`. Effet de bord : les séquences d'échappement TOML (`\t`, `\n`, `\u00XX`) à l'intérieur des clés ciblées sont traitées comme des paires d'octets littéraux plutôt que des échappements. C'est intentionnel pour des chemins de fichiers et c'est documenté dans le rustdoc du helper.
+
+Petit invariant UTF-8 : `normalize_toml_path_line` construit la ligne réécrite en slicant sur `[..value_start]` (exclusif) et en poussant le `"` ouvrant explicitement, donc `value_start` n'est jamais utilisé comme fin d'une plage d'octets inclusive. L'octet à `value_start` est ASCII `"` en pratique, mais la forme explicite verrouille l'invariant pour les futurs lecteurs.
+
+### Avertissements de zone de confort
+
+Au-delà des bornes dures de validation, `validate_daemon_limits` et `validate_detection_params` émettent un `tracing::warn!` unique au chargement de la config quand une valeur sort d'une "zone de confort" recommandée autour du défaut. L'avertissement est informatif : le daemon continue de tourner.
+
+Les zones de confort encadrent chaque défaut sur environ 1 à 2 ordres de grandeur. Elles ont été choisies à partir des défauts déjà présents dans `Config::default()` :
+
+| Champ                   | Zone de confort          | Note                                           |
+|-------------------------|--------------------------|------------------------------------------------|
+| `max_payload_size`      | 256 Kio à 16 Mio         |                                                |
+| `max_active_traces`     | 1 000 à 100 000          |                                                |
+| `max_events_per_trace`  | 100 à 10 000             |                                                |
+| `max_retained_findings` | 100 à 100 000            | Sauté silencieusement quand la valeur vaut `0` |
+| `trace_ttl_ms`          | 1 000 à 600 000          |                                                |
+| `max_fanout`            | 5 à 1 000                |                                                |
+
+Le helper `warn_outside_comfort_zone` prend le nom du champ, la valeur, les deux bornes et deux notes courtes (une "sous le plancher", une "au-dessus du plafond") décrivant la conséquence pratique (pression d'éviction, latence d'ingestion, bruit de détection...). Le helper logue des champs structurés (`field`, `value`, `recommended_min` ou `recommended_max`) pour que l'avertissement soit interrogeable dans Loki / Elasticsearch.
+
+Invariant verrouillé par `config_defaults_sit_inside_every_comfort_zone` : `Config::default()` ne doit jamais déclencher d'avertissement au démarrage. Si un défaut est déplacé hors de sa zone de confort, ce test échoue et force une vérification explicite de la bande.
+
+Le résumé utilisateur des bandes vit dans `docs/FR/CONFIGURATION-FR.md` à côté des tableaux des champs.
 
 ## Profil release
 

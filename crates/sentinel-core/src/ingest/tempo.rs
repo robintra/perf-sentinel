@@ -553,7 +553,7 @@ mod tests {
 
     #[tokio::test]
     async fn ingest_from_tempo_rejects_missing_service_and_trace_id() {
-        // Neither trace_id nor service supplied — must error.
+        // Neither trace_id nor service supplied, must error.
         let err = ingest_from_tempo(
             "http://tempo.local",
             None,
@@ -576,8 +576,8 @@ mod tests {
         // Regression guard: the endpoint validator must only reject `@`
         // in the authority section, not in the path or query. A URI
         // like `http://tempo.local/api/traces?owner=foo%40example.com`
-        // contains a literal `@` in the query string — after the
-        // authority — and should be accepted. The validator strips
+        // contains a literal `@` in the query string, after the
+        // authority, and should be accepted. The validator strips
         // the scheme, then looks at the slice BEFORE the first `/` or
         // `?`, so the authority is `tempo.local` and the `%40` lives
         // in the query-string-only part.
