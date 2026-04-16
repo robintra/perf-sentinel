@@ -902,6 +902,22 @@ The value is stamped on every finding emitted by that daemon instance. Invalid v
 
 ---
 
+## Daemon query API
+
+The daemon exposes an HTTP query API on the same port as OTLP HTTP and `/metrics` (default `4318`). It lets external systems pull recent findings, trace explanations, cross-trace correlations, and daemon liveness without parsing NDJSON logs. Useful for Prometheus alerting, custom Grafana panels, or SRE runbooks.
+
+```bash
+# Daemon liveness
+curl -sS http://127.0.0.1:4318/api/status
+
+# Recent critical findings
+curl -sS "http://127.0.0.1:4318/api/findings?severity=critical&limit=10"
+```
+
+See [`docs/QUERY-API.md`](./QUERY-API.md) for the full per-endpoint reference, real captured response examples, use cases (Prometheus alerting, Grafana dashboard, SRE runbook), and the stability contract.
+
+---
+
 ## Advanced carbon scoring setup
 
 ### Multi-region scoring

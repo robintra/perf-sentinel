@@ -432,7 +432,7 @@ L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`exampl
 
 ---
 
-Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
+Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour l'API HTTP de requêtage du daemon (findings, explain, corrélations, status), voir [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
 
 ## Normes et sources de données
 

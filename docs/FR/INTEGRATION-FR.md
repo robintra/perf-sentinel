@@ -882,6 +882,22 @@ La valeur est tamponnée sur chaque finding émis par cette instance de daemon. 
 
 ---
 
+## API de requêtage du daemon
+
+Le daemon expose une API HTTP de requêtage sur le même port que OTLP HTTP et `/metrics` (défaut `4318`). Elle permet à des systèmes externes de récupérer les findings récents, les explications de traces, les corrélations cross-trace et la liveness du daemon sans parser les logs NDJSON. Utile pour l'alerting Prometheus, des panels Grafana custom ou des runbooks SRE.
+
+```bash
+# Liveness du daemon
+curl -sS http://127.0.0.1:4318/api/status
+
+# Findings critiques récents
+curl -sS "http://127.0.0.1:4318/api/findings?severity=critical&limit=10"
+```
+
+Voir [`docs/FR/QUERY-API-FR.md`](./QUERY-API-FR.md) pour la référence complète par endpoint, des exemples de réponses réelles capturées, des cas d'usage (alerting Prometheus, dashboard Grafana, runbook SRE) et le contrat de stabilité.
+
+---
+
 ## Configuration avancée du scoring carbone
 
 ### Scoring multi-région
