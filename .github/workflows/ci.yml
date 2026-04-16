@@ -19,6 +19,18 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/**'
       - 'sonar-project.properties'
+  # Manual trigger so CI can be rerun against an arbitrary ref (tag,
+  # commit, branch). Useful for re-validating an old release after a
+  # toolchain update or recovering an audit trace on a past tag.
+  # The dispatch itself must run on a ref that contains this trigger
+  # block (typically main); the optional `ref` input then drives which
+  # source the checkout step actually builds.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (tag/branch/SHA) to check out and build. Defaults to the dispatch ref.'
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -30,12 +42,20 @@ jobs:
     runs-on: ubuntu-latest
     # Skip CI on PRs from forks to prevent malicious code execution in runners.
     # Fork PRs don't have access to secrets (pull_request event), but can still
-    # abuse compute. Maintainer can trigger CI manually after reviewing the code.
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    # abuse compute. Maintainer can trigger CI manually after reviewing the code
+    # via workflow_dispatch (which is itself maintainer-only via repo permissions).
+    if: >-
+      github.event_name == 'push'
+      || github.event_name == 'workflow_dispatch'
+      || github.event.pull_request.head.repo.full_name == github.repository
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           fetch-depth: 0
+          # On workflow_dispatch with an explicit `ref` input, build that
+          # ref instead of the dispatch ref. Falls back to the default
+          # checkout behavior (github.ref) for push and pull_request.
+          ref: ${{ inputs.ref || github.ref }}
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # stable
         with:
