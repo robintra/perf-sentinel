@@ -536,28 +536,14 @@ fn escape_toml_path_backslashes(inner: &str) -> Cow<'_, str> {
 
     while idx < bytes.len() {
         if bytes[idx] != b'\\' {
-            let start = idx;
-            while idx < bytes.len() && bytes[idx] != b'\\' {
-                idx += 1;
-            }
-            out.push_str(&inner[start..idx]);
+            idx = copy_until_backslash(inner, bytes, idx, &mut out);
             continue;
         }
 
         let run_start = idx;
-        while idx < bytes.len() && bytes[idx] == b'\\' {
-            idx += 1;
-        }
+        idx = skip_backslash_run(bytes, idx);
         let run_len = idx - run_start;
-        let raw_unc_prefix = run_start == 0 && run_len == 2 && bytes.get(idx) != Some(&b'\\');
-        let emit_len = if raw_unc_prefix {
-            4
-        } else if run_len == 1 {
-            2
-        } else {
-            run_len
-        };
-
+        let emit_len = backslash_emit_len(run_start, run_len, bytes.get(idx).copied());
         changed |= emit_len != run_len;
         for _ in 0..emit_len {
             out.push('\\');
@@ -568,6 +554,42 @@ fn escape_toml_path_backslashes(inner: &str) -> Cow<'_, str> {
         Cow::Owned(out)
     } else {
         Cow::Borrowed(inner)
+    }
+}
+
+/// Copy bytes from `start` up to (but not including) the next `\` into
+/// `out`, and return the index where the run of `\` begins (or
+/// `bytes.len()` if no more `\` is found).
+fn copy_until_backslash(inner: &str, bytes: &[u8], start: usize, out: &mut String) -> usize {
+    let mut idx = start;
+    while idx < bytes.len() && bytes[idx] != b'\\' {
+        idx += 1;
+    }
+    out.push_str(&inner[start..idx]);
+    idx
+}
+
+/// Skip a run of consecutive `\` starting at `start` and return the index
+/// of the first non-`\` byte (or `bytes.len()`).
+fn skip_backslash_run(bytes: &[u8], start: usize) -> usize {
+    let mut idx = start;
+    while idx < bytes.len() && bytes[idx] == b'\\' {
+        idx += 1;
+    }
+    idx
+}
+
+/// Decide how many `\` to emit for a run of `run_len` backslashes
+/// starting at byte offset `run_start`. `next_byte` is the byte
+/// immediately after the run (used to disambiguate UNC prefixes).
+fn backslash_emit_len(run_start: usize, run_len: usize, next_byte: Option<u8>) -> usize {
+    let raw_unc_prefix = run_start == 0 && run_len == 2 && next_byte != Some(b'\\');
+    if raw_unc_prefix {
+        4
+    } else if run_len == 1 {
+        2
+    } else {
+        run_len
     }
 }
 
