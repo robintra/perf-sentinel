@@ -924,7 +924,7 @@ jobs:
     env:
       PERF_SENTINEL_VERSION: "0.4.2"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           fetch-depth: 0
 
@@ -935,7 +935,9 @@ jobs:
           curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
           curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
           grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
-          install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          install -m 0755 perf-sentinel-linux-amd64 "${GITHUB_WORKSPACE}/bin/perf-sentinel"
+          echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
 
       # Run integration tests on the PR branch and capture traces.
       - name: Collect PR-branch traces
@@ -969,7 +971,7 @@ jobs:
 
       - name: Upload SARIF
         if: hashFiles('diff.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@4dd16135b69a43b6c8efb853346f8437d92d3c93 # v3.26.6
         with:
           sarif_file: diff.sarif
           category: perf-sentinel-diff
@@ -987,7 +989,7 @@ jobs:
             echo "- $REGRESSIONS severity regression(s)"
           } > pr-comment.md
 
-      - uses: marocchino/sticky-pull-request-comment@v2
+      - uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
         with:
           header: perf-sentinel-diff
           path: pr-comment.md

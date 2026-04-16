@@ -462,6 +462,7 @@ mod tests {
                 passed: true,
                 rules: vec![],
             },
+            per_endpoint_io_ops: vec![],
         }
     }
 

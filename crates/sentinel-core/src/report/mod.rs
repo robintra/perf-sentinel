@@ -19,6 +19,17 @@ pub struct Report {
     pub findings: Vec<Finding>,
     pub green_summary: GreenSummary,
     pub quality_gate: QualityGate,
+    /// Raw I/O operation count per `(service, endpoint)`. Populated by
+    /// the pipeline regardless of `[green] enabled`, so the `diff`
+    /// subcommand works even with green scoring off. Sorted by `service`
+    /// then `endpoint` for deterministic JSON output. Empty when no
+    /// traces were analyzed.
+    ///
+    /// Lives on `Report` rather than on `GreenSummary` because it is a
+    /// raw telemetry counter, not a green metric, and is filled in
+    /// regardless of the green configuration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub per_endpoint_io_ops: Vec<PerEndpointIoOps>,
 }
 
 /// Analysis metadata.
@@ -58,19 +69,15 @@ pub struct GreenSummary {
     /// cross-region HTTP call had response size data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
-    /// Raw I/O operation count per `(service, endpoint)`. Populated by
-    /// the pipeline regardless of `[green] enabled`. Used by the `diff`
-    /// subcommand to compute per-endpoint regressions and improvements
-    /// between two trace sets. Sorted by `service` then `endpoint` for
-    /// deterministic JSON output. Empty when no traces were analyzed.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub per_endpoint_io_ops: Vec<PerEndpointIoOps>,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
 ///
 /// Stable JSON shape from v0.4.2 onward. Field names will not be renamed
-/// or removed in a minor release.
+/// or removed in a minor release. The `(service, endpoint)` pair is the
+/// primary key so the same endpoint path served by two different
+/// services produces two distinct entries (microservices commonly share
+/// generic paths like `/health`, `/metrics`, `/api/users`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PerEndpointIoOps {
     pub service: String,
@@ -82,11 +89,11 @@ pub struct PerEndpointIoOps {
 /// `(service, endpoint)` for deterministic output. O(N) over the total
 /// span count.
 ///
-/// Used by the pipeline to populate `GreenSummary.per_endpoint_io_ops`
-/// regardless of `[green] enabled`. The data is small (one entry per
-/// `(service, endpoint)` pair, typically dozens to hundreds for a normal
-/// trace batch) and the cost of always computing it is negligible
-/// compared to the rest of the pipeline.
+/// Used by the pipeline to populate `Report.per_endpoint_io_ops` when
+/// green scoring is **disabled**. When green scoring is enabled,
+/// [`crate::score::score_green`] returns the same data as part of its
+/// own single-pass span iteration, so this helper is not called and the
+/// hot path stays a single O(N) walk.
 #[must_use]
 pub fn compute_per_endpoint_io_ops(traces: &[Trace]) -> Vec<PerEndpointIoOps> {
     // BTreeMap so the resulting Vec is naturally sorted by key without
@@ -125,7 +132,6 @@ impl GreenSummary {
             co2: None,
             regions: vec![],
             transport_gco2: None,
-            per_endpoint_io_ops: vec![],
         }
     }
 }

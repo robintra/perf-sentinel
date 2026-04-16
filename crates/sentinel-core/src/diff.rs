@@ -66,10 +66,13 @@ pub struct SeverityChange {
 
 impl SeverityChange {
     /// `true` when the after severity is worse than the before severity.
-    /// Used to sort regressions ahead of improvements in the output.
-    fn is_regression(&self) -> bool {
-        // Severity derives Ord with declaration order
-        // (Critical < Warning < Info). "Worse" means numerically lower.
+    /// Used to sort regressions ahead of improvements in the output and
+    /// reused by the CLI text renderer to color regressions red.
+    ///
+    /// Severity derives `Ord` with declaration order (Critical < Warning
+    /// < Info). "Worse" means numerically lower.
+    #[must_use]
+    pub fn is_regression(&self) -> bool {
         self.after_severity < self.before_severity
     }
 }
@@ -103,10 +106,10 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
 
     for (key, after_finding) in &after_map {
         match before_map.get(key) {
-            None => new_findings.push((*after_finding).clone()),
+            None => new_findings.push(after_finding.clone()),
             Some(before_finding) if before_finding.severity != after_finding.severity => {
                 severity_changes.push(SeverityChange {
-                    finding: (*after_finding).clone(),
+                    finding: after_finding.clone(),
                     before_severity: before_finding.severity.clone(),
                     after_severity: after_finding.severity.clone(),
                 });
@@ -116,7 +119,7 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
     }
     for (key, before_finding) in &before_map {
         if !after_map.contains_key(key) {
-            resolved_findings.push((*before_finding).clone());
+            resolved_findings.push(before_finding.clone());
         }
     }
 
@@ -137,10 +140,8 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
             .then_with(|| a.finding.pattern.template.cmp(&b.finding.pattern.template))
     });
 
-    let endpoint_metric_deltas = diff_per_endpoint_io_ops(
-        &before.green_summary.per_endpoint_io_ops,
-        &after.green_summary.per_endpoint_io_ops,
-    );
+    let endpoint_metric_deltas =
+        diff_per_endpoint_io_ops(&before.per_endpoint_io_ops, &after.per_endpoint_io_ops);
 
     DiffReport {
         new_findings,
@@ -150,19 +151,47 @@ pub fn diff_runs(before: &Report, after: &Report) -> DiffReport {
     }
 }
 
-/// Build an identity-keyed map of findings, keeping the worst severity
-/// when multiple findings share the same identity tuple. Used as the
-/// canonical view of each side before computing the diff.
-fn build_identity_map(findings: &[Finding]) -> BTreeMap<IdentityKey, &Finding> {
-    let mut map: BTreeMap<IdentityKey, &Finding> = BTreeMap::new();
+/// Build an identity-keyed map of findings, collapsing duplicates by
+/// keeping the worst severity AND summing `pattern.occurrences` across
+/// all duplicates. Used as the canonical view of each side before
+/// computing the diff.
+///
+/// Returning owned `Finding` values (not borrowed) lets us aggregate
+/// occurrences without mutating the input slice. The aggregated
+/// occurrences mean the user sees the total amplitude of the pattern
+/// across the trace set, not just one trace's count, so a regression
+/// from "6 occurrences in trace A" to "60 occurrences in trace A AND 60
+/// in trace B" surfaces as a meaningful endpoint-delta plus (when
+/// severity escalates) a `severity_change`.
+///
+/// Tie-break for the kept Finding template: the first finding inserted
+/// at a key wins for `trace_id` / `first_timestamp` / `code_location` /
+/// `suggested_fix`. Since `pipeline::analyze` calls `sort_findings`
+/// before returning, this is deterministic.
+fn build_identity_map(findings: &[Finding]) -> BTreeMap<IdentityKey, Finding> {
+    let mut map: BTreeMap<IdentityKey, Finding> = BTreeMap::new();
     for finding in findings {
         let key = identity_of(finding);
-        match map.get(&key) {
-            // Severity derives Ord with declaration order: Critical < Warning < Info.
-            // The worst severity is therefore the minimum.
-            Some(existing) if existing.severity <= finding.severity => {}
-            _ => {
-                map.insert(key, finding);
+        match map.get_mut(&key) {
+            None => {
+                map.insert(key, finding.clone());
+            }
+            Some(existing) => {
+                // Severity derives Ord with declaration order:
+                // Critical < Warning < Info. Worst = min.
+                if finding.severity < existing.severity {
+                    let summed = existing
+                        .pattern
+                        .occurrences
+                        .saturating_add(finding.pattern.occurrences);
+                    *existing = finding.clone();
+                    existing.pattern.occurrences = summed;
+                } else {
+                    existing.pattern.occurrences = existing
+                        .pattern
+                        .occurrences
+                        .saturating_add(finding.pattern.occurrences);
+                }
             }
         }
     }
@@ -201,10 +230,20 @@ fn diff_per_endpoint_io_ops(
             }
             // Cast through i128 to handle the worst case (`usize::MAX`
             // on either side) without panicking. Any plausible counts
-            // fit comfortably in i64.
+            // fit comfortably in i64; if a future workload pushes past
+            // `i64::MAX` we clamp and warn rather than overflow silently.
             let delta = i128::from(after_io as u64) - i128::from(before_io as u64);
-            let delta_i64 =
-                i64::try_from(delta).unwrap_or(if delta > 0 { i64::MAX } else { i64::MIN });
+            let delta_i64 = i64::try_from(delta).unwrap_or_else(|_| {
+                tracing::warn!(
+                    target: "perf_sentinel::diff",
+                    service = %service,
+                    endpoint = %endpoint,
+                    before_io = before_io,
+                    after_io = after_io,
+                    "endpoint I/O op delta overflows i64, clamping for output"
+                );
+                if delta > 0 { i64::MAX } else { i64::MIN }
+            });
             Some(EndpointDelta {
                 service: (*service).to_string(),
                 endpoint: (*endpoint).to_string(),
@@ -216,8 +255,15 @@ fn diff_per_endpoint_io_ops(
         .collect();
 
     // Regressions first: positive deltas before negative ones, then by
-    // descending magnitude inside each group.
-    deltas.sort_by(|a, b| b.delta.cmp(&a.delta));
+    // descending magnitude inside each group. Tie-break on `(service,
+    // endpoint)` so the ordering is stable across runs even if
+    // `sort_by`'s internal stability guarantee changes.
+    deltas.sort_by(|a, b| {
+        b.delta
+            .cmp(&a.delta)
+            .then_with(|| a.service.cmp(&b.service))
+            .then_with(|| a.endpoint.cmp(&b.endpoint))
+    });
     deltas
 }
 
@@ -225,7 +271,6 @@ fn diff_per_endpoint_io_ops(
 mod tests {
     use super::*;
     use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
-    use crate::report::interpret::InterpretationLevel;
     use crate::report::{Analysis, GreenSummary, PerEndpointIoOps, QualityGate, Report};
 
     fn make_report(findings: Vec<Finding>, per_endpoint: Vec<PerEndpointIoOps>) -> Report {
@@ -236,21 +281,12 @@ mod tests {
                 traces_analyzed: 0,
             },
             findings,
-            green_summary: GreenSummary {
-                total_io_ops: 0,
-                avoidable_io_ops: 0,
-                io_waste_ratio: 0.0,
-                io_waste_ratio_band: InterpretationLevel::Healthy,
-                top_offenders: vec![],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                per_endpoint_io_ops: per_endpoint,
-            },
+            green_summary: GreenSummary::disabled(0),
             quality_gate: QualityGate {
                 passed: true,
                 rules: vec![],
             },
+            per_endpoint_io_ops: per_endpoint,
         }
     }
 
@@ -529,5 +565,95 @@ mod tests {
         assert_eq!(diff.endpoint_metric_deltas[0].delta, 45);
         assert_eq!(diff.endpoint_metric_deltas[1].endpoint, "POST /improve");
         assert_eq!(diff.endpoint_metric_deltas[1].delta, -8);
+    }
+
+    #[test]
+    fn equal_severity_in_both_runs_is_not_a_severity_change() {
+        // Guard against a future refactor that compares with `<` or
+        // `<=` instead of `!=` and silently classifies equal-severity
+        // findings as severity changes.
+        let f = finding(
+            FindingType::NPlusOneSql,
+            Severity::Critical,
+            "svc",
+            "POST /api",
+            "SELECT *",
+        );
+        let before = make_report(vec![f.clone()], vec![]);
+        let after = make_report(vec![f], vec![]);
+        let diff = diff_runs(&before, &after);
+        assert!(diff.severity_changes.is_empty());
+    }
+
+    #[test]
+    fn same_identity_different_trace_id_is_treated_as_one_finding() {
+        // Two findings with identical (type, service, endpoint, template)
+        // but different trace_ids are conceptually "the same anti-pattern"
+        // observed twice. The diff collapses them and sums occurrences.
+        let mut f_a = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "svc",
+            "POST /api",
+            "SELECT *",
+        );
+        f_a.trace_id = "trace-a".to_string();
+        f_a.pattern.occurrences = 6;
+        let mut f_b = f_a.clone();
+        f_b.trace_id = "trace-b".to_string();
+        f_b.pattern.occurrences = 12;
+
+        let before = make_report(vec![], vec![]);
+        let after = make_report(vec![f_a, f_b], vec![]);
+        let diff = diff_runs(&before, &after);
+        assert_eq!(diff.new_findings.len(), 1, "two duplicates collapse to one");
+        assert_eq!(
+            diff.new_findings[0].pattern.occurrences, 18,
+            "occurrences from both findings sum on collapse"
+        );
+    }
+
+    #[test]
+    fn duplicate_identity_collapse_sums_occurrences() {
+        // Direct test of `build_identity_map` summing semantic.
+        let mut f_a = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "svc",
+            "POST /api",
+            "SELECT *",
+        );
+        f_a.pattern.occurrences = 6;
+        let mut f_b = f_a.clone();
+        f_b.pattern.occurrences = 60;
+
+        let before = make_report(vec![], vec![]);
+        let after = make_report(vec![f_a, f_b], vec![]);
+        let diff = diff_runs(&before, &after);
+        assert_eq!(diff.new_findings.len(), 1);
+        assert_eq!(diff.new_findings[0].pattern.occurrences, 66);
+    }
+
+    #[test]
+    fn diff_sarif_emits_one_result_per_new_finding() {
+        // Smoke test for the public `findings_to_sarif` re-use path
+        // exercised by `perf-sentinel diff --format sarif`.
+        let f = finding(
+            FindingType::NPlusOneSql,
+            Severity::Warning,
+            "svc",
+            "POST /api",
+            "SELECT *",
+        );
+        let before = make_report(vec![], vec![]);
+        let after = make_report(vec![f], vec![]);
+        let diff = diff_runs(&before, &after);
+        assert_eq!(diff.new_findings.len(), 1);
+        let sarif = crate::report::sarif::findings_to_sarif(&diff.new_findings);
+        assert_eq!(
+            sarif.runs[0].results.len(),
+            diff.new_findings.len(),
+            "SARIF results count must match new_findings count"
+        );
     }
 }

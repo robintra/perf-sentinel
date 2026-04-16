@@ -1117,12 +1117,12 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
-                per_endpoint_io_ops: vec![],
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
                 rules,
             },
+            per_endpoint_io_ops: vec![],
         }
     }
 
@@ -1295,12 +1295,12 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
-                per_endpoint_io_ops: vec![],
             },
             quality_gate: QualityGate {
                 passed: true,
                 rules: vec![],
             },
+            per_endpoint_io_ops: vec![],
         };
         render::format_colored_report(&report, "report", false);
     }

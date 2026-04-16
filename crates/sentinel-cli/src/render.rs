@@ -414,7 +414,7 @@ fn write_diff_text(
     let regression_count = diff
         .severity_changes
         .iter()
-        .filter(|c| c.after_severity < c.before_severity)
+        .filter(|c| c.is_regression())
         .count();
     let endpoint_change_count = diff.endpoint_metric_deltas.len();
 
@@ -470,7 +470,7 @@ fn write_diff_text(
             "{bold}{yellow}Severity changes ({changed_count}):{reset}"
         )?;
         for change in &diff.severity_changes {
-            let arrow = if change.after_severity < change.before_severity {
+            let arrow = if change.is_regression() {
                 format!("{red}->{reset}")
             } else {
                 format!("{green}->{reset}")

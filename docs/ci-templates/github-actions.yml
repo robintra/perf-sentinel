@@ -18,6 +18,13 @@
 #          compose integration run.
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
 #      [thresholds] section to set quality-gate severity floors.
+#   4. Action SHAs: every `uses:` below is pinned to a 40-character commit
+#      SHA (with the human-readable version tag in a trailing comment).
+#      Verify each SHA against the upstream repo before committing this
+#      template to your project. Pinned SHAs protect against a force-pushed
+#      tag pointing at malicious code, especially for third-party Actions
+#      like marocchino/sticky-pull-request-comment. Bump SHAs deliberately
+#      using a tool such as Dependabot configured with `update-types: ["sha"]`.
 #
 # See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
 # the full integration guide and the quality-gate philosophy.
@@ -46,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       # Place your integration-test stage here. It must produce the trace file
       # at $PERF_SENTINEL_TRACES before perf-sentinel runs. Example:
@@ -66,8 +73,14 @@ jobs:
           # Verify integrity before executing. Fails the build if the binary
           # was tampered with or the release is corrupted.
           grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
-          install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
-          perf-sentinel --version
+          # Install under the workspace bin/ instead of /usr/local/bin so
+          # the template works on hardened self-hosted runners that don't
+          # grant passwordless sudo to the runner user. GITHUB_PATH lets
+          # later steps invoke `perf-sentinel` directly.
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          install -m 0755 perf-sentinel-linux-amd64 "${GITHUB_WORKSPACE}/bin/perf-sentinel"
+          echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
+          "${GITHUB_WORKSPACE}/bin/perf-sentinel" --version
 
       - name: Run perf-sentinel analyze
         id: analyze
@@ -87,7 +100,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Code Scanning
         if: always() && hashFiles('findings.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@4dd16135b69a43b6c8efb853346f8437d92d3c93 # v3.26.6
         with:
           sarif_file: findings.sarif
           category: perf-sentinel
@@ -120,7 +133,7 @@ jobs:
 
       - name: Post PR comment
         if: github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
         with:
           header: perf-sentinel
           path: pr-comment.md

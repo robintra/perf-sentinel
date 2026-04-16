@@ -55,25 +55,34 @@ perf-sentinel:
       # Verify integrity before executing. Fails the job if the binary was
       # tampered with or the release is corrupted.
       grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
-      install -m 0755 perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+      # Install under the project bin/ rather than /usr/local/bin so the
+      # template works without elevated privileges on hardened runners.
+      mkdir -p "${CI_PROJECT_DIR}/bin"
+      install -m 0755 perf-sentinel-linux-amd64 "${CI_PROJECT_DIR}/bin/perf-sentinel"
+      export PATH="${CI_PROJECT_DIR}/bin:${PATH}"
       perf-sentinel --version
   script:
+    # All commands invoke perf-sentinel via its absolute install path
+    # so this template stays correct under GitLab executors that don't
+    # propagate `before_script` PATH exports to the `script` block.
     # SARIF artifact for archive and inspection.
     - |
-      perf-sentinel analyze \
+      "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format sarif \
         --output findings.sarif
     # JSON report for downstream tooling and the Code Quality conversion.
     - |
-      perf-sentinel analyze \
+      "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format json \
         --output perf-sentinel-report.json || true
     # Convert findings to GitLab Code Quality format. GitLab expects an array
     # of {description, fingerprint, severity, location.path, location.lines}.
+    # Note: code_location field names match the v0.4.1 stable contract
+    # (filepath, lineno, function, namespace -- no `code_` prefix).
     - |
       jq '[
         .findings[] | {
@@ -85,15 +94,15 @@ perf-sentinel:
             else "info" end
           ),
           location: {
-            path: (.code_location.code_filepath // "unknown"),
-            lines: { begin: (.code_location.code_lineno // 1) }
+            path: (.code_location.filepath // "unknown"),
+            lines: { begin: (.code_location.lineno // 1) }
           }
         }
       ]' perf-sentinel-report.json > gl-code-quality-report.json
     # Re-run with --ci to enforce the quality gate. Exit code 1 if any
     # threshold is breached.
     - |
-      perf-sentinel analyze \
+      "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --ci \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \

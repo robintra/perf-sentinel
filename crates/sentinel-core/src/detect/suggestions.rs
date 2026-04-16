@@ -417,6 +417,12 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// appears at the start of `ns` or immediately after a `.` (Java, C#) or
 /// `::` (Rust) separator. Prevents false positives like
 /// `orders::mydiesel::query` matching the `diesel::` hint.
+///
+/// Advances `start` by `hint.len()` after a non-matching candidate so we
+/// skip overlapping re-scans (the same hint can never match twice over a
+/// single occurrence) and so we always land on a `char` boundary, since
+/// `str::find` returns indices aligned to the start of the matched
+/// substring.
 fn namespace_matches(ns: &str, hint: &str) -> bool {
     let mut start = 0;
     while let Some(found) = ns[start..].find(hint) {
@@ -434,7 +440,7 @@ fn namespace_matches(ns: &str, hint: &str) -> bool {
         if preceding == b':' && abs >= 2 && ns.as_bytes()[abs - 2] == b':' {
             return true;
         }
-        start = abs + 1;
+        start = abs + hint.len();
     }
     false
 }
@@ -1073,5 +1079,52 @@ mod tests {
         };
         let json = serde_json::to_string(&fix).unwrap();
         assert!(!json.contains("reference_url"));
+    }
+
+    /// Defense-in-depth: every `reference_url` in the static `FIXES`
+    /// table must be HTTPS and point at a recognised vendor docs
+    /// domain. These URLs flow into CLI text, JSON and SARIF outputs
+    /// where a hostile or accidentally-malformed URL (e.g. `javascript:`,
+    /// mixed-content `http://`, a typo'd domain) would be displayed to
+    /// developers. CI catches the regression at PR time.
+    #[test]
+    fn fix_table_reference_urls_are_https_and_on_allowed_domains() {
+        const ALLOWED_DOMAIN_SUFFIXES: &[&str] = &[
+            // Java
+            "docs.jboss.org",
+            "quarkus.io",
+            "smallrye.io",
+            "helidon.io",
+            "docs.spring.io",
+            "download.eclipse.org",
+            // C# / .NET
+            "learn.microsoft.com",
+            // Rust
+            "docs.diesel.rs",
+            "sea-ql.org",
+            "docs.rs",
+        ];
+        for ((ft, fw), fix) in FIXES.iter() {
+            let Some(url) = fix.reference_url.as_deref() else {
+                continue;
+            };
+            assert!(
+                url.starts_with("https://"),
+                "({ft:?}, {fw:?}) reference_url must start with https://, got {url:?}"
+            );
+            // Strip scheme and isolate the host.
+            let after_scheme = &url["https://".len()..];
+            let host = after_scheme
+                .split(['/', '?', '#'])
+                .next()
+                .expect("split has at least one element");
+            assert!(
+                ALLOWED_DOMAIN_SUFFIXES
+                    .iter()
+                    .any(|dom| host == *dom || host.ends_with(&format!(".{dom}"))),
+                "({ft:?}, {fw:?}) reference_url host {host:?} not in the allowlist; \
+                 add it to ALLOWED_DOMAIN_SUFFIXES if intentional, otherwise fix the URL"
+            );
+        }
     }
 }

@@ -874,11 +874,15 @@ async fn process_traces(
 
     record_slow_durations(&trace_structs, ctx.detect_config, ctx.metrics);
 
-    let (mut findings, green_summary) = if ctx.green_enabled {
+    // The daemon path discards `per_endpoint_io_ops` (third tuple
+    // element): it is consumed by the batch `diff` subcommand, not by
+    // the daemon's NDJSON / metrics surface. Bind it to `_` so the
+    // hot-path span iteration in `score_green` is still a single pass.
+    let (mut findings, green_summary, _per_endpoint_io_ops) = if ctx.green_enabled {
         score::score_green(&trace_structs, findings, Some(ctx.carbon_ctx))
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
-        (findings, GreenSummary::disabled(total_io_ops))
+        (findings, GreenSummary::disabled(total_io_ops), Vec::new())
     };
 
     // stamp the daemon's confidence label. Detectors emitted

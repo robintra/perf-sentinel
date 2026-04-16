@@ -42,22 +42,22 @@ pub fn analyze_with_traces(
     );
     findings.extend(cross_trace);
 
-    let (mut findings, mut green_summary) = if config.green_enabled {
+    let (mut findings, green_summary, per_endpoint_io_ops) = if config.green_enabled {
         let carbon_ctx = config.carbon_context();
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
         let total_io_ops = traces.iter().map(|t| t.spans.len()).sum();
+        // Green disabled: skip the full scoring pass but still walk
+        // the spans once for the per-endpoint counter. `score_green`
+        // returns the same data as part of its own iteration when
+        // enabled, so we never iterate twice in either branch.
+        let per_endpoint_io_ops = crate::report::compute_per_endpoint_io_ops(&traces);
         (
             findings,
             crate::report::GreenSummary::disabled(total_io_ops),
+            per_endpoint_io_ops,
         )
     };
-
-    // Per-endpoint I/O op counts feed `perf-sentinel diff`. Always
-    // populated, regardless of `[green] enabled`, so a CI run with
-    // green scoring off still yields a usable diff. The cost is a
-    // single O(N) pass over the spans we already correlated.
-    green_summary.per_endpoint_io_ops = crate::report::compute_per_endpoint_io_ops(&traces);
 
     // Sort findings for deterministic output (HashMap iteration order is random)
     detect::sort_findings(&mut findings);
@@ -83,6 +83,7 @@ pub fn analyze_with_traces(
         findings,
         green_summary,
         quality_gate,
+        per_endpoint_io_ops,
     };
 
     (report, traces)

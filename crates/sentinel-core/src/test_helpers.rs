@@ -26,7 +26,6 @@ pub fn make_test_green_summary(
         co2: None,
         regions: vec![],
         transport_gco2: None,
-        per_endpoint_io_ops: vec![],
     }
 }
 
