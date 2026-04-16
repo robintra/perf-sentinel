@@ -1,20 +1,24 @@
 //! Fanout detection: identifies parent spans generating excessive child spans.
 
 use crate::correlate::Trace;
-use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
+use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity, TraceIndices};
 
 /// Detect excessive fanout within a trace.
 ///
 /// A parent span with more than `max_fanout` children is flagged.
 /// Severity is `Warning` if > `max_fanout`, `Critical` if > 3x `max_fanout`.
+///
+/// The shared [`TraceIndices`] are built once per trace in `detect()`
+/// and reused here and in `detect_serialized`, halving the per-trace
+/// HashMap-build cost for traces that trigger both.
 #[must_use]
-pub fn detect_fanout(trace: &Trace, max_fanout: u32) -> Vec<Finding> {
-    let children_by_parent = super::group_children_by_parent(trace);
-    let span_index = super::build_span_index(trace);
+pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32) -> Vec<Finding> {
+    let children_by_parent = &indices.children_by_parent;
+    let span_index = &indices.span_index;
 
     let mut findings = Vec::new();
 
-    for (parent_id, child_indices) in &children_by_parent {
+    for (parent_id, child_indices) in children_by_parent {
         let count = child_indices.len();
         if count <= max_fanout as usize {
             continue;
@@ -115,7 +119,7 @@ mod tests {
     fn detects_excessive_fanout() {
         let events = make_events_with_parent("trace-1", "root", 25);
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 20);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::ExcessiveFanout);
@@ -127,7 +131,7 @@ mod tests {
     fn critical_at_3x_threshold() {
         let events = make_events_with_parent("trace-1", "root", 65);
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 20);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
@@ -137,7 +141,7 @@ mod tests {
     fn no_finding_below_threshold() {
         let events = make_events_with_parent("trace-1", "root", 10);
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 20);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
         assert!(findings.is_empty());
     }
@@ -146,7 +150,7 @@ mod tests {
     fn no_finding_at_threshold() {
         let events = make_events_with_parent("trace-1", "root", 20);
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 20);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
         assert!(findings.is_empty());
     }
@@ -166,7 +170,7 @@ mod tests {
             events.push(child);
         }
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 20);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 20);
 
         assert_eq!(findings.len(), 1);
         // Service and endpoint should come from the first child span
@@ -187,7 +191,7 @@ mod tests {
             })
             .collect();
         let trace = make_trace(events);
-        let findings = detect_fanout(&trace, 5);
+        let findings = detect_fanout(&trace, &TraceIndices::build(&trace), 5);
 
         assert!(findings.is_empty());
     }

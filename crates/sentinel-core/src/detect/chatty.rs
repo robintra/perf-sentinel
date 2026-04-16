@@ -13,6 +13,20 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// Severity is `Warning` if > `min_calls`, `Critical` if > 3x `min_calls`.
 #[must_use]
 pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
+    // Fast-path gate: count HttpOut spans without materializing the
+    // index Vec. The common case (traces below threshold) now exits
+    // after one filter+count pass, with zero heap allocation.
+    let count = trace
+        .spans
+        .iter()
+        .filter(|s| s.event.event_type == EventType::HttpOut)
+        .count();
+    if count <= min_calls as usize {
+        return vec![];
+    }
+
+    // Chatty-flagged path: collect indices now that we know we need
+    // them for the template-count + window-computation iterations below.
     let http_indices: Vec<usize> = trace
         .spans
         .iter()
@@ -20,11 +34,6 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         .filter(|(_, s)| s.event.event_type == EventType::HttpOut)
         .map(|(i, _)| i)
         .collect();
-
-    let count = http_indices.len();
-    if count <= min_calls as usize {
-        return vec![];
-    }
 
     let severity = if count > (min_calls as usize) * 3 {
         Severity::Critical

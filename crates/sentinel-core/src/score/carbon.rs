@@ -858,7 +858,7 @@ pub(crate) fn compute_operational_gco2(io_ops: usize, intensity: f64, pue: f64) 
 ///
 /// Returns `None` if the region is not recognized.
 #[must_use]
-pub fn io_ops_to_co2_grams(io_ops: usize, region: &str) -> Option<f64> {
+pub(crate) fn io_ops_to_co2_grams(io_ops: usize, region: &str) -> Option<f64> {
     let (intensity, pue) = lookup_region_lower(region)?;
     Some(compute_operational_gco2(io_ops, intensity, pue))
 }

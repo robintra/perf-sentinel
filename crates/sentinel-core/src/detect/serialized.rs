@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use crate::correlate::Trace;
 
 use super::n_plus_one::parse_timestamp_ms;
-use super::{Confidence, Finding, FindingType, Pattern, Severity};
+use super::{Confidence, Finding, FindingType, Pattern, Severity, TraceIndices};
 
 /// A sibling span with parsed timing, used by the DP algorithm.
 struct TimedSpan<'a> {
@@ -37,15 +37,19 @@ struct TimedSpan<'a> {
 ///
 /// Sequences where all calls share the same template are skipped (N+1 territory).
 #[must_use]
-pub fn detect_serialized(trace: &Trace, min_sequential: u32) -> Vec<Finding> {
+pub fn detect_serialized(
+    trace: &Trace,
+    indices: &TraceIndices<'_>,
+    min_sequential: u32,
+) -> Vec<Finding> {
     let min_seq = min_sequential as usize;
 
-    let siblings = super::group_children_by_parent(trace);
-    let span_index = super::build_span_index(trace);
+    let siblings = &indices.children_by_parent;
+    let span_index = &indices.span_index;
 
     let mut findings = Vec::new();
 
-    for (parent_id, child_indices) in &siblings {
+    for (parent_id, child_indices) in siblings {
         if child_indices.len() < min_seq {
             continue;
         }
@@ -82,7 +86,7 @@ pub fn detect_serialized(trace: &Trace, min_sequential: u32) -> Vec<Finding> {
             &best_seq,
             min_seq,
             trace,
-            &span_index,
+            span_index,
             parent_id,
             &mut findings,
         );
@@ -291,14 +295,18 @@ fn evaluate_sequence(
             .map(|&i| trace.spans[timed[i].span_idx].event.timestamp.as_str()),
     );
 
+    // Clone `parent_endpoint` once for the pattern template, then move
+    // the original into `source_endpoint`. Saves one `String`
+    // allocation per serialized-calls finding.
+    let template = parent_endpoint.clone();
     findings.push(Finding {
         finding_type: FindingType::SerializedCalls,
         severity: Severity::Info,
         trace_id: trace.trace_id.clone(),
         service,
-        source_endpoint: parent_endpoint.clone(),
+        source_endpoint: parent_endpoint,
         pattern: Pattern {
-            template: parent_endpoint,
+            template,
             occurrences: count,
             window_ms,
             distinct_params: distinct.len(),
@@ -375,7 +383,7 @@ mod tests {
     fn detects_sequential_siblings() {
         let events = make_sequential_children("trace-1", "root", 4);
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::SerializedCalls);
@@ -387,7 +395,7 @@ mod tests {
     fn no_finding_below_threshold() {
         let events = make_sequential_children("trace-1", "root", 2);
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert!(findings.is_empty());
     }
 
@@ -421,7 +429,7 @@ mod tests {
         }
 
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert!(findings.is_empty(), "overlapping spans should not trigger");
     }
 
@@ -454,7 +462,7 @@ mod tests {
         }
 
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert!(
             findings.is_empty(),
             "same template = N+1 territory, should be skipped"
@@ -506,7 +514,7 @@ mod tests {
         }
 
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert_eq!(findings.len(), 1);
         // First 3 are sequential (100-200, 220-320, 340-440), then overlap breaks at 400
         assert_eq!(findings[0].pattern.occurrences, 3);
@@ -527,7 +535,7 @@ mod tests {
             })
             .collect();
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert!(findings.is_empty());
     }
 
@@ -583,7 +591,7 @@ mod tests {
         events.push(c2);
 
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert_eq!(findings.len(), 1);
         // Total: 120 + 95 + 80 = 295ms, parallel: ~120ms
         assert!(findings[0].suggestion.contains("Total sequential: 295ms"));
@@ -641,7 +649,7 @@ mod tests {
         events.push(c2);
 
         let trace = make_trace(events);
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert_eq!(
             findings.len(),
             1,
@@ -728,7 +736,7 @@ mod tests {
 
         // With threshold=3, a greedy approach would find only 2 spans ({A,D})
         // and would NOT emit a finding. The DP finds {B,C,D} = 3, which triggers.
-        let findings = detect_serialized(&trace, 3);
+        let findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
         assert_eq!(
             findings.len(),
             1,
@@ -771,6 +779,6 @@ mod tests {
 
         let trace = make_trace(events);
         // Must terminate. The result doesn't matter, only that it doesn't hang.
-        let _findings = detect_serialized(&trace, 3);
+        let _findings = detect_serialized(&trace, &TraceIndices::build(&trace), 3);
     }
 }

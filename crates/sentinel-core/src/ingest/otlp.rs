@@ -295,12 +295,35 @@ pub fn otlp_http_router(
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
 ) -> axum::Router {
-    use axum::{Router, extract::State, http::StatusCode, routing::post};
+    use axum::{
+        Router,
+        extract::State,
+        http::{HeaderMap, StatusCode, header},
+        routing::post,
+    };
 
     async fn handle_traces(
         State(sender): State<tokio::sync::mpsc::Sender<Vec<SpanEvent>>>,
+        headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> StatusCode {
+        // OTLP/HTTP spec: only `application/x-protobuf` is accepted by
+        // perf-sentinel (we do not implement the JSON-encoded variant).
+        // Reject upfront so we do not waste CPU running `prost::decode`
+        // on obviously mistyped requests (curl without a Content-Type,
+        // JSON clients misconfigured at the OTel Collector, etc.).
+        let content_type_ok = headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|ct| {
+                // Match `application/x-protobuf` with optional parameters
+                // like `; charset=...`. Exact-match or prefix-with-semicolon.
+                let base = ct.split(';').next().unwrap_or("").trim();
+                base.eq_ignore_ascii_case("application/x-protobuf")
+            });
+        if !content_type_ok {
+            return StatusCode::UNSUPPORTED_MEDIA_TYPE;
+        }
         let request: ExportTraceServiceRequest = match prost::Message::decode(body.as_ref()) {
             Ok(req) => req,
             Err(_) => return StatusCode::BAD_REQUEST,

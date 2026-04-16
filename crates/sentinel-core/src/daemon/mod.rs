@@ -860,17 +860,7 @@ async fn process_traces(
         .map(|(trace_id, spans)| Trace { trace_id, spans })
         .collect();
 
-    let mut findings = detect::detect(&trace_structs, ctx.detect_config);
-
-    // Cross-trace slow percentile analysis. The internal detector
-    // requires >= 2 distinct traces per template, so we gate on 2.
-    if trace_structs.len() >= 2 {
-        findings.extend(detect::slow::detect_slow_cross_trace(
-            &trace_structs,
-            ctx.detect_config.slow_threshold_ms,
-            ctx.detect_config.slow_min_occurrences,
-        ));
-    }
+    let findings = detect::run_full_detection(&trace_structs, ctx.detect_config);
 
     record_slow_durations(&trace_structs, ctx.detect_config, ctx.metrics);
 
@@ -885,12 +875,9 @@ async fn process_traces(
         (findings, GreenSummary::disabled(total_io_ops), Vec::new())
     };
 
-    // stamp the daemon's confidence label. Detectors emitted
-    // `Confidence::default()` (= CiBatch); overwrite with the real value
-    // captured from Config at daemon startup.
-    for finding in &mut findings {
-        finding.confidence = ctx.confidence;
-    }
+    // Stamp the daemon's confidence label. Same shared helper as
+    // `pipeline::analyze`, so the two paths cannot drift on the loop.
+    detect::apply_confidence(&mut findings, ctx.confidence);
     let findings = findings;
 
     let now_ms = current_time_ms();
@@ -905,6 +892,12 @@ async fn process_traces(
     emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
 }
 
+/// Threshold above which the trace-id decision cache uses a `HashMap`.
+/// Below this batch size, a linear `Vec` scan beats the `HashMap`
+/// setup cost (sub-microsecond either way, but no heap allocation for
+/// the cache backing on the small-batch path).
+const SAMPLING_HASHMAP_THRESHOLD: usize = 16;
+
 /// Apply trace-level sampling: cache decisions per `trace_id` to avoid
 /// redundant hashing for events sharing a trace.
 ///
@@ -914,23 +907,60 @@ async fn process_traces(
 /// Hash collisions are harmless: a collision only means two different
 /// traces share the same keep/drop decision, which is the same
 /// statistical behavior as rolling the dice independently.
+///
+/// Allocation behavior:
+/// - `rate >= 1.0`: zero allocations, the input `Vec` is returned as-is.
+/// - Batches `<= SAMPLING_HASHMAP_THRESHOLD` events: linear scan in a
+///   stack-sized `Vec`, no `HashMap` allocation.
+/// - Larger batches: a `HashMap` pre-sized to a quarter of the batch
+///   length to absorb the typical 4:1 events-per-trace ratio without
+///   growth reallocations.
 fn apply_sampling(events: Vec<SpanEvent>, rate: f64) -> Vec<SpanEvent> {
     if rate >= 1.0 {
         return events;
     }
-    let mut cache = std::collections::HashMap::<u64, bool>::new();
-    events
-        .into_iter()
-        .filter(|e| {
-            let h = hash_trace_id(&e.trace_id);
-            if let Some(&decision) = cache.get(&h) {
-                return decision;
-            }
-            let decision = hash_to_decision(h, rate);
-            cache.insert(h, decision);
-            decision
-        })
-        .collect()
+    if events.len() <= SAMPLING_HASHMAP_THRESHOLD {
+        // Tiny batches: linear-scan cache backed by a stack array so
+        // we avoid heap allocation for the cache entirely. Each lookup
+        // is at most `SAMPLING_HASHMAP_THRESHOLD` u64 comparisons, a
+        // few cycles per event.
+        let mut cache: [(u64, bool); SAMPLING_HASHMAP_THRESHOLD] =
+            [(0_u64, false); SAMPLING_HASHMAP_THRESHOLD];
+        let mut cache_len: usize = 0;
+        events
+            .into_iter()
+            .filter(|e| {
+                let h = hash_trace_id(&e.trace_id);
+                if let Some(&(_, decision)) = cache[..cache_len].iter().find(|(k, _)| *k == h) {
+                    return decision;
+                }
+                let decision = hash_to_decision(h, rate);
+                // Safe: at most `SAMPLING_HASHMAP_THRESHOLD` distinct
+                // trace_ids fit in a batch of the same size.
+                if cache_len < SAMPLING_HASHMAP_THRESHOLD {
+                    cache[cache_len] = (h, decision);
+                    cache_len += 1;
+                }
+                decision
+            })
+            .collect()
+    } else {
+        // Pre-size the HashMap to the typical 4:1 events-per-trace
+        // ratio so growth reallocations don't show up in the hot path.
+        let mut cache = std::collections::HashMap::<u64, bool>::with_capacity(events.len() / 4);
+        events
+            .into_iter()
+            .filter(|e| {
+                let h = hash_trace_id(&e.trace_id);
+                if let Some(&decision) = cache.get(&h) {
+                    return decision;
+                }
+                let decision = hash_to_decision(h, rate);
+                cache.insert(h, decision);
+                decision
+            })
+            .collect()
+    }
 }
 
 /// FNV-1a 64-bit hash of a `trace_id`. Extracted from `should_sample` so

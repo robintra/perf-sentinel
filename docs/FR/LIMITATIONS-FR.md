@@ -183,6 +183,12 @@ Le socket unix JSON (`[daemon] json_socket`) se défend contre les attaques loca
 
 Ces deux défenses ne comptent que si `json_socket` se trouve dans un répertoire accessible en écriture par d'autres utilisateurs locaux. Si vous placez le socket dans un répertoire appartenant au daemon (`/var/run/perf-sentinel/` avec `0o700`), la surface est déjà fermée au niveau du système de fichiers.
 
+### Budget payload par connexion sur le socket JSON
+
+`[daemon] max_payload_size` (défaut 1 Mio) cape les batches NDJSON individuels soumis au socket JSON. Une seule connexion peut streamer plusieurs batches avant de se fermer et le daemon tolère jusqu'à **16× `max_payload_size`** par connexion avant de tronquer le flux. Avec les valeurs par défaut, cela veut dire qu'une connexion peut transférer jusqu'à 16 Mio de données de traces.
+
+Le facteur est intentionnel : il accommode les clients qui émettent beaucoup de petits batches sur une connexion longue durée (par exemple un sidecar qui vide une file d'attente bufferisée après un flush), sans exposer le daemon à une exhaustion mémoire depuis un attaquant. Un client qui a besoin de plus de 16× la taille de batch configurée doit ouvrir une nouvelle connexion. Le cap ne peut pas être désactivé.
+
 ## Précision des estimations carbone
 
 perf-sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :

@@ -9,6 +9,59 @@
 use crate::event::SpanEvent;
 use crate::ingest::IngestSource;
 
+/// Defense-in-depth nesting cap for the native ingest path. The native
+/// span-event format is flat (top-level array of objects, each with at
+/// most a `source` and a few scalar fields), so depth 32 is well above
+/// what valid input ever needs. We pre-scan the bytes BEFORE handing
+/// them to `serde_json::from_slice` because `serde_json` has a built-in
+/// recursion limit of 128 (its compile-time default, no public setter
+/// to tighten it). The pre-scan is O(N) in payload bytes, negligible
+/// next to the JSON parse cost.
+const MAX_JSON_DEPTH: usize = 32;
+
+/// Reject the payload when its bracket nesting exceeds [`MAX_JSON_DEPTH`].
+///
+/// This is a byte-level pre-scan, not a full JSON parse: it counts `[`
+/// and `{` opens against `]` and `}` closes, ignoring any character that
+/// appears inside a `"..."` string (with `\"` escape support). False
+/// positives (rejecting valid input) are impossible because we never
+/// inflate the depth on string contents. False negatives (accepting an
+/// over-deep payload) are impossible because every structural open
+/// increments depth.
+fn exceeds_max_depth(raw: &[u8]) -> bool {
+    let mut depth: usize = 0;
+    let mut max_depth: usize = 0;
+    let mut in_string = false;
+    let mut escape = false;
+    for &b in raw {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth += 1;
+                if depth > max_depth {
+                    max_depth = depth;
+                    if max_depth > MAX_JSON_DEPTH {
+                        return true;
+                    }
+                }
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
+}
+
 /// The detected input format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputFormat {
@@ -57,6 +110,11 @@ impl IngestSource for JsonIngest {
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
             InputFormat::Native => {
+                if exceeds_max_depth(raw) {
+                    return Err(JsonIngestError::PayloadTooDeep {
+                        max_depth: MAX_JSON_DEPTH,
+                    });
+                }
                 let mut events: Vec<SpanEvent> =
                     serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
                 // Sanitize cloud.region at the JSON ingest boundary, symmetric
@@ -112,6 +170,10 @@ pub fn detect_format(raw: &[u8]) -> InputFormat {
 pub enum JsonIngestError {
     #[error("payload too large: {size} bytes exceeds maximum of {max} bytes")]
     PayloadTooLarge { size: usize, max: usize },
+    #[error(
+        "payload nesting exceeds maximum depth of {max_depth} (defense against deeply-nested attacker payloads)"
+    )]
+    PayloadTooDeep { max_depth: usize },
     #[error("JSON parse error: {0}")]
     Parse(#[from] serde_json::Error),
     #[error("format detection error: {0}")]
@@ -280,5 +342,42 @@ mod tests {
         let ingest = JsonIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert!(events[0].cloud_region.is_none());
+    }
+
+    #[test]
+    fn deeply_nested_native_payload_is_rejected_below_stack_overflow() {
+        // Build `[[[[...]]]]` with depth above `MAX_JSON_DEPTH`. The
+        // pre-scan guard must reject before serde_json walks the tree.
+        let depth = MAX_JSON_DEPTH + 4;
+        let mut payload = String::with_capacity(depth * 2);
+        for _ in 0..depth {
+            payload.push('[');
+        }
+        for _ in 0..depth {
+            payload.push(']');
+        }
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(matches!(
+            result,
+            Err(JsonIngestError::PayloadTooDeep { .. })
+        ));
+    }
+
+    #[test]
+    fn depth_scan_ignores_brackets_inside_strings() {
+        // A valid native event whose `target` field contains `[[[...`.
+        // The pre-scan must not count those brackets, otherwise it
+        // would falsely reject SQL queries like `WHERE id IN (...)` or
+        // template strings.
+        let json = native_event_with_cloud_region("eu-west-3").replace(
+            "\"SELECT 1\"",
+            "\"SELECT * FROM t WHERE col = '[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]'\"",
+        );
+        let ingest = JsonIngest::new(1_048_576);
+        let events = ingest
+            .ingest(json.as_bytes())
+            .expect("string-internal brackets must not trigger the depth guard");
+        assert_eq!(events.len(), 1);
     }
 }

@@ -344,28 +344,61 @@ impl CrossTraceCorrelator {
     }
 
     /// Enforce `max_tracked_pairs` cap. Evicts the pairs with the lowest
-    /// `co_occurrence_count` using `select_nth_unstable_by_key` (O(n)
-    /// average) instead of a full sort (O(n log n)). The split point is
-    /// exactly `to_remove`: entries at indices `[0..to_remove)` in the
-    /// returned slice are guaranteed <= the pivot.
+    /// `co_occurrence_count`.
     ///
-    /// Invariant: `to_remove < keys.len()`. The outer `if` gates on
-    /// `len() > max_tracked_pairs`, so `to_remove >= 1` and
-    /// `to_remove <= len() - 1`. This keeps `select_nth_unstable_by_key`
-    /// within bounds (it panics on an out-of-bounds pivot index).
+    /// Two optimizations over the naive "clone all keys then select":
+    ///
+    /// 1. **Amortization**: when we overflow, evict down to 90% of the
+    ///    cap in one pass so the O(n) work is paid once per 10% of
+    ///    overflow rather than once per insert beyond the cap.
+    /// 2. **Lazy cloning**: find the eviction threshold via a
+    ///    `select_nth_unstable` on a `Vec<u32>` (Copy, no String pair
+    ///    clones), then clone keys only for the ~10% we'll actually
+    ///    remove. Previously we cloned every `PairKey` in the map
+    ///    (two `CorrelationEndpoint` strings each) on every cap hit.
     fn enforce_pair_cap(&mut self) {
         if self.pair_counts.len() <= self.config.max_tracked_pairs {
             return;
         }
-        let to_remove = self.pair_counts.len() - self.config.max_tracked_pairs;
-        let mut keys: Vec<(PairKey, u32)> = self
+        // Evict down to 90% of cap so subsequent inserts don't re-trip
+        // the cap after a single-element overflow.
+        let cap = self.config.max_tracked_pairs;
+        let target = cap - cap / 10;
+        let to_remove = self.pair_counts.len().saturating_sub(target).max(1);
+
+        // O(n) threshold computation. Only u32 counts are copied.
+        let mut counts: Vec<u32> = self
+            .pair_counts
+            .values()
+            .map(|v| v.co_occurrence_count)
+            .collect();
+        // `select_nth_unstable(k)` positions the k-th smallest at
+        // index k. We want the value such that at least `to_remove`
+        // elements are `<= value`, so the (to_remove - 1)-th smallest.
+        let pivot_index = to_remove - 1;
+        let threshold = *counts.select_nth_unstable(pivot_index).1;
+
+        // Collect the keys to evict: all pairs strictly below the
+        // threshold, plus as many at-threshold pairs as needed to hit
+        // exactly `to_remove`. Only these keys pay the clone cost.
+        let mut below_threshold: Vec<PairKey> = self
             .pair_counts
             .iter()
-            .map(|(k, v)| (k.clone(), v.co_occurrence_count))
+            .filter(|(_, v)| v.co_occurrence_count < threshold)
+            .map(|(k, _)| k.clone())
             .collect();
-        let (lowest, _, _) = keys.select_nth_unstable_by_key(to_remove, |(_, c)| *c);
-        for (key, _) in lowest {
-            self.pair_counts.remove(key);
+        if below_threshold.len() < to_remove {
+            let extra_needed = to_remove - below_threshold.len();
+            below_threshold.extend(
+                self.pair_counts
+                    .iter()
+                    .filter(|(_, v)| v.co_occurrence_count == threshold)
+                    .take(extra_needed)
+                    .map(|(k, _)| k.clone()),
+            );
+        }
+        for key in below_threshold {
+            self.pair_counts.remove(&key);
         }
     }
 

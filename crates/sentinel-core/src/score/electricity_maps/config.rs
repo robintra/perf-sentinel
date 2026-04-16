@@ -46,7 +46,7 @@ mod tests {
         region_map.insert("eu-west-3".to_string(), "FR".to_string());
         region_map.insert("us-east-1".to_string(), "US-MIDA-PJM".to_string());
         ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymap.org/v3".to_string(),
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
             auth_token: "super-secret-token-do-not-log".to_string(),
             poll_interval: Duration::from_secs(300),
             region_map,
@@ -77,7 +77,7 @@ mod tests {
         let cfg = sample_config();
         let debug_output = format!("{cfg:?}");
         assert!(debug_output.contains("api_endpoint"));
-        assert!(debug_output.contains("https://api.electricitymap.org/v3"));
+        assert!(debug_output.contains("https://api.electricitymaps.com/v3"));
         assert!(debug_output.contains("poll_interval"));
         assert!(debug_output.contains("region_map"));
         // Regions/zones are user-visible (not secrets) and should appear.

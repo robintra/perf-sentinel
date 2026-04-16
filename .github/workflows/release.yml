@@ -5,15 +5,21 @@ on:
     tags:
       - 'v*'
 
+# Workflow-level permissions are the floor. Each job below narrows
+# further via its own `permissions:` block so the principle of least
+# privilege applies: `build` and `publish-crate` get read-only access,
+# `release` gets write to upload assets, `docker` gets `packages: write`
+# to push the container image.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
+    permissions:
+      contents: read
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -76,6 +82,8 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # required for softprops/action-gh-release to upload assets
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -100,6 +108,8 @@ jobs:
     name: Publish to crates.io
     needs: release
     runs-on: ubuntu-latest
+    permissions:
+      contents: read # crates.io publish uses CARGO_REGISTRY_TOKEN, no GitHub scope needed
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
@@ -181,6 +191,9 @@ jobs:
     name: Docker image
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # required to push the container image to GHCR
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 

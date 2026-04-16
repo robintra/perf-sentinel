@@ -449,32 +449,43 @@ fn load_config(path: Option<&std::path::Path>) -> Config {
     Config::default()
 }
 
+/// Read a file into memory, capping the byte count at `max_size`.
+/// Exits with code 1 on any IO error or if the file exceeds the cap.
+///
+/// Uses the `.take(max + 1).read_to_end(&mut buf)` pattern to close the
+/// TOCTOU window between `metadata().len()` and `fs::read()`, and to
+/// correctly cap special files (FIFOs, `/dev/stdin`-style symlinks,
+/// block devices) whose metadata reports 0 bytes. Shared by the trace
+/// file reader and the calibrate energy-CSV reader so the capped-read
+/// logic lives in one place.
+fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
+    let file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error reading {}: {e}", path.display());
+            std::process::exit(1);
+        }
+    };
+    let mut buf = Vec::new();
+    if let Err(e) = file.take(max_size + 1).read_to_end(&mut buf) {
+        eprintln!("Error reading {}: {e}", path.display());
+        std::process::exit(1);
+    }
+    if buf.len() as u64 > max_size {
+        eprintln!(
+            "Error: file {} exceeds maximum of {max_size} bytes",
+            path.display()
+        );
+        std::process::exit(1);
+    }
+    buf
+}
+
 #[allow(clippy::option_if_let_else)] // if/else with process::exit is clearer than map_or_else
 fn read_events(input: Option<&std::path::Path>, max_size: usize) -> Vec<u8> {
     if let Some(path) = input {
         info!("Reading trace file: {}", path.display());
-        match std::fs::metadata(path) {
-            Ok(meta) if meta.len() > max_size as u64 => {
-                eprintln!(
-                    "Error: file {} is {} bytes, exceeds maximum of {max_size} bytes",
-                    path.display(),
-                    meta.len()
-                );
-                std::process::exit(1);
-            }
-            Err(e) => {
-                eprintln!("Error reading {}: {e}", path.display());
-                std::process::exit(1);
-            }
-            _ => {}
-        }
-        match std::fs::read(path) {
-            Ok(data) => data,
-            Err(e) => {
-                eprintln!("Error reading {}: {e}", path.display());
-                std::process::exit(1);
-            }
-        }
+        read_file_capped(path, max_size as u64)
     } else {
         info!("Reading traces from stdin");
         let mut buf = Vec::new();
@@ -615,30 +626,20 @@ fn cmd_calibrate(
     let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
     // Cap the energy CSV size the same way `read_events` caps trace files.
-    // A 10 GB CSV passed as `--measured-energy` would otherwise load entirely
-    // into RAM (DoS). 64 MiB is generous enough for thousands of RAPL samples
-    // per minute while bounding the worst case.
+    // A 10 GB CSV passed as `--measured-energy` would otherwise load
+    // entirely into RAM (DoS). 64 MiB is generous enough for thousands
+    // of RAPL samples per minute while bounding the worst case. The
+    // shared `read_file_capped` helper handles the TOCTOU + special-file
+    // edge cases.
     const MAX_ENERGY_CSV_BYTES: u64 = 64 * 1024 * 1024;
-    match std::fs::metadata(energy_path) {
-        Ok(meta) if meta.len() > MAX_ENERGY_CSV_BYTES => {
+    let energy_bytes = read_file_capped(energy_path, MAX_ENERGY_CSV_BYTES);
+    let energy_content = match String::from_utf8(energy_bytes) {
+        Ok(s) => s,
+        Err(e) => {
             eprintln!(
-                "Error: energy CSV {} is {} bytes, exceeds maximum of {} bytes",
-                energy_path.display(),
-                meta.len(),
-                MAX_ENERGY_CSV_BYTES
+                "Error: energy CSV {} is not valid UTF-8: {e}",
+                energy_path.display()
             );
-            std::process::exit(1);
-        }
-        Err(e) => {
-            eprintln!("Error reading {}: {e}", energy_path.display());
-            std::process::exit(1);
-        }
-        _ => {}
-    }
-    let energy_content = match std::fs::read_to_string(energy_path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Error reading energy CSV {}: {e}", energy_path.display());
             std::process::exit(1);
         }
     };
@@ -1005,8 +1006,8 @@ fn print_pg_stat_report(report: &sentinel_core::ingest::pg_stat::PgStatReport) {
     }
 }
 
-/// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
-#[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
+/// Compute the per-event p50 and p99 latency in microseconds from a slice
+/// of per-iteration nanosecond durations.
 fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64, f64) {
     if durations_ns.is_empty() {
         return (0.0, 0.0);
@@ -1044,6 +1045,8 @@ fn compute_throughput(durations_ns: &[u64], event_count: usize, iterations: u32)
     (throughput, total_elapsed_ms)
 }
 
+/// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
+#[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
 fn current_rss_bytes() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {

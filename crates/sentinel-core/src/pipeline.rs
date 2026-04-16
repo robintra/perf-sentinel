@@ -32,15 +32,7 @@ pub fn analyze_with_traces(
     let trace_count = traces.len();
 
     let detect_config = DetectConfig::from(config);
-    let mut findings = detect::detect(&traces, &detect_config);
-
-    // Cross-trace slow percentile analysis
-    let cross_trace = detect::slow::detect_slow_cross_trace(
-        &traces,
-        detect_config.slow_threshold_ms,
-        detect_config.slow_min_occurrences,
-    );
-    findings.extend(cross_trace);
+    let findings = detect::run_full_detection(&traces, &detect_config);
 
     let (mut findings, green_summary, per_endpoint_io_ops) = if config.green_enabled {
         let carbon_ctx = config.carbon_context();
@@ -62,15 +54,13 @@ pub fn analyze_with_traces(
     // Sort findings for deterministic output (HashMap iteration order is random)
     detect::sort_findings(&mut findings);
 
-    // stamp confidence on every finding. `analyze` is the batch
-    // path, always CiBatch regardless of the daemon environment config.
-    // The real daemon path (daemon::process_traces) stamps Staging or
+    // Stamp confidence on every finding. `analyze` is the batch path,
+    // always CiBatch regardless of the daemon environment config. The
+    // real daemon path (daemon::process_traces) stamps Staging or
     // Production from Config::confidence(). Detectors themselves never
-    // reason about confidence, they emit Confidence::default() and the
-    // pipeline caller overrides it here.
-    for finding in &mut findings {
-        finding.confidence = Confidence::CiBatch;
-    }
+    // reason about confidence; they emit Confidence::default() and the
+    // pipeline caller overrides it here via the shared helper.
+    detect::apply_confidence(&mut findings, Confidence::CiBatch);
 
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 

@@ -16,30 +16,43 @@ use crate::correlate::Trace;
 use crate::event::EventType;
 use serde::{Deserialize, Serialize};
 
-/// Group spans by `parent_span_id`, returning a map from parent ID to
-/// child span indices. Spans without a parent are skipped.
+/// Precomputed per-trace indices shared by the fanout and serialized
+/// detectors. Both detectors need `children_by_parent` +
+/// `span_index`; building them once per trace and passing the struct
+/// halves the hot-path `HashMap` cost on traces that trigger both
+/// detectors.
 ///
-/// Used by fanout and serialized call detection.
-pub(super) fn group_children_by_parent(trace: &Trace) -> HashMap<&str, Vec<usize>> {
-    let mut map: HashMap<&str, Vec<usize>> = HashMap::with_capacity(trace.spans.len() / 4 + 1);
-    for (idx, span) in trace.spans.iter().enumerate() {
-        if let Some(ref parent_id) = span.event.parent_span_id {
-            map.entry(parent_id.as_str()).or_default().push(idx);
-        }
-    }
-    map
+/// `pub` visibility is required because [`fanout::detect_fanout`] and
+/// [`serialized::detect_serialized`] are public entry points that take
+/// a `&TraceIndices<'_>`. The internal `build` constructor stays
+/// `pub(super)` so external callers cannot bypass the `detect()`
+/// orchestrator to produce an inconsistent indices / trace pair.
+pub struct TraceIndices<'a> {
+    pub children_by_parent: HashMap<&'a str, Vec<usize>>,
+    pub span_index: HashMap<&'a str, usize>,
 }
 
-/// Build a span index mapping `span_id -> index` for O(1) parent lookup.
-///
-/// Used by fanout and serialized call detection.
-pub(super) fn build_span_index(trace: &Trace) -> HashMap<&str, usize> {
-    trace
-        .spans
-        .iter()
-        .enumerate()
-        .map(|(i, s)| (s.event.span_id.as_str(), i))
-        .collect()
+impl<'a> TraceIndices<'a> {
+    /// Build both indices in a single pass over the trace's spans.
+    #[must_use]
+    pub fn build(trace: &'a Trace) -> Self {
+        let mut children_by_parent: HashMap<&str, Vec<usize>> =
+            HashMap::with_capacity(trace.spans.len() / 4 + 1);
+        let mut span_index: HashMap<&str, usize> = HashMap::with_capacity(trace.spans.len());
+        for (idx, span) in trace.spans.iter().enumerate() {
+            span_index.insert(span.event.span_id.as_str(), idx);
+            if let Some(ref parent_id) = span.event.parent_span_id {
+                children_by_parent
+                    .entry(parent_id.as_str())
+                    .or_default()
+                    .push(idx);
+            }
+        }
+        Self {
+            children_by_parent,
+            span_index,
+        }
+    }
 }
 
 /// A detected performance anti-pattern.
@@ -362,13 +375,56 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
     }
 }
 
+/// Stamp `confidence` on every finding in the slice.
+///
+/// Detectors emit `Confidence::default()` (= [`Confidence::CiBatch`])
+/// per the contract on [`Finding::confidence`]. Pipeline callers
+/// override the value with the runtime context (`CiBatch` for batch
+/// `analyze`, `DaemonStaging` or `DaemonProduction` for the daemon)
+/// using this helper so neither the batch nor the daemon path has to
+/// duplicate the loop.
+pub fn apply_confidence(findings: &mut [Finding], confidence: Confidence) {
+    for finding in findings.iter_mut() {
+        finding.confidence = confidence;
+    }
+}
+
+/// Run per-trace + cross-trace detection on a set of traces.
+///
+/// Returns the unsorted, unconfidence-stamped `Vec<Finding>`. Callers
+/// stamp confidence via [`apply_confidence`] then sort via
+/// [`sort_findings`] before emission.
+///
+/// Cross-trace detection is gated on `traces.len() >= 2` because the
+/// percentile-based `detect_slow_cross_trace` requires multiple
+/// observations to compute a meaningful p50/p95/p99.
+#[must_use]
+pub fn run_full_detection(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
+    let mut findings = detect(traces, config);
+    if traces.len() >= 2 {
+        let mut cross_trace = slow::detect_slow_cross_trace(
+            traces,
+            config.slow_threshold_ms,
+            config.slow_min_occurrences,
+        );
+        findings.append(&mut cross_trace);
+    }
+    findings
+}
+
 /// Run all per-trace detectors on a set of traces.
 ///
-/// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`].
+/// Does not include cross-trace analysis; see [`slow::detect_slow_cross_trace`]
+/// or use [`run_full_detection`] for the combined pass.
 #[must_use]
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
     for trace in traces {
+        // Build the span-relationship indices once per trace and hand
+        // them to the detectors that need them (fanout and serialized
+        // today). Halves the per-trace HashMap cost vs the previous
+        // per-detector-build pattern.
+        let indices = TraceIndices::build(trace);
         // Each detector returns a Vec<Finding>. Using append() instead of
         // extend() avoids iterator overhead: append moves the backing
         // allocation in O(1) when the source Vec owns its buffer.
@@ -383,7 +439,11 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
             config.slow_threshold_ms,
             config.slow_min_occurrences,
         ));
-        findings.append(&mut fanout::detect_fanout(trace, config.max_fanout));
+        findings.append(&mut fanout::detect_fanout(
+            trace,
+            &indices,
+            config.max_fanout,
+        ));
         findings.append(&mut chatty::detect_chatty(
             trace,
             config.chatty_service_min_calls,
@@ -394,6 +454,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
         ));
         findings.append(&mut serialized::detect_serialized(
             trace,
+            &indices,
             config.serialized_min_sequential,
         ));
     }
