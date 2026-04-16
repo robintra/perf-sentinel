@@ -893,3 +893,137 @@ fn cli_analyze_malformed_config_explicit_path_fails() {
         "stderr should mention parse error, got: {stderr}"
     );
 }
+
+#[test]
+fn cli_analyze_emits_suggested_fix_for_jpa_n_plus_one() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_java_jpa.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "analyze failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: Value =
+        serde_json::from_slice(&output.stdout).expect("analyze stdout should be valid JSON");
+
+    let findings = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .expect("report should contain findings array");
+    let n1 = findings
+        .iter()
+        .find(|f| f.get("type").and_then(Value::as_str) == Some("n_plus_one_sql"))
+        .expect("expected an n_plus_one_sql finding");
+
+    let fix = n1
+        .get("suggested_fix")
+        .expect("n_plus_one_sql finding should carry a suggested_fix");
+    assert_eq!(
+        fix.get("framework").and_then(Value::as_str),
+        Some("java_jpa"),
+        "framework should be java_jpa, got: {fix}"
+    );
+    assert_eq!(
+        fix.get("pattern").and_then(Value::as_str),
+        Some("n_plus_one_sql"),
+    );
+    let recommendation = fix
+        .get("recommendation")
+        .and_then(Value::as_str)
+        .expect("recommendation should be a string");
+    assert!(
+        recommendation.contains("JOIN FETCH") || recommendation.contains("EntityGraph"),
+        "JPA recommendation should mention JOIN FETCH or EntityGraph, got: {recommendation}"
+    );
+}
+
+#[test]
+fn cli_analyze_omits_suggested_fix_for_non_java_finding() {
+    // The plain n_plus_one_sql.json fixture has no code attributes.
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let report: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let findings = report
+        .get("findings")
+        .and_then(Value::as_array)
+        .expect("report should contain findings array");
+    for f in findings {
+        assert!(
+            f.get("suggested_fix").is_none(),
+            "no finding should carry suggested_fix when code_location is absent, got: {f}"
+        );
+    }
+}
+
+#[test]
+fn cli_analyze_text_output_shows_suggested_fix_line() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_java_jpa.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Suggested fix:"),
+        "text output should contain a 'Suggested fix:' line, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_analyze_sarif_output_includes_fixes_array() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql_java_jpa.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "sarif"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let sarif: Value =
+        serde_json::from_slice(&output.stdout).expect("SARIF output should be valid JSON");
+
+    let result = sarif
+        .pointer("/runs/0/results/0")
+        .expect("SARIF should have at least one result");
+    let fixes = result
+        .get("fixes")
+        .and_then(Value::as_array)
+        .expect("result should have a fixes array when suggested_fix is present");
+    assert!(!fixes.is_empty(), "fixes array should not be empty");
+    let text = fixes[0]
+        .pointer("/description/text")
+        .and_then(Value::as_str)
+        .expect("fixes[0].description.text must be a string");
+    assert!(
+        text.contains("JOIN FETCH") || text.contains("EntityGraph"),
+        "SARIF fix text should carry the JPA recommendation, got: {text}"
+    );
+}

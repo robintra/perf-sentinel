@@ -74,6 +74,7 @@ pub fn detect_fanout(trace: &Trace, max_fanout: u32) -> Vec<Finding> {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         });
     }
 

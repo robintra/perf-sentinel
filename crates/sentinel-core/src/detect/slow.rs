@@ -221,6 +221,7 @@ fn build_cross_trace_finding(
         green_impact: None,
         confidence: Confidence::default(),
         code_location: None,
+        suggested_fix: None,
     })
 }
 

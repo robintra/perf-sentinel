@@ -173,6 +173,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         }
     }
 

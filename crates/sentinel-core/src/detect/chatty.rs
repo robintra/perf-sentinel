@@ -97,6 +97,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         green_impact: None,
         confidence: Confidence::default(),
         code_location: None,
+        suggested_fix: None,
     }]
 }
 

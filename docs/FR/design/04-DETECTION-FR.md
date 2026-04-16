@@ -391,3 +391,50 @@ max_tracked_pairs = 10000
 ```
 
 L'option `enabled` (défaut false) active la corrélation. Les résultats sont exposés via `GET /api/correlations` et dans la sortie NDJSON du daemon.
+
+## Corrections actionnables (suggestions framework-aware)
+
+À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`. Le scope v1 est strictement Java/JPA pour valider l'approche. Les autres frameworks arrivent via des contributions communautaires plus tard.
+
+### Structure `SuggestedFix`
+
+```rust
+pub struct SuggestedFix {
+    pub pattern: String,          // "n_plus_one_sql" miroir du finding.type parent
+    pub framework: String,        // "java_jpa" ou "java_generic"
+    pub recommendation: String,   // phrase courte et impérative
+    pub reference_url: Option<String>,
+}
+```
+
+Sérialisé en JSON comme objet imbriqué sous `finding.suggested_fix`, omis quand absent. Émis en SARIF sous `result.fixes[0].description.text` (forme description-only de l'objet fix SARIF 2.1.0). La CLI l'affiche comme ligne imbriquée `Suggested fix:` juste après la ligne générique `Suggestion:`.
+
+### Détecteur de framework
+
+Le détecteur est une fonction pure qui lit uniquement `finding.code_location` (déjà peuplé par chaque détecteur depuis les attributs OTel `code.*` du span). Pas d'accès au niveau span, pas d'allocation supplémentaire. Chaîne de décision :
+
+1. Pas de `code_location`, ou pas de `filepath` → retourne `None`.
+2. `filepath` ne finit pas en `.java` (insensible à la casse) → retourne `None`.
+3. `namespace` contient l'une des valeurs `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa` → retourne `JavaJpa`.
+4. Sinon (filepath Java sans hint JPA) → retourne `JavaGeneric`.
+
+### Table de mapping
+
+Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. Entrées v1 :
+
+| Type de finding     | Framework      | Ancre de la recommandation                               |
+|---------------------|----------------|----------------------------------------------------------|
+| `NPlusOneSql`       | `JavaJpa`      | `JOIN FETCH` ou `@EntityGraph`, Hibernate User Guide     |
+| `NPlusOneHttp`      | `JavaGeneric`  | Endpoint batch ou `@Cacheable` request-scoped            |
+| `RedundantSql`      | `JavaGeneric`  | Cache service-level (Caffeine, Spring Cache)             |
+
+### Chemin d'extension pour les contributeurs
+
+Pour ajouter un nouveau framework :
+
+1. Étendre l'enum privé `Framework` dans `detect/suggestions.rs`.
+2. Étendre `detect_framework` avec les nouvelles heuristiques. Les garder cheap, pures, déterministes, ne lisant que `finding.code_location`.
+3. Ajouter des entrées à la static `FIXES` pour chaque paire `(FindingType, Framework)` à mapper.
+4. Ajouter des tests unitaires sous le module `tests` du même fichier.
+
+Aucun changement de câblage ailleurs : l'orchestrateur `detect()` appelle déjà `suggestions::enrich` à la fin de la passe de détection per-trace, et les rendus CLI / JSON / SARIF gèrent déjà un `suggested_fix` optionnel.

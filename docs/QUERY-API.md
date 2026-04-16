@@ -172,7 +172,8 @@ The `finding` object exposed by `/api/findings` and
 | `last_timestamp`   | string (ISO 8601)   | Latest span in the detected group                                                                |
 | `confidence`       | string (enum)       | `ci_batch`, `daemon_staging`, `daemon_production`                                                |
 | `green_impact`     | object (optional)   | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` when green scoring is enabled |
-| `code_location`    | object (optional)   | `{ code_function?, code_filepath?, code_lineno?, code_namespace? }` when OTel `code.*` attributes are present |
+| `code_location`    | object (optional)   | `{ function?, filepath?, lineno?, namespace? }` when OTel `code.*` attributes are present  |
+| `suggested_fix`    | object (optional)   | `{ pattern, framework, recommendation, reference_url? }` when the framework can be inferred (Java/JPA in v1) |
 
 ### GET /api/findings/{trace_id}
 

@@ -979,6 +979,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![finding], None);
@@ -1105,6 +1106,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let (findings, _) = score_green(&[trace], vec![finding], None);
@@ -1150,6 +1152,7 @@ mod tests {
                 green_impact: None,
                 confidence: Confidence::default(),
                 code_location: None,
+                suggested_fix: None,
             },
             Finding {
                 finding_type: FindingType::RedundantSql,
@@ -1169,6 +1172,7 @@ mod tests {
                 green_impact: None,
                 confidence: Confidence::default(),
                 code_location: None,
+                suggested_fix: None,
             },
         ];
 
@@ -1269,6 +1273,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let ctx = ctx_with_region("eu-west-3");
@@ -1414,6 +1419,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![slow_finding], None);
@@ -1471,6 +1477,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
         let slow_finding = Finding {
             finding_type: FindingType::SlowSql,
@@ -1490,6 +1497,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let (findings, summary) = score_green(&[trace], vec![n1_finding, slow_finding], None);
@@ -1584,6 +1592,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
         // disable hourly profiles so avoidable ratio math
         // stays deterministic (the test compares to operational × 5/6).
@@ -1999,6 +2008,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         };
 
         let ctx = CarbonContext {

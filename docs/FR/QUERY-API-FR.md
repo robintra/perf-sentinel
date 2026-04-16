@@ -179,7 +179,8 @@ v0.4.1 :
 | `last_timestamp`   | string (ISO 8601)   | Dernier span du groupe détecté                                                                    |
 | `confidence`       | string (enum)       | `ci_batch`, `daemon_staging`, `daemon_production`                                                 |
 | `green_impact`     | object (optionnel)  | `{ estimated_extra_io_ops, io_intensity_score, io_intensity_band }` quand le scoring green est activé |
-| `code_location`    | object (optionnel)  | `{ code_function?, code_filepath?, code_lineno?, code_namespace? }` quand les attributs OTel `code.*` sont présents |
+| `code_location`    | object (optionnel)  | `{ function?, filepath?, lineno?, namespace? }` quand les attributs OTel `code.*` sont présents |
+| `suggested_fix`    | object (optionnel)  | `{ pattern, framework, recommendation, reference_url? }` quand le framework peut être inféré (Java/JPA en v1) |
 
 ### GET /api/findings/{trace_id}
 

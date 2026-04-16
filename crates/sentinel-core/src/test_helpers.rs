@@ -161,6 +161,7 @@ pub fn make_finding(
         }),
         confidence: crate::detect::Confidence::default(),
         code_location: None,
+        suggested_fix: None,
     }
 }
 

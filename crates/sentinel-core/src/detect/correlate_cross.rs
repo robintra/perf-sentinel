@@ -448,6 +448,7 @@ mod tests {
             green_impact: None,
             confidence: crate::detect::Confidence::default(),
             code_location: None,
+            suggested_fix: None,
         }
     }
 

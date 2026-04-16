@@ -68,6 +68,7 @@ pub fn detect_redundant(trace: &Trace) -> Vec<Finding> {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: first.event.code_location(),
+            suggested_fix: None,
         });
     }
 

@@ -425,3 +425,50 @@ The correlator is created conditionally in the daemon's `run()` function based o
 ### Batch mode exclusion
 
 The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-trace correlation requires a stream of findings over time to detect recurring patterns. A single batch run typically processes a fixed set of traces without the temporal dimension needed for meaningful correlation.
+
+## Actionable fixes (framework-aware suggestions)
+
+Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`. The v1 scope is strictly Java/JPA to validate the approach. Other frameworks land via community contributions later.
+
+### The `SuggestedFix` struct
+
+```rust
+pub struct SuggestedFix {
+    pub pattern: String,          // "n_plus_one_sql" mirrors parent finding.type
+    pub framework: String,        // "java_jpa" or "java_generic"
+    pub recommendation: String,   // short, imperative sentence
+    pub reference_url: Option<String>,
+}
+```
+
+Serialized in JSON as a nested object under `finding.suggested_fix`, skipped when absent. Emitted in SARIF under `result.fixes[0].description.text` (description-only form of the SARIF 2.1.0 fix object). The CLI renders it as a nested `Suggested fix:` line right after the generic `Suggestion:` line.
+
+### Framework detector
+
+The detector is a pure function that only reads `finding.code_location` (already populated by each detector from the span's OTel `code.*` attributes). No span-level access, no extra allocations. Decision chain:
+
+1. No `code_location`, or no `filepath` → return `None`.
+2. `filepath` does not end with `.java` (case-insensitive) → return `None`.
+3. `namespace` contains any of `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa` → return `JavaJpa`.
+4. Otherwise (Java filepath without JPA hint) → return `JavaGeneric`.
+
+### Mapping table
+
+A `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>` static. Lookups missing from the table leave `suggested_fix` as `None`. v1 entries:
+
+| Finding type        | Framework      | Recommendation anchor                                    |
+|---------------------|----------------|----------------------------------------------------------|
+| `NPlusOneSql`       | `JavaJpa`      | `JOIN FETCH` or `@EntityGraph`, Hibernate User Guide     |
+| `NPlusOneHttp`      | `JavaGeneric`  | Batch endpoint or request-scoped `@Cacheable`            |
+| `RedundantSql`      | `JavaGeneric`  | Service-level cache (Caffeine, Spring Cache)             |
+
+### Extension path for contributors
+
+To add a new framework:
+
+1. Extend the private `Framework` enum in `detect/suggestions.rs`.
+2. Extend `detect_framework` with the new detection heuristics. Keep them cheap, pure, deterministic, only reading `finding.code_location`.
+3. Add entries to the `FIXES` static for each `(FindingType, Framework)` pair you want to map.
+4. Add unit tests under the `tests` module in the same file.
+
+No wiring changes elsewhere: the `detect()` orchestrator already calls `suggestions::enrich` at the end of the per-trace detection pass, and the CLI / JSON / SARIF rendering already handle an optional `suggested_fix`.

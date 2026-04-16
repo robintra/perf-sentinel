@@ -80,6 +80,23 @@ pub struct SarifResult {
     /// the instrumentation agent emits source code attributes.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub locations: Vec<SarifLocation>,
+    /// SARIF v2.1.0 `fixes` array. Populated from the finding's
+    /// `suggested_fix` field when a framework was inferred and a
+    /// recommendation exists. Empty otherwise so pre-7.3 consumers are
+    /// unaffected.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fixes: Vec<SarifFix>,
+}
+
+/// SARIF v2.1.0 `fix` object. perf-sentinel emits the description-only
+/// form: a free-text recommendation under `description.text`. We do not
+/// emit `artifactChanges` because perf-sentinel infers the fix at the
+/// framework level (e.g. "use JOIN FETCH"), not as a literal source
+/// patch.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SarifFix {
+    pub description: SarifMessage,
 }
 
 /// Wrapper for SARIF `location` objects containing physical locations.
@@ -236,6 +253,19 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
                         }]
                     })
                 })
+            })
+            .unwrap_or_default(),
+        fixes: finding
+            .suggested_fix
+            .as_ref()
+            .map(|fix| {
+                let text = match fix.reference_url.as_ref() {
+                    Some(url) => format!("{} (see: {url})", fix.recommendation),
+                    None => fix.recommendation.clone(),
+                };
+                vec![SarifFix {
+                    description: SarifMessage { text },
+                }]
             })
             .unwrap_or_default(),
     }

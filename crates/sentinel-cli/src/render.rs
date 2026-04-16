@@ -195,6 +195,15 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         finding.first_timestamp, finding.last_timestamp
     );
     println!("    {cyan}Suggestion:{reset} {}", finding.suggestion);
+    if let Some(ref fix) = finding.suggested_fix {
+        match fix.reference_url.as_ref() {
+            Some(url) => println!(
+                "    {cyan}Suggested fix:{reset} {} (see: {url})",
+                fix.recommendation
+            ),
+            None => println!("    {cyan}Suggested fix:{reset} {}", fix.recommendation),
+        }
+    }
     if let Some(ref impact) = finding.green_impact {
         print_finding_impact(impact, colors);
     }

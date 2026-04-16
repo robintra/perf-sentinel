@@ -8,6 +8,7 @@ pub mod pool_saturation;
 pub mod redundant;
 pub mod serialized;
 pub mod slow;
+pub mod suggestions;
 
 use std::collections::HashMap;
 
@@ -81,6 +82,12 @@ pub struct Finding {
     /// `None` when the instrumentation agent does not emit these attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_location: Option<crate::event::CodeLocation>,
+    /// Framework-specific actionable fix, populated by
+    /// [`suggestions::enrich`] after the per-trace detectors run. `None`
+    /// when no framework can be inferred from `code_location` or when the
+    /// `(finding_type, framework)` pair has no mapping in the v1 table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_fix: Option<suggestions::SuggestedFix>,
 }
 
 /// Types of performance anti-patterns.
@@ -351,6 +358,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         green_impact: None,
         confidence: Confidence::default(),
         code_location: args.code_location,
+        suggested_fix: None,
     }
 }
 
@@ -389,6 +397,7 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
             config.serialized_min_sequential,
         ));
     }
+    suggestions::enrich(&mut findings);
     findings
 }
 
