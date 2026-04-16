@@ -452,7 +452,11 @@ The detector is a pure function that only reads `finding.code_location` (already
 3. Walk that language's rules in declared order (most specific first). Return the first framework whose namespace hint matches.
 4. Fall back to the language's generic framework (`JavaGeneric`, `CsharpGeneric`, `RustGeneric`) when no rule matches.
 
-The namespace match is segment-boundary-aware: a hint of `diesel::` matches `diesel::query_dsl::FilterDsl` and `crate::diesel::reexport` but **not** `crate::mydiesel::query`. The boundary characters are `.` (Java, C#) and `::` (Rust). This avoids false positives from user code that happens to embed a framework name in an identifier.
+The namespace match is segment-boundary-aware on **both** sides: the hint must start at the namespace root or immediately after a separator and must end at the namespace end or immediately before another separator. Boundary characters are `.` (Java, C#) and `::` (Rust). Examples:
+
+- `diesel::` matches `diesel::query_dsl::FilterDsl` and `crate::diesel::reexport` but **not** `crate::mydiesel::query` (leading boundary protects user code that embeds the hint).
+- `io.helidon` matches `io.helidon.webserver.Routing` but **not** `io.helidongrpc.Foo` (trailing boundary protects against user packages whose first segment merely starts with the hint).
+- `Microsoft.EntityFrameworkCore` matches `Microsoft.EntityFrameworkCore.Query` but **not** `Microsoft.EntityFrameworkCoreCache.Provider`.
 
 ### Per-language rules
 

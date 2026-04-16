@@ -189,6 +189,10 @@ Ces deux défenses ne comptent que si `json_socket` se trouve dans un répertoir
 
 Le facteur est intentionnel : il accommode les clients qui émettent beaucoup de petits batches sur une connexion longue durée (par exemple un sidecar qui vide une file d'attente bufferisée après un flush), sans exposer le daemon à une exhaustion mémoire depuis un attaquant. Un client qui a besoin de plus de 16× la taille de batch configurée doit ouvrir une nouvelle connexion. Le cap ne peut pas être désactivé.
 
+### Cap de concurrence sur les handshakes TLS
+
+Chaque listener TLS (OTLP gRPC et OTLP HTTP) limite à **128** les handshakes en vol et les connexions HTTPS actives simultanées. Les handshakes tournent dans des tasks dédiées pour qu'un seul pair qui stalle ne bloque pas la boucle d'accept et le cap borne les fds, les buffers rustls et les slots de tasks face à un flood de handshakes. Un timeout de 10s (`TLS_HANDSHAKE_TIMEOUT`) coupe les pairs qui terminent le TCP sans envoyer de `ClientHello`. Le cap n'est pas configurable, il est aligné sur le budget du socket JSON Unix.
+
 ## Précision des estimations carbone
 
 perf-sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :

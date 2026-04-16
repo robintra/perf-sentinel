@@ -75,6 +75,8 @@ let (bold, cyan, red, yellow, green, dim, reset) = if is_tty {
 
 ANSI escape codes are suppressed when stdout is not a terminal (e.g., piped to a file or `jq`). The `force_color` parameter allows tests to exercise the color path without a real TTY. This follows the convention of tools like `ls --color=auto` and [rustc's output](https://doc.rust-lang.org/rustc/command-line-arguments.html).
 
+**Sink override for `--output`.** The `stdout().is_terminal()` probe above is blind to the actual writer: a CLI invoked from an interactive terminal where `--output path.txt` redirects the sink to a `File` would still pick the colored palette and leak escape bytes into the file. `emit_diff` guards against this by forcing `no_colors()` whenever `output.is_some()`, regardless of the stdout TTY state. The palette is then threaded into `write_diff_text` as an explicit argument so the writer choice and the color decision stay in sync.
+
 ### PgStat: pg_stat_statements hotspot analysis
 
 `perf-sentinel pg-stat --input FILE` parses PostgreSQL `pg_stat_statements` exports (CSV or JSON, auto-detected) and produces hotspot rankings by total execution time, call count and mean execution time. The `--traces` flag enables cross-referencing with trace-based findings: the tool runs `pipeline::analyze()` on the trace file and marks `pg_stat_statements` entries whose normalized template also appears in trace findings.
@@ -97,7 +99,7 @@ The workspace uses Cargo feature flags to keep daemon-only dependencies optional
 
 | Feature  | Crate           | What it gates                                                                                                                            |
 |----------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------|
-| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Enables `daemon.rs`, Scaphandre scraper/state, cloud energy scraper/state. |
+| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Enables the `daemon/` module tree, Scaphandre scraper/state, cloud energy scraper/state. |
 | `daemon` | `sentinel-cli`  | Forwards to `sentinel-core/daemon`. Enables the `watch` subcommand.                                                                      |
 | `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Enables the `inspect` subcommand.                                                                                |
 

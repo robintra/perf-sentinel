@@ -16,6 +16,12 @@ use super::{DaemonError, TlsConfigError};
 /// slowloris-style resource exhaustion.
 const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Cap on concurrent in-flight TLS handshakes and live HTTPS connections.
+/// Bounds fds, rustls buffers and task slots against handshake floods
+/// where many peers complete TCP then stall on `ClientHello`. Same
+/// budget as the Unix JSON socket listener.
+const TLS_MAX_INFLIGHT: usize = 128;
+
 /// A stream that is either a plain TCP connection or a TLS-wrapped one.
 /// Implements `AsyncRead + AsyncWrite` so tonic and hyper can use it
 /// transparently without knowing whether TLS is active.
@@ -91,6 +97,11 @@ pub(super) fn tls_tcp_incoming(
     tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
 ) -> tokio_stream::wrappers::ReceiverStream<Result<MaybeTlsStream, std::io::Error>> {
     let (tx, rx) = mpsc::channel(128);
+    // Cap concurrent in-flight handshakes. Prevents a flood of peers
+    // that complete TCP then stall on ClientHello from pinning
+    // TLS_MAX_INFLIGHT tasks plus fds plus rustls buffers for
+    // TLS_HANDSHAKE_TIMEOUT each.
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(TLS_MAX_INFLIGHT));
 
     tokio::spawn(async move {
         loop {
@@ -101,26 +112,38 @@ pub(super) fn tls_tcp_incoming(
                     continue;
                 }
             };
-            let stream = if let Some(ref acceptor) = tls_acceptor {
-                match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.clone().accept(tcp))
-                    .await
-                {
-                    Ok(Ok(tls)) => MaybeTlsStream::Tls(Box::new(tls)),
-                    Ok(Err(e)) => {
-                        tracing::debug!("TLS handshake failed from {addr}: {e}");
-                        continue;
-                    }
-                    Err(_) => {
-                        tracing::debug!("TLS handshake timed out from {addr}");
-                        continue;
-                    }
+            // Plain-TCP path stays inline: no handshake, no DoS surface.
+            let Some(acceptor) = tls_acceptor.clone() else {
+                if tx.send(Ok(MaybeTlsStream::Plain(tcp))).await.is_err() {
+                    break; // receiver dropped
                 }
-            } else {
-                MaybeTlsStream::Plain(tcp)
+                continue;
             };
-            if tx.send(Ok(stream)).await.is_err() {
-                break; // receiver dropped, shutting down
-            }
+            // TLS path: run each handshake in its own task so a single
+            // stalled peer does not block accept(). A semaphore permit
+            // bounds the total in-flight count.
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                break; // semaphore closed
+            };
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let stream =
+                    match tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, acceptor.accept(tcp)).await {
+                        Ok(Ok(tls)) => MaybeTlsStream::Tls(Box::new(tls)),
+                        Ok(Err(e)) => {
+                            tracing::debug!("TLS handshake failed from {addr}: {e}");
+                            drop(permit);
+                            return;
+                        }
+                        Err(_) => {
+                            tracing::debug!("TLS handshake timed out from {addr}");
+                            drop(permit);
+                            return;
+                        }
+                    };
+                let _ = tx.send(Ok(stream)).await;
+                drop(permit);
+            });
         }
     });
 
@@ -182,6 +205,12 @@ pub(super) async fn serve_https(
 ) {
     use tower::ServiceExt;
 
+    // Bound concurrent handshakes + live HTTPS connections. Without
+    // this cap, a handshake-stall flood pins TLS_HANDSHAKE_TIMEOUT
+    // worth of tasks/fds per attacker. Same budget as the Unix JSON
+    // socket listener.
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(TLS_MAX_INFLIGHT));
+
     loop {
         let (tcp_stream, remote_addr) = match listener.accept().await {
             Ok(conn) => conn,
@@ -191,6 +220,9 @@ pub(super) async fn serve_https(
             }
         };
 
+        let Ok(permit) = semaphore.clone().acquire_owned().await else {
+            break; // semaphore closed
+        };
         let acceptor = tls_acceptor.clone();
         let app = app.clone();
 
@@ -204,10 +236,12 @@ pub(super) async fn serve_https(
                 Ok(Ok(s)) => s,
                 Ok(Err(e)) => {
                     tracing::debug!("TLS handshake failed from {remote_addr}: {e}");
+                    drop(permit);
                     return;
                 }
                 Err(_) => {
                     tracing::debug!("TLS handshake timed out from {remote_addr}");
+                    drop(permit);
                     return;
                 }
             };
@@ -238,6 +272,7 @@ pub(super) async fn serve_https(
             {
                 tracing::debug!("HTTPS connection error from {remote_addr}: {e}");
             }
+            drop(permit);
         });
     }
 }

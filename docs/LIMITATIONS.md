@@ -127,9 +127,13 @@ Both defenses only matter when `json_socket` lives in a directory writeable by o
 
 ### JSON socket per-connection payload budget
 
-`[daemon] max_payload_size` (default 1 MiB) caps individual NDJSON batches submitted through the JSON socket. A single connection may stream multiple batches before closing, and the daemon tolerates up to **16× `max_payload_size`** per connection before truncating the stream. At the default setting this means one connection can transfer up to 16 MiB of trace data.
+`[daemon] max_payload_size` (default 1 MiB) caps individual NDJSON batches submitted through the JSON socket. A single connection may stream multiple batches before closing and the daemon tolerates up to **16× `max_payload_size`** per connection before truncating the stream. At the default setting this means one connection can transfer up to 16 MiB of trace data.
 
 The factor is deliberate: it accommodates clients that emit many small batches over a single long-lived connection (e.g. a sidecar shipping a buffered queue after a flush), without exposing the daemon to memory exhaustion from an attacker. A client that needs more than 16× the configured batch size should open a new connection. The cap cannot be disabled.
+
+### TLS handshake concurrency cap
+
+Each TLS listener (OTLP gRPC and OTLP HTTP) caps concurrent in-flight handshakes and live HTTPS connections at **128**. Handshakes run in dedicated tasks so a single stalled peer cannot block the accept loop and the cap bounds fds, rustls buffers and task slots against a handshake flood. A 10s handshake timeout (`TLS_HANDSHAKE_TIMEOUT`) drops peers that complete TCP but never send a `ClientHello`. The cap is not configurable; it mirrors the Unix JSON socket listener budget.
 
 ## Carbon estimates accuracy
 

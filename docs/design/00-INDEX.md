@@ -40,11 +40,18 @@ For user-facing documentation, see the parent `docs/` directory:
 | `detect/correlate_cross.rs`| [04: Detection](04-DETECTION.md)                   |
 | `score/mod.rs`             | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
 | `score/carbon.rs`          | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
+| `score/carbon_compute.rs`  | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
+| `score/region_breakdown.rs`| [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
 | `ingest/mod.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/json.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/otlp.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `ingest/pg_stat.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon/mod.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/event_loop.rs`     | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/listeners.rs`      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/tls.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/json_socket.rs`    | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `daemon/sampling.rs`       | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon/findings_store.rs` | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon/query_api.rs`      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `config.rs`                | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |

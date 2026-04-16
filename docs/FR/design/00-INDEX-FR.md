@@ -39,16 +39,23 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 | `detect/slow.rs`           | [04 : Détection](04-DETECTION-FR.md)                   |
 | `score/mod.rs`             | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)          |
 | `score/carbon.rs`          | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)          |
+| `score/carbon_compute.rs`  | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)          |
+| `score/region_breakdown.rs`| [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)          |
 | `ingest/mod.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `ingest/json.rs`           | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `ingest/otlp.rs`           | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `ingest/pg_stat.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
-| `daemon.rs`                | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/mod.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/event_loop.rs`     | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/listeners.rs`      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/tls.rs`            | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/json_socket.rs`    | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/sampling.rs`       | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/findings_store.rs` | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `daemon/query_api.rs`      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `config.rs`                | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
 | `report/mod.rs`, `json.rs` | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)           |
 | `report/metrics.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `sentinel-cli/src/main.rs` | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
 | `sentinel-cli/src/tui.rs`  | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
-| `detect/correlate_cross.rs` | [04 : Détection](04-DETECTION-FR.md)                  |
-| `daemon/findings_store.rs` | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
-| `daemon/query_api.rs`      | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `detect/correlate_cross.rs`| [04 : Détection](04-DETECTION-FR.md)                   |

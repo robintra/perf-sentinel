@@ -82,15 +82,23 @@ pub(crate) fn ansi_colors(force_color: bool) -> AnsiColors {
             reset: "\x1b[0m",
         }
     } else {
-        AnsiColors {
-            bold: "",
-            cyan: "",
-            red: "",
-            yellow: "",
-            green: "",
-            dim: "",
-            reset: "",
-        }
+        no_colors()
+    }
+}
+
+/// Plain palette with every field empty. Used when the sink is known
+/// not to be a terminal (e.g. writing to `--output file.txt`), where
+/// `ansi_colors`'s `stdout().is_terminal()` probe would otherwise emit
+/// escape sequences into the file.
+pub(crate) const fn no_colors() -> AnsiColors {
+    AnsiColors {
+        bold: "",
+        cyan: "",
+        red: "",
+        yellow: "",
+        green: "",
+        dim: "",
+        reset: "",
     }
 }
 
@@ -377,9 +385,18 @@ pub(crate) fn emit_diff(
         Some(path) => Box::new(std::fs::File::create(path)?),
         None => Box::new(std::io::stdout().lock()),
     };
+    // Force colors off when writing to a file. `ansi_colors` gates on
+    // `stdout().is_terminal()`, which stays true even when the actual
+    // writer is a File, and would otherwise leak escape codes into the
+    // user-facing artifact.
+    let colors = if output.is_some() {
+        no_colors()
+    } else {
+        ansi_colors(false)
+    };
     let effective_format = format.unwrap_or(OutputFormat::Text);
     match effective_format {
-        OutputFormat::Text => write_diff_text(&mut writer, diff)?,
+        OutputFormat::Text => write_diff_text(&mut writer, diff, colors)?,
         OutputFormat::Json => {
             serde_json::to_writer_pretty(&mut writer, diff).map_err(std::io::Error::other)?;
             writeln!(writer)?;
@@ -396,8 +413,8 @@ pub(crate) fn emit_diff(
 fn write_diff_text(
     writer: &mut dyn std::io::Write,
     diff: &sentinel_core::diff::DiffReport,
+    colors: AnsiColors,
 ) -> std::io::Result<()> {
-    let colors = ansi_colors(false);
     let AnsiColors {
         bold,
         cyan,
@@ -511,4 +528,53 @@ fn write_diff_text(
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_diff() -> sentinel_core::diff::DiffReport {
+        sentinel_core::diff::DiffReport {
+            new_findings: vec![],
+            resolved_findings: vec![],
+            severity_changes: vec![],
+            endpoint_metric_deltas: vec![],
+        }
+    }
+
+    /// Regression: `write_diff_text` must honor the `colors` argument,
+    /// not probe stdout's TTY state. When `emit_diff` writes to a file,
+    /// it passes `no_colors()` and the output must contain zero ESC
+    /// bytes regardless of whether the process stdout is a terminal.
+    #[test]
+    fn write_diff_text_respects_colors_argument() {
+        let diff = empty_diff();
+
+        // Forced-color palette: output MUST contain ESC bytes.
+        let forced = AnsiColors {
+            bold: "\x1b[1m",
+            cyan: "\x1b[36m",
+            red: "\x1b[31m",
+            yellow: "\x1b[33m",
+            green: "\x1b[32m",
+            dim: "\x1b[2m",
+            reset: "\x1b[0m",
+        };
+        let mut colored_buf = Vec::new();
+        write_diff_text(&mut colored_buf, &diff, forced).unwrap();
+        assert!(
+            colored_buf.contains(&0x1b),
+            "forced palette must emit at least one ESC byte"
+        );
+
+        // no_colors() palette: output MUST NOT contain any ESC byte.
+        let mut plain_buf = Vec::new();
+        write_diff_text(&mut plain_buf, &diff, no_colors()).unwrap();
+        assert!(
+            !plain_buf.contains(&0x1b),
+            "no_colors palette must emit zero ESC bytes, got:\n{}",
+            String::from_utf8_lossy(&plain_buf)
+        );
+    }
 }

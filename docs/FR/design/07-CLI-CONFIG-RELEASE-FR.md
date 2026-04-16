@@ -73,6 +73,8 @@ let (bold, cyan, red, yellow, green, dim, reset) = if is_tty {
 
 Les codes d'échappement ANSI sont supprimés quand stdout n'est pas un terminal (ex. redirigé vers un fichier ou `jq`). Le paramètre `force_color` permet aux tests d'exercer le chemin coloré sans vrai TTY. Cela suit la convention d'outils comme `ls --color=auto` et la [sortie de rustc](https://doc.rust-lang.org/rustc/command-line-arguments.html).
 
+**Override pour `--output`.** La sonde `stdout().is_terminal()` ci-dessus ignore le writer réel : une CLI lancée depuis un terminal interactif avec `--output fichier.txt` redirige le sink vers un `File`, mais la palette colorée serait quand même choisie et laisserait fuir des octets d'échappement dans le fichier. `emit_diff` se protège en forçant `no_colors()` dès que `output.is_some()`, indépendamment de l'état TTY de stdout. La palette est ensuite passée explicitement en paramètre à `write_diff_text` pour que le choix du writer et la décision de couleur restent synchronisés.
+
 ### PgStat : analyse de hotspots pg_stat_statements
 
 `perf-sentinel pg-stat --input FILE` parse les exports `pg_stat_statements` de PostgreSQL (CSV ou JSON, auto-détecté) et produit des classements de hotspots par temps d'exécution total, nombre d'appels et temps d'exécution moyen. Le flag `--traces` permet la référence croisée avec les findings de traces : l'outil exécute `pipeline::analyze()` sur le fichier de traces et marque les entrées `pg_stat_statements` dont le template normalisé apparaît aussi dans les findings.
@@ -93,7 +95,7 @@ Le workspace utilise des feature flags Cargo pour garder les dépendances daemon
 
 | Feature  | Crate           | Ce qu'il active                                                                                                                         |
 |----------|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------|
-| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Active `daemon.rs`, scraper/state Scaphandre, scraper/state cloud energy. |
+| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Active l'arbre de modules `daemon/`, scraper/state Scaphandre, scraper/state cloud energy. |
 | `daemon` | `sentinel-cli`  | Transmet à `sentinel-core/daemon`. Active la sous-commande `watch`.                                                                     |
 | `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Active la sous-commande `inspect`.                                                                              |
 

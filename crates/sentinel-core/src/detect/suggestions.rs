@@ -414,9 +414,12 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 }
 
 /// Segment-boundary-aware substring match. Returns `true` when `hint`
-/// appears at the start of `ns` or immediately after a `.` (Java, C#) or
-/// `::` (Rust) separator. Prevents false positives like
-/// `orders::mydiesel::query` matching the `diesel::` hint.
+/// appears between segment boundaries on both sides: it must start at
+/// `ns` start or immediately after a `.` (Java, C#) / `::` (Rust), and
+/// must end at `ns` end or immediately before another segment delimiter
+/// (`.` or `::`). Prevents false positives in both directions:
+/// `orders::mydiesel::query` on `diesel::` (leading boundary) and
+/// `io.helidongrpc.Foo` on `io.helidon` (trailing boundary).
 ///
 /// Advances `start` by `hint.len()` after a non-matching candidate so we
 /// skip overlapping re-scans (the same hint can never match twice over a
@@ -424,23 +427,31 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// `str::find` returns indices aligned to the start of the matched
 /// substring.
 fn namespace_matches(ns: &str, hint: &str) -> bool {
+    let bytes = ns.as_bytes();
     let mut start = 0;
     while let Some(found) = ns[start..].find(hint) {
         let abs = start + found;
-        if abs == 0 {
+        let end = abs + hint.len();
+
+        let leading_ok = abs == 0
+            || bytes[abs - 1] == b'.'
+            // Rust `::`: the byte preceding the hint is `:` and the one
+            // before that is also `:`.
+            || (bytes[abs - 1] == b':' && abs >= 2 && bytes[abs - 2] == b':');
+
+        // Trailing boundary: either the hint already ended at a
+        // separator (e.g. Rust `diesel::`), or the next byte starts a
+        // new segment. Without this, `io.helidon` would match
+        // `io.helidongrpc.Foo`.
+        let trailing_ok = end == ns.len()
+            || bytes[end - 1] == b':'
+            || bytes[end] == b'.'
+            || (bytes[end] == b':' && end + 1 < ns.len() && bytes[end + 1] == b':');
+
+        if leading_ok && trailing_ok {
             return true;
         }
-        let preceding = ns.as_bytes()[abs - 1];
-        if preceding == b'.' {
-            return true;
-        }
-        // For Rust namespaces with `::` separator, the byte preceding
-        // the hint must itself be `:` and the byte before that must
-        // also be `:`.
-        if preceding == b':' && abs >= 2 && ns.as_bytes()[abs - 2] == b':' {
-            return true;
-        }
-        start = abs + hint.len();
+        start = end;
     }
     false
 }
@@ -793,6 +804,38 @@ mod tests {
             )),
         );
         assert_eq!(detect_framework(&f), Some(Framework::RustGeneric));
+    }
+
+    #[test]
+    fn java_hint_requires_trailing_segment_boundary() {
+        // Regression: `io.helidon` must not match `io.helidongrpc.Foo`,
+        // `org.hibernate` must not match `org.hibernatefoo.Bar`. Prior
+        // impl only checked the leading boundary.
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("src/main/java/Foo.java", Some("io.helidongrpc.Foo"))),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaGeneric));
+
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("src/main/java/Bar.java", Some("org.hibernatefoo.Bar"))),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaGeneric));
+    }
+
+    #[test]
+    fn csharp_hint_requires_trailing_segment_boundary() {
+        // Regression: `Microsoft.EntityFrameworkCore` must not match
+        // `Microsoft.EntityFrameworkCoreCache.Provider`.
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc(
+                "src/Repo.cs",
+                Some("Microsoft.EntityFrameworkCoreCache.Provider"),
+            )),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::CsharpGeneric));
     }
 
     // ── Cross-language fallthrough ───────────────────────────────
