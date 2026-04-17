@@ -1095,6 +1095,8 @@ Quand ni Scaphandre ni l'estimation cloud ne sont disponibles mais que vous avez
 
 Si votre infrastructure utilise Grafana Tempo comme backend de traces, vous pouvez l'interroger directement avec `perf-sentinel tempo`.
 
+> **Workflow post-mortem.** Quand une trace est plus ancienne que la fenêtre live de 30 secondes du daemon, Tempo devient la source de rejeu pour `perf-sentinel tempo --trace-id …`. Le workflow complet d'incident (alerte Grafana → exemplar → trace_id → rejeu) est documenté dans [RUNBOOK-FR.md](RUNBOOK-FR.md).
+
 ### Analyse d'une trace
 
 ```bash

@@ -416,7 +416,7 @@ The `perf-sentinel query` subcommand and the `/api/*` HTTP endpoints expose the 
 - **Memory is not reclaimed by `api_enabled = false` alone.** The `FindingsStore` ring buffer is still populated each tick even when the API is disabled, because detection runs before the API check. To reclaim that memory, set `[daemon] max_retained_findings = 0`. This short-circuits the store's `push_batch` and keeps the daemon's RSS minimal when the query API is off.
 - **Response size caps.** `/api/findings` caps at 1000 entries per request (`?limit=` parameter is clamped). `/api/correlations` truncates to the top 1000 by confidence. These caps protect against expensive large-response requests when the daemon has built up a large memory footprint.
 - **Retained findings are bounded.** The `FindingsStore` ring buffer (default 10,000 findings) evicts the oldest entries when full. For high-traffic daemons, increase `max_retained_findings` or accept that older findings will not be queryable.
-- **No persistence.** The daemon stores findings in memory only. A restart clears all retained findings and correlation state.
+- **No persistence.** The daemon stores findings in memory only. A restart clears all retained findings and correlation state. For investigating traces older than the 30-second live window (production incidents looked at after the fact), see [RUNBOOK.md](RUNBOOK.md).
 
 ## Automated pg_stat ingestion from Prometheus
 

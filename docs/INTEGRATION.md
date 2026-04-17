@@ -1117,6 +1117,8 @@ When neither Scaphandre nor cloud energy are available but you have reference en
 
 If your infrastructure uses Grafana Tempo as the trace backend, you can query it directly with `perf-sentinel tempo` instead of exporting traces to files.
 
+> **Post-mortem workflow.** When a trace is older than the daemon's 30-second live window, Tempo becomes the replay source for `perf-sentinel tempo --trace-id …`. The full incident workflow (Grafana alert → exemplar → trace_id → replay) is documented in [RUNBOOK.md](RUNBOOK.md).
+
 ### Single trace analysis
 
 ```bash

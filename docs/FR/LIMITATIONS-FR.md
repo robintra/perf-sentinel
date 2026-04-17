@@ -421,7 +421,7 @@ La sous-commande `perf-sentinel query` et les endpoints HTTP `/api/*` exposent l
 - **La mémoire n'est pas libérée par `api_enabled = false` seul.** Le buffer circulaire `FindingsStore` est toujours peuplé à chaque tick même quand l'API est désactivée, car la détection tourne avant la vérification de l'API. Pour libérer cette mémoire, mettez `[daemon] max_retained_findings = 0`. Cela court-circuite le `push_batch` du store et garde le RSS du daemon minimal quand l'API de requêtage est désactivée.
 - **Taille de réponse plafonnée.** `/api/findings` plafonne à 1000 entrées par requête (le paramètre `?limit=` est tronqué). `/api/correlations` tronque au top 1000 par confiance. Ces plafonds protègent contre les requêtes coûteuses quand le daemon a accumulé une grosse empreinte mémoire.
 - **Les findings retenus sont bornés.** Le buffer circulaire `FindingsStore` (défaut 10 000 findings) évince les entrées les plus anciennes quand il est plein. Pour les daemons à fort trafic, augmentez `max_retained_findings` ou acceptez que les findings plus anciens ne seront pas interrogeables.
-- **Pas de persistance.** Le daemon stocke les findings en mémoire uniquement. Un redémarrage efface tous les findings retenus et l'état de corrélation.
+- **Pas de persistance.** Le daemon stocke les findings en mémoire uniquement. Un redémarrage efface tous les findings retenus et l'état de corrélation. Pour investiguer des traces plus anciennes que la fenêtre live de 30 secondes (incidents de production regardés après coup), voir [RUNBOOK-FR.md](RUNBOOK-FR.md).
 
 ## Ingestion automatisée pg_stat depuis Prometheus
 

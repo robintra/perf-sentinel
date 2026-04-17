@@ -432,7 +432,7 @@ The app sends traces to `localhost:4317` (no network hop). See [`examples/docker
 
 ---
 
-For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRATION.md](docs/INTEGRATION.md). For the full configuration reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md). For the daemon HTTP query API (findings, explain, correlations, status), see [docs/QUERY-API.md](docs/QUERY-API.md). For in-depth design documentation, see [docs/design/](docs/design/00-INDEX.md).
+For language-specific OTLP instrumentation (Java, .NET, Rust), see [docs/INTEGRATION.md](docs/INTEGRATION.md). For the full configuration reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md). For the daemon HTTP query API (findings, explain, correlations, status), see [docs/QUERY-API.md](docs/QUERY-API.md). For the post-mortem workflow when a trace is older than the daemon's live window, see [docs/RUNBOOK.md](docs/RUNBOOK.md). For in-depth design documentation, see [docs/design/](docs/design/00-INDEX.md).
 
 ## Standards and data sources
 
