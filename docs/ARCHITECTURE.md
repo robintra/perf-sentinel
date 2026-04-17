@@ -53,8 +53,8 @@ perf-sentinel is a polyglot performance anti-pattern detector built as a Rust wo
 ```
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/pipeline_dark.svg">
-  <img alt="Pipeline architecture" src="diagrams/svg/pipeline.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg">
+  <img alt="Pipeline architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline.svg">
 </picture>
 
 ## Operating modes
@@ -78,8 +78,8 @@ In CI mode (`--ci`), the process exits with code 1 if the quality gate fails.
 ### Streaming mode (`perf-sentinel watch`)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/daemon_dark.svg">
-  <img alt="Daemon architecture" src="diagrams/svg/daemon.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg">
+  <img alt="Daemon architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg">
 </picture>
 
 Runs as a daemon, receiving events in real time and emitting findings as they are detected.
@@ -109,8 +109,8 @@ JSON unix socket       /                               |
 ### Daemon query API
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/query-api_dark.svg">
-  <img alt="Daemon query API architecture" src="diagrams/svg/query-api.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg">
+  <img alt="Daemon query API architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
 In `watch` mode, the daemon exposes its internal state via HTTP endpoints on port 4318 alongside `/v1/traces` and `/metrics`:

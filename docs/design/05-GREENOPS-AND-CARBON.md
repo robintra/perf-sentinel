@@ -120,8 +120,8 @@ When `total_io_ops == 0`, the ratio is `0.0` (not NaN). This is the fraction of 
 The scoring pipeline resolves two dimensions independently for every span: **energy per op** (`E`) and **grid intensity** (`I`). Both have fallback chains from the highest-fidelity source down to the embedded defaults.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/carbon-scoring_dark.svg">
-  <img alt="Carbon scoring energy and intensity resolution" src="../diagrams/svg/carbon-scoring.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/carbon-scoring_dark.svg">
+  <img alt="Carbon scoring energy and intensity resolution" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/carbon-scoring.svg">
 </picture>
 
 ### SCI v1.0 alignment

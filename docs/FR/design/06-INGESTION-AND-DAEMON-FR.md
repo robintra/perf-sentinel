@@ -3,8 +3,8 @@
 ## Conversion OTLP
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/otlp-conversion_dark.svg">
-  <img alt="Conversion OTLP deux passes" src="../../diagrams/svg/otlp-conversion.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/otlp-conversion_dark.svg">
+  <img alt="Conversion OTLP deux passes" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/otlp-conversion.svg">
 </picture>
 
 ### Conception en deux passes
@@ -111,8 +111,8 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 ## Boucle événementielle du daemon
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/daemon_dark.svg">
-  <img alt="Architecture du daemon" src="../../diagrams/svg/daemon.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg">
+  <img alt="Architecture du daemon" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg">
 </picture>
 
 ### Architecture
@@ -288,8 +288,8 @@ Le flag `--prometheus` est mutuellement exclusif avec `--input`. Le `--traces` p
 ## API de requête du daemon
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/query-api_dark.svg">
-  <img alt="Architecture de l'API de requête du daemon" src="../../diagrams/svg/query-api.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg">
+  <img alt="Architecture de l'API de requête du daemon" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
 En mode `watch`, le daemon expose une API HTTP de consultation aux côtés des endpoints existants `/v1/traces` et `/metrics`. Cela permet d'interroger l'état interne du daemon sans accéder directement à stdout.

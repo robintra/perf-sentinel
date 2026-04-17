@@ -53,8 +53,8 @@ perf-sentinel est un détecteur polyglotte d'anti-patterns de performance, const
 ```
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/pipeline_dark.svg">
-  <img alt="Architecture du pipeline" src="../diagrams/svg/pipeline.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg">
+  <img alt="Architecture du pipeline" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline.svg">
 </picture>
 
 ## Modes de fonctionnement
@@ -78,8 +78,8 @@ En mode CI (`--ci`), le processus se termine avec le code 1 si le quality gate �
 ### Mode streaming (`perf-sentinel watch`)
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/daemon_dark.svg">
-  <img alt="Architecture du daemon" src="../diagrams/svg/daemon.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg">
+  <img alt="Architecture du daemon" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg">
 </picture>
 
 Fonctionne comme un daemon, recevant les événements en temps réel et émettant les findings au fur et à mesure de leur détection.
@@ -109,8 +109,8 @@ Socket unix JSON       /                               |
 ### API de requête du daemon
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/query-api_dark.svg">
-  <img alt="Architecture de l'API de requête du daemon" src="../diagrams/svg/query-api.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg">
+  <img alt="Architecture de l'API de requête du daemon" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
 En mode `watch`, le daemon expose son état interne via des endpoints HTTP sur le port 4318 aux côtés de `/v1/traces` et `/metrics` :

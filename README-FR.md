@@ -354,8 +354,8 @@ perf-sentinel watch
 ## Architecture
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/svg/pipeline_dark.svg">
-  <img alt="Architecture du pipeline" src="docs/diagrams/svg/pipeline.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline_dark.svg">
+  <img alt="Architecture du pipeline" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/pipeline.svg">
 </picture>
 
 ## Topologies de déploiement

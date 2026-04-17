@@ -3,8 +3,8 @@
 ## OTLP conversion
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/otlp-conversion_dark.svg">
-  <img alt="OTLP two-pass conversion" src="../diagrams/svg/otlp-conversion.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/otlp-conversion_dark.svg">
+  <img alt="OTLP two-pass conversion" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/otlp-conversion.svg">
 </picture>
 
 ### Two-pass design
@@ -125,8 +125,8 @@ This avoids parsing the full payload into a `serde_json::Value` for detection, e
 ## Daemon event loop
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/daemon_dark.svg">
-  <img alt="Daemon architecture" src="../diagrams/svg/daemon.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon_dark.svg">
+  <img alt="Daemon architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/daemon.svg">
 </picture>
 
 ### Architecture
@@ -315,8 +315,8 @@ This flag is gated behind the `daemon` feature because it requires the `hyper` H
 ## Daemon query API
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/query-api_dark.svg">
-  <img alt="Daemon query API architecture" src="../diagrams/svg/query-api.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api_dark.svg">
+  <img alt="Daemon query API architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
 The daemon exposes its internal state via HTTP endpoints alongside the existing `/v1/traces` and `/metrics` routes on port 4318.

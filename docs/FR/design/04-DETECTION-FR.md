@@ -154,8 +154,8 @@ Les findings lents ont `green_impact.estimated_extra_io_ops = 0`. Ce sont des op
 ## Orchestration de la détection
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../../diagrams/svg/detection_dark.svg">
-  <img alt="Orchestration de la détection" src="../../diagrams/svg/detection.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection_dark.svg">
+  <img alt="Orchestration de la détection" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection.svg">
 </picture>
 
 ```rust

@@ -154,8 +154,8 @@ Slow findings have `green_impact.estimated_extra_io_ops = 0`. They are **necessa
 ## Detection orchestration
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/detection_dark.svg">
-  <img alt="Detection orchestration" src="../diagrams/svg/detection.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection_dark.svg">
+  <img alt="Detection orchestration" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/detection.svg">
 </picture>
 
 ```rust

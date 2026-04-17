@@ -3,8 +3,8 @@
 Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into `NormalizedEvent`s by extracting a template (parameterized query or URL pattern) and the concrete parameter values.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/ingestion_dark.svg">
-  <img alt="Auto-format detection" src="../diagrams/svg/ingestion.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ingestion_dark.svg">
+  <img alt="Auto-format detection" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/ingestion.svg">
 </picture>
 
 ## Why not use `sqlparser`?

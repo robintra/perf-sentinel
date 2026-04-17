@@ -1079,8 +1079,8 @@ Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle
 Quand ni Scaphandre ni l'estimation cloud ne sont disponibles mais que vous avez des mesures d'énergie de référence (wattmètre, export RAPL, monitoring datacenter), la sous-commande `perf-sentinel calibrate` ajuste les coefficients I/O vers énergie du modèle proxy par service. Le workflow en trois étapes :
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/svg/calibration-workflow_dark.svg">
-  <img alt="Workflow de calibration" src="../diagrams/svg/calibration-workflow.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/calibration-workflow_dark.svg">
+  <img alt="Workflow de calibration" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/calibration-workflow.svg">
 </picture>
 
 **1. Mesurer.** Exécuter une charge de référence et collecter à la fois les traces (format JSON perf-sentinel) et les mesures d'énergie (CSV avec colonnes `timestamp,service,power_watts` ou `timestamp,service,energy_kwh`, auto-détecté depuis l'en-tête).

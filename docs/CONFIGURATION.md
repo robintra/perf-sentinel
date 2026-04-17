@@ -3,8 +3,8 @@
 perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are optional and have sensible defaults.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="diagrams/svg/cli-commands_dark.svg">
-  <img alt="CLI commands overview" src="diagrams/svg/cli-commands.svg">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands_dark.svg">
+  <img alt="CLI commands overview" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
 </picture>
 
 ## Subcommands
