@@ -17,24 +17,37 @@ Le dénominateur utilise `.max(1)` comme garde contre la division par zéro, bie
 ### Étape 1 : statistiques par endpoint
 
 ```rust
-let mut seen_endpoints: HashSet<&str> = HashSet::new();
-for trace in traces {
-    seen_endpoints.clear();
+for (trace_idx, trace) in traces.iter().enumerate() {
     for span in &trace.spans {
         total_io_ops += 1;
-        let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats { ... });
+        let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
+            total_io_ops: 0,
+            invocation_count: 0,
+            last_seen_trace: usize::MAX,
+        });
         stats.total_io_ops += 1;
-        seen_endpoints.insert(key);
-    }
-    for &ep in &seen_endpoints {
-        endpoint_stats.get_mut(ep).unwrap().invocation_count += 1;
+        if stats.last_seen_trace != trace_idx {
+            stats.invocation_count += 1;
+            stats.last_seen_trace = trace_idx;
+        }
     }
 }
 ```
 
-**Réutilisation du HashSet :** `seen_endpoints.clear()` réutilise le même HashSet à chaque itération de trace. Sans cela, chaque trace allouerait un nouveau HashSet. Pour 10 000 traces, cela économise 10 000 allocations.
+**Passe unique avec sentinelle par trace :** `invocation_count` est incrémenté la première fois qu'une paire `(service, endpoint)` est vue dans une trace donnée, puis `last_seen_trace` est positionné pour bloquer toute ré-incrémentation sur la même trace. Initialiser la sentinelle à `usize::MAX` (et non `0`) garde l'index de trace `0` valide comme marqueur de "première rencontre". Cela évite une seconde passe `get_mut` sur un `HashSet` par trace (une sonde `HashMap` de moins par paire `(trace, endpoint)`).
 
 **`EndpointStats<'a>` avec `service` emprunté :** le champ `service` emprunte `&'a str` depuis les événements span au lieu de cloner le String. Le clone ne se produit que plus tard lors de la construction des structs `TopOffender` pour la sortie. Cela évite un clone de String par endpoint unique dans la boucle interne.
+
+**Structure sous-jacente (`HashMap + sort` vs `BTreeMap`) :** la map par endpoint est un `HashMap` finalisé par un unique `sort_by` pour la vue publique, et non un `BTreeMap`. Sous le régime d'accès de perf-sentinel (beaucoup de spans par endpoint unique, K petit devant N), les mesures sur 1M de spans donnent systématiquement l'avantage à `HashMap + sort` :
+
+| Cardinalité endpoints | Spans | `HashMap + sort` | `BTreeMap` | Ratio |
+|----------------------:|------:|-----------------:|-----------:|------:|
+|                    16 |    1M |            15 ms |      19 ms | 1,24x |
+|                    64 |    1M |            16 ms |      31 ms | 1,94x |
+|                   256 |    1M |            17 ms |      49 ms | 2,89x |
+|                  1024 |    1M |            18 ms |      73 ms | 3,99x |
+
+Le tri gratuit à l'itération du `BTreeMap` est noyé par son surcoût `O(log K)` par insertion. Le tri terminal est `O(K log K)` sur K petit (20-90 µs sur toute la plage), négligeable à côté du volume d'insertions.
 
 ### Étape 2 : dédup des I/O évitables
 

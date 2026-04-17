@@ -295,9 +295,6 @@ fn evaluate_sequence(
             .map(|&i| trace.spans[timed[i].span_idx].event.timestamp.as_str()),
     );
 
-    // Clone `parent_endpoint` once for the pattern template, then move
-    // the original into `source_endpoint`. Saves one `String`
-    // allocation per serialized-calls finding.
     let template = parent_endpoint.clone();
     findings.push(Finding {
         finding_type: FindingType::SerializedCalls,

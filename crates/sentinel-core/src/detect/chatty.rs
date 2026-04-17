@@ -13,9 +13,8 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// Severity is `Warning` if > `min_calls`, `Critical` if > 3x `min_calls`.
 #[must_use]
 pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
-    // Fast-path gate: count HttpOut spans without materializing the
-    // index Vec. The common case (traces below threshold) now exits
-    // after one filter+count pass, with zero heap allocation.
+    // Count-only first pass: sub-threshold traces (the common case) exit
+    // before any heap allocation.
     let count = trace
         .spans
         .iter()
@@ -25,8 +24,6 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         return vec![];
     }
 
-    // Chatty-flagged path: collect indices now that we know we need
-    // them for the template-count + window-computation iterations below.
     let http_indices: Vec<usize> = trace
         .spans
         .iter()
@@ -50,11 +47,8 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
             .or_default() += 1;
     }
 
-    // Find top-2 by count. For large trace fan-ins (dozens of distinct
-    // endpoints) this is O(k) via `select_nth_unstable_by` instead of
-    // the O(k log k) full sort we used previously. Only runs on
-    // chatty-flagged traces, so the difference is cosmetic, but avoids
-    // gratuitous work on traces with high endpoint cardinality.
+    // Top-2 by count: partial partition is O(k) vs a full O(k log k) sort
+    // for traces with high endpoint cardinality.
     let mut entries: Vec<(&str, usize)> = template_counts.iter().map(|(&k, &v)| (k, v)).collect();
     let top_two = if entries.len() <= 2 {
         entries.sort_unstable_by(|a, b| b.1.cmp(&a.1));

@@ -17,24 +17,37 @@ The denominator uses `.max(1)` as a safety guard against division by zero, thoug
 ### Step 1: endpoint statistics
 
 ```rust
-let mut seen_endpoints: HashSet<&str> = HashSet::new();
-for trace in traces {
-    seen_endpoints.clear();
+for (trace_idx, trace) in traces.iter().enumerate() {
     for span in &trace.spans {
         total_io_ops += 1;
-        let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats { ... });
+        let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
+            total_io_ops: 0,
+            invocation_count: 0,
+            last_seen_trace: usize::MAX,
+        });
         stats.total_io_ops += 1;
-        seen_endpoints.insert(key);
-    }
-    for &ep in &seen_endpoints {
-        endpoint_stats.get_mut(ep).unwrap().invocation_count += 1;
+        if stats.last_seen_trace != trace_idx {
+            stats.invocation_count += 1;
+            stats.last_seen_trace = trace_idx;
+        }
     }
 }
 ```
 
-**HashSet reuse:** `seen_endpoints.clear()` reuses the same HashSet across trace iterations. Without this, each trace would allocate a new HashSet. For 10,000 traces, this saves 10,000 allocations.
+**Single pass with per-trace sentinel:** `invocation_count` is bumped the first time a `(service, endpoint)` pair is seen within a given trace, then `last_seen_trace` is set to block further bumps in that same trace. Initializing the sentinel to `usize::MAX` (rather than `0`) keeps trace index `0` valid as a "first touch" marker. This avoids a second `get_mut` pass over a per-trace `HashSet` (one fewer `HashMap` probe per `(trace, endpoint)` pair).
 
 **`EndpointStats<'a>` with borrowed `service`:** the `service` field borrows `&'a str` from the span events instead of cloning the String. The clone only happens later when building `TopOffender` structs for the output. This avoids one String clone per unique endpoint in the inner loop.
+
+**Backing structure (`HashMap + sort` vs `BTreeMap`):** the per-endpoint map is a `HashMap` finalized with a single `sort_by` for the public view, not a `BTreeMap`. Under perf-sentinel's access pattern (many spans per unique endpoint, small K relative to N), measurements on 1M spans showed `HashMap + sort` consistently faster:
+
+| Endpoint cardinality | Spans | `HashMap + sort` | `BTreeMap` | Ratio |
+|---------------------:|------:|-----------------:|-----------:|------:|
+|                   16 |    1M |            15 ms |      19 ms | 1.24x |
+|                   64 |    1M |            16 ms |      31 ms | 1.94x |
+|                  256 |    1M |            17 ms |      49 ms | 2.89x |
+|                 1024 |    1M |            18 ms |      73 ms | 3.99x |
+
+`BTreeMap`'s free-sort-on-iteration is dwarfed by its per-insert `O(log K)` overhead. The terminal sort is `O(K log K)` on small K (20-90 µs across the whole range), negligible next to the insert volume.
 
 ### Step 2: dedup avoidable I/O
 

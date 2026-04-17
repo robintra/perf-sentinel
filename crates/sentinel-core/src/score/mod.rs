@@ -48,16 +48,10 @@ struct EndpointStats {
 type EndpointKey<'a> = (&'a str, &'a str);
 
 /// Count I/O ops per `(service, endpoint)` and invocations (distinct
-/// traces per `(service, endpoint)`).
-///
-/// Single-pass implementation: the previous version had a second
-/// `get_mut` loop over `seen_endpoints` per trace, doing an extra
-/// `HashMap` probe per `(trace, endpoint)` pair just to bump
-/// `invocation_count`. We now bump `invocation_count` the first time a
-/// `(service, endpoint)` pair is seen within a given trace and set the
-/// sentinel in `EndpointStats.last_seen_trace` so subsequent spans in
-/// the same trace skip the bump. One `HashMap` lookup per span, zero
-/// second-pass probes.
+/// traces per `(service, endpoint)`) in a single pass. `invocation_count`
+/// is bumped on the first span of a given trace that hits the endpoint,
+/// using `last_seen_trace` as a per-trace sentinel (initialized to
+/// `usize::MAX` so trace index `0` still triggers the bump).
 fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointStats>, usize) {
     let mut endpoint_stats: HashMap<EndpointKey<'_>, EndpointStats> =
         HashMap::with_capacity(traces.len().min(64));
@@ -76,11 +70,6 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointS
                 last_seen_trace: usize::MAX,
             });
             stats.total_io_ops += 1;
-            // Bump invocation_count only on the first span of this
-            // trace that hits this endpoint. Using the trace index as
-            // the sentinel (usize::MAX initially) avoids allocating a
-            // per-trace HashSet. Trace index 0 still works because the
-            // sentinel is MAX, not 0.
             if stats.last_seen_trace != trace_idx {
                 stats.invocation_count += 1;
                 stats.last_seen_trace = trace_idx;
@@ -94,24 +83,9 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointS
 /// Project the score-side `endpoint_stats` map into the public
 /// [`PerEndpointIoOps`] vector consumed by `Report.per_endpoint_io_ops`.
 /// Sorted by `(service, endpoint)` so the diff subcommand sees stable
-/// ordering between runs.
-///
-/// Implementation note: we build on top of `HashMap` plus a final sort,
-/// not `BTreeMap`. A throwaway benchmark (2025-04-16) measured both
-/// backings under perf-sentinel's access pattern (many spans per
-/// unique endpoint):
-///
-/// | Cardinality | Spans  | `HashMap`+sort | `BTreeMap` | Ratio  |
-/// |-------------|--------|----------------|------------|--------|
-/// | 16          | 1M     |      15 ms     |   19 ms    |  1.24x |
-/// | 64          | 1M     |      16 ms     |   31 ms    |  1.94x |
-/// | 256         | 1M     |      17 ms     |   49 ms    |  2.89x |
-/// | 1024        | 1M     |      18 ms     |   73 ms    |  3.99x |
-///
-/// `BTreeMap`'s free-sort-on-iteration is dwarfed by its per-insert
-/// `O(log K)` overhead (K unique keys) compared to `HashMap`'s amortized
-/// `O(1)`. The projection sort itself is `O(K log K)` on K small: 20-90us
-/// across the whole range. `HashMap` is the right choice.
+/// ordering between runs. The `HashMap + sort` backing (rather than
+/// `BTreeMap`) is motivated in `docs/design/05-GREENOPS-AND-CARBON.md`
+/// section "Step 1 > Backing structure".
 fn endpoint_stats_to_per_endpoint_io_ops(
     endpoint_stats: &HashMap<EndpointKey<'_>, EndpointStats>,
 ) -> Vec<PerEndpointIoOps> {

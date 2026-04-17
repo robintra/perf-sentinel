@@ -197,20 +197,10 @@ pub fn make_trace(events: Vec<SpanEvent>) -> Trace {
     Trace { trace_id, spans }
 }
 
-// ---------------------------------------------------------------
-// Mock HTTP server helpers for scraper and API-client tests
-// ---------------------------------------------------------------
-//
-// Every scraper/ingest module that does network I/O (scaphandre,
-// cloud_energy, electricity_maps, tempo) needs to test its HTTP
-// round-trips against a local mock. These helpers give them a single
-// implementation of the "bind ephemeral TCP port, accept one
-// connection, write a canned response, half-close" dance.
-//
-// The server is hand-rolled (raw `tokio::net::TcpListener` + raw
-// HTTP/1.1 response bytes) to avoid pulling in wiremock/httptest as
-// dev-deps. That's also why the helpers live here rather than in each
-// module's `tests.rs`: Qodana was flagging the 4-way duplicate.
+// Shared one-shot HTTP server helpers used by scraper/ingest tests
+// (scaphandre, cloud_energy, electricity_maps, tempo). Hand-rolled on
+// top of `tokio::net::TcpListener` to avoid wiremock/httptest as
+// dev-dependencies.
 
 /// Bind an ephemeral TCP port on `127.0.0.1`, spawn a one-shot server
 /// that writes `response_body` verbatim on the first accepted

@@ -400,7 +400,6 @@ mod tests {
 
     #[test]
     fn window_zero_limit_filters_all() {
-        // window_limit = 0 -> only events with identical timestamps pass
         let events = crate::test_helpers::make_sql_series_events(5);
 
         let trace = make_trace(events);
