@@ -30,34 +30,50 @@ const MAX_JSON_DEPTH: usize = 32;
 /// increments depth.
 fn exceeds_max_depth(raw: &[u8]) -> bool {
     let mut depth: usize = 0;
-    let mut max_depth: usize = 0;
     let mut in_string = false;
     let mut escape = false;
     for &b in raw {
         if in_string {
-            if escape {
-                escape = false;
-            } else if b == b'\\' {
-                escape = true;
-            } else if b == b'"' {
-                in_string = false;
-            }
+            advance_string_state(b, &mut in_string, &mut escape);
             continue;
         }
-        match b {
-            b'"' => in_string = true,
-            b'[' | b'{' => {
-                depth += 1;
-                if depth > max_depth {
-                    max_depth = depth;
-                    if max_depth > MAX_JSON_DEPTH {
-                        return true;
-                    }
-                }
-            }
-            b']' | b'}' => depth = depth.saturating_sub(1),
-            _ => {}
+        if bump_depth(b, &mut depth, &mut in_string) {
+            return true;
         }
+    }
+    false
+}
+
+/// Advance the string-scanning state machine by one byte while inside a
+/// `"..."` literal. Handles `\"` escapes and the closing `"`. Pulled out
+/// of [`exceeds_max_depth`] to keep its cognitive complexity under the
+/// S3776 threshold.
+#[inline]
+fn advance_string_state(b: u8, in_string: &mut bool, escape: &mut bool) {
+    if *escape {
+        *escape = false;
+    } else if b == b'\\' {
+        *escape = true;
+    } else if b == b'"' {
+        *in_string = false;
+    }
+}
+
+/// Apply a structural byte to the bracket-depth counter. Returns `true`
+/// iff the depth rose above [`MAX_JSON_DEPTH`] (the caller short-circuits
+/// and rejects the payload).
+#[inline]
+fn bump_depth(b: u8, depth: &mut usize, in_string: &mut bool) -> bool {
+    match b {
+        b'"' => *in_string = true,
+        b'[' | b'{' => {
+            *depth += 1;
+            if *depth > MAX_JSON_DEPTH {
+                return true;
+            }
+        }
+        b']' | b'}' => *depth = depth.saturating_sub(1),
+        _ => {}
     }
     false
 }

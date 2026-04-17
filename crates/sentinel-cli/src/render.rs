@@ -421,8 +421,8 @@ fn write_diff_text(
         red,
         yellow,
         green,
-        dim,
         reset,
+        ..
     } = colors;
 
     let new_count = diff.new_findings.len();
@@ -446,80 +446,10 @@ fn write_diff_text(
     )?;
     writeln!(writer)?;
 
-    if !diff.new_findings.is_empty() {
-        writeln!(writer, "{bold}{red}New findings ({new_count}):{reset}")?;
-        for f in &diff.new_findings {
-            writeln!(
-                writer,
-                "  {red}+{reset} [{}] {} on {} ({})",
-                severity_label(&f.severity),
-                f.finding_type.display_label(),
-                f.source_endpoint,
-                f.service,
-            )?;
-            writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
-        }
-        writeln!(writer)?;
-    }
-
-    if !diff.resolved_findings.is_empty() {
-        writeln!(
-            writer,
-            "{bold}{green}Resolved findings ({resolved_count}):{reset}"
-        )?;
-        for f in &diff.resolved_findings {
-            writeln!(
-                writer,
-                "  {green}-{reset} [{}] {} on {} ({})",
-                severity_label(&f.severity),
-                f.finding_type.display_label(),
-                f.source_endpoint,
-                f.service,
-            )?;
-            writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
-        }
-        writeln!(writer)?;
-    }
-
-    if !diff.severity_changes.is_empty() {
-        writeln!(
-            writer,
-            "{bold}{yellow}Severity changes ({changed_count}):{reset}"
-        )?;
-        for change in &diff.severity_changes {
-            let arrow = if change.is_regression() {
-                format!("{red}->{reset}")
-            } else {
-                format!("{green}->{reset}")
-            };
-            writeln!(
-                writer,
-                "  [{}] {arrow} [{}] {} on {} ({})",
-                severity_label(&change.before_severity),
-                severity_label(&change.after_severity),
-                change.finding.finding_type.display_label(),
-                change.finding.source_endpoint,
-                change.finding.service,
-            )?;
-        }
-        writeln!(writer)?;
-    }
-
-    if !diff.endpoint_metric_deltas.is_empty() {
-        writeln!(
-            writer,
-            "{bold}{cyan}Endpoint I/O op deltas ({endpoint_change_count}):{reset}"
-        )?;
-        for d in &diff.endpoint_metric_deltas {
-            let (color, sign) = if d.delta > 0 { (red, "+") } else { (green, "") };
-            writeln!(
-                writer,
-                "  {color}{sign}{}{reset}  {} on {} ({} -> {})",
-                d.delta, d.endpoint, d.service, d.before_io_ops, d.after_io_ops,
-            )?;
-        }
-        writeln!(writer)?;
-    }
+    write_new_findings_section(writer, &diff.new_findings, colors)?;
+    write_resolved_findings_section(writer, &diff.resolved_findings, colors)?;
+    write_severity_changes_section(writer, &diff.severity_changes, colors)?;
+    write_endpoint_deltas_section(writer, &diff.endpoint_metric_deltas, colors)?;
 
     if new_count == 0 && resolved_count == 0 && changed_count == 0 && endpoint_change_count == 0 {
         writeln!(
@@ -528,6 +458,142 @@ fn write_diff_text(
         )?;
     }
     Ok(())
+}
+
+fn write_new_findings_section(
+    writer: &mut dyn std::io::Write,
+    findings: &[sentinel_core::detect::Finding],
+    colors: AnsiColors,
+) -> std::io::Result<()> {
+    if findings.is_empty() {
+        return Ok(());
+    }
+    let AnsiColors {
+        bold,
+        red,
+        dim,
+        reset,
+        ..
+    } = colors;
+    writeln!(
+        writer,
+        "{bold}{red}New findings ({}):{reset}",
+        findings.len()
+    )?;
+    for f in findings {
+        writeln!(
+            writer,
+            "  {red}+{reset} [{}] {} on {} ({})",
+            severity_label(&f.severity),
+            f.finding_type.display_label(),
+            f.source_endpoint,
+            f.service,
+        )?;
+        writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
+    }
+    writeln!(writer)
+}
+
+fn write_resolved_findings_section(
+    writer: &mut dyn std::io::Write,
+    findings: &[sentinel_core::detect::Finding],
+    colors: AnsiColors,
+) -> std::io::Result<()> {
+    if findings.is_empty() {
+        return Ok(());
+    }
+    let AnsiColors {
+        bold,
+        green,
+        dim,
+        reset,
+        ..
+    } = colors;
+    writeln!(
+        writer,
+        "{bold}{green}Resolved findings ({}):{reset}",
+        findings.len()
+    )?;
+    for f in findings {
+        writeln!(
+            writer,
+            "  {green}-{reset} [{}] {} on {} ({})",
+            severity_label(&f.severity),
+            f.finding_type.display_label(),
+            f.source_endpoint,
+            f.service,
+        )?;
+        writeln!(writer, "      {dim}template:{reset} {}", f.pattern.template)?;
+    }
+    writeln!(writer)
+}
+
+fn write_severity_changes_section(
+    writer: &mut dyn std::io::Write,
+    changes: &[sentinel_core::diff::SeverityChange],
+    colors: AnsiColors,
+) -> std::io::Result<()> {
+    if changes.is_empty() {
+        return Ok(());
+    }
+    let AnsiColors {
+        bold,
+        yellow,
+        red,
+        green,
+        reset,
+        ..
+    } = colors;
+    writeln!(
+        writer,
+        "{bold}{yellow}Severity changes ({}):{reset}",
+        changes.len()
+    )?;
+    for change in changes {
+        let arrow_color = if change.is_regression() { red } else { green };
+        writeln!(
+            writer,
+            "  [{}] {arrow_color}->{reset} [{}] {} on {} ({})",
+            severity_label(&change.before_severity),
+            severity_label(&change.after_severity),
+            change.finding.finding_type.display_label(),
+            change.finding.source_endpoint,
+            change.finding.service,
+        )?;
+    }
+    writeln!(writer)
+}
+
+fn write_endpoint_deltas_section(
+    writer: &mut dyn std::io::Write,
+    deltas: &[sentinel_core::diff::EndpointDelta],
+    colors: AnsiColors,
+) -> std::io::Result<()> {
+    if deltas.is_empty() {
+        return Ok(());
+    }
+    let AnsiColors {
+        bold,
+        cyan,
+        red,
+        green,
+        reset,
+        ..
+    } = colors;
+    writeln!(
+        writer,
+        "{bold}{cyan}Endpoint I/O op deltas ({}):{reset}",
+        deltas.len()
+    )?;
+    for d in deltas {
+        let (color, sign) = if d.delta > 0 { (red, "+") } else { (green, "") };
+        writeln!(
+            writer,
+            "  {color}{sign}{}{reset}  {} on {} ({} -> {})",
+            d.delta, d.endpoint, d.service, d.before_io_ops, d.after_io_ops,
+        )?;
+    }
+    writeln!(writer)
 }
 
 #[cfg(test)]
