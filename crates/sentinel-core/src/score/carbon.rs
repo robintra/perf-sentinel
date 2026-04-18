@@ -1213,7 +1213,7 @@ mod tests {
         let path = dir.join("test_flat.json");
         let hours: Vec<f64> = (0..24).map(|h| 50.0 + f64::from(h)).collect();
         let json =
-            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#,);
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#);
         std::fs::write(&path, &json).unwrap();
         let result = load_custom_profiles(&path).unwrap();
         assert!(result.contains_key("my-dc"));
@@ -1229,7 +1229,7 @@ mod tests {
         let month: Vec<f64> = vec![100.0; 24];
         let months: Vec<Vec<f64>> = vec![month; 12];
         let json =
-            format!(r#"{{"profiles": {{"my-dc": {{"type": "monthly", "months": {months:?}}}}}}}"#,);
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "monthly", "months": {months:?}}}}}}}"#);
         std::fs::write(&path, &json).unwrap();
         let result = load_custom_profiles(&path).unwrap();
         assert!(result["my-dc"].is_monthly());
@@ -1255,7 +1255,7 @@ mod tests {
         let mut hours = vec![50.0; 24];
         hours[5] = -1.0;
         let json =
-            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#,);
+            format!(r#"{{"profiles": {{"my-dc": {{"type": "flat_year", "hours": {hours:?}}}}}}}"#);
         std::fs::write(&path, &json).unwrap();
         assert!(load_custom_profiles(&path).is_err());
         let _ = std::fs::remove_file(&path);

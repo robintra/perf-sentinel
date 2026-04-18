@@ -359,7 +359,7 @@ mod tests {
         let config = ElectricityMapsConfig {
             api_endpoint: "http://127.0.0.1:1".to_string(), // unreachable
             auth_token: "tok".to_string(),
-            poll_interval: std::time::Duration::from_secs(3600), // never ticks during the test
+            poll_interval: std::time::Duration::from_hours(1), // never ticks during the test
             region_map,
         };
         let state = Arc::new(ElectricityMapsState::default());

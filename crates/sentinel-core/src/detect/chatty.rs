@@ -51,13 +51,13 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
     // for traces with high endpoint cardinality.
     let mut entries: Vec<(&str, usize)> = template_counts.iter().map(|(&k, &v)| (k, v)).collect();
     let top_two = if entries.len() <= 2 {
-        entries.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
         entries
     } else {
         // Partition so the first 2 are >= the rest, then sort just those 2.
         entries.select_nth_unstable_by(1, |a, b| b.1.cmp(&a.1));
         entries.truncate(2);
-        entries.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+        entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
         entries
     };
     let top_str: String = top_two

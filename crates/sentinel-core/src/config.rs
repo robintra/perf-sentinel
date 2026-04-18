@@ -3134,7 +3134,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         };
         let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
         assert_eq!(cfg.auth_token, "file-token");
-        assert_eq!(cfg.poll_interval, Duration::from_secs(600));
+        assert_eq!(cfg.poll_interval, Duration::from_mins(10));
         // default endpoint fallback
         assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v3");
         // region key was lowercased (it was already lowercase, so idempotent)
@@ -3183,7 +3183,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let cfg = ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
             auth_token: "tok\x07en".to_string(), // contains a control char
-            poll_interval: Duration::from_secs(300),
+            poll_interval: Duration::from_mins(5),
             region_map: {
                 let mut m = HashMap::new();
                 m.insert("eu-west-3".to_string(), "FR".to_string());
@@ -3199,7 +3199,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let cfg = ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
             auth_token: "tok".to_string(),
-            poll_interval: Duration::from_secs(300),
+            poll_interval: Duration::from_mins(5),
             region_map: HashMap::new(),
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
@@ -3213,7 +3213,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let cfg = ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
             auth_token: "tok".to_string(),
-            poll_interval: Duration::from_secs(300),
+            poll_interval: Duration::from_mins(5),
             region_map,
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();

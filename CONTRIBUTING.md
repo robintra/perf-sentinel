@@ -4,7 +4,7 @@ Thank you for your interest in contributing to perf-sentinel! This document cove
 
 ## Prerequisites
 
-- **Rust 1.94.1+** stable toolchain (edition 2024)
+- **Rust 1.95.0+** stable toolchain (edition 2024)
 - **cargo** (comes with Rust)
 - Optional: `cargo-llvm-cov` for code coverage
 

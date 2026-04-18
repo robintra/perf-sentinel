@@ -412,13 +412,13 @@ mod tests {
 
     #[test]
     fn parse_lookback_hours() {
-        assert_eq!(parse_lookback("1h").unwrap(), Duration::from_secs(3600));
-        assert_eq!(parse_lookback("24h").unwrap(), Duration::from_secs(86_400));
+        assert_eq!(parse_lookback("1h").unwrap(), Duration::from_hours(1));
+        assert_eq!(parse_lookback("24h").unwrap(), Duration::from_hours(24));
     }
 
     #[test]
     fn parse_lookback_minutes() {
-        assert_eq!(parse_lookback("30m").unwrap(), Duration::from_secs(1800));
+        assert_eq!(parse_lookback("30m").unwrap(), Duration::from_mins(30));
     }
 
     #[test]
@@ -428,10 +428,7 @@ mod tests {
 
     #[test]
     fn parse_lookback_combined() {
-        assert_eq!(
-            parse_lookback("2h30m").unwrap(),
-            Duration::from_secs(2 * 3600 + 30 * 60)
-        );
+        assert_eq!(parse_lookback("2h30m").unwrap(), Duration::from_mins(150));
     }
 
     #[test]
@@ -523,7 +520,7 @@ mod tests {
             "ftp://tempo.local",
             Some("foo-svc"),
             None,
-            Duration::from_secs(60),
+            Duration::from_mins(1),
             10,
         )
         .await
@@ -540,7 +537,7 @@ mod tests {
             "http://user:pass@tempo.local",
             None,
             Some("abc"),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
             10,
         )
         .await
@@ -554,15 +551,9 @@ mod tests {
     #[tokio::test]
     async fn ingest_from_tempo_rejects_missing_service_and_trace_id() {
         // Neither trace_id nor service supplied, must error.
-        let err = ingest_from_tempo(
-            "http://tempo.local",
-            None,
-            None,
-            Duration::from_secs(60),
-            10,
-        )
-        .await
-        .expect_err("missing both must be rejected");
+        let err = ingest_from_tempo("http://tempo.local", None, None, Duration::from_mins(1), 10)
+            .await
+            .expect_err("missing both must be rejected");
         match err {
             TempoError::InvalidEndpoint(msg) => {
                 assert!(msg.contains("trace-id") || msg.contains("service"));
@@ -590,7 +581,7 @@ mod tests {
             "http://127.0.0.1:1/api/traces?owner=foo%40example.com",
             None,
             Some("abc123"),
-            Duration::from_secs(60),
+            Duration::from_mins(1),
             10,
         )
         .await;
@@ -680,7 +671,7 @@ mod tests {
         let body = r#"{"traces":[{"traceID":"aaa111"},{"traceID":"bbb222"}]}"#;
         let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
         let client = http_client::build_client();
-        let ids = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(300), 10)
+        let ids = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(5), 10)
             .await
             .expect("search must succeed");
         assert_eq!(ids, vec!["aaa111".to_string(), "bbb222".to_string()]);
@@ -692,7 +683,7 @@ mod tests {
         let body = r#"{"traces":[]}"#;
         let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
             .await
             .expect_err("empty search result must be NoTracesFound");
         assert!(matches!(err, TempoError::NoTracesFound));
@@ -703,7 +694,7 @@ mod tests {
     async fn search_traces_malformed_json_surfaces_json_parse() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
             .await
             .expect_err("malformed JSON must be JsonParse");
         assert!(matches!(err, TempoError::JsonParse(_)));
@@ -714,7 +705,7 @@ mod tests {
     async fn search_traces_http_500_surfaces_http_status() {
         let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_secs(60), 10)
+        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
             .await
             .expect_err("500 must surface as HttpStatus");
         match err {
@@ -764,15 +755,9 @@ mod tests {
             let _ = socket.shutdown().await;
         });
 
-        let err = ingest_from_tempo(
-            &endpoint,
-            Some("foo-svc"),
-            None,
-            Duration::from_secs(300),
-            5,
-        )
-        .await
-        .expect_err("empty trace must surface as NoTracesFound after loop");
+        let err = ingest_from_tempo(&endpoint, Some("foo-svc"), None, Duration::from_mins(5), 5)
+            .await
+            .expect_err("empty trace must surface as NoTracesFound after loop");
         // The trace was fetched successfully but contained zero spans,
         // so the aggregated result is empty → NoTracesFound at the end.
         assert!(matches!(err, TempoError::NoTracesFound));

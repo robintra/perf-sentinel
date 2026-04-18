@@ -106,7 +106,7 @@ fn spawn_grpc_listener(
         }
         let incoming = tls_tcp_incoming(listener, tls_acceptor);
         if let Err(e) = tonic::transport::Server::builder()
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_mins(1))
             .add_service(
                 TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
             )
@@ -149,7 +149,7 @@ fn build_http_router(
                 tracing::debug!("HTTP request timed out");
                 axum::http::StatusCode::REQUEST_TIMEOUT
             }))
-            .layer(tower::timeout::TimeoutLayer::new(Duration::from_secs(60))),
+            .layer(tower::timeout::TimeoutLayer::new(Duration::from_mins(1))),
     )
 }
 

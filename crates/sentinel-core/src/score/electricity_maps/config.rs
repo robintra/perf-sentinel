@@ -48,7 +48,7 @@ mod tests {
         ElectricityMapsConfig {
             api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
             auth_token: "super-secret-token-do-not-log".to_string(),
-            poll_interval: Duration::from_secs(300),
+            poll_interval: Duration::from_mins(5),
             region_map,
         }
     }
