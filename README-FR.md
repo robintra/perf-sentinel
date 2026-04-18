@@ -229,7 +229,7 @@ Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type
 ### Installation depuis crates.io
 
 ```bash
-cargo install sentinel-cli
+cargo install perf-sentinel
 ```
 
 ### Télécharger un binaire précompilé

@@ -229,7 +229,7 @@ For per-finding severity (`Critical` / `Warning` / `Info` on each detector type)
 ### Install from crates.io
 
 ```bash
-cargo install sentinel-cli
+cargo install perf-sentinel
 ```
 
 ### Download a prebuilt binary

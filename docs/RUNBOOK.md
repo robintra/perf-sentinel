@@ -50,7 +50,7 @@ RUST_LOG=sentinel_core::detect=debug    # detection pipeline
 RUST_LOG=sentinel_core::score=debug     # green scoring, energy scrapers
 ```
 
-There is no dedicated `/health` or `/ready` endpoint. Use `/metrics` (HTTP 200 = alive) for Kubernetes probes.
+For Kubernetes probes, use the dedicated `GET /health` endpoint (always exposed, independent of `[daemon] api_enabled`), which returns `200 OK` with `{"status":"ok","version":"..."}`. Lighter than `/metrics` and guaranteed lock-free. There is no separate `/ready` endpoint: the daemon accepts ingestion from the first tick, so liveness and readiness collapse into one probe.
 
 ---
 

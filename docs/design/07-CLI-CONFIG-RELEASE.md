@@ -344,7 +344,7 @@ The alternative `opt-level = "s"` (optimize for size) was considered but rejecte
 ## Distribution strategy
 
 1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2
-2. **`cargo install sentinel-cli`** via crates.io
+2. **`cargo install perf-sentinel`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`): minimal image for Kubernetes deployments
 
 GitHub Actions are pinned to commit SHAs for supply-chain security. The `cross` tool used for ARM cross-compilation is pinned to a specific version (`--version 0.2.5`) to prevent unexpected behavior from upstream releases. The release workflow generates SHA256 checksums for all binaries.

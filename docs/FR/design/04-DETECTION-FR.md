@@ -269,7 +269,7 @@ Le détecteur ne peut pas observer les dépendances de données entre les appels
 
 ### Filtrage de template
 
-Le détecteur ignore les séquences où tous les spans partagent le même template normalisé. Ce motif est un N+1 (même opération répétée avec des paramètres différents), pas une sérialisation. En exigeant des templates différents, le détecteur cible le pattern « récupérer l'utilisateur, puis ses commandes, puis ses préférences » où les appels sont indépendants et pourraient s'exécuter en parallèle.
+Le détecteur ignore les séquences où tous les spans partagent le même template normalisé. Ce motif est un N+1 (même opération répétée avec des paramètres différents), pas une sérialisation. En exigeant des templates différents, le détecteur cible le pattern "récupérer l'utilisateur, puis ses commandes, puis ses préférences" où les appels sont indépendants et pourraient s'exécuter en parallèle.
 
 ### Estimation du gain de temps
 

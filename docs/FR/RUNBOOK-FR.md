@@ -50,7 +50,7 @@ RUST_LOG=sentinel_core::detect=debug    # pipeline de détection
 RUST_LOG=sentinel_core::score=debug     # scoring green, scrapers d'énergie
 ```
 
-Il n'existe pas d'endpoint `/health` ou `/ready` dédié. Utilisez `/metrics` (HTTP 200 = vivant) pour les probes Kubernetes.
+Pour les probes Kubernetes, utilisez l'endpoint dédié `GET /health` (toujours exposé, indépendamment de `[daemon] api_enabled`), qui retourne `200 OK` avec `{"status":"ok","version":"..."}`. Plus léger que `/metrics` et garanti sans lock interne. Il n'y a pas d'endpoint `/ready` séparé : le daemon accepte l'ingestion dès le premier tick, donc liveness et readiness se confondent.
 
 ---
 
@@ -98,12 +98,12 @@ perf-sentinel analyze --input traces-dump.json
 
 **Ce qui ne marchera PAS.**
 
-| Tentative                                              | Pourquoi                                    |
-|--------------------------------------------------------|---------------------------------------------|
-| `curl /api/explain/<trace_id>` sur le daemon live      | Trace évincée après 30 s                    |
+| Tentative                                             | Pourquoi                                    |
+|-------------------------------------------------------|---------------------------------------------|
+| `curl /api/explain/<trace_id>` sur le daemon live     | Trace évincée après 30 s                    |
 | `curl /api/findings` pour reconstruire un explain tree | Le store garde les findings, pas les spans  |
-| Attendre que le daemon « refasse remonter » la trace   | Pas de persistance, pas d'endpoint de rejeu |
-| Redémarrer le daemon pour retrouver l'état             | Rien n'est persisté sur disque              |
+| Attendre que le daemon "refasse remonter" la trace   | Pas de persistance, pas d'endpoint de rejeu |
+| Redémarrer le daemon pour retrouver l'état            | Rien n'est persisté sur disque              |
 
 **Prérequis.**
 
@@ -256,7 +256,7 @@ max_retained_findings = 0        # court-circuite le ring buffer des findings
 enabled = false                  # skip le correlator pour les daemons mono-service
 ```
 
-Mettre `max_retained_findings = 0` est le levier le plus efficace pour libérer la RAM quand l'API de requêtage n'est pas consommée. Voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md) § « La mémoire n'est pas libérée par `api_enabled = false` seul ».
+Mettre `max_retained_findings = 0` est le levier le plus efficace pour libérer la RAM quand l'API de requêtage n'est pas consommée. Voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md) § "La mémoire n'est pas libérée par `api_enabled = false` seul".
 
 Redémarrez le daemon pour appliquer. **Pas de hot reload**, voir [Appliquer un changement de config](#appliquer-un-changement-de-config).
 

@@ -312,7 +312,7 @@ L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée ma
 ## Stratégie de distribution
 
 1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2
-2. **`cargo install sentinel-cli`** via crates.io
+2. **`cargo install perf-sentinel`** via crates.io
 3. **Docker** (`FROM scratch`, `USER 65534`) : image minimale pour les déploiements Kubernetes
 
 Les GitHub Actions sont épinglées aux SHAs de commit pour la sécurité de la chaîne d'approvisionnement. L'outil `cross` utilisé pour la cross-compilation ARM est épinglé à une version spécifique (`--version 0.2.5`) pour éviter des comportements inattendus lors de mises à jour upstream. Le workflow de release génère des checksums SHA256 pour tous les binaires.
