@@ -32,16 +32,33 @@ Aligned with the **Software Carbon Intensity** model ([SCI v1.0 / ISO/IEC 21031:
 
 ## How does it compare?
 
-| Criteria           | [Hypersistence Optimizer](https://vladmihalcea.com/hypersistence-optimizer/) | [Datadog APM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Digma](https://digma.ai/) | **perf-sentinel** |
-|--------------------|------------------------------------------------------------------------------|-------------------------------------------------------|-----------------------------------------------------------------------|----------------------------|-------------------|
-| N+1 SQL detection  | ✅ JPA only                                                                   | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ✅ (JVM)                    | ✅ Polyglot        |
-| N+1 HTTP detection | ❌                                                                            | ⚠️ Manual (trace view)                                | ⚠️ Manual (trace view)                                                | ⚠️ Partial                 | ✅                 |
-| Polyglot           | ❌ Java/JPA                                                                   | ✅ (per-language agents)                               | ✅ (per-language agents)                                               | ⚠️ JVM + .NET              | ✅ Protocol-level  |
-| Cross-service      | ❌                                                                            | ✅                                                     | ✅                                                                     | ⚠️ Partial                 | ✅ Trace ID        |
-| GreenOps / SCI     | ❌                                                                            | ❌                                                     | ❌                                                                     | ❌                          | ✅ Built-in        |
-| Lightweight        | N/A (lib)                                                                    | ❌ (~150 MB)                                           | ❌ (~150 MB)                                                           | ❌ (~100 MB)                | ✅ (<10 MB RSS)    |
-| Open-source        | ❌ Commercial                                                                 | ❌                                                     | ⚠️ Limited free tier                                                  | ⚠️ Freemium                | ✅ AGPL v3         |
-| CI/CD quality gate | ⚠️ (manual assertions)                                                       | ❌                                                     | ⚠️ (alerts, no native gate)                                           | ⚠️                         | ✅ Native          |
+Trace-based performance anti-pattern detection exists in mature APMs and in several open-source tools. perf-sentinel's niche is being lightweight, protocol-agnostic, CI/CD-native and carbon-aware, not replacing a full observability suite.
+
+| Capability                  | [Hypersistence Optimizer](https://vladmihalcea.com/hypersistence-optimizer/) | [Datadog APM + DBM](https://www.datadoghq.com/product/apm/) | [New Relic APM](https://newrelic.com/platform/application-monitoring) | [Sentry](https://sentry.io/for/performance/) | [Digma](https://digma.ai/)  | **perf-sentinel**                     |
+|-----------------------------|------------------------------------------------------------------------------|-------------------------------------------------------------|-----------------------------------------------------------------------|----------------------------------------------|-----------------------------|---------------------------------------|
+| N+1 SQL detection           | JPA only, test-time                                                          | Yes, automatic (DBM)                                        | Yes, automatic                                                        | Yes, automatic OOTB                          | Yes, IDE-centric (JVM/.NET) | Yes, protocol-level, any OTel runtime |
+| N+1 HTTP detection          | No                                                                           | Yes, service maps                                           | Yes, trace correlation                                                | Yes, N+1 API Call detector                   | Partial                     | Yes                                   |
+| Polyglot support            | Java only                                                                    | Per-language agents                                         | Per-language agents                                                   | Per-SDK, most languages                      | JVM + .NET (Rider beta)     | Any OTel-instrumented runtime         |
+| Cross-service correlation   | No                                                                           | Yes                                                         | Yes                                                                   | Yes                                          | Limited (local IDE)         | Via trace ID                          |
+| GreenOps / SCI v1.0 scoring | No                                                                           | No                                                          | No                                                                    | No                                           | No                          | Built-in (directional)                |
+| Runtime footprint           | Library (no overhead)                                                        | Agent (~100-150 MB RSS)                                     | Agent (~100-150 MB RSS)                                               | SDK + backend                                | Local backend (Docker)      | Standalone binary (<10 MB RSS)        |
+| Native CI/CD quality gate   | Manual test assertions                                                       | Alerts, no build gate                                       | Alerts, no build gate                                                 | Alerts, no build gate                        | No                          | Yes (exit 1 on threshold breach)      |
+| License                     | Commercial (Optimizer)                                                       | Proprietary SaaS                                            | Proprietary SaaS                                                      | FSL (converts to Apache-2 after 2y)          | Freemium, proprietary       | AGPL-3.0                              |
+
+Agent footprint figures for commercial APMs are order-of-magnitude estimates from public deployment reports; actual overhead depends on instrumentation scope.
+
+### What perf-sentinel is not
+
+A fair comparison requires naming what perf-sentinel does not do:
+
+- **Not a full APM replacement.** No dashboards, no alerting UI, no RUM, no log aggregation, no distributed profiling. If you need those, Datadog, New Relic and Sentry remain the right tools.
+- **Not a real-time monitoring solution.** Daemon mode streams findings but the project's center of gravity is CI/CD quality gates and post-hoc trace analysis, not live prod observability.
+- **Not a regulatory carbon accounting tool.** The SCI v1.0 scoring is directional and carries a 2× multiplicative uncertainty bracket. Do not use it for CSRD or GHG Protocol reporting.
+- **Not a replacement for measured energy.** The I/O-to-energy model is an approximation. For accurate per-process power, use Scaphandre (supported as an input) or cloud provider energy APIs.
+- **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.
+- **Not an IDE plugin.** For in-IDE feedback on JVM/.NET code as you type, [Digma](https://digma.ai/) offers a well-integrated JetBrains experience.
+
+perf-sentinel is a complementary tool focused on one specific problem: detecting I/O anti-patterns in traces, scoring their impact (including carbon) and enforcing thresholds in CI. Use it alongside your existing observability stack, not in place of it.
 
 ## What does it report?
 
@@ -65,7 +82,7 @@ Or browse traces, findings and span trees interactively with the `inspect` TUI (
 
 ![inspect TUI](docs/img/inspect/demo.gif)
 
-Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Three rankings (by total time, by call count, by mean latency) help you spot queries that dominate the DB without being visible in your traces — a sign of instrumentation gaps:
+Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Three rankings (by total time, by call count, by mean latency) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
 
 ![pg-stat hotspots](docs/img/pg-stat/demo.gif)
 
@@ -209,15 +226,15 @@ The CLI renders a `(healthy / moderate / high / critical)` qualifier next to I/O
 | IIS       | Band       | Anchor                                            |
 |-----------|------------|---------------------------------------------------|
 | < 2.0     | `healthy`  | simple CRUD baseline (≤ 2 I/O per request)        |
-| 2.0 – 4.9 | `moderate` | above baseline, worth watching (heuristic)        |
-| 5.0 – 9.9 | `high`     | N+1 detector's flag threshold (5 occurrences)     |
+| 2.0 - 4.9 | `moderate` | above baseline, worth watching (heuristic)        |
+| 5.0 - 9.9 | `high`     | N+1 detector's flag threshold (5 occurrences)     |
 | ≥ 10.0    | `critical` | N+1 detector's CRITICAL severity escalation       |
 
 | I/O waste ratio | Band       | Anchor                                       |
 |-----------------|------------|----------------------------------------------|
 | < 10%           | `healthy`  |                                              |
-| 10 – 29%        | `moderate` |                                              |
-| 30 – 49%        | `high`     | default `[thresholds] io_waste_ratio_max`    |
+| 10 - 29%        | `moderate` |                                              |
+| 30 - 49%        | `high`     | default `[thresholds] io_waste_ratio_max`    |
 | ≥ 50%           | `critical` | majority of analyzed I/O is waste            |
 
 **JSON stability contract:** the enum values above (`healthy` / `moderate` / `high` / `critical`) are stable across versions. The numeric thresholds behind them are versioned with the binary and may evolve. Consumers who want a version-independent classification should read the raw `io_intensity_score` and `io_waste_ratio` fields and apply their own bands.
