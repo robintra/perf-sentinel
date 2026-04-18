@@ -319,7 +319,9 @@ This flag is gated behind the `daemon` feature because it requires the `hyper` H
   <img alt="Daemon query API architecture" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
-The daemon exposes its internal state via HTTP endpoints alongside the existing `/v1/traces` and `/metrics` routes on port 4318.
+The daemon exposes its internal state via HTTP endpoints alongside the existing `/v1/traces`, `/metrics` and `/health` routes on port 4318.
+
+The `/health` endpoint is a stateless liveness probe for Kubernetes, load balancers and systemd. It returns `200 OK` with `{"status":"ok","version":"<pkg_version>"}`, holds no locks and cannot false-negative under load. It is **always exposed**, independent of `[daemon] api_enabled`, which gates only the richer `/api/*` surface described below.
 
 ### `FindingsStore` ring buffer
 
@@ -348,7 +350,7 @@ This struct is wrapped in `Arc` and passed as axum `State` to all route handlers
 
 ### API endpoints
 
-Five endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion and `/metrics` active.
+Five endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion, `/metrics` and `/health` active.
 
 | Endpoint                   | Method | Cap                                                                      | Description                                                                                |
 |----------------------------|--------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|

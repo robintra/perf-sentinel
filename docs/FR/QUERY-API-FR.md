@@ -29,11 +29,17 @@ n'est joignable que depuis l'hôte qui exécute le daemon, sauf si vous
 ### Notes de déploiement
 
 - L'API de requêtage partage le même port HTTP que l'ingestion OTLP HTTP
-  (`[daemon] listen_port_http`, défaut `4318`) et l'endpoint Prometheus
-  `/metrics`. Un seul port, trois surfaces.
+  (`[daemon] listen_port_http`, défaut `4318`), l'endpoint Prometheus
+  `/metrics` et la sonde de liveness `GET /health`. Un seul port,
+  quatre surfaces.
 - L'API de requêtage peut être désactivée au démarrage avec
   `[daemon] api_enabled = false`. Utile quand le daemon tourne dans un
   hôte multi-tenant hostile et que vous ne voulez que l'ingestion OTLP.
+  Dans ce mode, `/metrics` et `/health` restent exposés : ce sont des
+  surfaces d'infrastructure, pas partie de l'API de requêtage.
+- Pour les sondes Kubernetes ou load-balancer, préférer `GET /health` à
+  `GET /api/status` : `/health` est toujours actif, ne prend aucun lock
+  et reste réactif sous toute charge d'ingestion.
 - La taille du ring buffer des findings est bornée par
   `[daemon] max_retained_findings` (défaut `10000`). Les findings plus
   anciens sont évincés en FIFO.

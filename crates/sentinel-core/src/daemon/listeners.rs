@@ -130,7 +130,8 @@ fn build_http_router(
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
     let metrics_router = crate::report::metrics::metrics_route(metrics);
-    let mut http_router = otlp_router.merge(metrics_router);
+    let health_router = super::health::health_route();
+    let mut http_router = otlp_router.merge(metrics_router).merge(health_router);
     if config.daemon_api_enabled {
         let query_state = Arc::new(query_api::QueryApiState {
             findings_store,

@@ -26,11 +26,17 @@ running the daemon unless you explicitly widen the bind address.
 ### Deployment notes
 
 - The query API shares the same HTTP port as OTLP HTTP ingestion
-  (`[daemon] listen_port_http`, default `4318`) and the `/metrics`
-  Prometheus scrape endpoint. One port, three surfaces.
+  (`[daemon] listen_port_http`, default `4318`), the `/metrics`
+  Prometheus scrape endpoint and the `GET /health` liveness probe.
+  One port, four surfaces.
 - The query API can be disabled at startup by setting
   `[daemon] api_enabled = false`. Useful when the daemon runs in a
-  hostile multi-tenant host and you only want OTLP ingestion.
+  hostile multi-tenant host and you only want OTLP ingestion. In that
+  mode, `/metrics` and `/health` stay exposed — they are infrastructure
+  surfaces, not part of the query API.
+- For Kubernetes or load-balancer probes, prefer `GET /health` over
+  `GET /api/status`: `/health` is always on, holds no locks and stays
+  responsive under any ingestion load.
 - The findings ring buffer size is bounded by
   `[daemon] max_retained_findings` (default `10000`). Older findings are
   evicted FIFO.

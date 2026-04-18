@@ -5,6 +5,7 @@
 //! findings as NDJSON on stdout when traces expire.
 
 pub mod findings_store;
+pub mod health;
 pub mod query_api;
 
 mod event_loop;
@@ -343,6 +344,80 @@ mod tests {
             observed_events,
             "daemon should have processed the 6 events and surfaced a \
              non-zero `perf_sentinel_events_processed_total` on /metrics"
+        );
+    }
+
+    // ------------------------------------------------------------------
+    // /health is always exposed, even when the query API is disabled.
+    // ------------------------------------------------------------------
+    //
+    // Liveness probes (K8s, load balancers, systemd) must not depend on
+    // `daemon_api_enabled`. This test spins up a daemon with the query
+    // API off, then hits `/health` over TCP to verify both the 200 OK
+    // and the JSON body shape.
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn daemon_exposes_health_endpoint_even_when_query_api_disabled() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
+        use tokio::time::Duration;
+
+        let l1 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let l2 = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let http_port = l1.local_addr().unwrap().port();
+        let grpc_port = l2.local_addr().unwrap().port();
+        drop(l1);
+        drop(l2);
+
+        let (_dir, socket_path) = json_socket::unique_socket_dir_and_path("daemon-health");
+        let config = Config {
+            listen_addr: "127.0.0.1".to_string(),
+            listen_port: http_port,
+            listen_port_grpc: grpc_port,
+            json_socket: socket_path.to_string_lossy().into_owned(),
+            daemon_api_enabled: false, // proves /health is not gated by the query API toggle
+            ..Config::default()
+        };
+
+        let daemon_handle = tokio::spawn(async move {
+            let _ = run(config).await;
+        });
+
+        let addr = format!("127.0.0.1:{http_port}");
+        let mut body = String::new();
+        let mut ok = false;
+        for _ in 0..60 {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+            let Ok(mut stream) = TcpStream::connect(&addr).await else {
+                continue;
+            };
+            let req = "GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n";
+            if stream.write_all(req.as_bytes()).await.is_err() {
+                continue;
+            }
+            let mut buf = Vec::with_capacity(1024);
+            if stream.read_to_end(&mut buf).await.is_err() {
+                continue;
+            }
+            body = String::from_utf8_lossy(&buf).into_owned();
+            if body.starts_with("HTTP/1.") && body.contains(" 200 ") {
+                ok = true;
+                break;
+            }
+        }
+
+        daemon_handle.abort();
+        let _ = daemon_handle.await;
+
+        assert!(ok, "/health should return 200 OK; got response: {body}");
+        assert!(
+            body.contains("\"status\":\"ok\""),
+            "response body should include status=ok; got: {body}"
+        );
+        assert!(
+            body.contains(env!("CARGO_PKG_VERSION")),
+            "response body should include current version; got: {body}"
         );
     }
 }

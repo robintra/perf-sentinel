@@ -31,7 +31,8 @@ services:
     #   # Inject secrets via env vars, never in the config file.
     #   ELECTRICITY_MAPS_API_KEY: "${ELECTRICITY_MAPS_API_KEY}"
     network_mode: "service:app"
-    # Prometheus /metrics available at app's IP on port 4318
+    # Prometheus /metrics and liveness /health available at app's IP on port 4318.
+    # For an explicit Compose healthcheck, see docker-compose-collector.yml.
     read_only: true
     security_opt:
       - no-new-privileges:true

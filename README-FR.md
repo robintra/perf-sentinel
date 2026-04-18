@@ -416,7 +416,7 @@ docker compose -f examples/docker-compose-collector.yml up -d
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
-perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/INTEGRATION.md) sur `/metrics` (port 4318).
+perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/INTEGRATION.md) sur `/metrics` (port 4318). Un endpoint `GET /health` de liveness est exposé sur le même port pour les sondes Kubernetes ou load-balancer.
 
 Voir [`examples/otel-collector-config.yaml`](examples/otel-collector-config.yaml) pour la config complète du collector avec les options de sampling et filtrage.
 

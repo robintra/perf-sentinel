@@ -52,7 +52,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/health"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -71,7 +71,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/health"]
       interval: 10s
       timeout: 5s
       retries: 3

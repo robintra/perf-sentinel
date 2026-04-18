@@ -56,7 +56,10 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/metrics"]
+      # /health is the purpose-built liveness probe: always on, holds no
+      # locks, independent of [daemon] api_enabled. Swap to /metrics only
+      # if you also want to assert that the Prometheus surface is wired.
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:4318/health"]
       interval: 10s
       timeout: 5s
       retries: 3
