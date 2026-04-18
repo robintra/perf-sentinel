@@ -1,0 +1,58 @@
+version: 2
+
+# Dependabot configuration.
+#
+# We only track GitHub Actions here. Cargo dependencies are deliberately
+# excluded: `cargo audit` (see `.github/workflows/security-audit.yml`)
+# already covers the security angle, and minor/patch bumps on dozens of
+# crates generate review noise that does not pay off for a solo project.
+# Crate updates are handled manually via `cargo update` when needed.
+#
+# See: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      # Core CI/CD actions upgraded together to keep the diff coherent.
+      ci-actions:
+        patterns:
+          - "actions/*"
+          - "dtolnay/*"
+          - "Swatinem/*"
+          - "taiki-e/*"
+          - "actions-rust-lang/*"
+      # Docker ecosystem actions (build/push/login/setup) as one group.
+      docker-actions:
+        patterns:
+          - "docker/*"
+      # Security scanning actions.
+      security-actions:
+        patterns:
+          - "github/codeql-action"
+          - "github/codeql-action/*"
+      # Everything else (Sonar, release tooling, etc.).
+      other-actions:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "actions/*"
+          - "dtolnay/*"
+          - "Swatinem/*"
+          - "taiki-e/*"
+          - "actions-rust-lang/*"
+          - "docker/*"
+          - "github/codeql-action"
+          - "github/codeql-action/*"

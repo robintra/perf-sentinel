@@ -1,0 +1,60 @@
+name: Code Scanning
+
+# Uploads Clippy findings to GitHub Code Scanning as SARIF so they appear
+# in the repository Security tab. This is complementary to:
+#   - `ci.yml`        → fails the build on any Clippy warning (`-D warnings`).
+#   - `security-audit.yml` → runs `cargo audit` against Cargo.lock.
+# This workflow does NOT fail the build; it only surfaces warnings as
+# actionable entries in the Security tab. The quality gate remains `ci.yml`.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly scan on Monday 06:00 UTC to catch drift even without pushes.
+    - cron: '0 6 * * 1'
+
+# Required to publish SARIF results to GitHub Code Scanning.
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  clippy:
+    name: Clippy (SARIF upload)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          components: clippy
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Install clippy-sarif and sarif-fmt
+        uses: taiki-e/install-action@58e862542551f667fa44c8a2a4a1d64ad477c96a # v2.75.17
+        with:
+          tool: clippy-sarif,sarif-fmt
+
+      - name: Run Clippy and convert to SARIF
+        shell: bash
+        run: |
+          # Do not fail the step on Clippy warnings: this job's purpose is to
+          # surface them in Code Scanning, not to gate merges. `ci.yml` remains
+          # the authoritative quality gate with `-D warnings`.
+          set +e
+          cargo clippy --workspace --all-targets --message-format=json \
+            | clippy-sarif \
+            | tee clippy.sarif \
+            | sarif-fmt
+          echo "Clippy SARIF generated at clippy.sarif"
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@ce64ddcb0d8d890d2df4a9d1c04ff297367dea2a # v3
+        with:
+          sarif_file: clippy.sarif
+          category: clippy
