@@ -19,6 +19,14 @@ Performance anti-patterns like N+1 queries exist in any application that does I/
 
 perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
 
+## Quick look
+
+```bash
+perf-sentinel analyze --input traces.json
+```
+
+![demo](docs/img/analyze/demo.gif)
+
 ## GreenOps: built-in carbon-aware scoring
 
 Every finding includes an **I/O Intensity Score (IIS)**: the number of I/O operations generated per user request for a given endpoint. Reducing unnecessary I/O (N+1 queries, redundant calls) improves response times *and* reduces energy consumption, these are not competing goals.
@@ -53,7 +61,7 @@ A fair comparison requires naming what perf-sentinel does not do:
 
 - **Not a full APM replacement.** No dashboards, no alerting UI, no RUM, no log aggregation, no distributed profiling. If you need those, Datadog, New Relic and Sentry remain the right tools.
 - **Not a real-time monitoring solution.** Daemon mode streams findings but the project's center of gravity is CI/CD quality gates and post-hoc trace analysis, not live prod observability.
-- **Not a regulatory carbon accounting tool.** The SCI v1.0 scoring is directional and carries a 2× multiplicative uncertainty bracket. Do not use it for CSRD or GHG Protocol reporting.
+- **Not a regulatory carbon accounting tool.** Use it to spot waste, not to file CSRD or GHG Protocol Scope 3 reports. See the GreenOps note above for methodology bounds.
 - **Not a replacement for measured energy.** The I/O-to-energy model is an approximation. For accurate per-process power, use Scaphandre (supported as an input) or cloud provider energy APIs.
 - **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.
 - **Not an IDE plugin.** For in-IDE feedback on JVM/.NET code as you type, [Digma](https://digma.ai/) offers a well-integrated JetBrains experience.
@@ -72,9 +80,7 @@ For each detected anti-pattern, perf-sentinel reports:
 - **Source location:** when OTel spans carry `code.function`, `code.filepath`, `code.lineno` attributes, findings display the originating source file and line. SARIF reports include `physicalLocations` for inline GitHub/GitLab annotations
 - **GreenOps impact:** estimated avoidable I/O ops, I/O Intensity Score, structured `co2` object (`low`/`mid`/`high`, SCI v1.0 operational + embodied terms), per-region breakdown when multi-region scoring is active
 
-![demo](docs/img/analyze/demo.gif)
-
-Or drill into a single trace with the `explain` tree view, which annotates findings inline next to the offending spans:
+You can also drill into a single trace with the `explain` tree view, which annotates findings inline next to the offending spans:
 
 ![explain tree view](docs/img/explain/demo.gif)
 
@@ -464,7 +470,7 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 - [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values (AWS 1.135, GCP 1.10, Azure 1.185, generic 1.2) and the SPECpower coefficient tables (~180 instance types) that feed the `cloud_specpower` energy backend.
 - [Electricity Maps](https://www.electricitymaps.com/): annual average intensities for 30+ regions (2023-2024) used as the `io_proxy_v1` baseline, plus the real-time API (`electricity_maps_api` backend, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/): hourly generation and load data used to derive the monthly x hourly profiles for European bidding zones (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
-- National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).
+- National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=fr&c=DE) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).
 - [Scaphandre](https://github.com/hubblo-org/scaphandre): per-process Intel / AMD RAPL power measurement, scraped via its Prometheus endpoint when the `[green.scaphandre]` section is configured.
 
 ### Academic methodology
@@ -476,10 +482,6 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 - IDEAS 2025 framework: real-time energy estimation model for SQL queries, referenced as the direction of travel for future `calibrate` improvements.
 - Mytton, Lunden & Malmodin, *Estimating electricity usage of data transmission networks*, Journal of Industrial Ecology 2024. Source for the 0.04 kWh/GB default on the optional `include_network_transport` term; the paper's 0.03-0.06 kWh/GB range is the origin of the configurable `network_energy_per_byte_kwh` field.
 - [Boavizta API](https://www.boavizta.org/en/) / HotCarbon 2024: bottom-up server lifecycle embodied carbon model, referenced for the `embodied_per_request_gco2` default calibration.
-
-### What this is not
-
-perf-sentinel is a **directional waste counter**, not a regulatory carbon-accounting tool. Every `CarbonEstimate` ships with a `{ low, mid, high }` 2× multiplicative uncertainty bracket because the I/O-to-energy proxy is approximate by construction. Do not use these values for CSRD reporting, GHG Protocol Scope 3 disclosures or any other compliance context. See [docs/LIMITATIONS.md](docs/LIMITATIONS.md#carbon-estimates-accuracy) for the full methodology critique.
 
 ## License
 

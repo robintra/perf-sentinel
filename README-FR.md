@@ -19,6 +19,14 @@ Les anti-patterns de performance comme les requêtes N+1 existent dans toute app
 
 perf-sentinel adopte une approche différente : **l'analyse au niveau protocole**. Il observe les traces produites par l'application (requêtes SQL, appels HTTP) quel que soit le langage ou l'ORM utilisé. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
+## Aperçu rapide
+
+```bash
+perf-sentinel analyze --input traces.json
+```
+
+![demo](docs/img/analyze/demo.gif)
+
 ## GreenOps : scoring éco-conception intégré
 
 Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations I/O générées par requête utilisateur pour un endpoint donné. Réduire les I/O inutiles (N+1, appels redondants) améliore les temps de réponse *et* réduit la consommation énergétique : ce ne sont pas des objectifs concurrents.
@@ -53,7 +61,7 @@ Une comparaison honnête passe par nommer ce que perf-sentinel ne fait pas :
 
 - **Pas un remplacement d'APM complet.** Pas de dashboards, pas d'UI d'alerting, pas de RUM, pas d'agrégation de logs, pas de profiling distribué. Si vous en avez besoin, Datadog, New Relic et Sentry restent les bons outils.
 - **Pas une solution de monitoring temps réel.** Le mode daemon diffuse des findings en streaming, mais le centre de gravité du projet reste le quality gate CI/CD et l'analyse post-hoc de traces, pas l'observabilité live en production.
-- **Pas un outil de comptabilité carbone réglementaire.** Le scoring SCI v1.0 est directionnel et porte un intervalle d'incertitude multiplicatif 2x. Ne l'utilisez pas pour le reporting CSRD ou GHG Protocol.
+- **Pas un outil de comptabilité carbone réglementaire.** À utiliser pour chasser le gaspillage, pas pour produire un reporting CSRD ou GHG Protocol Scope 3. Voir la note GreenOps plus haut pour les limites méthodologiques.
 - **Pas un remplacement pour l'énergie mesurée.** Le modèle I/O-vers-énergie reste une approximation. Pour de la mesure de puissance par processus précise, utilisez Scaphandre (supporté en entrée) ou les APIs énergie de votre fournisseur cloud.
 - **Pas zero-config.** La détection au niveau protocole requiert que vos applications émettent des traces OTel. Si votre stack n'est pas instrumenté, perf-sentinel n'a rien à analyser.
 - **Pas un plugin IDE.** Pour du feedback in-IDE pendant que vous codez en JVM/.NET, [Digma](https://digma.ai/) propose une expérience JetBrains bien intégrée.
@@ -72,9 +80,7 @@ Pour chaque anti-pattern détecté, perf-sentinel remonte :
 - **Localisation source :** quand les spans OTel portent les attributs `code.function`, `code.filepath`, `code.lineno`, les findings affichent le fichier source et la ligne d'origine. Les rapports SARIF incluent des `physicalLocations` pour les annotations inline GitHub/GitLab
 - **Impact GreenOps :** estimation des I/O évitables, I/O Intensity Score, objet `co2` structuré (`low`/`mid`/`high`, termes opérationnel + embodié SCI v1.0), breakdown par région quand le scoring multi-région est actif
 
-![demo](docs/img/analyze/demo.gif)
-
-Ou explore une trace unique avec le mode `explain` en arbre, qui annote les findings directement à côté des spans concernés :
+Tu peux aussi explorer une trace unique avec le mode `explain` en arbre, qui annote les findings directement à côté des spans concernés :
 
 ![vue en arbre explain](docs/img/explain/demo.gif)
 
@@ -464,7 +470,7 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 - [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/) : intensité carbone annuelle par région cloud, valeurs PUE par fournisseur (AWS 1,135, GCP 1,10, Azure 1,185, générique 1,2) et les tables de coefficients SPECpower (~180 types d'instances) qui alimentent le backend énergie `cloud_specpower`.
 - [Electricity Maps](https://www.electricitymaps.com/) : intensités annuelles moyennes pour plus de 30 régions (2023-2024) utilisées comme référence `io_proxy_v1`, plus l'API temps réel (backend `electricity_maps_api`, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) : données horaires de production et de consommation utilisées pour dériver les profils mois x heure des zones de marché européennes (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
-- Gestionnaires de réseau nationaux : [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/) (Allemagne), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (Royaume-Uni), [EIA Open Data API](https://www.eia.gov/opendata/) pour les balancing authorities américaines (PJM, CAISO, BPA), [rapports annuels Hydro-Québec](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australie).
+- Gestionnaires de réseau nationaux : [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=fr&c=DE) (Allemagne), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (Royaume-Uni), [EIA Open Data API](https://www.eia.gov/opendata/) pour les balancing authorities américaines (PJM, CAISO, BPA), [rapports annuels Hydro-Québec](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australie).
 - [Scaphandre](https://github.com/hubblo-org/scaphandre) : mesure de puissance par processus via RAPL Intel / AMD, scrapée depuis son endpoint Prometheus quand la section `[green.scaphandre]` est configurée.
 
 ### Méthodologie académique
@@ -476,10 +482,6 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 - IDEAS 2025 : framework d'estimation énergétique temps réel pour les requêtes SQL, référencé comme direction de travail pour les futures évolutions de `calibrate`.
 - Mytton, Lunden & Malmodin, *Estimating electricity usage of data transmission networks*, Journal of Industrial Ecology 2024. Source du défaut 0,04 kWh/GB sur le terme optionnel `include_network_transport` ; la plage 0,03-0,06 kWh/GB du papier est à l'origine du champ configurable `network_energy_per_byte_kwh`.
 - [API Boavizta](https://www.boavizta.org/en/) / HotCarbon 2024 : modèle bottom-up du cycle de vie carbone embodied d'un serveur, référencé pour le calibrage par défaut de `embodied_per_request_gco2`.
-
-### Ce que ce n'est pas
-
-perf-sentinel est un **compteur de gaspillage directionnel**, pas un outil de comptabilité carbone réglementaire. Chaque `CarbonEstimate` porte un intervalle d'incertitude multiplicative `{ low, mid, high }` 2× parce que le proxy I/O vers énergie est approximatif par construction. N'utilisez pas ces valeurs pour le reporting CSRD, les déclarations GHG Protocol Scope 3 ou tout autre contexte de conformité. Voir [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) pour la critique méthodologique complète.
 
 ## Licence
 
