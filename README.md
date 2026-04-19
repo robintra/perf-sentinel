@@ -25,7 +25,7 @@ perf-sentinel takes a different approach: **protocol-level analysis**. It observ
 perf-sentinel analyze --input traces.json
 ```
 
-![demo](docs/img/analyze/demo.gif)
+![demo](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
 ## GreenOps: built-in carbon-aware scoring
 
@@ -82,66 +82,66 @@ For each detected anti-pattern, perf-sentinel reports:
 
 You can also drill into a single trace with the `explain` tree view, which annotates findings inline next to the offending spans:
 
-![explain tree view](docs/img/explain/demo.gif)
+![explain tree view](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
 
 Or browse traces, findings and span trees interactively with the `inspect` TUI (3-panel layout, keyboard navigation):
 
-![inspect TUI](docs/img/inspect/demo.gif)
+![inspect TUI](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
 
 Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Three rankings (by total time, by call count, by mean latency) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
 
-![pg-stat hotspots](docs/img/pg-stat/demo.gif)
+![pg-stat hotspots](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
 
 Finally, tune the I/O-to-energy coefficients to your real infrastructure with `calibrate`, which correlates a trace file with measured energy readings (Scaphandre, cloud monitoring, etc.) and emits a TOML file loaded via `[green] calibration_file`:
 
-![calibrate workflow](docs/img/calibrate/demo.gif)
+![calibrate workflow](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/demo.gif)
 
 <details>
 <summary>Still frames</summary>
 
 **Configuration** (`.perf-sentinel.toml`):
 
-![config](docs/img/analyze/config.png)
+![config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/config.png)
 
 **Analysis report** (the first GIF above scrolls through the full report; the four still frames below cover it page by page, with a small overlap so every finding appears fully on at least one page):
 
-![page 1: N+1 SQL, N+1 HTTP, redundant SQL](docs/img/analyze/report-1.png)
+![page 1: N+1 SQL, N+1 HTTP, redundant SQL](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-1.png)
 
-![page 2: redundant HTTP, slow SQL, slow HTTP](docs/img/analyze/report-2.png)
+![page 2: redundant HTTP, slow SQL, slow HTTP](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-2.png)
 
-![page 3: excessive fanout, chatty service, pool saturation](docs/img/analyze/report-3.png)
+![page 3: excessive fanout, chatty service, pool saturation](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-3.png)
 
-![page 4: serialized calls, GreenOps summary, quality gate](docs/img/analyze/report-4.png)
+![page 4: serialized calls, GreenOps summary, quality gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-4.png)
 
 **Explain mode** (tree view of a single trace, `perf-sentinel explain --trace-id <id>`). Span-anchored findings (N+1, redundant, slow, fanout) are rendered inline next to the offending spans; trace-level findings (chatty service, pool saturation, serialized calls) are surfaced in a dedicated header above the tree:
 
-![explain tree view with excessive fanout annotation on the parent span](docs/img/explain/tree.png)
+![explain tree view with excessive fanout annotation on the parent span](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/tree.png)
 
-![explain trace-level header with chatty service warning](docs/img/explain/trace-level.png)
+![explain trace-level header with chatty service warning](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
 
 **Inspect mode** (interactive TUI, `perf-sentinel inspect`). The findings panel header colors findings by severity; below are five still frames walking the demo fixture across the three severity levels plus a detail-panel view with its scroll feature:
 
-![inspect TUI, initial view: chatty service warning (yellow)](docs/img/inspect/main.png)
+![inspect TUI, initial view: chatty service warning (yellow)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
 
-![inspect TUI, detail panel active: top of the excessive fanout span tree](docs/img/inspect/detail.png)
+![inspect TUI, detail panel active: top of the excessive fanout span tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
 
-![inspect TUI, detail panel scrolled down: bottom half of the fanout tree](docs/img/inspect/detail-scrolled.png)
+![inspect TUI, detail panel scrolled down: bottom half of the fanout tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
 
-![inspect TUI, N+1 SQL critical (red): 10 occurrences, batch suggestion](docs/img/inspect/critical.png)
+![inspect TUI, N+1 SQL critical (red): 10 occurrences, batch suggestion](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
 
-![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](docs/img/inspect/info.png)
+![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
 **pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries three ways (by total execution time, by call count, by mean latency). Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
 
-![pg-stat: top hotspots by total time, calls and mean latency](docs/img/pg-stat/hotspots.png)
+![pg-stat: top hotspots by total time, calls and mean latency](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)
 
 **Calibrate mode** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`):
 
-![calibrate input: CSV with per-service power readings](docs/img/calibrate/csv.png)
+![calibrate input: CSV with per-service power readings](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/csv.png)
 
-![calibrate run: warnings and per-service factors printed](docs/img/calibrate/run.png)
+![calibrate run: warnings and per-service factors printed](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
 
-![calibrate output: generated TOML with calibration factors](docs/img/calibrate/output.png)
+![calibrate output: generated TOML with calibration factors](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
 
 </details>
 
@@ -470,7 +470,7 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 - [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values (AWS 1.135, GCP 1.10, Azure 1.185, generic 1.2) and the SPECpower coefficient tables (~180 instance types) that feed the `cloud_specpower` energy backend.
 - [Electricity Maps](https://www.electricitymaps.com/): annual average intensities for 30+ regions (2023-2024) used as the `io_proxy_v1` baseline, plus the real-time API (`electricity_maps_api` backend, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/): hourly generation and load data used to derive the monthly x hourly profiles for European bidding zones (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
-- National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=fr&c=DE) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).
+- National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=en&c=DE) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).
 - [Scaphandre](https://github.com/hubblo-org/scaphandre): per-process Intel / AMD RAPL power measurement, scraped via its Prometheus endpoint when the `[green.scaphandre]` section is configured.
 
 ### Academic methodology

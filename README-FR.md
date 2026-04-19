@@ -25,7 +25,7 @@ perf-sentinel adopte une approche différente : **l'analyse au niveau protocole*
 perf-sentinel analyze --input traces.json
 ```
 
-![demo](docs/img/analyze/demo.gif)
+![demo](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
 ## GreenOps : scoring éco-conception intégré
 
@@ -82,66 +82,66 @@ Pour chaque anti-pattern détecté, perf-sentinel remonte :
 
 Tu peux aussi explorer une trace unique avec le mode `explain` en arbre, qui annote les findings directement à côté des spans concernés :
 
-![vue en arbre explain](docs/img/explain/demo.gif)
+![vue en arbre explain](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
 
 Ou navigue dans les traces, les findings et les arbres de spans de manière interactive avec le TUI `inspect` (3 panneaux, navigation au clavier) :
 
-![TUI inspect](docs/img/inspect/demo.gif)
+![TUI inspect](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
 
 Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Trois classements (par temps total, par nombre d'appels, par latence moyenne) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
 
-![hotspots pg-stat](docs/img/pg-stat/demo.gif)
+![hotspots pg-stat](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
 
 Enfin, ajuste les coefficients I/O-vers-énergie à ton infrastructure réelle avec `calibrate`, qui corrèle un fichier de traces avec des mesures d'énergie (Scaphandre, supervision cloud, etc.) et génère un fichier TOML chargeable via `[green] calibration_file` :
 
-![flux calibrate](docs/img/calibrate/demo.gif)
+![flux calibrate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/demo.gif)
 
 <details>
 <summary>Images fixes</summary>
 
 **Configuration** (`.perf-sentinel.toml`) :
 
-![config](docs/img/analyze/config.png)
+![config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/config.png)
 
 **Rapport d'analyse** (le premier GIF ci-dessus défile dans le rapport complet, les quatre images fixes ci-dessous le couvrent page par page, avec un léger recouvrement pour que chaque finding apparaisse en entier sur au moins une page) :
 
-![page 1 : N+1 SQL, N+1 HTTP, SQL redondant](docs/img/analyze/report-1.png)
+![page 1 : N+1 SQL, N+1 HTTP, SQL redondant](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-1.png)
 
-![page 2 : HTTP redondant, SQL lent, HTTP lent](docs/img/analyze/report-2.png)
+![page 2 : HTTP redondant, SQL lent, HTTP lent](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-2.png)
 
-![page 3 : fanout excessif, service bavard, saturation du pool](docs/img/analyze/report-3.png)
+![page 3 : fanout excessif, service bavard, saturation du pool](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-3.png)
 
-![page 4 : appels sérialisés, résumé GreenOps, quality gate](docs/img/analyze/report-4.png)
+![page 4 : appels sérialisés, résumé GreenOps, quality gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-4.png)
 
 **Mode explain** (vue en arbre d'une trace unique, `perf-sentinel explain --trace-id <id>`). Les findings rattachés à un span (N+1, redondant, lent, fanout) sont affichés inline à côté du span concerné ; les findings de niveau trace (service bavard, saturation du pool, appels sérialisés) sont remontés dans une section dédiée au-dessus de l'arbre :
 
-![vue en arbre explain avec annotation de fanout excessif sur le span parent](docs/img/explain/tree.png)
+![vue en arbre explain avec annotation de fanout excessif sur le span parent](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/tree.png)
 
-![header trace-level explain avec warning de service bavard](docs/img/explain/trace-level.png)
+![header trace-level explain avec warning de service bavard](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
 
 **Mode inspect** (TUI interactif, `perf-sentinel inspect`). Le header du panneau findings colore chaque finding selon sa sévérité ; les cinq images fixes ci-dessous parcourent la fixture démo à travers les trois niveaux de sévérité plus une vue du panneau détail avec sa fonction de scroll :
 
-![TUI inspect, vue initiale : service bavard warning (jaune)](docs/img/inspect/main.png)
+![TUI inspect, vue initiale : service bavard warning (jaune)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
 
-![TUI inspect, panneau détail actif : haut de l'arbre de spans fanout excessif](docs/img/inspect/detail.png)
+![TUI inspect, panneau détail actif : haut de l'arbre de spans fanout excessif](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
 
-![TUI inspect, panneau détail scrollé : moitié basse de l'arbre fanout](docs/img/inspect/detail-scrolled.png)
+![TUI inspect, panneau détail scrollé : moitié basse de l'arbre fanout](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
 
-![TUI inspect, N+1 SQL critical (rouge) : 10 occurrences, suggestion de batch](docs/img/inspect/critical.png)
+![TUI inspect, N+1 SQL critical (rouge) : 10 occurrences, suggestion de batch](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
 
-![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](docs/img/inspect/info.png)
+![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
 **Mode pg-stat** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`) : classe les requêtes SQL de trois manières (par temps d'exécution total, par nombre d'appels, par latence moyenne). Cross-référence avec tes traces via `--traces` pour repérer les requêtes qui dominent la DB sans apparaître dans ton instrumentation :
 
-![pg-stat : top hotspots par temps total, appels et latence moyenne](docs/img/pg-stat/hotspots.png)
+![pg-stat : top hotspots par temps total, appels et latence moyenne](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)
 
 **Mode calibrate** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`) :
 
-![entrée calibrate : CSV avec mesures de puissance par service](docs/img/calibrate/csv.png)
+![entrée calibrate : CSV avec mesures de puissance par service](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/csv.png)
 
-![exécution calibrate : warnings et facteurs par service affichés](docs/img/calibrate/run.png)
+![exécution calibrate : warnings et facteurs par service affichés](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
 
-![sortie calibrate : TOML généré avec les facteurs de calibration](docs/img/calibrate/output.png)
+![sortie calibrate : TOML généré avec les facteurs de calibration](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
 
 </details>
 
