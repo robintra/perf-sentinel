@@ -10,8 +10,20 @@ name: Code Scanning
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'crates/**'
+      - 'tests/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/**'
   schedule:
     # Weekly scan on Monday 06:00 UTC to catch drift even without pushes.
     - cron: '0 6 * * 1'
