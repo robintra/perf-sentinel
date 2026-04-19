@@ -15,7 +15,7 @@ Analyse les traces d'exécution (requêtes SQL, appels HTTP) pour détecter les 
 
 ## Pourquoi perf-sentinel ?
 
-Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O et personne n'a de visibilité sur le chemin complet. Les outils existants sont soit spécifiques à un runtime (Hypersistence Utils -> JPA uniquement), soit lourds et propriétaires (Datadog, New Relic), soit limités aux tests unitaires sans vision cross-service.
+Les anti-patterns de performance comme les requêtes N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O et personne n'a de visibilité sur le chemin complet. Les outils existants résolvent chacun une partie du problème : Hypersistence Utils ne couvre que JPA, Datadog et New Relic sont des agents propriétaires lourds qu'on ne veut pas forcément déployer dans tous les pipelines, les détecteurs de Sentry sont solides mais liés à son SDK et à son backend. Aucun ne propose un quality gate CI au niveau protocole qu'on peut auto-héberger.
 
 perf-sentinel adopte une approche différente : **l'analyse au niveau protocole**. Il observe les traces produites par l'application (requêtes SQL, appels HTTP) quel que soit le langage ou l'ORM utilisé. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
