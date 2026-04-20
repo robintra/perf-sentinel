@@ -36,8 +36,8 @@ pub enum TempoError {
     #[error("HTTP transport error: {0}")]
     Transport(String),
 
-    #[error("Tempo returned HTTP {0}")]
-    HttpStatus(u16),
+    #[error("Tempo returned HTTP {status} for {url}")]
+    HttpStatus { status: u16, url: String },
 
     #[error("request timed out")]
     Timeout,
@@ -208,7 +208,14 @@ async fn fetch_raw(
         )));
     }
     if status != 200 {
-        return Err(TempoError::HttpStatus(status));
+        // Include the redacted URL so operators pointing at a wrong Tempo
+        // component (e.g. `tempo-querier` instead of `tempo-query-frontend`
+        // in a microservices deployment) see which endpoint 404'd without
+        // having to re-derive it from the CLI flags.
+        return Err(TempoError::HttpStatus {
+            status,
+            url: http_client::redact_endpoint(&uri),
+        });
     }
 
     let limited = http_body_util::Limited::new(resp.into_body(), max_bytes);
@@ -645,8 +652,8 @@ mod tests {
             .await
             .expect_err("500 must surface as HttpStatus");
         match err {
-            TempoError::HttpStatus(500) => {}
-            other => panic!("expected HttpStatus(500), got {other:?}"),
+            TempoError::HttpStatus { status: 500, .. } => {}
+            other => panic!("expected HttpStatus {{ status: 500, .. }}, got {other:?}"),
         }
         server.await.unwrap();
     }
@@ -709,8 +716,8 @@ mod tests {
             .await
             .expect_err("500 must surface as HttpStatus");
         match err {
-            TempoError::HttpStatus(500) => {}
-            other => panic!("expected HttpStatus(500), got {other:?}"),
+            TempoError::HttpStatus { status: 500, .. } => {}
+            other => panic!("expected HttpStatus {{ status: 500, .. }}, got {other:?}"),
         }
         server.await.unwrap();
     }
@@ -771,7 +778,10 @@ mod tests {
         let e1 = TempoError::InvalidEndpoint("bad".to_string());
         let e2 = TempoError::Transport("oops".to_string());
         let e3 = TempoError::BodyRead("body".to_string());
-        let e4 = TempoError::HttpStatus(418);
+        let e4 = TempoError::HttpStatus {
+            status: 418,
+            url: "http://tempo.example/api/search".to_string(),
+        };
         let e5 = TempoError::Timeout;
         let e6 = TempoError::JsonParse("json".to_string());
         let e7 = TempoError::ProtobufDecode("proto".to_string());
