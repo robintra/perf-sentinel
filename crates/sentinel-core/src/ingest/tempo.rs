@@ -172,8 +172,30 @@ const MAX_SEARCH_BODY_BYTES: usize = 1024 * 1024;
 /// invocation that exits after the fetch).
 const MAX_TRACE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
-/// Request timeout for Tempo API calls.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+/// Timeout for the Tempo search endpoint (`/api/search`). Search responses
+/// are small (an index lookup that returns a list of trace IDs) and should
+/// complete in well under a second on a healthy query-frontend, so a tight
+/// timeout fails fast on a broken endpoint.
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Timeout for the Tempo single-trace endpoint (`/api/traces/{id}`). Trace
+/// bodies can be large (a full OTLP dump of every span for the trace, which
+/// on a wide fan-out request can be many MiB) and the query-frontend has to
+/// gather spans from the ingesters + long-term storage. Five seconds was
+/// empirically too tight on a `tempo-distributed` deployment queried over
+/// a WAN with 24 h lookback: tens of traces per 100-trace batch hit the
+/// timeout. Thirty seconds is the same order of magnitude Grafana uses for
+/// its Tempo datasource query timeout default.
+const FETCH_TRACE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Cap on in-flight `fetch_trace` requests when processing a search-then-fetch
+/// flow. The previous sequential loop paid the full round-trip latency N
+/// times; parallelism collapses that to roughly `N × RTT / FETCH_CONCURRENCY`.
+/// Sixteen is empirically a sweet spot for Tempo query-frontends: high
+/// enough to saturate a remote connection (observed 10-20s for 100 traces
+/// over a WAN link, vs. 2m30s sequential) and low enough to avoid being
+/// rate-limited or overwhelming a single frontend replica.
+const FETCH_CONCURRENCY: usize = 16;
 
 /// Fetch raw bytes from a Tempo endpoint with size limit and timeout.
 ///
@@ -187,6 +209,7 @@ async fn fetch_raw(
     accept: &'static str,
     max_bytes: usize,
     map_404: bool,
+    timeout: Duration,
 ) -> Result<bytes::Bytes, TempoError> {
     let req = hyper::Request::builder()
         .method(hyper::Method::GET)
@@ -196,7 +219,7 @@ async fn fetch_raw(
         .body(http_body_util::Empty::<bytes::Bytes>::new())
         .map_err(|e| TempoError::Transport(e.to_string()))?;
 
-    let resp = tokio::time::timeout(REQUEST_TIMEOUT, client.request(req))
+    let resp = tokio::time::timeout(timeout, client.request(req))
         .await
         .map_err(|_| TempoError::Timeout)?
         .map_err(|e| TempoError::Transport(e.to_string()))?;
@@ -234,7 +257,15 @@ async fn fetch_bytes(
     uri: hyper::Uri,
     max_bytes: usize,
 ) -> Result<bytes::Bytes, TempoError> {
-    fetch_raw(client, uri, "application/protobuf", max_bytes, true).await
+    fetch_raw(
+        client,
+        uri,
+        "application/protobuf",
+        max_bytes,
+        true,
+        FETCH_TRACE_TIMEOUT,
+    )
+    .await
 }
 
 /// Fetch JSON from a Tempo endpoint.
@@ -243,7 +274,15 @@ async fn fetch_json(
     uri: hyper::Uri,
     max_bytes: usize,
 ) -> Result<String, TempoError> {
-    let body = fetch_raw(client, uri, "application/json", max_bytes, false).await?;
+    let body = fetch_raw(
+        client,
+        uri,
+        "application/json",
+        max_bytes,
+        false,
+        SEARCH_TIMEOUT,
+    )
+    .await?;
     String::from_utf8(body.to_vec()).map_err(|e| TempoError::BodyRead(e.to_string()))
 }
 
@@ -377,25 +416,57 @@ pub async fn ingest_from_tempo(
     );
 
     let trace_ids = search_traces(&client, endpoint, svc, lookback, max_traces).await?;
-    tracing::info!(count = trace_ids.len(), "Found traces, fetching...");
+    let total = trace_ids.len();
+    tracing::info!(count = total, "Found traces, fetching...");
+
+    // Parallelize per-trace fetches via a `JoinSet`, capped at
+    // `FETCH_CONCURRENCY` in-flight requests to avoid flooding Tempo's
+    // query-frontend. Mirrors the pattern used by
+    // `score::cloud_energy::scraper` for per-service Prometheus CPU queries.
+    // The hyper client holds an `Arc` internally, so `.clone()` is cheap;
+    // the endpoint is cloned per task so each owned future is `'static` as
+    // required by `spawn`.
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
+    let mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)> =
+        tokio::task::JoinSet::new();
+    for tid in trace_ids {
+        let client_clone = client.clone();
+        let endpoint_owned = endpoint.to_string();
+        let sem = std::sync::Arc::clone(&semaphore);
+        set.spawn(async move {
+            let Ok(_permit) = sem.acquire_owned().await else {
+                return (
+                    tid,
+                    Err(TempoError::Transport("semaphore closed".to_string())),
+                );
+            };
+            let result = fetch_trace(&client_clone, &endpoint_owned, &tid).await;
+            (tid, result)
+        });
+    }
 
     let mut all_events = Vec::new();
-    for (i, tid) in trace_ids.iter().enumerate() {
-        match fetch_trace(&client, endpoint, tid).await {
-            Ok(events) => {
+    let mut done: usize = 0;
+    while let Some(join_result) = set.join_next().await {
+        done += 1;
+        match join_result {
+            Ok((tid, Ok(events))) => {
                 tracing::debug!(
                     trace_id = %tid,
                     events = events.len(),
-                    progress = format!("{}/{}", i + 1, trace_ids.len()),
+                    progress = format!("{done}/{total}"),
                     "Fetched trace"
                 );
                 all_events.extend(events);
             }
-            Err(TempoError::TraceNotFound(_)) => {
+            Ok((tid, Err(TempoError::TraceNotFound(_)))) => {
                 tracing::warn!(trace_id = %tid, "Trace not found, skipping");
             }
-            Err(e) => {
+            Ok((tid, Err(e))) => {
                 tracing::error!(trace_id = %tid, error = %e, "Failed to fetch trace, skipping");
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Trace fetch task panicked or was cancelled");
             }
         }
     }
