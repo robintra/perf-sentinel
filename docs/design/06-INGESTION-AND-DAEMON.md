@@ -312,6 +312,24 @@ perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
 
 This flag is gated behind the `daemon` feature because it requires the `hyper` HTTP client stack. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
 
+## Tempo ingestion
+
+`ingest/tempo.rs` provides the post-mortem replay path: it queries a running Grafana Tempo HTTP API, fetches trace bodies as OTLP protobuf, decodes them through the existing `convert_otlp_request` helper and returns `Vec<SpanEvent>` to the standard analysis pipeline. Two modes: single-trace-by-ID (`--trace-id`, one `GET /api/traces/{id}`) or search-then-fetch (`--service --lookback`, one `GET /api/search` followed by per-trace fetches). Gated behind the `tempo` cargo feature.
+
+### Parallel fetch with concurrency cap
+
+The per-trace fetch loop is parallelized via `tokio::task::JoinSet` guarded by an `Arc<Semaphore>` capped at `FETCH_CONCURRENCY = 16` permits. Each spawned task acquires a permit through `acquire_owned` before the HTTP call and releases it on drop (RAII). The cap was picked empirically to saturate a remote-Tempo connection over a WAN link (observed ~10-20s for 100 traces vs. ~2m30s in the prior sequential loop) without overwhelming a single query-frontend replica, and is currently hardcoded rather than user-configurable. The pattern mirrors `score::cloud_energy::scraper`, which parallelizes per-service Prometheus CPU queries the same way.
+
+### Timeout split
+
+Two dedicated constants instead of a single value: `SEARCH_TIMEOUT = 5s` for `/api/search` (response is a small list of trace IDs, a tight timeout fails fast on a broken endpoint) and `FETCH_TRACE_TIMEOUT = 30s` for `/api/traces/{id}` (trace bodies can legitimately be many MiB on a wide fan-out request and the query-frontend has to gather spans from ingesters + long-term storage). A single 5 s cap was empirically dropping tens of traces per 100-trace batch on long lookback windows; 30 s matches the Grafana Tempo datasource default. Both timeouts are parameters of the shared `fetch_raw` helper rather than a single module-level constant, so search and fetch-trace paths can never drift apart.
+
+### Ctrl-C and error aggregation
+
+The drain loop is driven by `tokio::select!` with `biased` branch ordering: `tokio::signal::ctrl_c()` is polled before `set.join_next()` so a pending interrupt is not starved by a flood of completions. On signal, `set.abort_all()` flags every in-flight task for cancellation; already-completed traces are preserved, aborted tasks resolve to `JoinError::is_cancelled()` and are silently skipped. The dedicated `TempoError::Interrupted` variant is returned only when zero traces had completed before the signal, so CI quality-gate paths can distinguish an operator abort from a genuine empty result (`NoTracesFound`).
+
+Per-trace failures log at `debug`, not `error`. A single classified summary line (`emit_fetch_summary`) is emitted at the end of the loop, bucketed by error kind (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`) so downstream tooling (Loki, CloudWatch) can alert on the right signal without parsing 50 individual `ERROR` lines on a degraded Tempo. Summary severity tracks the worst class seen: `warn` if only `TraceNotFound` skips occurred (expected occasional condition, e.g. a trace rolled out of retention between search and fetch), `error` otherwise. A unit test (`classify_fetch_error_buckets_every_hard_failure_variant`) acts as a drift guard so a future variant added to `TempoError` does not silently fall through to `"other"`.
+
 ## Daemon query API
 
 <picture>
