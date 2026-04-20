@@ -1,32 +1,19 @@
-name: Code Scanning
+name: Code Scanning (weekly drift)
 
-# Uploads Clippy findings to GitHub Code Scanning as SARIF so they appear
-# in the repository Security tab. This is complementary to:
-#   - `ci.yml`        → fails the build on any Clippy warning (`-D warnings`).
-#   - `security-audit.yml` → runs `cargo audit` against Cargo.lock.
-# This workflow does NOT fail the build; it only surfaces warnings as
-# actionable entries in the Security tab. The quality gate remains `ci.yml`.
+# Weekly safety-net scan. On every push/PR, `ci.yml` already runs Clippy
+# (gated with `-D warnings`) and uploads the SARIF report to GitHub Code
+# Scanning. This workflow exists to catch drift introduced by toolchain
+# updates between pushes, e.g. a new lint added in a stable release that
+# flags existing code without any code change on our side.
+#
+# This workflow does NOT fail on warnings; `ci.yml` remains the authoritative
+# quality gate. `workflow_dispatch` is kept for manual re-scans.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'crates/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'crates/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/**'
   schedule:
     # Weekly scan on Monday 06:00 UTC to catch drift even without pushes.
     - cron: '0 6 * * 1'
+  workflow_dispatch:
 
 # Required to publish SARIF results to GitHub Code Scanning.
 permissions:

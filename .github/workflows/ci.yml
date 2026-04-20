@@ -48,6 +48,10 @@ jobs:
       github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
       || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      # Required to upload the Clippy SARIF report to GitHub Code Scanning.
+      security-events: write
     env:
       # Exposed at the job level so downstream steps can gate on `env.SONAR_TOKEN != ''`.
       # Dependabot PRs do not receive repo secrets, so the scan step skips itself.
@@ -74,8 +78,23 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Clippy report for SonarCloud
+      - name: Clippy report (JSON for SonarCloud and SARIF)
         run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
+
+      - name: Install clippy-sarif and sarif-fmt
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: clippy-sarif,sarif-fmt
+
+      - name: Convert Clippy JSON to SARIF
+        shell: bash
+        run: cat clippy-report.json | clippy-sarif | tee clippy.sarif | sarif-fmt
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+        with:
+          sarif_file: clippy.sarif
+          category: clippy
 
       - name: Build
         run: cargo build --workspace
