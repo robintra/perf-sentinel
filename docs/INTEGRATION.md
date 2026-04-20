@@ -1141,6 +1141,17 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 - The `--endpoint` flag points to the Tempo API base URL.
 - Traces are fetched as OTLP protobuf and run through the standard analysis pipeline. The output is identical to `perf-sentinel analyze`.
 
+### Tempo in microservices mode (`tempo-distributed`)
+
+If your Tempo is deployed via the `tempo-distributed` Helm chart rather than the monolithic single-binary image, the HTTP query API is exposed by **`tempo-query-frontend`**, not by `tempo-querier`. `tempo-querier` is an internal worker with no public-facing API, so pointing `--endpoint` at it returns HTTP 404 on every `/api/search` request. Resolve the query-frontend hostname the way your environment does it (Kubernetes Service name, Docker Compose service name, or an explicit host for bare-metal):
+
+```bash
+perf-sentinel tempo --endpoint http://tempo-query-frontend:3200 \
+  --service order-svc --lookback 1h
+```
+
+A 404 from a wrong endpoint now surfaces as `Tempo returned HTTP 404 for https://.../api/search?...` (the failing URL is included in the message) so this misconfiguration is diagnosable at a glance.
+
 ### Alternative: Tempo generic forwarding
 
 Instead of querying Tempo, you can configure Tempo to forward a copy of traces to perf-sentinel via [generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). This avoids querying Tempo and works in real-time with `perf-sentinel watch`.

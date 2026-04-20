@@ -457,7 +457,8 @@ Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les
 ## Ingestion Tempo
 
 - **Format protobuf.** La sous-commande `perf-sentinel tempo` demande les traces en protobuf OTLP depuis l'API HTTP de Tempo.
-- **Récupération séquentielle.** Les traces sont récupérées une par une pour respecter les limites de débit de Tempo.
+- **Plafond de concurrence sur le fetch parallèle.** Le flow search-then-fetch (`--service --lookback`) récupère les corps de trace en parallèle via un `tokio::task::JoinSet`, capé à 16 requêtes in-flight par un sémaphore interne. Le cap n'est pas configurable par l'utilisateur aujourd'hui. Timeout par fetch à 30s (vs. 5s pour l'étape search) pour laisser la query-frontend assembler un trace à fort fan-out depuis ingesters + stockage long terme. Sur un Tempo sous-dimensionné avec des fenêtres longues (24h par exemple), certains fetches peuvent malgré tout timeout : le remède est côté Tempo — scaler `tempo-query-frontend`, ajuster `max_search_duration` et `max_concurrent_queries`.
+- **Ctrl-C préserve les résultats partiels.** Interrompre un fetch parallèle long abort toutes les tasks in-flight et retourne les traces déjà complétées. La CLI renvoie l'erreur dédiée `TempoError::Interrupted` si zéro trace n'a eu le temps de se compléter avant le signal, pour que les quality gates CI distinguent un abort opérateur d'un vrai résultat vide (`NoTracesFound`).
 - **API de recherche.** Le mode recherche utilise l'endpoint `GET /api/search` de Tempo, qui doit être activé dans la configuration Tempo.
 
 ## Constante énergétique gCO2eq (section legacy, conservée pour les références croisées)
