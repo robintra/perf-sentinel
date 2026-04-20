@@ -47,7 +47,7 @@ jobs:
     name: Performance anti-pattern scan
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.4.6"
+      PERF_SENTINEL_VERSION: "0.4.7"
       PERF_SENTINEL_TRACES: "test-traces.json"
       PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 

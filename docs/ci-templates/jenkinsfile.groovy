@@ -28,7 +28,7 @@ pipeline {
     agent any
 
     environment {
-        PERF_SENTINEL_VERSION = '0.4.6'
+        PERF_SENTINEL_VERSION = '0.4.7'
         PERF_SENTINEL_TRACES  = 'target/traces.json'
         PERF_SENTINEL_CONFIG  = '.perf-sentinel.toml'
     }
