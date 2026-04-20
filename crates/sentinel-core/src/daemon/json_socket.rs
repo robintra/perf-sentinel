@@ -46,13 +46,10 @@ pub(super) async fn run_json_socket(
     let listener = match UnixListener::bind(path) {
         Ok(l) => l,
         Err(e) => {
-            // In minimal container images (e.g. `FROM scratch`) the parent
-            // directory of the socket may not exist, and the Unix NDJSON
-            // path is not the canonical ingestion route there anyway (OTLP
-            // gRPC/HTTP is). Treat "parent directory missing" as "feature
-            // disabled" and log at info, not as an error the operator has
-            // to triage. All other bind failures (permission denied, stale
-            // socket we failed to clean up, etc.) keep surfacing as errors.
+            // ENOENT = parent directory missing (expected in scratch-based
+            // container images where NDJSON is not the canonical ingestion
+            // route). Treat as "feature disabled", not as a triage-worthy
+            // error. All other bind failures keep their error level.
             if e.kind() == std::io::ErrorKind::NotFound {
                 tracing::info!(
                     "JSON socket listener disabled: parent directory of \

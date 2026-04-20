@@ -5,6 +5,11 @@
 #![allow(clippy::cast_sign_loss)] // i64 (libc::ru_maxrss) -> usize for RSS bytes on macOS
 #![allow(clippy::items_after_statements)] // bench report struct defined near its use
 
+// See `docs/design/07-CLI-CONFIG-RELEASE.md` § "Allocator on musl builds".
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[cfg(feature = "daemon")]
 mod query;
 mod render;

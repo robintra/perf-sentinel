@@ -341,6 +341,33 @@ Maximum optimization: aggressive inlining, loop vectorization and dead code elim
 
 The alternative `opt-level = "s"` (optimize for size) was considered but rejected: the binary size difference is marginal (~200KB), while the throughput difference can reach 10-30% on data-processing workloads.
 
+### Allocator on musl builds
+
+Linux release binaries target `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` so the artifact is fully static and runs on any distribution regardless of host glibc version. The musl libc ships its own allocator, which is simple and small but noticeably slower than glibc's under allocator contention. On the v0.4.6 release (musl + default allocator) a bench run over 500 iterations of the 78-event demo dataset measured 1.08M events/sec on aarch64 Linux, against 1.47M for an `aarch64-unknown-linux-gnu` build of the same code. That is well above the documented 100k events/sec target, but also the sole real cost of choosing musl over glibc.
+
+Rather than resurrect a dual glibc/musl release matrix to recover the gap, the CLI crate declares `mimalloc` as a target-gated dependency:
+
+```toml
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.49"
+```
+
+and swaps the global allocator in `main.rs` behind the same cfg:
+
+```rust
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+```
+
+Consequences:
+
+- **On musl targets** (Linux release artifacts): mimalloc replaces the system allocator automatically at link time. The v0.4.7 bench (same 500 x 78 workload, aarch64 Linux) measures **2.00M events/sec**, against 1.54M for the glibc build of the same code. mimalloc not only closes the musl gap but surpasses the glibc baseline by roughly 30%, driven by mimalloc's segment-and-page layout that outperforms both ptmalloc2 (glibc) and musl's naive allocator on the small-to-medium allocations that dominate perf-sentinel's hot path.
+- **On macOS, Windows, and any future `*-linux-gnu` target**: the `cfg(target_env = "musl")` guard evaluates to false, `mimalloc` is not even compiled, the system allocator stays in place. No surface-area change for those platforms.
+- **RSS cost**: about +21% (measured 42 MB vs 34 MB on the same bench). Expected tradeoff for a faster allocator that preallocates arenas; still an order of magnitude below the documented 200 MB daemon ceiling and well within the K8s requests/limits range recommended in the Helm values.
+
+The feature-flag-less, target-gated form was chosen over an opt-in cargo feature because (1) there is no plausible musl-build reason to keep the slower default, and (2) the swap has zero user-visible surface, so exposing it as a toggle would add documentation burden without a corresponding benefit.
+
 ## Distribution strategy
 
 1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2

@@ -309,6 +309,33 @@ Optimisation maximale : inlining agressif, vectorisation de boucles et éliminat
 
 L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée mais rejetée : la différence de taille binaire est marginale (~200 Ko), tandis que la différence de débit peut atteindre 10-30% sur les charges de traitement de données.
 
+### Allocateur sur les builds musl
+
+Les binaires Linux de release ciblent `x86_64-unknown-linux-musl` et `aarch64-unknown-linux-musl` pour que l'artefact soit entièrement statique et tourne sur n'importe quelle distribution quelle que soit la glibc hôte. La libc musl embarque son propre allocateur, simple et compact mais sensiblement plus lent que celui de la glibc sous contention. Sur la release v0.4.6 (musl + allocateur par défaut), un bench de 500 itérations sur le dataset de démo de 78 événements mesurait 1,08M événements/sec sur aarch64 Linux, contre 1,47M pour un build `aarch64-unknown-linux-gnu` du même code. C'est largement au-dessus de la cible documentée de 100k événements/sec, mais c'est aussi le seul vrai coût du choix musl vs glibc.
+
+Plutôt que de ressusciter une matrice de release dual glibc/musl pour combler l'écart, le crate CLI déclare `mimalloc` comme dépendance target-gated :
+
+```toml
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = "0.1.49"
+```
+
+et swap l'allocateur global dans `main.rs` derrière le même cfg :
+
+```rust
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+```
+
+Conséquences :
+
+- **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Le bench v0.4.7 (même workload 500 x 78, aarch64 Linux) mesure **2,00M événements/sec**, contre 1,54M pour le build glibc du même code. mimalloc ne se contente pas de combler l'écart musl, il dépasse le baseline glibc d'environ 30%, porté par sa disposition en segments/pages qui surpasse à la fois ptmalloc2 (glibc) et l'allocateur naïf de musl sur les allocations petites-à-moyennes qui dominent le chemin chaud de perf-sentinel.
+- **Sur macOS, Windows et n'importe quelle future cible `*-linux-gnu`** : le garde `cfg(target_env = "musl")` vaut faux, `mimalloc` n'est même pas compilé, l'allocateur système reste en place. Aucun changement de surface pour ces plateformes.
+- **Coût RSS** : environ +21% (mesuré 42 Mo vs 34 Mo sur le même bench). Tradeoff attendu pour un allocateur plus rapide qui pré-alloue ses arenas, toujours un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits recommandées dans les values Helm.
+
+La forme sans feature flag, target-gated, a été retenue plutôt qu'une feature cargo opt-in parce que (1) il n'y a pas de raison plausible, sur un build musl, de garder le défaut plus lent, et (2) le swap n'a aucune surface visible utilisateur, donc l'exposer en toggle alourdirait la doc sans bénéfice correspondant.
+
 ## Stratégie de distribution
 
 1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2

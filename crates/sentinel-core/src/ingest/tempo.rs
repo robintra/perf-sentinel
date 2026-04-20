@@ -175,29 +175,11 @@ const MAX_SEARCH_BODY_BYTES: usize = 1024 * 1024;
 /// invocation that exits after the fetch).
 const MAX_TRACE_BODY_BYTES: usize = 64 * 1024 * 1024;
 
-/// Timeout for the Tempo search endpoint (`/api/search`). Search responses
-/// are small (an index lookup that returns a list of trace IDs) and should
-/// complete in well under a second on a healthy query-frontend, so a tight
-/// timeout fails fast on a broken endpoint.
+// Timeouts and concurrency cap for the search-then-fetch flow. Rationale
+// and empirical numbers in `docs/design/06-INGESTION-AND-DAEMON.md`
+// § "Tempo ingestion".
 const SEARCH_TIMEOUT: Duration = Duration::from_secs(5);
-
-/// Timeout for the Tempo single-trace endpoint (`/api/traces/{id}`). Trace
-/// bodies can be large (a full OTLP dump of every span for the trace, which
-/// on a wide fan-out request can be many MiB) and the query-frontend has to
-/// gather spans from the ingesters + long-term storage. Five seconds was
-/// empirically too tight on a `tempo-distributed` deployment queried over
-/// a WAN with 24 h lookback: tens of traces per 100-trace batch hit the
-/// timeout. Thirty seconds is the same order of magnitude Grafana uses for
-/// its Tempo datasource query timeout default.
 const FETCH_TRACE_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Cap on in-flight `fetch_trace` requests when processing a search-then-fetch
-/// flow. The previous sequential loop paid the full round-trip latency N
-/// times; parallelism collapses that to roughly `N × RTT / FETCH_CONCURRENCY`.
-/// Sixteen is empirically a sweet spot for Tempo query-frontends: high
-/// enough to saturate a remote connection (observed 10-20s for 100 traces
-/// over a WAN link, vs. 2m30s sequential) and low enough to avoid being
-/// rate-limited or overwhelming a single frontend replica.
 const FETCH_CONCURRENCY: usize = 16;
 
 /// Fetch raw bytes from a Tempo endpoint with size limit and timeout.
@@ -543,25 +525,13 @@ struct FetchLoopOutcome {
     interrupted: bool,
 }
 
-/// Drive the per-trace fetch `JoinSet` to completion while handling Ctrl-C.
+/// Drive the per-trace fetch `JoinSet` to completion, handle Ctrl-C, and
+/// aggregate failure counts for the summary emitted by the caller. Design
+/// rationale in `docs/design/06-INGESTION-AND-DAEMON.md` § "Tempo ingestion".
 ///
-/// - Per-failure lines drop to `debug` so the terminal stays quiet on a
-///   partially-degraded Tempo (e.g. 50 of 100 timeouts no longer produce a
-///   wall of `ERROR` lines at once). The caller emits an aggregate summary.
-/// - `tokio::signal::ctrl_c()` is polled alongside `set.join_next()` so the
-///   user can interrupt a long-running fetch over a slow Tempo link. On
-///   signal, `set.abort_all()` flags every in-flight task for cancellation;
-///   the drain loop then completes rapidly (each aborted task resolves to a
-///   `JoinError::is_cancelled()` which is silently skipped). Traces that had
-///   already completed when Ctrl-C fired are kept, so the operator sees a
-///   partial analysis instead of losing the whole run.
-///
-/// **Intended call context**: this is a one-shot CLI helper. If the function
-/// is ever reused from a long-running component that already owns a SIGINT
-/// handler (e.g. `daemon::run`), both futures will resolve on the same
-/// signal and both cleanups will fire. That is harmless today (the daemon's
-/// handler does its own graceful drain) but the co-habitation should be
-/// revisited rather than assumed safe in perpetuity.
+/// Intended for one-shot CLI use. Calling it from a long-running component
+/// that already owns a SIGINT handler is not buggy but will fire two
+/// cleanups on the same signal, revisit before reusing.
 async fn drain_fetch_set(
     mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)>,
     total: usize,
@@ -1037,7 +1007,7 @@ mod tests {
     /// Sanity-check that every hard-failure variant of `TempoError` lands in a
     /// distinct, stable bucket. Acts as a drift guard: if someone adds a new
     /// variant later and forgets to extend `classify_fetch_error`, the new
-    /// variant silently ends up as `"other"` in the summary counts — this
+    /// variant silently ends up as `"other"` in the summary counts. This
     /// test either catches it (when the new variant deserves its own bucket)
     /// or documents that the catch-all is intentional.
     #[test]
@@ -1121,7 +1091,7 @@ mod tests {
             // non-deterministic because the drain loop is parallel. Match on
             // the request line to route each connection to the intended
             // response (500 for bbb222, 404 for ccc333, 200-empty for the
-            // remaining one). A single unmatched trace ID is fine too — the
+            // remaining one). A single unmatched trace ID is fine too, the
             // classifier still reports it as a 200-empty success.
             for _ in 0..3 {
                 let (mut sock, _) = listener.accept().await.unwrap();
