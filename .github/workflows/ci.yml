@@ -169,13 +169,17 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl -p perf-sentinel
 
       # Fail loudly if a future change accidentally reintroduces a dynamic
-      # link against glibc. `file` reports "statically linked" for fully
-      # static ELFs and "dynamically linked" otherwise, independent of the
-      # target triple name.
+      # link against glibc. Rust's musl target produces a Position Independent
+      # Executable that is fully statically linked, which modern `file` on
+      # Ubuntu 24.04 reports as "static-pie linked"; older `file` (e.g. on
+      # Debian bookworm) reports it as "statically linked". Both are fully
+      # static. The negative we want to catch is "dynamically linked", which
+      # would indicate a glibc dependency leaking back in.
       - name: Verify binary is statically linked
         run: |
           file target/x86_64-unknown-linux-musl/release/perf-sentinel
-          file target/x86_64-unknown-linux-musl/release/perf-sentinel | grep -q "statically linked"
+          file target/x86_64-unknown-linux-musl/release/perf-sentinel | grep -qE "statically linked|static-pie linked"
+          ! file target/x86_64-unknown-linux-musl/release/perf-sentinel | grep -q "dynamically linked"
 
       # Run the musl binary to surface runtime init regressions (e.g. a
       # future dependency that segfaults on musl-only TLS layout).
