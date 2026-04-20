@@ -8,11 +8,13 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 
 - [Aide-mémoire diagnostic](#aide-mémoire-diagnostic) : commandes à lancer en premier
 - [Analyser une trace plus ancienne que la fenêtre live](#analyser-une-trace-plus-ancienne-que-la-fenêtre-live) : workflow post-mortem
+- [Daemon en cours mais inaccessible depuis les clients](#daemon-en-cours-mais-inaccessible-depuis-les-clients)
 - [Aucune trace ingérée](#aucune-trace-ingérée)
 - [Chute soudaine du volume d'ingestion](#chute-soudaine-du-volume-dingestion)
 - [Spike de findings critiques](#spike-de-findings-critiques)
 - [Pression mémoire ou OOM du daemon](#pression-mémoire-ou-oom-du-daemon)
 - [Quality gate CI en échec inattendu](#quality-gate-ci-en-échec-inattendu)
+- [`perf-sentinel tempo` renvoie 404 ou timeout](#perf-sentinel-tempo-renvoie-404-ou-timeout)
 - [Exemplars absents dans Grafana](#exemplars-absents-dans-grafana)
 - [Scraper d'énergie bloqué](#scraper-dénergie-bloqué)
 - [`/api/correlations` renvoie vide](#apicorrelations-renvoie-vide)
@@ -119,6 +121,43 @@ max_active_traces     = 50000    # plafond dur à 1_000_000
 trace_ttl_ms          = 300000   # 5 minutes au lieu de 30 secondes
 max_retained_findings = 50000
 ```
+
+---
+
+## Daemon en cours mais inaccessible depuis les clients
+
+**Symptôme.** Le processus du daemon tourne (container up, unité systemd active, les logs indiquent `Starting daemon: gRPC=...:4317, HTTP=...:4318`) mais `curl http://<host>:4318/health` depuis l'extérieur du processus timeout ou est refusé (connection refused).
+
+**Premiers contrôles.**
+
+```bash
+# Depuis l'intérieur du container / pod / host qui fait tourner le daemon
+# (ça doit toujours marcher) :
+curl -sf http://localhost:4318/health
+
+# Depuis l'endroit où vous voulez réellement l'atteindre (c'est celui qui échoue) :
+curl -v http://<host>:4318/health
+
+# L'adresse de bind est loguée explicitement au démarrage :
+docker logs perf-sentinel 2>&1 | grep 'Starting daemon'
+# Attendu : gRPC=0.0.0.0:4317 pour être joignable de l'extérieur. Tout ce
+# qui contient 127.0.0.1 est loopback-only et refusera les connexions
+# venant d'en dehors du processus.
+```
+
+**Causes probables.**
+
+1. **Daemon bindé sur `127.0.0.1` (défaut).** Le listener bind sur l'interface loopback pour des raisons de sécurité. À l'intérieur d'un container, la loopback n'est joignable que *depuis le même container* : un `docker run -p 4318:4318` publie un port au niveau host mais le listener dans le container n'accepte pas la connexion forwardée. Même pattern sur une VM accédée via SSH port-forward ou sur un pod Kubernetes derrière un Service ClusterIP.
+2. **`--network host` combiné à des flags `-p`.** En mode host network, le container partage le namespace réseau de l'hôte ; les `-p` sont ignorés et Docker émet `WARNING: Published ports are discarded when using host network mode`. Le daemon n'est joignable que sur l'IP sur laquelle sa config le bind.
+3. **Mapping de port inversé ou incomplet.** `docker ps --format '{{.Ports}}'` montre le mapping effectif. Pattern attendu sur un run local de dev : `0.0.0.0:4317-4318->4317-4318/tcp`.
+4. **Firewall host, NetworkPolicy ou Security Group cloud qui drop le trafic.** Le `curl` depuis l'intérieur du namespace réseau réussit mais celui de l'extérieur timeout. Si la bind address est `0.0.0.0` et que les logs du daemon n'indiquent pas d'erreur, le delta est environnemental.
+
+**Correctif.**
+
+- Cause (1) : lancer avec `watch --listen-address 0.0.0.0`, ou fixer `[daemon] listen_address = "0.0.0.0"` dans `.perf-sentinel.toml`. Le daemon émettra un warning non-loopback au démarrage, c'est attendu ; placez un reverse proxy ou une NetworkPolicy en amont si c'est un environnement partagé. Voir le quickstart Docker dans [README-FR.md](../../README-FR.md) et les topologies sidecar/collector dans [INTEGRATION-FR.md](INTEGRATION-FR.md).
+- Cause (2) : retirer les flags `-p` en mode `--network host` (ils sont ignorés) et s'assurer que le daemon bind sur `0.0.0.0`. Ou revenir au réseau bridge par défaut + `-p` explicites.
+- Cause (3) : recréer le container avec l'ordre `-p HOST:CONTAINER` correct.
+- Cause (4) : comparer `curl` depuis l'intérieur (réussit) et depuis l'extérieur (échoue). Si le delta est infra, faire remonter la règle bloquante au owner infra.
 
 ---
 
@@ -290,6 +329,39 @@ Exemple de sortie :
 **Correctif.** Ajustez soit le code, soit le seuil, pas les deux sous pression. Si le finding est réel, corrigez le code. Si le seuil est mal calibré, mettez à jour `.perf-sentinel.toml` et committez le changement pour qu'il soit relu.
 
 > **Note.** Il n'existe pas de seuils de détection par service à ce jour ; les valeurs `[detection]` s'appliquent globalement à tous les services du fichier de traces.
+
+---
+
+## `perf-sentinel tempo` renvoie 404 ou timeout
+
+**Symptôme.** Soit chaque invocation échoue avec `Tempo returned HTTP 404 for https://.../api/search?...`, soit l'étape search réussit mais la boucle de fetch par trace finit avec `Tempo fetch completed with failures counts={"timeout": N}` et renvoie un résultat partiel (ou vide).
+
+**Premiers contrôles.**
+
+```bash
+# Vérifier que l'endpoint est bien une query-frontend Tempo, pas Grafana
+# ou un composant interne de Tempo. 200 = OK, 404 = mauvais endpoint.
+curl -s -o /dev/null -w 'HTTP %{http_code}\n' \
+  '<votre-endpoint>/api/search?limit=1'
+
+# Côté Tempo, surveiller la charge de la query-frontend
+kubectl logs -n observability deploy/tempo-query-frontend --tail=50 \
+  | grep -E 'error|timeout|queue'
+```
+
+**Causes probables.**
+
+1. **Mauvais composant en déploiement microservices.** Dans les déploiements Helm `tempo-distributed`, l'API HTTP de requête est servie exclusivement par `tempo-query-frontend`. Pointer `--endpoint` sur `tempo-querier` (worker interne, pas d'API publique) ou `tempo-ingester` (chemin d'écriture uniquement) renvoie 404 sur chaque `/api/search`. Le message 404 émis par perf-sentinel inclut désormais l'URL qui a échoué pour rendre la mauvaise configuration visible d'un coup d'œil.
+2. **Endpoint qui pointe sur Grafana au lieu de Tempo.** Grafana écoute sur 3000 par défaut, l'API HTTP de Tempo sur 3200. `http://grafana:3000/api/search` n'a pas de route correspondante et retourne 404.
+3. **Préfixe de reverse proxy oublié.** Si Tempo est derrière un ingress avec un préfixe de path (ex. `https://observability.example.com/tempo/...`), `--endpoint` doit inclure ce préfixe.
+4. **Tempo dégradé sous charge de fetch.** Le search a réussi mais les fetches par trace timeout. Déclencheurs courants : `--lookback` long (24 h sur un gros service), `tempo-query-frontend` sous-provisionnée, plafond `max_concurrent_queries` atteint, limites de ressources sur les ingesters (un ingester OOM-killed provoque des échecs de fetch en cascade).
+
+**Correctif.**
+
+- Causes (1), (2), (3) : pointer `--endpoint` sur la vraie URL de query-frontend, validée par le `curl` ci-dessus.
+- Cause (4) : côté perf-sentinel, réduire `--lookback` (commencer à 1 h, élargir progressivement) ou basculer sur `--trace-id <id>` pour un replay trace unique. Côté Tempo, scaler `tempo-query-frontend` horizontalement, remonter `max_concurrent_queries`, et vérifier les caps mémoire/CPU des ingesters.
+
+Perf-sentinel plafonne les fetches in-flight à 16 en parallèle par défaut : le client n'inonde pas lui-même Tempo. Si Tempo s'effondre quand même sur un run de 100 traces, c'est la capacité qui bouche, pas le client. Ctrl-C pendant un run long retourne désormais un résultat partiel avec les traces déjà complétées (voir [LIMITATIONS-FR.md](LIMITATIONS-FR.md) § "Ingestion Tempo") ; la CLI renvoie `Tempo fetch was interrupted by Ctrl-C before any trace completed` quand aucune trace n'a eu le temps de se compléter, distinct du `NoTracesFound` générique.
 
 ---
 
