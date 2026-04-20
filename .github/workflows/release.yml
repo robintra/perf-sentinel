@@ -26,10 +26,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          # Linux binaries target musl, not glibc, so they are statically linked
+          # and run on any distro (including `FROM scratch` images) regardless
+          # of the host glibc version. The ubuntu-latest runner's glibc version
+          # is not baked into the artifact.
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             artifact: perf-sentinel-linux-amd64
-          - target: aarch64-unknown-linux-gnu
+            musl: true
+          - target: aarch64-unknown-linux-musl
             os: ubuntu-latest
             artifact: perf-sentinel-linux-arm64
             cross: true
@@ -51,6 +56,13 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target }}
+
+      # musl-tools provides musl-gcc, needed by ring's build.rs when compiling
+      # for the native x86_64 musl target. Not needed for cross-compilation via
+      # `cross` (the cross Docker image already ships a musl toolchain).
+      - name: Install musl-tools
+        if: matrix.musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Install cross
         if: matrix.cross

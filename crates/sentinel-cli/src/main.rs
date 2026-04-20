@@ -83,6 +83,16 @@ enum Commands {
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Override the daemon listen address (e.g. `0.0.0.0` for container deployments).
+        /// Takes precedence over `[daemon] listen_address` in the config file.
+        #[arg(long)]
+        listen_address: Option<String>,
+        /// Override the daemon HTTP (OTLP + API) listen port.
+        #[arg(long)]
+        listen_port_http: Option<u16>,
+        /// Override the daemon gRPC (OTLP) listen port.
+        #[arg(long)]
+        listen_port_grpc: Option<u16>,
     },
 
     /// Run analysis on an embedded demo dataset.
@@ -321,7 +331,20 @@ async fn main() {
             cmd_explain(&input, &trace_id, config.as_deref(), format);
         }
         #[cfg(feature = "daemon")]
-        Commands::Watch { config } => cmd_watch(config.as_deref()).await,
+        Commands::Watch {
+            config,
+            listen_address,
+            listen_port_http,
+            listen_port_grpc,
+        } => {
+            cmd_watch(
+                config.as_deref(),
+                listen_address,
+                listen_port_http,
+                listen_port_grpc,
+            )
+            .await;
+        }
         Commands::Demo { config } => cmd_demo(config.as_deref()),
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
         #[cfg(feature = "tui")]
@@ -768,8 +791,28 @@ fn cmd_explain(
 }
 
 #[cfg(feature = "daemon")]
-async fn cmd_watch(config_path: Option<&std::path::Path>) {
-    let config = load_config(config_path);
+async fn cmd_watch(
+    config_path: Option<&std::path::Path>,
+    listen_address: Option<String>,
+    listen_port_http: Option<u16>,
+    listen_port_grpc: Option<u16>,
+) {
+    let mut config = load_config(config_path);
+    if let Some(addr) = listen_address {
+        config.listen_addr = addr;
+    }
+    if let Some(port) = listen_port_http {
+        config.listen_port = port;
+    }
+    if let Some(port) = listen_port_grpc {
+        config.listen_port_grpc = port;
+    }
+    // Re-run validation so a CLI override to a non-loopback address still
+    // emits the security warning from `validate_listen_addr`.
+    if let Err(e) = config.validate() {
+        eprintln!("Error: invalid daemon configuration after CLI overrides: {e}");
+        std::process::exit(1);
+    }
     info!(
         "Starting daemon: gRPC={}:{}, HTTP={}:{}",
         config.listen_addr, config.listen_port_grpc, config.listen_addr, config.listen_port,

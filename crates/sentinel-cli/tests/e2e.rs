@@ -197,6 +197,61 @@ fn cli_watch_starts_and_responds_to_sigterm() {
 }
 
 #[test]
+fn cli_watch_help_documents_listen_address_override() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["watch", "--help"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success(), "watch --help should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("--listen-address"),
+        "watch --help should advertise --listen-address, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("--listen-port-http"),
+        "watch --help should advertise --listen-port-http, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("--listen-port-grpc"),
+        "watch --help should advertise --listen-port-grpc, got: {stdout}"
+    );
+}
+
+#[test]
+fn cli_watch_listen_address_override_starts_cleanly() {
+    use std::time::Duration;
+
+    // Use non-default ports to avoid collisions with a local daemon and
+    // verify the override path is wired end-to-end (invalid ports or a
+    // parse failure would exit before the sleep expires).
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "watch",
+            "--listen-address",
+            "127.0.0.1",
+            "--listen-port-http",
+            "14318",
+            "--listen-port-grpc",
+            "14317",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn perf-sentinel watch");
+
+    std::thread::sleep(Duration::from_millis(500));
+    let still_running = child.try_wait().expect("try_wait failed").is_none();
+    child.kill().expect("failed to kill watch process");
+    let _ = child.wait_with_output();
+    assert!(
+        still_running,
+        "daemon should still be running after overrides; likely a CLI parse or validation error"
+    );
+}
+
+#[test]
 fn cli_demo_output_contains_green_impact() {
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .arg("demo")

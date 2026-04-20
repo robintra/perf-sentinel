@@ -257,7 +257,7 @@ cargo install perf-sentinel
 
 ### Download a prebuilt binary
 
-Binaries for Linux (amd64, arm64), macOS (arm64) and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page. macOS Intel users can run the arm64 binary via Rosetta 2.
+Binaries for Linux (amd64, arm64), macOS (arm64) and Windows (amd64) are available on the [GitHub Releases](https://github.com/robintra/perf-sentinel/releases) page. Linux binaries target musl and are fully statically linked, so they run on any distribution (Debian, Ubuntu, Alpine, RHEL, etc.) regardless of glibc version, and inside `FROM scratch` images. macOS Intel users can run the arm64 binary via Rosetta 2.
 
 ```bash
 # Example: Linux amd64
@@ -269,8 +269,11 @@ sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
 ### Run with Docker
 
 ```bash
-docker run --rm -p 4317:4317 -p 4318:4318 ghcr.io/robintra/perf-sentinel:latest
+docker run --rm -p 4317:4317 -p 4318:4318 \
+  ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0
 ```
+
+The daemon binds to `127.0.0.1` by default for security. Inside a container that is unreachable from the host, so the quickstart above overrides the bind address with `--listen-address 0.0.0.0`. The daemon will log a non-loopback warning on startup, which is expected. For real deployments, put a reverse proxy (or a NetworkPolicy on Kubernetes) in front, or mount [`examples/perf-sentinel-docker.toml`](examples/perf-sentinel-docker.toml) for the full compose topology.
 
 ### Quick demo
 

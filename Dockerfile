@@ -7,4 +7,5 @@ ARG TARGETARCH
 COPY build/linux-${TARGETARCH}/perf-sentinel /perf-sentinel
 USER 65534
 EXPOSE 4317 4318
-ENTRYPOINT ["/perf-sentinel", "watch"]
+ENTRYPOINT ["/perf-sentinel"]
+CMD ["watch"]

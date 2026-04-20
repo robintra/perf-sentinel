@@ -121,3 +121,53 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@299e4b793aaa83bf2aba7c9c14bedbb485688ec4 # v7.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Smoke-test the musl release target so glibc/musl regressions (new C-FFI
+  # crate, ring toolchain break, missing musl-tools) surface on PRs instead
+  # of at `git tag v*` time in release.yml. Mirrors the amd64 path of the
+  # release workflow: ubuntu-latest runner, native musl toolchain, release
+  # profile. Cross-compiled aarch64-musl (which goes through `cross` in
+  # release.yml) is not duplicated here since `cross` pins its own Docker
+  # toolchain and the amd64 smoke test catches dependency-level regressions.
+  musl-smoke:
+    name: Musl release build
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name == 'push'
+      || github.event_name == 'workflow_dispatch'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: musl-smoke
+
+      - name: Install musl-tools
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Build release binary (musl)
+        run: cargo build --release --target x86_64-unknown-linux-musl -p perf-sentinel
+
+      # Fail loudly if a future change accidentally reintroduces a dynamic
+      # link against glibc. `file` reports "statically linked" for fully
+      # static ELFs and "dynamically linked" otherwise, independent of the
+      # target triple name.
+      - name: Verify binary is statically linked
+        run: |
+          file target/x86_64-unknown-linux-musl/release/perf-sentinel
+          file target/x86_64-unknown-linux-musl/release/perf-sentinel | grep -q "statically linked"
+
+      # Run the musl binary to surface runtime init regressions (e.g. a
+      # future dependency that segfaults on musl-only TLS layout).
+      - name: Smoke-run the static binary
+        run: ./target/x86_64-unknown-linux-musl/release/perf-sentinel --version
