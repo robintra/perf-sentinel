@@ -62,7 +62,7 @@ Si un consommateur a besoin d'une classification indépendante de la version (pa
 
 ### La sévérité par finding est documentée ailleurs
 
-Pour les règles de sévérité par détecteur (`Critical` / `Warning` / `Info` sur N+1, Fanout, Slow, Chatty, Pool, Serialized), voir [`docs/design/04-DETECTION.md`](../design/04-DETECTION.md). Ces règles dépendent de seuils par détecteur partiellement config-tunables (par ex. `max_fanout × 3`, `chatty_service_min_calls × 3`) et sont documentées à côté des détecteurs eux-mêmes.
+Pour les règles de sévérité par détecteur (`Critical` / `Warning` / `Info` sur N+1, Fanout, Slow, Chatty, Pool, Serialized), voir [`docs/FR/design/04-DETECTION-FR.md`](design/04-DETECTION-FR.md). Ces règles dépendent de seuils par détecteur partiellement config-tunables (par ex. `max_fanout × 3`, `chatty_service_min_calls × 3`) et sont documentées à côté des détecteurs eux-mêmes.
 
 ## La détection de fanout nécessite `parent_span_id`
 
@@ -163,7 +163,7 @@ Le binaire release cible < 10 Mo avec `lto = "thin"`, `strip = true` et `panic =
 
 perf-sentinel n'implémente **pas** d'authentification sur ses endpoints d'ingestion. Par défaut, le daemon écoute sur `127.0.0.1` (loopback uniquement), ce qui est sûr pour les déploiements sur une seule machine.
 
-**Le TLS est supporté** sur les listeners OTLP gRPC et HTTP via les champs de configuration `[daemon] tls_cert_path` et `tls_key_path`. Lorsque les deux sont renseignés, le daemon sert OTLP et `/metrics` en TLS. Le socket unix JSON et le scraping Prometheus `/metrics` ne sont pas configurables séparément : `/metrics` partage le port HTTP et hérite de son paramètre TLS. Voir [`docs/CONFIGURATION.md`](../CONFIGURATION.md) pour la référence complète.
+**Le TLS est supporté** sur les listeners OTLP gRPC et HTTP via les champs de configuration `[daemon] tls_cert_path` et `tls_key_path`. Lorsque les deux sont renseignés, le daemon sert OTLP et `/metrics` en TLS. Le socket unix JSON et le scraping Prometheus `/metrics` ne sont pas configurables séparément : `/metrics` partage le port HTTP et hérite de son paramètre TLS. Voir [`docs/FR/CONFIGURATION-FR.md`](CONFIGURATION-FR.md) pour la référence complète.
 
 Si vous exposez perf-sentinel sur un réseau :
 
@@ -293,7 +293,7 @@ Quand `[green] use_hourly_profiles = true` (le défaut), l'étape de scoring uti
 **Ce que ça fait et ne fait pas.** Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Les profils mois x heure capturent aussi la variance saisonnière pour les 4 régions listées. Il ne capture PAS :
 
 - **Les fluctuations liées à la météo** : les valeurs embarquées sont des moyennes typiques, pas des données temps-réel.
-- **Les données en temps réel** : pour l'intensité carbone en temps réel, voir l'intégration Electricity Maps API (prévue dans une prochaine version).
+- **Les données en temps réel** : les profils embarqués sont statiques. Pour l'intensité carbone en temps réel (marquée `intensity_source = "real_time"` dans les rapports), activer l'intégration opt-in `[green.electricity_maps]` en mode daemon, voir `docs/FR/CONFIGURATION-FR.md`.
 
 **Profils estimés.** Les profils Asie-Pacifique et Brésil sont estimés à partir de la composition du mix de combustibles plutôt que de données horaires de génération. Ils sont annotés comme tels dans le code source.
 

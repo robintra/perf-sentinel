@@ -514,5 +514,5 @@ L'API de requêtage porte une promesse de stabilité à partir de v0.4.1.
   de déploiement globale.
 - [`docs/FR/CONFIGURATION-FR.md`](./CONFIGURATION-FR.md) pour les
   réglages `[daemon]` et `[daemon.correlation]`.
-- [`docs/design/06-INGESTION-AND-DAEMON-FR.md`](./design/06-INGESTION-AND-DAEMON-FR.md)
+- [`docs/FR/design/06-INGESTION-AND-DAEMON-FR.md`](./design/06-INGESTION-AND-DAEMON-FR.md)
   pour le design interne du daemon.

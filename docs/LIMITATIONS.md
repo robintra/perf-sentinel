@@ -235,7 +235,7 @@ When `[green] use_hourly_profiles = true` (the default), the scoring stage uses 
 **What this does and doesn't do.** The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). Monthly x hourly profiles also capture seasonal variance for the 4 listed regions. It does **not** capture:
 
 - **Weather-dependent fluctuations**: the embedded values are typical averages, not real-time data. A calm windless day in the UK will produce more carbon than the profile suggests.
-- **Real-time grid data**: for live carbon intensity, consider the Electricity Maps API integration (planned for a future release).
+- **Real-time grid data**: the embedded profiles are static. For live carbon intensity (reported as `intensity_source = "real_time"`), enable the opt-in `[green.electricity_maps]` integration in daemon mode, see `docs/CONFIGURATION.md`.
 
 **Estimated profiles.** The Asia-Pacific and Brazil profiles are estimated from fuel mix composition rather than hourly generation data. They are annotated as such in the source code. The diurnal shapes are approximations based on the known fuel mix (e.g. gas-dominated grids are nearly flat, coal-heavy grids have mild evening peaks).
 

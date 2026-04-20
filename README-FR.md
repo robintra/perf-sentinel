@@ -245,7 +245,7 @@ La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côt�
 
 **Contrat de stabilité JSON :** les valeurs d'enum ci-dessus (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions. Les seuils numériques qui les déclenchent sont versionnés avec le binaire et peuvent évoluer. Les consommateurs qui veulent une classification indépendante de la version doivent lire les champs bruts `io_intensity_score` et `io_waste_ratio` et appliquer leurs propres bandes.
 
-Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type de détecteur), voir [`docs/design/04-DETECTION.md`](docs/design/04-DETECTION.md). Pour le rationale complet des bandes d'interprétation, voir [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md#score-interpretation).
+Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type de détecteur), voir [`docs/FR/design/04-DETECTION-FR.md`](docs/FR/design/04-DETECTION-FR.md). Pour le rationale complet des bandes d'interprétation, voir [`docs/FR/LIMITATIONS-FR.md`](docs/FR/LIMITATIONS-FR.md#interprétation-des-scores).
 
 ## Démarrage rapide
 
@@ -439,7 +439,7 @@ docker compose -f examples/docker-compose-collector.yml up -d
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
-perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/INTEGRATION.md) sur `/metrics` (port 4318). Un endpoint `GET /health` de liveness est exposé sur le même port pour les sondes Kubernetes ou load-balancer.
+perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/FR/INTEGRATION-FR.md) sur `/metrics` (port 4318). Un endpoint `GET /health` de liveness est exposé sur le même port pour les sondes Kubernetes ou load-balancer.
 
 Voir [`examples/otel-collector-config.yaml`](examples/otel-collector-config.yaml) pour la config complète du collector avec les options de sampling et filtrage.
 
@@ -455,7 +455,7 @@ L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`exampl
 
 ---
 
-Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/INTEGRATION.md](docs/INTEGRATION.md). Pour la référence complète de configuration, voir [docs/CONFIGURATION.md](docs/CONFIGURATION.md). Pour l'API HTTP de requêtage du daemon (findings, explain, corrélations, status), voir [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md). Pour le workflow post-mortem quand une trace est plus ancienne que la fenêtre live du daemon, voir [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md). Pour la documentation de conception détaillée, voir [docs/design/](docs/design/00-INDEX.md).
+Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md). Pour la référence complète de configuration, voir [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md). Pour l'API HTTP de requêtage du daemon (findings, explain, corrélations, status), voir [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md). Pour le workflow post-mortem quand une trace est plus ancienne que la fenêtre live du daemon, voir [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md). Pour la documentation de conception détaillée, voir [docs/FR/design/](docs/FR/design/00-INDEX-FR.md).
 
 ## Normes et sources de données
 
