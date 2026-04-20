@@ -96,6 +96,42 @@ Quand le scoring vert est activé et qu'au moins un événement est analysé, le
 
 Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie et `docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone` pour le disclaimer directionnel / non-réglementaire.
 
+#### Profils horaires fournis par l'utilisateur
+
+Mettre `[green] hourly_profiles_file` vers un fichier JSON pour fournir vos propres profils horaires. C'est utile pour les opérateurs de datacenter avec leurs propres PPAs (power purchase agreements) ou pour surcharger les données embarquées avec des mesures locales.
+
+```json
+{
+  "profiles": {
+    "my-datacenter": {
+      "type": "flat_year",
+      "hours": [45.0, 44.0, 43.0, "... 24 valeurs au total ..."]
+    },
+    "eu-west-3": {
+      "type": "monthly",
+      "months": [
+        [50.0, 49.0, "... 24 valeurs pour janvier ..."],
+        ["... 11 mois supplémentaires ..."]
+      ]
+    }
+  }
+}
+```
+
+Les profils fournis par l'utilisateur ont priorité sur les profils embarqués pour la même clé de région. Validation au chargement de la config : chaque `flat_year` doit contenir exactement 24 valeurs, chaque `monthly` doit contenir exactement 12 tableaux de 24 valeurs. Toutes les valeurs doivent être finies et non-négatives. Si la clé de région existe dans la table carbone embarquée, un warning est loggé quand la moyenne du profil s'écarte de plus de 5% de la valeur annuelle, mais le profil est quand même accepté.
+
+#### Alias de régions pour les profils horaires
+
+Les alias de code pays et les synonymes de fournisseurs cloud résolvent vers le même profil horaire. Par exemple, `"fr"`, `"francecentral"` et `"europe-west9"` mappent tous vers le profil `eu-west-3` (France). Mappings notables :
+
+- `"us"`, `"eastus"` → `us-east-1` (US-East, la région de déploiement US la plus courante)
+- `"westeurope"`, `"nl"` → `eu-west-4` (Pays-Bas)
+- `"northeurope"`, `"ie"` → `eu-west-1` (Irlande)
+- `"uksouth"`, `"gb"`, `"uk"` → `eu-west-2` (Royaume-Uni)
+- `"westus2"` → `us-west-2` (Oregon)
+
+La table complète des alias se trouve dans `score/carbon_profiles.rs`. Si votre clé de région n'est pas aliasée, la valeur annuelle plate de la table carbone principale est utilisée.
+
 #### `[green.scaphandre]` (optionnel, opt-in)
 
 Intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par-processus sur les hôtes Linux avec support Intel RAPL. Quand cette section est configurée, le daemon `watch` lance une tâche de fond qui scrape l'endpoint Prometheus de Scaphandre toutes les `scrape_interval_secs` secondes et utilise les lectures de puissance mesurées pour remplacer la constante `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.
