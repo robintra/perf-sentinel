@@ -1,0 +1,47 @@
+# Auto-rerun a failed CI or Release workflow run exactly once, to absorb
+# transient GitHub Actions infrastructure hiccups: action tarball 5xx,
+# runner DNS flap, apt mirror blip, ephemeral container registry timeout,
+# etc. These are the ~1-3% of runs that fail on a hosted runner without
+# any repo-side cause and succeed on a retry.
+#
+# Does NOT mask real failures: the second attempt is the last. A second
+# consecutive failure stays red and requires human triage (the cap is
+# enforced by `github.event.workflow_run.run_attempt < 2`, meaning we
+# only retry the first attempt; the rerun itself produces `run_attempt
+# == 2`, which this workflow then ignores).
+#
+# Scoped to the two workflows where transient infra failures actually
+# bite: `CI` (PR gate) and `Release` (tag builds + crates.io publish).
+# `Security Audit` and `code-scanning` are not included; they are fast,
+# low-surface and a transient failure there is easily noticed and rerun
+# by hand.
+name: Auto-rerun failed workflow
+
+on:
+  workflow_run:
+    workflows: ["CI", "Release"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  rerun:
+    # Only fire on the first failure of a run. `run_attempt` counts from
+    # 1 for the initial run and increments on each manual or automated
+    # rerun; gating on `< 2` caps automatic retries at exactly one.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure'
+      && github.event.workflow_run.run_attempt < 2
+    runs-on: ubuntu-latest
+    permissions:
+      # `actions: write` is required by `gh run rerun`. Scoped to this
+      # job only; the workflow-level floor stays `contents: read`.
+      actions: write
+    steps:
+      - name: Rerun failed jobs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::notice::Auto-rerunning failed ${{ github.event.workflow_run.name }} run ${{ github.event.workflow_run.id }} (attempt ${{ github.event.workflow_run.run_attempt }})"
+          gh run rerun ${{ github.event.workflow_run.id }} --failed --repo ${{ github.repository }}
