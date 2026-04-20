@@ -56,6 +56,9 @@ pub enum TempoError {
 
     #[error("no traces found for the given search criteria")]
     NoTracesFound,
+
+    #[error("Tempo fetch was interrupted by Ctrl-C before any trace completed")]
+    Interrupted,
 }
 
 // ---------------------------------------------------------------
@@ -360,6 +363,70 @@ pub async fn fetch_trace(
     Ok(convert_otlp_request(&request))
 }
 
+/// Classify a per-trace fetch failure into a short category tag used for the
+/// aggregate summary counts. Returning `&'static str` keeps the hashmap key
+/// allocation-free. `TraceNotFound` is handled separately by the caller
+/// because it carries its own category and severity.
+fn classify_fetch_error(error: &TempoError) -> &'static str {
+    match error {
+        TempoError::Timeout => "timeout",
+        TempoError::Transport(_) => "transport",
+        TempoError::HttpStatus { .. } => "http_status",
+        TempoError::ProtobufDecode(_) => "protobuf_decode",
+        TempoError::BodyRead(_) => "body_read",
+        TempoError::JsonParse(_) => "json_parse",
+        _ => "other",
+    }
+}
+
+/// Emit the end-of-loop aggregate summary for a parallel Tempo fetch.
+///
+/// Picks the severity based on the mix of failures seen:
+/// - nothing logged when `fail_counts` is empty and the run was not
+///   interrupted (the ambient `info!` lines from `search_traces` and the
+///   per-trace `debug!` lines already describe the run);
+/// - `warn` when the only failures are `TraceNotFound` skips (an expected
+///   occasional condition: a trace rolled out of Tempo's retention between
+///   the search and the fetch);
+/// - `error` when any hard failure (timeout, transport, HTTP 5xx, decode,
+///   panic) occurred;
+/// - an additional `warn` line on Ctrl-C so the operator sees explicitly
+///   that the report is based on partial results.
+fn emit_fetch_summary(
+    fail_counts: &std::collections::HashMap<&'static str, usize>,
+    total_attempted: usize,
+    interrupted: bool,
+    collected_events: usize,
+) {
+    if !fail_counts.is_empty() {
+        let total_failures: usize = fail_counts.values().sum();
+        let only_not_found = fail_counts.keys().all(|k| *k == "not_found");
+        if only_not_found {
+            tracing::warn!(
+                total_failures,
+                total_attempted,
+                counts = ?fail_counts,
+                "Tempo fetch completed with skipped traces"
+            );
+        } else {
+            tracing::error!(
+                total_failures,
+                total_attempted,
+                counts = ?fail_counts,
+                "Tempo fetch completed with failures"
+            );
+        }
+    }
+
+    if interrupted {
+        tracing::warn!(
+            collected = collected_events,
+            total_attempted,
+            "Tempo fetch interrupted by Ctrl-C, proceeding with partial results"
+        );
+    }
+}
+
 /// Ingest traces from Tempo: either a single trace by ID or a search-then-fetch flow.
 ///
 /// # Errors
@@ -445,37 +512,129 @@ pub async fn ingest_from_tempo(
         });
     }
 
-    let mut all_events = Vec::new();
+    let drained = drain_fetch_set(set, total).await;
+    emit_fetch_summary(
+        &drained.fail_counts,
+        total,
+        drained.interrupted,
+        drained.events.len(),
+    );
+
+    if drained.events.is_empty() {
+        // Differentiate "Tempo returned nothing and we were not interrupted"
+        // (genuine empty result) from "the user Ctrl-C'd before anything
+        // completed" (operator action, not a data condition). Surfacing a
+        // generic `NoTracesFound` in the interrupted case would be
+        // misleading, especially in a CI quality-gate context where it
+        // maps to a hard failure.
+        if drained.interrupted {
+            return Err(TempoError::Interrupted);
+        }
+        return Err(TempoError::NoTracesFound);
+    }
+
+    Ok(drained.events)
+}
+
+/// Aggregate result of draining the per-trace fetch `JoinSet`.
+struct FetchLoopOutcome {
+    events: Vec<SpanEvent>,
+    fail_counts: std::collections::HashMap<&'static str, usize>,
+    interrupted: bool,
+}
+
+/// Drive the per-trace fetch `JoinSet` to completion while handling Ctrl-C.
+///
+/// - Per-failure lines drop to `debug` so the terminal stays quiet on a
+///   partially-degraded Tempo (e.g. 50 of 100 timeouts no longer produce a
+///   wall of `ERROR` lines at once). The caller emits an aggregate summary.
+/// - `tokio::signal::ctrl_c()` is polled alongside `set.join_next()` so the
+///   user can interrupt a long-running fetch over a slow Tempo link. On
+///   signal, `set.abort_all()` flags every in-flight task for cancellation;
+///   the drain loop then completes rapidly (each aborted task resolves to a
+///   `JoinError::is_cancelled()` which is silently skipped). Traces that had
+///   already completed when Ctrl-C fired are kept, so the operator sees a
+///   partial analysis instead of losing the whole run.
+///
+/// **Intended call context**: this is a one-shot CLI helper. If the function
+/// is ever reused from a long-running component that already owns a SIGINT
+/// handler (e.g. `daemon::run`), both futures will resolve on the same
+/// signal and both cleanups will fire. That is harmless today (the daemon's
+/// handler does its own graceful drain) but the co-habitation should be
+/// revisited rather than assumed safe in perpetuity.
+async fn drain_fetch_set(
+    mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)>,
+    total: usize,
+) -> FetchLoopOutcome {
+    let shutdown_signal = tokio::signal::ctrl_c();
+    tokio::pin!(shutdown_signal);
+
+    let mut events = Vec::new();
     let mut done: usize = 0;
-    while let Some(join_result) = set.join_next().await {
-        done += 1;
-        match join_result {
-            Ok((tid, Ok(events))) => {
-                tracing::debug!(
-                    trace_id = %tid,
-                    events = events.len(),
-                    progress = format!("{done}/{total}"),
-                    "Fetched trace"
+    let mut fail_counts: std::collections::HashMap<&'static str, usize> =
+        std::collections::HashMap::new();
+    let mut interrupted = false;
+
+    loop {
+        tokio::select! {
+            // `biased` checks the shutdown branch first so a pending Ctrl-C
+            // is not starved by a flood of task completions.
+            biased;
+            _ = &mut shutdown_signal, if !interrupted => {
+                tracing::warn!(
+                    completed = done,
+                    pending = set.len(),
+                    "Received Ctrl-C, aborting in-flight Tempo fetches"
                 );
-                all_events.extend(events);
+                set.abort_all();
+                interrupted = true;
             }
-            Ok((tid, Err(TempoError::TraceNotFound(_)))) => {
-                tracing::warn!(trace_id = %tid, "Trace not found, skipping");
-            }
-            Ok((tid, Err(e))) => {
-                tracing::error!(trace_id = %tid, error = %e, "Failed to fetch trace, skipping");
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Trace fetch task panicked or was cancelled");
+            maybe_result = set.join_next() => {
+                match maybe_result {
+                    None => break,
+                    Some(Ok((tid, Ok(batch)))) => {
+                        done += 1;
+                        tracing::debug!(
+                            trace_id = %tid,
+                            events = batch.len(),
+                            progress = format!("{done}/{total}"),
+                            "Fetched trace"
+                        );
+                        events.extend(batch);
+                    }
+                    Some(Ok((tid, Err(TempoError::TraceNotFound(_))))) => {
+                        done += 1;
+                        *fail_counts.entry("not_found").or_insert(0) += 1;
+                        tracing::debug!(trace_id = %tid, "Trace not found, skipping");
+                    }
+                    Some(Ok((tid, Err(e)))) => {
+                        done += 1;
+                        *fail_counts.entry(classify_fetch_error(&e)).or_insert(0) += 1;
+                        tracing::debug!(
+                            trace_id = %tid,
+                            error = %e,
+                            "Failed to fetch trace, skipping"
+                        );
+                    }
+                    Some(Err(e)) if e.is_cancelled() => {
+                        // Aborted after Ctrl-C; the user-facing warn was
+                        // already emitted by the shutdown branch above.
+                    }
+                    Some(Err(e)) => {
+                        done += 1;
+                        *fail_counts.entry("task_panic").or_insert(0) += 1;
+                        tracing::error!(error = %e, "Trace fetch task panicked");
+                    }
+                }
             }
         }
     }
 
-    if all_events.is_empty() {
-        return Err(TempoError::NoTracesFound);
+    FetchLoopOutcome {
+        events,
+        fail_counts,
+        interrupted,
     }
-
-    Ok(all_events)
 }
 
 // ---------------------------------------------------------------
@@ -858,6 +1017,7 @@ mod tests {
         let e7 = TempoError::ProtobufDecode("proto".to_string());
         let e8 = TempoError::TraceNotFound("http://x".to_string());
         let e9 = TempoError::NoTracesFound;
+        let e10 = TempoError::Interrupted;
         assert!(format!("{e1}").contains("endpoint"));
         assert!(format!("{e2}").contains("transport") || format!("{e2}").contains("Transport"));
         assert!(format!("{e3}").contains("body"));
@@ -867,5 +1027,126 @@ mod tests {
         assert!(format!("{e7}").contains("protobuf") || format!("{e7}").contains("Protobuf"));
         assert!(format!("{e8}").contains("not found") || format!("{e8}").contains("Not found"));
         assert!(format!("{e9}").contains("no traces") || format!("{e9}").contains("No traces"));
+        assert!(
+            format!("{e10}").contains("interrupted") || format!("{e10}").contains("Interrupted")
+        );
+    }
+
+    // --- Fetch-error classification ---
+
+    /// Sanity-check that every hard-failure variant of `TempoError` lands in a
+    /// distinct, stable bucket. Acts as a drift guard: if someone adds a new
+    /// variant later and forgets to extend `classify_fetch_error`, the new
+    /// variant silently ends up as `"other"` in the summary counts — this
+    /// test either catches it (when the new variant deserves its own bucket)
+    /// or documents that the catch-all is intentional.
+    #[test]
+    fn classify_fetch_error_buckets_every_hard_failure_variant() {
+        assert_eq!(classify_fetch_error(&TempoError::Timeout), "timeout");
+        assert_eq!(
+            classify_fetch_error(&TempoError::Transport("x".into())),
+            "transport"
+        );
+        assert_eq!(
+            classify_fetch_error(&TempoError::HttpStatus {
+                status: 500,
+                url: "u".into()
+            }),
+            "http_status"
+        );
+        assert_eq!(
+            classify_fetch_error(&TempoError::ProtobufDecode("p".into())),
+            "protobuf_decode"
+        );
+        assert_eq!(
+            classify_fetch_error(&TempoError::BodyRead("b".into())),
+            "body_read"
+        );
+        assert_eq!(
+            classify_fetch_error(&TempoError::JsonParse("j".into())),
+            "json_parse"
+        );
+        // Variants that should never reach the per-trace classifier in
+        // practice (they surface earlier in the pipeline) fall through to
+        // the catch-all bucket rather than crashing.
+        assert_eq!(
+            classify_fetch_error(&TempoError::InvalidEndpoint("x".into())),
+            "other"
+        );
+        assert_eq!(classify_fetch_error(&TempoError::NoTracesFound), "other");
+    }
+
+    /// End-to-end check of the drain loop with mixed per-trace outcomes:
+    /// one fetch returns HTTP 500, one returns an empty OTLP protobuf, and
+    /// one returns HTTP 404 (mapped to `TraceNotFound`). The search step is
+    /// successful, so `ingest_from_tempo` reaches the parallel fetch stage
+    /// and hits every error-handling branch of `drain_fetch_set` in a single
+    /// run. The aggregated outcome is empty (only the 200-empty-body trace
+    /// contributed 0 spans), so the outer function reports `NoTracesFound`.
+    /// This is not a log-level assertion but it does exercise the
+    /// classification code path end-to-end.
+    #[tokio::test]
+    async fn ingest_from_tempo_drains_mixed_per_trace_outcomes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let search_body =
+            r#"{"traces":[{"traceID":"aaa111"},{"traceID":"bbb222"},{"traceID":"ccc333"}]}"#;
+        let search_resp = http_200_json(search_body);
+
+        let mut empty_proto = Vec::new();
+        ExportTraceServiceRequest {
+            resource_spans: vec![],
+        }
+        .encode(&mut empty_proto)
+        .unwrap();
+        let ok_empty_resp = http_200_proto(&empty_proto);
+        let http_500 = http_status(500, "Internal");
+        let http_404 = http_status(404, "Not Found");
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let endpoint = format!("http://{addr}");
+
+        let server = tokio::spawn(async move {
+            // Connection 1: /api/search returns 3 trace IDs.
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut rbuf = [0u8; 4096];
+            let _ = sock.read(&mut rbuf).await;
+            let _ = sock.write_all(&search_resp).await;
+            let _ = sock.shutdown().await;
+            drop(sock);
+
+            // Connections 2-4: the three /api/traces/{id} fetches, order
+            // non-deterministic because the drain loop is parallel. Match on
+            // the request line to route each connection to the intended
+            // response (500 for bbb222, 404 for ccc333, 200-empty for the
+            // remaining one). A single unmatched trace ID is fine too — the
+            // classifier still reports it as a 200-empty success.
+            for _ in 0..3 {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut rbuf = [0u8; 4096];
+                let n = sock.read(&mut rbuf).await.unwrap_or(0);
+                let req = std::str::from_utf8(&rbuf[..n]).unwrap_or("");
+                let resp: &[u8] = if req.contains("/api/traces/bbb222") {
+                    &http_500
+                } else if req.contains("/api/traces/ccc333") {
+                    &http_404
+                } else {
+                    &ok_empty_resp
+                };
+                let _ = sock.write_all(resp).await;
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        let err = ingest_from_tempo(&endpoint, Some("foo-svc"), None, Duration::from_mins(5), 10)
+            .await
+            .expect_err("mixed-outcome run with only empty successes must surface NoTracesFound");
+        assert!(
+            matches!(err, TempoError::NoTracesFound),
+            "expected NoTracesFound, got {err:?}"
+        );
+        server.await.unwrap();
     }
 }
