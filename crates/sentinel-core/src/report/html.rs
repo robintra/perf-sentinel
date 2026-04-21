@@ -804,84 +804,11 @@ mod tests {
         );
     }
 
-    /// Spec check mirroring the JS `csvEscape` helper to guard the RFC
-    /// 4180 rules and the OWASP formula-injection prefix. The JS version
-    /// is the one that actually runs in the browser, this Rust twin
-    /// exists only so a test failure surfaces a mismatch between the two
-    /// during refactors.
-    ///
-    /// Non-null path only: the JS helper returns `""` for `null` and
-    /// `undefined`, this Rust twin only covers the `&str` domain and
-    /// does not model that branch.
-    ///
-    /// TODO: replace the hand-written Rust twin with a `boa`-based
-    /// harness that evaluates the actual JS `csvEscape` so fixes in one
-    /// side do not drift from the other. Kept in-band for now because
-    /// adding `boa` is heavier than the invariant warrants.
-    fn csv_escape_spec(value: &str) -> String {
-        // Formula-injection guard: prefix an apostrophe when the first
-        // character is one of the spreadsheet-formula triggers.
-        let mut s = value.to_string();
-        if let Some(first) = s.chars().next()
-            && ['=', '+', '-', '@', '\t'].contains(&first)
-        {
-            s.insert(0, '\'');
-        }
-        let needs_quoting =
-            s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
-        if needs_quoting {
-            format!("\"{}\"", s.replace('"', "\"\""))
-        } else {
-            s
-        }
-    }
-
-    #[test]
-    fn csv_escape_rfc_4180_rules() {
-        assert_eq!(csv_escape_spec("plain"), "plain");
-        assert_eq!(csv_escape_spec(""), "");
-        assert_eq!(csv_escape_spec("has,comma"), "\"has,comma\"");
-        assert_eq!(csv_escape_spec("has\"quote"), "\"has\"\"quote\"");
-        assert_eq!(csv_escape_spec("line1\nline2"), "\"line1\nline2\"");
-        // CR-only and CRLF both trigger the RFC 4180 quoting rule: any
-        // embedded line break requires enclosing double quotes. Keep
-        // all three newline shapes covered so a regression on one of
-        // them does not slip through.
-        assert_eq!(csv_escape_spec("line1\rline2"), "\"line1\rline2\"");
-        assert_eq!(csv_escape_spec("line1\r\nline2"), "\"line1\r\nline2\"");
-        // Double-quoted templates with embedded commas, like
-        // `INSERT INTO t (a, b, "c") VALUES (?, ?, ?)`, must survive
-        // a round-trip through the escape.
-        let tricky = "INSERT INTO t (a, b, \"c\") VALUES (?, ?, ?)";
-        assert_eq!(
-            csv_escape_spec(tricky),
-            "\"INSERT INTO t (a, b, \"\"c\"\") VALUES (?, ?, ?)\""
-        );
-    }
-
-    #[test]
-    fn csv_escape_blocks_formula_injection() {
-        // OWASP CSV Injection: every spreadsheet-formula trigger must
-        // be neutralized by a leading apostrophe so Excel, LibreOffice
-        // and Sheets do not evaluate a hostile SQL template or service
-        // name on open.
-        // `=HYPERLINK(...)` picks up the `"` inside its literal, so it
-        // also gets RFC 4180 wrapping after the apostrophe prefix.
-        assert_eq!(
-            csv_escape_spec("=HYPERLINK(\"x\")"),
-            "\"'=HYPERLINK(\"\"x\"\")\""
-        );
-        // No comma / quote / newline inside, so the guard prefix is
-        // the only transformation applied: no outer quoting.
-        assert_eq!(csv_escape_spec("+42"), "'+42");
-        assert_eq!(csv_escape_spec("-SUM(A1)"), "'-SUM(A1)");
-        assert_eq!(csv_escape_spec("@cmd"), "'@cmd");
-        assert_eq!(csv_escape_spec("\tinjected"), "'\tinjected");
-        // Plain values that happen to contain a trigger mid-string
-        // must not be prefixed: the attack only works from position 0.
-        assert_eq!(csv_escape_spec("abc=def"), "abc=def");
-        assert_eq!(csv_escape_spec("abc+def"), "abc+def");
-    }
+    // CSV escape correctness is verified end-to-end in
+    // crates/sentinel-cli/tests/browser/tests/dashboard.spec.ts,
+    // where the JS csvEscape runs in a real browser. The hand-written
+    // Rust twin was removed to avoid drift between the two
+    // implementations.
 
     #[test]
     fn sessionstorage_access_is_guarded_by_try_catch() {
