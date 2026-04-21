@@ -1518,7 +1518,10 @@ fn cli_report_help_mentions_all_flags() {
         help.contains("--max-traces-embedded"),
         "help mentions --max-traces-embedded"
     );
-    assert!(help.contains("--pg-stat-top"), "help mentions --pg-stat-top");
+    assert!(
+        help.contains("--pg-stat-top"),
+        "help mentions --pg-stat-top"
+    );
 }
 
 #[test]

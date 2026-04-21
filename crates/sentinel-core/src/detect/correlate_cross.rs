@@ -371,9 +371,7 @@ impl CrossTraceCorrelator {
             // `to_string()` allocation when the value matches what is
             // already recorded, the common case when one trace emits
             // many findings in the same ingest batch.
-            if !trace_id.is_empty()
-                && state.last_trace_id.as_deref() != Some(trace_id)
-            {
+            if !trace_id.is_empty() && state.last_trace_id.as_deref() != Some(trace_id) {
                 let capped = if trace_id.len() > MAX_SAMPLE_TRACE_ID_BYTES {
                     // Truncate on a UTF-8 boundary. trace ids are ASCII
                     // in every known emitter, but the daemon cannot

@@ -1394,13 +1394,12 @@ mod tests {
         // bytes (`[31m`) pass through as plain text.
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);
-        let html = render(
-            &report,
-            &[],
-            &opts("a\x1b[31mb\x00c\u{202e}d.json", None),
-        );
+        let html = render(&report, &[], &opts("a\x1b[31mb\x00c\u{202e}d.json", None));
         assert!(!html.contains('\x1b'), "ESC must not leak into the title");
-        assert!(!html.contains('\x00'), "null byte must not leak into the title");
+        assert!(
+            !html.contains('\x00'),
+            "null byte must not leak into the title"
+        );
         assert!(
             !html.contains('\u{202e}'),
             "`BiDi` override must not leak into the title"
