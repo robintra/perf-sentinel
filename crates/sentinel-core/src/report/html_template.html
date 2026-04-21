@@ -299,16 +299,9 @@
     }
   }
   // -------- theme (tri-state: auto | dark | light) --------
-  //
-  // Default is "auto": follows the OS `prefers-color-scheme` setting
-  // and live-updates when the user changes it. Explicit "dark" and
-  // "light" stay forced regardless of the OS setting. Legacy sessions
-  // that stored plain "dark" / "light" keep those forced modes. New
-  // sessions default to "auto" which is more polite than forcing dark.
-  //
-  // Applied before any DOM rendering. The body is a shell of empty
-  // panels at this point, so the only theme-flash risk is the
-  // container background, mitigated by running resolveTheme() first.
+  // "auto" follows prefers-color-scheme live. Legacy "dark"/"light"
+  // sessions keep their forced modes. Applied before DOM render so
+  // the body background does not flash.
   var THEME_MODES = ["auto", "dark", "light"];
   var prefersDarkMQ = null;
   try {
@@ -324,8 +317,6 @@
   }
   function resolveThemeColor(mode) {
     if (mode === "dark" || mode === "light") return mode;
-    // auto: follow OS preference, fall back to dark when the media
-    // query is unavailable.
     return prefersDarkMQ && prefersDarkMQ.matches ? "dark" : "light";
   }
   function applyTheme(mode) {
@@ -334,17 +325,13 @@
     if (btn) btn.textContent = "Theme: " + mode;
   }
   applyTheme(currentThemeMode());
-  // matchMedia listener stays attached unconditionally; it no-ops for
-  // forced modes because the handler reads the current stored mode
-  // and bails out when it isn't "auto".
   if (prefersDarkMQ && typeof prefersDarkMQ.addEventListener === "function") {
     try {
       prefersDarkMQ.addEventListener("change", function () {
         if (currentThemeMode() === "auto") applyTheme("auto");
       });
     } catch {
-      // Older browsers used `addListener` instead; not worth wiring
-      // for a non-critical live-update nicety.
+      // Older browsers expose addListener instead, not worth wiring.
     }
   }
 
@@ -516,13 +503,8 @@
   }
 
   function wireTablistKeyboardNav(bar) {
-    // WAI-ARIA Authoring Practices arrow-key pattern. Left/Right cycle
-    // focus between visible tabs, Home / End jump to first / last,
-    // Space or Enter activates the focused tab. Focus cycles within
-    // the tablist and skips conditional tabs that were never
-    // registered (pgstat / diff / correlations / green). The existing
-    // `g f / g e / ...` shortcuts stay untouched and operate on a
-    // different input path, so they do not collide.
+    // WAI-ARIA arrow-key pattern on the tablist. Coexists with the
+    // g-prefixed shortcuts since they listen on different keys.
     bar.addEventListener("keydown", function (event) {
       var target = event.target;
       if (!target || target.getAttribute("role") !== "tab") return;
@@ -568,9 +550,8 @@
 
   var currentTab = null;
   function switchTab(key, fromKeyboard) {
-    // Clear any open search filter when switching tabs. Keeps the UI
-    // predictable and avoids a stale hidden filter resurfacing when the
-    // user comes back to a tab.
+    // Clear open search filters so a stale one does not resurface
+    // when the user comes back to a tab.
     if (typeof clearAllSearchFilters === "function") clearAllSearchFilters();
     currentTab = key;
     document.querySelectorAll(".ps-tab").forEach(function (btn) {
@@ -583,9 +564,8 @@
       var panel = document.getElementById("panel-" + t.key);
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
-    // Only move focus when activation came from the keyboard. Mouse
-    // clicks and hash restoration must not steal focus from whatever
-    // the user was doing.
+    // Move focus only for keyboard activation. Clicks and hash
+    // restoration must not steal focus.
     if (fromKeyboard) {
       var active = document.getElementById("tab-" + key);
       if (active && typeof active.focus === "function") {
@@ -814,11 +794,8 @@
   }
 
   // -------- explain tree --------
-  /// Render an empty-state message in the Explain tab. Shared between
-  /// the "trace not embedded" cap-reached path, the resolved-diff
-  /// clickthrough where the trace lives in the baseline report, and
-  /// the Correlations clickthrough fallback when the sampled trace id
-  /// did not survive the embed cap.
+  // Shared empty state for cap-reached, resolved-diff, and
+  // Correlations clickthroughs whose trace is not in embedded_traces.
   function renderExplainEmpty(message) {
     document.getElementById("explain-empty").style.display = "none";
     var content = document.getElementById("explain-content");
@@ -1340,13 +1317,9 @@
       row.appendChild(
         el("div", "ps-fin-right", String(c.co_occurrence_count || 0) + "x")
       );
-      // Daemon-produced correlations carry `sample_trace_id` pointing
-      // at the most recent target-side contribution. When present,
-      // route the row click through `openExplain` with a synthetic
-      // Finding shape so the Explain tab lights up with the captured
-      // trace. If the trace did not make it into `embedded_traces`
-      // (cap reached, or batch-mode report), openExplain falls back
-      // to the shared empty-state message added in the prior commit.
+      // Daemon-produced correlations carry sample_trace_id. When set,
+      // clicking jumps to Explain. openExplain falls back to the
+      // shared empty state when the trace is not embedded.
       if (c.sample_trace_id) {
         row.classList.add("ps-correlation-clickable");
         row.addEventListener("click", function () {
@@ -1360,10 +1333,8 @@
   }
 
   function syntheticFindingFromCorrelation(c) {
-    // Minimum Finding shape openExplain relies on: trace_id to locate
-    // the trace, plus service / source_endpoint / pattern.template
-    // for the breadcrumb. Leave suggested_fix undefined so no inline
-    // drill appears.
+    // Minimum shape openExplain reads: trace_id plus the fields used
+    // by the breadcrumb.
     var tgt = c.target || {};
     return {
       trace_id: c.sample_trace_id,
@@ -1781,10 +1752,9 @@
     return parts.join("&");
   }
 
-  // Tracks the last hash string this code wrote to the URL, so the
-  // `hashchange` listener below can tell user-driven changes (paste in
-  // the URL bar, back/forward) from our own writes and skip the latter
-  // to avoid an applyHash / writeHash ping-pong.
+  // Guards against applyHash / writeHash ping-pong. The hashchange
+  // listener compares this against location.hash to tell user-driven
+  // changes from our own writeHash calls.
   var _lastWrittenHash = null;
 
   function writeHash(state) {
@@ -2155,9 +2125,8 @@
 
   // -------- copy-link buttons --------
   function copyCurrentLink(btn) {
-    // Store the baseline label once so successive clicks within the
-    // 1500ms flash window do not end up restoring "Copied" as the
-    // baseline.
+    // Capture the label once so repeat clicks inside the flash window
+    // do not end up restoring "Copied" as the baseline.
     if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
     var baseLabel = btn.dataset.baseLabel;
     var href = location.href;
@@ -2171,11 +2140,9 @@
       }, 1500);
     }
 
+    // file:// origins and older browsers reject navigator.clipboard,
+    // so fall back to a throwaway textarea + execCommand.
     function fallbackCopy() {
-      // file:// origins and older browsers reject the async Clipboard
-      // API. Fall back to the legacy execCommand path with a throwaway
-      // textarea. Wrapped in its own try/catch so a rejection from the
-      // sync API surfaces through the outer handler.
       try {
         var ta = document.createElement("textarea");
         ta.value = href;
@@ -2229,11 +2196,9 @@
   }
 
   function wireHashChangeListener() {
+    // Skip events triggered by our own writeHash replaceState, apply
+    // only real user-driven changes.
     window.addEventListener("hashchange", function () {
-      // Compare the incoming fragment against the one our own writeHash
-      // most recently pushed. Equal means the event was triggered by
-      // our replaceState, ignore it. Otherwise a user pasted a new hash
-      // or navigated, apply it to the dashboard state.
       var raw = (location.hash || "").replace(/^#/, "");
       if (raw === _lastWrittenHash) return;
       applyHash(readHash());

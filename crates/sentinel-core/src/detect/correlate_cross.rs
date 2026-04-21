@@ -360,10 +360,8 @@ impl CrossTraceCorrelator {
             state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
-            // Overwrite on every hit so the surfaced trace id matches
-            // the most recent observation. Empty incoming ids fall back
-            // to whatever was recorded previously, so replayed streams
-            // with stripped trace ids do not clobber a real value.
+            // Skip empty ids so replayed streams with stripped trace ids
+            // do not clobber a real value observed earlier.
             if !trace_id.is_empty() {
                 state.last_trace_id = Some(trace_id.to_string());
             }
@@ -861,16 +859,13 @@ mod tests {
         let legacy: CrossTraceCorrelation = serde_json::from_str(legacy_json).unwrap();
         assert!(legacy.sample_trace_id.is_none());
 
-        // `None` must skip the field entirely in serialization so
-        // batch-mode reports stay byte-identical to v0.5.0 outputs.
+        // `None` must skip the field so batch-mode reports stay
+        // byte-identical to legacy outputs.
         let none_variant = CrossTraceCorrelation {
             sample_trace_id: None,
             ..c
         };
         let none_json = serde_json::to_string(&none_variant).unwrap();
-        assert!(
-            !none_json.contains("sample_trace_id"),
-            "None value must be skipped, kept report shape stable for legacy consumers"
-        );
+        assert!(!none_json.contains("sample_trace_id"));
     }
 }

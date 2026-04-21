@@ -3,18 +3,11 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import * as net from "node:net";
 
-// Global setup runs once before the Playwright suite. Responsibilities:
-//   1. Build the release binary if missing. Skipped when a prebuilt
-//      binary exists (CI builds it in a prior step; local runs use
-//      whatever is at target/release/perf-sentinel).
-//   2. Render two HTML fixtures by shelling out to that binary.
-//   3. Spawn http-server rooted at the fixture directory on a free
-//      port, expose the base URL via process.env.PS_BASE_URL.
-//
-// Teardown in global-teardown.ts stops the server.
+// Builds the release binary if missing, renders the HTML fixture,
+// and spawns http-server on a free 127.0.0.1 port. HTTP origin is
+// required by navigator.clipboard. See README.md for the rationale.
 
 declare global {
-  // Populated by setup, consumed by teardown.
   // eslint-disable-next-line no-var
   var __psServer: ChildProcess | undefined;
 }
@@ -61,11 +54,6 @@ function renderFixtures() {
   if (!existsSync(FIXTURE_DIR)) {
     mkdirSync(FIXTURE_DIR, { recursive: true });
   }
-  // Produce a dashboard with findings + pg_stat populated. Diff is
-  // not needed for the current spec set (the resolved-row click
-  // behavior stays covered by the Rust-side tests) and `--before`
-  // would need a pre-rendered baseline Report JSON that this
-  // fixture tree does not carry. Keep the setup minimal.
   execFileSync(
     BINARY,
     [
@@ -100,10 +88,7 @@ async function startStaticServer(): Promise<void> {
     console.error("[global-setup] http-server failed:", err);
   });
 
-  // Wait for the server to accept a connection. Polling with a low
-  // interval keeps startup fast (typical <500ms) without a fixed
-  // sleep. Bail after 10s to surface a real failure instead of
-  // hanging the suite.
+  // Poll until the server answers, bail after 10s.
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
@@ -118,9 +103,6 @@ async function startStaticServer(): Promise<void> {
 }
 
 export default async function globalSetup() {
-  // Write a tiny stub file in the fixture dir so the server has
-  // something to serve from the moment it's ready, and so teardown
-  // can detect setup-failed states safely.
   if (!existsSync(FIXTURE_DIR)) mkdirSync(FIXTURE_DIR, { recursive: true });
   writeFileSync(join(FIXTURE_DIR, "index.html"), "<!-- perf-sentinel fixtures -->");
 

@@ -522,10 +522,8 @@ async fn main() {
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
                 before.as_deref(),
-                // u32 → usize is lossless on every target perf-sentinel
-                // supports today. `try_from` documents that dependency
-                // explicitly instead of relying on a silent `as` cast
-                // that would truncate on a 16-bit target.
+                // `try_from` over `as` so a 16-bit target would fall
+                // back to the default instead of truncating silently.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
             )
             .await;
@@ -828,10 +826,8 @@ async fn cmd_report(
     let (report, traces) = load_report_from_input(raw, &config);
     let input_label = input_label_for(input, stdin_mode);
 
-    // `--pg-stat-top` only makes sense alongside a pg_stat source.
-    // Clap's `requires` doesn't express an OR-of-flags cleanly, so
-    // validate post-parse. Mirrors the existing post-parse guard
-    // pattern used elsewhere in cmd_report.
+    // Clap's `requires` does not express an OR-of-flags, so validate
+    // the pg_stat source requirement post-parse.
     #[cfg(feature = "daemon")]
     let has_pg_stat_source = pg_stat_path.is_some() || pg_stat_prometheus.is_some();
     #[cfg(not(feature = "daemon"))]

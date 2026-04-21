@@ -1,9 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// The dashboard serves over http://127.0.0.1:<port> from the static
-// server spawned in global-setup.ts. File:// origins refuse the
-// Clipboard API, which the Copy link test exercises, so an HTTP
-// origin is the only workable fixture host.
+// The dashboard is served over http:// by the static server spawned
+// in global-setup.ts. See README.md for why file:// is not used.
 
 export default defineConfig({
   testDir: "./tests",

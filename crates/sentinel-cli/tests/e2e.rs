@@ -1727,10 +1727,8 @@ fn cli_report_rejects_both_pg_stat_and_pg_stat_prometheus() {
 
 #[test]
 fn cli_report_pg_stat_top_overrides_default_ranking_size() {
-    // The pg_stat fixture carries 15 entries. Default top_n is 10, so
-    // the baseline produces 10-entry rankings. `--pg-stat-top 15`
-    // widens the cut to the full fixture, which is only observable if
-    // the flag value actually flows through to rank_pg_stat.
+    // Fixture has 15 entries, default top_n is 10, so --pg-stat-top 15
+    // proves the flag flows through to rank_pg_stat.
     let fixture = format!(
         "{}/../../tests/fixtures/report_realistic.json",
         env!("CARGO_MANIFEST_DIR")
@@ -1808,9 +1806,8 @@ fn cli_report_pg_stat_top_rejects_zero() {
 
 #[test]
 fn cli_report_pg_stat_top_rejects_negative() {
-    // Negative values are rejected by clap before the range check
-    // (u32 parse fails). Either error path is acceptable here; only
-    // the non-zero exit matters for the UX contract.
+    // Either the u32 parse error or the range validator fires, both
+    // satisfy the non-zero exit contract.
     let fixture = format!(
         "{}/../../tests/fixtures/report_realistic.json",
         env!("CARGO_MANIFEST_DIR")
@@ -1931,9 +1928,6 @@ fn cli_report_renders_correlations_from_daemon_shape() {
             "median_lag_ms": 120.0,
             "first_seen": "2026-04-21T10:00:00Z",
             "last_seen": "2026-04-21T10:05:00Z",
-            // Sampled trace id flows through the daemon shape; the
-            // report renderer preserves it so the HTML can make
-            // Correlations rows clickable.
             "sample_trace_id": "daemon-trace-1",
         }],
     });
@@ -1969,10 +1963,7 @@ fn cli_report_renders_correlations_from_daemon_shape() {
     );
 
     let html = fs::read_to_string(&out_path).expect("read html");
-    // Static scaffolding for the Correlations tab is present.
     assert!(html.contains(r#"id="panel-correlations""#));
-    // The daemon-shape Report's correlations field round-trips through
-    // the render path and ends up in the embedded JSON payload.
     let payload = extract_payload_json_from_html(&html);
     let corrs = payload["report"]["correlations"]
         .as_array()
@@ -1983,16 +1974,11 @@ fn cli_report_renders_correlations_from_daemon_shape() {
         corrs[0]["target"]["service"].as_str().unwrap(),
         "payment-svc"
     );
-    // sample_trace_id survives the serde round-trip through the
-    // `report --input -` pipeline.
     assert_eq!(
         corrs[0]["sample_trace_id"].as_str().unwrap(),
         "daemon-trace-1"
     );
-    // The template contains the clickable CSS class and the
-    // `sample_trace_id` branch in the render code, so a row carrying
-    // the field ends up clickable at runtime. Playwright covers the
-    // live DOM behavior.
+    // Live DOM behavior covered by the Playwright suite.
     assert!(html.contains("ps-correlation-clickable"));
 }
 

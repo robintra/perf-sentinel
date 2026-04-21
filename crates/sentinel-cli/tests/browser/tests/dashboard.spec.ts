@@ -1,16 +1,9 @@
 import { test, expect, Page } from "@playwright/test";
 
-// Minimum viable browser suite for the perf-sentinel HTML dashboard.
-// Covers interactions that Rust-level tests cannot reach: live DOM
-// state, clipboard, keyboard, CSV download blob.
-
 const PATH = "/dashboard.html";
 
 async function loadDashboard(page: Page, hash = "") {
   await page.goto(PATH + hash);
-  // The boot script sets tab 0 (Findings) as active synchronously on
-  // load. Wait for the tablist to paint so subsequent queries are
-  // stable.
   await page.waitForSelector("[role=tablist]");
 }
 
@@ -21,8 +14,6 @@ test("1. dashboard loads with filename in title", async ({ page }) => {
 
 test("2. keyboard switches tabs via g-prefix shortcut", async ({ page }) => {
   await loadDashboard(page);
-  // `g p` activates pg_stat via the vim-style state machine. Tab
-  // focus doesn't need to move; switchTab keeps hash updated.
   await page.keyboard.press("g");
   await page.keyboard.press("p");
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
@@ -39,19 +30,13 @@ test("3. clicking a finding row opens Explain", async ({ page }) => {
 
 test("4. clicking a SQL span from Explain deep-links into pg_stat", async ({ page }) => {
   await loadDashboard(page);
-  // Open Explain on the first finding first.
   await page.locator("#findings-list .ps-row").first().click();
-  // The cross-nav class is attached by the JS at render time on
-  // spans whose normalized_template matches a pg_stat entry. Click
-  // the first one.
   const sqlLink = page.locator(".ps-span-pgstat-link").first();
   if (await sqlLink.count() === 0) {
     test.skip(true, "fixture has no SQL span with a matching pg_stat template");
   }
   await sqlLink.click();
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
-  // The "Filtered from Explain" banner surfaces with the template
-  // that drove the cross-nav.
   await expect(page.locator("#pgstat-drill")).toBeVisible();
 });
 
@@ -60,9 +45,7 @@ test("5. search filter narrows pg_stat rows", async ({ page }) => {
   const rowsBefore = await page.locator("#pgstat-body tr").count();
   expect(rowsBefore).toBeGreaterThan(0);
   await page.keyboard.press("/");
-  // Focus lands on the pg_stat search input.
   await page.keyboard.type("order_item");
-  // The filter hides non-matching rows via `display: none`.
   const visibleAfter = await page
     .locator("#pgstat-body tr")
     .evaluateAll((nodes) => nodes.filter((n) => (n as HTMLElement).style.display !== "none").length);
@@ -71,9 +54,7 @@ test("5. search filter narrows pg_stat rows", async ({ page }) => {
 
 test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => {
   await loadDashboard(page);
-  // Intercept the blob URL creation path. The export click creates a
-  // Blob, calls URL.createObjectURL, drives an anchor click. We hook
-  // createObjectURL so the test can read the blob's text.
+  // Hook createObjectURL so the export click captures the blob text.
   await page.evaluate(() => {
     const g = globalThis as unknown as { __capturedCsv?: string };
     const originalCreate = URL.createObjectURL.bind(URL);
@@ -83,26 +64,17 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
     };
   });
   await page.locator("#findings-export").click();
-  // Blob.text() resolves on a microtask; poll briefly.
   const csv = await page.waitForFunction(() => (globalThis as unknown as { __capturedCsv?: string }).__capturedCsv);
   const body = await csv.jsonValue();
   const text = String(body);
   expect(text.length).toBeGreaterThan(0);
 
-  // Header row is stable and starts with a known column.
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
   const header = lines[0];
   expect(header).toMatch(/^(type|severity|service|trace_id)/i);
-  // Findings header carries at least 4 columns (type, severity,
-  // service, endpoint, template, ...), separated by literal commas.
   expect(header.split(",").length).toBeGreaterThan(3);
-  expect(lines.length).toBeGreaterThan(1); // at least one data row
+  expect(lines.length).toBeGreaterThan(1);
 
-  // RFC 4180 core check: tokenize the body rows with a parser that
-  // respects double-quote wrapping, then assert at least one cell
-  // survived round-trip with a literal comma inside it. The
-  // fixture's realistic SQL templates include `SELECT a, b FROM t`
-  // shapes, so such a cell is guaranteed.
   function parseCsvRow(line: string): string[] {
     const cells: string[] = [];
     let cur = "";
@@ -142,14 +114,10 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   let foundQuotedComma = false;
   for (const line of lines.slice(1)) {
     const parsed = parseCsvRow(line);
-    // Every row carries as many cells as the header.
     expect(parsed.length).toBe(header.split(",").length);
     for (const cell of parsed) {
       if (cell.includes(",")) {
         foundQuotedComma = true;
-        // The raw line must contain the cell wrapped in double
-        // quotes, proving the escape actually fired. Scan the
-        // substring back to the original wire format.
         const quoted = "\"" + cell.replace(/"/g, "\"\"") + "\"";
         expect(line).toContain(quoted);
       }
@@ -157,17 +125,15 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   }
   expect(
     foundQuotedComma,
-    "the Findings fixture must contain at least one template with a literal comma so RFC 4180 quoting is exercised"
+    "fixture must carry at least one template with a literal comma so RFC 4180 quoting is exercised"
   ).toBe(true);
 });
 
 test("7. hash deep-link applies state on fresh load", async ({ page }) => {
   await loadDashboard(page, "#pgstat&ranking=mean_time&search=order_item");
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
-  // The third chip (Mean time) must be the active one.
   const chips = page.locator("#pgstat-rankings .ps-chip");
   await expect(chips.nth(2)).toHaveAttribute("aria-checked", "true");
-  // The search input must carry the term.
   await expect(page.locator("#pgstat-search")).toHaveValue("order_item");
 });
 
@@ -176,11 +142,9 @@ test("8. hashchange on in-page update applies state", async ({ page }) => {
   await page.evaluate(() => {
     location.hash = "#pgstat&ranking=calls";
   });
-  // Give the hashchange listener a microtask to run.
   await page.waitForTimeout(50);
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
   const chips = page.locator("#pgstat-rankings .ps-chip");
-  // "Calls" is the second ranking in the stable order.
   await expect(chips.nth(1)).toHaveAttribute("aria-checked", "true");
 });
 
@@ -188,7 +152,6 @@ test("9. Copy link button writes location.href to the clipboard", async ({ page,
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   await loadDashboard(page, "#findings");
   await page.locator("#findings-copy-link").click();
-  // Wait briefly for the clipboard write to settle.
   await page.waitForTimeout(50);
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   expect(clip).toMatch(/#findings$/);
@@ -201,15 +164,8 @@ test("10. tablist carries ARIA roles and selection state", async ({ page }) => {
   const tabs = page.locator("[role=tablist] [role=tab]");
   const count = await tabs.count();
   expect(count).toBeGreaterThan(0);
-  // Exactly one tab has aria-selected=true.
-  const selectedCount = await page
-    .locator("[role=tab][aria-selected=true]")
-    .count();
+  const selectedCount = await page.locator("[role=tab][aria-selected=true]").count();
   expect(selectedCount).toBe(1);
-  // Every other tab carries aria-selected=false explicitly (not just
-  // absent), per WAI-ARIA guidance.
-  const falseCount = await page
-    .locator("[role=tab][aria-selected=false]")
-    .count();
+  const falseCount = await page.locator("[role=tab][aria-selected=false]").count();
   expect(selectedCount + falseCount).toBe(count);
 });
