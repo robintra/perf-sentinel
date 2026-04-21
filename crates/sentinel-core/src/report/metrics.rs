@@ -79,6 +79,8 @@ pub struct MetricsState {
     /// Total requests to `GET /api/export/report` since daemon start.
     /// Bumped by the handler so operators can dashboard or alert on
     /// the frequency of Report snapshots being pulled by clients.
+    /// Counts every request, including 503 cold-start responses,
+    /// consistent with HTTP access-log conventions.
     pub export_report_requests_total: Counter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,

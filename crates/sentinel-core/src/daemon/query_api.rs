@@ -16,8 +16,8 @@ use crate::correlate::window::TraceWindow;
 use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator};
 use crate::detect::{self, DetectConfig};
 use crate::explain;
-use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 use crate::report::metrics::MetricsState;
+use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 use axum::http::StatusCode;
 
 /// Upper bound for `?limit=` on `/api/findings` to protect the daemon
@@ -183,13 +183,38 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 /// Returns the same JSON shape that `analyze --format json` produces,
 /// which allows piping the response directly into `perf-sentinel
 /// report --input -` to materialize an HTML dashboard from a live
-/// daemon.
+/// daemon:
+///
+/// ```text
+/// curl -s http://daemon.internal:4318/api/export/report \
+///     | perf-sentinel report --input - --output report.html
+/// ```
+///
+/// Two fields have different semantics than the batch-pipeline output
+/// and are emitted as zero with a documented rationale, consumers
+/// that dashboard the export should be aware:
+///
+/// - `analysis.duration_ms` is `0`, not daemon uptime. The
+///   batch-pipeline value is the cost of a single analysis run, a
+///   daemon snapshot has no such single run to time.
+/// - `green_summary.total_io_ops` is `0`, not the cumulative event
+///   count. The batch-pipeline value counts only I/O spans (SQL +
+///   HTTP out), the daemon does not cache that breakdown on a
+///   queryable timeline. Callers who need scoring run `analyze` on
+///   the source trace file.
 ///
 /// Cold start returns `503 Service Unavailable` with
 /// `{"error": "daemon has not yet processed any events"}` to distinguish
 /// "no events yet" from "events exist, zero findings" (the latter
 /// returns `200` with an empty findings array, which is a valid
-/// Report).
+/// Report). The `export_report_requests_total` counter is bumped
+/// before the cold-start check, so 503 responses are counted too
+/// (consistent with HTTP access-log conventions).
+///
+/// Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT`
+/// (1000 + 1000 entries), worst-case body ~3 MB. Acceptable on a
+/// loopback bind (the documented posture), review the cap if the
+/// daemon is ever bound to a non-loopback interface.
 ///
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
@@ -199,8 +224,13 @@ async fn handle_export_report(
 ) -> Result<Json<Report>, (StatusCode, Json<serde_json::Value>)> {
     state.metrics.export_report_requests_total.inc();
 
-    // Prometheus counters are f64 internally; daemon-lifetime counts
-    // easily fit in u64 and we never decrement, so truncation is safe.
+    // Prometheus counters are f64 internally. Daemon-lifetime counts
+    // easily fit in u64 and we never decrement, so a saturating cast
+    // via `as` is safe. The two reads are not atomic as a pair, a
+    // concurrent `inc_by` in the event loop could race between them,
+    // the values are monotonic and informational so the worst case is
+    // a report where `events_processed > 0` and `traces_analyzed = 0`
+    // for a few microseconds around the first batch.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let events_processed = state.metrics.events_processed_total.get() as u64;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -231,41 +261,52 @@ async fn handle_export_report(
 
     // Snapshot correlations, sorted + capped identically to
     // `/api/correlations` so both endpoints stay consistent.
-    let correlations = if let Some(c) = &state.correlator {
-        let mut c = c.lock().await.active_correlations();
-        c.sort_by(|a, b| {
+    let correlations = if let Some(correlator) = &state.correlator {
+        let mut list = correlator.lock().await.active_correlations();
+        list.sort_by(|a, b| {
             b.confidence
                 .total_cmp(&a.confidence)
                 .then_with(|| b.co_occurrence_count.cmp(&a.co_occurrence_count))
         });
-        c.truncate(MAX_CORRELATIONS_LIMIT);
-        c
+        list.truncate(MAX_CORRELATIONS_LIMIT);
+        list
     } else {
-        Vec::new()
+        vec![]
     };
 
     // The daemon does not maintain a live GreenSummary or per-endpoint
     // I/O counter (those are computed per batch in the event loop and
     // emitted as Prometheus metrics, not kept in a queryable snapshot).
     // The export endpoint is a structural view, not a recomputed
-    // analysis: emit GreenSummary::disabled and an empty quality gate
-    // here, callers who want scoring run `analyze` on the trace file.
-    let green_summary = GreenSummary::disabled(events_processed as usize);
+    // analysis, emit GreenSummary::disabled(0) and an empty quality
+    // gate here. `disabled(0)` leaves `total_io_ops = 0` rather than
+    // gluing the cumulative event count in, which would mix span-type
+    // buckets and mislead the HTML dashboard. Callers who want scoring
+    // run `analyze` on the trace file.
+    let green_summary = GreenSummary::disabled(0);
     let quality_gate = QualityGate {
         passed: true,
-        rules: Vec::new(),
+        rules: vec![],
     };
+
+    // usize::try_from guards 32-bit targets where a 5-billion-event
+    // counter would overflow a usize. On 64-bit the fallback branch is
+    // unreachable in practice (2^63 events at 1 M/s = 290 000 years).
+    let events_usize = usize::try_from(events_processed).unwrap_or(usize::MAX);
+    let traces_usize = usize::try_from(traces_analyzed).unwrap_or(usize::MAX);
 
     let report = Report {
         analysis: Analysis {
-            duration_ms: state.start_time.elapsed().as_millis() as u64,
-            events_processed: events_processed as usize,
-            traces_analyzed: traces_analyzed as usize,
+            // Explicitly zero rather than the daemon uptime, see the
+            // doc comment above for the rationale.
+            duration_ms: 0,
+            events_processed: events_usize,
+            traces_analyzed: traces_usize,
         },
         findings,
         green_summary,
         quality_gate,
-        per_endpoint_io_ops: Vec::new(),
+        per_endpoint_io_ops: vec![],
         correlations,
     };
 
@@ -676,6 +717,13 @@ mod tests {
 
         assert_eq!(report.analysis.events_processed, 42);
         assert_eq!(report.analysis.traces_analyzed, 5);
+        // duration_ms is intentionally 0 on the export path (see
+        // handler doc), not the daemon uptime that an
+        // `as_millis()` would produce.
+        assert_eq!(report.analysis.duration_ms, 0);
+        // total_io_ops is 0 because the daemon does not maintain a
+        // live count of I/O-only spans (see handler doc).
+        assert_eq!(report.green_summary.total_io_ops, 0);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.correlations.len(), 1);
         assert_eq!(report.correlations[0].source.service, "order-svc");

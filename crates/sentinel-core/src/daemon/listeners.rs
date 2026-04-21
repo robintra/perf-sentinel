@@ -129,8 +129,10 @@ fn build_http_router(
     metrics: Arc<MetricsState>,
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
-    // Clone the Arc before handing it to `metrics_route`, the query API
-    // state below also needs access for lifetime counters on export.
+    // Clone the Arc unconditionally so `metrics_route` and the query
+    // API state can share it when the API is enabled. When disabled,
+    // the extra `Arc::clone` is one atomic refcount increment, not
+    // worth a conditional to avoid.
     let metrics_router = crate::report::metrics::metrics_route(Arc::clone(&metrics));
     let health_router = super::health::health_route();
     let mut http_router = otlp_router.merge(metrics_router).merge(health_router);

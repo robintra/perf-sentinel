@@ -668,7 +668,15 @@ async fn cmd_report(
     let stdin_mode = input.is_none_or(|p| p == std::path::Path::new("-"));
     let effective_input = if stdin_mode { None } else { input };
 
-    let raw = read_events(effective_input, config.max_payload_size);
+    let raw_bytes = read_events(effective_input, config.max_payload_size);
+
+    // Strip a UTF-8 BOM (EF BB BF) if present. Windows editors (Notepad,
+    // VS Code with default settings on some flows) prepend it, and the
+    // auto-detect below would otherwise trip on the BOM byte and reject
+    // a perfectly valid Report JSON.
+    let raw: &[u8] = raw_bytes
+        .strip_prefix(b"\xEF\xBB\xBF")
+        .unwrap_or(&raw_bytes);
 
     // `--input` accepts two JSON shapes:
     //  1) An array of span events (same format as `analyze --input`)
@@ -681,19 +689,37 @@ async fn cmd_report(
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     let (report, traces) = match first_byte {
         Some(b'{') => {
-            let parsed: sentinel_core::report::Report = serde_json::from_slice(&raw)
-                .unwrap_or_else(|e| {
+            // Apply the same 32-level nesting guard the trace-event path
+            // enforces. The Report tree is structurally flat (depth ~6),
+            // so this never rejects legitimate input, it closes a
+            // defense-in-depth gap with the trace-event path.
+            if sentinel_core::ingest::json::exceeds_max_depth(raw) {
+                eprintln!(
+                    "Error: --input JSON exceeds maximum nesting depth of {}",
+                    sentinel_core::ingest::json::MAX_JSON_DEPTH
+                );
+                std::process::exit(1);
+            }
+            let parsed: sentinel_core::report::Report =
+                serde_json::from_slice(raw).unwrap_or_else(|e| {
                     eprintln!("Error parsing --input as Report JSON: {e}");
                     std::process::exit(1);
                 });
             (parsed, Vec::new())
         }
         Some(b'[') => {
-            let events = ingest_json_or_exit(&raw, config.max_payload_size);
+            let events = ingest_json_or_exit(raw, config.max_payload_size);
             pipeline::analyze_with_traces(events, &config)
         }
-        _ => {
-            eprintln!("Error: --input must be a JSON array of events or a Report object");
+        None => {
+            eprintln!("Error: --input is empty or whitespace-only");
+            std::process::exit(1);
+        }
+        Some(_) => {
+            eprintln!(
+                "Error: --input must be a JSON array of events or a Report object \
+                 (got a scalar or unexpected token at the root)"
+            );
             std::process::exit(1);
         }
     };
@@ -701,7 +727,8 @@ async fn cmd_report(
     let input_label = if stdin_mode {
         "-".to_string()
     } else {
-        input.and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        input
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
             .or_else(|| input.map(|p| p.display().to_string()))
             .unwrap_or_else(|| "-".to_string())
     };
@@ -712,11 +739,8 @@ async fn cmd_report(
     // stay in sync.
     let pg_stat = if let Some(path) = pg_stat_path {
         let raw_pg = read_file_capped(path, config.max_payload_size as u64);
-        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size)
-        {
-            Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(
-                &entries, 10,
-            )),
+        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
+            Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10)),
             Err(e) => {
                 eprintln!("Error parsing --pg-stat {}: {e}", path.display());
                 std::process::exit(1);
@@ -727,9 +751,7 @@ async fn cmd_report(
         {
             if let Some(url) = pg_stat_prometheus {
                 match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, 10).await {
-                    Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(
-                        &entries, 10,
-                    )),
+                    Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10)),
                     Err(e) => {
                         eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
                         std::process::exit(1);
@@ -750,7 +772,20 @@ async fn cmd_report(
     // so `new_findings` = present in current but not baseline.
     let diff = if let Some(path) = before_path {
         let raw_before = read_file_capped(path, config.max_payload_size as u64);
-        match serde_json::from_slice::<sentinel_core::report::Report>(&raw_before) {
+        // Accept a BOM-prefixed baseline file, then apply the same depth
+        // cap as `--input` in Report mode.
+        let raw_before_slice: &[u8] = raw_before
+            .strip_prefix(b"\xEF\xBB\xBF")
+            .unwrap_or(&raw_before);
+        if sentinel_core::ingest::json::exceeds_max_depth(raw_before_slice) {
+            eprintln!(
+                "Error: --before {} exceeds maximum nesting depth of {}",
+                path.display(),
+                sentinel_core::ingest::json::MAX_JSON_DEPTH
+            );
+            std::process::exit(1);
+        }
+        match serde_json::from_slice::<sentinel_core::report::Report>(raw_before_slice) {
             Ok(baseline) => Some(sentinel_core::diff::diff_runs(&baseline, &report)),
             Err(e) => {
                 eprintln!("Error parsing --before {}: {e}", path.display());

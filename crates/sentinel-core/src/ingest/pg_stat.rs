@@ -153,9 +153,16 @@ pub fn parse_pg_stat(raw: &[u8], max_size: usize) -> Result<Vec<PgStatEntry>, Pg
 
 /// Generate rankings from parsed entries.
 ///
-/// Produces three rankings: by total execution time, by call count,
-/// and by mean execution time. Each ranking contains at most `top_n` entries.
-/// Uses index-based sorting to avoid cloning all entries for each ranking.
+/// Produces four rankings in a stable order: by total execution time,
+/// by call count, by mean execution time, by total shared buffer
+/// blocks touched (`shared_blks_read + shared_blks_hit`). Each ranking
+/// contains at most `top_n` entries.
+///
+/// Uses index-based sorting to avoid cloning all entries for each
+/// ranking. Downstream consumers (the HTML dashboard's `pg_stat`
+/// sub-switcher in particular) rely on the rankings appearing at the
+/// documented positions, new rankings are always appended and existing
+/// indices never reassign.
 #[must_use]
 pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
     let total_entries = entries.len();
