@@ -46,6 +46,8 @@ use std::path::Path;
 
 const TEMPLATE: &str = include_str!("html_template.html");
 const JSON_PLACEHOLDER: &str = "{{REPORT_JSON}}";
+const TITLE_PLACEHOLDER: &str = "{{PAGE_TITLE}}";
+const DEFAULT_TITLE: &str = "perf-sentinel report";
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
 /// Embedded in every payload as the `version` field. Extracted from the
 /// environment at compile time via `env!`, kept as a single constant so
@@ -108,7 +110,8 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> Str
     // `Payload`, `serde_json` will fail here at runtime. Keep the
     // payload's map keys `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
-    inject(&json)
+    let title = derive_page_title(&options.input_label);
+    inject(&json, &title)
 }
 
 /// Render and write a rendered HTML dashboard to `output`.
@@ -175,14 +178,53 @@ struct TrimSummary {
     total: usize,
 }
 
-/// Inject a JSON payload into the template.
+/// Inject a JSON payload and page title into the template.
 ///
-/// Escapes `</` to `<\/` so a user-controlled string cannot close the
-/// `<script>` block early. `\/` is a permitted JSON string escape, so
-/// round-tripping through `JSON.parse` recovers the original value.
-fn inject(json: &str) -> String {
+/// Escapes `</` to `<\/` in the JSON payload so a user-controlled
+/// string cannot close the `<script>` block early. `\/` is a permitted
+/// JSON string escape, so round-tripping through `JSON.parse` recovers
+/// the original value. The title is already HTML-escaped by
+/// [`derive_page_title`].
+fn inject(json: &str, title: &str) -> String {
     let safe = json.replace("</", "<\\/");
-    TEMPLATE.replacen(JSON_PLACEHOLDER, &safe, 1)
+    TEMPLATE
+        .replacen(JSON_PLACEHOLDER, &safe, 1)
+        .replacen(TITLE_PLACEHOLDER, title, 1)
+}
+
+/// Derive the `<title>` text from the user-supplied `input_label`.
+///
+/// Strips any path components, HTML-escapes the filename, and formats
+/// as `perf-sentinel: <filename>`. Falls back to a fixed string when
+/// the label is empty or `-` (stdin).
+fn derive_page_title(input_label: &str) -> String {
+    let trimmed = input_label.trim();
+    if trimmed.is_empty() || trimmed == "-" {
+        return DEFAULT_TITLE.to_string();
+    }
+    let filename = Path::new(trimmed)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(trimmed);
+    format!("perf-sentinel: {}", html_escape_text(filename))
+}
+
+/// Minimal HTML escape for the title text. `<title>` is a raw-text
+/// element, so only `&` and `<` strictly need escaping, but we also
+/// escape `>` and the two quote characters for belt-and-braces safety.
+fn html_escape_text(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 fn build_payload<'a>(
@@ -1128,6 +1170,45 @@ mod tests {
         assert_eq!(
             rankings[3]["label"].as_str().unwrap(),
             "top by shared_blks_total"
+        );
+    }
+
+    #[test]
+    fn page_title_uses_filename_from_input_label() {
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+
+        let html_with_path = render(
+            &report,
+            &[],
+            &opts("/tmp/reports/prod-2026-04-21.json", None),
+        );
+        assert!(
+            html_with_path.contains("<title>perf-sentinel: prod-2026-04-21.json</title>"),
+            "title should show the filename without path components"
+        );
+
+        let html_stdin = render(&report, &[], &opts("-", None));
+        assert!(
+            html_stdin.contains("<title>perf-sentinel report</title>"),
+            "stdin label falls back to the default title"
+        );
+
+        let html_empty = render(&report, &[], &opts("", None));
+        assert!(
+            html_empty.contains("<title>perf-sentinel report</title>"),
+            "empty label falls back to the default title"
+        );
+
+        // HTML-unsafe characters in the filename are escaped.
+        let html_hostile = render(&report, &[], &opts("/tmp/<hack>&.json", None));
+        assert!(
+            html_hostile.contains("<title>perf-sentinel: &lt;hack&gt;&amp;.json</title>"),
+            "unsafe characters in the filename are HTML-escaped"
+        );
+        assert!(
+            !html_hostile.contains("<title>perf-sentinel: <hack>"),
+            "raw < must not leak into the title"
         );
     }
 
