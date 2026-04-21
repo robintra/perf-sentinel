@@ -141,6 +141,17 @@ Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` open
 
 This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
+#### Live daemon snapshot
+
+When a daemon is running, `GET /api/export/report` emits its current state as a `Report` JSON, shape-identical to `analyze --format json`. Pipe it straight into the dashboard for a live-ish snapshot (still post-mortem semantically, just short-lived):
+
+```bash
+curl -s http://daemon.internal:4318/api/export/report \
+    | perf-sentinel report --input - --output report.html
+```
+
+`report --input` auto-detects the JSON shape: an array at the top level is treated as trace events and pipelined through normalize/detect/score, an object is treated as a pre-computed Report and embedded as-is. Only daemon-produced Reports carry `correlations`, so the Correlations tab lights up automatically on the dashboard when this path is used. Cold-start daemons return `503` with `{"error": "daemon has not yet processed any events"}` until the first OTLP batch lands.
+
 ---
 
 ## Quick start: central collector

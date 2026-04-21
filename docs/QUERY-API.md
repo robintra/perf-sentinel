@@ -354,14 +354,35 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 ]
 ```
 
+### GET /api/export/report
+
+Snapshot the daemon's current in-memory state as a `Report` JSON, identical in shape to `perf-sentinel analyze --format json`. This closes the loop between the live daemon and the post-mortem `perf-sentinel report` HTML dashboard: the HTML report can ingest a daemon snapshot over HTTP via standard shell composition.
+
+The `analysis` section reflects daemon-lifetime counters (cumulative since daemon start). The handler does not recompute green scoring or the quality gate, it emits a structural snapshot of findings plus cross-trace correlations. Clients that want green scoring should run `analyze` on the source trace file.
+
+**Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `503 Service Unavailable` with body `{"error": "daemon has not yet processed any events"}`. This distinguishes "cold start" from "events seen, zero findings" (the latter returns `200` with an empty `findings` array, which is a valid Report).
+
+**Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
+
+Example:
+
+```bash
+# Materialize a live daemon snapshot as an HTML dashboard
+curl -s http://daemon.internal:4318/api/export/report \
+    | perf-sentinel report --input - --output report.html
+```
+
+The `report` subcommand auto-detects the JSON shape: a top-level array is treated as trace events (pipelined through normalize + detect + score), a top-level object is treated as a pre-computed Report (taken as-is). The Correlations tab in the HTML dashboard lights up automatically when the daemon-produced Report carries non-empty `correlations`.
+
 ## Error responses
 
-| Condition                                        | Status | Body                                            |
-|--------------------------------------------------|--------|-------------------------------------------------|
-| Unknown `trace_id` on `/api/findings/{trace_id}` | 200    | `[]`                                            |
-| Unknown `trace_id` on `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}` |
-| Correlations disabled or correlator idle         | 200    | `[]`                                            |
-| Malformed query parameter (e.g. `limit=abc`)     | 400    | axum-generated plain-text error                 |
+| Condition                                        | Status | Body                                                   |
+|--------------------------------------------------|--------|--------------------------------------------------------|
+| Unknown `trace_id` on `/api/findings/{trace_id}` | 200    | `[]`                                                   |
+| Unknown `trace_id` on `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`        |
+| Correlations disabled or correlator idle         | 200    | `[]`                                                   |
+| `/api/export/report` on cold-start daemon        | 503    | `{"error": "daemon has not yet processed any events"}` |
+| Malformed query parameter (e.g. `limit=abc`)     | 400    | axum-generated plain-text error                        |
 | Unknown path (e.g. `/api/does-not-exist`)        | 404    | empty body                                      |
 | Method other than GET                            | 405    | axum-generated plain-text error                 |
 
