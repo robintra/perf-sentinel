@@ -37,7 +37,7 @@ satisfait l'API sans embarquer un framework lourd.
 
 Exécutée dans un job `browser-tests` séparé de `.github/workflows/ci.yml`
 pour ne pas ralentir le job `check` purement Rust avec l'installation
-de Playwright. Utilise `actions/setup-node@v6.4.0` avec Node 20,
+de Playwright. Utilise `actions/setup-node@v6.4.0` avec Node 24,
 installe Chromium via `npx playwright install --with-deps chromium`,
 puis lance la suite. Le rapport HTML est conservé en artefact en cas
 d'échec.

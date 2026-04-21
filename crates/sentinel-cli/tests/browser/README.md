@@ -36,6 +36,6 @@ pulling in a heavy test framework.
 
 Runs as a separate `browser-tests` job in `.github/workflows/ci.yml`
 so the Rust-only `check` job isn't slowed by the Playwright install.
-Uses `actions/setup-node@v6.4.0` with Node 20, installs Chromium via
+Uses `actions/setup-node@v6.4.0` with Node 24, installs Chromium via
 `npx playwright install --with-deps chromium`, then runs this suite.
 Uploads the HTML report as a retained artifact on failure.
