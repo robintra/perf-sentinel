@@ -88,23 +88,77 @@ test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => 
   const body = await csv.jsonValue();
   const text = String(body);
   expect(text.length).toBeGreaterThan(0);
+
   // Header row is stable and starts with a known column.
-  expect(text.split(/\r?\n/)[0]).toMatch(/^(type|severity|service|trace_id)/i);
-  // RFC 4180: any cell containing a comma must be double-quoted.
   const lines = text.split(/\r?\n/).filter((l) => l.length > 0);
-  for (const line of lines.slice(1)) {
-    // Skip fully-quoted cells' inner commas. A simple sanity check:
-    // there is at least one row where a comma appears inside a
-    // quoted cell (the fixture has endpoints with commas in query
-    // params or templates with commas in SELECT lists). We don't
-    // assert the exact format of every cell.
-    void line;
+  const header = lines[0];
+  expect(header).toMatch(/^(type|severity|service|trace_id)/i);
+  // Findings header carries at least 4 columns (type, severity,
+  // service, endpoint, template, ...), separated by literal commas.
+  expect(header.split(",").length).toBeGreaterThan(3);
+  expect(lines.length).toBeGreaterThan(1); // at least one data row
+
+  // RFC 4180 core check: tokenize the body rows with a parser that
+  // respects double-quote wrapping, then assert at least one cell
+  // survived round-trip with a literal comma inside it. The
+  // fixture's realistic SQL templates include `SELECT a, b FROM t`
+  // shapes, so such a cell is guaranteed.
+  function parseCsvRow(line: string): string[] {
+    const cells: string[] = [];
+    let cur = "";
+    let i = 0;
+    let inQuotes = false;
+    while (i < line.length) {
+      const c = line[i];
+      if (inQuotes) {
+        if (c === "\"" && line[i + 1] === "\"") {
+          cur += "\"";
+          i += 2;
+        } else if (c === "\"") {
+          inQuotes = false;
+          i += 1;
+        } else {
+          cur += c;
+          i += 1;
+        }
+      } else {
+        if (c === "\"") {
+          inQuotes = true;
+          i += 1;
+        } else if (c === ",") {
+          cells.push(cur);
+          cur = "";
+          i += 1;
+        } else {
+          cur += c;
+          i += 1;
+        }
+      }
+    }
+    cells.push(cur);
+    return cells;
   }
-  // Specific check: the formula-injection guard prefixes cells that
-  // start with `=`, `+`, `-`, `@`, tab. The fixture doesn't include
-  // such cells, so instead we check the header does not accidentally
-  // collapse commas (4 commas minimum for the findings header).
-  expect(text.split(/\r?\n/)[0].split(",").length).toBeGreaterThan(3);
+
+  let foundQuotedComma = false;
+  for (const line of lines.slice(1)) {
+    const parsed = parseCsvRow(line);
+    // Every row carries as many cells as the header.
+    expect(parsed.length).toBe(header.split(",").length);
+    for (const cell of parsed) {
+      if (cell.includes(",")) {
+        foundQuotedComma = true;
+        // The raw line must contain the cell wrapped in double
+        // quotes, proving the escape actually fired. Scan the
+        // substring back to the original wire format.
+        const quoted = "\"" + cell.replace(/"/g, "\"\"") + "\"";
+        expect(line).toContain(quoted);
+      }
+    }
+  }
+  expect(
+    foundQuotedComma,
+    "the Findings fixture must contain at least one template with a literal comma so RFC 4180 quoting is exercised"
+  ).toBe(true);
 });
 
 test("7. hash deep-link applies state on fresh load", async ({ page }) => {
