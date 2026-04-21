@@ -229,7 +229,7 @@ enum Commands {
 
     /// Produce a single-file HTML dashboard for post-mortem exploration.
     ///
-    /// Pipeline identical to `analyze`; output is a self-contained HTML
+    /// Pipeline identical to `analyze`, output is a self-contained HTML
     /// file (vanilla JS, no external resources, works offline). Exits 0
     /// even when the quality gate fails (the gate status is rendered as
     /// a badge in the HTML top bar, not as a CI signal). Use `analyze
@@ -250,6 +250,22 @@ enum Commands {
         /// unset, the sink trims to target a ~5 MB HTML file size.
         #[arg(long, value_name = "N")]
         max_traces_embedded: Option<usize>,
+        /// Path to a `pg_stat_statements` CSV or JSON export. When set,
+        /// the dashboard shows a `pg_stat` tab and enables the
+        /// Explain-to-`pg_stat` cross-navigation for matching SQL templates.
+        #[arg(long, value_name = "FILE")]
+        pg_stat: Option<PathBuf>,
+        /// Prometheus endpoint to scrape `pg_stat_statements` metrics from
+        /// (one-shot HTTP GET, not streaming). Mutually exclusive with
+        /// `--pg-stat`.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "URL", conflicts_with = "pg_stat")]
+        pg_stat_prometheus: Option<String>,
+        /// Path to a baseline report JSON, as produced by `analyze
+        /// --format json`. When set, the dashboard shows a Diff tab
+        /// comparing the current run against the baseline.
+        #[arg(long, value_name = "FILE")]
+        before: Option<PathBuf>,
     },
 
     /// Compare two trace sets and emit a delta report (regressions and improvements).
@@ -476,7 +492,23 @@ async fn main() {
             config,
             output,
             max_traces_embedded,
-        } => cmd_report(input.as_deref(), config.as_deref(), &output, max_traces_embedded),
+            pg_stat,
+            #[cfg(feature = "daemon")]
+            pg_stat_prometheus,
+            before,
+        } => {
+            cmd_report(
+                input.as_deref(),
+                config.as_deref(),
+                &output,
+                max_traces_embedded,
+                pg_stat.as_deref(),
+                #[cfg(feature = "daemon")]
+                pg_stat_prometheus.as_deref(),
+                before.as_deref(),
+            )
+            .await;
+        }
     }
 }
 
@@ -617,18 +649,22 @@ fn cmd_diff(
     }
 }
 
-fn cmd_report(
+#[allow(clippy::too_many_arguments)] // optional flags, each adds a dedicated ingestion path
+async fn cmd_report(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
     output: &std::path::Path,
     max_traces_embedded: Option<usize>,
+    pg_stat_path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
+    before_path: Option<&std::path::Path>,
 ) {
     let config = load_config(config_path);
 
     // `report` accepts an explicit `--input -` for stdin (shell-friendly
     // in composition pipelines like `tempo --output - | report --input
     // - --output ...`). `analyze` uses "omit the flag" for the same
-    // effect; both forms are accepted here for ergonomics.
+    // effect, both forms are accepted here for ergonomics.
     let stdin_mode = input.is_none_or(|p| p == std::path::Path::new("-"));
     let effective_input = if stdin_mode { None } else { input };
 
@@ -645,9 +681,66 @@ fn cmd_report(
             .unwrap_or_else(|| "-".to_string())
     };
 
+    // --pg-stat / --pg-stat-prometheus (mutually exclusive at the clap
+    // level via `conflicts_with`). Reuse the same ingestion and ranking
+    // functions the `pg-stat` subcommand uses so the two entry points
+    // stay in sync.
+    let pg_stat = if let Some(path) = pg_stat_path {
+        let raw_pg = read_file_capped(path, config.max_payload_size as u64);
+        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size)
+        {
+            Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(
+                &entries, 10,
+            )),
+            Err(e) => {
+                eprintln!("Error parsing --pg-stat {}: {e}", path.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        #[cfg(feature = "daemon")]
+        {
+            if let Some(url) = pg_stat_prometheus {
+                match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, 10).await {
+                    Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(
+                        &entries, 10,
+                    )),
+                    Err(e) => {
+                        eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                None
+            }
+        }
+        #[cfg(not(feature = "daemon"))]
+        {
+            None
+        }
+    };
+
+    // --before: parse a saved `analyze --format json` report and diff
+    // against the current run. Use `diff::diff_runs(baseline, current)`
+    // so `new_findings` = present in current but not baseline.
+    let diff = if let Some(path) = before_path {
+        let raw_before = read_file_capped(path, config.max_payload_size as u64);
+        match serde_json::from_slice::<sentinel_core::report::Report>(&raw_before) {
+            Ok(baseline) => Some(sentinel_core::diff::diff_runs(&baseline, &report)),
+            Err(e) => {
+                eprintln!("Error parsing --before {}: {e}", path.display());
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     let options = sentinel_core::report::html::RenderOptions {
         input_label,
         max_traces_embedded,
+        pg_stat,
+        diff,
     };
 
     if let Err(e) = sentinel_core::report::html::write(&report, &traces, &options, output) {
