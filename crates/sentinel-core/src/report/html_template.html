@@ -1570,16 +1570,24 @@
     return parts.join("&");
   }
 
+  // Tracks the last hash string this code wrote to the URL, so the
+  // `hashchange` listener below can tell user-driven changes (paste in
+  // the URL bar, back/forward) from our own writes and skip the latter
+  // to avoid an applyHash / writeHash ping-pong.
+  var _lastWrittenHash = null;
+
   function writeHash(state) {
     var hashStr = encodeHashFromState(state);
     var full = hashStr ? "#" + hashStr : "";
     try {
       history.replaceState(null, "", full || location.pathname + location.search);
+      _lastWrittenHash = hashStr;
     } catch {
       // Old browsers without history.replaceState: fall back to a
       // direct hash assignment. Pushes one history entry per change,
       // the lesser of two evils.
       location.hash = hashStr;
+      _lastWrittenHash = hashStr;
     }
   }
 
@@ -1946,6 +1954,18 @@
     writeHash(currentStateForHash());
   }
 
+  function wireHashChangeListener() {
+    window.addEventListener("hashchange", function () {
+      // Compare the incoming fragment against the one our own writeHash
+      // most recently pushed. Equal means the event was triggered by
+      // our replaceState, ignore it. Otherwise a user pasted a new hash
+      // or navigated, apply it to the dashboard state.
+      var raw = (location.hash || "").replace(/^#/, "");
+      if (raw === _lastWrittenHash) return;
+      applyHash(readHash());
+    });
+  }
+
   // -------- boot --------
   renderTopbar();
   registerAllTabs();
@@ -1956,6 +1976,7 @@
   wireShowMoreButton();
   wireExportButtons();
   applyInitialHashOrWrite();
+  wireHashChangeListener();
 })();
 </script>
 </body>
