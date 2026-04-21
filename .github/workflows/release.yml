@@ -17,7 +17,24 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # First gate: refuse to publish anything if the tag does not match
+  # every Cargo.toml in the workspace. Logic lives in
+  # scripts/check-tag-version.sh so it can also run locally before
+  # tagging. Every downstream job depends on this via transitive
+  # `needs:` through `build`.
+  check-versions:
+    name: Verify tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Assert tag matches every Cargo.toml in the workspace
+        run: scripts/check-tag-version.sh "${GITHUB_REF_NAME}"
+
   build:
+    needs: check-versions
     permissions:
       contents: read
     name: Build ${{ matrix.target }}
