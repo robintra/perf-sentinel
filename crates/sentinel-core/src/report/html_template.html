@@ -131,15 +131,16 @@
   .ps-export-btn:hover { background: var(--color-background-info); }
   .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
   .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
-  .ps-modal-root { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
-  .ps-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
-  .ps-modal { position: relative; max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-  .ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
+  dialog.ps-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  dialog.ps-modal::backdrop { background: rgba(0,0,0,0.6); }
+  dialog.ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
   .ps-modal-close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--color-text-secondary); font-family: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 8px; }
   .ps-modal-close:hover { color: var(--color-text-primary); }
-  .ps-modal table { width: 100%; border-collapse: collapse; }
-  .ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
-  .ps-modal td:first-child { width: 90px; white-space: nowrap; }
+  dialog.ps-modal table { width: 100%; border-collapse: collapse; }
+  dialog.ps-modal th { text-align: left; padding: 4px 6px; font-size: 10px; font-weight: 500; color: var(--color-text-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); font-family: var(--font-sans); }
+  dialog.ps-modal th:first-child { width: 90px; }
+  dialog.ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
+  dialog.ps-modal td:first-child { width: 90px; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -245,14 +246,14 @@
   </div>
 </div>
 
-<div class="ps-modal-root" id="cheatsheet" role="dialog" aria-modal="true" aria-labelledby="cheatsheet-title" style="display: none;">
-  <div class="ps-modal-backdrop" id="cheatsheet-backdrop"></div>
-  <div class="ps-modal">
-    <button type="button" class="ps-modal-close" id="cheatsheet-close" aria-label="Close">x</button>
-    <h2 id="cheatsheet-title">Keyboard shortcuts</h2>
-    <table id="cheatsheet-table"></table>
-  </div>
-</div>
+<dialog id="cheatsheet" class="ps-modal" aria-labelledby="cheatsheet-title">
+  <button type="button" class="ps-modal-close" id="cheatsheet-close" aria-label="Close">x</button>
+  <h2 id="cheatsheet-title">Keyboard shortcuts</h2>
+  <table id="cheatsheet-table">
+    <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
+    <tbody id="cheatsheet-body"></tbody>
+  </table>
+</dialog>
 
 <script id="report-data" type="application/json">
 {{REPORT_JSON}}
@@ -271,10 +272,22 @@
     pgstatRanking: "perf-sentinel:pgstat-ranking"
   };
   function sessionGet(key) {
-    try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
+    try {
+      return globalThis.sessionStorage.getItem(key);
+    } catch {
+      // Safari private mode or a locked-down enterprise policy:
+      // fall back to the in-memory default rather than surfacing
+      // a runtime error to the user.
+      return null;
+    }
   }
   function sessionSet(key, value) {
-    try { window.sessionStorage.setItem(key, value); } catch (e) { /* ignore */ }
+    try {
+      globalThis.sessionStorage.setItem(key, value);
+    } catch {
+      // See sessionGet: silent fallback is the intended posture.
+      return;
+    }
   }
   // Apply the persisted theme before any DOM rendering. The body is a
   // shell of empty panels at this point, so the only risk of theme-flash
@@ -533,10 +546,10 @@
     if (key === "all") {
       filterState.severity = null;
       filterState.service = null;
-    } else if (key.indexOf("sev:") === 0) {
+    } else if (key.startsWith("sev:")) {
       var sv = key.slice(4);
       filterState.severity = filterState.severity === sv ? null : sv;
-    } else if (key.indexOf("svc:") === 0) {
+    } else if (key.startsWith("svc:")) {
       var svc = key.slice(4);
       filterState.service = filterState.service === svc ? null : svc;
     }
@@ -1259,12 +1272,12 @@
     // leading apostrophe, consumers that parse the CSV literally keep
     // it. Strict first-byte check: do not strip leading whitespace
     // (a leading tab is itself a formula trigger on some clients).
-    if (s.length > 0 && "=+-@\t".indexOf(s.charAt(0)) >= 0) {
+    if (s.length > 0 && "=+-@\t".includes(s.charAt(0))) {
       s = "'" + s;
     }
-    if (s.indexOf(",") >= 0 || s.indexOf("\"") >= 0 ||
-        s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) {
-      return "\"" + s.replace(/"/g, "\"\"") + "\"";
+    if (s.includes(",") || s.includes("\"") ||
+        s.includes("\n") || s.includes("\r")) {
+      return "\"" + s.replaceAll("\"", "\"\"") + "\"";
     }
     return s;
   }
@@ -1284,8 +1297,8 @@
   }
   function sanitizeLabelForFilename(s) {
     if (!s) return "";
-    var cleaned = String(s).replace(/[^A-Za-z0-9]+/g, "-");
-    cleaned = cleaned.replace(/-+/g, "-").replace(/^-|-$/g, "");
+    var cleaned = String(s).replaceAll(/[^A-Za-z0-9]+/g, "-");
+    cleaned = cleaned.replaceAll(/-+/g, "-").replaceAll(/^-|-$/g, "");
     return cleaned;
   }
   function pad2(n) { return n < 10 ? "0" + n : String(n); }
@@ -1311,7 +1324,7 @@
     a.download = buildCsvFilename(tabName);
     document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
+    a.remove();
     // Delay the revoke so the browser has the URL in hand when it
     // kicks off the download. Immediate revoke breaks the download on
     // some browsers. 0ms is enough to escape the current task.
@@ -1327,7 +1340,7 @@
   }
   function matchesSearch(haystack, term) {
     if (!term) return true;
-    return String(haystack || "").toLowerCase().indexOf(term) >= 0;
+    return String(haystack || "").toLowerCase().includes(term);
   }
 
   function exportFindingsCsv() {
@@ -1354,12 +1367,12 @@
         f.service || "",
         f.source_endpoint || "",
         p.template || "",
-        p.occurrences != null ? p.occurrences : "",
+        p.occurrences ?? "",
         f.first_timestamp || "",
         f.last_timestamp || "",
         loc.function || "",
         loc.filepath || "",
-        loc.lineno != null ? loc.lineno : "",
+        loc.lineno ?? "",
         fix.framework || "",
         fix.recommendation || ""
       ];
@@ -1378,12 +1391,12 @@
     }).map(function (e) {
       return [
         e.normalized_template || "",
-        e.calls != null ? e.calls : "",
-        e.total_exec_time_ms != null ? e.total_exec_time_ms : "",
-        e.mean_exec_time_ms != null ? e.mean_exec_time_ms : "",
-        e.rows != null ? e.rows : "",
-        e.shared_blks_hit != null ? e.shared_blks_hit : "",
-        e.shared_blks_read != null ? e.shared_blks_read : "",
+        e.calls ?? "",
+        e.total_exec_time_ms ?? "",
+        e.mean_exec_time_ms ?? "",
+        e.rows ?? "",
+        e.shared_blks_hit ?? "",
+        e.shared_blks_read ?? "",
         e.seen_in_traces ? "true" : "false"
       ];
     });
@@ -1411,7 +1424,7 @@
       rows.push([
         "new", f.severity || "", f.type || f.finding_type || "",
         f.service || "", f.source_endpoint || "", p.template || "",
-        p.occurrences != null ? p.occurrences : "",
+        p.occurrences ?? "",
         "", "", "", "", ""
       ]);
     });
@@ -1421,7 +1434,7 @@
       rows.push([
         "resolved", f.severity || "", f.type || f.finding_type || "",
         f.service || "", f.source_endpoint || "", p.template || "",
-        p.occurrences != null ? p.occurrences : "",
+        p.occurrences ?? "",
         "", "", "", "", ""
       ]);
     });
@@ -1432,7 +1445,7 @@
       rows.push([
         "severity_change", "", f.type || f.finding_type || "",
         f.service || "", f.source_endpoint || "", p.template || "",
-        p.occurrences != null ? p.occurrences : "",
+        p.occurrences ?? "",
         c.before_severity || "", c.after_severity || "",
         "", "", ""
       ]);
@@ -1444,9 +1457,9 @@
         "endpoint_delta", "", "",
         d.service || "", d.endpoint || "", "",
         "", "", "",
-        d.before_io_ops != null ? d.before_io_ops : "",
-        d.after_io_ops != null ? d.after_io_ops : "",
-        d.delta != null ? d.delta : ""
+        d.before_io_ops ?? "",
+        d.after_io_ops ?? "",
+        d.delta ?? ""
       ]);
     });
     downloadCsv("diff", buildCsv(header, rows));
@@ -1474,10 +1487,10 @@
       return [
         s.service || "", s.finding_type || "", s.template || "",
         t.service || "", t.finding_type || "", t.template || "",
-        c.confidence != null ? c.confidence : "",
-        c.co_occurrence_count != null ? c.co_occurrence_count : "",
-        c.source_total_occurrences != null ? c.source_total_occurrences : "",
-        c.median_lag_ms != null ? c.median_lag_ms : "",
+        c.confidence ?? "",
+        c.co_occurrence_count ?? "",
+        c.source_total_occurrences ?? "",
+        c.median_lag_ms ?? "",
         c.first_seen || "", c.last_seen || ""
       ];
     });
@@ -1493,18 +1506,18 @@
     return RANKING_SLUGS[idx] || String(idx);
   }
   function rankingIndexForSlug(slug) {
-    var i = RANKING_SLUGS.indexOf(slug);
-    if (i >= 0) return i;
-    var n = parseInt(slug, 10);
+    if (RANKING_SLUGS.includes(slug)) return RANKING_SLUGS.indexOf(slug);
+    var n = Number.parseInt(slug, 10);
     return Number.isFinite(n) ? n : -1;
   }
 
-  // Keys accepted from the URL fragment. Anything outside this list is
+  // Keys accepted from the URL fragment. Anything outside this set is
   // ignored so a malformed or malicious hash cannot override the tab
   // via a later `tab=` pair, inject arbitrary properties onto `state`,
-  // or confuse `applyHash`. The tab itself is positional (first token),
-  // not a key=value pair.
-  var HASH_KEYS = ["search", "ranking", "severity", "service"];
+  // or confuse `applyHash`. The tab itself is positional (first
+  // token), not a key=value pair. Stored as a Set so existence checks
+  // are O(1) regardless of how many keys land here in the future.
+  var HASH_KEYS = new Set(["search", "ranking", "severity", "service"]);
   function readHash() {
     var raw = (location.hash || "").replace(/^#/, "");
     if (!raw) return null;
@@ -1515,9 +1528,15 @@
       var eq = p.indexOf("=");
       if (eq < 0) return;
       var k = p.slice(0, eq);
-      if (HASH_KEYS.indexOf(k) < 0) return;
+      if (!HASH_KEYS.has(k)) return;
       var v = p.slice(eq + 1);
-      try { v = decodeURIComponent(v); } catch (e) { /* keep raw */ }
+      try {
+        v = decodeURIComponent(v);
+      } catch {
+        // Malformed percent-encoding in a shared URL, keep the raw
+        // value so downstream string compares still work.
+        return;
+      }
       state[k] = v;
     });
     return state;
@@ -1556,9 +1575,10 @@
     var full = hashStr ? "#" + hashStr : "";
     try {
       history.replaceState(null, "", full || location.pathname + location.search);
-    } catch (e) {
-      // Old browsers: fall back to a direct hash assignment. Pushes one
-      // history entry per change, which is the lesser of two evils.
+    } catch {
+      // Old browsers without history.replaceState: fall back to a
+      // direct hash assignment. Pushes one history entry per change,
+      // the lesser of two evils.
       location.hash = hashStr;
     }
   }
@@ -1632,9 +1652,9 @@
     ["?", "Show this cheatsheet"]
   ];
   function populateCheatsheet() {
-    var tbl = document.getElementById("cheatsheet-table");
-    if (!tbl) return;
-    tbl.textContent = "";
+    var body = document.getElementById("cheatsheet-body");
+    if (!body) return;
+    body.textContent = "";
     CHEATSHEET_ROWS.forEach(function (row) {
       var tr = document.createElement("tr");
       var tdK = document.createElement("td");
@@ -1642,12 +1662,15 @@
       tdK.appendChild(kbd);
       tr.appendChild(tdK);
       tr.appendChild(el("td", null, row[1]));
-      tbl.appendChild(tr);
+      body.appendChild(tr);
     });
   }
+  // Native <dialog> element: the browser manages the backdrop, the
+  // focus trap, and the Esc-to-close behavior. We only layer focus
+  // restoration and backdrop-click-to-close on top.
   function isCheatsheetOpen() {
     var dlg = document.getElementById("cheatsheet");
-    return dlg && dlg.style.display !== "none";
+    return !!(dlg && dlg.open);
   }
   // Stash the element that owned focus when the cheatsheet opened so
   // closing restores the j/k cursor position in the Findings list (or
@@ -1655,33 +1678,19 @@
   var cheatsheetPriorFocus = null;
   function openCheatsheet() {
     var dlg = document.getElementById("cheatsheet");
-    if (!dlg) return;
+    if (!dlg || dlg.open) return;
     cheatsheetPriorFocus = document.activeElement;
-    dlg.style.display = "";
+    dlg.showModal();
     var closeBtn = document.getElementById("cheatsheet-close");
     if (closeBtn) closeBtn.focus();
   }
   function closeCheatsheet() {
     var dlg = document.getElementById("cheatsheet");
-    if (!dlg) return;
-    dlg.style.display = "none";
-    var prior = cheatsheetPriorFocus;
-    cheatsheetPriorFocus = null;
-    // Restore focus defensively: the prior element may have been
-    // removed from the DOM between open and close (e.g. after a
-    // re-render). A missing or unfocusable element is a silent no-op.
-    if (prior && typeof prior.focus === "function") {
-      try { prior.focus(); } catch (e) { /* ignore */ }
-    }
+    if (dlg && dlg.open) dlg.close();
   }
   function toggleCheatsheet() {
     if (isCheatsheetOpen()) closeCheatsheet();
     else openCheatsheet();
-  }
-  function isFocusInsideCheatsheet() {
-    var dlg = document.getElementById("cheatsheet");
-    if (!dlg || dlg.style.display === "none") return false;
-    return dlg.contains(document.activeElement);
   }
 
   function anyFilterChipActive() {
@@ -1814,109 +1823,139 @@
 
   document.getElementById("pgstat-drill-clear").addEventListener("click", clearPgStatDrill);
 
-  // -------- boot --------
-  renderTopbar();
-  registerTab("findings", "Findings", function () { return findings.length; });
-  registerTab("explain", "Explain", null);
-  if (hasPgStat) {
-    registerTab("pgstat", "pg_stat", function () {
-      // Badge shows the currently-active ranking's entry count. Every
-      // ranking contains the same top-N entries, just reordered, so
-      // the number is identical across rankings (see rank_pg_stat).
-      return activePgStatEntries().length;
-    });
-  }
-  if (hasDiff) {
-    registerTab("diff", "Diff", function () {
-      return (
-        (diffData.new_findings || []).length + (diffData.resolved_findings || []).length
-      );
-    });
-  }
-  if (hasCorrelations) {
-    registerTab("correlations", "Correlations", function () {
-      return correlations.length;
-    });
-  }
-  if (hasGreen) registerTab("green", "GreenOps", null);
-  renderTabs();
+  // -------- boot helpers --------
+  // Each helper owns one slice of boot work so the IIFE body stays
+  // linear and cognitive complexity stays bounded. Sonar flags the
+  // IIFE itself when too many branches accumulate at this level.
 
-  renderTrimBanner();
-  renderFindingsMetrics();
-  renderFilterChips();
-  // Restore the persisted pg_stat ranking before the first render so the
-  // initial table already reflects the user's last choice. A hash with a
-  // ranking slug overrides this below, inside `applyHash`.
-  if (hasPgStat) {
+  function registerAllTabs() {
+    registerTab("findings", "Findings", function () { return findings.length; });
+    registerTab("explain", "Explain", null);
+    if (hasPgStat) {
+      registerTab("pgstat", "pg_stat", function () {
+        // Badge shows the currently-active ranking's entry count. Every
+        // ranking contains the same top-N entries, just reordered, so
+        // the number is identical across rankings (see rank_pg_stat).
+        return activePgStatEntries().length;
+      });
+    }
+    if (hasDiff) {
+      registerTab("diff", "Diff", function () {
+        return (
+          (diffData.new_findings || []).length + (diffData.resolved_findings || []).length
+        );
+      });
+    }
+    if (hasCorrelations) {
+      registerTab("correlations", "Correlations", function () {
+        return correlations.length;
+      });
+    }
+    if (hasGreen) registerTab("green", "GreenOps", null);
+    renderTabs();
+  }
+
+  function restorePersistedPgStatRanking() {
+    // Restore the persisted ranking before the first render so the
+    // initial table already reflects the user's last choice. A hash
+    // with a ranking slug overrides this, inside `applyHash`.
+    if (!hasPgStat) return;
     var storedRanking = sessionGet(STORAGE_KEYS.pgstatRanking);
-    if (storedRanking) {
-      var storedIdx = rankingIndexForSlug(storedRanking);
-      if (storedIdx >= 0 && storedIdx < pgStatRankings.length) {
-        activeRankingIndex = storedIdx;
-      }
+    if (!storedRanking) return;
+    var storedIdx = rankingIndexForSlug(storedRanking);
+    if (storedIdx >= 0 && storedIdx < pgStatRankings.length) {
+      activeRankingIndex = storedIdx;
     }
   }
-  renderFindingsList();
-  if (hasPgStat) renderPgStatPanel();
-  if (hasDiff) renderDiffPanel();
-  if (hasCorrelations) renderCorrelationsPanel();
-  if (hasGreen) renderGreenPanel();
-  initSearchInputs();
 
-  // -------- 8.3 wiring --------
-  populateCheatsheet();
-  var cheatsheetCloseBtn = document.getElementById("cheatsheet-close");
-  if (cheatsheetCloseBtn) {
-    cheatsheetCloseBtn.addEventListener("click", closeCheatsheet);
+  function renderAllPanels() {
+    renderTrimBanner();
+    renderFindingsMetrics();
+    renderFilterChips();
+    restorePersistedPgStatRanking();
+    renderFindingsList();
+    if (hasPgStat) renderPgStatPanel();
+    if (hasDiff) renderDiffPanel();
+    if (hasCorrelations) renderCorrelationsPanel();
+    if (hasGreen) renderGreenPanel();
   }
-  var cheatsheetBackdrop = document.getElementById("cheatsheet-backdrop");
-  if (cheatsheetBackdrop) {
-    cheatsheetBackdrop.addEventListener("click", closeCheatsheet);
-  }
-  // Focus trap: keep Tab / Shift+Tab inside the dialog while open.
-  // There is exactly one focusable element (the close button), so we
-  // always refocus it on Tab regardless of direction. preventDefault
-  // stops the browser's default focus traversal from leaking focus
-  // out of the dialog to the surrounding content behind the backdrop,
-  // which would break the WAI-ARIA dialog contract.
-  document.addEventListener("keydown", function (ev) {
-    if (ev.key !== "Tab") return;
-    if (!isCheatsheetOpen()) return;
-    ev.preventDefault();
-    ev.stopPropagation();
-    var btn = document.getElementById("cheatsheet-close");
-    if (btn) btn.focus();
-  }, true);
 
-  var showMoreBtn = document.getElementById("findings-show-more");
-  if (showMoreBtn) {
-    showMoreBtn.addEventListener("click", function () {
+  function wireCheatsheetDialog() {
+    var closeBtn = document.getElementById("cheatsheet-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeCheatsheet);
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg) return;
+    // Native <dialog> manages Esc-to-close and the focus trap for us.
+    // We only restore focus to wherever it was before the dialog
+    // opened, on the close event (covers both our manual close and
+    // the native Esc path).
+    dlg.addEventListener("close", restorePriorFocus);
+    // Click outside the dialog's content area closes it. With
+    // showModal(), clicks on the backdrop hit the dialog itself,
+    // clicks on any descendant hit that descendant.
+    dlg.addEventListener("click", function (ev) {
+      if (ev.target === dlg) closeCheatsheet();
+    });
+  }
+
+  function restorePriorFocus() {
+    var prior = cheatsheetPriorFocus;
+    cheatsheetPriorFocus = null;
+    if (!prior || typeof prior.focus !== "function") return;
+    try {
+      prior.focus();
+    } catch {
+      // Prior element was removed while the dialog was open (most
+      // likely a re-render). Silent fallback: the browser picks a
+      // sensible default.
+      return;
+    }
+  }
+
+  function wireShowMoreButton() {
+    var btn = document.getElementById("findings-show-more");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
       shownCount += LIST_CAP;
       renderFindingsList();
     });
   }
 
-  var exportHandlers = {
-    findings: exportFindingsCsv,
-    pgstat: exportPgStatCsv,
-    diff: exportDiffCsv,
-    correlations: exportCorrelationsCsv
-  };
-  Object.keys(exportHandlers).forEach(function (tabKey) {
-    var btn = document.getElementById(tabKey + "-export");
-    if (btn) btn.addEventListener("click", exportHandlers[tabKey]);
-  });
+  function wireExportButtons() {
+    var exportHandlers = {
+      findings: exportFindingsCsv,
+      pgstat: exportPgStatCsv,
+      diff: exportDiffCsv,
+      correlations: exportCorrelationsCsv
+    };
+    Object.keys(exportHandlers).forEach(function (tabKey) {
+      var btn = document.getElementById(tabKey + "-export");
+      if (btn) btn.addEventListener("click", exportHandlers[tabKey]);
+    });
+  }
 
-  // Apply the deep-link hash last so it can override the initial
-  // ranking / filter chips / tab selection derived above. Falls through
-  // silently when the hash is missing, malformed, or points to a tab
-  // that is not registered in this report.
-  var initialHash = readHash();
-  if (!applyHash(initialHash)) {
+  function applyInitialHashOrWrite() {
+    // Apply the deep-link hash last so it can override the initial
+    // ranking / filter chips / tab selection derived above. Falls
+    // through silently when the hash is missing, malformed, or points
+    // to a tab that is not registered in this report.
+    var initialHash = readHash();
+    if (applyHash(initialHash)) return;
     // No hash: emit the current state so sharing the URL immediately
     // after load produces a self-describing link.
     writeHash(currentStateForHash());
   }
+
+  // -------- boot --------
+  renderTopbar();
+  registerAllTabs();
+  renderAllPanels();
+  initSearchInputs();
+  populateCheatsheet();
+  wireCheatsheetDialog();
+  wireShowMoreButton();
+  wireExportButtons();
+  applyInitialHashOrWrite();
 })();
 </script>
 </body>

@@ -843,10 +843,9 @@ mod tests {
 
     #[test]
     fn sessionstorage_access_is_guarded_by_try_catch() {
-        // Load-bearing invariant: the two wrapper functions exist, so
-        // every caller inherits their try/catch guard. A future
-        // refactor that removes or renames the wrappers trips this
-        // check immediately.
+        // Load-bearing invariant: the two wrapper functions exist,
+        // every caller inherits their guard. A refactor that removes
+        // or renames the wrappers trips this check immediately.
         assert!(
             TEMPLATE.contains("function sessionGet("),
             "sessionGet helper missing"
@@ -855,29 +854,33 @@ mod tests {
             TEMPLATE.contains("function sessionSet("),
             "sessionSet helper missing"
         );
-        // Belt-and-braces: any line that touches `sessionStorage`
-        // directly should carry `try` and `catch` on the same line
-        // (our single-statement wrapper idiom). A reformat that splits
-        // the wrapper across lines trips this and is the intended
-        // signal: rewrite the wrapper or update this check, do not
-        // pretend it never triggered.
-        let mut guarded_hits = 0;
-        for line in TEMPLATE.lines() {
+        // Structural check: every raw `sessionStorage.{get,set}Item`
+        // access must appear inside a function body whose nearest
+        // enclosing block carries `try { ... } catch`. We locate each
+        // occurrence and scan backwards up to 5 lines for a `try {`
+        // opener. If the scan fails to find one, the access is
+        // considered unguarded.
+        let lines: Vec<&str> = TEMPLATE.lines().collect();
+        let mut hits = 0;
+        for (idx, line) in lines.iter().enumerate() {
             let touches =
                 line.contains("sessionStorage.getItem") || line.contains("sessionStorage.setItem");
             if !touches {
                 continue;
             }
-            guarded_hits += 1;
+            hits += 1;
+            let start = idx.saturating_sub(5);
+            let window_has_try = lines[start..=idx].iter().any(|l| l.contains("try {"));
             assert!(
-                line.contains("try") && line.contains("catch"),
-                "unguarded sessionStorage access on line: {}",
+                window_has_try,
+                "sessionStorage access on line {} has no `try {{` opener within 5 lines above: {}",
+                idx + 1,
                 line.trim()
             );
         }
         assert!(
-            guarded_hits >= 2,
-            "expected at least one sessionGet and one sessionSet access, found {guarded_hits}"
+            hits >= 2,
+            "expected at least one sessionGet and one sessionSet access, found {hits}"
         );
     }
 
