@@ -50,7 +50,11 @@ pub struct PgStatReport {
     pub total_entries: usize,
     /// Number of top entries per ranking.
     pub top_n: usize,
-    /// Rankings: by `total_exec_time`, by `calls`, by `mean_exec_time`.
+    /// Rankings in a stable order: by `total_exec_time`, by `calls`,
+    /// by `mean_exec_time`, by `shared_blks_total` (cache hits + reads).
+    /// Consumers that index by position (e.g., the HTML dashboard's
+    /// `pg_stat` sub-switcher) rely on this ordering not changing. New
+    /// rankings are appended, existing indices are never reassigned.
     pub rankings: Vec<PgStatRanking>,
 }
 
@@ -187,10 +191,23 @@ pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
         "top by mean_exec_time",
     );
 
+    // Total shared buffer blocks touched = hits + reads. Highest first
+    // identifies queries that move the most data through the cache
+    // regardless of whether they hit or miss, which correlates with
+    // memory pressure better than raw call count.
+    let by_io_blocks = top_n_by(
+        |a, b| {
+            let bt = b.shared_blks_read.saturating_add(b.shared_blks_hit);
+            let at = a.shared_blks_read.saturating_add(a.shared_blks_hit);
+            bt.cmp(&at)
+        },
+        "top by shared_blks_total",
+    );
+
     PgStatReport {
         total_entries,
         top_n,
-        rankings: vec![by_total_time, by_calls, by_mean_time],
+        rankings: vec![by_total_time, by_calls, by_mean_time, by_io_blocks],
     }
 }
 
@@ -781,6 +798,33 @@ mod tests {
         for ranking in &report.rankings {
             assert_eq!(ranking.entries.len(), 1);
         }
+    }
+
+    #[test]
+    fn rank_pg_stat_emits_four_rankings_in_stable_order() {
+        let entries = parse_pg_stat(sample_csv().as_bytes(), 1_048_576).unwrap();
+        let report = rank_pg_stat(&entries, 10);
+        assert_eq!(report.rankings.len(), 4, "exactly 4 rankings expected");
+        assert_eq!(report.rankings[0].label, "top by total_exec_time");
+        assert_eq!(report.rankings[1].label, "top by calls");
+        assert_eq!(report.rankings[2].label, "top by mean_exec_time");
+        assert_eq!(report.rankings[3].label, "top by shared_blks_total");
+
+        // by_io_blocks ranking: first entry has the highest hits+reads
+        // sum among all parsed entries.
+        let by_io = &report.rankings[3];
+        let expected_top_sum = entries
+            .iter()
+            .map(|e| e.shared_blks_read.saturating_add(e.shared_blks_hit))
+            .max()
+            .unwrap();
+        let actual_top_sum = by_io.entries[0]
+            .shared_blks_read
+            .saturating_add(by_io.entries[0].shared_blks_hit);
+        assert_eq!(
+            actual_top_sum, expected_top_sum,
+            "by_io_blocks top must be the entry with max hits+reads"
+        );
     }
 
     #[test]
