@@ -126,6 +126,20 @@
   .ps-diff-section-header { font-size: 12px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
   .ps-diff-section-header.red { color: var(--color-text-danger); }
   .ps-diff-section-header.green { color: var(--color-text-success); }
+  .ps-panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .ps-export-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; }
+  .ps-export-btn:hover { background: var(--color-background-info); }
+  .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
+  .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
+  .ps-modal-root { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+  .ps-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); }
+  .ps-modal { position: relative; max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  .ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
+  .ps-modal-close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--color-text-secondary); font-family: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 8px; }
+  .ps-modal-close:hover { color: var(--color-text-primary); }
+  .ps-modal table { width: 100%; border-collapse: collapse; }
+  .ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
+  .ps-modal td:first-child { width: 90px; white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -143,7 +157,11 @@
     <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-metrics" id="findings-metrics"></div>
     <div class="ps-filters" id="findings-filters"></div>
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
+    </div>
     <div class="ps-list" id="findings-list"></div>
+    <button type="button" class="ps-show-more" id="findings-show-more" style="display: none;"></button>
     <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
   </div>
 
@@ -165,6 +183,9 @@
     </div>
     <div class="ps-filters" id="pgstat-rankings"></div>
     <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
+    </div>
     <table class="ps-table" id="pgstat-table">
       <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
       <tbody id="pgstat-body"></tbody>
@@ -174,6 +195,9 @@
 
   <div id="panel-diff" style="display: none;">
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
+    </div>
     <div class="ps-diff-section">
       <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
       <div class="ps-list" id="diff-new-list"></div>
@@ -200,6 +224,9 @@
 
   <div id="panel-correlations" style="display: none;">
     <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
+    </div>
     <div class="ps-list" id="correlations-list"></div>
   </div>
 
@@ -214,7 +241,16 @@
   </div>
 
   <div class="ps-footer">
-    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back
+    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back . <span class="ps-kbd">?</span> shortcuts
+  </div>
+</div>
+
+<div class="ps-modal-root" id="cheatsheet" role="dialog" aria-modal="true" aria-labelledby="cheatsheet-title" style="display: none;">
+  <div class="ps-modal-backdrop" id="cheatsheet-backdrop"></div>
+  <div class="ps-modal">
+    <button type="button" class="ps-modal-close" id="cheatsheet-close" aria-label="Close">x</button>
+    <h2 id="cheatsheet-title">Keyboard shortcuts</h2>
+    <table id="cheatsheet-table"></table>
   </div>
 </div>
 
@@ -225,6 +261,28 @@
 <script>
 (function () {
   "use strict";
+
+  // -------- persistence (sessionStorage, scoped to this browser tab) --------
+  // sessionStorage throws in Safari private mode and some enterprise
+  // policies. Every access is wrapped so a failure degrades gracefully
+  // to in-memory defaults rather than surfacing a runtime error.
+  var STORAGE_KEYS = {
+    theme: "perf-sentinel:theme",
+    pgstatRanking: "perf-sentinel:pgstat-ranking"
+  };
+  function sessionGet(key) {
+    try { return window.sessionStorage.getItem(key); } catch (e) { return null; }
+  }
+  function sessionSet(key, value) {
+    try { window.sessionStorage.setItem(key, value); } catch (e) { /* ignore */ }
+  }
+  // Apply the persisted theme before any DOM rendering. The body is a
+  // shell of empty panels at this point, so the only risk of theme-flash
+  // is the container background (mitigated by running this first).
+  var storedTheme = sessionGet(STORAGE_KEYS.theme);
+  if (storedTheme === "dark" || storedTheme === "light") {
+    document.documentElement.dataset.theme = storedTheme;
+  }
 
   // -------- load payload --------
   function loadPayload() {
@@ -349,9 +407,14 @@
 
   // -------- tabs (generic) --------
   var tabs = [];
+  // Used by g-prefixed shortcuts and deep-link hash application to bail
+  // out silently when a tab is not present in the current report.
+  var registeredTabs = Object.create(null);
   function registerTab(key, label, countFn) {
     tabs.push({ key: key, label: label, countFn: countFn });
+    registeredTabs[key] = true;
   }
+  function tabIsRegistered(key) { return !!registeredTabs[key]; }
   function renderTabs() {
     var bar = document.getElementById("tabs");
     tabs.forEach(function (t) {
@@ -386,6 +449,7 @@
       var panel = document.getElementById("panel-" + t.key);
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
+    scheduleHashWrite();
   }
 
   // -------- findings metrics --------
@@ -472,7 +536,9 @@
       filterState.service = filterState.service === svc ? null : svc;
     }
     syncFilterChips();
+    resetShownCount();
     renderFindingsList();
+    scheduleHashWrite();
   }
   function syncFilterChips() {
     var anyActive = !!(filterState.severity || filterState.service);
@@ -487,11 +553,15 @@
   }
 
   // -------- findings list --------
-  // Cap the rendered list at 500 rows to keep the DOM small. Pagination
-  // on top of this cap is tracked for the 8.3 polish wave.
+  // Cap the initial render at LIST_CAP rows to keep the DOM small.
+  // Additional rows are revealed LIST_CAP at a time via the
+  // `findings-show-more` button, tracked by `shownCount`. Every filter,
+  // search or hash apply resets `shownCount` to LIST_CAP so the user
+  // never ends up paginated into rows that no longer match.
   var LIST_CAP = 500;
   var visibleFindings = [];
   var selectedIndex = -1;
+  var shownCount = LIST_CAP;
 
   function applyFilters() {
     return findings.filter(function (f) {
@@ -505,11 +575,13 @@
     var root = document.getElementById("findings-list");
     var empty = document.getElementById("findings-empty");
     root.textContent = "";
-    visibleFindings = applyFilters().slice(0, LIST_CAP);
+    var filtered = applyFilters();
+    visibleFindings = filtered.slice(0, shownCount);
     selectedIndex = visibleFindings.length > 0 ? 0 : -1;
 
     if (visibleFindings.length === 0) {
       empty.style.display = "";
+      syncShowMore(filtered.length);
       return;
     }
     empty.style.display = "none";
@@ -518,7 +590,23 @@
       root.appendChild(buildFindingRow(f, idx));
     });
     syncSelection();
+    syncShowMore(filtered.length);
   }
+
+  function syncShowMore(totalMatching) {
+    var btn = document.getElementById("findings-show-more");
+    if (!btn) return;
+    if (visibleFindings.length >= totalMatching) {
+      btn.style.display = "none";
+      return;
+    }
+    var remaining = totalMatching - visibleFindings.length;
+    var next = Math.min(LIST_CAP, remaining);
+    btn.style.display = "";
+    btn.textContent = "Show " + next + " more findings (" + remaining + " remaining)";
+  }
+
+  function resetShownCount() { shownCount = LIST_CAP; }
 
   function buildFindingRow(f, idx) {
     var row = el("div", "ps-row");
@@ -844,6 +932,11 @@
   }
 
   function selectPgStatRanking(idx) {
+    // Persist the choice even when idx already matches activeRankingIndex.
+    // This covers the deep-link restore path where the hash carries the
+    // current ranking but sessionStorage was empty, so we still honor
+    // the user's implicit intent to remember this ranking.
+    sessionSet(STORAGE_KEYS.pgstatRanking, rankingSlugForIndex(idx));
     if (idx === activeRankingIndex) return;
     activeRankingIndex = idx;
     var chips = document.querySelectorAll("#pgstat-rankings .ps-chip");
@@ -851,6 +944,7 @@
       chips[i].classList.toggle("active", i === idx);
     }
     renderPgStatTable();
+    scheduleHashWrite();
     // Preserve the hilite when the previously-hilited template exists
     // in the new ranking; else silently clear the drill + hilite.
     if (pgStatHiliteTemplate) {
@@ -1084,6 +1178,7 @@
       if (!input) return;
       input.addEventListener("input", function () {
         applySearchFilter(cfg);
+        scheduleHashWrite();
       });
     });
   }
@@ -1135,23 +1230,485 @@
   // -------- theme --------
   document.getElementById("theme-toggle").addEventListener("click", function () {
     var root = document.documentElement;
-    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+    var next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    sessionSet(STORAGE_KEYS.theme, next);
   });
+
+  // -------- CSV export --------
+  // Rows are assembled as arrays of cell values, then each cell is
+  // RFC 4180 escaped and the joined line is written to a Blob. No DOM
+  // injection involved, so this bypasses the innerHTML hazard entirely.
+  function csvEscape(value) {
+    if (value === null || value === undefined) return "";
+    var s = String(value);
+    if (s.indexOf(",") >= 0 || s.indexOf("\"") >= 0 ||
+        s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) {
+      return "\"" + s.replace(/"/g, "\"\"") + "\"";
+    }
+    return s;
+  }
+  function csvLine(cells) {
+    return cells.map(csvEscape).join(",");
+  }
+  // Note on numeric cells: producers pass JS numbers straight through
+  // csvEscape, which calls String(n). That drops trailing zeros
+  // (`840.0` -> `"840"`) because V8 Number.toString() normalizes the
+  // decimal representation. Excel and every major CSV consumer handle
+  // this correctly, so we keep the cheap path rather than forcing
+  // `.toFixed(n)` per column.
+  function buildCsv(header, rows) {
+    var lines = [csvLine(header)];
+    rows.forEach(function (r) { lines.push(csvLine(r)); });
+    return lines.join("\r\n") + "\r\n";
+  }
+  function sanitizeLabelForFilename(s) {
+    if (!s) return "";
+    var cleaned = String(s).replace(/[^A-Za-z0-9]+/g, "-");
+    cleaned = cleaned.replace(/-+/g, "-").replace(/^-|-$/g, "");
+    return cleaned;
+  }
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+  function timestampForFilename() {
+    var d = new Date();
+    return d.getFullYear() +
+      pad2(d.getMonth() + 1) +
+      pad2(d.getDate()) + "-" +
+      pad2(d.getHours()) +
+      pad2(d.getMinutes()) +
+      pad2(d.getSeconds());
+  }
+  function buildCsvFilename(tabName) {
+    var label = sanitizeLabelForFilename(payload.input_label || "");
+    var prefix = label ? "perf-sentinel-" + label : "perf-sentinel";
+    return prefix + "-" + tabName + "-" + timestampForFilename() + ".csv";
+  }
+  function downloadCsv(tabName, csvText) {
+    var blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = buildCsvFilename(tabName);
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // Delay the revoke so the browser has the URL in hand when it
+    // kicks off the download. Immediate revoke breaks the download on
+    // some browsers. 0ms is enough to escape the current task.
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  function searchTermFor(tabKey) {
+    var cfg = SEARCHABLE_TABS && SEARCHABLE_TABS[tabKey];
+    if (!cfg) return "";
+    var input = document.getElementById(cfg.inputId);
+    if (!input) return "";
+    return (input.value || "").toLowerCase();
+  }
+  function matchesSearch(haystack, term) {
+    if (!term) return true;
+    return String(haystack || "").toLowerCase().indexOf(term) >= 0;
+  }
+
+  function exportFindingsCsv() {
+    var term = searchTermFor("findings");
+    var header = [
+      "severity", "type", "service", "endpoint", "template",
+      "occurrences", "first_timestamp", "last_timestamp",
+      "code_function", "code_filepath", "code_lineno",
+      "suggested_fix_framework", "suggested_fix_recommendation"
+    ];
+    var rows = applyFilters().filter(function (f) {
+      var blob = [
+        f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
+        f.pattern && f.pattern.template
+      ].join(" ");
+      return matchesSearch(blob, term);
+    }).map(function (f) {
+      var p = f.pattern || {};
+      var loc = f.code_location || {};
+      var fix = f.suggested_fix || {};
+      return [
+        f.severity || "",
+        f.type || f.finding_type || "",
+        f.service || "",
+        f.source_endpoint || "",
+        p.template || "",
+        p.occurrences != null ? p.occurrences : "",
+        f.first_timestamp || "",
+        f.last_timestamp || "",
+        loc.function || "",
+        loc.filepath || "",
+        loc.lineno != null ? loc.lineno : "",
+        fix.framework || "",
+        fix.recommendation || ""
+      ];
+    });
+    downloadCsv("findings", buildCsv(header, rows));
+  }
+
+  function exportPgStatCsv() {
+    var term = searchTermFor("pgstat");
+    var header = [
+      "template", "calls", "total_exec_time_ms", "mean_exec_time_ms",
+      "rows", "shared_blks_hit", "shared_blks_read", "seen_in_traces"
+    ];
+    var rows = activePgStatEntries().filter(function (e) {
+      return matchesSearch(e.normalized_template, term);
+    }).map(function (e) {
+      return [
+        e.normalized_template || "",
+        e.calls != null ? e.calls : "",
+        e.total_exec_time_ms != null ? e.total_exec_time_ms : "",
+        e.mean_exec_time_ms != null ? e.mean_exec_time_ms : "",
+        e.rows != null ? e.rows : "",
+        e.shared_blks_hit != null ? e.shared_blks_hit : "",
+        e.shared_blks_read != null ? e.shared_blks_read : "",
+        e.seen_in_traces ? "true" : "false"
+      ];
+    });
+    downloadCsv("pgstat", buildCsv(header, rows));
+  }
+
+  function diffFindingMatchBlob(f) {
+    return [
+      f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
+      f.pattern && f.pattern.template
+    ].join(" ");
+  }
+  function exportDiffCsv() {
+    if (!hasDiff) return;
+    var term = searchTermFor("diff");
+    var header = [
+      "section", "severity", "type", "service", "endpoint", "template",
+      "occurrences", "before_severity", "after_severity",
+      "before_io_ops", "after_io_ops", "delta"
+    ];
+    var rows = [];
+    (diffData.new_findings || []).forEach(function (f) {
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "new", f.severity || "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences != null ? p.occurrences : "",
+        "", "", "", "", ""
+      ]);
+    });
+    (diffData.resolved_findings || []).forEach(function (f) {
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "resolved", f.severity || "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences != null ? p.occurrences : "",
+        "", "", "", "", ""
+      ]);
+    });
+    (diffData.severity_changes || []).forEach(function (c) {
+      var f = c.finding || {};
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "severity_change", "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences != null ? p.occurrences : "",
+        c.before_severity || "", c.after_severity || "",
+        "", "", ""
+      ]);
+    });
+    (diffData.endpoint_metric_deltas || []).forEach(function (d) {
+      var blob = [d.service, d.endpoint].join(" ");
+      if (!matchesSearch(blob, term)) return;
+      rows.push([
+        "endpoint_delta", "", "",
+        d.service || "", d.endpoint || "", "",
+        "", "", "",
+        d.before_io_ops != null ? d.before_io_ops : "",
+        d.after_io_ops != null ? d.after_io_ops : "",
+        d.delta != null ? d.delta : ""
+      ]);
+    });
+    downloadCsv("diff", buildCsv(header, rows));
+  }
+
+  function exportCorrelationsCsv() {
+    var term = searchTermFor("correlations");
+    var header = [
+      "service_a", "type_a", "template_a",
+      "service_b", "type_b", "template_b",
+      "confidence", "co_occurrence_count",
+      "source_total_occurrences", "median_lag_ms",
+      "first_seen", "last_seen"
+    ];
+    var rows = correlations.filter(function (c) {
+      var src = c.source || {};
+      var tgt = c.target || {};
+      var blob = [
+        src.service, src.finding_type, tgt.service, tgt.finding_type
+      ].join(" ");
+      return matchesSearch(blob, term);
+    }).map(function (c) {
+      var s = c.source || {};
+      var t = c.target || {};
+      return [
+        s.service || "", s.finding_type || "", s.template || "",
+        t.service || "", t.finding_type || "", t.template || "",
+        c.confidence != null ? c.confidence : "",
+        c.co_occurrence_count != null ? c.co_occurrence_count : "",
+        c.source_total_occurrences != null ? c.source_total_occurrences : "",
+        c.median_lag_ms != null ? c.median_lag_ms : "",
+        c.first_seen || "", c.last_seen || ""
+      ];
+    });
+    downloadCsv("correlations", buildCsv(header, rows));
+  }
+
+  // -------- deep-link hash --------
+  // Shape: `#<tab>[&k=v[&k=v...]]`. Medium-scope: tab, search term,
+  // pg_stat ranking slug, findings severity chip, findings service chip.
+  // Writes replace history entries (no back/forward pollution).
+  var RANKING_SLUGS = ["total_time", "calls", "mean_time", "io_blocks"];
+  function rankingSlugForIndex(idx) {
+    return RANKING_SLUGS[idx] || String(idx);
+  }
+  function rankingIndexForSlug(slug) {
+    var i = RANKING_SLUGS.indexOf(slug);
+    if (i >= 0) return i;
+    var n = parseInt(slug, 10);
+    return Number.isFinite(n) ? n : -1;
+  }
+
+  // Keys accepted from the URL fragment. Anything outside this list is
+  // ignored so a malformed or malicious hash cannot override the tab
+  // via a later `tab=` pair, inject arbitrary properties onto `state`,
+  // or confuse `applyHash`. The tab itself is positional (first token),
+  // not a key=value pair.
+  var HASH_KEYS = ["search", "ranking", "severity", "service"];
+  function readHash() {
+    var raw = (location.hash || "").replace(/^#/, "");
+    if (!raw) return null;
+    var parts = raw.split("&");
+    var state = { tab: parts.shift() || null };
+    parts.forEach(function (p) {
+      if (!p) return;
+      var eq = p.indexOf("=");
+      if (eq < 0) return;
+      var k = p.slice(0, eq);
+      if (HASH_KEYS.indexOf(k) < 0) return;
+      var v = p.slice(eq + 1);
+      try { v = decodeURIComponent(v); } catch (e) { /* keep raw */ }
+      state[k] = v;
+    });
+    return state;
+  }
+
+  function currentStateForHash() {
+    var state = { tab: currentTab };
+    if (currentTab && SEARCHABLE_TABS[currentTab]) {
+      var term = searchTermFor(currentTab);
+      if (term) state.search = term;
+    }
+    if (currentTab === "findings") {
+      if (filterState.severity) state.severity = filterState.severity;
+      if (filterState.service) state.service = filterState.service;
+    }
+    if (currentTab === "pgstat") {
+      state.ranking = rankingSlugForIndex(activeRankingIndex);
+    }
+    return state;
+  }
+
+  function encodeHashFromState(state) {
+    if (!state || !state.tab) return "";
+    var parts = [state.tab];
+    ["search", "ranking", "severity", "service"].forEach(function (k) {
+      var v = state[k];
+      if (v !== null && v !== undefined && v !== "") {
+        parts.push(k + "=" + encodeURIComponent(String(v)));
+      }
+    });
+    return parts.join("&");
+  }
+
+  function writeHash(state) {
+    var hashStr = encodeHashFromState(state);
+    var full = hashStr ? "#" + hashStr : "";
+    try {
+      history.replaceState(null, "", full || location.pathname + location.search);
+    } catch (e) {
+      // Old browsers: fall back to a direct hash assignment. Pushes one
+      // history entry per change, which is the lesser of two evils.
+      location.hash = hashStr;
+    }
+  }
+
+  // Debounce writeHash to smooth keystrokes in search inputs and bursty
+  // chip clicks; 200ms is barely perceptible and keeps history quiet.
+  var hashWriteTimer = null;
+  function scheduleHashWrite() {
+    if (hashWriteTimer) clearTimeout(hashWriteTimer);
+    hashWriteTimer = setTimeout(function () {
+      hashWriteTimer = null;
+      writeHash(currentStateForHash());
+    }, 200);
+  }
+
+  function applyHash(state) {
+    if (!state || !state.tab) return false;
+    if (!tabIsRegistered(state.tab)) return false;
+    // Apply filter state before switching so the target tab already
+    // shows the correct view. Severity / service chips modify
+    // filterState and re-render the findings list.
+    if (state.tab === "findings") {
+      filterState.severity = null;
+      filterState.service = null;
+      if (state.severity === "critical" || state.severity === "warning") {
+        filterState.severity = state.severity;
+      }
+      if (state.service) filterState.service = state.service;
+      syncFilterChips();
+      resetShownCount();
+      renderFindingsList();
+    }
+    if (state.tab === "pgstat") {
+      var idx = rankingIndexForSlug(state.ranking || "");
+      if (idx >= 0 && idx < pgStatRankings.length) {
+        // Single source of truth: selectPgStatRanking handles both the
+        // sessionStorage write and the early-return when idx already
+        // matches activeRankingIndex.
+        selectPgStatRanking(idx);
+      }
+    }
+    switchTab(state.tab);
+    // Restore the search input for the target tab after tab switch,
+    // which runs `clearAllSearchFilters`. Reapply the filter so rows
+    // match the decoded search term.
+    if (state.search && SEARCHABLE_TABS[state.tab]) {
+      var cfg = SEARCHABLE_TABS[state.tab];
+      var input = document.getElementById(cfg.inputId);
+      if (input) {
+        input.style.display = "block";
+        input.value = state.search;
+        applySearchFilter(cfg);
+      }
+    }
+    return true;
+  }
+
+  // -------- cheatsheet modal --------
+  var CHEATSHEET_ROWS = [
+    ["j", "Move finding selection down"],
+    ["k", "Move finding selection up"],
+    ["Enter", "Open selected finding in Explain"],
+    ["Esc", "Close help, close search, clear filters, back from Explain"],
+    ["/", "Open filter search for active tab"],
+    ["g f", "Go to Findings"],
+    ["g e", "Go to Explain (if available)"],
+    ["g p", "Go to pg_stat (if available)"],
+    ["g d", "Go to Diff (if available)"],
+    ["g c", "Go to Correlations (if available)"],
+    ["g r", "Go to GreenOps (if available)"],
+    ["?", "Show this cheatsheet"]
+  ];
+  function populateCheatsheet() {
+    var tbl = document.getElementById("cheatsheet-table");
+    if (!tbl) return;
+    tbl.textContent = "";
+    CHEATSHEET_ROWS.forEach(function (row) {
+      var tr = document.createElement("tr");
+      var tdK = document.createElement("td");
+      var kbd = el("span", "ps-kbd", row[0]);
+      tdK.appendChild(kbd);
+      tr.appendChild(tdK);
+      tr.appendChild(el("td", null, row[1]));
+      tbl.appendChild(tr);
+    });
+  }
+  function isCheatsheetOpen() {
+    var dlg = document.getElementById("cheatsheet");
+    return dlg && dlg.style.display !== "none";
+  }
+  // Stash the element that owned focus when the cheatsheet opened so
+  // closing restores the j/k cursor position in the Findings list (or
+  // wherever the user came from). Cleared on close.
+  var cheatsheetPriorFocus = null;
+  function openCheatsheet() {
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg) return;
+    cheatsheetPriorFocus = document.activeElement;
+    dlg.style.display = "";
+    var closeBtn = document.getElementById("cheatsheet-close");
+    if (closeBtn) closeBtn.focus();
+  }
+  function closeCheatsheet() {
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg) return;
+    dlg.style.display = "none";
+    var prior = cheatsheetPriorFocus;
+    cheatsheetPriorFocus = null;
+    // Restore focus defensively: the prior element may have been
+    // removed from the DOM between open and close (e.g. after a
+    // re-render). A missing or unfocusable element is a silent no-op.
+    if (prior && typeof prior.focus === "function") {
+      try { prior.focus(); } catch (e) { /* ignore */ }
+    }
+  }
+  function toggleCheatsheet() {
+    if (isCheatsheetOpen()) closeCheatsheet();
+    else openCheatsheet();
+  }
+  function isFocusInsideCheatsheet() {
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg || dlg.style.display === "none") return false;
+    return dlg.contains(document.activeElement);
+  }
+
+  function anyFilterChipActive() {
+    return !!(filterState.severity || filterState.service);
+  }
+  function clearFilterChips() {
+    filterState.severity = null;
+    filterState.service = null;
+    syncFilterChips();
+    resetShownCount();
+    renderFindingsList();
+  }
 
   // -------- keyboard --------
   function isSearchInputFocused() {
     var active = document.activeElement;
     return !!(active && active.tagName === "INPUT" && active.classList.contains("ps-search"));
   }
-  /// Escape handling: close the search bar when focused, else back
-  /// out of the Explain tab.
+  function isTextInputFocused() {
+    var a = document.activeElement;
+    if (!a) return false;
+    var tag = a.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return true;
+    return a.isContentEditable === true;
+  }
+  /// Escape ladder: close cheatsheet, close search, leave Explain,
+  /// clear filter chips. Each tier returns as soon as it acts.
   function handleEscape(ev) {
+    if (isCheatsheetOpen()) {
+      closeCheatsheet();
+      ev.preventDefault();
+      return;
+    }
     if (isSearchInputFocused()) {
       closeSearch(document.activeElement);
       ev.preventDefault();
       return;
     }
-    if (currentTab === "explain") switchTab("findings");
+    if (currentTab === "explain") {
+      switchTab("findings");
+      return;
+    }
+    if (currentTab === "findings" && anyFilterChipActive()) {
+      clearFilterChips();
+      scheduleHashWrite();
+      ev.preventDefault();
+    }
   }
   /// Slash handling: open the active tab's search input.
   function handleSlash(ev) {
@@ -1175,10 +1732,54 @@
     }
     ev.preventDefault();
   }
+  // g-prefixed tab shortcuts. `g` alone arms a 1000ms window; the next
+  // key consumes it regardless of whether it matches a tab. Hidden tabs
+  // are a silent no-op (no feedback, no flash).
+  var pendingGTimer = null;
+  var G_MAPPING = {
+    f: "findings", e: "explain", p: "pgstat",
+    d: "diff", c: "correlations", r: "green"
+  };
+  function clearPendingG() {
+    if (pendingGTimer) {
+      clearTimeout(pendingGTimer);
+      pendingGTimer = null;
+    }
+  }
+  function handleGPrefix(ev) {
+    // Ignore OS-level key autorepeat: holding `g` must not rearm the
+    // prefix, and holding the second letter must not fire the tab
+    // switch twice. The dispatcher continues past this handler so
+    // autorepeat on j/k/Enter still drives Findings navigation.
+    if (ev.repeat) return false;
+    if (ev.key === "g" && pendingGTimer === null) {
+      pendingGTimer = setTimeout(function () { pendingGTimer = null; }, 1000);
+      return true;
+    }
+    if (pendingGTimer !== null) {
+      clearPendingG();
+      var target = G_MAPPING[ev.key];
+      if (target && tabIsRegistered(target)) {
+        switchTab(target);
+        ev.preventDefault();
+      }
+      return true;
+    }
+    return false;
+  }
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") { handleEscape(ev); return; }
+    // `?` opens the cheatsheet unless a text input is consuming it.
+    if (ev.key === "?" && !isTextInputFocused()) {
+      toggleCheatsheet();
+      ev.preventDefault();
+      return;
+    }
+    if (isCheatsheetOpen()) return;
     if (ev.key === "/") { handleSlash(ev); return; }
     if (isSearchInputFocused()) return;
+    if (isTextInputFocused()) return;
+    if (handleGPrefix(ev)) return;
     if (currentTab !== "findings") return;
     if (ev.key === "j" || ev.key === "k" || ev.key === "Enter") {
       handleFindingsNav(ev);
@@ -1223,12 +1824,75 @@
   renderTrimBanner();
   renderFindingsMetrics();
   renderFilterChips();
+  // Restore the persisted pg_stat ranking before the first render so the
+  // initial table already reflects the user's last choice. A hash with a
+  // ranking slug overrides this below, inside `applyHash`.
+  if (hasPgStat) {
+    var storedRanking = sessionGet(STORAGE_KEYS.pgstatRanking);
+    if (storedRanking) {
+      var storedIdx = rankingIndexForSlug(storedRanking);
+      if (storedIdx >= 0 && storedIdx < pgStatRankings.length) {
+        activeRankingIndex = storedIdx;
+      }
+    }
+  }
   renderFindingsList();
   if (hasPgStat) renderPgStatPanel();
   if (hasDiff) renderDiffPanel();
   if (hasCorrelations) renderCorrelationsPanel();
   if (hasGreen) renderGreenPanel();
   initSearchInputs();
+
+  // -------- 8.3 wiring --------
+  populateCheatsheet();
+  var cheatsheetCloseBtn = document.getElementById("cheatsheet-close");
+  if (cheatsheetCloseBtn) {
+    cheatsheetCloseBtn.addEventListener("click", closeCheatsheet);
+  }
+  var cheatsheetBackdrop = document.getElementById("cheatsheet-backdrop");
+  if (cheatsheetBackdrop) {
+    cheatsheetBackdrop.addEventListener("click", closeCheatsheet);
+  }
+  // Focus trap: keep Tab / Shift+Tab inside the dialog while open.
+  // There is exactly one focusable element (the close button), so
+  // swallow Tab when the cheatsheet owns focus.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Tab") return;
+    if (!isCheatsheetOpen()) return;
+    ev.preventDefault();
+    var btn = document.getElementById("cheatsheet-close");
+    if (btn) btn.focus();
+  });
+
+  var showMoreBtn = document.getElementById("findings-show-more");
+  if (showMoreBtn) {
+    showMoreBtn.addEventListener("click", function () {
+      shownCount += LIST_CAP;
+      renderFindingsList();
+    });
+  }
+
+  var exportHandlers = {
+    findings: exportFindingsCsv,
+    pgstat: exportPgStatCsv,
+    diff: exportDiffCsv,
+    correlations: exportCorrelationsCsv
+  };
+  Object.keys(exportHandlers).forEach(function (tabKey) {
+    var btn = document.getElementById(tabKey + "-export");
+    if (btn) btn.addEventListener("click", exportHandlers[tabKey]);
+  });
+
+  // Apply the deep-link hash last so it can override the initial
+  // ranking / filter chips / tab selection derived above. Falls through
+  // silently when the hash is missing, malformed, or points to a tab
+  // that is not registered in this report.
+  var initialHash = readHash();
+  if (!applyHash(initialHash)) {
+    // No hash: emit the current state so sharing the URL immediately
+    // after load produces a self-describing link.
+    writeHash(currentStateForHash());
+  }
 })();
 </script>
 </body>

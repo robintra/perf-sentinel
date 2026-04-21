@@ -137,7 +137,9 @@ perf-sentinel report --input traces.json \
     --output report.html
 ```
 
-Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` sort d'Explain (ou ferme la barre de recherche quand une est ouverte). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations.
+Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` sort d'Explain (ou ferme la barre de recherche quand une est ouverte). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations. Tape `?` pour la cheatsheet complète qui liste tous les raccourcis, avec en plus les raccourcis style vim `g f` / `g e` / `g p` / `g d` / `g c` / `g r` qui sautent d'un onglet à l'autre.
+
+Partage et export : chaque onglet listable (Findings, pg_stat, Diff, Correlations) expose un bouton **Export CSV** qui télécharge la vue filtrée active au format CSV RFC 4180, les templates contenant virgules ou guillemets sont échappés correctement. Le fragment d'URL reflète l'onglet actif plus la recherche et les puces de filtre, donc partager un lien comme `report.html#pgstat&ranking=mean_time&search=payment` restaure exactement la même vue chez le destinataire. Le thème et le dernier classement pg_stat sélectionné persistent dans `sessionStorage`, limité à l'onglet de navigateur courant.
 
 C'est une vue post-mortem d'un jeu de traces terminé. Pour une inspection live d'un daemon qui tourne, utilise `perf-sentinel query inspect` (TUI) ou directement les endpoints `/api/*`. Pour un workflow Tempo, compose via le shell : `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 

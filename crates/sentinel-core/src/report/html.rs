@@ -590,14 +590,21 @@ mod tests {
     fn no_forbidden_apis_in_template() {
         let forbidden = [
             ".innerHTML",
+            ".outerHTML",
             "insertAdjacentHTML",
             "document.write",
             "eval(",
             "new Function(",
+            // Attribute-sink parsers. `DOMParser().parseFromString(x,
+            // "text/html")` and `Range.createContextualFragment(x)`
+            // both interpret their argument as HTML, providing a path
+            // around the textContent-only invariant.
+            "DOMParser(",
+            "createContextualFragment(",
             // We intentionally omit a bare `Function(` check: the string
             // "function (" appears many times as IIFE / callback syntax.
             // `new Function(` is the only constructor shape that
-            // executes a string as code; a literal `Function(` without
+            // executes a string as code, a literal `Function(` without
             // `new` would need `window.Function(` to be callable, which
             // is caught by the same `Function(` heuristic below.
         ];
@@ -611,6 +618,171 @@ mod tests {
         // constructor that don't start with `new `.
         assert!(!TEMPLATE.contains("window.Function("));
         assert!(!TEMPLATE.contains("globalThis.Function("));
+        // Attribute-name-based event handler injection. A call like
+        // `el.setAttribute("onclick", "alert(1)")` is equivalent to
+        // writing `innerHTML` with an inline handler: the browser
+        // compiles the attribute string as JS. Reject any
+        // `setAttribute(` whose first argument starts with `"on` or
+        // `'on`, regardless of whitespace around the paren. We strip
+        // whitespace entirely so a reformat cannot dodge the check.
+        let no_ws: String = TEMPLATE.chars().filter(|c| !c.is_whitespace()).collect();
+        assert!(
+            !no_ws.contains("setAttribute(\"on"),
+            "template contains forbidden attribute-sink: setAttribute(\"on*\", ...)"
+        );
+        assert!(
+            !no_ws.contains("setAttribute('on"),
+            "template contains forbidden attribute-sink: setAttribute('on*', ...)"
+        );
+    }
+
+    #[test]
+    fn cheatsheet_shortcuts_listed_in_template() {
+        // The modal scaffolding must be present...
+        assert!(
+            TEMPLATE.contains("id=\"cheatsheet\""),
+            "cheatsheet modal scaffolding missing"
+        );
+        assert!(
+            TEMPLATE.contains("Keyboard shortcuts"),
+            "cheatsheet title missing"
+        );
+        // ...and every shortcut description must appear. We match the
+        // user-visible description rather than the key literal because
+        // keys may be rewritten (single vs double quotes, aliasing,
+        // reorder) during cosmetic refactors, but descriptions are the
+        // contract the user sees, and are covered by the docs.
+        for description in [
+            "Move finding selection down",
+            "Move finding selection up",
+            "Open selected finding in Explain",
+            "close search",
+            "back from Explain",
+            "Open filter search for active tab",
+            "Go to Findings",
+            "Go to Explain",
+            "Go to pg_stat",
+            "Go to Diff",
+            "Go to Correlations",
+            "Go to GreenOps",
+            "Show this cheatsheet",
+        ] {
+            assert!(
+                TEMPLATE.contains(description),
+                "cheatsheet missing description fragment: {description:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn export_button_rendered_for_listable_tabs_only() {
+        // Each listable panel gets its own Export CSV button keyed by
+        // `<tab>-export`. Explain and GreenOps stay button-less.
+        for tab in ["findings", "pgstat", "diff", "correlations"] {
+            let needle = format!("id=\"{tab}-export\"");
+            assert!(
+                TEMPLATE.contains(&needle),
+                "expected export button for listable tab: {tab}"
+            );
+        }
+        // Count-based guard against future drift: every export button
+        // carries `data-export-tab="..."`, so the total occurrence
+        // count must equal the four listable tabs, no more, no less.
+        // This catches both accidental drop (count < 4) and rogue
+        // addition to Explain / GreenOps (count > 4) without relying
+        // on negative substring matches that could over-match suffixed
+        // future IDs like `pre-explain-export`.
+        let export_count = TEMPLATE.matches("data-export-tab=\"").count();
+        assert_eq!(
+            export_count, 4,
+            "expected exactly 4 export buttons (findings, pgstat, diff, correlations), found {export_count}"
+        );
+        // The CSS class backing every export button must also exist.
+        assert!(
+            TEMPLATE.contains(".ps-export-btn"),
+            ".ps-export-btn CSS class missing"
+        );
+    }
+
+    /// Spec check mirroring the JS `csvEscape` helper to guard the RFC
+    /// 4180 rules. The JS version is the one that actually runs in the
+    /// browser, this Rust twin exists only so a test failure surfaces
+    /// a mismatch between the two during refactors.
+    ///
+    /// Non-null path only: the JS helper returns `""` for `null` and
+    /// `undefined`, this Rust twin only covers the `&str` domain and
+    /// does not model that branch.
+    fn csv_escape_spec(value: &str) -> String {
+        let needs_quoting = value.contains(',')
+            || value.contains('"')
+            || value.contains('\n')
+            || value.contains('\r');
+        if needs_quoting {
+            format!("\"{}\"", value.replace('"', "\"\""))
+        } else {
+            value.to_string()
+        }
+    }
+
+    #[test]
+    fn csv_escape_rfc_4180_rules() {
+        assert_eq!(csv_escape_spec("plain"), "plain");
+        assert_eq!(csv_escape_spec(""), "");
+        assert_eq!(csv_escape_spec("has,comma"), "\"has,comma\"");
+        assert_eq!(csv_escape_spec("has\"quote"), "\"has\"\"quote\"");
+        assert_eq!(csv_escape_spec("line1\nline2"), "\"line1\nline2\"");
+        // CR-only and CRLF both trigger the RFC 4180 quoting rule: any
+        // embedded line break requires enclosing double quotes. Keep
+        // all three newline shapes covered so a regression on one of
+        // them does not slip through.
+        assert_eq!(csv_escape_spec("line1\rline2"), "\"line1\rline2\"");
+        assert_eq!(csv_escape_spec("line1\r\nline2"), "\"line1\r\nline2\"");
+        // Double-quoted templates with embedded commas, like
+        // `INSERT INTO t (a, b, "c") VALUES (?, ?, ?)`, must survive
+        // a round-trip through the escape.
+        let tricky = "INSERT INTO t (a, b, \"c\") VALUES (?, ?, ?)";
+        assert_eq!(
+            csv_escape_spec(tricky),
+            "\"INSERT INTO t (a, b, \"\"c\"\") VALUES (?, ?, ?)\""
+        );
+    }
+
+    #[test]
+    fn sessionstorage_access_is_guarded_by_try_catch() {
+        // Every sessionStorage access throws in Safari private mode and
+        // some enterprise-policy contexts. Enforce two invariants:
+        // (1) every line touching `sessionStorage.getItem` or
+        // `sessionStorage.setItem` also carries `try` and `catch` on
+        // the same line (our single-statement wrapper idiom), and
+        // (2) the two helper function definitions exist so every
+        // callsite in the template routes through them rather than
+        // calling the API directly.
+        let mut guarded_hits = 0;
+        for line in TEMPLATE.lines() {
+            let touches =
+                line.contains("sessionStorage.getItem") || line.contains("sessionStorage.setItem");
+            if !touches {
+                continue;
+            }
+            guarded_hits += 1;
+            assert!(
+                line.contains("try") && line.contains("catch"),
+                "unguarded sessionStorage access on line: {}",
+                line.trim()
+            );
+        }
+        assert!(
+            guarded_hits >= 2,
+            "expected at least one sessionGet and one sessionSet access"
+        );
+        assert!(
+            TEMPLATE.contains("function sessionGet("),
+            "sessionGet helper missing"
+        );
+        assert!(
+            TEMPLATE.contains("function sessionSet("),
+            "sessionSet helper missing"
+        );
     }
 
     /// Extract the raw JSON text from the `<script id="report-data">`

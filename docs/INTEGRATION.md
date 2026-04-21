@@ -137,7 +137,9 @@ perf-sentinel report --input traces.json \
     --output report.html
 ```
 
-Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` backs out of Explain (or closes the search bar if one is open). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations.
+Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` backs out of Explain (or closes the search bar if one is open). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations. Press `?` for the full cheatsheet with every shortcut listed, including vim-style `g f` / `g e` / `g p` / `g d` / `g c` / `g r` to jump between tabs.
+
+Sharing and export: every listable tab (Findings, pg_stat, Diff, Correlations) has an **Export CSV** button that downloads the currently filtered view as a standards-compliant CSV (RFC 4180 escaping, so templates with commas or quotes round-trip safely). The URL fragment reflects the active tab plus search and filter chips, so sending a teammate a link like `report.html#pgstat&ranking=mean_time&search=payment` restores the exact same view. Theme and last-active pg_stat ranking persist in `sessionStorage`, scoped to the current browser tab.
 
 This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
