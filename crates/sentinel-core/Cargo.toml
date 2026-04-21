@@ -29,7 +29,7 @@ tracing = "0.1.44"
 thiserror = "2.0.18"
 toml = "1.1.2"
 regex = "1.12.3"
-tokio = { version = "1.52.0", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util"] }
+tokio = { version = "1.52.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
 # /metrics router) uses axum+tower and ingest/otlp.rs uses opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
