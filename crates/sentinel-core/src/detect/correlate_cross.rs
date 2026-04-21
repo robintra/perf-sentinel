@@ -67,6 +67,12 @@ pub struct CrossTraceCorrelation {
     pub first_seen: String,
     /// ISO 8601 timestamp of the most recent observed co-occurrence.
     pub last_seen: String,
+    /// Trace id of the most recently observed source-side contribution
+    /// to this pair. Lets the dashboard jump from a correlation row to
+    /// Explain and render a representative tree. `None` in batch mode
+    /// and for replayed baselines that predate this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sample_trace_id: Option<String>,
 }
 
 /// Key for a correlation pair in the internal map.
@@ -124,6 +130,12 @@ struct PairState {
     rng_state: u64,
     first_seen_ms: u64,
     last_seen_ms: u64,
+    /// Trace id of the most recent source-side finding that contributed
+    /// to this pair. Overwritten on every co-occurrence so the value
+    /// tracks the latest observation. Adds one `Option<String>` (~40
+    /// bytes worst case) per active pair, well under the correlator's
+    /// 20 MB lag-reservoir budget at the 10,000 pair cap.
+    last_trace_id: Option<String>,
 }
 
 impl PairState {
@@ -273,7 +285,7 @@ impl CrossTraceCorrelator {
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
             });
-            self.record_co_occurrences(&endpoint, now_ms);
+            self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str());
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
             self.occurrences.push_back(FindingOccurrence {
                 endpoint,
@@ -303,10 +315,15 @@ impl CrossTraceCorrelator {
 
     /// Scan recent occurrences for entries from a different service within
     /// `lag_threshold_ms` and increment the matching pair counters.
+    ///
+    /// `trace_id` is the incoming target-side finding's trace id. It is
+    /// stored on every matching [`PairState`] so [`active_correlations`]
+    /// can surface a representative trace id for UI jump-through.
     fn record_co_occurrences(
         &mut self,
         endpoint: &std::sync::Arc<CorrelationEndpoint>,
         now_ms: u64,
+        trace_id: &str,
     ) {
         for occ in self.occurrences.iter().rev() {
             let age = now_ms.saturating_sub(occ.timestamp_ms);
@@ -336,10 +353,18 @@ impl CrossTraceCorrelator {
                 rng_state: now_ms ^ (hash_endpoint(&occ.endpoint) << 17) ^ hash_endpoint(endpoint),
                 first_seen_ms: now_ms,
                 last_seen_ms: now_ms,
+                last_trace_id: None,
             });
             state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
+            // Overwrite on every hit so the surfaced trace id matches
+            // the most recent observation. Empty incoming ids fall back
+            // to whatever was recorded previously, so replayed streams
+            // with stripped trace ids do not clobber a real value.
+            if !trace_id.is_empty() {
+                state.last_trace_id = Some(trace_id.to_string());
+            }
         }
     }
 
@@ -431,6 +456,7 @@ impl CrossTraceCorrelator {
                     median_lag_ms: median_lag,
                     first_seen: crate::time::millis_to_iso8601(state.first_seen_ms),
                     last_seen: crate::time::millis_to_iso8601(state.last_seen_ms),
+                    sample_trace_id: state.last_trace_id.clone(),
                 })
             })
             .collect()
@@ -513,6 +539,15 @@ mod tests {
         assert_eq!(c.target.service, "payment-svc");
         assert!(c.co_occurrence_count >= 2);
         assert!(c.confidence > 0.0);
+        // `make_finding` sets trace_id to "trace-<service>", and the
+        // target-side finding drives the trace id recorded on the
+        // pair. Every B-ingest was keyed on payment-svc, so the
+        // surfaced sample trace must match that.
+        assert_eq!(
+            c.sample_trace_id.as_deref(),
+            Some("trace-payment-svc"),
+            "correlator must record the latest target-side trace id on each pair"
+        );
     }
 
     #[test]
@@ -717,6 +752,7 @@ mod tests {
             rng_state: 0x1234_5678_9ABC_DEF0,
             first_seen_ms: 0,
             last_seen_ms: 0,
+            last_trace_id: None,
         };
         let n = MAX_LAG_SAMPLES * 20;
         for i in 0..n {
@@ -776,6 +812,7 @@ mod tests {
 
     #[test]
     fn correlation_serde_roundtrip() {
+        // Field present: serialize + deserialize must preserve it.
         let c = CrossTraceCorrelation {
             source: CorrelationEndpoint {
                 finding_type: FindingType::NPlusOneSql,
@@ -793,6 +830,7 @@ mod tests {
             median_lag_ms: 1200.0,
             first_seen: "2025-07-10T14:32:00.000Z".to_string(),
             last_seen: "2025-07-10T14:42:00.000Z".to_string(),
+            sample_trace_id: Some("trace-abc".to_string()),
         };
         let json = serde_json::to_string(&c).unwrap();
         let back: CrossTraceCorrelation = serde_json::from_str(&json).unwrap();
@@ -800,5 +838,37 @@ mod tests {
         assert_eq!(back.source.service, "order-svc");
         assert_eq!(back.target.service, "payment-svc");
         assert!((back.confidence - 0.8).abs() < f64::EPSILON);
+        assert_eq!(back.sample_trace_id.as_deref(), Some("trace-abc"));
+        assert!(
+            json.contains("\"sample_trace_id\":\"trace-abc\""),
+            "field must be present in JSON when populated"
+        );
+
+        // Field absent on the wire (legacy baseline): `serde(default)`
+        // restores it as `None`, preserving forward-compat.
+        let legacy_json = r#"{
+            "source": {"finding_type": "n_plus_one_sql", "service": "a", "template": "t"},
+            "target": {"finding_type": "pool_saturation", "service": "b", "template": "t"},
+            "co_occurrence_count": 1,
+            "source_total_occurrences": 1,
+            "confidence": 1.0,
+            "median_lag_ms": 0.0,
+            "first_seen": "2025-01-01T00:00:00Z",
+            "last_seen": "2025-01-01T00:00:00Z"
+        }"#;
+        let legacy: CrossTraceCorrelation = serde_json::from_str(legacy_json).unwrap();
+        assert!(legacy.sample_trace_id.is_none());
+
+        // `None` must skip the field entirely in serialization so
+        // batch-mode reports stay byte-identical to v0.5.0 outputs.
+        let none_variant = CrossTraceCorrelation {
+            sample_trace_id: None,
+            ..c
+        };
+        let none_json = serde_json::to_string(&none_variant).unwrap();
+        assert!(
+            !none_json.contains("sample_trace_id"),
+            "None value must be skipped, kept report shape stable for legacy consumers"
+        );
     }
 }
