@@ -11,3 +11,9 @@
 # VHS byproduct: tapes/demo-config.tape needs an Output directive but we
 # only care about the PNG it produces via Screenshot. The GIF is unused.
 /tapes/demo-config-unused.gif
+
+# Playwright browser test suite artifacts
+/crates/sentinel-cli/tests/browser/node_modules/
+/crates/sentinel-cli/tests/browser/test-results/
+/crates/sentinel-cli/tests/browser/playwright-report/
+/crates/sentinel-cli/tests/browser/fixtures/
