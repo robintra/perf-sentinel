@@ -18,8 +18,8 @@ The suite's `global-setup.ts` step:
 1. Builds the release binary with `cargo build --release --bin
    perf-sentinel` when `target/release/perf-sentinel` is missing.
 2. Renders an HTML dashboard from
-   `tests/fixtures/report_realistic.json` (plus the pg_stat CSV
-   fixture and `--before` baseline) into `fixtures/dashboard.html`.
+   `tests/fixtures/report_realistic.json` plus the pg_stat CSV
+   fixture into `fixtures/dashboard.html`.
 3. Spawns `http-server` on a free 127.0.0.1 port rooted at that
    directory. `http://` is required by `navigator.clipboard`, which
    refuses `file://` origins.
@@ -36,6 +36,6 @@ pulling in a heavy test framework.
 
 Runs as a separate `browser-tests` job in `.github/workflows/ci.yml`
 so the Rust-only `check` job isn't slowed by the Playwright install.
-Uses `actions/setup-node@v4` with Node 20, installs Chromium via
+Uses `actions/setup-node@v6.4.0` with Node 20, installs Chromium via
 `npx playwright install --with-deps chromium`, then runs this suite.
 Uploads the HTML report as a retained artifact on failure.
