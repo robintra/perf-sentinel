@@ -76,9 +76,22 @@ async function startStaticServer(): Promise<void> {
   const baseURL = `http://127.0.0.1:${port}`;
   process.env.PS_BASE_URL = baseURL;
 
+  // `-a 127.0.0.1` is load-bearing. `http-server` defaults to binding
+  // 0.0.0.0 otherwise, which would expose the fixture to every
+  // interface on the runner for the duration of the suite.
   const server = spawn(
     "npx",
-    ["--yes", "http-server", FIXTURE_DIR, "-p", String(port), "-s", "--cors"],
+    [
+      "--yes",
+      "http-server",
+      FIXTURE_DIR,
+      "-p",
+      String(port),
+      "-a",
+      "127.0.0.1",
+      "-s",
+      "--cors"
+    ],
     { stdio: "pipe" }
   );
   globalThis.__psServer = server;

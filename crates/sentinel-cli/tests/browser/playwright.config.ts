@@ -25,6 +25,9 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        // Scoped to the 127.0.0.1 fixture origin spawned in
+        // global-setup.ts. Specs must not navigate off-origin or
+        // the permission would extend to third-party URLs.
         permissions: ["clipboard-read", "clipboard-write"]
       }
     }
