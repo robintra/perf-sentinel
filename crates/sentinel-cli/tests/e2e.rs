@@ -1730,6 +1730,102 @@ fn cli_report_rejects_both_pg_stat_and_pg_stat_prometheus() {
 }
 
 #[test]
+fn cli_report_renders_correlations_from_daemon_shape() {
+    // Closes the loop for the Correlations tab. A daemon produces a
+    // `Report` that carries `correlations`; the `report` subcommand
+    // must deserialize it and make the Correlations tab visible in
+    // the HTML output. This test does not spawn a live daemon (OTLP
+    // ingestion is expensive to craft in a unit-test context); it
+    // constructs the daemon-shape JSON directly and pipes it through
+    // `perf-sentinel report --input -`.
+    let daemon_report = serde_json::json!({
+        "analysis": {
+            "duration_ms": 42_000,
+            "events_processed": 1200,
+            "traces_analyzed": 87,
+        },
+        "findings": [{
+            "type": "n_plus_one_sql",
+            "severity": "warning",
+            "trace_id": "daemon-trace-1",
+            "service": "order-svc",
+            "source_endpoint": "POST /api/orders/42/checkout",
+            "pattern": {
+                "template": "SELECT * FROM order_item WHERE order_id = ?",
+                "occurrences": 12,
+                "window_ms": 200,
+                "distinct_params": 12,
+            },
+            "suggestion": "batch",
+            "first_timestamp": "2026-04-21T10:00:00Z",
+            "last_timestamp": "2026-04-21T10:00:01Z",
+            "confidence": "daemon_production",
+        }],
+        "green_summary": {
+            "total_io_ops": 1200,
+            "avoidable_io_ops": 0,
+            "io_waste_ratio": 0.0,
+            "io_waste_ratio_band": "healthy",
+            "top_offenders": [],
+        },
+        "quality_gate": { "passed": true, "rules": [] },
+        "correlations": [{
+            "source": {
+                "finding_type": "n_plus_one_sql",
+                "service": "order-svc",
+                "template": "SELECT * FROM order_item WHERE order_id = ?",
+            },
+            "target": {
+                "finding_type": "slow_http",
+                "service": "payment-svc",
+                "template": "POST /api/charge",
+            },
+            "co_occurrence_count": 8,
+            "source_total_occurrences": 10,
+            "confidence": 0.8,
+            "median_lag_ms": 120.0,
+            "first_seen": "2026-04-21T10:00:00Z",
+            "last_seen": "2026-04-21T10:05:00Z",
+        }],
+    });
+    let raw = serde_json::to_vec(&daemon_report).unwrap();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["report", "--input", "-", "--output", out_path.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child.stdin.take().unwrap().write_all(&raw).expect("write stdin");
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "report --input - failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let html = fs::read_to_string(&out_path).expect("read html");
+    // Static scaffolding for the Correlations tab is present.
+    assert!(html.contains(r#"id="panel-correlations""#));
+    // The daemon-shape Report's correlations field round-trips through
+    // the render path and ends up in the embedded JSON payload.
+    let payload = extract_payload_json_from_html(&html);
+    let corrs = payload["report"]["correlations"]
+        .as_array()
+        .expect("correlations array");
+    assert_eq!(corrs.len(), 1);
+    assert_eq!(corrs[0]["source"]["service"].as_str().unwrap(), "order-svc");
+    assert_eq!(
+        corrs[0]["target"]["service"].as_str().unwrap(),
+        "payment-svc"
+    );
+}
+
+#[test]
 fn cli_report_help_mentions_new_flags() {
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args(["report", "--help"])

@@ -575,4 +575,110 @@ mod tests {
         let stored: Vec<StoredFinding> = serde_json::from_slice(&body).unwrap();
         assert_eq!(stored.len(), 50);
     }
+
+    #[tokio::test]
+    async fn handle_export_report_returns_503_on_cold_start() {
+        // No events processed yet: the daemon has nothing meaningful
+        // to snapshot. Must respond 503 with the documented error
+        // body shape so callers can distinguish "cold start" from
+        // "ran and found nothing".
+        let app = query_api_router(make_state());
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            value["error"].as_str().unwrap(),
+            "daemon has not yet processed any events"
+        );
+    }
+
+    #[tokio::test]
+    async fn handle_export_report_returns_report_shape_when_events_ingested() {
+        use crate::correlate::window::WindowConfig;
+        use crate::detect::correlate_cross::{CorrelationConfig, CrossTraceCorrelator};
+
+        // Build a state whose lifetime counters are non-zero, whose
+        // findings store has at least one entry, and whose correlator
+        // holds at least one correlation. That exercises every slot
+        // the handler assembles into the Report. The correlator config
+        // mirrors `correlations_returns_active_correlations_when_correlator_present`
+        // so a handful of co-occurrences is enough to clear the confidence bar.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            min_co_occurrences: 2,
+            min_confidence: 0.5,
+            lag_threshold_ms: 5_000,
+            ..Default::default()
+        });
+        for i in 0..3 {
+            let t = 1_000_000 + i * 10_000;
+            let mut fa = crate::test_helpers::make_finding(
+                detect::FindingType::NPlusOneSql,
+                detect::Severity::Warning,
+            );
+            fa.service = "order-svc".to_string();
+            correlator.ingest(&[fa], t);
+            let mut fb = crate::test_helpers::make_finding(
+                detect::FindingType::SlowHttp,
+                detect::Severity::Warning,
+            );
+            fb.service = "payment-svc".to_string();
+            correlator.ingest(&[fb], t + 1_000);
+        }
+
+        let state = Arc::new(QueryApiState {
+            findings_store: Arc::new(FindingsStore::new(100)),
+            window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
+                WindowConfig::default(),
+            ))),
+            detect_config: DetectConfig {
+                n_plus_one_threshold: 5,
+                window_ms: 500,
+                slow_threshold_ms: 500,
+                slow_min_occurrences: 3,
+                max_fanout: 20,
+                chatty_service_min_calls: 15,
+                pool_saturation_concurrent_threshold: 10,
+                serialized_min_sequential: 3,
+            },
+            start_time: std::time::Instant::now(),
+            correlator: Some(Arc::new(tokio::sync::Mutex::new(correlator))),
+            metrics: Arc::new(MetricsState::new()),
+        });
+
+        // Populate both counters + findings store so the handler sees
+        // a non-cold-start signal and has a finding to emit.
+        state.metrics.events_processed_total.inc_by(42.0);
+        state.metrics.traces_analyzed_total.inc_by(5.0);
+        let finding = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        state.findings_store.push_batch(&[finding], 1000).await;
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+
+        assert_eq!(report.analysis.events_processed, 42);
+        assert_eq!(report.analysis.traces_analyzed, 5);
+        assert_eq!(report.findings.len(), 1);
+        assert_eq!(report.correlations.len(), 1);
+        assert_eq!(report.correlations[0].source.service, "order-svc");
+        assert_eq!(report.correlations[0].target.service, "payment-svc");
+    }
 }

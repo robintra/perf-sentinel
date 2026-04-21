@@ -780,4 +780,106 @@ mod tests {
         let v_without: serde_json::Value = serde_json::from_str(&blob_without).unwrap();
         assert!(v_without.get("pg_stat").is_none());
     }
+
+    #[test]
+    fn pg_stat_sub_switcher_exposes_all_ranking_labels() {
+        // The sub-switcher is built client-side from `payload.pg_stat.rankings`,
+        // so a server-side render on its own does not produce the chip
+        // <button> elements. What we assert here is the contract the JS
+        // depends on: the static template still carries the four human
+        // labels, the sub-switcher sets `data-ranking-index` via
+        // `setAttribute` (not as an inline HTML attribute), and the
+        // payload exposes all four rankings in the stable order.
+        let labels = ["\"Total time\"", "\"Calls\"", "\"Mean time\"", "\"I/O blocks\""];
+        for needle in labels {
+            assert!(
+                TEMPLATE.contains(needle),
+                "template is missing sub-switcher label {needle}"
+            );
+        }
+        // `data-ranking-index` must only appear via `setAttr(..., "data-ranking-index", ...)`.
+        // A literal HTML attribute `data-ranking-index="..."` would bypass
+        // textContent-only guarantees for attributes carrying dynamic data,
+        // so guard against it.
+        assert!(
+            TEMPLATE.contains("\"data-ranking-index\""),
+            "setAttr path must use the attribute name as a string literal"
+        );
+        assert!(
+            !TEMPLATE.contains("data-ranking-index=\""),
+            "template must not hard-code a literal data-ranking-index attribute"
+        );
+
+        // Payload exposes all four rankings when a full PgStatReport is
+        // embedded. Verify against the real `rank_pg_stat` output rather
+        // than a hand-built synthetic, so test output matches production.
+        let entries = crate::ingest::pg_stat::parse_pg_stat(
+            b"query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read\n\
+              SELECT a FROM t1,10,100.0,10.0,10,20,5\n\
+              SELECT b FROM t2,20,50.0,2.5,20,100,0\n\
+              SELECT c FROM t3,5,200.0,40.0,5,200,50\n",
+            1_048_576,
+        )
+        .expect("fixture parses");
+        let pg_stat = crate::ingest::pg_stat::rank_pg_stat(&entries, 10);
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let report = minimal_report(vec![f]);
+        let mut options = opts("-", None);
+        options.pg_stat = Some(pg_stat);
+        let html = render(&report, &[], &options);
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        let rankings = value["pg_stat"]["rankings"].as_array().unwrap();
+        assert_eq!(rankings.len(), 4, "payload carries all four rankings");
+        assert_eq!(rankings[0]["label"].as_str().unwrap(), "top by total_exec_time");
+        assert_eq!(rankings[3]["label"].as_str().unwrap(), "top by shared_blks_total");
+    }
+
+    #[test]
+    fn embeds_correlations_when_report_carries_them() {
+        // Daemon-produced Reports can carry cross-trace correlations.
+        // The template's Correlations tab is guarded on
+        // `report.correlations?.length > 0`, so the tab lights up
+        // automatically when the field is non-empty. Assert the
+        // serialized payload carries the field with the expected shape
+        // so the JS sees what it expects.
+        use crate::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
+        use crate::detect::FindingType;
+
+        let correlation = CrossTraceCorrelation {
+            source: CorrelationEndpoint {
+                finding_type: FindingType::NPlusOneSql,
+                service: "order-svc".to_string(),
+                template: "SELECT * FROM o WHERE id = ?".to_string(),
+            },
+            target: CorrelationEndpoint {
+                finding_type: FindingType::SlowHttp,
+                service: "payment-svc".to_string(),
+                template: "POST /api/charge".to_string(),
+            },
+            co_occurrence_count: 8,
+            source_total_occurrences: 10,
+            confidence: 0.8,
+            median_lag_ms: 120.0,
+            first_seen: "2026-04-21T10:00:00Z".to_string(),
+            last_seen: "2026-04-21T10:05:00Z".to_string(),
+        };
+
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let mut report = minimal_report(vec![f]);
+        report.correlations = vec![correlation];
+        let html = render(&report, &[], &opts("-", None));
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+
+        let corrs = value["report"]["correlations"].as_array().unwrap();
+        assert_eq!(corrs.len(), 1);
+        assert_eq!(corrs[0]["source"]["service"].as_str().unwrap(), "order-svc");
+        assert_eq!(corrs[0]["target"]["service"].as_str().unwrap(), "payment-svc");
+        assert_eq!(corrs[0]["co_occurrence_count"].as_u64().unwrap(), 8);
+
+        // The Correlations panel scaffolding must exist in the static
+        // shell so the JS can reveal it without touching innerHTML.
+        assert!(html.contains(r#"id="panel-correlations""#));
+    }
 }
