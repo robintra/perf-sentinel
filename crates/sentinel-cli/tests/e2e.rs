@@ -1587,11 +1587,7 @@ fn cli_report_overrides_default_cap_with_explicit_flag() {
     let embedded = payload["embedded_traces"]
         .as_array()
         .expect("embedded_traces array");
-    assert_eq!(
-        embedded.len(),
-        1,
-        "explicit cap must be honored exactly"
-    );
+    assert_eq!(embedded.len(), 1, "explicit cap must be honored exactly");
     let trimmed = &payload["trimmed_traces"];
     assert!(
         trimmed.is_object(),
@@ -1794,13 +1790,24 @@ fn cli_report_renders_correlations_from_daemon_shape() {
     let out_path = dir.path().join("report.html");
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["report", "--input", "-", "--output", out_path.to_str().unwrap()])
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .expect("spawn");
-    child.stdin.take().unwrap().write_all(&raw).expect("write stdin");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&raw)
+        .expect("write stdin");
     let output = child.wait_with_output().expect("wait");
     assert!(
         output.status.success(),
@@ -1822,6 +1829,122 @@ fn cli_report_renders_correlations_from_daemon_shape() {
     assert_eq!(
         corrs[0]["target"]["service"].as_str().unwrap(),
         "payment-svc"
+    );
+}
+
+#[test]
+fn cli_report_accepts_bom_prefixed_report_json() {
+    // Windows editors (Notepad, some VS Code flows) save UTF-8 with a
+    // leading BOM (EF BB BF). The auto-detect's byte-peek used to trip
+    // on the BOM and reject the input; this test pins down the strip.
+    let mut raw = vec![0xEF, 0xBB, 0xBF];
+    raw.extend_from_slice(
+        serde_json::to_vec(&serde_json::json!({
+            "analysis": {
+                "duration_ms": 0,
+                "events_processed": 1,
+                "traces_analyzed": 1,
+            },
+            "findings": [],
+            "green_summary": {
+                "total_io_ops": 0,
+                "avoidable_io_ops": 0,
+                "io_waste_ratio": 0.0,
+                "io_waste_ratio_band": "healthy",
+                "top_offenders": [],
+            },
+            "quality_gate": { "passed": true, "rules": [] },
+        }))
+        .unwrap()
+        .as_slice(),
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&raw)
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "report --input should accept BOM-prefixed Report JSON, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+}
+
+#[test]
+fn cli_report_rejects_scalar_root_and_empty_input_with_distinct_messages() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    // Empty input: message must mention emptiness, not "scalar".
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"   \n")
+        .expect("write");
+    let out = child.wait_with_output().expect("wait");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("empty or whitespace-only"),
+        "empty-input error must be specific, got: {stderr}"
+    );
+
+    // Scalar root: message must mention "scalar or unexpected token".
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child.stdin.take().unwrap().write_all(b"42").expect("write");
+    let out = child.wait_with_output().expect("wait");
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("scalar or unexpected token"),
+        "scalar-root error must differentiate from empty input, got: {stderr}"
     );
 }
 
