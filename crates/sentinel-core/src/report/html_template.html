@@ -109,6 +109,12 @@
   .ps-table { width: 100%; font-size: 11px; font-family: var(--font-mono); border-collapse: collapse; }
   .ps-table th { text-align: left; font-weight: 500; padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 10px; font-family: var(--font-sans); }
   .ps-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; }
+  /* Highlight row on Explain -> pg_stat cross-nav. Scoped to the
+     pg_stat table so other .ps-table instances (diff, green regions)
+     stay unaffected if they ever adopt a .hilite class for another
+     purpose. */
+  #pgstat-body tr.hilite { background: var(--color-background-danger); }
+  #pgstat-body tr.hilite td:first-child { color: var(--color-text-danger); font-weight: 500; }
   .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
   .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
   .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
