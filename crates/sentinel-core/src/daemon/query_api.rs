@@ -320,7 +320,13 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use tower::ServiceExt;
 
-    fn make_state() -> Arc<QueryApiState> {
+    /// Build a `QueryApiState` for tests, wiring an optional correlator.
+    /// The three concrete test-site constructions only differed by the
+    /// correlator slot (None, Some(A), Some(B)); every other field used
+    /// the same test defaults.
+    fn make_state_with_correlator(
+        correlator: Option<Arc<tokio::sync::Mutex<CrossTraceCorrelator>>>,
+    ) -> Arc<QueryApiState> {
         use crate::correlate::window::WindowConfig;
 
         Arc::new(QueryApiState {
@@ -339,9 +345,40 @@ mod tests {
                 serialized_min_sequential: 3,
             },
             start_time: std::time::Instant::now(),
-            correlator: None,
+            correlator,
             metrics: Arc::new(MetricsState::new()),
         })
+    }
+
+    fn make_state() -> Arc<QueryApiState> {
+        make_state_with_correlator(None)
+    }
+
+    /// Seed a correlator with three rounds of paired events (an
+    /// `NPlusOneSql` on `order-svc` immediately followed by
+    /// `follow_up_kind` on `payment-svc`, 1 ms apart, 10 s between
+    /// rounds). The shape is tuned to the default `min_co_occurrences
+    /// = 2` + `min_confidence = 0.5` config used by the two tests
+    /// that need at least one active correlation in the result.
+    fn seed_correlator_with_pair(
+        correlator: &mut CrossTraceCorrelator,
+        follow_up_kind: &detect::FindingType,
+    ) {
+        for i in 0..3 {
+            let t = 1_000_000 + i * 10_000;
+            let mut fa = crate::test_helpers::make_finding(
+                detect::FindingType::NPlusOneSql,
+                detect::Severity::Warning,
+            );
+            fa.service = "order-svc".to_string();
+            correlator.ingest(&[fa], t);
+            let mut fb = crate::test_helpers::make_finding(
+                follow_up_kind.clone(),
+                detect::Severity::Warning,
+            );
+            fb.service = "payment-svc".to_string();
+            correlator.ingest(&[fb], t + 1_000);
+        }
     }
 
     #[tokio::test]
@@ -520,7 +557,6 @@ mod tests {
 
     #[tokio::test]
     async fn correlations_returns_active_correlations_when_correlator_present() {
-        use crate::correlate::window::WindowConfig;
         use crate::detect::correlate_cross::{CorrelationConfig, CrossTraceCorrelator};
 
         // Build a correlator and ingest a small pattern that should produce
@@ -531,41 +567,9 @@ mod tests {
             lag_threshold_ms: 5_000,
             ..Default::default()
         });
-        for i in 0..3 {
-            let t = 1_000_000 + i * 10_000;
-            let mut fa = crate::test_helpers::make_finding(
-                detect::FindingType::NPlusOneSql,
-                detect::Severity::Warning,
-            );
-            fa.service = "order-svc".to_string();
-            correlator.ingest(&[fa], t);
-            let mut fb = crate::test_helpers::make_finding(
-                detect::FindingType::PoolSaturation,
-                detect::Severity::Warning,
-            );
-            fb.service = "payment-svc".to_string();
-            correlator.ingest(&[fb], t + 1_000);
-        }
+        seed_correlator_with_pair(&mut correlator, &detect::FindingType::PoolSaturation);
 
-        let state = Arc::new(QueryApiState {
-            findings_store: Arc::new(FindingsStore::new(100)),
-            window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
-                WindowConfig::default(),
-            ))),
-            detect_config: DetectConfig {
-                n_plus_one_threshold: 5,
-                window_ms: 500,
-                slow_threshold_ms: 500,
-                slow_min_occurrences: 3,
-                max_fanout: 20,
-                chatty_service_min_calls: 15,
-                pool_saturation_concurrent_threshold: 10,
-                serialized_min_sequential: 3,
-            },
-            start_time: std::time::Instant::now(),
-            correlator: Some(Arc::new(tokio::sync::Mutex::new(correlator))),
-            metrics: Arc::new(MetricsState::new()),
-        });
+        let state = make_state_with_correlator(Some(Arc::new(tokio::sync::Mutex::new(correlator))));
 
         let app = query_api_router(state);
         let req = Request::builder()
@@ -642,7 +646,6 @@ mod tests {
 
     #[tokio::test]
     async fn handle_export_report_returns_report_shape_when_events_ingested() {
-        use crate::correlate::window::WindowConfig;
         use crate::detect::correlate_cross::{CorrelationConfig, CrossTraceCorrelator};
 
         // Build a state whose lifetime counters are non-zero, whose
@@ -657,41 +660,9 @@ mod tests {
             lag_threshold_ms: 5_000,
             ..Default::default()
         });
-        for i in 0..3 {
-            let t = 1_000_000 + i * 10_000;
-            let mut fa = crate::test_helpers::make_finding(
-                detect::FindingType::NPlusOneSql,
-                detect::Severity::Warning,
-            );
-            fa.service = "order-svc".to_string();
-            correlator.ingest(&[fa], t);
-            let mut fb = crate::test_helpers::make_finding(
-                detect::FindingType::SlowHttp,
-                detect::Severity::Warning,
-            );
-            fb.service = "payment-svc".to_string();
-            correlator.ingest(&[fb], t + 1_000);
-        }
+        seed_correlator_with_pair(&mut correlator, &detect::FindingType::SlowHttp);
 
-        let state = Arc::new(QueryApiState {
-            findings_store: Arc::new(FindingsStore::new(100)),
-            window: Arc::new(tokio::sync::Mutex::new(TraceWindow::new(
-                WindowConfig::default(),
-            ))),
-            detect_config: DetectConfig {
-                n_plus_one_threshold: 5,
-                window_ms: 500,
-                slow_threshold_ms: 500,
-                slow_min_occurrences: 3,
-                max_fanout: 20,
-                chatty_service_min_calls: 15,
-                pool_saturation_concurrent_threshold: 10,
-                serialized_min_sequential: 3,
-            },
-            start_time: std::time::Instant::now(),
-            correlator: Some(Arc::new(tokio::sync::Mutex::new(correlator))),
-            metrics: Arc::new(MetricsState::new()),
-        });
+        let state = make_state_with_correlator(Some(Arc::new(tokio::sync::Mutex::new(correlator))));
 
         // Populate both counters + findings store so the handler sees
         // a non-cold-start signal and has a finding to emit.
