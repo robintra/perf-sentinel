@@ -77,6 +77,7 @@
   .ps-metric-value-sm { font-size: 14px; line-height: 1.4; }
   .ps-metric-sub { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
   .ps-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .ps-chip-group { display: contents; }
   .ps-chip { padding: 4px 10px; font-size: 11px; border-radius: 12px; border: 0.5px solid var(--color-border-tertiary); background: transparent; cursor: pointer; color: var(--color-text-secondary); font-family: inherit; }
   .ps-chip:hover { background: var(--color-background-secondary); }
   .ps-chip.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
@@ -153,9 +154,9 @@
 
   <div class="ps-topbar" id="topbar"></div>
 
-  <div class="ps-tabs" id="tabs"></div>
+  <div class="ps-tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></div>
 
-  <div id="panel-findings">
+  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" tabindex="0">
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
     <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-metrics" id="findings-metrics"></div>
@@ -169,7 +170,7 @@
     <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
   </div>
 
-  <div id="panel-explain" style="display: none;">
+  <div id="panel-explain" role="tabpanel" aria-labelledby="tab-explain" tabindex="0" style="display: none;">
     <div class="ps-empty" id="explain-empty">Click a finding to view its trace tree here.</div>
     <div id="explain-content" style="display: none;">
       <div class="ps-tree-header" id="explain-breadcrumb"></div>
@@ -179,7 +180,7 @@
     <div class="ps-empty" id="explain-not-embedded" style="display: none;"></div>
   </div>
 
-  <div id="panel-pgstat" style="display: none;">
+  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" tabindex="0" style="display: none;">
     <div class="ps-drill" id="pgstat-drill" style="display: none;">
       <div class="ps-drill-label">Filtered from Explain</div>
       <span id="pgstat-drill-text"></span>
@@ -198,7 +199,7 @@
     <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
   </div>
 
-  <div id="panel-diff" style="display: none;">
+  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" tabindex="0" style="display: none;">
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
@@ -228,7 +229,7 @@
     </div>
   </div>
 
-  <div id="panel-correlations" style="display: none;">
+  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" tabindex="0" style="display: none;">
     <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
@@ -237,7 +238,7 @@
     <div class="ps-list" id="correlations-list"></div>
   </div>
 
-  <div id="panel-green" style="display: none;">
+  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" tabindex="0" style="display: none;">
     <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
     <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
     <table class="ps-table" id="green-regions-table" style="display: none;">
@@ -444,7 +445,16 @@
     tabs.forEach(function (t) {
       var btn = el("button", "ps-tab", t.label);
       btn.type = "button";
+      // ARIA tab pattern: each button is a `role="tab"` that controls
+      // its tabpanel. tabindex rotates between 0 (active) and -1
+      // (inactive) so keyboard users traverse the tablist exactly once
+      // when tabbing through the page, then use arrow keys inside.
+      setAttr(btn, "role", "tab");
       setAttr(btn, "data-tab", t.key);
+      setAttr(btn, "id", "tab-" + t.key);
+      setAttr(btn, "aria-controls", "panel-" + t.key);
+      setAttr(btn, "aria-selected", "false");
+      setAttr(btn, "tabindex", "-1");
       if (t.countFn) {
         var c = t.countFn();
         if (c !== null && c !== undefined) {
@@ -456,23 +466,88 @@
       btn.addEventListener("click", function () { switchTab(t.key); });
       bar.appendChild(btn);
     });
+    wireTablistKeyboardNav(bar);
     // default to first tab
     if (tabs.length > 0) switchTab(tabs[0].key);
   }
+
+  function wireTablistKeyboardNav(bar) {
+    // WAI-ARIA Authoring Practices arrow-key pattern. Left/Right cycle
+    // focus between visible tabs, Home / End jump to first / last,
+    // Space or Enter activates the focused tab. Focus cycles within
+    // the tablist and skips conditional tabs that were never
+    // registered (pgstat / diff / correlations / green). The existing
+    // `g f / g e / ...` shortcuts stay untouched and operate on a
+    // different input path, so they do not collide.
+    bar.addEventListener("keydown", function (event) {
+      var target = event.target;
+      if (!target || target.getAttribute("role") !== "tab") return;
+      var buttons = Array.prototype.slice.call(
+        bar.querySelectorAll("button[role=\"tab\"]")
+      );
+      if (buttons.length === 0) return;
+      var idx = buttons.indexOf(target);
+      if (idx < 0) return;
+
+      var next = -1;
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          next = (idx + 1) % buttons.length;
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          next = (idx - 1 + buttons.length) % buttons.length;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = buttons.length - 1;
+          break;
+        case "Enter":
+        case " ":
+          event.preventDefault();
+          switchTab(target.dataset.tab, true);
+          return;
+        default:
+          return;
+      }
+      event.preventDefault();
+      var targetBtn = buttons[next];
+      if (targetBtn) {
+        targetBtn.focus();
+        switchTab(targetBtn.dataset.tab, true);
+      }
+    });
+  }
+
   var currentTab = null;
-  function switchTab(key) {
+  function switchTab(key, fromKeyboard) {
     // Clear any open search filter when switching tabs. Keeps the UI
     // predictable and avoids a stale hidden filter resurfacing when the
     // user comes back to a tab.
     if (typeof clearAllSearchFilters === "function") clearAllSearchFilters();
     currentTab = key;
     document.querySelectorAll(".ps-tab").forEach(function (btn) {
-      btn.classList.toggle("active", btn.dataset.tab === key);
+      var active = btn.dataset.tab === key;
+      btn.classList.toggle("active", active);
+      setAttr(btn, "aria-selected", active ? "true" : "false");
+      setAttr(btn, "tabindex", active ? "0" : "-1");
     });
     tabs.forEach(function (t) {
       var panel = document.getElementById("panel-" + t.key);
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
+    // Only move focus when activation came from the keyboard. Mouse
+    // clicks and hash restoration must not steal focus from whatever
+    // the user was doing.
+    if (fromKeyboard) {
+      var active = document.getElementById("tab-" + key);
+      if (active && typeof active.focus === "function") {
+        try { active.focus(); } catch { /* detached node */ }
+      }
+    }
     scheduleHashWrite();
   }
 
@@ -527,25 +602,43 @@
     var root = document.getElementById("findings-filters");
     root.textContent = "";
 
-    var chips = [{ label: "All", key: "all" }];
+    // Severity chips (All / Critical / Warning) behave as a single
+    // mutually-exclusive selector, so they go inside a radiogroup.
+    // Service chips are independent toggles: each one is pressable and
+    // can be cleared by re-clicking, but they don't form a group in
+    // the ARIA sense.
+    var severityGroup = el("span", "ps-chip-group", null);
+    setAttr(severityGroup, "role", "radiogroup");
+    setAttr(severityGroup, "aria-label", "Finding severity");
+    root.appendChild(severityGroup);
+
+    var serviceGroup = el("span", "ps-chip-group", null);
+    setAttr(serviceGroup, "role", "group");
+    setAttr(serviceGroup, "aria-label", "Finding service");
+    root.appendChild(serviceGroup);
+
+    function appendChip(parent, label, key, chipRole, stateAttr) {
+      var btn = el("button", "ps-chip", label);
+      btn.type = "button";
+      setAttr(btn, "role", chipRole);
+      setAttr(btn, "data-key", key);
+      setAttr(btn, stateAttr, "false");
+      btn.addEventListener("click", function () { onFilterClick(key); });
+      parent.appendChild(btn);
+    }
+
+    appendChip(severityGroup, "All", "all", "radio", "aria-checked");
     var hasCrit = findings.some(function (f) { return f.severity === "critical"; });
     var hasWarn = findings.some(function (f) { return f.severity === "warning"; });
-    if (hasCrit) chips.push({ label: "Critical", key: "sev:critical" });
-    if (hasWarn) chips.push({ label: "Warning", key: "sev:warning" });
+    if (hasCrit) appendChip(severityGroup, "Critical", "sev:critical", "radio", "aria-checked");
+    if (hasWarn) appendChip(severityGroup, "Warning", "sev:warning", "radio", "aria-checked");
 
     var services = Object.create(null);
     findings.forEach(function (f) { services[f.service] = true; });
     Object.keys(services).sort().forEach(function (s) {
-      chips.push({ label: s, key: "svc:" + s });
+      appendChip(serviceGroup, s, "svc:" + s, "button", "aria-pressed");
     });
 
-    chips.forEach(function (c) {
-      var btn = el("button", "ps-chip", c.label);
-      btn.type = "button";
-      setAttr(btn, "data-key", c.key);
-      btn.addEventListener("click", function () { onFilterClick(c.key); });
-      root.appendChild(btn);
-    });
     syncFilterChips();
   }
   function onFilterClick(key) {
@@ -573,6 +666,11 @@
       else if (key === "sev:" + filterState.severity) active = true;
       else if (key === "svc:" + filterState.service) active = true;
       chip.classList.toggle("active", active);
+      // Severity chips and "All" are radio-role, service chips are
+      // toggle buttons. Pick the right ARIA state attribute per chip.
+      var role = chip.getAttribute("role");
+      var stateAttr = role === "radio" ? "aria-checked" : "aria-pressed";
+      setAttr(chip, stateAttr, active ? "true" : "false");
     });
   }
 
@@ -945,12 +1043,20 @@
       return;
     }
     root.style.display = "";
+    // Mutually-exclusive chip group. ARIA radiogroup pattern: the
+    // container carries role="radiogroup", each chip is role="radio"
+    // with aria-checked rewritten on every selection.
+    setAttr(root, "role", "radiogroup");
+    setAttr(root, "aria-label", "pg_stat ranking");
     pgStatRankings.forEach(function (r, idx) {
       var label = PGSTAT_LABELS[r.label] || r.label || ("Ranking " + (idx + 1));
       var btn = el("button", "ps-chip", label);
       btn.type = "button";
+      setAttr(btn, "role", "radio");
       setAttr(btn, "data-ranking-index", String(idx));
-      if (idx === activeRankingIndex) btn.classList.add("active");
+      var isActive = idx === activeRankingIndex;
+      setAttr(btn, "aria-checked", isActive ? "true" : "false");
+      if (isActive) btn.classList.add("active");
       btn.addEventListener("click", function () {
         selectPgStatRanking(idx);
       });
@@ -968,7 +1074,9 @@
     activeRankingIndex = idx;
     var chips = document.querySelectorAll("#pgstat-rankings .ps-chip");
     for (var i = 0; i < chips.length; i++) {
-      chips[i].classList.toggle("active", i === idx);
+      var isActive = i === idx;
+      chips[i].classList.toggle("active", isActive);
+      setAttr(chips[i], "aria-checked", isActive ? "true" : "false");
     }
     renderPgStatTable();
     scheduleHashWrite();

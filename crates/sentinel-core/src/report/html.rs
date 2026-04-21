@@ -1174,6 +1174,81 @@ mod tests {
     }
 
     #[test]
+    fn tabs_and_panels_carry_aria_roles() {
+        // Static shell assertions: the tablist container and every
+        // tabpanel carry the WAI-ARIA roles expected by screen readers.
+        // Individual tab buttons are rendered client-side via
+        // `renderTabs`, so their roles are set via setAttr and only
+        // visible to a live DOM test (see Playwright spec). We verify
+        // the attribute names are present in the template source so a
+        // refactor can't drop them silently.
+        assert!(
+            TEMPLATE.contains("role=\"tablist\""),
+            "tablist role missing from template"
+        );
+        for panel in [
+            "panel-findings",
+            "panel-explain",
+            "panel-pgstat",
+            "panel-diff",
+            "panel-correlations",
+            "panel-green",
+        ] {
+            let needle = format!("id=\"{panel}\"");
+            assert!(TEMPLATE.contains(&needle), "{panel} id missing");
+        }
+        // Each tabpanel carries `role="tabpanel"` and
+        // `aria-labelledby="tab-<name>"` with its matching tab id.
+        let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
+        assert_eq!(tabpanel_count, 6, "expected 6 tabpanels, found {tabpanel_count}");
+        for tab in ["findings", "explain", "pgstat", "diff", "correlations", "green"] {
+            let needle = format!("aria-labelledby=\"tab-{tab}\"");
+            assert!(
+                TEMPLATE.contains(&needle),
+                "aria-labelledby link missing for {tab}"
+            );
+        }
+        // The setAttr calls that wire `role="tab"` / `aria-selected` /
+        // `aria-controls` / `tabindex` on each button must be present
+        // in the JS source so the client-side render produces the
+        // right shape.
+        assert!(TEMPLATE.contains("\"role\", \"tab\""));
+        assert!(TEMPLATE.contains("\"aria-selected\""));
+        assert!(TEMPLATE.contains("\"aria-controls\""));
+    }
+
+    #[test]
+    fn chips_carry_aria_radio_and_pressed_states() {
+        // pg_stat rankings form a radiogroup. Findings filters split
+        // into a severity radiogroup and a service toggle group where
+        // every service chip carries `aria-pressed`.
+        assert!(
+            TEMPLATE.contains("\"role\", \"radiogroup\""),
+            "radiogroup role setter missing"
+        );
+        assert!(
+            TEMPLATE.contains("\"aria-label\", \"pg_stat ranking\""),
+            "pg_stat ranking radiogroup label missing"
+        );
+        assert!(
+            TEMPLATE.contains("\"aria-label\", \"Finding severity\""),
+            "Finding severity radiogroup label missing"
+        );
+        assert!(
+            TEMPLATE.contains("\"aria-label\", \"Finding service\""),
+            "Finding service group label missing"
+        );
+        assert!(
+            TEMPLATE.contains("\"aria-checked\""),
+            "aria-checked setter missing"
+        );
+        assert!(
+            TEMPLATE.contains("\"aria-pressed\""),
+            "aria-pressed setter missing"
+        );
+    }
+
+    #[test]
     fn copy_link_button_present_on_listable_tabs_only() {
         for tab in ["findings", "pgstat", "diff", "correlations"] {
             let needle = format!("id=\"{tab}-copy-link\"");
