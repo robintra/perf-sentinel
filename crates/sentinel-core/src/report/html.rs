@@ -1189,8 +1189,18 @@ mod tests {
         // Each tabpanel carries `role="tabpanel"` and
         // `aria-labelledby="tab-<name>"` with its matching tab id.
         let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
-        assert_eq!(tabpanel_count, 6, "expected 6 tabpanels, found {tabpanel_count}");
-        for tab in ["findings", "explain", "pgstat", "diff", "correlations", "green"] {
+        assert_eq!(
+            tabpanel_count, 6,
+            "expected 6 tabpanels, found {tabpanel_count}"
+        );
+        for tab in [
+            "findings",
+            "explain",
+            "pgstat",
+            "diff",
+            "correlations",
+            "green",
+        ] {
             let needle = format!("aria-labelledby=\"tab-{tab}\"");
             assert!(
                 TEMPLATE.contains(&needle),
