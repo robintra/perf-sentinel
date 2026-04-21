@@ -99,6 +99,8 @@
     "target": "SELECT * FROM customers WHERE id = 8",
     "duration_us": 1100,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 142,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
   {
@@ -112,6 +114,8 @@
     "target": "SELECT * FROM order_item WHERE order_id = 201",
     "duration_us": 800,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
   {
@@ -125,6 +129,8 @@
     "target": "SELECT * FROM order_item WHERE order_id = 202",
     "duration_us": 810,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
   {
@@ -138,6 +144,8 @@
     "target": "SELECT * FROM order_item WHERE order_id = 203",
     "duration_us": 820,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
   {
@@ -151,6 +159,8 @@
     "target": "SELECT * FROM order_item WHERE order_id = 204",
     "duration_us": 780,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
   {
@@ -164,6 +174,8 @@
     "target": "SELECT * FROM order_item WHERE order_id = 205",
     "duration_us": 790,
     "source": { "endpoint": "POST /api/orders/8/checkout", "method": "OrderService.checkout" },
+    "code_filepath": "com/example/order/OrderService.java",
+    "code_lineno": 158,
     "code_namespace": "org.hibernate.internal.SessionImpl"
   },
 
