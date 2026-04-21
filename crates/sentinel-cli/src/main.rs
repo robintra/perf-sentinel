@@ -517,7 +517,11 @@ async fn main() {
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
                 before.as_deref(),
-                pg_stat_top.map(|n| n as usize),
+                // u32 → usize is lossless on every target perf-sentinel
+                // supports today. `try_from` documents that dependency
+                // explicitly instead of relying on a silent `as` cast
+                // that would truncate on a 16-bit target.
+                pg_stat_top.and_then(|n| usize::try_from(n).ok()),
             )
             .await;
         }
