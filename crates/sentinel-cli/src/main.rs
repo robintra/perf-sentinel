@@ -227,6 +227,31 @@ enum Commands {
         action: QueryAction,
     },
 
+    /// Produce a single-file HTML dashboard for post-mortem exploration.
+    ///
+    /// Pipeline identical to `analyze`; output is a self-contained HTML
+    /// file (vanilla JS, no external resources, works offline). Exits 0
+    /// even when the quality gate fails (the gate status is rendered as
+    /// a badge in the HTML top bar, not as a CI signal). Use `analyze
+    /// --ci` for the exit-code semantics.
+    Report {
+        /// Path to a JSON trace file. Omit or pass `-` to read from stdin.
+        /// Same format auto-detection as `analyze --input` (native JSON,
+        /// Jaeger, Zipkin v2).
+        #[arg(short, long)]
+        input: Option<PathBuf>,
+        /// Path to a .perf-sentinel.toml config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// HTML output file path. Overwritten if it already exists.
+        #[arg(short, long)]
+        output: PathBuf,
+        /// Maximum number of traces to embed for the Explain tab. When
+        /// unset, the sink trims to target a ~5 MB HTML file size.
+        #[arg(long, value_name = "N")]
+        max_traces_embedded: Option<usize>,
+    },
+
     /// Compare two trace sets and emit a delta report (regressions and improvements).
     Diff {
         /// Path to the baseline trace file (e.g. base branch, last release).
@@ -446,6 +471,12 @@ async fn main() {
             format,
             output.as_deref(),
         ),
+        Commands::Report {
+            input,
+            config,
+            output,
+            max_traces_embedded,
+        } => cmd_report(input.as_deref(), config.as_deref(), &output, max_traces_embedded),
     }
 }
 
@@ -584,6 +615,46 @@ fn cmd_diff(
         eprintln!("Error writing diff: {e}");
         std::process::exit(1);
     }
+}
+
+fn cmd_report(
+    input: Option<&std::path::Path>,
+    config_path: Option<&std::path::Path>,
+    output: &std::path::Path,
+    max_traces_embedded: Option<usize>,
+) {
+    let config = load_config(config_path);
+
+    // `report` accepts an explicit `--input -` for stdin (shell-friendly
+    // in composition pipelines like `tempo --output - | report --input
+    // - --output ...`). `analyze` uses "omit the flag" for the same
+    // effect; both forms are accepted here for ergonomics.
+    let stdin_mode = input.is_none_or(|p| p == std::path::Path::new("-"));
+    let effective_input = if stdin_mode { None } else { input };
+
+    let raw = read_events(effective_input, config.max_payload_size);
+    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+
+    let (report, traces) = pipeline::analyze_with_traces(events, &config);
+
+    let input_label = if stdin_mode {
+        "-".to_string()
+    } else {
+        input.and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .or_else(|| input.map(|p| p.display().to_string()))
+            .unwrap_or_else(|| "-".to_string())
+    };
+
+    let options = sentinel_core::report::html::RenderOptions {
+        input_label,
+        max_traces_embedded,
+    };
+
+    if let Err(e) = sentinel_core::report::html::write(&report, &traces, &options, output) {
+        eprintln!("Error writing HTML report to {}: {e}", output.display());
+        std::process::exit(1);
+    }
+    info!("HTML report written to {}", output.display());
 }
 
 #[cfg(feature = "tempo")]
