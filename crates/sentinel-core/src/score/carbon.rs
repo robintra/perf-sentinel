@@ -183,11 +183,7 @@ pub struct CarbonEstimate {
 
 impl CarbonEstimate {
     /// Derive `low`/`high` from midpoint using multiplicative factors.
-    pub(crate) fn new_with_model(
-        mid: f64,
-        model: &'static str,
-        methodology: &'static str,
-    ) -> Self {
+    pub(crate) fn new_with_model(mid: f64, model: &'static str, methodology: &'static str) -> Self {
         Self {
             low: mid * CO2_LOW_FACTOR,
             mid,

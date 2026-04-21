@@ -216,8 +216,11 @@ fn build_payload<'a>(
 /// higher IIS. Traces whose `(service, endpoint)` pairs are absent from
 /// `top_offenders` rank as `usize::MAX` and sort last.
 fn order_candidates_by_iis<'a>(report: &Report, traces: &'a [Trace]) -> Vec<&'a Trace> {
-    let finding_trace_ids: HashSet<&str> =
-        report.findings.iter().map(|f| f.trace_id.as_str()).collect();
+    let finding_trace_ids: HashSet<&str> = report
+        .findings
+        .iter()
+        .map(|f| f.trace_id.as_str())
+        .collect();
 
     let mut rank: HashMap<(&str, &str), usize> = HashMap::new();
     for (i, off) in report.green_summary.top_offenders.iter().enumerate() {
@@ -238,12 +241,9 @@ fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
         .spans
         .iter()
         .map(|s| {
-            rank.get(&(
-                s.event.service.as_str(),
-                s.event.source.endpoint.as_str(),
-            ))
-            .copied()
-            .unwrap_or(usize::MAX)
+            rank.get(&(s.event.service.as_str(), s.event.source.endpoint.as_str()))
+                .copied()
+                .unwrap_or(usize::MAX)
         })
         .min()
         .unwrap_or(usize::MAX)
@@ -475,7 +475,10 @@ mod tests {
 
         // The JSON payload must still round-trip cleanly.
         let start = html.find("<script id=\"report-data\"").expect("script tag");
-        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let open = html[start..]
+            .find('>')
+            .expect("script open")
+            .saturating_add(1);
         let rest = &html[start + open..];
         let end = rest.find("</script>").expect("script close");
         let json_blob = rest[..end].trim().replace("<\\/", "</");
@@ -498,12 +501,14 @@ mod tests {
         let html = render(&report, &[], &opts("traces.json", None));
 
         let start = html.find("<script id=\"report-data\"").expect("script tag");
-        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let open = html[start..]
+            .find('>')
+            .expect("script open")
+            .saturating_add(1);
         let rest = &html[start + open..];
         let end = rest.find("</script>").expect("script close");
         let json_blob = rest[..end].trim().replace("<\\/", "</");
-        let value: serde_json::Value =
-            serde_json::from_str(&json_blob).expect("JSON round-trips");
+        let value: serde_json::Value = serde_json::from_str(&json_blob).expect("JSON round-trips");
         assert_eq!(
             value["report"]["findings"][0]["pattern"]["template"]
                 .as_str()
@@ -612,7 +617,10 @@ mod tests {
     /// block and un-escape `<\/` back to `</` so it parses as JSON.
     fn extract_payload_json(html: &str) -> String {
         let start = html.find("<script id=\"report-data\"").expect("script tag");
-        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let open = html[start..]
+            .find('>')
+            .expect("script open")
+            .saturating_add(1);
         let rest = &html[start + open..];
         let end = rest.find("</script>").expect("script close");
         rest[..end].trim().replace("<\\/", "</")
@@ -753,14 +761,20 @@ mod tests {
             .iter()
             .map(|e| e["normalized_template"].as_str().unwrap())
             .collect();
-        assert!(pg_templates.contains(&tpl), "pg_stat carries the span template");
+        assert!(
+            pg_templates.contains(&tpl),
+            "pg_stat carries the span template"
+        );
         let span_templates: Vec<&str> = v_with["embedded_traces"][0]["spans"]
             .as_array()
             .unwrap()
             .iter()
             .map(|s| s["template"].as_str().unwrap())
             .collect();
-        assert!(span_templates.contains(&tpl), "trace carries the same template");
+        assert!(
+            span_templates.contains(&tpl),
+            "trace carries the same template"
+        );
 
         // The template file also carries the ps-span-pgstat-link class
         // (the JS adds it to rows with matching templates). The grep is
@@ -790,7 +804,12 @@ mod tests {
         // labels, the sub-switcher sets `data-ranking-index` via
         // `setAttribute` (not as an inline HTML attribute), and the
         // payload exposes all four rankings in the stable order.
-        let labels = ["\"Total time\"", "\"Calls\"", "\"Mean time\"", "\"I/O blocks\""];
+        let labels = [
+            "\"Total time\"",
+            "\"Calls\"",
+            "\"Mean time\"",
+            "\"I/O blocks\"",
+        ];
         for needle in labels {
             assert!(
                 TEMPLATE.contains(needle),
@@ -831,8 +850,14 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         let rankings = value["pg_stat"]["rankings"].as_array().unwrap();
         assert_eq!(rankings.len(), 4, "payload carries all four rankings");
-        assert_eq!(rankings[0]["label"].as_str().unwrap(), "top by total_exec_time");
-        assert_eq!(rankings[3]["label"].as_str().unwrap(), "top by shared_blks_total");
+        assert_eq!(
+            rankings[0]["label"].as_str().unwrap(),
+            "top by total_exec_time"
+        );
+        assert_eq!(
+            rankings[3]["label"].as_str().unwrap(),
+            "top by shared_blks_total"
+        );
     }
 
     #[test]
@@ -843,8 +868,8 @@ mod tests {
         // automatically when the field is non-empty. Assert the
         // serialized payload carries the field with the expected shape
         // so the JS sees what it expects.
-        use crate::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
         use crate::detect::FindingType;
+        use crate::detect::correlate_cross::{CorrelationEndpoint, CrossTraceCorrelation};
 
         let correlation = CrossTraceCorrelation {
             source: CorrelationEndpoint {
@@ -875,7 +900,10 @@ mod tests {
         let corrs = value["report"]["correlations"].as_array().unwrap();
         assert_eq!(corrs.len(), 1);
         assert_eq!(corrs[0]["source"]["service"].as_str().unwrap(), "order-svc");
-        assert_eq!(corrs[0]["target"]["service"].as_str().unwrap(), "payment-svc");
+        assert_eq!(
+            corrs[0]["target"]["service"].as_str().unwrap(),
+            "payment-svc"
+        );
         assert_eq!(corrs[0]["co_occurrence_count"].as_u64().unwrap(), 8);
 
         // The Correlations panel scaffolding must exist in the static
