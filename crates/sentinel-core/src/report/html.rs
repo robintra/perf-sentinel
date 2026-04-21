@@ -1174,6 +1174,35 @@ mod tests {
     }
 
     #[test]
+    fn explain_empty_helper_is_shared_across_call_sites() {
+        // The helper must be defined once and consumed by both the
+        // cap-reached path inside openExplain and the resolved-diff
+        // click handler. Assertion on the function signature plus
+        // substring checks on the two user-visible messages is enough
+        // to catch a silent drop.
+        assert!(
+            TEMPLATE.contains("function renderExplainEmpty("),
+            "renderExplainEmpty helper missing"
+        );
+        assert!(
+            TEMPLATE.contains("Trace not embedded (cap reached)"),
+            "cap-reached message missing"
+        );
+        assert!(
+            TEMPLATE.contains("This finding was resolved."),
+            "resolved-diff empty-state message missing"
+        );
+        // Both inline messages must route through the helper. Count
+        // the uses: one in openExplain plus one in buildDiffFindingRow,
+        // with room for Correlations in commit 7.
+        let use_count = TEMPLATE.matches("renderExplainEmpty(").count();
+        assert!(
+            use_count >= 3,
+            "expected at least 3 renderExplainEmpty uses (definition + openExplain + resolved-diff), found {use_count}"
+        );
+    }
+
+    #[test]
     fn tabs_and_panels_carry_aria_roles() {
         // Static shell assertions: the tablist container and every
         // tabpanel carry the WAI-ARIA roles expected by screen readers.

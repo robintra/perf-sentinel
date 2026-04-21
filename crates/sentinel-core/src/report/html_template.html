@@ -770,6 +770,21 @@
   }
 
   // -------- explain tree --------
+  /// Render an empty-state message in the Explain tab. Shared between
+  /// the "trace not embedded" cap-reached path, the resolved-diff
+  /// clickthrough where the trace lives in the baseline report, and
+  /// the Correlations clickthrough fallback when the sampled trace id
+  /// did not survive the embed cap.
+  function renderExplainEmpty(message) {
+    document.getElementById("explain-empty").style.display = "none";
+    var content = document.getElementById("explain-content");
+    var notEmbedded = document.getElementById("explain-not-embedded");
+    content.style.display = "none";
+    notEmbedded.style.display = "";
+    notEmbedded.textContent = message;
+    switchTab("explain");
+  }
+
   function openExplain(f) {
     document.getElementById("explain-empty").style.display = "none";
     var content = document.getElementById("explain-content");
@@ -780,12 +795,9 @@
     var trace = tracesById[f.trace_id];
     if (!trace) {
       // Happens when the finding's trace was dropped by the size cap.
-      // Surface the state explicitly rather than show an empty tree.
-      content.style.display = "none";
-      notEmbedded.style.display = "";
-      notEmbedded.textContent =
-        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
-      switchTab("explain");
+      renderExplainEmpty(
+        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it."
+      );
       return;
     }
 
@@ -1156,21 +1168,21 @@
       "diff-resolved-header",
       "Resolved findings",
       diffData.resolved_findings || [],
-      false
+      "resolved"
     );
     renderDiffSevTable(diffData.severity_changes || []);
     renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
   }
-  function renderDiffFindingsList(listId, headerId, label, items, clickable) {
+  function renderDiffFindingsList(listId, headerId, label, items, kind) {
     var list = document.getElementById(listId);
     var hdr = document.getElementById(headerId);
     hdr.textContent = label + " (" + items.length + ")";
     list.textContent = "";
     items.forEach(function (f) {
-      list.appendChild(buildDiffFindingRow(f, clickable));
+      list.appendChild(buildDiffFindingRow(f, kind));
     });
   }
-  function buildDiffFindingRow(f, clickable) {
+  function buildDiffFindingRow(f, kind) {
     var row = el("div", "ps-row");
     row.appendChild(
       el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO")
@@ -1187,7 +1199,17 @@
     right.appendChild(document.createElement("br"));
     right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
     row.appendChild(right);
-    if (clickable) {
+    if (kind === "resolved") {
+      // Resolved findings have no trace in the current run. Route the
+      // click through the shared empty-state helper so the user ends
+      // up on Explain with a clear explanation rather than on an
+      // empty panel.
+      row.addEventListener("click", function () {
+        renderExplainEmpty(
+          "This finding was resolved. Its trace lives in the baseline report, not in the current run. Open the baseline report separately to explore its traces."
+        );
+      });
+    } else if (kind === true || kind === "new") {
       row.addEventListener("click", function () {
         openExplain(f);
       });
