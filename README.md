@@ -94,7 +94,7 @@ Or produce a single-file HTML dashboard with `report` for post-mortem exploratio
 perf-sentinel report --input traces.json --output report.html
 ```
 
-Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Three rankings (by total time, by call count, by mean latency) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
+Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Four rankings (by total time, by call count, by mean latency, by shared-buffer blocks touched) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
 
 ![pg-stat hotspots](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
 
@@ -350,6 +350,40 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 # Tune I/O-to-energy coefficients from real measurements
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
 ```
+
+### HTML dashboard report
+
+```bash
+# Single-file HTML dashboard for post-mortem exploration in any browser
+perf-sentinel report --input traces.json --output report.html
+
+# Embed a pg_stat_statements ranking tab
+perf-sentinel report --input traces.json --pg-stat pg_stat.csv --output report.html
+
+# Or scrape it live from postgres_exporter Prometheus
+perf-sentinel report --input traces.json --pg-stat-prometheus http://prometheus:9090 --output report.html
+
+# Compare against a baseline for PR regression review
+perf-sentinel report --input after.json --before baseline.json --output report.html
+
+# Pipe a live daemon snapshot into the dashboard
+curl -s http://daemon:4318/api/export/report | perf-sentinel report --input - --output report.html
+```
+
+The dashboard works offline (`file://`), zero external resources, embeds findings-only traces to stay under ~5 MB. Keyboard: `j`/`k`/`enter`/`esc` for the Findings list, `/` for per-tab search, `?` for the full cheatsheet, `g f`/`g e`/`g p`/`g d`/`g c`/`g r` to switch tabs vim-style. Export CSV button on Findings, pg_stat, Diff and Correlations tabs. URL fragment encodes the active tab, search and filter chips so a shared link restores the exact filtered view.
+
+### PR regression diff
+
+```bash
+# Compare two analysis runs, surface new findings, resolutions and severity changes
+perf-sentinel diff --before base.json --after head.json
+
+# Machine-readable for CI
+perf-sentinel diff --before base.json --after head.json --format json
+perf-sentinel diff --before base.json --after head.json --format sarif
+```
+
+Identity for matching is `(finding_type, service, source_endpoint, pattern.template)`. Output buckets: `new_findings`, `resolved_findings`, `severity_changes`, `endpoint_metric_deltas`. Use inside a PR job to catch regressions before they land.
 
 ### Query a running daemon
 

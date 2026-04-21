@@ -137,9 +137,11 @@ perf-sentinel report --input traces.json \
     --output report.html
 ```
 
-Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` backs out of Explain (or closes the search bar if one is open). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations. Press `?` for the full cheatsheet with every shortcut listed, including vim-style `g f` / `g e` / `g p` / `g d` / `g c` / `g r` to jump between tabs.
+Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` walks back a four-tier priority ladder (close the cheatsheet, close the search bar, leave the Explain tab, clear active filter chips). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations. Press `?` for the full cheatsheet with every shortcut listed, including vim-style `g f` / `g e` / `g p` / `g d` / `g c` / `g r` to jump between tabs.
 
-Sharing and export: every listable tab (Findings, pg_stat, Diff, Correlations) has an **Export CSV** button that downloads the currently filtered view as a standards-compliant CSV (RFC 4180 escaping, so templates with commas or quotes round-trip safely). The URL fragment reflects the active tab plus search and filter chips, so sending a teammate a link like `report.html#pgstat&ranking=mean_time&search=payment` restores the exact same view. Theme and last-active pg_stat ranking persist in `sessionStorage`, scoped to the current browser tab.
+Large result sets: the Findings list renders the first 500 matching rows initially and exposes a `Show N more findings (remaining M)` button below the list to reveal the next chunk. Filter chip clicks, search edits and deep-link hash applies reset the visible count so the user never ends up paginated into rows that no longer match.
+
+Sharing and export: every listable tab (Findings, pg_stat, Diff, Correlations) has an **Export CSV** button that downloads the currently filtered view as a standards-compliant CSV (RFC 4180 escaping, so templates with commas or quotes round-trip safely, plus an OWASP formula-injection guard that prefixes an apostrophe on cells starting with `=`, `+`, `-`, `@`, or a tab). The URL fragment reflects the active tab plus search and filter chips, so sending a teammate a link like `report.html#pgstat&ranking=mean_time&search=payment` restores the exact same view. Theme and last-active pg_stat ranking persist in `sessionStorage`, scoped to the current browser tab.
 
 This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
@@ -987,7 +989,7 @@ jobs:
   diff:
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.4.8"
+      PERF_SENTINEL_VERSION: "0.5.0"
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:

@@ -275,6 +275,17 @@ The exemplar format follows the OpenMetrics specification: `metric{labels} value
 
 **SQL normalization reuse:** each query goes through `normalize::sql::normalize_sql()` to produce a template comparable with trace-based findings. PostgreSQL normalizes queries at the server level (e.g., `$1` placeholders), but perf-sentinel re-normalizes for consistency with its own template format.
 
+### Four-ranking output
+
+`rank_pg_stat(entries, top_n)` returns a `PgStatReport` with four rankings in a stable, position-indexed order: `[by_total_time, by_calls, by_mean_time, by_io_blocks]`. Each ranking holds the same top-N entries, reordered by its own criterion:
+
+- **by_total_time**: `total_exec_time_ms` descending. Queries that dominate wall-clock DB time. Primary hotspot signal.
+- **by_calls**: `calls` descending. High-volume queries, often N+1 candidates.
+- **by_mean_time**: `mean_exec_time_ms` descending. Individually slow queries regardless of volume.
+- **by_io_blocks**: `shared_blks_hit + shared_blks_read` descending. Cache-pressure signal: queries that touch the most shared buffer pages, independent of whether those pages were hot or cold. Complements `by_total_time` when the CPU is idle but the buffer cache churns.
+
+The HTML dashboard's `pg_stat` tab sub-switcher consumes these four rankings by position, so new rankings are appended (never reordered, never inserted in the middle) to preserve index stability for downstream consumers.
+
 ### Cross-referencing
 
 `cross_reference()` accepts `&mut [PgStatEntry]` and `&[Finding]`. It builds a `HashSet` of finding templates and marks entries whose `normalized_template` matches. This is O(n + m) where n = entries, m = findings. The `seen_in_traces` flag enables the CLI to highlight queries that appear in both data sources, useful for validating OTLP trace capture fidelity against database-native ground truth.
@@ -311,6 +322,8 @@ perf-sentinel pg-stat --prometheus http://prometheus:9090 --top 20
 ```
 
 This flag is gated behind the `daemon` feature because it requires the `hyper` HTTP client stack. The rest of the pg-stat pipeline (ranking, cross-referencing, display) is identical regardless of whether the data came from a file or Prometheus.
+
+The `report` subcommand exposes the same capability via `--pg-stat-prometheus URL`, mutually exclusive with its file-based `--pg-stat FILE` flag (enforced at the clap level via `conflicts_with`). When either flag is provided, the resulting `PgStatReport` is embedded into the HTML dashboard's `pg_stat` tab alongside the four rankings described above. The scrape path is shared with `pg-stat --prometheus`, no data-fetching code is duplicated.
 
 ## Tempo ingestion
 
@@ -368,7 +381,7 @@ This struct is wrapped in `Arc` and passed as axum `State` to all route handlers
 
 ### API endpoints
 
-Five endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion, `/metrics` and `/health` active.
+Six endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion, `/metrics` and `/health` active.
 
 | Endpoint                   | Method | Cap                                                                      | Description                                                                                |
 |----------------------------|--------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
@@ -377,6 +390,15 @@ Five endpoints are mounted via `query_api_router()`. The router is only merged i
 | `/api/explain/{trace_id}`  | GET    | none                                                                     | Trace tree with findings inline, built from daemon memory                                  |
 | `/api/correlations`        | GET    | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None`     |
 | `/api/status`              | GET    | none                                                                     | Daemon health: version, uptime, active traces, stored findings count                       |
+| `/api/export/report`       | GET    | inherits `/api/findings` + `/api/correlations` caps                      | Full `Report` snapshot as JSON, ready to pipe into `perf-sentinel report --input -`        |
+
+### `/api/export/report` snapshot semantics
+
+The endpoint returns a `Report` struct shape-identical to `analyze --format json`, so the HTML report pipeline can consume it without a separate parser. Fields are populated from the daemon's live state: `findings` from `FindingsStore::query`, `correlations` from `CrossTraceCorrelator::active_correlations`, `analysis.events_processed` / `traces_analyzed` from the metrics counters. `green_summary`, `quality_gate` and `per_endpoint_io_ops` are left empty by design: the daemon does not run the scoring stage on each batch (SCI numbers need a wide enough observation window, which `analyze` provides and the daemon does not), and the quality gate is a batch concept. Downstream consumers that need those fields should feed the daemon output into `analyze --input -` instead.
+
+Cold-start handling: when `events_processed == 0`, the endpoint returns HTTP 503 with `{"error": "daemon has not yet processed any events"}`. This prevents a report dashboard from rendering misleading "zero findings" on a daemon that has not yet received its first OTLP batch.
+
+Snapshot atomicity: the handler acquires the `FindingsStore` read lock and the correlator mutex in sequence, not atomically. The two collections can therefore be one batch apart (findings from generation N, correlations from N+1), which is acceptable for a post-mortem dashboard but not for a strict snapshot contract.
 
 ### Explain without eviction via `peek_clone`
 

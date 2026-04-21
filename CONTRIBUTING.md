@@ -142,6 +142,31 @@ cargo test -p sentinel-core -- detect::slow::tests::test_slow_sql
 - [ ] New functionality has tests
 - [ ] Commit messages follow conventional commits format in English
 
+## Release process
+
+Releases fire on a `v*` git tag push. The `.github/workflows/release.yml` workflow builds binaries for four targets, generates SHA256 checksums, publishes both crates to crates.io, and pushes a multi-arch Docker image to GHCR and Docker Hub.
+
+Before tagging, bump `workspace.package.version` in the root `Cargo.toml` and run the local pre-flight script:
+
+```bash
+# Bump the workspace version (manually or via cargo-edit)
+# cargo set-version --workspace 0.5.0
+
+# Verify the tag you're about to push matches every Cargo.toml
+./scripts/check-tag-version.sh v0.5.0
+
+# Tag and push
+git tag v0.5.0
+git push origin v0.5.0
+```
+
+The same check runs as the first job of the release workflow (`check-versions`). If the tag and any `Cargo.toml` in the workspace disagree, the workflow aborts before any artifact is built or published, saving you from deleting a broken release post-hoc.
+
+Bump targets beyond `Cargo.toml`:
+- `PERF_SENTINEL_VERSION` in the three CI templates under `docs/ci-templates/` and their referenced examples in `docs/INTEGRATION.md` and `docs/FR/INTEGRATION-FR.md`.
+- `CHANGELOG.md`: move the `[Unreleased]` section content under a new `[x.y.z]` header.
+- `CLAUDE.md`: update the "Version" status line after the tag is pushed.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the [AGPL-3.0-only](LICENSE) license.

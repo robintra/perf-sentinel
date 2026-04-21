@@ -9,17 +9,20 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 
 ## Sous-commandes
 
-| Sous-commande | Description                                                                                                                                                 |
-|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                                         |
-| `explain`     | Vue arborescente d'une trace avec findings annotés en ligne                                                                                                 |
-| `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                                           |
-| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live                   |
-| `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                                                                                                      |
-| `bench`       | Benchmark du débit sur un fichier de traces                                                                                                                 |
-| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                                           |
-| `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                                        |
-| `diff`        | Compare deux jeux de traces et émet un rapport delta (findings nouveaux/résolus, changements de sévérité, deltas I/O par endpoint). Sortie texte/JSON/SARIF |
+| Sous-commande | Description                                                                                                                                                                                                                     |
+|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                                                                                                             |
+| `explain`     | Vue arborescente d'une trace avec findings annotés en ligne                                                                                                                                                                     |
+| `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                                                                                                               |
+| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live                                                                                       |
+| `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                                                                                                                                                                          |
+| `bench`       | Benchmark du débit sur un fichier de traces                                                                                                                                                                                     |
+| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                                                                                                               |
+| `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                                                                                                            |
+| `diff`        | Compare deux jeux de traces et émet un rapport delta (findings nouveaux/résolus, changements de sévérité, deltas I/O par endpoint). Sortie texte/JSON/SARIF                                                                     |
+| `report`      | Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur. Accepte un fichier de traces, un Report JSON pré-calculé, ou stdin via `--input -` (auto-détecte array-d'events vs objet Report, tolérant au BOM) |
+| `tempo`       | Récupère des traces depuis une API HTTP Grafana Tempo (par ID de trace ou par recherche service puis fetch) et les pipe dans le pipeline d'analyse. Gaté derrière la feature `tempo`                                            |
+| `calibrate`   | Corrèle un fichier de traces avec des mesures d'énergie réelles (Scaphandre, CSV cloud monitoring) et émet un TOML de coefficients I/O-vers-énergie à charger via `[green] calibration_file`                                    |
 
 ## Sections
 

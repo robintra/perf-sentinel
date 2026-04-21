@@ -159,6 +159,10 @@ Toutes les frontières d'ingestion (OTLP, JSON, Jaeger, Zipkin) tronquent les ch
 
 Le binaire release cible < 10 Mo avec `lto = "thin"`, `strip = true` et `panic = "abort"`. La table d'intensité carbone embarquée et le support protobuf OTLP contribuent à la taille du binaire. Si vous avez besoin d'un binaire plus petit et n'utilisez pas l'ingestion OTLP, la compilation avec des feature flags (travail futur) pourrait réduire la taille.
 
+## Dashboard HTML : guard formula-injection CSV
+
+Chaque cellule des CSV exportés par le bouton **Export CSV** par onglet du dashboard HTML est vérifiée contre l'OWASP CSV injection. Si le premier caractère d'une cellule est `=`, `+`, `-`, `@`, ou une tabulation horizontale (`\t`), une apostrophe simple est préfixée pour qu'Excel, LibreOffice Calc et Google Sheets affichent le texte littéral plutôt que l'évaluer comme une formule à l'ouverture. Le préfixe est invisible dans la vue tableur et ne modifie pas la donnée pour les consommateurs qui parsent le CSV en texte brut. Les triggers ne sont neutralisés qu'en position 0, donc un template légitime comme `abc=def` s'exporte inchangé.
+
 ## Pas d'authentification (TLS disponible, auth non intégrée)
 
 perf-sentinel n'implémente **pas** d'authentification sur ses endpoints d'ingestion. Par défaut, le daemon écoute sur `127.0.0.1` (loopback uniquement), ce qui est sûr pour les déploiements sur une seule machine.

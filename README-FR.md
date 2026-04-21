@@ -94,7 +94,7 @@ Ou produis un dashboard HTML single-file avec `report` pour l'exploration post-C
 perf-sentinel report --input traces.json --output report.html
 ```
 
-Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Trois classements (par temps total, par nombre d'appels, par latence moyenne) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
+Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Quatre classements (par temps total, par nombre d'appels, par latence moyenne, par blocs shared-buffer touchés) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
 
 ![hotspots pg-stat](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
 
@@ -350,6 +350,40 @@ perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 
 # Ajuster les coefficients énergie avec des mesures réelles
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
 ```
+
+### Dashboard HTML
+
+```bash
+# Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur
+perf-sentinel report --input traces.json --output report.html
+
+# Embarquer un onglet de ranking pg_stat_statements
+perf-sentinel report --input traces.json --pg-stat pg_stat.csv --output report.html
+
+# Ou scrape live depuis postgres_exporter Prometheus
+perf-sentinel report --input traces.json --pg-stat-prometheus http://prometheus:9090 --output report.html
+
+# Comparer à une baseline pour review de régression PR
+perf-sentinel report --input after.json --before baseline.json --output report.html
+
+# Piper un snapshot daemon live vers le dashboard
+curl -s http://daemon:4318/api/export/report | perf-sentinel report --input - --output report.html
+```
+
+Le dashboard fonctionne offline (`file://`), zéro ressource externe, embarque uniquement les traces avec findings pour rester sous ~5 Mo. Clavier : `j`/`k`/`enter`/`esc` sur la liste Findings, `/` pour la recherche par onglet, `?` pour la cheatsheet complète, `g f`/`g e`/`g p`/`g d`/`g c`/`g r` pour switcher d'onglet style vim. Bouton Export CSV sur les onglets Findings, pg_stat, Diff et Correlations. Le fragment d'URL encode l'onglet actif, la recherche et les puces de filtre pour qu'un lien partagé restaure exactement la même vue.
+
+### Diff de régression PR
+
+```bash
+# Comparer deux analyses, fait remonter nouveaux findings, résolutions et changements de sévérité
+perf-sentinel diff --before base.json --after head.json
+
+# Sortie machine pour CI
+perf-sentinel diff --before base.json --after head.json --format json
+perf-sentinel diff --before base.json --after head.json --format sarif
+```
+
+L'identité pour le matching est `(finding_type, service, source_endpoint, pattern.template)`. Buckets de sortie : `new_findings`, `resolved_findings`, `severity_changes`, `endpoint_metric_deltas`. À utiliser dans un job PR pour attraper les régressions avant qu'elles atterrissent sur la branche principale.
 
 ### Interroger un daemon en cours d'exécution
 

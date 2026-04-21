@@ -7,9 +7,9 @@ Thank you for taking the time to improve perf-sentinel's security. This document
 perf-sentinel follows semantic versioning. Security fixes are backported as follows:
 
 | Version | Supported |
-| ------- | --------- |
-| 0.4.x   | ✅         |
-| < 0.4   | ❌         |
+|---------|-----------|
+| 0.5.x   | ✅         |
+| < 0.5   | ❌         |
 
 Only the latest minor release receives security fixes. Users on older versions are encouraged to upgrade.
 
@@ -73,5 +73,11 @@ For context, the following choices are deliberate and documented:
 - **Log redaction**: credentials are redacted in all scraper logs via `redact_endpoint`.
 - **TLS for OTLP listeners**: opt-in via `[daemon.tls]`. The recommended production pattern remains a reverse proxy (envoy, nginx) for broader TLS feature coverage.
 - **SARIF path sanitization**: filepaths from SARIF output are validated against path traversal, control characters, bidi overrides, and overlong UTF-8 encodings.
+- **HTML dashboard: `textContent`-only rendering**: every user-controlled value (SQL templates, service names, HTTP URLs, trace IDs, code locations, `SuggestedFix` text) is embedded in a `<script id="report-data" type="application/json">` block and rendered exclusively via `Element.textContent` and `document.createElement()`. The template never calls `innerHTML`, `insertAdjacentHTML`, `outerHTML`, `document.write`, `eval`, `new Function`, `DOMParser`, `createContextualFragment`, or `setAttribute` with an `on*` attribute name. A unit test (`no_forbidden_apis_in_template` in `crates/sentinel-core/src/report/html.rs`) greps the template on every build and fails CI if any of those strings appear.
+- **HTML dashboard: script-tag break-out defense**: the Rust injector escapes the substring `</` to `<\/` in the serialized JSON payload so a user-controlled string cannot close the `<script>` block early. `\/` is a permitted JSON string escape, `JSON.parse` round-trips the original value unchanged.
+- **HTML dashboard: prototype-pollution hardening**: every lookup map keyed by user-controlled identifiers (`trace_id`, `service`, `span_id`, `parent_span_id`, `normalized_template`) is created with `Object.create(null)` so a hostile identifier like `"__proto__"` cannot reparent the object chain.
+- **HTML dashboard: CSV formula-injection guard**: every cell in exported CSVs is prefixed with a single apostrophe when its first character is `=`, `+`, `-`, `@`, or a tab, per OWASP CSV injection guidance. Excel, LibreOffice and Google Sheets display the original text without evaluating it as a formula.
+- **HTML dashboard: deep-link hash allowlist**: keys accepted from the URL fragment are restricted to `search`, `ranking`, `severity`, `service`. A hostile hash like `#x&__proto__=y` cannot pollute internal state.
+- **HTML dashboard: self-contained output**: the generated file has no `<link rel="stylesheet">`, no `<script src="...">`, no web fonts, no images, no CDN. It loads offline from a `file://` URL with zero network requests, which makes it trivially auditable and removes any supply-chain vector through bundled resources.
 
 See `docs/LIMITATIONS.md` (EN) and `docs/FR/LIMITATIONS-FR.md` (FR) for the full threat model and operational caveats.

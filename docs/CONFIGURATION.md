@@ -9,17 +9,20 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 
 ## Subcommands
 
-| Subcommand | Description                                                                                                                                                  |
-|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `analyze`  | Batch analysis of trace files. Reads from file or stdin                                                                                                      |
-| `explain`  | Tree view of a specific trace with findings annotated inline                                                                                                 |
-| `watch`    | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                |
-| `query`    | Query a running daemon for findings, correlations or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI |
-| `demo`     | Run analysis on an embedded demo dataset                                                                                                                     |
-| `bench`    | Benchmark throughput on a trace file                                                                                                                         |
-| `pg-stat`  | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                |
-| `inspect`  | Interactive TUI to browse traces, findings and span trees                                                                                                    |
-| `diff`     | Compare two trace sets and emit a delta report (new/resolved findings, severity changes, per-endpoint I/O op deltas). Text/JSON/SARIF output                 |
+| Subcommand  | Description                                                                                                                                                                                                         |
+|-------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`   | Batch analysis of trace files. Reads from file or stdin                                                                                                                                                             |
+| `explain`   | Tree view of a specific trace with findings annotated inline                                                                                                                                                        |
+| `watch`     | Daemon mode: real-time OTLP ingestion and streaming detection                                                                                                                                                       |
+| `query`     | Query a running daemon for findings, correlations or status. Colored text output by default, `--format json` for scripting. `query inspect` opens a live TUI                                                        |
+| `demo`      | Run analysis on an embedded demo dataset                                                                                                                                                                            |
+| `bench`     | Benchmark throughput on a trace file                                                                                                                                                                                |
+| `pg-stat`   | Analyze `pg_stat_statements` exports (CSV/JSON or Prometheus)                                                                                                                                                       |
+| `inspect`   | Interactive TUI to browse traces, findings and span trees                                                                                                                                                           |
+| `diff`      | Compare two trace sets and emit a delta report (new/resolved findings, severity changes, per-endpoint I/O op deltas). Text/JSON/SARIF output                                                                        |
+| `report`    | Single-file HTML dashboard for post-mortem exploration in any browser. Accepts a trace file, a pre-computed Report JSON, or stdin via `--input -` (auto-detects array-of-events vs Report object, BOM-tolerant)     |
+| `tempo`     | Fetch traces from a Grafana Tempo HTTP API (single trace by ID or search-then-fetch by service) and pipe them through the analysis pipeline. Gated behind the `tempo` feature                                       |
+| `calibrate` | Correlate a trace file with measured energy readings (Scaphandre, cloud monitoring CSV) and emit a TOML of I/O-to-energy coefficients to load via `[green] calibration_file`                                        |
 
 ## Sections
 

@@ -14,12 +14,16 @@ flowchart LR
     tempo["tempo ⚙ tempo<br/><i>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h</i>"]
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
     query["query<br/><i>--daemon URL<br/>(subcommand)</i>"]
+    report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
+    diff["diff<br/><i>--before file --after file<br/>--format text|json|sarif</i>"]
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
     tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
     inspect_pipeline["Pipeline + TUI<br/><i>ratatui 3-panel</i>"]
     demo_pipeline["Pipeline"]
     bench_pipeline["Pipeline<br/><i>throughput measurement</i>"]
+    report_pipeline["Pipeline + HTML sink<br/><i>embed findings-only traces<br/>inline CSS / JS template</i>"]
+    diff_engine["diff::diff_runs()<br/><i>identity match new /<br/>resolved / severity /<br/>endpoint deltas</i>"]
     tree["build_tree()<br/><i>span tree + findings</i>"]
     daemon["daemon::run()<br/><i>OTLP + streaming</i>"]
     ranking["rank_entries()<br/><i>top-N hotspots</i>"]
@@ -47,8 +51,9 @@ flowchart LR
     report_metrics["Prometheus<br/>/metrics"]
     report_toml["Calibration<br/>TOML"]
     report_bench["JSON<br/>perf metrics"]
+    report_html["HTML<br/>dashboard<br/><i>single file, offline</i>"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate & query
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate & query & report & diff
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
@@ -92,11 +97,21 @@ flowchart LR
     daemon_api --> report_json
     q_inspect --> inspect_pipeline
 
+    report --> report_pipeline
+    report_pipeline --> report_html
+
+    diff --> diff_engine
+    diff_engine --> report_text
+    diff_engine --> report_json
+    diff_engine --> report_sarif
+
     style analyze_pipeline fill:#2d4a3e,stroke:#4ade80
     style tempo_pipeline fill:#2d4a3e,stroke:#4ade80
     style demo_pipeline fill:#2d4a3e,stroke:#4ade80
     style bench_pipeline fill:#2d4a3e,stroke:#4ade80
     style inspect_pipeline fill:#2d4a3e,stroke:#4ade80
+    style report_pipeline fill:#2d4a3e,stroke:#4ade80
+    style diff_engine fill:#4a3b2d,stroke:#fbbf24
     style cal_engine fill:#4a3b2d,stroke:#fbbf24
     style daemon fill:#3b2d4a,stroke:#a78bfa
     style query_actions fill:#2d3b4a,stroke:#60a5fa

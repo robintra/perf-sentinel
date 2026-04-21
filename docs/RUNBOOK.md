@@ -18,6 +18,7 @@ If you are setting up perf-sentinel for the first time, see [INTEGRATION.md](INT
 - [Exemplars missing in Grafana](#exemplars-missing-in-grafana)
 - [Energy scraper stuck](#energy-scraper-stuck)
 - [`/api/correlations` returns empty](#apicorrelations-returns-empty)
+- [`/api/export/report` returns 503 or an empty report](#apiexportreport-returns-503-or-an-empty-report)
 - [Daemon crash or restart](#daemon-crash-or-restart)
 - [Applying config changes](#applying-config-changes)
 
@@ -448,6 +449,25 @@ max_tracked_pairs  = 20000
 ```
 
 Restart the daemon to apply.
+
+---
+
+## `/api/export/report` returns 503 or an empty report
+
+**Symptom.** Piping the daemon into the HTML dashboard fails with HTTP 503 or produces a dashboard with zero findings on a daemon that is clearly running.
+
+```bash
+curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --input - --output /tmp/report.html
+# HTTP 503: {"error": "daemon has not yet processed any events"}
+```
+
+**Likely causes.**
+
+1. **Cold start.** The endpoint returns 503 until `events_processed > 0`, on purpose: rendering a dashboard with zero counters on a daemon that has not yet seen its first OTLP batch would be misleading. Wait for the first batch to land, then retry. `GET /api/status` shows the live `events_processed` counter.
+2. **`api_enabled = false`.** If the config disables the query API, `/api/export/report` is not mounted and `curl` returns a 404, not a 503. Re-enable `[daemon] api_enabled = true`.
+3. **Empty findings store, not cold start.** On a long-running daemon that has processed events but has no findings in the ring buffer (clean traffic, or `max_retained_findings = 0`), the endpoint returns 200 with an empty `findings` array. The resulting dashboard shows a "No findings" empty state, which is correct.
+
+**Operational note.** The snapshot is not atomic across `findings` and `correlations`: the two collections can be one batch apart (findings from generation N, correlations from N+1). For a post-mortem dashboard this is acceptable. If you need strict consistency, use `analyze --input traces.json` on a captured trace file instead.
 
 ---
 

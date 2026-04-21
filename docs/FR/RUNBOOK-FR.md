@@ -18,6 +18,7 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 - [Exemplars absents dans Grafana](#exemplars-absents-dans-grafana)
 - [Scraper d'énergie bloqué](#scraper-dénergie-bloqué)
 - [`/api/correlations` renvoie vide](#apicorrelations-renvoie-vide)
+- [`/api/export/report` retourne 503 ou un rapport vide](#apiexportreport-retourne-503-ou-un-rapport-vide)
 - [Crash ou redémarrage du daemon](#crash-ou-redémarrage-du-daemon)
 - [Appliquer un changement de config](#appliquer-un-changement-de-config)
 
@@ -450,6 +451,25 @@ max_tracked_pairs  = 20000
 ```
 
 Redémarrez le daemon pour appliquer.
+
+---
+
+## `/api/export/report` retourne 503 ou un rapport vide
+
+**Symptôme.** Piper le daemon vers le dashboard HTML échoue avec HTTP 503, ou produit un dashboard à zéro findings sur un daemon qui tourne manifestement.
+
+```bash
+curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --input - --output /tmp/report.html
+# HTTP 503: {"error": "daemon has not yet processed any events"}
+```
+
+**Causes probables.**
+
+1. **Cold start.** L'endpoint retourne 503 tant que `events_processed > 0` n'est pas vrai, volontairement : rendre un dashboard avec des compteurs à zéro sur un daemon qui n'a pas encore vu son premier batch OTLP serait trompeur. Attends le premier batch, puis réessaie. `GET /api/status` expose le compteur `events_processed` live.
+2. **`api_enabled = false`.** Si la config désactive la query API, `/api/export/report` n'est pas monté et `curl` retourne un 404, pas un 503. Réactive `[daemon] api_enabled = true`.
+3. **Findings store vide, pas cold start.** Sur un daemon long-running qui a traité des events mais qui n'a aucun finding dans le ring buffer (trafic clean, ou `max_retained_findings = 0`), l'endpoint retourne 200 avec un tableau `findings` vide. Le dashboard résultant affiche un état "No findings", ce qui est correct.
+
+**Note opérationnelle.** Le snapshot n'est pas atomique entre `findings` et `correlations` : les deux collections peuvent être décalées d'un batch (findings de la génération N, correlations de N+1). Pour un dashboard post-mortem c'est acceptable. Si tu as besoin d'une cohérence stricte, utilise `analyze --input traces.json` sur un fichier de traces capturé à la place.
 
 ---
 

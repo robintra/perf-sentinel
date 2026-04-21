@@ -259,6 +259,17 @@ Le format suit la spécification OpenMetrics : `metric{labels} value # {trace_id
 
 **Réutilisation de la normalisation SQL :** chaque requête passe par `normalize::sql::normalize_sql()` pour produire un template comparable avec les findings basés sur les traces.
 
+### Sortie à quatre classements
+
+`rank_pg_stat(entries, top_n)` retourne un `PgStatReport` avec quatre classements dans un ordre stable, indexé par position : `[by_total_time, by_calls, by_mean_time, by_io_blocks]`. Chaque classement contient les mêmes top-N entrées, réordonnées selon son propre critère :
+
+- **by_total_time** : `total_exec_time_ms` décroissant. Requêtes qui dominent le temps DB wall-clock. Signal hotspot principal.
+- **by_calls** : `calls` décroissant. Requêtes à fort volume, candidates N+1 typiques.
+- **by_mean_time** : `mean_exec_time_ms` décroissant. Requêtes individuellement lentes indépendamment du volume.
+- **by_io_blocks** : `shared_blks_hit + shared_blks_read` décroissant. Signal de pression cache : requêtes qui touchent le plus de pages du buffer partagé, peu importe si elles étaient chaudes ou froides. Complémentaire de `by_total_time` quand le CPU est idle mais que le cache s'agite.
+
+Le sub-switcher du dashboard HTML onglet `pg_stat` consomme ces quatre classements par position, donc les nouveaux classements s'ajoutent en fin de liste (jamais réordonnés, jamais insérés au milieu) pour préserver la stabilité des indices côté consommateurs.
+
 ### Référence croisée
 
 `cross_reference()` accepte `&mut [PgStatEntry]` et `&[Finding]`. Il construit un `HashSet` des templates de findings et marque les entrées dont le `normalized_template` correspond. Complexité O(n + m) où n = entrées, m = findings. Le flag `seen_in_traces` permet à la CLI de mettre en évidence les requêtes présentes dans les deux sources de données.
@@ -284,6 +295,8 @@ perf-sentinel pg-stat --prometheus http://prometheus:9090
 ```
 
 Le flag `--prometheus` est mutuellement exclusif avec `--input`. Le `--traces` pour la référence croisée fonctionne de la même manière qu'avec un fichier local.
+
+La sous-commande `report` expose la même capacité via `--pg-stat-prometheus URL`, mutuellement exclusif avec le flag fichier `--pg-stat FILE` (enforced au niveau clap via `conflicts_with`). Quand l'un des deux est passé, le `PgStatReport` résultant est embarqué dans l'onglet `pg_stat` du dashboard HTML avec les quatre classements décrits ci-dessus. Le chemin de scrape est partagé avec `pg-stat --prometheus`, aucun code de fetch dupliqué.
 
 ## Ingestion Tempo
 
@@ -335,15 +348,24 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 
 ### Endpoints HTTP
 
-`daemon/query_api.rs` définit cinq routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP et `/metrics`.
+`daemon/query_api.rs` définit six routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP et `/metrics`.
 
-| Endpoint | Méthode | Plafond | Description |
-|---|---|---|---|
-| `/api/findings` | GET | `?limit=` plafonné à `MAX_FINDINGS_LIMIT = 1000` | Findings récents, avec filtres `?service=`, `?type=`, `?severity=`, `?limit=` |
-| `/api/findings/{trace_id}` | GET | aucun | Findings pour un trace_id spécifique |
-| `/api/explain/{trace_id}` | GET | aucun | Arbre de trace avec findings en ligne (depuis la mémoire du daemon) |
-| `/api/correlations` | GET | tronqué à `MAX_CORRELATIONS_LIMIT = 1000` (trié par confiance décroissante) | Corrélations cross-trace actives. Vide quand `correlator` est `None` |
-| `/api/status` | GET | aucun | Santé du daemon : version, uptime, traces actives, findings stockés |
+| Endpoint                   | Méthode | Plafond                                                                     | Description                                                                        |
+|----------------------------|---------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `/api/findings`            | GET     | `?limit=` plafonné à `MAX_FINDINGS_LIMIT = 1000`                            | Findings récents, avec filtres `?service=`, `?type=`, `?severity=`, `?limit=`      |
+| `/api/findings/{trace_id}` | GET     | aucun                                                                       | Findings pour un trace_id spécifique                                               |
+| `/api/explain/{trace_id}`  | GET     | aucun                                                                       | Arbre de trace avec findings en ligne (depuis la mémoire du daemon)                |
+| `/api/correlations`        | GET     | tronqué à `MAX_CORRELATIONS_LIMIT = 1000` (trié par confiance décroissante) | Corrélations cross-trace actives. Vide quand `correlator` est `None`               |
+| `/api/status`              | GET     | aucun                                                                       | Santé du daemon : version, uptime, traces actives, findings stockés                |
+| `/api/export/report`       | GET     | hérite des plafonds `/api/findings` et `/api/correlations`                  | Snapshot `Report` JSON complet, prêt à piper dans `perf-sentinel report --input -` |
+
+### Sémantique du snapshot `/api/export/report`
+
+L'endpoint retourne un `Report` de forme identique à la sortie de `analyze --format json`, ce qui permet au pipeline HTML de le consommer sans parseur séparé. Les champs sont remplis depuis l'état live du daemon : `findings` depuis `FindingsStore::query`, `correlations` depuis `CrossTraceCorrelator::active_correlations`, `analysis.events_processed` et `traces_analyzed` depuis les compteurs metrics. `green_summary`, `quality_gate` et `per_endpoint_io_ops` restent vides par conception : le daemon ne fait pas tourner l'étape de scoring à chaque batch (les nombres SCI nécessitent une fenêtre d'observation suffisamment large, que `analyze` fournit et pas le daemon), et la quality gate est un concept batch. Les consommateurs qui en ont besoin doivent pousser la sortie daemon vers `analyze --input -` à la place.
+
+Gestion du cold-start : quand `events_processed == 0`, l'endpoint retourne HTTP 503 avec `{"error": "daemon has not yet processed any events"}`. Ça évite qu'un dashboard affiche un "zéro finding" trompeur sur un daemon qui n'a pas encore reçu son premier batch OTLP.
+
+Atomicité du snapshot : le handler acquiert le read lock du `FindingsStore` puis le mutex du correlator en séquence, pas atomiquement. Les deux collections peuvent donc être décalées d'un batch (findings de la génération N, correlations de N+1), acceptable pour un dashboard post-mortem mais pas pour un contrat de snapshot strict.
 
 L'état partagé est encapsulé dans `QueryApiState` :
 

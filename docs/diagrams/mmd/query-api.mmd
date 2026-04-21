@@ -11,6 +11,10 @@ flowchart TD
         q_status["query status<br/><i>--format text|json</i>"]
     end
 
+    subgraph direct_client["Pipeline clients"]
+        curl_pipe["curl | perf-sentinel report<br/><i>snapshot Report as JSON,<br/>pipe into HTML dashboard</i>"]
+    end
+
     subgraph output["Output rendering"]
         colored["Colored terminal<br/><i>default: --format text</i>"]
         json_out["JSON stdout<br/><i>--format json</i>"]
@@ -27,6 +31,7 @@ flowchart TD
             ep_explain["GET /api/explain/{trace_id}"]
             ep_correlations["GET /api/correlations"]
             ep_status["GET /api/status"]
+            ep_export_report["GET /api/export/report<br/><i>Report JSON snapshot<br/>cold-start: HTTP 503</i>"]
         end
     end
 
@@ -57,20 +62,26 @@ flowchart TD
     q_inspect -- "HTTP GET" --> ep_findings
     q_correlations -- "HTTP GET" --> ep_correlations
     q_status -- "HTTP GET" --> ep_status
+    curl_pipe -- "HTTP GET" --> ep_export_report
 
     q_findings --> colored & json_out
     q_explain --> colored & json_out
     q_inspect --> tui_out
     q_correlations --> colored & json_out
     q_status --> colored & json_out
+    ep_export_report --> json_out
 
     ep_findings -- "query(&filter)" --> ring
     ep_findings_trace -- "by_trace_id()" --> ring
     ep_explain -- "peek_clone(trace_id)" --> lru
     ep_correlations -- "active_correlations()" --> pairs
     ep_status -- "read counters" --> metrics_state
+    ep_export_report -- "query + active_correlations + counters" --> ring
+    ep_export_report -- "read" --> pairs
+    ep_export_report -- "read" --> metrics_state
 
     style client fill:#2d3b4a,stroke:#60a5fa
+    style direct_client fill:#2d3b4a,stroke:#60a5fa
     style http_server fill:#2d4a3e,stroke:#4ade80
     style api_routes fill:#2d4a3e,stroke:#4ade80
     style daemon_state fill:#3b2d4a,stroke:#a78bfa

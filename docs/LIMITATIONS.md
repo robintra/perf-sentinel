@@ -101,6 +101,10 @@ All ingestion boundaries (OTLP, JSON, Jaeger, Zipkin) truncate string fields to 
 
 The release binary targets < 10 MB with `lto = "thin"`, `strip = true` and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
 
+## HTML dashboard: CSV formula-injection guard
+
+Every cell in the CSVs exported by the HTML dashboard's per-tab **Export CSV** button is checked against OWASP CSV injection. If the first character of a cell is `=`, `+`, `-`, `@`, or a horizontal tab (`\t`), a single apostrophe is prefixed so Excel, LibreOffice Calc and Google Sheets display the literal text rather than evaluate it as a formula on open. The prefix is invisible in the spreadsheet view and does not alter the data for consumers that parse the CSV as plain text. Triggers are only neutralized at position 0, so a legitimate template like `abc=def` still exports unchanged.
+
 ## No authentication (TLS available, auth not built-in)
 
 perf-sentinel does **not** implement authentication on its ingestion endpoints. By default, the daemon binds to `127.0.0.1` (loopback only), which is safe for single-machine deployments.

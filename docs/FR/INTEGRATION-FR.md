@@ -137,9 +137,11 @@ perf-sentinel report --input traces.json \
     --output report.html
 ```
 
-Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` sort d'Explain (ou ferme la barre de recherche quand une est ouverte). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations. Tape `?` pour la cheatsheet complète qui liste tous les raccourcis, avec en plus les raccourcis style vim `g f` / `g e` / `g p` / `g d` / `g c` / `g r` qui sautent d'un onglet à l'autre.
+Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` suit une échelle de priorité à quatre tiers (ferme la cheatsheet, ferme la barre de recherche, sort de l'onglet Explain, efface les puces de filtre actives). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations. Tape `?` pour la cheatsheet complète qui liste tous les raccourcis, avec en plus les raccourcis style vim `g f` / `g e` / `g p` / `g d` / `g c` / `g r` qui sautent d'un onglet à l'autre.
 
-Partage et export : chaque onglet listable (Findings, pg_stat, Diff, Correlations) expose un bouton **Export CSV** qui télécharge la vue filtrée active au format CSV RFC 4180, les templates contenant virgules ou guillemets sont échappés correctement. Le fragment d'URL reflète l'onglet actif plus la recherche et les puces de filtre, donc partager un lien comme `report.html#pgstat&ranking=mean_time&search=payment` restaure exactement la même vue chez le destinataire. Le thème et le dernier classement pg_stat sélectionné persistent dans `sessionStorage`, limité à l'onglet de navigateur courant.
+Gros résultats : la liste Findings affiche les 500 premières lignes correspondantes et expose un bouton `Show N more findings (remaining M)` sous la liste pour révéler le bloc suivant. Chaque clic sur une puce de filtre, modification de la recherche, ou application d'un hash deep-link remet le compteur à 500, pour que l'utilisateur ne se retrouve jamais paginé sur des lignes qui ne matchent plus.
+
+Partage et export : chaque onglet listable (Findings, pg_stat, Diff, Correlations) expose un bouton **Export CSV** qui télécharge la vue filtrée active au format CSV RFC 4180 (les templates contenant virgules ou guillemets sont échappés correctement, plus un guard OWASP formula-injection qui préfixe une apostrophe sur les cellules commençant par `=`, `+`, `-`, `@` ou une tabulation). Le fragment d'URL reflète l'onglet actif plus la recherche et les puces de filtre, donc partager un lien comme `report.html#pgstat&ranking=mean_time&search=payment` restaure exactement la même vue chez le destinataire. Le thème et le dernier classement pg_stat sélectionné persistent dans `sessionStorage`, limité à l'onglet de navigateur courant.
 
 C'est une vue post-mortem d'un jeu de traces terminé. Pour une inspection live d'un daemon qui tourne, utilise `perf-sentinel query inspect` (TUI) ou directement les endpoints `/api/*`. Pour un workflow Tempo, compose via le shell : `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
@@ -967,7 +969,7 @@ jobs:
   diff:
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.4.8"
+      PERF_SENTINEL_VERSION: "0.5.0"
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
