@@ -1,0 +1,126 @@
+{
+  "analysis": {
+    "duration_ms": 0,
+    "events_processed": 9,
+    "traces_analyzed": 1
+  },
+  "findings": [
+    {
+      "type": "n_plus_one_sql",
+      "severity": "warning",
+      "trace_id": "trace-report-minimal",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/7/checkout",
+      "pattern": {
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 5,
+        "window_ms": 40,
+        "distinct_params": 5
+      },
+      "suggestion": "Use WHERE ... IN (?) to batch 5 queries into one",
+      "first_timestamp": "2026-04-20T10:00:00.010Z",
+      "last_timestamp": "2026-04-20T10:00:00.050Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 4,
+        "io_intensity_score": 9.0,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch"
+    },
+    {
+      "type": "redundant_sql",
+      "severity": "info",
+      "trace_id": "trace-report-minimal",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/7/checkout",
+      "pattern": {
+        "template": "SELECT status, total_cents FROM orders WHERE id = ?",
+        "occurrences": 3,
+        "window_ms": 20,
+        "distinct_params": 1
+      },
+      "suggestion": "Identical operation executed 3 times: cache result or deduplicate",
+      "first_timestamp": "2026-04-20T10:00:00.060Z",
+      "last_timestamp": "2026-04-20T10:00:00.080Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 2,
+        "io_intensity_score": 9.0,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch"
+    }
+  ],
+  "green_summary": {
+    "total_io_ops": 9,
+    "avoidable_io_ops": 6,
+    "io_waste_ratio": 0.6666666666666666,
+    "io_waste_ratio_band": "critical",
+    "top_offenders": [
+      {
+        "endpoint": "POST /api/orders/7/checkout",
+        "service": "order-svc",
+        "io_intensity_score": 9.0,
+        "io_intensity_band": "high"
+      }
+    ],
+    "co2": {
+      "total": {
+        "low": 0.0005,
+        "mid": 0.001,
+        "high": 0.002,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_numerator"
+      },
+      "avoidable": {
+        "low": 0.0,
+        "mid": 0.0,
+        "high": 0.0,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_operational_ratio"
+      },
+      "operational_gco2": 0.0,
+      "embodied_gco2": 0.001
+    },
+    "regions": [
+      {
+        "status": "unresolved",
+        "region": "unknown",
+        "grid_intensity_gco2_kwh": 0.0,
+        "pue": 0.0,
+        "io_ops": 9,
+        "co2_gco2": 0.0,
+        "intensity_source": "annual"
+      }
+    ]
+  },
+  "quality_gate": {
+    "passed": false,
+    "rules": [
+      {
+        "rule": "n_plus_one_sql_critical_max",
+        "threshold": 0.0,
+        "actual": 0.0,
+        "passed": true
+      },
+      {
+        "rule": "n_plus_one_http_warning_max",
+        "threshold": 3.0,
+        "actual": 0.0,
+        "passed": true
+      },
+      {
+        "rule": "io_waste_ratio_max",
+        "threshold": 0.3,
+        "actual": 0.6666666666666666,
+        "passed": false
+      }
+    ]
+  },
+  "per_endpoint_io_ops": [
+    {
+      "service": "order-svc",
+      "endpoint": "POST /api/orders/7/checkout",
+      "io_ops": 9
+    }
+  ]
+}
