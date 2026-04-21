@@ -87,7 +87,26 @@ perf-sentinel inspect --input traces.json
 
 # SARIF for GitHub/GitLab code scanning
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
+
+# Single-file HTML dashboard for post-mortem browser exploration
+perf-sentinel report --input traces.json --output report.html
 ```
+
+---
+
+### HTML dashboard report
+
+`perf-sentinel report --input traces.json --output report.html` produces a single-file HTML dashboard. Double-click to open in any browser, works offline, no external resources. Target audience: developers exploring a CI artifact who prefer clicking over typing. The dashboard shows findings, trace trees and `GreenOps` metrics with cross-navigation between them (click a finding to see its trace tree, with the offending span highlighted in the tree view).
+
+Flags:
+- `--input <FILE>` or `--input -`: trace file or stdin (same format auto-detection as `analyze`: native JSON, Jaeger, Zipkin v2).
+- `--output <FILE>`: required, overwritten if it already exists.
+- `--config <PATH>`: optional `.perf-sentinel.toml`, same semantics as `analyze --config`.
+- `--max-traces-embedded <N>`: cap on embedded Explain traces. When unset, the sink trims lowest-IIS traces to target a ~5 MB HTML file size. A banner in the Findings tab surfaces the trim ratio when it kicks in.
+
+Exit codes differ from `analyze --ci`: `report` always exits 0, even when the quality gate fails. The gate status is rendered as a badge in the HTML top bar. Use `analyze --ci` when you need the CI exit-code signal.
+
+This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
 ---
 

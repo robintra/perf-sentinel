@@ -2,7 +2,7 @@
 
 ## Conception du CLI
 
-Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Neuf sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query` et `diff`.
+Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Dix sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query`, `diff` et `report`.
 
 ### Analyze : rapport coloré par défaut, JSON avec `--ci`
 
@@ -88,6 +88,31 @@ Cette sous-commande est intentionnellement séparée d'`analyze` car les donnée
 **Layout :** découpage en 3 panneaux, liste des traces (haut-gauche, 30%), findings de la trace sélectionnée (haut-droite, 70%), détail du finding avec arbre de spans (bas, 50%). Le panneau de détail réutilise `explain::build_tree()` et `explain::format_tree_text()` pour l'affichage de l'arbre de spans.
 
 **Gestion d'état :** la struct `App` contient des `findings_by_trace` pré-calculés (indexés à la construction) pour éviter de recalculer à chaque frame. L'état de navigation (selected_trace, selected_finding, active_panel, scroll_offset) est mis à jour par les événements clavier.
+
+### Sous-commande `report`
+
+`perf-sentinel report --input FICHIER --output report.html` produit un dashboard HTML single-file destiné aux devs qui explorent un artefact CI en navigateur. Le pipeline est identique à `analyze` de bout en bout, seul le sink final diffère. Implémenté dans `crates/sentinel-core/src/report/html.rs` avec le template UI complet embarqué via `include_str!` depuis `crates/sentinel-core/src/report/html_template.html`.
+
+**Architecture : single-file, vanilla JS, pas de build step, aucune dépendance externe.** La sortie est un unique fichier HTML avec tous les CSS et JS inlinés. Pas de `<link rel="stylesheet">`, pas de `<script src="...">`, pas de web fonts, pas d'images. Le fichier s'ouvre hors ligne depuis une URL `file://` avec zéro requête réseau, ce qui le rend :
+
+- Trivialement auditable : un fichier, pas de bundle minifié, pas de transpilation.
+- Durable : aucune toolchain de build susceptible de casser lors de la mise à jour d'un runner CI, pas de dérive de version NPM sur une recette censée être reproductible pendant des années.
+- Sûr à publier comme artefact CI : pas de lockfile à invalider, pas de vecteur supply-chain via un minifieur embarqué.
+- Rapide à reviewer en PR : le template est un unique fichier `.html` qui diff proprement.
+
+Le front-end utilise les APIs DOM directement (`document.createElement`, `Element.textContent`, `Element.setAttribute`). Pas de framework. Pas de Web Components (le plan initial en prévoyait, mais les modules plain JS collent mieux au scope 8.1 en pratique et gardent le fichier ~15 Ko plus petit).
+
+**Modèle de sécurité : `textContent` seulement, check grep-level en CI.** Toutes les données contrôlées par l'utilisateur (templates SQL, URLs, noms de service, trace IDs, localisations de code, texte `SuggestedFix`) sont injectées dans un bloc `<script id="report-data" type="application/json">` et lues une seule fois au boot via `textContent` + `JSON.parse`. Le JS rend ensuite via `textContent` et `createElement` exclusivement. Interdits : `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. Un test unitaire (`no_forbidden_apis_in_template` dans `report/html.rs`) grep le template à chaque build et fait planter la CI si une de ces chaînes apparaît. Défense de second niveau : l'injecteur Rust échappe la sous-chaîne `</` en `<\/` dans le JSON sérialisé pour qu'une valeur hostile contrôlée par l'utilisateur ne puisse pas fermer le bloc script prématurément. `\/` est un échappement JSON autorisé, donc `JSON.parse` récupère la valeur originale sans altération.
+
+Seul `reference_url` du `SuggestedFix` devient un lien, et uniquement quand la valeur commence par `https://` (validé côté client dans `safeHttpsHref`). Les URLs non-HTTPS s'affichent en texte brut sans lien.
+
+**Limitation de scope : post-mortem uniquement.** Le dashboard est un rendu statique d'un jeu de traces terminé. Pas de polling, pas de WebSocket, pas de Server-Sent Events, pas de boucle de rafraîchissement. L'équivalent "live" depuis un daemon qui tourne reste `perf-sentinel query inspect` (TUI alimenté par les endpoints `/api/*` du daemon). Rendre le dashboard HTML live-capable nécessiterait un binding backend temps réel, une stratégie de diffing des mises à jour et une persistance d'état entre reloads - une architecture différente hors scope ici, à reconsidérer uniquement sur retour utilisateur.
+
+**Pattern de composition pour Tempo.** L'exploration adossée à Tempo se compose via le shell plutôt qu'avec un flag `--tempo` intégré à `report` : `perf-sentinel tempo --endpoint ... --search ... --output traces.json && perf-sentinel report --input traces.json --output report.html`. Ça évite de dupliquer ~8 flags Tempo (endpoint, search tags, fenêtre temporelle, auth, timeout, max-results, etc.) sur `report` et garde les deux sous-commandes chacune responsable d'un concern (ingestion vs. rendu). Même pattern pour toute autre source d'ingestion : compose, ne plumbe pas.
+
+**Embedding des traces et cap de taille.** Seules les traces référencées par un finding sont embarquées (l'onglet Explain s'amorce depuis Findings, les traces propres bloaterai le fichier sans rentabiliser leurs octets). Quand `--max-traces-embedded` n'est pas fixé, le sink vise une sortie HTML d'environ 5 Mo, coupant d'abord les traces à plus faible IIS (réutilise l'ordre de `top_offenders`). Un champ `trimmed_traces: { kept, total }` dans le payload embarqué alimente un bandeau dans l'onglet Findings quand la coupe se déclenche. Fixer `--max-traces-embedded` honore le cap exactement, en remplaçant l'heuristique 5 Mo.
+
+**Sémantiques de code de sortie différentes de `analyze --ci`.** `report` sort 0 même quand la quality gate échoue. Le statut de la gate est remonté via un badge rouge/vert dans la barre supérieure du HTML. Les utilisateurs qui ont besoin d'un signal d'exit CI continuent d'utiliser `analyze --ci`. Deux sous-commandes, deux concerns.
 
 ### Feature flags
 

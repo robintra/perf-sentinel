@@ -2,7 +2,7 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Nine subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query` and `diff`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Ten subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query`, `diff` and `report`.
 
 ### Analyze: colored report by default, JSON with `--ci`
 
@@ -92,6 +92,31 @@ This subcommand is intentionally separate from `analyze` because `pg_stat_statem
 **State management:** the `App` struct holds pre-computed `findings_by_trace` (indexed at construction time) to avoid recomputing on every frame. Navigation state (selected_trace, selected_finding, active_panel, scroll_offset) is updated by key events.
 
 **Data loading:** events are ingested once, then cloned. One copy for `correlate()` (needed for tree building) and one for `pipeline::analyze()` (consumed by the pipeline). This avoids re-reading the file.
+
+### `report` subcommand
+
+`perf-sentinel report --input FILE --output report.html` produces a single-file HTML dashboard aimed at developers exploring a CI artifact in a browser. The pipeline is identical to `analyze` end-to-end, only the final sink differs. Implemented in `crates/sentinel-core/src/report/html.rs` with the full UI template embedded via `include_str!` from `crates/sentinel-core/src/report/html_template.html`.
+
+**Architecture: single-file, vanilla JS, no build step, no external dependencies.** The output is one HTML file with all CSS and JS inlined. No `<link rel="stylesheet">`, no `<script src="...">`, no web fonts, no images. The file opens offline from a `file://` URL with zero network requests, which makes it:
+
+- Trivially auditable: one file, no minified bundles, no transpilation.
+- Durable: no build toolchain to break on a CI runner upgrade, no NPM version drift on a recipe that's supposed to be reproducible for years.
+- Safe to ship as a CI artifact: no lockfile to invalidate, no supply-chain vectors through a bundled minifier.
+- Fast to review in PRs: the template is a single `.html` file that diffs cleanly.
+
+The front-end uses DOM APIs directly (`document.createElement`, `Element.textContent`, `Element.setAttribute`). No framework. No Web Components (the prior plan considered them, but plain modules fit the 8.1 scope better in practice and keep the file ~15 KB smaller).
+
+**Security model: `textContent` only, grep-level CI check.** All user-controlled data (SQL templates, URLs, service names, trace IDs, code locations, `SuggestedFix` text) is injected inside a `<script id="report-data" type="application/json">` block and read once at boot via `textContent` + `JSON.parse`. The JS then renders via `textContent` and `createElement` exclusively. Forbidden: `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function`. A unit test (`no_forbidden_apis_in_template` in `report/html.rs`) greps the template on every build and fails CI if any of those strings appear. Second-layer defense: the Rust injector escapes the substring `</` to `<\/` in the serialized JSON so a hostile user-controlled value cannot close the script block early. `\/` is a permitted JSON escape, so `JSON.parse` recovers the original value unchanged.
+
+Only `reference_url` from `SuggestedFix` becomes a hyperlink, and only when the value starts with `https://` (validated client-side in `safeHttpsHref`). Non-HTTPS URLs render as plain text without a link.
+
+**Scope limit: post-mortem only.** The dashboard is a static rendering of a completed trace set. No polling, no WebSocket, no Server-Sent Events, no refresh loop. The equivalent "live" view from a running daemon stays with `perf-sentinel query inspect` (TUI fed by the daemon's `/api/*` endpoints). Making the HTML dashboard live-capable would require a real-time backend binding, an update diffing strategy and state persistence across reloads - a different architecture that is out of scope here and would be re-evaluated only on user feedback.
+
+**Composition pattern for Tempo.** Tempo-backed exploration composes via the shell rather than via an integrated `--tempo` flag on `report`: `perf-sentinel tempo --endpoint ... --search ... --output traces.json && perf-sentinel report --input traces.json --output report.html`. This avoids duplicating ~8 Tempo flags (endpoint, search tags, time window, auth, timeout, max-results, etc.) on `report` and keeps the two subcommands each responsible for one concern (ingestion vs. rendering). The same pattern applies to any other ingestion source: compose, don't plumb.
+
+**Trace embedding and size cap.** Only traces referenced by a finding are embedded (the Explain tab is entry-point-driven from Findings, so free-navigation traces would bloat the file without earning their bytes). When `--max-traces-embedded` is unset, the sink targets a ~5 MB HTML output size, greedily dropping the lowest-IIS traces first (reuses the `top_offenders` ordering). A `trimmed_traces: { kept, total }` field in the embedded payload drives a banner in the Findings tab when trimming kicks in. Setting `--max-traces-embedded` explicitly honors the cap exactly, overriding the 5 MB heuristic.
+
+**Exit-code semantics differ from `analyze --ci`.** `report` exits 0 even when the quality gate fails. The gate status is surfaced as a red/green badge in the HTML top bar. Users who need a CI exit signal keep using `analyze --ci`. Two subcommands, two concerns.
 
 ### Feature flags
 

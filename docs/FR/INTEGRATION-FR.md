@@ -87,7 +87,26 @@ perf-sentinel inspect --input traces.json
 
 # SARIF pour GitHub/GitLab code scanning
 perf-sentinel analyze --input traces.json --format sarif > results.sarif
+
+# Dashboard HTML single-file pour l'exploration post-mortem en navigateur
+perf-sentinel report --input traces.json --output report.html
 ```
+
+---
+
+### Dashboard HTML
+
+`perf-sentinel report --input traces.json --output report.html` produit un dashboard HTML single-file. Double-clic pour l'ouvrir dans n'importe quel navigateur, fonctionne hors ligne, sans ressource externe. Public visé : les devs qui explorent un artefact CI et préfèrent cliquer plutôt que taper. Le dashboard affiche les findings, les arbres de traces et les métriques `GreenOps` avec navigation croisée entre sections (clic sur un finding pour voir son arbre de trace, la span responsable est surlignée en rouge).
+
+Flags :
+- `--input <FICHIER>` ou `--input -` : fichier de traces ou stdin (même auto-détection de format que `analyze` : JSON natif, Jaeger, Zipkin v2).
+- `--output <FICHIER>` : requis, écrasé s'il existe déjà.
+- `--config <CHEMIN>` : `.perf-sentinel.toml` optionnel, mêmes sémantiques que `analyze --config`.
+- `--max-traces-embedded <N>` : cap sur les traces embarquées pour l'onglet Explain. Sans valeur, la sortie est ajustée automatiquement pour viser une taille HTML d'environ 5 Mo en coupant les traces à plus faible IIS. Un bandeau dans l'onglet Findings remonte le ratio tronqué quand la coupe s'applique.
+
+Les codes de sortie diffèrent de `analyze --ci` : `report` sort toujours 0, même quand la quality gate échoue. Le statut de la gate est rendu comme un badge dans la barre supérieure du HTML. Utilise `analyze --ci` quand tu as besoin du signal d'exit-code en CI.
+
+C'est une vue post-mortem d'un jeu de traces terminé. Pour une inspection live d'un daemon qui tourne, utilise `perf-sentinel query inspect` (TUI) ou directement les endpoints `/api/*`. Pour un workflow Tempo, compose via le shell : `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 
 ---
 

@@ -88,6 +88,12 @@ Ou navigue dans les traces, les findings et les arbres de spans de manière inte
 
 ![TUI inspect](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
 
+Ou produis un dashboard HTML single-file avec `report` pour l'exploration post-CI en navigateur. Double-clic pour l'ouvrir hors ligne, clic sur un finding pour sauter à son arbre de trace, bascule dark/light, le tout dans un seul fichier autonome sans ressource externe :
+
+```bash
+perf-sentinel report --input traces.json --output report.html
+```
+
 Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Trois classements (par temps total, par nombre d'appels, par latence moyenne) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
 
 ![hotspots pg-stat](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
