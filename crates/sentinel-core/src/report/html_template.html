@@ -295,7 +295,12 @@
     }
   }
   function indexTracesById(list) {
-    var map = {};
+    // Null-prototype map so a hostile trace_id like "__proto__" or
+    // "toString" cannot corrupt the lookup by reparenting Object's
+    // prototype chain. Not currently exploitable to code execution
+    // (downstream consumption is textContent-only), but the fix is
+    // a one-liner and removes the family of defects.
+    var map = Object.create(null);
     list.forEach(function (trace) { map[trace.trace_id] = trace; });
     return map;
   }
@@ -509,7 +514,7 @@
     if (hasCrit) chips.push({ label: "Critical", key: "sev:critical" });
     if (hasWarn) chips.push({ label: "Warning", key: "sev:warning" });
 
-    var services = {};
+    var services = Object.create(null);
     findings.forEach(function (f) { services[f.service] = true; });
     Object.keys(services).sort().forEach(function (s) {
       chips.push({ label: s, key: "svc:" + s });
@@ -693,9 +698,12 @@
   /// roots array. Extracted from `renderTree` to keep its cognitive
   /// complexity under Sonar's 15-point threshold.
   function buildSpanTree(spans) {
-    var byId = {};
+    // Null-prototype maps for all user-controlled keys (span_id,
+    // parent_span_id) so hostile identifiers like "__proto__" cannot
+    // corrupt the lookup chain. Mirrors the indexTracesById fix.
+    var byId = Object.create(null);
     spans.forEach(function (s) { byId[s.span_id] = s; });
-    var childrenByParent = {};
+    var childrenByParent = Object.create(null);
     var roots = [];
     spans.forEach(function (s, idx) {
       var parent = s.parent_span_id;
@@ -851,7 +859,7 @@
   // Cross-nav lookup indexed across every ranking's entries so the
   // Explain-to-pg_stat hotlink fires regardless of which ranking the
   // user switches to.
-  var pgStatByTemplate = {};
+  var pgStatByTemplate = Object.create(null);
   if (pgStat && Array.isArray(pgStat.rankings)) {
     pgStat.rankings.forEach(function (r) {
       (r.entries || []).forEach(function (entry) {
@@ -1242,6 +1250,18 @@
   function csvEscape(value) {
     if (value === null || value === undefined) return "";
     var s = String(value);
+    // Formula-injection guard (OWASP CSV Injection). Excel, LibreOffice
+    // and Google Sheets all interpret a cell that starts with =, +, -,
+    // @ or a tab as a formula. A hostile SQL template or service name
+    // that begins with one of those characters would execute on open.
+    // The apostrophe prefix neutralizes the formula without losing the
+    // original text: spreadsheets display the cell as-is and drop the
+    // leading apostrophe, consumers that parse the CSV literally keep
+    // it. Strict first-byte check: do not strip leading whitespace
+    // (a leading tab is itself a formula trigger on some clients).
+    if (s.length > 0 && "=+-@\t".indexOf(s.charAt(0)) >= 0) {
+      s = "'" + s;
+    }
     if (s.indexOf(",") >= 0 || s.indexOf("\"") >= 0 ||
         s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) {
       return "\"" + s.replace(/"/g, "\"\"") + "\"";
@@ -1854,15 +1874,19 @@
     cheatsheetBackdrop.addEventListener("click", closeCheatsheet);
   }
   // Focus trap: keep Tab / Shift+Tab inside the dialog while open.
-  // There is exactly one focusable element (the close button), so
-  // swallow Tab when the cheatsheet owns focus.
+  // There is exactly one focusable element (the close button), so we
+  // always refocus it on Tab regardless of direction. preventDefault
+  // stops the browser's default focus traversal from leaking focus
+  // out of the dialog to the surrounding content behind the backdrop,
+  // which would break the WAI-ARIA dialog contract.
   document.addEventListener("keydown", function (ev) {
     if (ev.key !== "Tab") return;
     if (!isCheatsheetOpen()) return;
     ev.preventDefault();
+    ev.stopPropagation();
     var btn = document.getElementById("cheatsheet-close");
     if (btn) btn.focus();
-  });
+  }, true);
 
   var showMoreBtn = document.getElementById("findings-show-more");
   if (showMoreBtn) {

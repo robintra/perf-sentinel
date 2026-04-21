@@ -47,6 +47,10 @@ use std::path::Path;
 const TEMPLATE: &str = include_str!("html_template.html");
 const JSON_PLACEHOLDER: &str = "{{REPORT_JSON}}";
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
+/// Embedded in every payload as the `version` field. Extracted from the
+/// environment at compile time via `env!`, kept as a single constant so
+/// the size-trim pass and the final build path cannot drift.
+const PAYLOAD_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Options controlling HTML rendering.
 #[derive(Debug, Clone)]
@@ -98,8 +102,11 @@ pub struct RenderOptions {
 pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> String {
     let payload = build_payload(report, traces, options);
     // Serialization of our fixed-shape payload cannot fail: all nested
-    // types are `Serialize`, keys are `&'static str`, and there are no
-    // non-string map keys anywhere in the tree.
+    // types are `Serialize`, every map key is `&'static str`, and there
+    // are no non-string map keys anywhere in the tree. If a future
+    // refactor introduces a `HashMap<NonStringKey, _>` anywhere under
+    // `Payload`, `serde_json` will fail here at runtime. Keep the
+    // payload's map keys `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
     inject(&json)
 }
@@ -201,7 +208,7 @@ fn build_payload<'a>(
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
 
     Payload {
-        version: env!("CARGO_PKG_VERSION"),
+        version: PAYLOAD_VERSION,
         input_label: options.input_label.as_str(),
         report,
         embedded_traces,
@@ -259,32 +266,73 @@ fn trim_to_size_target<'a>(
     options: &'a RenderOptions,
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
-    let mut kept = ordered;
-    loop {
-        let trimmed = if kept.len() < total {
-            Some(TrimSummary {
-                kept: kept.len(),
-                total,
-            })
-        } else {
-            None
-        };
-        let embedded_traces: Vec<_> = kept.iter().copied().map(embed_trace).collect();
-        let payload = Payload {
-            version: env!("CARGO_PKG_VERSION"),
-            input_label: options.input_label.as_str(),
-            report,
-            embedded_traces,
-            trimmed_traces: trimmed.clone(),
-            pg_stat: options.pg_stat.as_ref(),
-            diff: options.diff.as_ref(),
-        };
-        let serialized_len = serde_json::to_string(&payload).map_or(0, |s| s.len());
-        if serialized_len + TEMPLATE.len() <= DEFAULT_SIZE_TARGET_BYTES || kept.is_empty() {
-            return (kept, trimmed);
+
+    // Two-phase approach. The previous implementation re-serialized the
+    // entire payload once per trace we shed, giving O(N^2) total work
+    // in the number of traces. This one serializes each embedded trace
+    // once and the non-trace envelope once, then uses a prefix-sum
+    // scan to find the longest trace prefix that fits under the size
+    // target. Total serialization volume is O(N * avg_trace_size),
+    // linear in the payload.
+
+    // Phase 1: per-trace JSON sizes. We account for the surrounding
+    // comma and the 2 literal bracket bytes of the JSON array via
+    // `separator_overhead` below.
+    let per_trace_lens: Vec<usize> = ordered
+        .iter()
+        .copied()
+        .map(|t| serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len()))
+        .collect();
+
+    // Phase 2: envelope size. Build a payload whose `embedded_traces`
+    // is empty, serialize it once, and use its length as the fixed
+    // overhead that every kept-trace count shares. `trimmed_traces`
+    // is set to a placeholder with realistic digits so its JSON
+    // length is not under-reported; the actual value is written back
+    // in `build_payload` after trimming.
+    let envelope = Payload {
+        version: PAYLOAD_VERSION,
+        input_label: options.input_label.as_str(),
+        report,
+        embedded_traces: Vec::new(),
+        trimmed_traces: Some(TrimSummary { kept: 0, total }),
+        pg_stat: options.pg_stat.as_ref(),
+        diff: options.diff.as_ref(),
+    };
+    let envelope_len = serde_json::to_string(&envelope).map_or(usize::MAX, |s| s.len());
+
+    // Budget for the serialized JSON payload: the template is a fixed
+    // cost on every output. If TEMPLATE.len() already exceeds the
+    // target (implausible), we return an empty set rather than
+    // underflow.
+    let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
+
+    // Find the largest prefix of `ordered` whose combined size fits
+    // under the budget. Each trace contributes `len + 1` (for the
+    // comma separator); the two empty-array bytes `[]` are already
+    // included in `envelope_len`.
+    let mut running = envelope_len;
+    let mut keep_count: usize = 0;
+    for &len in &per_trace_lens {
+        let delta = len.saturating_add(1);
+        let next = running.saturating_add(delta);
+        if next > json_budget {
+            break;
         }
-        kept.pop();
+        running = next;
+        keep_count += 1;
     }
+
+    let kept: Vec<&'a Trace> = ordered.into_iter().take(keep_count).collect();
+    let trimmed = if kept.len() < total {
+        Some(TrimSummary {
+            kept: kept.len(),
+            total,
+        })
+    } else {
+        None
+    };
+    (kept, trimmed)
 }
 
 fn embed_trace(t: &Trace) -> EmbeddedTrace<'_> {
@@ -636,6 +684,27 @@ mod tests {
         );
     }
 
+    /// Description fragments that must appear in the cheatsheet modal.
+    /// Each entry is a substring (not an exact line) so minor wording
+    /// tweaks around each fragment do not break the test. If you
+    /// re-word the user-visible cheatsheet text in the template, update
+    /// the corresponding fragment here in the same commit.
+    const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
+        "Move finding selection down",
+        "Move finding selection up",
+        "Open selected finding in Explain",
+        "close search",
+        "back from Explain",
+        "Open filter search for active tab",
+        "Go to Findings",
+        "Go to Explain",
+        "Go to pg_stat",
+        "Go to Diff",
+        "Go to Correlations",
+        "Go to GreenOps",
+        "Show this cheatsheet",
+    ];
+
     #[test]
     fn cheatsheet_shortcuts_listed_in_template() {
         // The modal scaffolding must be present...
@@ -651,22 +720,8 @@ mod tests {
         // user-visible description rather than the key literal because
         // keys may be rewritten (single vs double quotes, aliasing,
         // reorder) during cosmetic refactors, but descriptions are the
-        // contract the user sees, and are covered by the docs.
-        for description in [
-            "Move finding selection down",
-            "Move finding selection up",
-            "Open selected finding in Explain",
-            "close search",
-            "back from Explain",
-            "Open filter search for active tab",
-            "Go to Findings",
-            "Go to Explain",
-            "Go to pg_stat",
-            "Go to Diff",
-            "Go to Correlations",
-            "Go to GreenOps",
-            "Show this cheatsheet",
-        ] {
+        // contract the user sees and the documentation guarantees.
+        for description in CHEATSHEET_DESCRIPTION_FRAGMENTS {
             assert!(
                 TEMPLATE.contains(description),
                 "cheatsheet missing description fragment: {description:?}"
@@ -691,11 +746,14 @@ mod tests {
         // This catches both accidental drop (count < 4) and rogue
         // addition to Explain / GreenOps (count > 4) without relying
         // on negative substring matches that could over-match suffixed
-        // future IDs like `pre-explain-export`.
+        // future IDs like `pre-explain-export`. If a future listable
+        // tab lands, update both the positive assertion above and
+        // this count in the same commit.
         let export_count = TEMPLATE.matches("data-export-tab=\"").count();
         assert_eq!(
             export_count, 4,
-            "expected exactly 4 export buttons (findings, pgstat, diff, correlations), found {export_count}"
+            "expected exactly 4 export buttons (findings, pgstat, diff, correlations), found {export_count}. \
+             If you added a new listable tab, update this assertion and the positive loop above."
         );
         // The CSS class backing every export button must also exist.
         assert!(
@@ -705,22 +763,34 @@ mod tests {
     }
 
     /// Spec check mirroring the JS `csvEscape` helper to guard the RFC
-    /// 4180 rules. The JS version is the one that actually runs in the
-    /// browser, this Rust twin exists only so a test failure surfaces
-    /// a mismatch between the two during refactors.
+    /// 4180 rules and the OWASP formula-injection prefix. The JS version
+    /// is the one that actually runs in the browser, this Rust twin
+    /// exists only so a test failure surfaces a mismatch between the two
+    /// during refactors.
     ///
     /// Non-null path only: the JS helper returns `""` for `null` and
     /// `undefined`, this Rust twin only covers the `&str` domain and
     /// does not model that branch.
+    ///
+    /// TODO: replace the hand-written Rust twin with a `boa`-based
+    /// harness that evaluates the actual JS `csvEscape` so fixes in one
+    /// side do not drift from the other. Kept in-band for now because
+    /// adding `boa` is heavier than the invariant warrants.
     fn csv_escape_spec(value: &str) -> String {
-        let needs_quoting = value.contains(',')
-            || value.contains('"')
-            || value.contains('\n')
-            || value.contains('\r');
+        // Formula-injection guard: prefix an apostrophe when the first
+        // character is one of the spreadsheet-formula triggers.
+        let mut s = value.to_string();
+        if let Some(first) = s.chars().next()
+            && ['=', '+', '-', '@', '\t'].contains(&first)
+        {
+            s.insert(0, '\'');
+        }
+        let needs_quoting =
+            s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
         if needs_quoting {
-            format!("\"{}\"", value.replace('"', "\"\""))
+            format!("\"{}\"", s.replace('"', "\"\""))
         } else {
-            value.to_string()
+            s
         }
     }
 
@@ -748,15 +818,49 @@ mod tests {
     }
 
     #[test]
+    fn csv_escape_blocks_formula_injection() {
+        // OWASP CSV Injection: every spreadsheet-formula trigger must
+        // be neutralized by a leading apostrophe so Excel, LibreOffice
+        // and Sheets do not evaluate a hostile SQL template or service
+        // name on open.
+        // `=HYPERLINK(...)` picks up the `"` inside its literal, so it
+        // also gets RFC 4180 wrapping after the apostrophe prefix.
+        assert_eq!(
+            csv_escape_spec("=HYPERLINK(\"x\")"),
+            "\"'=HYPERLINK(\"\"x\"\")\""
+        );
+        // No comma / quote / newline inside, so the guard prefix is
+        // the only transformation applied: no outer quoting.
+        assert_eq!(csv_escape_spec("+42"), "'+42");
+        assert_eq!(csv_escape_spec("-SUM(A1)"), "'-SUM(A1)");
+        assert_eq!(csv_escape_spec("@cmd"), "'@cmd");
+        assert_eq!(csv_escape_spec("\tinjected"), "'\tinjected");
+        // Plain values that happen to contain a trigger mid-string
+        // must not be prefixed: the attack only works from position 0.
+        assert_eq!(csv_escape_spec("abc=def"), "abc=def");
+        assert_eq!(csv_escape_spec("abc+def"), "abc+def");
+    }
+
+    #[test]
     fn sessionstorage_access_is_guarded_by_try_catch() {
-        // Every sessionStorage access throws in Safari private mode and
-        // some enterprise-policy contexts. Enforce two invariants:
-        // (1) every line touching `sessionStorage.getItem` or
-        // `sessionStorage.setItem` also carries `try` and `catch` on
-        // the same line (our single-statement wrapper idiom), and
-        // (2) the two helper function definitions exist so every
-        // callsite in the template routes through them rather than
-        // calling the API directly.
+        // Load-bearing invariant: the two wrapper functions exist, so
+        // every caller inherits their try/catch guard. A future
+        // refactor that removes or renames the wrappers trips this
+        // check immediately.
+        assert!(
+            TEMPLATE.contains("function sessionGet("),
+            "sessionGet helper missing"
+        );
+        assert!(
+            TEMPLATE.contains("function sessionSet("),
+            "sessionSet helper missing"
+        );
+        // Belt-and-braces: any line that touches `sessionStorage`
+        // directly should carry `try` and `catch` on the same line
+        // (our single-statement wrapper idiom). A reformat that splits
+        // the wrapper across lines trips this and is the intended
+        // signal: rewrite the wrapper or update this check, do not
+        // pretend it never triggered.
         let mut guarded_hits = 0;
         for line in TEMPLATE.lines() {
             let touches =
@@ -773,15 +877,7 @@ mod tests {
         }
         assert!(
             guarded_hits >= 2,
-            "expected at least one sessionGet and one sessionSet access"
-        );
-        assert!(
-            TEMPLATE.contains("function sessionGet("),
-            "sessionGet helper missing"
-        );
-        assert!(
-            TEMPLATE.contains("function sessionSet("),
-            "sessionSet helper missing"
+            "expected at least one sessionGet and one sessionSet access, found {guarded_hits}"
         );
     }
 

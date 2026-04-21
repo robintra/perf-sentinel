@@ -292,8 +292,24 @@ async fn handle_export_report(
     // usize::try_from guards 32-bit targets where a 5-billion-event
     // counter would overflow a usize. On 64-bit the fallback branch is
     // unreachable in practice (2^63 events at 1 M/s = 290 000 years).
-    let events_usize = usize::try_from(events_processed).unwrap_or(usize::MAX);
-    let traces_usize = usize::try_from(traces_analyzed).unwrap_or(usize::MAX);
+    // When we do saturate on 32-bit, surface a warning: a usize::MAX
+    // counter in the dashboard is far more misleading than silent
+    // truncation to an observably large number would be, so the log
+    // record is the user's only signal that the field is saturated.
+    let events_usize = usize::try_from(events_processed).unwrap_or_else(|_| {
+        tracing::warn!(
+            counter = events_processed,
+            "events_processed overflowed usize on this target, saturating in export"
+        );
+        usize::MAX
+    });
+    let traces_usize = usize::try_from(traces_analyzed).unwrap_or_else(|_| {
+        tracing::warn!(
+            counter = traces_analyzed,
+            "traces_analyzed overflowed usize on this target, saturating in export"
+        );
+        usize::MAX
+    });
 
     let report = Report {
         analysis: Analysis {

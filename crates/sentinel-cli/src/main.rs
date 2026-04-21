@@ -733,7 +733,10 @@ fn load_pg_stat_from_file(
     path: &std::path::Path,
     config: &Config,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    let raw_pg = read_file_capped(path, config.max_payload_size as u64);
+    let raw_pg = read_file_capped(
+        path,
+        u64::try_from(config.max_payload_size).unwrap_or(u64::MAX),
+    );
     match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10),
         Err(e) => {
@@ -767,7 +770,10 @@ fn load_diff_against_baseline(
     current: &sentinel_core::report::Report,
     config: &Config,
 ) -> sentinel_core::diff::DiffReport {
-    let raw_before = read_file_capped(before_path, config.max_payload_size as u64);
+    let raw_before = read_file_capped(
+        before_path,
+        u64::try_from(config.max_payload_size).unwrap_or(u64::MAX),
+    );
     let slice = strip_bom(&raw_before);
     let source_label = format!("--before {}", before_path.display());
     let baseline = parse_report_json_or_exit(slice, &source_label);

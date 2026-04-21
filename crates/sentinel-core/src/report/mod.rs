@@ -1,4 +1,28 @@
 //! Report stage: outputs analysis results.
+//!
+//! # Deserialization invariant (baseline round-trip)
+//!
+//! The full [`Report`] tree derives `Deserialize` so `perf-sentinel
+//! report --before <baseline.json>` can feed a stored baseline back in.
+//! Every saved baseline from a past release must keep parsing after a
+//! minor version bump, so the following rule is load-bearing:
+//!
+//! **New fields added to `Report`, `Analysis`, `GreenSummary`,
+//! `QualityGate`, `Finding`, `Pattern`, `TopOffender`, `CarbonReport`,
+//! `CarbonEstimate`, `RegionBreakdown` or any nested type must be
+//! either `Option<T>` or carry `#[serde(default)]` with a sensible
+//! `Default` impl.** A required field added to any of these types
+//! breaks every stored baseline and every downstream consumer that
+//! deserializes via the same JSON.
+//!
+//! Removed fields should stay in the struct for at least one minor
+//! version with `#[serde(default)]` so incoming JSON from the previous
+//! version does not fail on unknown-field attempts to re-read them.
+//!
+//! We deliberately do NOT add `#[serde(deny_unknown_fields)]`. The
+//! trade-off is that a typo like `findigs:` silently deserializes as
+//! the default (empty vec), so production pipelines should validate
+//! baseline shapes upstream when they care.
 
 pub mod html;
 pub mod interpret;

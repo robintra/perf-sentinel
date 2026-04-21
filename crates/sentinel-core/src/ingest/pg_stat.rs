@@ -158,11 +158,21 @@ pub fn parse_pg_stat(raw: &[u8], max_size: usize) -> Result<Vec<PgStatEntry>, Pg
 /// blocks touched (`shared_blks_read + shared_blks_hit`). Each ranking
 /// contains at most `top_n` entries.
 ///
-/// Uses index-based sorting to avoid cloning all entries for each
-/// ranking. Downstream consumers (the HTML dashboard's `pg_stat`
-/// sub-switcher in particular) rely on the rankings appearing at the
-/// documented positions, new rankings are always appended and existing
-/// indices never reassign.
+/// Uses index-based sorting so the full `entries` slice is never
+/// cloned during the sort. Each ranking still clones its own `top_n`
+/// entries because `PgStatRanking.entries: Vec<PgStatEntry>` is owned
+/// data on the public Serialize surface. Four rankings times `top_n`
+/// (defaults to 100) gives about 400 small-struct clones per call,
+/// which is acceptable because `pg_stat` ingestion is one-shot (CLI
+/// batch or daemon-load path), never on the per-event hot path.
+/// If `top_n` grows past a few thousand or the call is moved into a
+/// hot path, switch to an `Arc<PgStatEntry>` refcount shared across
+/// rankings to reclaim the duplicate allocations.
+///
+/// Downstream consumers (the HTML dashboard's `pg_stat` sub-switcher
+/// in particular) rely on the rankings appearing at the documented
+/// positions, new rankings are always appended and existing indices
+/// never reassign.
 #[must_use]
 pub fn rank_pg_stat(entries: &[PgStatEntry], top_n: usize) -> PgStatReport {
     let total_entries = entries.len();
