@@ -1174,6 +1174,40 @@ mod tests {
     }
 
     #[test]
+    fn copy_link_button_present_on_listable_tabs_only() {
+        for tab in ["findings", "pgstat", "diff", "correlations"] {
+            let needle = format!("id=\"{tab}-copy-link\"");
+            assert!(
+                TEMPLATE.contains(&needle),
+                "expected copy-link button for listable tab: {tab}"
+            );
+        }
+        // Count-based guard mirroring the export-button test: exactly
+        // four `data-copy-link-tab="..."` attributes across the
+        // template. Adding a new listable tab must update both the loop
+        // above and this assertion in the same commit.
+        let copy_link_count = TEMPLATE.matches("data-copy-link-tab=\"").count();
+        assert_eq!(
+            copy_link_count, 4,
+            "expected exactly 4 copy-link buttons, found {copy_link_count}"
+        );
+        // Explain and GreenOps stay button-less (no toolbar, no
+        // copy-link). Check by scanning for their panel IDs and
+        // asserting no copy-link id sits in the same rendered HTML
+        // produced for a minimal report.
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("-", None));
+        assert!(!html.contains("id=\"explain-copy-link\""));
+        assert!(!html.contains("id=\"green-copy-link\""));
+        // The CSS class backing every copy-link button must exist.
+        assert!(
+            TEMPLATE.contains(".ps-copy-link-btn"),
+            ".ps-copy-link-btn CSS class missing"
+        );
+    }
+
+    #[test]
     fn page_title_uses_filename_from_input_label() {
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);

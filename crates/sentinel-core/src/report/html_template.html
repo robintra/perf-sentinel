@@ -129,6 +129,8 @@
   .ps-panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
   .ps-export-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; }
   .ps-export-btn:hover { background: var(--color-background-info); }
+  .ps-copy-link-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; margin-left: 6px; }
+  .ps-copy-link-btn:hover { background: var(--color-background-info); }
   .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
   .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
   dialog.ps-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
@@ -160,6 +162,7 @@
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
     </div>
     <div class="ps-list" id="findings-list"></div>
     <button type="button" class="ps-show-more" id="findings-show-more" style="display: none;"></button>
@@ -186,6 +189,7 @@
     <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
     </div>
     <table class="ps-table" id="pgstat-table">
       <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
@@ -198,6 +202,7 @@
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="diff-copy-link" data-copy-link-tab="diff">Copy link</button>
     </div>
     <div class="ps-diff-section">
       <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
@@ -227,6 +232,7 @@
     <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="correlations-copy-link" data-copy-link-tab="correlations">Copy link</button>
     </div>
     <div class="ps-list" id="correlations-list"></div>
   </div>
@@ -1942,6 +1948,69 @@
     });
   }
 
+  // -------- copy-link buttons --------
+  function copyCurrentLink(btn) {
+    // Store the baseline label once so successive clicks within the
+    // 1500ms flash window do not end up restoring "Copied" as the
+    // baseline.
+    if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
+    var baseLabel = btn.dataset.baseLabel;
+    var href = location.href;
+
+    function flashCopied() {
+      btn.textContent = "Copied";
+      if (btn._copyFlashTimer) clearTimeout(btn._copyFlashTimer);
+      btn._copyFlashTimer = setTimeout(function () {
+        btn._copyFlashTimer = null;
+        btn.textContent = baseLabel;
+      }, 1500);
+    }
+
+    function fallbackCopy() {
+      // file:// origins and older browsers reject the async Clipboard
+      // API. Fall back to the legacy execCommand path with a throwaway
+      // textarea. Wrapped in its own try/catch so a rejection from the
+      // sync API surfaces through the outer handler.
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = href;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "absolute";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (ok) {
+          flashCopied();
+        } else {
+          console.error("copyCurrentLink: execCommand('copy') returned false");
+        }
+      } catch (err) {
+        console.error("copyCurrentLink fallback failed", err);
+      }
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(href).then(flashCopied, function (err) {
+        console.error("navigator.clipboard.writeText rejected", err);
+        fallbackCopy();
+      });
+    } else {
+      fallbackCopy();
+    }
+  }
+
+  function wireCopyLinkButtons() {
+    ["findings", "pgstat", "diff", "correlations"].forEach(function (tabKey) {
+      var btn = document.getElementById(tabKey + "-copy-link");
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        copyCurrentLink(btn);
+      });
+    });
+  }
+
   function applyInitialHashOrWrite() {
     // Apply the deep-link hash last so it can override the initial
     // ranking / filter chips / tab selection derived above. Falls
@@ -1975,6 +2044,7 @@
   wireCheatsheetDialog();
   wireShowMoreButton();
   wireExportButtons();
+  wireCopyLinkButtons();
   applyInitialHashOrWrite();
   wireHashChangeListener();
 })();
