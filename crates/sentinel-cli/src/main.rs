@@ -649,67 +649,69 @@ fn cmd_diff(
     }
 }
 
-#[allow(clippy::too_many_arguments)] // optional flags, each adds a dedicated ingestion path
-async fn cmd_report(
-    input: Option<&std::path::Path>,
-    config_path: Option<&std::path::Path>,
-    output: &std::path::Path,
-    max_traces_embedded: Option<usize>,
-    pg_stat_path: Option<&std::path::Path>,
-    #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
-    before_path: Option<&std::path::Path>,
+/// Return `true` when the `--input` argument asks for stdin, either
+/// explicitly (`--input -`) or implicitly (flag omitted). `analyze`
+/// accepts only the omitted form, `report` accepts both for shell
+/// composability (`tempo --output - | report --input - --output ...`).
+fn is_stdin_input(input: Option<&std::path::Path>) -> bool {
+    input.is_none_or(|p| p == std::path::Path::new("-"))
+}
+
+/// Best-effort display label for the top bar of the HTML dashboard.
+/// Prefers the file name, falls back to the full path, finally to `-`.
+fn input_label_for(input: Option<&std::path::Path>, stdin_mode: bool) -> String {
+    if stdin_mode {
+        return "-".to_string();
+    }
+    input
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .or_else(|| input.map(|p| p.display().to_string()))
+        .unwrap_or_else(|| "-".to_string())
+}
+
+/// Strip a UTF-8 BOM prefix if present. Windows editors (Notepad, some
+/// VS Code flows) save with a leading `EF BB BF`, and the byte-peek
+/// auto-detect below would otherwise reject a perfectly valid payload.
+fn strip_bom(raw: &[u8]) -> &[u8] {
+    raw.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(raw)
+}
+
+/// Parse a pre-computed `Report` JSON from stdin or a file. Enforces the
+/// same 32-level nesting cap the trace-event ingest applies. Exits 1 on
+/// a depth overflow or a serde error, both with a user-readable message.
+fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::report::Report {
+    if sentinel_core::ingest::json::exceeds_max_depth(raw) {
+        eprintln!(
+            "Error: {source_label} JSON exceeds maximum nesting depth of {}",
+            sentinel_core::ingest::json::MAX_JSON_DEPTH
+        );
+        std::process::exit(1);
+    }
+    serde_json::from_slice::<sentinel_core::report::Report>(raw).unwrap_or_else(|e| {
+        eprintln!("Error parsing {source_label} as Report JSON: {e}");
+        std::process::exit(1);
+    })
+}
+
+/// Dispatch the `--input` payload based on its JSON shape. A top-level
+/// array is pipelined through normalize/correlate/detect/score. A
+/// top-level object is parsed as a pre-computed `Report` and returned
+/// as-is (with an empty `traces` vector because the CLI has no source
+/// traces to correlate in that case). Empty input and scalar roots
+/// exit 1 with distinct messages so users can tell the two apart.
+fn load_report_from_input(
+    raw: &[u8],
+    config: &Config,
+) -> (
+    sentinel_core::report::Report,
+    Vec<sentinel_core::correlate::Trace>,
 ) {
-    let config = load_config(config_path);
-
-    // `report` accepts an explicit `--input -` for stdin (shell-friendly
-    // in composition pipelines like `tempo --output - | report --input
-    // - --output ...`). `analyze` uses "omit the flag" for the same
-    // effect, both forms are accepted here for ergonomics.
-    let stdin_mode = input.is_none_or(|p| p == std::path::Path::new("-"));
-    let effective_input = if stdin_mode { None } else { input };
-
-    let raw_bytes = read_events(effective_input, config.max_payload_size);
-
-    // Strip a UTF-8 BOM (EF BB BF) if present. Windows editors (Notepad,
-    // VS Code with default settings on some flows) prepend it, and the
-    // auto-detect below would otherwise trip on the BOM byte and reject
-    // a perfectly valid Report JSON.
-    let raw: &[u8] = raw_bytes
-        .strip_prefix(b"\xEF\xBB\xBF")
-        .unwrap_or(&raw_bytes);
-
-    // `--input` accepts two JSON shapes:
-    //  1) An array of span events (same format as `analyze --input`)
-    //     which we pipeline through normalize+correlate+detect+score.
-    //  2) A pre-computed `Report` (as produced by `analyze --format json`
-    //     or by the daemon's `/api/export/report` endpoint) which we
-    //     take as-is without re-running the pipeline.
-    // Peek at the first non-whitespace byte: `[` starts a trace-event
-    // array, `{` starts a Report object. Anything else is an error.
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
-    let (report, traces) = match first_byte {
-        Some(b'{') => {
-            // Apply the same 32-level nesting guard the trace-event path
-            // enforces. The Report tree is structurally flat (depth ~6),
-            // so this never rejects legitimate input, it closes a
-            // defense-in-depth gap with the trace-event path.
-            if sentinel_core::ingest::json::exceeds_max_depth(raw) {
-                eprintln!(
-                    "Error: --input JSON exceeds maximum nesting depth of {}",
-                    sentinel_core::ingest::json::MAX_JSON_DEPTH
-                );
-                std::process::exit(1);
-            }
-            let parsed: sentinel_core::report::Report =
-                serde_json::from_slice(raw).unwrap_or_else(|e| {
-                    eprintln!("Error parsing --input as Report JSON: {e}");
-                    std::process::exit(1);
-                });
-            (parsed, Vec::new())
-        }
+    match first_byte {
+        Some(b'{') => (parse_report_json_or_exit(raw, "--input"), Vec::new()),
         Some(b'[') => {
             let events = ingest_json_or_exit(raw, config.max_payload_size);
-            pipeline::analyze_with_traces(events, &config)
+            pipeline::analyze_with_traces(events, config)
         }
         None => {
             eprintln!("Error: --input is empty or whitespace-only");
@@ -722,43 +724,88 @@ async fn cmd_report(
             );
             std::process::exit(1);
         }
-    };
+    }
+}
 
-    let input_label = if stdin_mode {
-        "-".to_string()
-    } else {
-        input
-            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
-            .or_else(|| input.map(|p| p.display().to_string()))
-            .unwrap_or_else(|| "-".to_string())
-    };
-
-    // --pg-stat / --pg-stat-prometheus (mutually exclusive at the clap
-    // level via `conflicts_with`). Reuse the same ingestion and ranking
-    // functions the `pg-stat` subcommand uses so the two entry points
-    // stay in sync.
-    let pg_stat = if let Some(path) = pg_stat_path {
-        let raw_pg = read_file_capped(path, config.max_payload_size as u64);
-        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
-            Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10)),
-            Err(e) => {
-                eprintln!("Error parsing --pg-stat {}: {e}", path.display());
-                std::process::exit(1);
-            }
+/// Ingest a `pg_stat_statements` CSV or JSON file and produce the
+/// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
+fn load_pg_stat_from_file(
+    path: &std::path::Path,
+    config: &Config,
+) -> sentinel_core::ingest::pg_stat::PgStatReport {
+    let raw_pg = read_file_capped(path, config.max_payload_size as u64);
+    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
+        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10),
+        Err(e) => {
+            eprintln!("Error parsing --pg-stat {}: {e}", path.display());
+            std::process::exit(1);
         }
+    }
+}
+
+/// Scrape a `postgres_exporter` endpoint one-shot and produce the
+/// ranking report. Exits 1 on transport/parse failure.
+#[cfg(feature = "daemon")]
+async fn load_pg_stat_from_prometheus(
+    url: &str,
+    _config: &Config,
+) -> sentinel_core::ingest::pg_stat::PgStatReport {
+    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, 10).await {
+        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10),
+        Err(e) => {
+            eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Parse a saved baseline report and diff it against the current run.
+/// Applies the same BOM strip and depth cap as `--input` in Report
+/// mode. Exits 1 on failure.
+fn load_diff_against_baseline(
+    before_path: &std::path::Path,
+    current: &sentinel_core::report::Report,
+    config: &Config,
+) -> sentinel_core::diff::DiffReport {
+    let raw_before = read_file_capped(before_path, config.max_payload_size as u64);
+    let slice = strip_bom(&raw_before);
+    let source_label = format!("--before {}", before_path.display());
+    let baseline = parse_report_json_or_exit(slice, &source_label);
+    sentinel_core::diff::diff_runs(&baseline, current)
+}
+
+#[allow(clippy::too_many_arguments)] // optional flags, each adds a dedicated ingestion path
+async fn cmd_report(
+    input: Option<&std::path::Path>,
+    config_path: Option<&std::path::Path>,
+    output: &std::path::Path,
+    max_traces_embedded: Option<usize>,
+    pg_stat_path: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
+    before_path: Option<&std::path::Path>,
+) {
+    let config = load_config(config_path);
+
+    let stdin_mode = is_stdin_input(input);
+    let effective_input = if stdin_mode { None } else { input };
+    let raw_bytes = read_events(effective_input, config.max_payload_size);
+    let raw = strip_bom(&raw_bytes);
+
+    let (report, traces) = load_report_from_input(raw, &config);
+    let input_label = input_label_for(input, stdin_mode);
+
+    // --pg-stat / --pg-stat-prometheus are mutually exclusive at the
+    // clap level (conflicts_with). The Prometheus branch is gated
+    // behind the daemon feature, mirroring the existing pg-stat
+    // subcommand surface.
+    let pg_stat = if let Some(path) = pg_stat_path {
+        Some(load_pg_stat_from_file(path, &config))
     } else {
         #[cfg(feature = "daemon")]
         {
-            if let Some(url) = pg_stat_prometheus {
-                match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, 10).await {
-                    Ok(entries) => Some(sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10)),
-                    Err(e) => {
-                        eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
-                        std::process::exit(1);
-                    }
-                }
-            } else {
-                None
+            match pg_stat_prometheus {
+                Some(url) => Some(load_pg_stat_from_prometheus(url, &config).await),
+                None => None,
             }
         }
         #[cfg(not(feature = "daemon"))]
@@ -767,34 +814,7 @@ async fn cmd_report(
         }
     };
 
-    // --before: parse a saved `analyze --format json` report and diff
-    // against the current run. Use `diff::diff_runs(baseline, current)`
-    // so `new_findings` = present in current but not baseline.
-    let diff = if let Some(path) = before_path {
-        let raw_before = read_file_capped(path, config.max_payload_size as u64);
-        // Accept a BOM-prefixed baseline file, then apply the same depth
-        // cap as `--input` in Report mode.
-        let raw_before_slice: &[u8] = raw_before
-            .strip_prefix(b"\xEF\xBB\xBF")
-            .unwrap_or(&raw_before);
-        if sentinel_core::ingest::json::exceeds_max_depth(raw_before_slice) {
-            eprintln!(
-                "Error: --before {} exceeds maximum nesting depth of {}",
-                path.display(),
-                sentinel_core::ingest::json::MAX_JSON_DEPTH
-            );
-            std::process::exit(1);
-        }
-        match serde_json::from_slice::<sentinel_core::report::Report>(raw_before_slice) {
-            Ok(baseline) => Some(sentinel_core::diff::diff_runs(&baseline, &report)),
-            Err(e) => {
-                eprintln!("Error parsing --before {}: {e}", path.display());
-                std::process::exit(1);
-            }
-        }
-    } else {
-        None
-    };
+    let diff = before_path.map(|path| load_diff_against_baseline(path, &report, &config));
 
     let options = sentinel_core::report::html::RenderOptions {
         input_label,
