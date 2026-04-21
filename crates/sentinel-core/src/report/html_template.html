@@ -163,6 +163,7 @@
       <span id="pgstat-drill-text"></span>
       <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
     </div>
+    <div class="ps-filters" id="pgstat-rankings"></div>
     <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
     <table class="ps-table" id="pgstat-table">
       <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
@@ -744,15 +745,18 @@
 
   // -------- pg_stat / diff / correlations state --------
   var pgStat = payload.pg_stat || null;
-  var pgStatEntries =
-    pgStat && pgStat.rankings && pgStat.rankings.length > 0
-      ? pgStat.rankings[0].entries || []
-      : [];
+  // Cross-nav lookup indexed across every ranking's entries so the
+  // Explain-to-pg_stat hotlink fires regardless of which ranking the
+  // user switches to.
   var pgStatByTemplate = {};
-  for (var psi = 0; psi < pgStatEntries.length; psi++) {
-    pgStatByTemplate[pgStatEntries[psi].normalized_template] = pgStatEntries[psi];
+  if (pgStat && Array.isArray(pgStat.rankings)) {
+    pgStat.rankings.forEach(function (r) {
+      (r.entries || []).forEach(function (entry) {
+        pgStatByTemplate[entry.normalized_template] = entry;
+      });
+    });
   }
-  var hasPgStat = pgStatEntries.length > 0;
+  var hasPgStat = Object.keys(pgStatByTemplate).length > 0;
 
   var diffData = payload.diff || null;
   var hasDiff = !!diffData;
@@ -766,14 +770,95 @@
   var hasCorrelations = correlations.length > 0;
 
   // -------- pg_stat panel --------
+  // Rankings stay in the stable order `rank_pg_stat` emits:
+  // [by_total_time, by_calls, by_mean_time, by_io_blocks]. The
+  // sub-switcher chips are built from `pgStatRankings` so new rankings
+  // appended server-side surface automatically without any JS change.
+  var pgStatRankings =
+    pgStat && Array.isArray(pgStat.rankings) ? pgStat.rankings : [];
+  var activeRankingIndex = 0;
+  // Template currently highlighted by the drill banner, if any. Used
+  // to decide whether to re-apply the hilite after a ranking switch.
+  var pgStatHiliteTemplate = null;
+
+  // Human-friendly chip labels for the four known rankings. Unknown
+  // labels fall through to the raw server-side string so an older or
+  // customized PgStatReport still renders something sensible.
+  var PGSTAT_LABELS = {
+    "top by total_exec_time": "Total time",
+    "top by calls": "Calls",
+    "top by mean_exec_time": "Mean time",
+    "top by shared_blks_total": "I/O blocks"
+  };
+
+  function activePgStatEntries() {
+    if (pgStatRankings.length === 0) return [];
+    var idx = Math.min(activeRankingIndex, pgStatRankings.length - 1);
+    return pgStatRankings[idx].entries || [];
+  }
+
   function renderPgStatPanel() {
     if (!hasPgStat) {
       document.getElementById("pgstat-empty").style.display = "";
       return;
     }
+    renderPgStatRankings();
+    renderPgStatTable();
+  }
+
+  function renderPgStatRankings() {
+    var root = document.getElementById("pgstat-rankings");
+    root.textContent = "";
+    if (pgStatRankings.length <= 1) {
+      // Hide the chip row when there is nothing to switch between.
+      root.style.display = "none";
+      return;
+    }
+    root.style.display = "";
+    pgStatRankings.forEach(function (r, idx) {
+      var label = PGSTAT_LABELS[r.label] || r.label || ("Ranking " + (idx + 1));
+      var btn = el("button", "ps-chip", label);
+      btn.type = "button";
+      setAttr(btn, "data-ranking-index", String(idx));
+      if (idx === activeRankingIndex) btn.classList.add("active");
+      btn.addEventListener("click", function () {
+        selectPgStatRanking(idx);
+      });
+      root.appendChild(btn);
+    });
+  }
+
+  function selectPgStatRanking(idx) {
+    if (idx === activeRankingIndex) return;
+    activeRankingIndex = idx;
+    var chips = document.querySelectorAll("#pgstat-rankings .ps-chip");
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle("active", i === idx);
+    }
+    renderPgStatTable();
+    // Preserve the hilite when the previously-hilited template exists
+    // in the new ranking; else silently clear the drill + hilite.
+    if (pgStatHiliteTemplate) {
+      var stillPresent = activePgStatEntries().some(function (entry) {
+        return entry.normalized_template === pgStatHiliteTemplate;
+      });
+      if (stillPresent) {
+        highlightPgStatRow(pgStatHiliteTemplate);
+      } else {
+        clearPgStatDrill();
+      }
+    }
+    // Re-apply the search filter against the new rowset. Null-guard
+    // covers the boot path where the filter init has not run yet.
+    if (typeof SEARCHABLE_TABS !== "undefined" && SEARCHABLE_TABS.pgstat) {
+      applySearchFilter(SEARCHABLE_TABS.pgstat);
+    }
+  }
+
+  function renderPgStatTable() {
     var body = document.getElementById("pgstat-body");
     body.textContent = "";
-    pgStatEntries.forEach(function (entry) {
+    activePgStatEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
       setAttr(tr, "data-template", entry.normalized_template);
       tr.appendChild(el("td", null, entry.normalized_template));
@@ -783,15 +868,18 @@
       body.appendChild(tr);
     });
   }
+
   function showPgStatDrill(template) {
     var drill = document.getElementById("pgstat-drill");
     var txt = document.getElementById("pgstat-drill-text");
     drill.style.display = "";
     txt.textContent = template;
+    pgStatHiliteTemplate = template;
     highlightPgStatRow(template);
   }
   function clearPgStatDrill() {
     document.getElementById("pgstat-drill").style.display = "none";
+    pgStatHiliteTemplate = null;
     var rows = document.querySelectorAll("#pgstat-body tr");
     for (var i = 0; i < rows.length; i++) rows[i].classList.remove("hilite");
   }
@@ -910,28 +998,38 @@
   }
 
   // -------- correlations panel --------
+  // Renders `CrossTraceCorrelation` entries emitted by the daemon,
+  // matching the Rust struct shape: `source` and `target` are
+  // `CorrelationEndpoint { finding_type, service, template }`,
+  // timing is `median_lag_ms` and `co_occurrence_count`.
   function renderCorrelationsPanel() {
     if (!hasCorrelations) return;
     var list = document.getElementById("correlations-list");
     list.textContent = "";
     correlations.forEach(function (c) {
+      var src = c.source || {};
+      var tgt = c.target || {};
       var row = el("div", "ps-row");
-      var a = (c.finding_a_service || "?") + ":" + (c.finding_a_type || "?");
-      var b = (c.finding_b_service || "?") + ":" + (c.finding_b_type || "?");
+      var leftLabel =
+        (src.service || "?") + ":" + typeLabel(src.finding_type || "?");
+      var rightLabel =
+        (tgt.service || "?") + ":" + typeLabel(tgt.finding_type || "?");
       var main = el("div", "ps-fin-main");
-      main.appendChild(el("div", "ps-fin-type", a + " -> " + b));
+      main.appendChild(el("div", "ps-fin-type", leftLabel + " -> " + rightLabel));
+      var conf = Math.round((c.confidence || 0) * 100);
+      var lag = (c.median_lag_ms || 0).toFixed(0);
       main.appendChild(
         el(
           "div",
           "ps-fin-detail",
-          "confidence " + Math.round((c.confidence || 0) * 100) + "% . " +
-            "lag median " + (c.lag_median_ms || 0).toFixed(0) + " ms . " +
-            "lag p95 " + (c.lag_p95_ms || 0).toFixed(0) + " ms"
+          "confidence " + conf + "% . median lag " + lag + " ms"
         )
       );
       row.appendChild(el("div", "ps-sev-info", "CORR"));
       row.appendChild(main);
-      row.appendChild(el("div", "ps-fin-right", String(c.cooccurrences || 0) + "x"));
+      row.appendChild(
+        el("div", "ps-fin-right", String(c.co_occurrence_count || 0) + "x")
+      );
       row.style.cursor = "default";
       list.appendChild(row);
     });
@@ -1080,7 +1178,12 @@
   registerTab("findings", "Findings", function () { return findings.length; });
   registerTab("explain", "Explain", null);
   if (hasPgStat) {
-    registerTab("pgstat", "pg_stat", function () { return pgStatEntries.length; });
+    registerTab("pgstat", "pg_stat", function () {
+      // Badge shows the currently-active ranking's entry count. Every
+      // ranking contains the same top-N entries, just reordered, so
+      // the number is identical across rankings (see rank_pg_stat).
+      return activePgStatEntries().length;
+    });
   }
   if (hasDiff) {
     registerTab("diff", "Diff", function () {
