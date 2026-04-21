@@ -1782,6 +1782,10 @@ fn cli_report_renders_correlations_from_daemon_shape() {
             "median_lag_ms": 120.0,
             "first_seen": "2026-04-21T10:00:00Z",
             "last_seen": "2026-04-21T10:05:00Z",
+            // Sampled trace id flows through the daemon shape; the
+            // report renderer preserves it so the HTML can make
+            // Correlations rows clickable.
+            "sample_trace_id": "daemon-trace-1",
         }],
     });
     let raw = serde_json::to_vec(&daemon_report).unwrap();
@@ -1830,6 +1834,17 @@ fn cli_report_renders_correlations_from_daemon_shape() {
         corrs[0]["target"]["service"].as_str().unwrap(),
         "payment-svc"
     );
+    // sample_trace_id survives the serde round-trip through the
+    // `report --input -` pipeline.
+    assert_eq!(
+        corrs[0]["sample_trace_id"].as_str().unwrap(),
+        "daemon-trace-1"
+    );
+    // The template contains the clickable CSS class and the
+    // `sample_trace_id` branch in the render code, so a row carrying
+    // the field ends up clickable at runtime. Playwright covers the
+    // live DOM behavior.
+    assert!(html.contains("ps-correlation-clickable"));
 }
 
 #[test]

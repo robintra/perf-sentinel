@@ -132,6 +132,8 @@
   .ps-export-btn:hover { background: var(--color-background-info); }
   .ps-copy-link-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; margin-left: 6px; }
   .ps-copy-link-btn:hover { background: var(--color-background-info); }
+  .ps-correlation-clickable { cursor: pointer; }
+  .ps-correlation-clickable:hover { background: var(--color-background-tertiary); }
   .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
   .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
   dialog.ps-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
@@ -1275,7 +1277,7 @@
     correlations.forEach(function (c) {
       var src = c.source || {};
       var tgt = c.target || {};
-      var row = el("div", "ps-row");
+      var row = el("div", "ps-row ps-correlation-row");
       var leftLabel =
         (src.service || "?") + ":" + typeLabel(src.finding_type || "?");
       var rightLabel =
@@ -1296,9 +1298,37 @@
       row.appendChild(
         el("div", "ps-fin-right", String(c.co_occurrence_count || 0) + "x")
       );
-      row.style.cursor = "default";
+      // Daemon-produced correlations carry `sample_trace_id` pointing
+      // at the most recent target-side contribution. When present,
+      // route the row click through `openExplain` with a synthetic
+      // Finding shape so the Explain tab lights up with the captured
+      // trace. If the trace did not make it into `embedded_traces`
+      // (cap reached, or batch-mode report), openExplain falls back
+      // to the shared empty-state message added in the prior commit.
+      if (c.sample_trace_id) {
+        row.classList.add("ps-correlation-clickable");
+        row.addEventListener("click", function () {
+          openExplain(syntheticFindingFromCorrelation(c));
+        });
+      } else {
+        row.style.cursor = "default";
+      }
       list.appendChild(row);
     });
+  }
+
+  function syntheticFindingFromCorrelation(c) {
+    // Minimum Finding shape openExplain relies on: trace_id to locate
+    // the trace, plus service / source_endpoint / pattern.template
+    // for the breadcrumb. Leave suggested_fix undefined so no inline
+    // drill appears.
+    var tgt = c.target || {};
+    return {
+      trace_id: c.sample_trace_id,
+      service: tgt.service || "-",
+      source_endpoint: "-",
+      pattern: { template: tgt.template || "" }
+    };
   }
 
   // -------- search --------
