@@ -117,6 +117,12 @@ impl std::hash::Hash for PairKey {
 /// equal probability of being in the reservoir.
 const MAX_LAG_SAMPLES: usize = 256;
 
+/// Defense-in-depth cap on `sample_trace_id` length, matching the
+/// upstream `sanitize_span_event` trace-id cap. Prevents a hostile or
+/// malformed upstream from inflating the daemon's exported report size
+/// via an arbitrarily long trace id.
+const MAX_SAMPLE_TRACE_ID_BYTES: usize = 128;
+
 /// Internal state for a correlation pair.
 struct PairState {
     co_occurrence_count: u32,
@@ -134,9 +140,9 @@ struct PairState {
     /// Trace id of the most recent target-side finding that completed
     /// this pair (the trailing finding in the source -> target order).
     /// Overwritten on every co-occurrence so the value tracks the
-    /// latest observation. Adds one `Option<String>` (~40 bytes worst
-    /// case) per active pair, well under the correlator's 20 MB
-    /// lag-reservoir budget at the 10,000 pair cap.
+    /// latest observation. `Option<String>` is ~24 bytes stack plus a
+    /// heap alloc capped at [`MAX_SAMPLE_TRACE_ID_BYTES`], so the
+    /// worst-case overhead at the 10,000 pair cap stays under 2 MB.
     last_trace_id: Option<String>,
 }
 
@@ -361,9 +367,26 @@ impl CrossTraceCorrelator {
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
             // Skip empty ids so replayed streams with stripped trace ids
-            // do not clobber a real value observed earlier.
-            if !trace_id.is_empty() {
-                state.last_trace_id = Some(trace_id.to_string());
+            // do not clobber a real value observed earlier. Avoid the
+            // `to_string()` allocation when the value matches what is
+            // already recorded, the common case when one trace emits
+            // many findings in the same ingest batch.
+            if !trace_id.is_empty()
+                && state.last_trace_id.as_deref() != Some(trace_id)
+            {
+                let capped = if trace_id.len() > MAX_SAMPLE_TRACE_ID_BYTES {
+                    // Truncate on a UTF-8 boundary. trace ids are ASCII
+                    // in every known emitter, but the daemon cannot
+                    // assume so when ingesting from replay files.
+                    let mut end = MAX_SAMPLE_TRACE_ID_BYTES;
+                    while end > 0 && !trace_id.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    &trace_id[..end]
+                } else {
+                    trace_id
+                };
+                state.last_trace_id = Some(capped.to_string());
             }
         }
     }
@@ -547,6 +570,40 @@ mod tests {
             c.sample_trace_id.as_deref(),
             Some("trace-payment-svc"),
             "correlator must record the latest target-side trace id on each pair"
+        );
+    }
+
+    #[test]
+    fn sample_trace_id_truncated_to_max_bytes() {
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            min_co_occurrences: 1,
+            min_confidence: 0.1,
+            lag_threshold_ms: 5_000,
+            ..Default::default()
+        });
+
+        // Build a finding with an oversized trace id. The correlator
+        // must cap what it records so exported reports stay bounded.
+        let oversized = "a".repeat(MAX_SAMPLE_TRACE_ID_BYTES * 4);
+        let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
+        correlator.ingest(std::slice::from_ref(&fa), 1_000);
+        let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
+        fb.trace_id = oversized.clone();
+        correlator.ingest(&[fb], 2_000);
+        // Second round so the pair clears the min_co_occurrences floor.
+        correlator.ingest(&[fa], 3_000);
+        let mut fb2 = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
+        fb2.trace_id = oversized;
+        correlator.ingest(&[fb2], 4_000);
+
+        let correlations = correlator.active_correlations();
+        let c = correlations.first().expect("expected one correlation");
+        let id = c.sample_trace_id.as_deref().expect("sample trace id set");
+        assert!(
+            id.len() <= MAX_SAMPLE_TRACE_ID_BYTES,
+            "sample_trace_id must be truncated to {} bytes, got {}",
+            MAX_SAMPLE_TRACE_ID_BYTES,
+            id.len()
         );
     }
 
