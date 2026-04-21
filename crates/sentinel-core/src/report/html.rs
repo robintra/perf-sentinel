@@ -289,3 +289,307 @@ fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
         status_code: e.event.status_code,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::correlate::Trace;
+    use crate::detect::{Confidence, Finding, FindingType, Pattern, Severity};
+    use crate::event::{EventSource, EventType, SpanEvent};
+    use crate::ingest::IngestSource;
+    use crate::normalize::NormalizedEvent;
+    use crate::report::interpret::InterpretationLevel;
+    use crate::report::{Analysis, GreenSummary, QualityGate, Report, TopOffender};
+
+    fn span(
+        trace_id: &str,
+        span_id: &str,
+        parent: Option<&str>,
+        service: &str,
+        endpoint: &str,
+        template: &str,
+    ) -> NormalizedEvent {
+        NormalizedEvent {
+            event: SpanEvent {
+                timestamp: "2026-04-21T00:00:00Z".into(),
+                trace_id: trace_id.into(),
+                span_id: span_id.into(),
+                parent_span_id: parent.map(ToString::to_string),
+                service: service.into(),
+                cloud_region: None,
+                event_type: EventType::Sql,
+                operation: "SELECT".into(),
+                target: template.into(),
+                duration_us: 1200,
+                source: EventSource {
+                    endpoint: endpoint.into(),
+                    method: "get".into(),
+                },
+                status_code: None,
+                response_size_bytes: None,
+                code_function: None,
+                code_filepath: None,
+                code_lineno: None,
+                code_namespace: None,
+            },
+            template: template.into(),
+            params: vec![],
+        }
+    }
+
+    fn finding(trace_id: &str, service: &str, endpoint: &str, template: &str) -> Finding {
+        Finding {
+            finding_type: FindingType::NPlusOneSql,
+            severity: Severity::Critical,
+            trace_id: trace_id.into(),
+            service: service.into(),
+            source_endpoint: endpoint.into(),
+            pattern: Pattern {
+                template: template.into(),
+                occurrences: 12,
+                window_ms: 100,
+                distinct_params: 12,
+            },
+            suggestion: "use JOIN FETCH".into(),
+            first_timestamp: "2026-04-21T00:00:00Z".into(),
+            last_timestamp: "2026-04-21T00:00:01Z".into(),
+            green_impact: None,
+            confidence: Confidence::CiBatch,
+            code_location: None,
+            suggested_fix: None,
+        }
+    }
+
+    fn minimal_report(findings: Vec<Finding>) -> Report {
+        Report {
+            analysis: Analysis {
+                duration_ms: 10,
+                events_processed: 1,
+                traces_analyzed: 1,
+            },
+            findings,
+            green_summary: GreenSummary {
+                total_io_ops: 10,
+                avoidable_io_ops: 4,
+                io_waste_ratio: 0.4,
+                io_waste_ratio_band: InterpretationLevel::Moderate,
+                top_offenders: vec![TopOffender {
+                    endpoint: "/api/orders".into(),
+                    service: "order-svc".into(),
+                    io_intensity_score: 6.4,
+                    io_intensity_band: InterpretationLevel::High,
+                    co2_grams: Some(0.000_050),
+                }],
+                co2: None,
+                regions: vec![],
+                transport_gco2: None,
+            },
+            quality_gate: QualityGate {
+                passed: true,
+                rules: vec![],
+            },
+            per_endpoint_io_ops: vec![],
+        }
+    }
+
+    fn opts(label: &str, cap: Option<usize>) -> RenderOptions {
+        RenderOptions {
+            input_label: label.into(),
+            max_traces_embedded: cap,
+        }
+    }
+
+    #[test]
+    fn renders_minimal_report_to_valid_html() {
+        // Load the shared raw-trace fixture, run the pipeline, render.
+        // Exercises end-to-end at the crate boundary without needing
+        // the CLI binary. The fixture is deterministic: two findings
+        // (one N+1 SQL, one redundant SQL) on a single trace.
+        let path = format!(
+            "{}/../../tests/fixtures/report_minimal.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read(&path).expect("fixture readable");
+        let cfg = crate::config::Config::default();
+        let events = crate::ingest::json::JsonIngest::new(cfg.max_payload_size)
+            .ingest(&raw)
+            .expect("fixture parses");
+        let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
+
+        assert_eq!(report.findings.len(), 2, "fixture must yield 2 findings");
+
+        let html = render(&report, &traces, &opts("report_minimal.json", None));
+        assert!(html.starts_with("<!DOCTYPE html>"));
+        assert!(html.contains(r#"<script id="report-data""#));
+        assert!(html.contains("trace-report-minimal"));
+        assert!(html.contains("order-svc"));
+    }
+
+    #[test]
+    fn escapes_closing_script_tag_in_embedded_json() {
+        let hostile = "</script><img src=x onerror=alert(1)>";
+        let f = finding("t1", "svc", "/ep", hostile);
+        let report = minimal_report(vec![f]);
+        let trace = Trace {
+            trace_id: "t1".into(),
+            spans: vec![span("t1", "s1", None, "svc", "/ep", hostile)],
+        };
+        let html = render(&report, &[trace], &opts("-", None));
+        // The raw closing tag must not appear anywhere in the payload.
+        // Count the occurrences in the entire document: the static shell
+        // has one (`</script>` closing the JSON block) and one (`</script>`
+        // closing the app JS), so the total must be exactly 2.
+        assert_eq!(
+            html.matches("</script>").count(),
+            2,
+            "user-controlled </script> leaked into the document"
+        );
+        // And the escaped form must appear (proof that the hostile
+        // string survived as data, not as markup).
+        assert!(html.contains("<\\/script>"));
+
+        // The JSON payload must still round-trip cleanly.
+        let start = html.find("<script id=\"report-data\"").expect("script tag");
+        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let rest = &html[start + open..];
+        let end = rest.find("</script>").expect("script close");
+        let json_blob = rest[..end].trim().replace("<\\/", "</");
+        let value: serde_json::Value =
+            serde_json::from_str(&json_blob).expect("JSON blob parses after <\\/ reversal");
+        let finding_tpl = value["report"]["findings"][0]["pattern"]["template"]
+            .as_str()
+            .expect("template present");
+        assert_eq!(finding_tpl, hostile);
+    }
+
+    #[test]
+    fn escapes_adversarial_control_chars() {
+        // Null byte, low control char, DEL, and a 4-byte emoji at a
+        // string boundary. serde_json must produce a JSON-safe encoding
+        // that parses back losslessly.
+        let weird = "a\0b\x01c\x7fd\u{1F600}";
+        let f = finding("t1", "svc", "/ep", weird);
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("traces.json", None));
+
+        let start = html.find("<script id=\"report-data\"").expect("script tag");
+        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let rest = &html[start + open..];
+        let end = rest.find("</script>").expect("script close");
+        let json_blob = rest[..end].trim().replace("<\\/", "</");
+        let value: serde_json::Value =
+            serde_json::from_str(&json_blob).expect("JSON round-trips");
+        assert_eq!(
+            value["report"]["findings"][0]["pattern"]["template"]
+                .as_str()
+                .unwrap(),
+            weird
+        );
+    }
+
+    #[test]
+    fn applies_max_traces_embedded_cap_via_top_waste_fallback() {
+        // 100 synthetic traces, one finding per trace, cap = 10.
+        let mut findings = Vec::new();
+        let mut traces = Vec::new();
+        let mut offenders = Vec::new();
+        for i in 0..100 {
+            let tid = format!("t{i:03}");
+            let svc = format!("svc-{i}");
+            let ep = format!("/ep-{i}");
+            let tpl = format!("SELECT * FROM t{i} WHERE id = ?");
+            findings.push(finding(&tid, &svc, &ep, &tpl));
+            traces.push(Trace {
+                trace_id: tid.clone(),
+                spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
+            });
+            // Feed top_offenders so every trace has a rank (no
+            // usize::MAX ties that would leave ordering unspecified).
+            offenders.push(TopOffender {
+                endpoint: ep.clone(),
+                service: svc.clone(),
+                io_intensity_score: 100.0 - f64::from(i),
+                io_intensity_band: InterpretationLevel::High,
+                co2_grams: None,
+            });
+        }
+        let mut report = minimal_report(findings);
+        report.green_summary.top_offenders = offenders;
+
+        let html = render(&report, &traces, &opts("-", Some(10)));
+        let json_blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+        let embedded = value["embedded_traces"].as_array().expect("array");
+        assert_eq!(embedded.len(), 10, "exactly 10 traces kept");
+        let summary = &value["trimmed_traces"];
+        assert_eq!(summary["kept"].as_u64().unwrap(), 10);
+        assert_eq!(summary["total"].as_u64().unwrap(), 100);
+    }
+
+    #[test]
+    fn omits_greenops_section_when_green_disabled() {
+        // A GreenSummary where `co2` is None (green scoring disabled)
+        // must hide the GreenOps tab on the client side. We verify by
+        // asserting the payload reflects the disabled state; the JS
+        // bootstrap checks `report.green_summary.co2` to decide tab
+        // visibility.
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let mut report = minimal_report(vec![f.clone()]);
+        report.green_summary = GreenSummary::disabled(1);
+        let trace = Trace {
+            trace_id: "t1".into(),
+            spans: vec![span("t1", "s1", None, "svc", "/ep", "SELECT * FROM t")],
+        };
+        let html = render(&report, &[trace], &opts("-", None));
+        let json_blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+        assert!(
+            value["report"]["green_summary"]["co2"].is_null()
+                || value["report"]["green_summary"].get("co2").is_none(),
+            "co2 must be absent when green disabled"
+        );
+        // Sanity: the static panel-green scaffolding is in the template
+        // (starts hidden via inline style), and the JS only reveals it
+        // when co2 is present. We assert the template still has the
+        // scaffolding (regression guard) but not that the client
+        // *shows* it (that's a browser-level assertion).
+        assert!(html.contains(r#"id="panel-green""#));
+    }
+
+    #[test]
+    fn no_forbidden_apis_in_template() {
+        let forbidden = [
+            ".innerHTML",
+            "insertAdjacentHTML",
+            "document.write",
+            "eval(",
+            "new Function(",
+            // We intentionally omit a bare `Function(` check: the string
+            // "function (" appears many times as IIFE / callback syntax.
+            // `new Function(` is the only constructor shape that
+            // executes a string as code; a literal `Function(` without
+            // `new` would need `window.Function(` to be callable, which
+            // is caught by the same `Function(` heuristic below.
+        ];
+        for needle in forbidden {
+            assert!(
+                !TEMPLATE.contains(needle),
+                "template contains forbidden API: {needle}"
+            );
+        }
+        // Guard against the two spellings of the string-exec
+        // constructor that don't start with `new `.
+        assert!(!TEMPLATE.contains("window.Function("));
+        assert!(!TEMPLATE.contains("globalThis.Function("));
+    }
+
+    /// Extract the raw JSON text from the `<script id="report-data">`
+    /// block and un-escape `<\/` back to `</` so it parses as JSON.
+    fn extract_payload_json(html: &str) -> String {
+        let start = html.find("<script id=\"report-data\"").expect("script tag");
+        let open = html[start..].find('>').expect("script open").saturating_add(1);
+        let rest = &html[start + open..];
+        let end = rest.find("</script>").expect("script close");
+        rest[..end].trim().replace("<\\/", "</")
+    }
+}

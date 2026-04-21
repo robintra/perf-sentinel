@@ -1,0 +1,109 @@
+[
+  {
+    "timestamp": "2026-04-20T10:00:00.000Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM customer WHERE id = 7",
+    "duration_us": 900,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.010Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-n1-1",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 1",
+    "duration_us": 800,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.020Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-n1-2",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 2",
+    "duration_us": 750,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.030Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-n1-3",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 3",
+    "duration_us": 820,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.040Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-n1-4",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 4",
+    "duration_us": 780,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.050Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-n1-5",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT * FROM order_item WHERE order_id = 5",
+    "duration_us": 810,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.060Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-dup-1",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT status, total_cents FROM orders WHERE id = 42",
+    "duration_us": 600,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.070Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-dup-2",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT status, total_cents FROM orders WHERE id = 42",
+    "duration_us": 620,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  },
+  {
+    "timestamp": "2026-04-20T10:00:00.080Z",
+    "trace_id": "trace-report-minimal",
+    "span_id": "span-dup-3",
+    "parent_span_id": "span-root",
+    "service": "order-svc",
+    "type": "sql",
+    "operation": "SELECT",
+    "target": "SELECT status, total_cents FROM orders WHERE id = 42",
+    "duration_us": 610,
+    "source": { "endpoint": "POST /api/orders/7/checkout", "method": "OrderService::checkout" }
+  }
+]
