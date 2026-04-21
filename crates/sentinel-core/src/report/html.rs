@@ -616,4 +616,167 @@ mod tests {
         let end = rest.find("</script>").expect("script close");
         rest[..end].trim().replace("<\\/", "</")
     }
+
+    fn synthetic_pg_stat() -> crate::ingest::pg_stat::PgStatReport {
+        use crate::ingest::pg_stat::{PgStatEntry, PgStatRanking, PgStatReport};
+        let entries = vec![
+            PgStatEntry {
+                query: "SELECT * FROM order_item WHERE order_id = 42".into(),
+                normalized_template: "SELECT * FROM order_item WHERE order_id = ?".into(),
+                calls: 120,
+                total_exec_time_ms: 840.0,
+                mean_exec_time_ms: 7.0,
+                rows: 500,
+                shared_blks_hit: 1000,
+                shared_blks_read: 0,
+                seen_in_traces: true,
+            },
+            PgStatEntry {
+                query: "SELECT id FROM orders WHERE id = 7".into(),
+                normalized_template: "SELECT id FROM orders WHERE id = ?".into(),
+                calls: 30,
+                total_exec_time_ms: 60.0,
+                mean_exec_time_ms: 2.0,
+                rows: 30,
+                shared_blks_hit: 120,
+                shared_blks_read: 0,
+                seen_in_traces: false,
+            },
+        ];
+        PgStatReport {
+            total_entries: 2,
+            top_n: 2,
+            rankings: vec![PgStatRanking {
+                label: "top by total_exec_time".into(),
+                entries,
+            }],
+        }
+    }
+
+    #[test]
+    fn embeds_pg_stat_when_provided() {
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let report = minimal_report(vec![f]);
+        let mut options = opts("-", None);
+        options.pg_stat = Some(synthetic_pg_stat());
+        let html = render(&report, &[], &options);
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        let entries = value["pg_stat"]["rankings"][0]["entries"]
+            .as_array()
+            .expect("entries array");
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            entries[0]["normalized_template"].as_str().unwrap(),
+            "SELECT * FROM order_item WHERE order_id = ?"
+        );
+    }
+
+    #[test]
+    fn omits_pg_stat_when_absent() {
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("-", None));
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        assert!(
+            value.get("pg_stat").is_none(),
+            "pg_stat must be absent when not provided (skip_serializing_if)"
+        );
+        // The static panel-pgstat scaffolding stays in the template; the
+        // JS hides it at runtime based on payload presence. Assert the
+        // scaffolding is there so the cross-nav wiring has an anchor to
+        // reach even before the tab is registered.
+        assert!(html.contains(r#"id="panel-pgstat""#));
+    }
+
+    #[test]
+    fn embeds_diff_report_when_before_provided() {
+        // before: 1 finding. after: 2 findings (same first one + one new).
+        let before_finding = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let before = minimal_report(vec![before_finding.clone()]);
+        let after_extra = finding("t2", "svc", "/ep2", "SELECT * FROM u");
+        let after = minimal_report(vec![before_finding, after_extra]);
+
+        let diff = crate::diff::diff_runs(&before, &after);
+        let mut options = opts("-", None);
+        options.diff = Some(diff);
+        let html = render(&after, &[], &options);
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        let new = value["diff"]["new_findings"].as_array().expect("new array");
+        assert_eq!(new.len(), 1, "one new finding introduced in 'after'");
+        let resolved = value["diff"]["resolved_findings"]
+            .as_array()
+            .expect("resolved array");
+        assert_eq!(resolved.len(), 0, "nothing was removed");
+    }
+
+    #[test]
+    fn omits_diff_when_absent() {
+        let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("-", None));
+        let blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
+        assert!(value.get("diff").is_none());
+        assert!(html.contains(r#"id="panel-diff""#));
+    }
+
+    #[test]
+    fn cross_nav_pgstat_link_added_only_when_pg_stat_present() {
+        // Build a trace whose SQL span's normalized template matches a
+        // pg_stat row. The ps-span-pgstat-link class is added by the JS
+        // at render time, not by the Rust sink; what we verify here is
+        // that the Rust payload carries everything the JS needs for the
+        // link to fire, i.e. a `pg_stat` section with the same
+        // `normalized_template` the span carries.
+        let tpl = "SELECT * FROM order_item WHERE order_id = ?";
+        let f = finding("abc", "svc", "/ep", tpl);
+        let report = minimal_report(vec![f]);
+        let trace = Trace {
+            trace_id: "abc".into(),
+            spans: vec![span("abc", "s1", None, "svc", "/ep", tpl)],
+        };
+
+        // With pg_stat: the template appears in both the span list and
+        // the pg_stat rankings.
+        let mut with_pg = opts("-", None);
+        with_pg.pg_stat = Some(synthetic_pg_stat());
+        let html_with = render(&report, std::slice::from_ref(&trace), &with_pg);
+        let blob_with = extract_payload_json(&html_with);
+        let v_with: serde_json::Value = serde_json::from_str(&blob_with).unwrap();
+        let pg_templates: Vec<&str> = v_with["pg_stat"]["rankings"][0]["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["normalized_template"].as_str().unwrap())
+            .collect();
+        assert!(pg_templates.contains(&tpl), "pg_stat carries the span template");
+        let span_templates: Vec<&str> = v_with["embedded_traces"][0]["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["template"].as_str().unwrap())
+            .collect();
+        assert!(span_templates.contains(&tpl), "trace carries the same template");
+
+        // The template file also carries the ps-span-pgstat-link class
+        // (the JS adds it to rows with matching templates). The grep is
+        // on the static template, not on the per-render output, since
+        // class assignment happens at DOM construction time in the JS.
+        assert!(
+            TEMPLATE.contains("ps-span-pgstat-link"),
+            "template contains the cross-nav class"
+        );
+
+        // Without pg_stat: the embedded JSON has no pg_stat key, so
+        // `hasPgStat` in the JS is false and no cross-nav handler ever
+        // attaches.
+        let without_pg = opts("-", None);
+        let html_without = render(&report, &[trace], &without_pg);
+        let blob_without = extract_payload_json(&html_without);
+        let v_without: serde_json::Value = serde_json::from_str(&blob_without).unwrap();
+        assert!(v_without.get("pg_stat").is_none());
+    }
 }
