@@ -111,6 +111,15 @@
   .ps-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; }
   .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
   .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
+  .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
+  .ps-search:focus { outline: none; border-color: var(--color-border-info); }
+  .ps-span.ps-span-pgstat-link { cursor: pointer; }
+  .ps-span.ps-span-pgstat-link:hover .ps-span-text { text-decoration: underline; }
+  .ps-drill-clear { color: var(--color-text-info); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+  .ps-diff-section { margin-bottom: 18px; }
+  .ps-diff-section-header { font-size: 12px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
+  .ps-diff-section-header.red { color: var(--color-text-danger); }
+  .ps-diff-section-header.green { color: var(--color-text-success); }
 </style>
 </head>
 <body>
@@ -125,6 +134,7 @@
 
   <div id="panel-findings">
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
+    <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-metrics" id="findings-metrics"></div>
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-list" id="findings-list"></div>
@@ -138,6 +148,52 @@
       <div class="ps-tree" id="explain-tree"></div>
       <div class="ps-drill" id="explain-fix" style="display: none;"></div>
     </div>
+    <div class="ps-empty" id="explain-not-embedded" style="display: none;"></div>
+  </div>
+
+  <div id="panel-pgstat" style="display: none;">
+    <div class="ps-drill" id="pgstat-drill" style="display: none;">
+      <div class="ps-drill-label">Filtered from Explain</div>
+      <span id="pgstat-drill-text"></span>
+      <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
+    </div>
+    <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
+    <table class="ps-table" id="pgstat-table">
+      <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
+      <tbody id="pgstat-body"></tbody>
+    </table>
+    <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
+  </div>
+
+  <div id="panel-diff" style="display: none;">
+    <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
+      <div class="ps-list" id="diff-new-list"></div>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
+      <div class="ps-list" id="diff-resolved-list"></div>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header" id="diff-sev-header">Severity changes (0)</div>
+      <table class="ps-table" id="diff-sev-table" style="display: none;">
+        <thead><tr><th>Type</th><th>Service</th><th>Endpoint</th><th>Before</th><th>After</th></tr></thead>
+        <tbody id="diff-sev-body"></tbody>
+      </table>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header" id="diff-endp-header">Endpoint metric deltas (0)</div>
+      <table class="ps-table" id="diff-endp-table" style="display: none;">
+        <thead><tr><th>Service</th><th>Endpoint</th><th>Before I/O</th><th>After I/O</th><th>Delta</th></tr></thead>
+        <tbody id="diff-endp-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="panel-correlations" style="display: none;">
+    <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
+    <div class="ps-list" id="correlations-list"></div>
   </div>
 
   <div id="panel-green" style="display: none;">
@@ -151,7 +207,7 @@
   </div>
 
   <div class="ps-footer">
-    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">esc</span> back
+    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back
   </div>
 </div>
 
@@ -293,6 +349,10 @@
   }
   var currentTab = null;
   function switchTab(key) {
+    // Clear any open search filter when switching tabs. Keeps the UI
+    // predictable and avoids a stale hidden filter resurfacing when the
+    // user comes back to a tab.
+    if (typeof clearAllSearchFilters === "function") clearAllSearchFilters();
     currentTab = key;
     var btns = document.querySelectorAll(".ps-tab");
     for (var i = 0; i < btns.length; i++) {
@@ -489,21 +549,31 @@
   function openExplain(f) {
     document.getElementById("explain-empty").style.display = "none";
     var content = document.getElementById("explain-content");
-    content.style.display = "";
-
-    var breadcrumb = document.getElementById("explain-breadcrumb");
-    var shortTraceId = (f.trace_id || "").slice(0, 12);
-    breadcrumb.textContent = "trace_id = " + shortTraceId + " . " + (f.service || "-") + " . " + (f.source_endpoint || "-");
-
-    var treeRoot = document.getElementById("explain-tree");
-    treeRoot.textContent = "";
+    var notEmbedded = document.getElementById("explain-not-embedded");
+    notEmbedded.style.display = "none";
+    notEmbedded.textContent = "";
 
     var trace = tracesById[f.trace_id];
     if (!trace) {
-      treeRoot.appendChild(el("div", "ps-span dim", "(trace not embedded - re-run with a higher --max-traces-embedded to inspect)"));
-    } else {
-      renderTree(treeRoot, trace, f);
+      // Happens when the finding's trace was dropped by the size cap.
+      // Surface the state explicitly rather than show an empty tree.
+      content.style.display = "none";
+      notEmbedded.style.display = "";
+      notEmbedded.textContent =
+        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
+      switchTab("explain");
+      return;
     }
+
+    content.style.display = "";
+    var breadcrumb = document.getElementById("explain-breadcrumb");
+    var shortTraceId = (f.trace_id || "").slice(0, 12);
+    breadcrumb.textContent =
+      "trace_id = " + shortTraceId + " . " + (f.service || "-") + " . " + (f.source_endpoint || "-");
+
+    var treeRoot = document.getElementById("explain-tree");
+    treeRoot.textContent = "";
+    renderTree(treeRoot, trace, f);
 
     var fix = document.getElementById("explain-fix");
     fix.textContent = "";
@@ -562,6 +632,22 @@
     if (isFinding) row.classList.add("hilite");
     else row.classList.add("dim");
     row.style.paddingLeft = (depth * 20) + "px";
+
+    // Cross-nav to pg_stat: a SQL span whose normalized template matches
+    // a row in pg_stat becomes clickable. The click switches to the
+    // pg_stat tab with the matching row highlighted and the filter
+    // banner shown.
+    var pgStatMatch =
+      hasPgStat && span.event_type === "sql" && pgStatByTemplate[span.template]
+        ? span.template
+        : null;
+    if (pgStatMatch) {
+      row.classList.add("ps-span-pgstat-link");
+      row.addEventListener("click", function () {
+        switchTab("pgstat");
+        showPgStatDrill(pgStatMatch);
+      });
+    }
 
     var text = el("span", "ps-span-text");
     if (isFinding) text.classList.add("ps-span-find");
@@ -650,6 +736,274 @@
     });
   }
 
+  // -------- pg_stat / diff / correlations state --------
+  var pgStat = payload.pg_stat || null;
+  var pgStatEntries =
+    pgStat && pgStat.rankings && pgStat.rankings.length > 0
+      ? pgStat.rankings[0].entries || []
+      : [];
+  var pgStatByTemplate = {};
+  for (var psi = 0; psi < pgStatEntries.length; psi++) {
+    pgStatByTemplate[pgStatEntries[psi].normalized_template] = pgStatEntries[psi];
+  }
+  var hasPgStat = pgStatEntries.length > 0;
+
+  var diffData = payload.diff || null;
+  var hasDiff = !!diffData;
+
+  // Correlations are populated only in daemon-produced reports. The batch
+  // pipeline does not emit them. This branch lights up automatically
+  // when a future daemon report is fed into
+  // `perf-sentinel report --input <daemon.json>`.
+  var correlations =
+    report.correlations && report.correlations.length > 0 ? report.correlations : [];
+  var hasCorrelations = correlations.length > 0;
+
+  // -------- pg_stat panel --------
+  function renderPgStatPanel() {
+    if (!hasPgStat) {
+      document.getElementById("pgstat-empty").style.display = "";
+      return;
+    }
+    var body = document.getElementById("pgstat-body");
+    body.textContent = "";
+    pgStatEntries.forEach(function (entry) {
+      var tr = document.createElement("tr");
+      setAttr(tr, "data-template", entry.normalized_template);
+      tr.appendChild(el("td", null, entry.normalized_template));
+      tr.appendChild(el("td", null, String(entry.calls || 0)));
+      tr.appendChild(el("td", null, (entry.total_exec_time_ms || 0).toFixed(1)));
+      tr.appendChild(el("td", null, (entry.mean_exec_time_ms || 0).toFixed(2)));
+      body.appendChild(tr);
+    });
+  }
+  function showPgStatDrill(template) {
+    var drill = document.getElementById("pgstat-drill");
+    var txt = document.getElementById("pgstat-drill-text");
+    drill.style.display = "";
+    txt.textContent = template;
+    highlightPgStatRow(template);
+  }
+  function clearPgStatDrill() {
+    document.getElementById("pgstat-drill").style.display = "none";
+    var rows = document.querySelectorAll("#pgstat-body tr");
+    for (var i = 0; i < rows.length; i++) rows[i].classList.remove("hilite");
+  }
+  function highlightPgStatRow(template) {
+    var rows = document.querySelectorAll("#pgstat-body tr");
+    var matched = null;
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].getAttribute("data-template") === template) {
+        rows[i].classList.add("hilite");
+        matched = rows[i];
+      } else {
+        rows[i].classList.remove("hilite");
+      }
+    }
+    if (matched) matched.scrollIntoView({ block: "nearest" });
+  }
+
+  // -------- diff panel --------
+  function renderDiffPanel() {
+    if (!hasDiff) return;
+    renderDiffFindingsList(
+      "diff-new-list",
+      "diff-new-header",
+      "New findings",
+      diffData.new_findings || [],
+      true
+    );
+    renderDiffFindingsList(
+      "diff-resolved-list",
+      "diff-resolved-header",
+      "Resolved findings",
+      diffData.resolved_findings || [],
+      false
+    );
+    renderDiffSevTable(diffData.severity_changes || []);
+    renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
+  }
+  function renderDiffFindingsList(listId, headerId, label, items, clickable) {
+    var list = document.getElementById(listId);
+    var hdr = document.getElementById(headerId);
+    hdr.textContent = label + " (" + items.length + ")";
+    list.textContent = "";
+    items.forEach(function (f) {
+      list.appendChild(buildDiffFindingRow(f, clickable));
+    });
+  }
+  function buildDiffFindingRow(f, clickable) {
+    var row = el("div", "ps-row");
+    row.appendChild(
+      el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO")
+    );
+    var main = el("div", "ps-fin-main");
+    var typeRow = el("div", "ps-fin-type");
+    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
+    typeRow.appendChild(el("span", "ps-fin-service", " in " + (f.service || "-")));
+    main.appendChild(typeRow);
+    main.appendChild(el("div", "ps-fin-detail", (f.pattern && f.pattern.template) || ""));
+    row.appendChild(main);
+    var right = el("div", "ps-fin-right");
+    right.appendChild(document.createTextNode(((f.pattern && f.pattern.occurrences) || 0) + " occ"));
+    right.appendChild(document.createElement("br"));
+    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
+    row.appendChild(right);
+    if (clickable) {
+      row.addEventListener("click", function () {
+        openExplain(f);
+      });
+    } else {
+      row.style.cursor = "default";
+    }
+    return row;
+  }
+  function renderDiffSevTable(items) {
+    var hdr = document.getElementById("diff-sev-header");
+    var tbl = document.getElementById("diff-sev-table");
+    var body = document.getElementById("diff-sev-body");
+    hdr.textContent = "Severity changes (" + items.length + ")";
+    body.textContent = "";
+    if (items.length === 0) {
+      tbl.style.display = "none";
+      return;
+    }
+    tbl.style.display = "";
+    items.forEach(function (c) {
+      var f = c.finding || {};
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, typeLabel(f.type || f.finding_type)));
+      tr.appendChild(el("td", null, f.service || "-"));
+      tr.appendChild(el("td", null, f.source_endpoint || "-"));
+      tr.appendChild(el("td", null, SEV_LABEL[c.before_severity] || String(c.before_severity)));
+      tr.appendChild(el("td", null, SEV_LABEL[c.after_severity] || String(c.after_severity)));
+      body.appendChild(tr);
+    });
+  }
+  function renderDiffEndpTable(items) {
+    var hdr = document.getElementById("diff-endp-header");
+    var tbl = document.getElementById("diff-endp-table");
+    var body = document.getElementById("diff-endp-body");
+    hdr.textContent = "Endpoint metric deltas (" + items.length + ")";
+    body.textContent = "";
+    if (items.length === 0) {
+      tbl.style.display = "none";
+      return;
+    }
+    tbl.style.display = "";
+    items.forEach(function (d) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, d.service || "-"));
+      tr.appendChild(el("td", null, d.endpoint || "-"));
+      tr.appendChild(el("td", null, String(d.before_io_ops || 0)));
+      tr.appendChild(el("td", null, String(d.after_io_ops || 0)));
+      var delta = d.delta || 0;
+      tr.appendChild(el("td", null, (delta > 0 ? "+" : "") + String(delta)));
+      body.appendChild(tr);
+    });
+  }
+
+  // -------- correlations panel --------
+  function renderCorrelationsPanel() {
+    if (!hasCorrelations) return;
+    var list = document.getElementById("correlations-list");
+    list.textContent = "";
+    correlations.forEach(function (c) {
+      var row = el("div", "ps-row");
+      var a = (c.finding_a_service || "?") + ":" + (c.finding_a_type || "?");
+      var b = (c.finding_b_service || "?") + ":" + (c.finding_b_type || "?");
+      var main = el("div", "ps-fin-main");
+      main.appendChild(el("div", "ps-fin-type", a + " -> " + b));
+      main.appendChild(
+        el(
+          "div",
+          "ps-fin-detail",
+          "confidence " + Math.round((c.confidence || 0) * 100) + "% . " +
+            "lag median " + (c.lag_median_ms || 0).toFixed(0) + " ms . " +
+            "lag p95 " + (c.lag_p95_ms || 0).toFixed(0) + " ms"
+        )
+      );
+      row.appendChild(el("div", "ps-sev-info", "CORR"));
+      row.appendChild(main);
+      row.appendChild(el("div", "ps-fin-right", String(c.cooccurrences || 0) + "x"));
+      row.style.cursor = "default";
+      list.appendChild(row);
+    });
+  }
+
+  // -------- search --------
+  // Filter state is cleared on tab switch. The current panel's search
+  // input stays empty and hidden on activation, so switching away and
+  // back resets the filter implicitly. Simple, no cross-tab carryover.
+  function matchRowByText(row, q) {
+    return (row.textContent || "").toLowerCase().indexOf(q) !== -1;
+  }
+  var SEARCHABLE_TABS = {
+    findings: {
+      inputId: "findings-search",
+      rowsSelector: "#findings-list .ps-row"
+    },
+    pgstat: {
+      inputId: "pgstat-search",
+      rowsSelector: "#pgstat-body tr"
+    },
+    diff: {
+      inputId: "diff-search",
+      // Filter only the two findings lists; the severity_changes and
+      // endpoint_metric_deltas tables stay unfiltered (short lists).
+      rowsSelector: "#diff-new-list .ps-row, #diff-resolved-list .ps-row"
+    },
+    correlations: {
+      inputId: "correlations-search",
+      rowsSelector: "#correlations-list .ps-row"
+    }
+  };
+  function initSearchInputs() {
+    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
+      var cfg = SEARCHABLE_TABS[tabKey];
+      var input = document.getElementById(cfg.inputId);
+      if (!input) return;
+      input.addEventListener("input", function () {
+        applySearchFilter(cfg);
+      });
+    });
+  }
+  function applySearchFilter(cfg) {
+    var input = document.getElementById(cfg.inputId);
+    var q = (input.value || "").toLowerCase();
+    var rows = document.querySelectorAll(cfg.rowsSelector);
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].style.display = !q || matchRowByText(rows[i], q) ? "" : "none";
+    }
+  }
+  function openSearchForActiveTab() {
+    var cfg = SEARCHABLE_TABS[currentTab];
+    if (!cfg) return;
+    var input = document.getElementById(cfg.inputId);
+    if (!input) return;
+    input.style.display = "block";
+    input.focus();
+    input.select();
+  }
+  function closeSearch(input) {
+    input.value = "";
+    applySearchFilter(SEARCHABLE_TABS[currentTab]);
+    input.style.display = "none";
+    input.blur();
+  }
+  function clearAllSearchFilters() {
+    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
+      var cfg = SEARCHABLE_TABS[tabKey];
+      var input = document.getElementById(cfg.inputId);
+      if (!input) return;
+      if (input.value) {
+        input.value = "";
+        applySearchFilter(cfg);
+      }
+      input.style.display = "none";
+    });
+  }
+
   // -------- trim banner --------
   function renderTrimBanner() {
     var t = payload.trimmed_traces;
@@ -667,11 +1021,28 @@
   });
 
   // -------- keyboard --------
+  function isSearchInputFocused() {
+    var active = document.activeElement;
+    return !!(active && active.tagName === "INPUT" && active.classList.contains("ps-search"));
+  }
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") {
+      if (isSearchInputFocused()) {
+        closeSearch(document.activeElement);
+        ev.preventDefault();
+        return;
+      }
       if (currentTab === "explain") switchTab("findings");
       return;
     }
+    // `/` opens the active tab's search input. Only when no input is
+    // already focused and the active tab is searchable.
+    if (ev.key === "/" && !isSearchInputFocused() && SEARCHABLE_TABS[currentTab]) {
+      openSearchForActiveTab();
+      ev.preventDefault();
+      return;
+    }
+    if (isSearchInputFocused()) return;
     if (currentTab !== "findings") return;
     if (ev.key === "j" || ev.key === "k" || ev.key === "Enter") {
       if (visibleFindings.length === 0) return;
@@ -696,10 +1067,27 @@
     }
   }
 
+  document.getElementById("pgstat-drill-clear").addEventListener("click", clearPgStatDrill);
+
   // -------- boot --------
   renderTopbar();
   registerTab("findings", "Findings", function () { return findings.length; });
   registerTab("explain", "Explain", null);
+  if (hasPgStat) {
+    registerTab("pgstat", "pg_stat", function () { return pgStatEntries.length; });
+  }
+  if (hasDiff) {
+    registerTab("diff", "Diff", function () {
+      return (
+        (diffData.new_findings || []).length + (diffData.resolved_findings || []).length
+      );
+    });
+  }
+  if (hasCorrelations) {
+    registerTab("correlations", "Correlations", function () {
+      return correlations.length;
+    });
+  }
   if (hasGreen) registerTab("green", "GreenOps", null);
   renderTabs();
 
@@ -707,7 +1095,11 @@
   renderFindingsMetrics();
   renderFilterChips();
   renderFindingsList();
+  if (hasPgStat) renderPgStatPanel();
+  if (hasDiff) renderDiffPanel();
+  if (hasCorrelations) renderCorrelationsPanel();
   if (hasGreen) renderGreenPanel();
+  initSearchInputs();
 })();
 </script>
 </body>
