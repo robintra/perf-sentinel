@@ -1726,6 +1726,155 @@ fn cli_report_rejects_both_pg_stat_and_pg_stat_prometheus() {
 }
 
 #[test]
+fn cli_report_pg_stat_top_overrides_default_ranking_size() {
+    // The pg_stat fixture carries 15 entries. Default top_n is 10, so
+    // the baseline produces 10-entry rankings. `--pg-stat-top 15`
+    // widens the cut to the full fixture, which is only observable if
+    // the flag value actually flows through to rank_pg_stat.
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let pg_stat_fixture = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--pg-stat",
+            &pg_stat_fixture,
+            "--pg-stat-top",
+            "15",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        output.status.success(),
+        "report --pg-stat-top failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    let payload = extract_payload_json_from_html(&html);
+    let entries = payload["pg_stat"]["rankings"][0]["entries"]
+        .as_array()
+        .expect("rankings[0].entries");
+    assert_eq!(
+        entries.len(),
+        15,
+        "--pg-stat-top 15 must widen the ranking beyond the default top 10"
+    );
+}
+
+#[test]
+fn cli_report_pg_stat_top_rejects_zero() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let pg_stat_fixture = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--pg-stat",
+            &pg_stat_fixture,
+            "--pg-stat-top",
+            "0",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "--pg-stat-top 0 must fail clap's range validator"
+    );
+}
+
+#[test]
+fn cli_report_pg_stat_top_rejects_negative() {
+    // Negative values are rejected by clap before the range check
+    // (u32 parse fails). Either error path is acceptable here; only
+    // the non-zero exit matters for the UX contract.
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let pg_stat_fixture = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--pg-stat",
+            &pg_stat_fixture,
+            "--pg-stat-top",
+            "-1",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "--pg-stat-top -1 must fail clap parsing"
+    );
+}
+
+#[test]
+fn cli_report_pg_stat_top_requires_pg_stat_source() {
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--pg-stat-top",
+            "5",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "--pg-stat-top without a pg_stat source must exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--pg-stat-top requires --pg-stat"),
+        "stderr must point at the required companion flag, got:\n{stderr}"
+    );
+}
+
+#[test]
 fn cli_report_renders_correlations_from_daemon_shape() {
     // Closes the loop for the Correlations tab. A daemon produces a
     // `Report` that carries `correlations`; the `report` subcommand

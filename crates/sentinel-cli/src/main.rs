@@ -266,6 +266,16 @@ enum Commands {
         /// comparing the current run against the baseline.
         #[arg(long, value_name = "FILE")]
         before: Option<PathBuf>,
+        /// Override the number of top entries per `pg_stat` ranking
+        /// (default: 10). Only meaningful with --pg-stat or
+        /// --pg-stat-prometheus.
+        ///
+        /// Accepts values in the `[1, u32::MAX]` range. `0` is
+        /// rejected by the range validator. Supplying this flag
+        /// without a `pg_stat` source errors with a message pointing
+        /// at the required companion flag.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        pg_stat_top: Option<u32>,
     },
 
     /// Compare two trace sets and emit a delta report (regressions and improvements).
@@ -496,6 +506,7 @@ async fn main() {
             #[cfg(feature = "daemon")]
             pg_stat_prometheus,
             before,
+            pg_stat_top,
         } => {
             cmd_report(
                 input.as_deref(),
@@ -506,6 +517,7 @@ async fn main() {
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
                 before.as_deref(),
+                pg_stat_top.map(|n| n as usize),
             )
             .await;
         }
@@ -727,18 +739,23 @@ fn load_report_from_input(
     }
 }
 
+/// Default top-N for `pg_stat` rankings inside the `report` subcommand
+/// when the user does not set `--pg-stat-top`.
+const DEFAULT_PG_STAT_TOP: usize = 10;
+
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
 /// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
 fn load_pg_stat_from_file(
     path: &std::path::Path,
     config: &Config,
+    top_n: usize,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let raw_pg = read_file_capped(
         path,
         u64::try_from(config.max_payload_size).unwrap_or(u64::MAX),
     );
     match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10),
+        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error parsing --pg-stat {}: {e}", path.display());
             std::process::exit(1);
@@ -752,9 +769,10 @@ fn load_pg_stat_from_file(
 async fn load_pg_stat_from_prometheus(
     url: &str,
     _config: &Config,
+    top_n: usize,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, 10).await {
-        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, 10),
+    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, top_n).await {
+        Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
             std::process::exit(1);
@@ -789,6 +807,7 @@ async fn cmd_report(
     pg_stat_path: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
     before_path: Option<&std::path::Path>,
+    pg_stat_top: Option<usize>,
 ) {
     let config = load_config(config_path);
 
@@ -800,17 +819,31 @@ async fn cmd_report(
     let (report, traces) = load_report_from_input(raw, &config);
     let input_label = input_label_for(input, stdin_mode);
 
+    // `--pg-stat-top` only makes sense alongside a pg_stat source.
+    // Clap's `requires` doesn't express an OR-of-flags cleanly, so
+    // validate post-parse. Mirrors the existing post-parse guard
+    // pattern used elsewhere in cmd_report.
+    #[cfg(feature = "daemon")]
+    let has_pg_stat_source = pg_stat_path.is_some() || pg_stat_prometheus.is_some();
+    #[cfg(not(feature = "daemon"))]
+    let has_pg_stat_source = pg_stat_path.is_some();
+    if pg_stat_top.is_some() && !has_pg_stat_source {
+        eprintln!("Error: --pg-stat-top requires --pg-stat or --pg-stat-prometheus");
+        std::process::exit(2);
+    }
+    let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
+
     // --pg-stat / --pg-stat-prometheus are mutually exclusive at the
     // clap level (conflicts_with). The Prometheus branch is gated
     // behind the daemon feature, mirroring the existing pg-stat
     // subcommand surface.
     let pg_stat = if let Some(path) = pg_stat_path {
-        Some(load_pg_stat_from_file(path, &config))
+        Some(load_pg_stat_from_file(path, &config, top_n))
     } else {
         #[cfg(feature = "daemon")]
         {
             match pg_stat_prometheus {
-                Some(url) => Some(load_pg_stat_from_prometheus(url, &config).await),
+                Some(url) => Some(load_pg_stat_from_prometheus(url, &config, top_n).await),
                 None => None,
             }
         }
