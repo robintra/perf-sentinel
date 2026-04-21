@@ -1518,6 +1518,7 @@ fn cli_report_help_mentions_all_flags() {
         help.contains("--max-traces-embedded"),
         "help mentions --max-traces-embedded"
     );
+    assert!(help.contains("--pg-stat-top"), "help mentions --pg-stat-top");
 }
 
 #[test]
@@ -1801,6 +1802,41 @@ fn cli_report_pg_stat_top_rejects_zero() {
     assert!(
         !output.status.success(),
         "--pg-stat-top 0 must fail clap's range validator"
+    );
+}
+
+#[test]
+fn cli_report_pg_stat_top_rejects_over_cap() {
+    // Upper bound is 10_000. 10_001 must be rejected by clap's range
+    // validator to keep local rank + upstream scrape cost bounded.
+    let fixture = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let pg_stat_fixture = format!(
+        "{}/../../tests/fixtures/pg_stat_statements.csv",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture,
+            "--pg-stat",
+            &pg_stat_fixture,
+            "--pg-stat-top",
+            "10001",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        !output.status.success(),
+        "--pg-stat-top 10001 must fail clap's upper range bound"
     );
 }
 

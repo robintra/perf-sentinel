@@ -270,16 +270,12 @@ enum Commands {
         /// (default: 10). Only meaningful with --pg-stat or
         /// --pg-stat-prometheus.
         ///
-        /// With --pg-stat-prometheus this also widens the upstream
-        /// scrape (more rows pulled from the Prometheus exporter),
-        /// since the scrape and the ranking cut share the same bound.
-        /// Large values may hit exporter query-complexity caps.
-        ///
-        /// Accepts values in the `[1, u32::MAX]` range. `0` is
-        /// rejected by the range validator. Supplying this flag
-        /// without a `pg_stat` source errors with a message pointing
-        /// at the required companion flag.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        /// Accepts values in `[1, 10000]`. Values above ~1000 rarely
+        /// add insight and stress the upstream exporter; the
+        /// `postgres_exporter` default query timeout is 30s.
+        /// Supplying this flag without a `pg_stat` source errors
+        /// with a message pointing at the required companion flag.
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         pg_stat_top: Option<u32>,
     },
 
@@ -522,8 +518,10 @@ async fn main() {
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
                 before.as_deref(),
-                // `try_from` over `as` so a 16-bit target would fall
-                // back to the default instead of truncating silently.
+                // `try_from` over `as` so a 16-bit target drops the
+                // flag instead of truncating silently. No supported
+                // build has `usize < 32` bits, so the only effect is
+                // to keep the cast honest.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
             )
             .await;
@@ -750,6 +748,14 @@ fn load_report_from_input(
 /// when the user does not set `--pg-stat-top`.
 const DEFAULT_PG_STAT_TOP: usize = 10;
 
+/// Lower bound on the Prometheus scrape size when only a small
+/// `--pg-stat-top` is set. `rank_pg_stat` emits four rankings keyed on
+/// different columns; feeding it only the `top_n` by `seconds_total`
+/// (the upstream `topk` metric) biases the three non-time rankings.
+/// Always scrape at least this many rows so the secondary rankings see
+/// the full hot-spot distribution.
+const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
+
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
 /// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
 fn load_pg_stat_from_file(
@@ -778,7 +784,8 @@ async fn load_pg_stat_from_prometheus(
     _config: &Config,
     top_n: usize,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
-    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, top_n).await {
+    let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
+    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, scrape_budget).await {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
@@ -833,7 +840,10 @@ async fn cmd_report(
     #[cfg(not(feature = "daemon"))]
     let has_pg_stat_source = pg_stat_path.is_some();
     if pg_stat_top.is_some() && !has_pg_stat_source {
+        #[cfg(feature = "daemon")]
         eprintln!("Error: --pg-stat-top requires --pg-stat or --pg-stat-prometheus");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("Error: --pg-stat-top requires --pg-stat");
         std::process::exit(2);
     }
     let top_n = pg_stat_top.unwrap_or(DEFAULT_PG_STAT_TOP);
