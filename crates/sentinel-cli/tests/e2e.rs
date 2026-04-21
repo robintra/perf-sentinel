@@ -1395,3 +1395,213 @@ fn cli_diff_writes_to_output_file() {
     let diff: Value = serde_json::from_str(&written).expect("output file must be valid JSON");
     assert!(diff.get("new_findings").is_some());
 }
+
+// ---------------------------------------------------------------------
+// `report` subcommand: HTML dashboard output.
+// ---------------------------------------------------------------------
+
+/// Extract the embedded JSON payload from a rendered HTML dashboard.
+/// Mirrors the test helper in `report::html::tests::extract_payload_json`
+/// but lives here so the e2e tier does not reach into the core crate.
+fn extract_payload_json_from_html(html: &str) -> Value {
+    let tag = "<script id=\"report-data\"";
+    let start = html.find(tag).expect("report-data script tag present");
+    let open = html[start..].find('>').expect("script open") + 1;
+    let rest = &html[start + open..];
+    let end = rest.find("</script>").expect("script close");
+    let blob = rest[..end].trim().replace("<\\/", "</");
+    serde_json::from_str(&blob).expect("payload parses as JSON")
+}
+
+#[test]
+fn cli_report_writes_html_file_from_input_flag() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to spawn perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "report subcommand failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(out_path.exists(), "HTML output must exist");
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("<script id=\"report-data\""));
+    // Payload round-trips.
+    let payload = extract_payload_json_from_html(&html);
+    assert!(
+        payload["report"]["findings"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "report must contain findings"
+    );
+}
+
+#[test]
+fn cli_report_reads_from_stdin_via_dash() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_minimal.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let raw = fs::read(&fixture_path).expect("fixture readable");
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&raw)
+        .expect("write stdin");
+
+    let output = child.wait_with_output().expect("wait");
+    assert!(
+        output.status.success(),
+        "report from stdin failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(out_path.exists());
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    let payload = extract_payload_json_from_html(&html);
+    assert_eq!(payload["input_label"], "-");
+    assert_eq!(
+        payload["report"]["findings"].as_array().unwrap().len(),
+        2,
+        "minimal fixture yields exactly 2 findings"
+    );
+}
+
+#[test]
+fn cli_report_help_mentions_all_flags() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["report", "--help"])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+    let help = String::from_utf8_lossy(&output.stdout);
+    assert!(help.contains("--input"), "help mentions --input");
+    assert!(help.contains("--output"), "help mentions --output");
+    assert!(help.contains("--config"), "help mentions --config");
+    assert!(
+        help.contains("--max-traces-embedded"),
+        "help mentions --max-traces-embedded"
+    );
+}
+
+#[test]
+fn cli_report_exits_zero_on_quality_gate_fail() {
+    // The realistic fixture fails the default quality gate (see
+    // pipeline output during fixture crafting: quality_gate.passed =
+    // false). `report` differs from `analyze --ci` here: it must exit
+    // 0 regardless, because the gate status is rendered as a badge in
+    // the HTML top bar, not as a CI signal.
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("spawn");
+
+    assert!(
+        output.status.success(),
+        "report must exit 0 even when gate fails"
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    // The static shell carries both badge labels; check the payload
+    // says the gate actually failed.
+    let payload = extract_payload_json_from_html(&html);
+    assert_eq!(
+        payload["report"]["quality_gate"]["passed"], false,
+        "gate status must be surfaced in the payload"
+    );
+}
+
+#[test]
+fn cli_report_overrides_default_cap_with_explicit_flag() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+            "--max-traces-embedded",
+            "1",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+
+    let html = fs::read_to_string(&out_path).expect("read html");
+    let payload = extract_payload_json_from_html(&html);
+    let embedded = payload["embedded_traces"]
+        .as_array()
+        .expect("embedded_traces array");
+    assert_eq!(
+        embedded.len(),
+        1,
+        "explicit cap must be honored exactly"
+    );
+    let trimmed = &payload["trimmed_traces"];
+    assert!(
+        trimmed.is_object(),
+        "trimmed_traces must be present when fewer traces are embedded than findings point to"
+    );
+    assert_eq!(trimmed["kept"], 1);
+    // At least 2 distinct findings-bearing traces exist in the
+    // realistic fixture; the `total` figure must reflect that.
+    assert!(
+        trimmed["total"].as_u64().unwrap() >= 2,
+        "total must count all candidate traces"
+    );
+}
