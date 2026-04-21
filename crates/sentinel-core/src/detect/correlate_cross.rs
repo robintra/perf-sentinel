@@ -67,10 +67,11 @@ pub struct CrossTraceCorrelation {
     pub first_seen: String,
     /// ISO 8601 timestamp of the most recent observed co-occurrence.
     pub last_seen: String,
-    /// Trace id of the most recently observed source-side contribution
-    /// to this pair. Lets the dashboard jump from a correlation row to
-    /// Explain and render a representative tree. `None` in batch mode
-    /// and for replayed baselines that predate this field.
+    /// Trace id of the most recent target-side finding that completed
+    /// this pair (the trailing finding in the source -> target order).
+    /// Lets the dashboard jump from a correlation row to Explain and
+    /// render a representative tree. `None` in batch mode and for
+    /// replayed baselines that predate this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_trace_id: Option<String>,
 }
@@ -130,11 +131,12 @@ struct PairState {
     rng_state: u64,
     first_seen_ms: u64,
     last_seen_ms: u64,
-    /// Trace id of the most recent source-side finding that contributed
-    /// to this pair. Overwritten on every co-occurrence so the value
-    /// tracks the latest observation. Adds one `Option<String>` (~40
-    /// bytes worst case) per active pair, well under the correlator's
-    /// 20 MB lag-reservoir budget at the 10,000 pair cap.
+    /// Trace id of the most recent target-side finding that completed
+    /// this pair (the trailing finding in the source -> target order).
+    /// Overwritten on every co-occurrence so the value tracks the
+    /// latest observation. Adds one `Option<String>` (~40 bytes worst
+    /// case) per active pair, well under the correlator's 20 MB
+    /// lag-reservoir budget at the 10,000 pair cap.
     last_trace_id: Option<String>,
 }
 
