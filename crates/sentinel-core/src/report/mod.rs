@@ -1,5 +1,6 @@
 //! Report stage: outputs analysis results.
 
+pub mod html;
 pub mod interpret;
 pub mod json;
 pub mod metrics;

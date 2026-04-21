@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>perf-sentinel report</title>
+<style>
+  :root[data-theme="dark"] {
+    --color-background-primary: #1a1a1a;
+    --color-background-secondary: #242424;
+    --color-background-tertiary: #2e2e2e;
+    --color-background-info: #18324d;
+    --color-background-danger: #3d1f1f;
+    --color-background-warning: #3d2f1f;
+    --color-background-success: #1f3d2f;
+    --color-text-primary: #e8e8e8;
+    --color-text-secondary: #a0a0a0;
+    --color-text-tertiary: #707070;
+    --color-text-info: #6babff;
+    --color-text-danger: #ff7a7a;
+    --color-text-warning: #f0b05f;
+    --color-text-success: #5fd495;
+    --color-border-tertiary: rgba(255,255,255,0.1);
+    --color-border-secondary: rgba(255,255,255,0.2);
+    --color-border-info: #378add;
+    --color-border-success: #3d7d5c;
+    --page-bg: #121212;
+  }
+  :root[data-theme="light"] {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f5f5f5;
+    --color-background-tertiary: #ececec;
+    --color-background-info: #e6f1fb;
+    --color-background-danger: #fcebeb;
+    --color-background-warning: #faeeda;
+    --color-background-success: #eaf3de;
+    --color-text-primary: #1a1a1a;
+    --color-text-secondary: #555555;
+    --color-text-tertiary: #888888;
+    --color-text-info: #0c447c;
+    --color-text-danger: #791f1f;
+    --color-text-warning: #633806;
+    --color-text-success: #27500a;
+    --color-border-tertiary: rgba(0,0,0,0.1);
+    --color-border-secondary: rgba(0,0,0,0.2);
+    --color-border-info: #378add;
+    --color-border-success: #7ab85a;
+    --page-bg: #fafafa;
+  }
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, Monaco, monospace;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--page-bg); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
+  .ps-container { max-width: 1100px; margin: 0 auto; }
+  .ps-header-ctrl { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px; font-size: 11px; color: var(--color-text-tertiary); }
+  .ps-theme-toggle { background: transparent; border: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); padding: 4px 10px; border-radius: var(--border-radius-md); cursor: pointer; font-size: 11px; font-family: inherit; }
+  .ps-theme-toggle:hover { border-color: var(--color-border-secondary); }
+  .ps-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); margin-bottom: 12px; flex-wrap: wrap; }
+  .ps-brand { font-weight: 500; font-size: 14px; }
+  .ps-meta { color: var(--color-text-secondary); font-size: 12px; font-family: var(--font-mono); }
+  .ps-gate-pass { margin-left: auto; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
+  .ps-gate-fail { margin-left: auto; background: var(--color-background-danger); color: var(--color-text-danger); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
+  .ps-tabs { display: flex; gap: 2px; border-bottom: 0.5px solid var(--color-border-tertiary); margin-bottom: 14px; }
+  .ps-tab { padding: 8px 14px; font-size: 13px; cursor: pointer; border: none; background: transparent; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -0.5px; font-family: inherit; }
+  .ps-tab:hover { color: var(--color-text-primary); }
+  .ps-tab.active { color: var(--color-text-primary); border-bottom-color: var(--color-text-primary); font-weight: 500; }
+  .ps-tab .ps-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 10px; background: var(--color-background-tertiary); color: var(--color-text-secondary); }
+  .ps-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .ps-metrics-3 { grid-template-columns: repeat(3, 1fr); }
+  .ps-metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
+  .ps-metric-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+  .ps-metric-value { font-size: 20px; font-weight: 500; font-family: var(--font-mono); word-break: break-word; }
+  .ps-metric-value-sm { font-size: 14px; line-height: 1.4; }
+  .ps-metric-sub { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
+  .ps-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .ps-chip { padding: 4px 10px; font-size: 11px; border-radius: 12px; border: 0.5px solid var(--color-border-tertiary); background: transparent; cursor: pointer; color: var(--color-text-secondary); font-family: inherit; }
+  .ps-chip:hover { background: var(--color-background-secondary); }
+  .ps-chip.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
+  .ps-list { display: flex; flex-direction: column; gap: 6px; }
+  .ps-row { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); cursor: pointer; background: var(--color-background-primary); }
+  .ps-row:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
+  .ps-row.selected { border: 2px solid var(--color-border-info); padding: 9px 11px; }
+  .ps-sev-crit { background: var(--color-background-danger); color: var(--color-text-danger); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-sev-warn { background: var(--color-background-warning); color: var(--color-text-warning); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-sev-info { background: var(--color-background-info); color: var(--color-text-info); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-fin-main { min-width: 0; }
+  .ps-fin-type { font-weight: 500; font-size: 13px; margin-bottom: 2px; }
+  .ps-fin-service { color: var(--color-text-tertiary); font-weight: 400; font-size: 11px; }
+  .ps-fin-detail { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-fin-right { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+  .ps-fin-right-sub { color: var(--color-text-tertiary); }
+  .ps-tree-header { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 8px; font-family: var(--font-mono); word-break: break-all; }
+  .ps-tree { font-family: var(--font-mono); font-size: 12px; padding: 10px 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); line-height: 1.9; }
+  .ps-span { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 2px 4px; border-radius: 4px; }
+  .ps-span.dim { color: var(--color-text-tertiary); }
+  .ps-span.hilite { background: var(--color-background-danger); }
+  .ps-span-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-span-dur { color: var(--color-text-tertiary); white-space: nowrap; }
+  .ps-span-find { color: var(--color-text-danger); font-weight: 500; }
+  .ps-drill { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 10px 12px; margin-top: 10px; font-size: 12px; color: var(--color-text-info); }
+  .ps-drill-label { font-size: 10px; color: var(--color-text-info); margin-bottom: 4px; opacity: 0.8; }
+  .ps-drill-link { color: var(--color-text-info); }
+  .ps-banner { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 8px 12px; margin-bottom: 10px; font-size: 11px; color: var(--color-text-info); }
+  .ps-empty { padding: 30px; text-align: center; color: var(--color-text-secondary); font-size: 13px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); }
+  .ps-table { width: 100%; font-size: 11px; font-family: var(--font-mono); border-collapse: collapse; }
+  .ps-table th { text-align: left; font-weight: 500; padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 10px; font-family: var(--font-sans); }
+  .ps-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; }
+  .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
+  .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
+</style>
+</head>
+<body>
+<div class="ps-container">
+  <div class="ps-header-ctrl">
+    <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
+  </div>
+
+  <div class="ps-topbar" id="topbar"></div>
+
+  <div class="ps-tabs" id="tabs"></div>
+
+  <div id="panel-findings">
+    <div class="ps-banner" id="trim-banner" style="display: none;"></div>
+    <div class="ps-metrics" id="findings-metrics"></div>
+    <div class="ps-filters" id="findings-filters"></div>
+    <div class="ps-list" id="findings-list"></div>
+    <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
+  </div>
+
+  <div id="panel-explain" style="display: none;">
+    <div class="ps-empty" id="explain-empty">Click a finding to view its trace tree here.</div>
+    <div id="explain-content" style="display: none;">
+      <div class="ps-tree-header" id="explain-breadcrumb"></div>
+      <div class="ps-tree" id="explain-tree"></div>
+      <div class="ps-drill" id="explain-fix" style="display: none;"></div>
+    </div>
+  </div>
+
+  <div id="panel-green" style="display: none;">
+    <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
+    <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
+    <table class="ps-table" id="green-regions-table" style="display: none;">
+      <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th></tr></thead>
+      <tbody id="green-regions-body"></tbody>
+    </table>
+    <div class="ps-empty" id="green-regions-empty" style="display: none;">No region breakdown available.</div>
+  </div>
+
+  <div class="ps-footer">
+    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">esc</span> back
+  </div>
+</div>
+
+<script id="report-data" type="application/json">
+{{REPORT_JSON}}
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // -------- load payload --------
+  var raw = document.getElementById("report-data").textContent || "";
+  var payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch (e) {
+    document.body.textContent = "Failed to parse embedded report data: " + e.message;
+    return;
+  }
+
+  var report = payload.report || {};
+  var findings = report.findings || [];
+  var greenSummary = report.green_summary || null;
+  var hasGreen = !!(greenSummary && greenSummary.co2);
+  var embeddedTraces = payload.embedded_traces || [];
+  var tracesById = {};
+  for (var i = 0; i < embeddedTraces.length; i++) {
+    tracesById[embeddedTraces[i].trace_id] = embeddedTraces[i];
+  }
+
+  // -------- small DOM helpers (textContent only) --------
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+  function setAttr(node, name, value) { node.setAttribute(name, String(value)); }
+  function safeHttpsHref(url) {
+    if (typeof url !== "string") return null;
+    if (url.indexOf("https://") !== 0) return null;
+    return url;
+  }
+
+  // -------- formatters --------
+  function formatGco2(grams) {
+    if (!isFinite(grams)) return "-";
+    var abs = Math.abs(grams);
+    if (abs >= 1) return grams.toFixed(3) + " g";
+    if (abs >= 0.001) return (grams * 1000).toFixed(3) + " mg";
+    if (abs >= 0.000001) return (grams * 1000000).toFixed(3) + " ug";
+    if (abs === 0) return "0 g";
+    return grams.toExponential(2) + " g";
+  }
+  function formatDurationUs(us) {
+    if (!isFinite(us)) return "-";
+    var ms = us / 1000;
+    if (ms < 1) return ms.toFixed(2) + " ms";
+    if (ms < 10) return ms.toFixed(2) + " ms";
+    return Math.round(ms) + " ms";
+  }
+  function truncate(s, max) {
+    if (typeof s !== "string") return "";
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1) + "...";
+  }
+  function percent(num, denom) {
+    if (!denom) return "0%";
+    return Math.round((num * 100) / denom) + "%";
+  }
+
+  // severity + finding-type display maps
+  var SEV_CLASS = { critical: "ps-sev-crit", warning: "ps-sev-warn", info: "ps-sev-info" };
+  var SEV_LABEL = { critical: "CRIT", warning: "WARN", info: "INFO" };
+  var TYPE_LABEL = {
+    n_plus_one_sql: "N+1 SQL",
+    n_plus_one_http: "N+1 HTTP",
+    redundant_sql: "Redundant SQL",
+    redundant_http: "Redundant HTTP",
+    slow_sql: "Slow SQL",
+    slow_http: "Slow HTTP",
+    excessive_fanout: "Excessive fanout",
+    chatty_service: "Chatty service",
+    pool_saturation: "Pool saturation",
+    serialized_calls: "Serialized calls"
+  };
+  function typeLabel(t) { return TYPE_LABEL[t] || String(t); }
+
+  // -------- top bar --------
+  function renderTopbar() {
+    var bar = document.getElementById("topbar");
+    var brand = el("span", "ps-brand", "perf-sentinel");
+    var version = el("span", "ps-meta", "v" + (payload.version || ""));
+    var analysis = report.analysis || { events_processed: 0, traces_analyzed: 0 };
+    var meta = el(
+      "span",
+      "ps-meta",
+      (payload.input_label || "-") +
+        " . " + analysis.traces_analyzed + " traces" +
+        " . " + analysis.events_processed + " spans"
+    );
+    var gate = report.quality_gate || { passed: true };
+    var badge = el(
+      "span",
+      gate.passed ? "ps-gate-pass" : "ps-gate-fail",
+      gate.passed ? "Quality gate passed" : "Quality gate failed"
+    );
+    bar.appendChild(brand);
+    bar.appendChild(version);
+    bar.appendChild(meta);
+    bar.appendChild(badge);
+  }
+
+  // -------- tabs (generic) --------
+  var tabs = [];
+  function registerTab(key, label, countFn) {
+    tabs.push({ key: key, label: label, countFn: countFn });
+  }
+  function renderTabs() {
+    var bar = document.getElementById("tabs");
+    tabs.forEach(function (t) {
+      var btn = el("button", "ps-tab", t.label);
+      btn.type = "button";
+      setAttr(btn, "data-tab", t.key);
+      if (t.countFn) {
+        var c = t.countFn();
+        if (c !== null && c !== undefined) {
+          var badge = el("span", "ps-badge", String(c));
+          btn.appendChild(document.createTextNode(" "));
+          btn.appendChild(badge);
+        }
+      }
+      btn.addEventListener("click", function () { switchTab(t.key); });
+      bar.appendChild(btn);
+    });
+    // default to first tab
+    if (tabs.length > 0) switchTab(tabs[0].key);
+  }
+  var currentTab = null;
+  function switchTab(key) {
+    currentTab = key;
+    var btns = document.querySelectorAll(".ps-tab");
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].classList.toggle("active", btns[i].getAttribute("data-tab") === key);
+    }
+    tabs.forEach(function (t) {
+      var panel = document.getElementById("panel-" + t.key);
+      if (panel) panel.style.display = t.key === key ? "" : "none";
+    });
+  }
+
+  // -------- findings metrics --------
+  function countBySeverity() {
+    var c = { critical: 0, warning: 0, info: 0 };
+    findings.forEach(function (f) { if (c[f.severity] !== undefined) c[f.severity] += 1; });
+    return c;
+  }
+  function renderFindingsMetrics() {
+    var root = document.getElementById("findings-metrics");
+    var sev = countBySeverity();
+    var total = findings.length;
+
+    function card(label, value, sub, smallValue) {
+      var wrap = el("div", "ps-metric");
+      wrap.appendChild(el("div", "ps-metric-label", label));
+      var v = el("div", "ps-metric-value", value);
+      if (smallValue) v.classList.add("ps-metric-value-sm");
+      wrap.appendChild(v);
+      wrap.appendChild(el("div", "ps-metric-sub", sub));
+      return wrap;
+    }
+
+    root.appendChild(card(
+      "Findings",
+      String(total),
+      sev.critical + " crit . " + sev.warning + " warn . " + sev.info + " info"
+    ));
+
+    var avoidable = greenSummary ? (greenSummary.avoidable_io_ops || 0) : 0;
+    var ratio = greenSummary ? Math.round((greenSummary.io_waste_ratio || 0) * 100) : 0;
+    root.appendChild(card(
+      "Avoidable I/O",
+      String(avoidable),
+      ratio + "% waste ratio"
+    ));
+
+    if (hasGreen) {
+      var co2 = greenSummary.co2;
+      root.appendChild(card(
+        "CO2 estimate",
+        formatGco2(co2.total.mid),
+        String(co2.total.model || "")
+      ));
+    }
+
+    var offender = greenSummary && greenSummary.top_offenders && greenSummary.top_offenders[0];
+    if (offender) {
+      root.appendChild(card(
+        "Top offender",
+        truncate(offender.service, 24),
+        "IIS " + (offender.io_intensity_score || 0).toFixed(1),
+        true
+      ));
+    }
+  }
+
+  // -------- filters --------
+  var filterState = { severity: null, service: null };
+  function renderFilterChips() {
+    var root = document.getElementById("findings-filters");
+    root.textContent = "";
+
+    var chips = [{ label: "All", key: "all" }];
+    var hasCrit = findings.some(function (f) { return f.severity === "critical"; });
+    var hasWarn = findings.some(function (f) { return f.severity === "warning"; });
+    if (hasCrit) chips.push({ label: "Critical", key: "sev:critical" });
+    if (hasWarn) chips.push({ label: "Warning", key: "sev:warning" });
+
+    var services = {};
+    findings.forEach(function (f) { services[f.service] = true; });
+    Object.keys(services).sort().forEach(function (s) {
+      chips.push({ label: s, key: "svc:" + s });
+    });
+
+    chips.forEach(function (c) {
+      var btn = el("button", "ps-chip", c.label);
+      btn.type = "button";
+      setAttr(btn, "data-key", c.key);
+      btn.addEventListener("click", function () { onFilterClick(c.key); });
+      root.appendChild(btn);
+    });
+    syncFilterChips();
+  }
+  function onFilterClick(key) {
+    if (key === "all") {
+      filterState.severity = null;
+      filterState.service = null;
+    } else if (key.indexOf("sev:") === 0) {
+      var sv = key.slice(4);
+      filterState.severity = filterState.severity === sv ? null : sv;
+    } else if (key.indexOf("svc:") === 0) {
+      var svc = key.slice(4);
+      filterState.service = filterState.service === svc ? null : svc;
+    }
+    syncFilterChips();
+    renderFindingsList();
+  }
+  function syncFilterChips() {
+    var chips = document.querySelectorAll("#findings-filters .ps-chip");
+    var anyActive = !!(filterState.severity || filterState.service);
+    for (var i = 0; i < chips.length; i++) {
+      var key = chips[i].getAttribute("data-key");
+      var active = false;
+      if (key === "all") active = !anyActive;
+      else if (key === "sev:" + filterState.severity) active = true;
+      else if (key === "svc:" + filterState.service) active = true;
+      chips[i].classList.toggle("active", active);
+    }
+  }
+
+  // -------- findings list --------
+  var LIST_CAP = 500; // TODO: pagination for lists beyond 500 findings.
+  var visibleFindings = [];
+  var selectedIndex = -1;
+
+  function applyFilters() {
+    return findings.filter(function (f) {
+      if (filterState.severity && f.severity !== filterState.severity) return false;
+      if (filterState.service && f.service !== filterState.service) return false;
+      return true;
+    });
+  }
+
+  function renderFindingsList() {
+    var root = document.getElementById("findings-list");
+    var empty = document.getElementById("findings-empty");
+    root.textContent = "";
+    visibleFindings = applyFilters().slice(0, LIST_CAP);
+    selectedIndex = visibleFindings.length > 0 ? 0 : -1;
+
+    if (visibleFindings.length === 0) {
+      empty.style.display = "";
+      return;
+    }
+    empty.style.display = "none";
+
+    visibleFindings.forEach(function (f, idx) {
+      root.appendChild(buildFindingRow(f, idx));
+    });
+    syncSelection();
+  }
+
+  function buildFindingRow(f, idx) {
+    var row = el("div", "ps-row");
+    setAttr(row, "data-idx", idx);
+
+    var sev = el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO");
+    row.appendChild(sev);
+
+    var main = el("div", "ps-fin-main");
+    var typeRow = el("div", "ps-fin-type");
+    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
+    var svc = el("span", "ps-fin-service", " in " + (f.service || "-"));
+    typeRow.appendChild(svc);
+    main.appendChild(typeRow);
+
+    var tpl = (f.pattern && f.pattern.template) || "";
+    main.appendChild(el("div", "ps-fin-detail", tpl));
+    row.appendChild(main);
+
+    var right = el("div", "ps-fin-right");
+    var occ = (f.pattern && f.pattern.occurrences) || 0;
+    right.appendChild(document.createTextNode(occ + " occ"));
+    right.appendChild(document.createElement("br"));
+    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
+    row.appendChild(right);
+
+    row.addEventListener("click", function () {
+      selectedIndex = idx;
+      syncSelection();
+      openExplain(f);
+    });
+    return row;
+  }
+
+  function syncSelection() {
+    var rows = document.querySelectorAll("#findings-list .ps-row");
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle("selected", i === selectedIndex);
+    }
+  }
+
+  // -------- explain tree --------
+  function openExplain(f) {
+    document.getElementById("explain-empty").style.display = "none";
+    var content = document.getElementById("explain-content");
+    content.style.display = "";
+
+    var breadcrumb = document.getElementById("explain-breadcrumb");
+    var shortTraceId = (f.trace_id || "").slice(0, 12);
+    breadcrumb.textContent = "trace_id = " + shortTraceId + " . " + (f.service || "-") + " . " + (f.source_endpoint || "-");
+
+    var treeRoot = document.getElementById("explain-tree");
+    treeRoot.textContent = "";
+
+    var trace = tracesById[f.trace_id];
+    if (!trace) {
+      treeRoot.appendChild(el("div", "ps-span dim", "(trace not embedded - re-run with a higher --max-traces-embedded to inspect)"));
+    } else {
+      renderTree(treeRoot, trace, f);
+    }
+
+    var fix = document.getElementById("explain-fix");
+    fix.textContent = "";
+    if (f.suggested_fix) {
+      fix.style.display = "";
+      renderSuggestedFix(fix, f.suggested_fix);
+    } else {
+      fix.style.display = "none";
+    }
+
+    switchTab("explain");
+  }
+
+  function renderTree(root, trace, finding) {
+    var spans = trace.spans || [];
+    if (spans.length === 0) {
+      root.appendChild(el("div", "ps-span dim", "(empty trace)"));
+      return;
+    }
+    var byId = {};
+    for (var i = 0; i < spans.length; i++) byId[spans[i].span_id] = spans[i];
+
+    var childrenByParent = {};
+    var roots = [];
+    for (var j = 0; j < spans.length; j++) {
+      var s = spans[j];
+      var p = s.parent_span_id;
+      if (p && byId[p]) {
+        if (!childrenByParent[p]) childrenByParent[p] = [];
+        childrenByParent[p].push(j);
+      } else {
+        roots.push(j);
+      }
+    }
+
+    var targetTpl = (finding.pattern && finding.pattern.template) || null;
+    // Iterative DFS with explicit stack; cap depth at 64 to cut cycles if any.
+    var stack = [];
+    for (var r = roots.length - 1; r >= 0; r--) stack.push({ idx: roots[r], depth: 0 });
+    var emitted = 0;
+    var HARD_SPAN_CAP = 2000;
+    while (stack.length > 0 && emitted < HARD_SPAN_CAP) {
+      var frame = stack.pop();
+      if (frame.depth > 64) continue;
+      var span = spans[frame.idx];
+      root.appendChild(buildSpanRow(span, frame.depth, targetTpl));
+      emitted += 1;
+      var kids = childrenByParent[span.span_id] || [];
+      for (var k = kids.length - 1; k >= 0; k--) stack.push({ idx: kids[k], depth: frame.depth + 1 });
+    }
+  }
+
+  function buildSpanRow(span, depth, targetTpl) {
+    var row = el("div", "ps-span");
+    var isFinding = targetTpl && span.template === targetTpl;
+    if (isFinding) row.classList.add("hilite");
+    else row.classList.add("dim");
+    row.style.paddingLeft = (depth * 20) + "px";
+
+    var text = el("span", "ps-span-text");
+    if (isFinding) text.classList.add("ps-span-find");
+    text.textContent = describeSpan(span);
+    row.appendChild(text);
+
+    row.appendChild(el("span", "ps-span-dur", formatDurationUs(span.duration_us)));
+    return row;
+  }
+
+  function describeSpan(span) {
+    if (span.event_type === "sql") {
+      return span.template || span.target || span.operation || "(sql)";
+    }
+    if (span.event_type === "http_out") {
+      var op = (span.operation || "GET").toUpperCase();
+      return op + " " + (span.template || span.target || "");
+    }
+    return span.operation || span.target || "(span)";
+  }
+
+  function renderSuggestedFix(root, fix) {
+    var label = el("div", "ps-drill-label", "Suggested fix . " + (fix.framework || "-"));
+    root.appendChild(label);
+    root.appendChild(document.createTextNode(fix.recommendation || ""));
+    var href = safeHttpsHref(fix.reference_url);
+    if (href) {
+      root.appendChild(document.createTextNode(" "));
+      var a = el("a", "ps-drill-link", "See documentation");
+      setAttr(a, "href", href);
+      setAttr(a, "target", "_blank");
+      setAttr(a, "rel", "noopener noreferrer");
+      root.appendChild(a);
+    }
+  }
+
+  // -------- green panel --------
+  function renderGreenPanel() {
+    if (!hasGreen) return;
+    var co2 = greenSummary.co2;
+
+    function card(label, value, sub) {
+      var wrap = el("div", "ps-metric");
+      wrap.appendChild(el("div", "ps-metric-label", label));
+      wrap.appendChild(el("div", "ps-metric-value", value));
+      wrap.appendChild(el("div", "ps-metric-sub", sub));
+      return wrap;
+    }
+
+    var metrics = document.getElementById("green-metrics");
+    metrics.appendChild(card(
+      "Operational CO2",
+      formatGco2(co2.operational_gco2),
+      "low " + formatGco2(co2.total.low) + " . high " + formatGco2(co2.total.high)
+    ));
+    metrics.appendChild(card(
+      "Embodied CO2",
+      formatGco2(co2.embodied_gco2),
+      "SCI v1.0 M term"
+    ));
+    var avoidMid = co2.avoidable.mid;
+    var ratio = percent(avoidMid, co2.operational_gco2);
+    metrics.appendChild(card(
+      "Avoidable",
+      formatGco2(avoidMid),
+      ratio + " of operational"
+    ));
+
+    var regions = greenSummary.regions || [];
+    var header = document.getElementById("green-regions-header");
+    header.textContent = "Regions (" + regions.length + ")";
+    if (regions.length === 0) {
+      document.getElementById("green-regions-empty").style.display = "";
+      return;
+    }
+    document.getElementById("green-regions-table").style.display = "";
+    var tbody = document.getElementById("green-regions-body");
+    regions.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, r.region || "-"));
+      tr.appendChild(el("td", null, (r.grid_intensity_gco2_kwh || 0).toFixed(0)));
+      tr.appendChild(el("td", null, String(r.io_ops || 0)));
+      tr.appendChild(el("td", null, formatGco2(r.co2_gco2 || 0)));
+      tr.appendChild(el("td", null, r.intensity_source || "-"));
+      tbody.appendChild(tr);
+    });
+  }
+
+  // -------- trim banner --------
+  function renderTrimBanner() {
+    var t = payload.trimmed_traces;
+    if (!t) return;
+    var b = document.getElementById("trim-banner");
+    b.style.display = "";
+    b.textContent = "Showing " + t.kept + " of " + t.total +
+      " traces (trimmed for file size). Rerun with --max-traces-embedded <higher> to see more.";
+  }
+
+  // -------- theme --------
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", cur === "dark" ? "light" : "dark");
+  });
+
+  // -------- keyboard --------
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") {
+      if (currentTab === "explain") switchTab("findings");
+      return;
+    }
+    if (currentTab !== "findings") return;
+    if (ev.key === "j" || ev.key === "k" || ev.key === "Enter") {
+      if (visibleFindings.length === 0) return;
+      if (ev.key === "j") {
+        selectedIndex = (selectedIndex + 1) % visibleFindings.length;
+        syncSelection();
+        scrollSelectedIntoView();
+      } else if (ev.key === "k") {
+        selectedIndex = (selectedIndex - 1 + visibleFindings.length) % visibleFindings.length;
+        syncSelection();
+        scrollSelectedIntoView();
+      } else if (ev.key === "Enter") {
+        if (selectedIndex >= 0) openExplain(visibleFindings[selectedIndex]);
+      }
+      ev.preventDefault();
+    }
+  });
+  function scrollSelectedIntoView() {
+    var rows = document.querySelectorAll("#findings-list .ps-row");
+    if (selectedIndex >= 0 && selectedIndex < rows.length) {
+      rows[selectedIndex].scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  // -------- boot --------
+  renderTopbar();
+  registerTab("findings", "Findings", function () { return findings.length; });
+  registerTab("explain", "Explain", null);
+  if (hasGreen) registerTab("green", "GreenOps", null);
+  renderTabs();
+
+  renderTrimBanner();
+  renderFindingsMetrics();
+  renderFilterChips();
+  renderFindingsList();
+  if (hasGreen) renderGreenPanel();
+})();
+</script>
+</body>
+</html>
