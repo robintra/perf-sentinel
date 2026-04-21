@@ -103,8 +103,41 @@ Flags:
 - `--output <FILE>`: required, overwritten if it already exists.
 - `--config <PATH>`: optional `.perf-sentinel.toml`, same semantics as `analyze --config`.
 - `--max-traces-embedded <N>`: cap on embedded Explain traces. When unset, the sink trims lowest-IIS traces to target a ~5 MB HTML file size. A banner in the Findings tab surfaces the trim ratio when it kicks in.
+- `--pg-stat <FILE>`: cross-reference a `pg_stat_statements` CSV or JSON export. Enables a pg_stat tab and the Explain-to-pg_stat cross-navigation for SQL spans whose normalized template matches a pg_stat row.
+- `--pg-stat-prometheus <URL>`: one-shot HTTP GET against a `postgres_exporter` instance, same effect as `--pg-stat` without the intermediate file. Mutually exclusive with `--pg-stat`.
+- `--before <FILE>`: baseline report JSON (the output of `analyze --format json`). Enables a Diff tab showing new findings, resolved findings, severity changes, and per-endpoint I/O deltas relative to the baseline.
 
 Exit codes differ from `analyze --ci`: `report` always exits 0, even when the quality gate fails. The gate status is rendered as a badge in the HTML top bar. Use `analyze --ci` when you need the CI exit-code signal.
+
+Example invocations:
+
+```bash
+# Basic post-mortem report
+perf-sentinel report --input traces.json --output report.html
+
+# With SQL hotspot cross-reference
+perf-sentinel report --input traces.json \
+    --pg-stat pg_stat_statements.csv \
+    --output report.html
+
+# With scraped Prometheus hotspots instead of a file
+perf-sentinel report --input traces.json \
+    --pg-stat-prometheus http://prometheus:9090 \
+    --output report.html
+
+# PR regression view: diff against a baseline run
+perf-sentinel report --input after.json \
+    --before before.json \
+    --output report.html
+
+# Everything at once
+perf-sentinel report --input traces.json \
+    --pg-stat pg_stat_statements.csv \
+    --before baseline.json \
+    --output report.html
+```
+
+Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` backs out of Explain (or closes the search bar if one is open). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations.
 
 This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 

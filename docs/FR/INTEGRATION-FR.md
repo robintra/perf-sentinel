@@ -103,8 +103,41 @@ Flags :
 - `--output <FICHIER>` : requis, écrasé s'il existe déjà.
 - `--config <CHEMIN>` : `.perf-sentinel.toml` optionnel, mêmes sémantiques que `analyze --config`.
 - `--max-traces-embedded <N>` : cap sur les traces embarquées pour l'onglet Explain. Sans valeur, la sortie est ajustée automatiquement pour viser une taille HTML d'environ 5 Mo en coupant les traces à plus faible IIS. Un bandeau dans l'onglet Findings remonte le ratio tronqué quand la coupe s'applique.
+- `--pg-stat <FICHIER>` : cross-référence un export `pg_stat_statements` CSV ou JSON. Active l'onglet pg_stat et la navigation croisée Explain vers pg_stat sur les spans SQL dont le template normalisé correspond à une ligne pg_stat.
+- `--pg-stat-prometheus <URL>` : scrape one-shot d'un `postgres_exporter`, même effet que `--pg-stat` sans le fichier intermédiaire. Mutuellement exclusif avec `--pg-stat`.
+- `--before <FICHIER>` : rapport baseline JSON (la sortie de `analyze --format json`). Active un onglet Diff qui affiche les nouveaux findings, les findings résolus, les changements de sévérité et les deltas d'I/O par endpoint par rapport à la baseline.
 
 Les codes de sortie diffèrent de `analyze --ci` : `report` sort toujours 0, même quand la quality gate échoue. Le statut de la gate est rendu comme un badge dans la barre supérieure du HTML. Utilise `analyze --ci` quand tu as besoin du signal d'exit-code en CI.
+
+Exemples d'invocation :
+
+```bash
+# Rapport post-mortem de base
+perf-sentinel report --input traces.json --output report.html
+
+# Avec cross-référence hotspots SQL
+perf-sentinel report --input traces.json \
+    --pg-stat pg_stat_statements.csv \
+    --output report.html
+
+# Avec scrape Prometheus à la place du fichier
+perf-sentinel report --input traces.json \
+    --pg-stat-prometheus http://prometheus:9090 \
+    --output report.html
+
+# Vue régression PR : diff contre une baseline
+perf-sentinel report --input after.json \
+    --before before.json \
+    --output report.html
+
+# Tout à la fois
+perf-sentinel report --input traces.json \
+    --pg-stat pg_stat_statements.csv \
+    --before baseline.json \
+    --output report.html
+```
+
+Clavier dans le dashboard : `j`/`k` déplacent la sélection Findings, `enter` ouvre le finding courant dans Explain, `esc` sort d'Explain (ou ferme la barre de recherche quand une est ouverte). `/` ouvre un filtre substring sur l'onglet actif, limité aux onglets Findings, pg_stat, Diff ou Correlations.
 
 C'est une vue post-mortem d'un jeu de traces terminé. Pour une inspection live d'un daemon qui tourne, utilise `perf-sentinel query inspect` (TUI) ou directement les endpoints `/api/*`. Pour un workflow Tempo, compose via le shell : `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
 

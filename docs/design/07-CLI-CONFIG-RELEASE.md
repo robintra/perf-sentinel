@@ -118,6 +118,23 @@ Only `reference_url` from `SuggestedFix` becomes a hyperlink, and only when the 
 
 **Exit-code semantics differ from `analyze --ci`.** `report` exits 0 even when the quality gate fails. The gate status is surfaced as a red/green badge in the HTML top bar. Users who need a CI exit signal keep using `analyze --ci`. Two subcommands, two concerns.
 
+**Optional cross-references: pg_stat, diff, correlations.** Three optional tabs are added by dedicated flags:
+
+- `--pg-stat <FILE>` ingests a `pg_stat_statements` CSV or JSON export via the same `parse_pg_stat` + `rank_pg_stat` path that the `pg-stat` subcommand uses. A pg_stat tab then shows the by-total-time ranking (Template, Calls, Total ms, Mean ms). The other two rankings (by calls, by mean) stay accessible via the text `pg-stat` subcommand and are not duplicated in the HTML.
+- `--pg-stat-prometheus <URL>` scrapes a `postgres_exporter` endpoint one-shot via `fetch_from_prometheus`, same effect as `--pg-stat` without the intermediate file. Mutually exclusive with `--pg-stat` at the clap level (`conflicts_with`). This is a flag on `report` rather than a separate subcommand because a one-shot HTTP GET is not a streaming source that deserves its own command surface. Consistent with the rest of the CLI: if it doesn't stream, it composes.
+- `--before <FILE>` deserializes a baseline report JSON (the output of `analyze --format json`), feeds it into `diff::diff_runs` against the current run, and embeds the `DiffReport`. A Diff tab then renders four sections: new findings (clickable, open Explain), resolved findings (not clickable, their traces are in the baseline which is not embedded), severity changes and endpoint metric deltas (both non-clickable tabular data).
+
+**Correlations tab.** Only daemon-produced reports carry `correlations`. The batch pipeline does not emit them, so the tab stays hidden on batch output. The JS guards on `report.correlations?.length > 0`, so the tab lights up automatically when a future daemon-produced JSON is fed into `perf-sentinel report --input <daemon.json>`. No new field was added to the `Report` struct in this sprint.
+
+**Cross-navigation.** Two cross-navs plug the tabs together:
+
+- Explain to pg_stat: when the active finding's trace contains a SQL span whose normalized template matches a row in pg_stat, that span gets a `ps-span-pgstat-link` class and a click handler. Clicking switches to the pg_stat tab with the matching row highlighted and a "Filtered from Explain" banner shown above the table. The banner has a "clear" link that hides it and removes the highlight. The span is not clickable when pg_stat is absent from the payload.
+- Diff to Explain: rows in the `new_findings` section are clickable and delegate to the existing `openExplain` function. Rows in `resolved_findings`, `severity_changes` and `endpoint_metric_deltas` are not clickable. For a new finding whose `trace_id` has been trimmed by the size cap, the Explain panel shows "Trace not embedded (cap reached). Rerun with `--max-traces-embedded <higher>` to include it." instead of an empty tree.
+
+**Search via `/`.** Each of Findings, pg_stat, Diff, Correlations carries a hidden `<input type="search">` at the top of its panel. The global keyboard handler catches `/` when no input is focused and the active tab is searchable, reveals the input and focuses it. `esc` with the input focused clears the filter and hides the input. Filter logic walks the active panel's rows and toggles `display: none` based on case-insensitive substring match over `textContent`. State is cleared on tab switch (no cross-tab carryover). Explain and GreenOps are no-search by design (no meaningful row list). The 500-row cap on Findings still applies.
+
+**Baseline JSON round-trip.** `--before` requires the `Report` struct to derive `Deserialize`, which the 8.1 tree did not. The cascade adds `Deserialize` to `Report`, `Analysis`, `GreenSummary`, `QualityGate`, `QualityRule`, `TopOffender`, `CarbonReport`, `CarbonEstimate`, `RegionBreakdown` and `IntensitySource`. Optional fields with `skip_serializing_if` gain a matching `#[serde(default)]` so round-trip parses cleanly even when the source JSON omits them. Two `&'static str` fields on `CarbonEstimate` (`model`, `methodology`) and one on `RegionBreakdown` (`status`) became `String` for serde round-trip. The cost is a handful of `.to_string()` calls on construction-site constants, invisible next to the surrounding numeric work.
+
 ### Feature flags
 
 The workspace uses Cargo feature flags to keep daemon-only dependencies optional:
