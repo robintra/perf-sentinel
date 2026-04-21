@@ -35,7 +35,9 @@
 //! rationale.
 
 use crate::correlate::Trace;
+use crate::diff::DiffReport;
 use crate::event::EventType;
+use crate::ingest::pg_stat::PgStatReport;
 use crate::normalize::NormalizedEvent;
 use crate::report::Report;
 use serde::Serialize;
@@ -54,6 +56,16 @@ pub struct RenderOptions {
     /// Explicit cap on embedded traces. When `None`, the sink trims to
     /// fit [`DEFAULT_SIZE_TARGET_BYTES`] using the top-waste fallback.
     pub max_traces_embedded: Option<usize>,
+    /// Optional `pg_stat_statements` report embedded alongside the
+    /// analysis. When `Some`, the HTML dashboard exposes a `pg_stat` tab
+    /// plus the Explain-to-`pg_stat` cross-navigation for matching SQL
+    /// templates.
+    pub pg_stat: Option<PgStatReport>,
+    /// Optional diff against a baseline run embedded alongside the
+    /// analysis. When `Some`, the HTML dashboard exposes a Diff tab
+    /// with new/resolved findings, severity changes, and per-endpoint
+    /// deltas.
+    pub diff: Option<DiffReport>,
 }
 
 /// Render a report to a self-contained HTML string.
@@ -77,6 +89,8 @@ pub struct RenderOptions {
 /// let html = render(&report, &traces, &RenderOptions {
 ///     input_label: "traces.json".to_string(),
 ///     max_traces_embedded: None,
+///     pg_stat: None,
+///     diff: None,
 /// });
 /// assert!(html.starts_with("<!DOCTYPE html>"));
 /// ```
@@ -120,6 +134,10 @@ struct Payload<'a> {
     embedded_traces: Vec<EmbeddedTrace<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trimmed_traces: Option<TrimSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pg_stat: Option<&'a PgStatReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diff: Option<&'a DiffReport>,
 }
 
 #[derive(Debug, Serialize)]
@@ -177,7 +195,7 @@ fn build_payload<'a>(
         };
         (ordered.into_iter().take(take).collect::<Vec<_>>(), summary)
     } else {
-        trim_to_size_target(ordered, report, &options.input_label)
+        trim_to_size_target(ordered, report, options)
     };
 
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
@@ -188,6 +206,8 @@ fn build_payload<'a>(
         report,
         embedded_traces,
         trimmed_traces: trimmed,
+        pg_stat: options.pg_stat.as_ref(),
+        diff: options.diff.as_ref(),
     }
 }
 
@@ -236,7 +256,7 @@ fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
 fn trim_to_size_target<'a>(
     ordered: Vec<&'a Trace>,
     report: &Report,
-    input_label: &str,
+    options: &'a RenderOptions,
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
     let mut kept = ordered;
@@ -252,10 +272,12 @@ fn trim_to_size_target<'a>(
         let embedded_traces: Vec<_> = kept.iter().copied().map(embed_trace).collect();
         let payload = Payload {
             version: env!("CARGO_PKG_VERSION"),
-            input_label,
+            input_label: options.input_label.as_str(),
             report,
             embedded_traces,
             trimmed_traces: trimmed.clone(),
+            pg_stat: options.pg_stat.as_ref(),
+            diff: options.diff.as_ref(),
         };
         let serialized_len = serde_json::to_string(&payload).map_or(0, |s| s.len());
         if serialized_len + TEMPLATE.len() <= DEFAULT_SIZE_TARGET_BYTES || kept.is_empty() {
@@ -396,6 +418,8 @@ mod tests {
         RenderOptions {
             input_label: label.into(),
             max_traces_embedded: cap,
+            pg_stat: None,
+            diff: None,
         }
     }
 
