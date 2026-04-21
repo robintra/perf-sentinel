@@ -72,7 +72,7 @@ pub(super) fn build_region_breakdowns(
              [green.service_regions] to attribute them."
         );
         regions.push(RegionBreakdown {
-            status: REGION_STATUS_UNRESOLVED,
+            status: REGION_STATUS_UNRESOLVED.to_string(),
             region: UNKNOWN_REGION.to_string(),
             grid_intensity_gco2_kwh: 0.0,
             pue: 0.0,
@@ -118,7 +118,7 @@ fn build_single_region_row(region: String, acc: &RegionAccumulator) -> RegionBre
         let intensity_source = acc.max_intensity_source;
         maybe_warn_eu_central_1_profile(&region, intensity_source);
         return RegionBreakdown {
-            status: REGION_STATUS_KNOWN,
+            status: REGION_STATUS_KNOWN.to_string(),
             region,
             grid_intensity_gco2_kwh: mean_intensity,
             pue,
@@ -147,7 +147,7 @@ fn build_single_region_row(region: String, acc: &RegionAccumulator) -> RegionBre
     };
     let pue_display = if has_co2 { GENERIC_PUE } else { 0.0 };
     RegionBreakdown {
-        status: REGION_STATUS_OUT_OF_TABLE,
+        status: REGION_STATUS_OUT_OF_TABLE.to_string(),
         region,
         grid_intensity_gco2_kwh: mean_intensity,
         pue: pue_display,

@@ -24,7 +24,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::event::SpanEvent;
 
@@ -167,18 +167,23 @@ impl EnergyEntry {
 }
 
 /// CO₂ point estimate with 2x multiplicative uncertainty interval.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+///
+/// `model` and `methodology` are `String` (not `&'static str`) so the
+/// struct can be round-tripped through serde. In-process construction
+/// still uses static string constants; the one-time `.to_string()` at
+/// build time is negligible next to the numeric work around it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CarbonEstimate {
     pub low: f64,
     pub mid: f64,
     pub high: f64,
-    pub model: &'static str,
-    pub methodology: &'static str,
+    pub model: String,
+    pub methodology: String,
 }
 
 impl CarbonEstimate {
     /// Derive `low`/`high` from midpoint using multiplicative factors.
-    pub(crate) const fn new_with_model(
+    pub(crate) fn new_with_model(
         mid: f64,
         model: &'static str,
         methodology: &'static str,
@@ -187,32 +192,32 @@ impl CarbonEstimate {
             low: mid * CO2_LOW_FACTOR,
             mid,
             high: mid * CO2_HIGH_FACTOR,
-            model,
-            methodology,
+            model: model.to_string(),
+            methodology: methodology.to_string(),
         }
     }
 
     /// SCI v1.0 numerator estimate with default proxy v1 model.
     #[must_use]
-    pub const fn sci_numerator(mid: f64) -> Self {
+    pub fn sci_numerator(mid: f64) -> Self {
         Self::new_with_model(mid, CO2_MODEL, METHODOLOGY_SCI_NUMERATOR)
     }
 
     /// Avoidable CO₂ estimate with default proxy v1 model.
     #[must_use]
-    pub const fn operational_ratio(mid: f64) -> Self {
+    pub fn operational_ratio(mid: f64) -> Self {
         Self::new_with_model(mid, CO2_MODEL, METHODOLOGY_OPERATIONAL_RATIO)
     }
 
     /// SCI v1.0 numerator estimate with explicit model tag.
     #[must_use]
-    pub const fn sci_numerator_with_model(mid: f64, model: &'static str) -> Self {
+    pub fn sci_numerator_with_model(mid: f64, model: &'static str) -> Self {
         Self::new_with_model(mid, model, METHODOLOGY_SCI_NUMERATOR)
     }
 
     /// Avoidable CO₂ estimate with explicit model tag.
     #[must_use]
-    pub const fn operational_ratio_with_model(mid: f64, model: &'static str) -> Self {
+    pub fn operational_ratio_with_model(mid: f64, model: &'static str) -> Self {
         Self::new_with_model(mid, model, METHODOLOGY_OPERATIONAL_RATIO)
     }
 }
@@ -223,7 +228,7 @@ impl CarbonEstimate {
 /// `total` is the SCI numerator `(E × I) + M` summed over analyzed traces,
 /// `avoidable` is the region-blind operational ratio approximation.
 /// Each estimate carries a 2× multiplicative uncertainty bracket.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CarbonReport {
     /// Total estimated CO₂ (operational + embodied) with confidence interval.
     pub total: CarbonEstimate,
@@ -239,14 +244,14 @@ pub struct CarbonReport {
     /// Network transport CO₂ for cross-region HTTP calls (gCO₂eq).
     /// Only present when `[green] include_network_transport = true`
     /// and at least one cross-region HTTP call had response size data.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
 }
 
 /// Whether a region row used the flat annual, 24-hour, monthly x hourly profile,
 /// or real-time data from the Electricity Maps API.
 /// Variants are ordered by fidelity: `Annual` < `Hourly` < `MonthlyHourly` < `RealTime`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum IntensitySource {
     #[default]
@@ -258,10 +263,14 @@ pub enum IntensitySource {
 }
 
 /// Per-region operational CO₂ breakdown row in `green_summary.regions[]`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+///
+/// `status` is `String` (not `&'static str`) so the struct can be
+/// round-tripped through serde. Construction sites use the
+/// `REGION_STATUS_*` constants and pay a one-time `.to_string()` cost.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RegionBreakdown {
     /// `"known"` / `"out_of_table"` / `"unresolved"`.
-    pub status: &'static str,
+    pub status: String,
     pub region: String,
     /// Ops-weighted mean grid intensity (gCO₂eq/kWh). `0.0` if out-of-table.
     pub grid_intensity_gco2_kwh: f64,

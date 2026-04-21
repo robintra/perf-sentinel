@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// A complete analysis report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Report {
     pub analysis: Analysis,
     pub findings: Vec<Finding>,
@@ -34,7 +34,7 @@ pub struct Report {
 }
 
 /// Analysis metadata.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Analysis {
     pub duration_ms: u64,
     pub events_processed: usize,
@@ -42,7 +42,7 @@ pub struct Analysis {
 }
 
 /// `GreenOps` summary of I/O waste.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GreenSummary {
     pub total_io_ops: usize,
     pub avoidable_io_ops: usize,
@@ -51,7 +51,7 @@ pub struct GreenSummary {
     /// (`healthy` / `moderate` / `high` / `critical`).
     ///
     /// Computed by [`InterpretationLevel::for_waste_ratio`]. The enum
-    /// values are stable across versions; the thresholds behind them
+    /// values are stable across versions, the thresholds behind them
     /// are versioned with the binary. See the [`interpret`] module for
     /// the stability contract.
     pub io_waste_ratio_band: InterpretationLevel,
@@ -59,16 +59,16 @@ pub struct GreenSummary {
     /// Structured CO₂ report. Includes 2× multiplicative uncertainty
     /// bracket, SCI v1.0 methodology tags, and operational + embodied terms.
     /// `None` when green scoring is disabled or when no events were analyzed.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub co2: Option<CarbonReport>,
     /// Per-region operational CO₂ breakdown sorted by `co2_gco2` descending.
     /// Empty when green scoring is disabled or no events were analyzed.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub regions: Vec<RegionBreakdown>,
     /// Network transport CO₂ (gCO₂eq). Only present when
     /// `[green] include_network_transport = true` and at least one
     /// cross-region HTTP call had response size data.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
 }
 
@@ -138,28 +138,28 @@ impl GreenSummary {
 }
 
 /// A top offender endpoint ranked by I/O Intensity Score.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TopOffender {
     pub endpoint: String,
     pub service: String,
     pub io_intensity_score: f64,
     /// Classification band for `io_intensity_score`. Stable enum values
-    /// across versions; thresholds versioned with the binary. See the
+    /// across versions, thresholds versioned with the binary. See the
     /// [`interpret`] module for the stability contract.
     pub io_intensity_band: InterpretationLevel,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub co2_grams: Option<f64>,
 }
 
 /// Quality gate result.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityGate {
     pub passed: bool,
     pub rules: Vec<QualityRule>,
 }
 
 /// A single quality gate rule check.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QualityRule {
     pub rule: String,
     pub threshold: f64,
