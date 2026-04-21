@@ -626,7 +626,7 @@ mod tests {
         rest[..end].trim().replace("<\\/", "</")
     }
 
-    fn synthetic_pg_stat() -> crate::ingest::pg_stat::PgStatReport {
+    fn synthetic_pg_stat() -> PgStatReport {
         use crate::ingest::pg_stat::{PgStatEntry, PgStatRanking, PgStatReport};
         let entries = vec![
             PgStatEntry {
