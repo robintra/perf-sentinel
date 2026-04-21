@@ -669,9 +669,34 @@ async fn cmd_report(
     let effective_input = if stdin_mode { None } else { input };
 
     let raw = read_events(effective_input, config.max_payload_size);
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
-    let (report, traces) = pipeline::analyze_with_traces(events, &config);
+    // `--input` accepts two JSON shapes:
+    //  1) An array of span events (same format as `analyze --input`)
+    //     which we pipeline through normalize+correlate+detect+score.
+    //  2) A pre-computed `Report` (as produced by `analyze --format json`
+    //     or by the daemon's `/api/export/report` endpoint) which we
+    //     take as-is without re-running the pipeline.
+    // Peek at the first non-whitespace byte: `[` starts a trace-event
+    // array, `{` starts a Report object. Anything else is an error.
+    let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
+    let (report, traces) = match first_byte {
+        Some(b'{') => {
+            let parsed: sentinel_core::report::Report = serde_json::from_slice(&raw)
+                .unwrap_or_else(|e| {
+                    eprintln!("Error parsing --input as Report JSON: {e}");
+                    std::process::exit(1);
+                });
+            (parsed, Vec::new())
+        }
+        Some(b'[') => {
+            let events = ingest_json_or_exit(&raw, config.max_payload_size);
+            pipeline::analyze_with_traces(events, &config)
+        }
+        _ => {
+            eprintln!("Error: --input must be a JSON array of events or a Report object");
+            std::process::exit(1);
+        }
+    };
 
     let input_label = if stdin_mode {
         "-".to_string()
@@ -1338,6 +1363,7 @@ mod tests {
                 rules,
             },
             per_endpoint_io_ops: vec![],
+            correlations: vec![],
         }
     }
 
@@ -1516,6 +1542,7 @@ mod tests {
                 rules: vec![],
             },
             per_endpoint_io_ops: vec![],
+            correlations: vec![],
         };
         render::format_colored_report(&report, "report", false);
     }

@@ -74,6 +74,9 @@ pub fn analyze_with_traces(
         green_summary,
         quality_gate,
         per_endpoint_io_ops,
+        // Batch mode does not run the cross-trace correlator, whose
+        // rolling window only exists in the daemon. Always empty here.
+        correlations: vec![],
     };
 
     (report, traces)

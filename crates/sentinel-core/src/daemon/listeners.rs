@@ -129,7 +129,9 @@ fn build_http_router(
     metrics: Arc<MetricsState>,
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
-    let metrics_router = crate::report::metrics::metrics_route(metrics);
+    // Clone the Arc before handing it to `metrics_route`, the query API
+    // state below also needs access for lifetime counters on export.
+    let metrics_router = crate::report::metrics::metrics_route(Arc::clone(&metrics));
     let health_router = super::health::health_route();
     let mut http_router = otlp_router.merge(metrics_router).merge(health_router);
     if config.daemon_api_enabled {
@@ -139,6 +141,7 @@ fn build_http_router(
             detect_config: DetectConfig::from(config),
             start_time: std::time::Instant::now(),
             correlator,
+            metrics,
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {

@@ -16,6 +16,9 @@ use crate::correlate::window::TraceWindow;
 use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator};
 use crate::detect::{self, DetectConfig};
 use crate::explain;
+use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+use crate::report::metrics::MetricsState;
+use axum::http::StatusCode;
 
 /// Upper bound for `?limit=` on `/api/findings` to protect the daemon
 /// from expensive large-response requests.
@@ -37,6 +40,11 @@ pub struct QueryApiState {
     /// Optional cross-trace correlator. `None` when
     /// `[daemon.correlation] enabled = false`.
     pub correlator: Option<Arc<tokio::sync::Mutex<CrossTraceCorrelator>>>,
+    /// Shared metrics registry. The `/api/export/report` handler reads
+    /// lifetime counters (`events_processed_total`, `traces_analyzed_total`)
+    /// to populate the `Report.analysis` fields, and bumps
+    /// `export_report_requests_total` per call.
+    pub metrics: Arc<MetricsState>,
 }
 
 /// Build the query API router.
@@ -47,6 +55,7 @@ pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
         .route("/api/explain/{trace_id}", get(handle_explain))
         .route("/api/correlations", get(handle_correlations))
         .route("/api/status", get(handle_status))
+        .route("/api/export/report", get(handle_export_report))
         .with_state(state)
 }
 
@@ -169,6 +178,100 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
     })
 }
 
+/// Snapshot the daemon's in-memory state as a [`Report`].
+///
+/// Returns the same JSON shape that `analyze --format json` produces,
+/// which allows piping the response directly into `perf-sentinel
+/// report --input -` to materialize an HTML dashboard from a live
+/// daemon.
+///
+/// Cold start returns `503 Service Unavailable` with
+/// `{"error": "daemon has not yet processed any events"}` to distinguish
+/// "no events yet" from "events exist, zero findings" (the latter
+/// returns `200` with an empty findings array, which is a valid
+/// Report).
+///
+/// TODO: the `Report` assembly below duplicates the one in
+/// `pipeline::analyze`. When a third call site lands, factor into
+/// `report::build_report(...)` and call it from both.
+async fn handle_export_report(
+    State(state): State<Arc<QueryApiState>>,
+) -> Result<Json<Report>, (StatusCode, Json<serde_json::Value>)> {
+    state.metrics.export_report_requests_total.inc();
+
+    // Prometheus counters are f64 internally; daemon-lifetime counts
+    // easily fit in u64 and we never decrement, so truncation is safe.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let events_processed = state.metrics.events_processed_total.get() as u64;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let traces_analyzed = state.metrics.traces_analyzed_total.get() as u64;
+
+    if events_processed == 0 {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "daemon has not yet processed any events"
+            })),
+        ));
+    }
+
+    // Snapshot findings. Cap at MAX_FINDINGS_LIMIT to mirror
+    // `/api/findings`, a huge ring buffer should not serialize into
+    // an unbounded response body.
+    let stored = state
+        .findings_store
+        .query(&FindingsFilter {
+            service: None,
+            finding_type: None,
+            severity: None,
+            limit: MAX_FINDINGS_LIMIT,
+        })
+        .await;
+    let findings: Vec<_> = stored.into_iter().map(|s| s.finding).collect();
+
+    // Snapshot correlations, sorted + capped identically to
+    // `/api/correlations` so both endpoints stay consistent.
+    let correlations = if let Some(c) = &state.correlator {
+        let mut c = c.lock().await.active_correlations();
+        c.sort_by(|a, b| {
+            b.confidence
+                .total_cmp(&a.confidence)
+                .then_with(|| b.co_occurrence_count.cmp(&a.co_occurrence_count))
+        });
+        c.truncate(MAX_CORRELATIONS_LIMIT);
+        c
+    } else {
+        Vec::new()
+    };
+
+    // The daemon does not maintain a live GreenSummary or per-endpoint
+    // I/O counter (those are computed per batch in the event loop and
+    // emitted as Prometheus metrics, not kept in a queryable snapshot).
+    // The export endpoint is a structural view, not a recomputed
+    // analysis: emit GreenSummary::disabled and an empty quality gate
+    // here, callers who want scoring run `analyze` on the trace file.
+    let green_summary = GreenSummary::disabled(events_processed as usize);
+    let quality_gate = QualityGate {
+        passed: true,
+        rules: Vec::new(),
+    };
+
+    let report = Report {
+        analysis: Analysis {
+            duration_ms: state.start_time.elapsed().as_millis() as u64,
+            events_processed: events_processed as usize,
+            traces_analyzed: traces_analyzed as usize,
+        },
+        findings,
+        green_summary,
+        quality_gate,
+        per_endpoint_io_ops: Vec::new(),
+        correlations,
+    };
+
+    Ok(Json(report))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,6 +299,7 @@ mod tests {
             },
             start_time: std::time::Instant::now(),
             correlator: None,
+            metrics: Arc::new(MetricsState::new()),
         })
     }
 
@@ -419,6 +523,7 @@ mod tests {
             },
             start_time: std::time::Instant::now(),
             correlator: Some(Arc::new(tokio::sync::Mutex::new(correlator))),
+            metrics: Arc::new(MetricsState::new()),
         });
 
         let app = query_api_router(state);

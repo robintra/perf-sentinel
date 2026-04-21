@@ -8,6 +8,7 @@ pub mod sarif;
 
 use crate::correlate::Trace;
 use crate::detect::Finding;
+use crate::detect::correlate_cross::CrossTraceCorrelation;
 use crate::report::interpret::InterpretationLevel;
 use crate::score::carbon::{CarbonReport, RegionBreakdown};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,14 @@ pub struct Report {
     /// regardless of the green configuration.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub per_endpoint_io_ops: Vec<PerEndpointIoOps>,
+    /// Cross-trace temporal correlations produced by the daemon's
+    /// correlator. Always empty in the batch pipeline (the correlator
+    /// runs over a rolling window that batch mode does not maintain).
+    /// The HTML dashboard's Correlations tab lights up when this field
+    /// is non-empty, i.e. when a daemon-produced Report is fed into
+    /// `perf-sentinel report --input <daemon.json>`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub correlations: Vec<CrossTraceCorrelation>,
 }
 
 /// Analysis metadata.

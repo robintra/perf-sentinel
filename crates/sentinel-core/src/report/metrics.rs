@@ -76,6 +76,10 @@ pub struct MetricsState {
     /// daemon instances where cross-trace percentiles would otherwise be
     /// computed per-instance on a subset of traces.
     pub slow_duration_seconds: HistogramVec,
+    /// Total requests to `GET /api/export/report` since daemon start.
+    /// Bumped by the handler so operators can dashboard or alert on
+    /// the frequency of Report snapshots being pulled by clients.
+    pub export_report_requests_total: Counter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -217,6 +221,15 @@ impl MetricsState {
             .register(Box::new(cloud_energy_last_scrape_age_seconds.clone()))
             .expect("registration should not fail");
 
+        let export_report_requests_total = Counter::new(
+            "perf_sentinel_export_report_requests_total",
+            "Total requests to GET /api/export/report since daemon start",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(export_report_requests_total.clone()))
+            .expect("registration should not fail");
+
         Self {
             registry,
             findings_total,
@@ -230,6 +243,7 @@ impl MetricsState {
             scaphandre_last_scrape_age_seconds,
             cloud_energy_last_scrape_age_seconds,
             slow_duration_seconds,
+            export_report_requests_total,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }
@@ -564,6 +578,7 @@ mod tests {
                 rules: vec![],
             },
             per_endpoint_io_ops: vec![],
+            correlations: vec![],
         }
     }
 
