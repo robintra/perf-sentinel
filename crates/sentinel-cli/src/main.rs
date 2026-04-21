@@ -270,6 +270,11 @@ enum Commands {
         /// (default: 10). Only meaningful with --pg-stat or
         /// --pg-stat-prometheus.
         ///
+        /// With --pg-stat-prometheus this also widens the upstream
+        /// scrape (more rows pulled from the Prometheus exporter),
+        /// since the scrape and the ranking cut share the same bound.
+        /// Large values may hit exporter query-complexity caps.
+        ///
         /// Accepts values in the `[1, u32::MAX]` range. `0` is
         /// rejected by the range validator. Supplying this flag
         /// without a `pg_stat` source errors with a message pointing
