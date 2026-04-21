@@ -17,7 +17,7 @@ use crate::ingest::IngestSource;
 /// recursion limit of 128 (its compile-time default, no public setter
 /// to tighten it). The pre-scan is O(N) in payload bytes, negligible
 /// next to the JSON parse cost.
-const MAX_JSON_DEPTH: usize = 32;
+pub const MAX_JSON_DEPTH: usize = 32;
 
 /// Reject the payload when its bracket nesting exceeds [`MAX_JSON_DEPTH`].
 ///
@@ -28,7 +28,12 @@ const MAX_JSON_DEPTH: usize = 32;
 /// inflate the depth on string contents. False negatives (accepting an
 /// over-deep payload) are impossible because every structural open
 /// increments depth.
-fn exceeds_max_depth(raw: &[u8]) -> bool {
+///
+/// `pub` so CLI subcommands that accept user-supplied JSON through paths
+/// that bypass `JsonIngest` (e.g. `report --input` in Report mode,
+/// `report --before`) can enforce the same defense-in-depth cap.
+#[must_use]
+pub fn exceeds_max_depth(raw: &[u8]) -> bool {
     let mut depth: usize = 0;
     let mut in_string = false;
     let mut escape = false;
