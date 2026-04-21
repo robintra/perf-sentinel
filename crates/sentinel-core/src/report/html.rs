@@ -1174,6 +1174,39 @@ mod tests {
     }
 
     #[test]
+    fn theme_mode_defaults_to_auto_with_tri_state_cycle() {
+        // New sessions must default to "auto" (follows OS preference).
+        // Assert via the source strings that make up the cycle: the
+        // modes array, the matchMedia wiring, and the cycle.
+        assert!(
+            TEMPLATE.contains("\"auto\", \"dark\", \"light\""),
+            "THEME_MODES tri-state ordering must be auto -> dark -> light"
+        );
+        assert!(
+            TEMPLATE.contains("prefers-color-scheme: dark"),
+            "matchMedia query for prefers-color-scheme missing"
+        );
+        assert!(
+            TEMPLATE.contains("function applyTheme("),
+            "applyTheme helper missing"
+        );
+        assert!(
+            TEMPLATE.contains("function currentThemeMode("),
+            "currentThemeMode helper missing"
+        );
+        // The `<html>` element must not hardcode `data-theme="dark"`
+        // anymore, or the OS preference is ignored until JS runs.
+        assert!(
+            TEMPLATE.contains("data-theme=\"\""),
+            "<html> data-theme must start empty so applyTheme runs before paint"
+        );
+        assert!(
+            !TEMPLATE.contains("data-theme=\"dark\">"),
+            "<html> must not force dark at boot time"
+        );
+    }
+
+    #[test]
     fn explain_empty_helper_is_shared_across_call_sites() {
         // The helper must be defined once and consumed by both the
         // cap-reached path inside openExplain and the resolved-diff

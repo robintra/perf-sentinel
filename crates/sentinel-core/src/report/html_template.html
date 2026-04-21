@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -298,12 +298,54 @@
       return;
     }
   }
-  // Apply the persisted theme before any DOM rendering. The body is a
-  // shell of empty panels at this point, so the only risk of theme-flash
-  // is the container background (mitigated by running this first).
-  var storedTheme = sessionGet(STORAGE_KEYS.theme);
-  if (storedTheme === "dark" || storedTheme === "light") {
-    document.documentElement.dataset.theme = storedTheme;
+  // -------- theme (tri-state: auto | dark | light) --------
+  //
+  // Default is "auto": follows the OS `prefers-color-scheme` setting
+  // and live-updates when the user changes it. Explicit "dark" and
+  // "light" stay forced regardless of the OS setting. Legacy sessions
+  // that stored plain "dark" / "light" keep those forced modes. New
+  // sessions default to "auto" which is more polite than forcing dark.
+  //
+  // Applied before any DOM rendering. The body is a shell of empty
+  // panels at this point, so the only theme-flash risk is the
+  // container background, mitigated by running resolveTheme() first.
+  var THEME_MODES = ["auto", "dark", "light"];
+  var prefersDarkMQ = null;
+  try {
+    prefersDarkMQ = globalThis.matchMedia
+      ? globalThis.matchMedia("(prefers-color-scheme: dark)")
+      : null;
+  } catch {
+    prefersDarkMQ = null;
+  }
+  function currentThemeMode() {
+    var stored = sessionGet(STORAGE_KEYS.theme);
+    return THEME_MODES.indexOf(stored) >= 0 ? stored : "auto";
+  }
+  function resolveThemeColor(mode) {
+    if (mode === "dark" || mode === "light") return mode;
+    // auto: follow OS preference, fall back to dark when the media
+    // query is unavailable.
+    return prefersDarkMQ && prefersDarkMQ.matches ? "dark" : "light";
+  }
+  function applyTheme(mode) {
+    document.documentElement.dataset.theme = resolveThemeColor(mode);
+    var btn = document.getElementById("theme-toggle");
+    if (btn) btn.textContent = "Theme: " + mode;
+  }
+  applyTheme(currentThemeMode());
+  // matchMedia listener stays attached unconditionally; it no-ops for
+  // forced modes because the handler reads the current stored mode
+  // and bails out when it isn't "auto".
+  if (prefersDarkMQ && typeof prefersDarkMQ.addEventListener === "function") {
+    try {
+      prefersDarkMQ.addEventListener("change", function () {
+        if (currentThemeMode() === "auto") applyTheme("auto");
+      });
+    } catch {
+      // Older browsers used `addListener` instead; not worth wiring
+      // for a non-critical live-update nicety.
+    }
   }
 
   // -------- load payload --------
@@ -1414,12 +1456,15 @@
       " traces (trimmed for file size). Rerun with --max-traces-embedded <higher> to see more.";
   }
 
-  // -------- theme --------
+  // -------- theme toggle --------
+  // Click cycles through auto -> dark -> light -> auto. The actual
+  // data-theme attribute and button label are handled by applyTheme,
+  // defined above alongside the initial boot-time resolution.
   document.getElementById("theme-toggle").addEventListener("click", function () {
-    var root = document.documentElement;
-    var next = root.dataset.theme === "dark" ? "light" : "dark";
-    root.dataset.theme = next;
+    var idx = THEME_MODES.indexOf(currentThemeMode());
+    var next = THEME_MODES[(idx + 1) % THEME_MODES.length];
     sessionSet(STORAGE_KEYS.theme, next);
+    applyTheme(next);
   });
 
   // -------- CSV export --------
