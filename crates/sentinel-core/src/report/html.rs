@@ -102,7 +102,8 @@ pub struct RenderOptions {
 /// ```
 #[must_use]
 pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> String {
-    let payload = build_payload(report, traces, options);
+    let sanitized_label = sanitize_input_label(&options.input_label);
+    let payload = build_payload_with_label(report, traces, options, &sanitized_label);
     // Serialization of our fixed-shape payload cannot fail: all nested
     // types are `Serialize`, every map key is `&'static str`, and there
     // are no non-string map keys anywhere in the tree. If a future
@@ -110,7 +111,7 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> Str
     // `Payload`, `serde_json` will fail here at runtime. Keep the
     // payload's map keys `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
-    let title = derive_page_title(&options.input_label);
+    let title = derive_page_title(&sanitized_label);
     inject(&json, &title)
 }
 
@@ -209,9 +210,24 @@ fn derive_page_title(input_label: &str) -> String {
     format!("perf-sentinel: {}", html_escape_text(filename))
 }
 
+/// Strip control and unsafe-format characters from `input_label`
+/// before it lands in the JSON payload. The topbar renders the value
+/// via `textContent`, so there is no XSS risk, but a leaked `BiDi`
+/// override would still flip the visible order of surrounding text.
+fn sanitize_input_label(input_label: &str) -> String {
+    input_label
+        .chars()
+        .filter(|c| !c.is_control() && !is_unsafe_format_char(*c))
+        .collect()
+}
+
 /// Minimal HTML escape for the title text. `<title>` is a raw-text
 /// element, so only `&` and `<` strictly need escaping, but we also
 /// escape `>` and the two quote characters for belt-and-braces safety.
+/// Control characters (Unicode Cc, plus the known `BiDi` and
+/// line/paragraph-separator format codes that some terminals and
+/// browsers honor) are dropped so a hostile filename cannot inject
+/// cosmetic payloads into the browser tab.
 fn html_escape_text(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -221,16 +237,35 @@ fn html_escape_text(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
+            c if c.is_control() || is_unsafe_format_char(c) => {}
             _ => out.push(c),
         }
     }
     out
 }
 
-fn build_payload<'a>(
+/// Unicode format characters that carry cosmetic payloads: `BiDi`
+/// override and isolate marks, line/paragraph separators, and the
+/// byte-order mark. `char::is_control` only catches the `Cc` category,
+/// so we filter these `Cf` entries by hand.
+fn is_unsafe_format_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200E}' // LEFT-TO-RIGHT MARK
+        | '\u{200F}' // RIGHT-TO-LEFT MARK
+        | '\u{2028}' // LINE SEPARATOR
+        | '\u{2029}' // PARAGRAPH SEPARATOR
+        | '\u{202A}'..='\u{202E}' // LRE / RLE / PDF / LRO / RLO
+        | '\u{2066}'..='\u{2069}' // LRI / RLI / FSI / PDI
+        | '\u{FEFF}' // BYTE ORDER MARK
+    )
+}
+
+fn build_payload_with_label<'a>(
     report: &'a Report,
     traces: &'a [Trace],
     options: &'a RenderOptions,
+    input_label: &'a str,
 ) -> Payload<'a> {
     let ordered = order_candidates_by_iis(report, traces);
     let total = ordered.len();
@@ -244,14 +279,14 @@ fn build_payload<'a>(
         };
         (ordered.into_iter().take(take).collect::<Vec<_>>(), summary)
     } else {
-        trim_to_size_target(ordered, report, options)
+        trim_to_size_target(ordered, report, options, input_label)
     };
 
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
 
     Payload {
         version: PAYLOAD_VERSION,
-        input_label: options.input_label.as_str(),
+        input_label,
         report,
         embedded_traces,
         trimmed_traces: trimmed,
@@ -306,6 +341,7 @@ fn trim_to_size_target<'a>(
     ordered: Vec<&'a Trace>,
     report: &Report,
     options: &'a RenderOptions,
+    input_label: &'a str,
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
 
@@ -334,7 +370,7 @@ fn trim_to_size_target<'a>(
     // in `build_payload` after trimming.
     let envelope = Payload {
         version: PAYLOAD_VERSION,
-        input_label: options.input_label.as_str(),
+        input_label,
         report,
         embedded_traces: Vec::new(),
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
@@ -1152,13 +1188,13 @@ mod tests {
             TEMPLATE.contains("This finding was resolved."),
             "resolved-diff empty-state message missing"
         );
-        // Both inline messages must route through the helper. Count
-        // the uses: one in openExplain plus one in buildDiffFindingRow,
-        // with room for Correlations in commit 7.
+        // Every inline empty-state message must route through the
+        // helper. Floor of 3 = definition + openExplain + resolved-
+        // diff, leaving room for future listable tabs to plug in.
         let use_count = TEMPLATE.matches("renderExplainEmpty(").count();
         assert!(
             use_count >= 3,
-            "expected at least 3 renderExplainEmpty uses (definition + openExplain + resolved-diff), found {use_count}"
+            "expected at least 3 renderExplainEmpty uses, found {use_count}"
         );
     }
 
@@ -1279,6 +1315,100 @@ mod tests {
             TEMPLATE.contains(".ps-copy-link-btn"),
             ".ps-copy-link-btn CSS class missing"
         );
+    }
+
+    #[test]
+    fn template_ships_a_strict_content_security_policy() {
+        // Defense-in-depth. The dashboard is fully self-contained, so
+        // a CSP that forbids every non-inline origin plus external
+        // requests blocks accidental regressions (e.g. a future edit
+        // that introduces an <img src="https://..."> via the JSON
+        // payload).
+        assert!(
+            TEMPLATE.contains("Content-Security-Policy"),
+            "CSP meta tag missing"
+        );
+        assert!(TEMPLATE.contains("default-src 'none'"));
+        assert!(TEMPLATE.contains("base-uri 'none'"));
+        assert!(TEMPLATE.contains("form-action 'none'"));
+    }
+
+    #[test]
+    fn title_placeholder_precedes_json_placeholder_in_template() {
+        // Substitution order inside `inject()` depends on the title
+        // placeholder appearing before the JSON placeholder in the
+        // static template: `replacen(..., 1)` replaces the first
+        // match. A future template edit that reverses the order
+        // would let a user-controlled JSON payload shadow the title
+        // placeholder.
+        let t = TEMPLATE.find(TITLE_PLACEHOLDER).expect("title placeholder");
+        let j = TEMPLATE.find(JSON_PLACEHOLDER).expect("json placeholder");
+        assert!(
+            t < j,
+            "title placeholder must appear before the JSON placeholder so replacen order stays stable"
+        );
+    }
+
+    #[test]
+    fn hostile_input_label_with_json_placeholder_does_not_double_substitute() {
+        // An input_label carrying the literal `{{REPORT_JSON}}` must
+        // not trigger a second substitution. `replacen(..., 1)` already
+        // consumed the only JSON placeholder in the template, so the
+        // title injection only sees the title placeholder.
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("{{REPORT_JSON}}.json", None));
+        // The title text is HTML-escaped, so `{` and `}` survive as
+        // literal bytes. There must be no injection into the JSON
+        // block (which would appear as a trailing stray `}` outside
+        // the `<script id="report-data">` block).
+        assert!(
+            html.contains("<title>perf-sentinel: {{REPORT_JSON}}.json</title>"),
+            "placeholder literal must survive as data"
+        );
+    }
+
+    #[test]
+    fn hostile_template_containing_title_placeholder_survives_as_data() {
+        // A SQL template carrying `{{PAGE_TITLE}}` inside a Finding
+        // payload ends up in the JSON block. The title substitution
+        // runs on TEMPLATE, whose first `{{PAGE_TITLE}}` occurrence
+        // is the static `<title>` tag, so the user-controlled one is
+        // never consumed.
+        let f = finding("t1", "svc", "/ep", "SELECT '{{PAGE_TITLE}}'");
+        let report = minimal_report(vec![f]);
+        let html = render(&report, &[], &opts("normal.json", None));
+        assert!(
+            html.contains("SELECT '{{PAGE_TITLE}}'"),
+            "user-controlled placeholder literal must survive in the JSON payload"
+        );
+    }
+
+    #[test]
+    fn page_title_strips_control_characters() {
+        // ANSI escape sequences, `BiDi` marks, null bytes, and other
+        // control codes must not survive into the rendered title,
+        // otherwise a hostile filename could render an OSC hyperlink
+        // in the browser tab on some platforms. Dropping the ESC byte
+        // defangs the sequence even though the remaining printable
+        // bytes (`[31m`) pass through as plain text.
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let html = render(
+            &report,
+            &[],
+            &opts("a\x1b[31mb\x00c\u{202e}d.json", None),
+        );
+        assert!(!html.contains('\x1b'), "ESC must not leak into the title");
+        assert!(!html.contains('\x00'), "null byte must not leak into the title");
+        assert!(
+            !html.contains('\u{202e}'),
+            "`BiDi` override must not leak into the title"
+        );
+        // Sanity on the visible fragment after stripping: the printable
+        // remains of the ANSI sequence plus the non-control letters
+        // survive as literal text, which is safe in a `<title>`.
+        assert!(html.contains("<title>perf-sentinel: a[31mbcd.json</title>"));
     }
 
     #[test]
