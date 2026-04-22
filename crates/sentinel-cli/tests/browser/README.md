@@ -48,10 +48,11 @@ Uploads the HTML report as a retained artifact on failure.
 - `dashboard_dark.gif` and `dashboard_light.gif`: the scripted tour
   recorded twice (one project per primary theme, ~28 s each,
   palette-optimised at 1000 px / 15 fps).
-- `findings.png` + `findings-dark.png`, ..., `cheatsheet.png` +
-  `cheatsheet-dark.png`: one light + one dark still per tab,
-  captured at 1280 x 720 so the README's `<picture>` tags can serve
-  the right variant via `prefers-color-scheme`.
+- `findings.png` + `findings-dark.png`, ..., `greenops.png` +
+  `greenops-dark.png`, `cheatsheet.png` + `cheatsheet-dark.png`:
+  one light + one dark still per tab (seven tabs total), captured
+  at 1280 x 720 so the README's `<picture>` tags can serve the
+  right variant via `prefers-color-scheme`.
 
 ```sh
 cd crates/sentinel-cli/tests/browser

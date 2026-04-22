@@ -50,9 +50,10 @@ d'échec.
 - `dashboard_dark.gif` et `dashboard_light.gif` : le parcours scripté
   enregistré deux fois (un projet par thème primaire, ~28 s chacun,
   palette optimisée en 1000 px / 15 fps).
-- `findings.png` + `findings-dark.png`, ..., `cheatsheet.png` +
-  `cheatsheet-dark.png` : une capture light + une capture dark par
-  onglet, prises en 1280 x 720 pour que les balises `<picture>` du
+- `findings.png` + `findings-dark.png`, ..., `greenops.png` +
+  `greenops-dark.png`, `cheatsheet.png` + `cheatsheet-dark.png` :
+  une capture light + une capture dark par onglet (sept onglets au
+  total), prises en 1280 x 720 pour que les balises `<picture>` du
   README servent la bonne variante via `prefers-color-scheme`.
 
 ```sh

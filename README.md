@@ -197,6 +197,11 @@ Finally, tune the I/O-to-energy coefficients to your real infrastructure with `c
 </picture>
 
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops-dark.png">
+  <img alt="report dashboard: GreenOps tab with multi-region CO2 breakdown across eu-west-3, us-east-1 and eu-central-1" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops.png">
+</picture>
+
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet-dark.png">
   <img alt="report dashboard: cheatsheet modal listing the full keyboard shortcut table" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
 </picture>

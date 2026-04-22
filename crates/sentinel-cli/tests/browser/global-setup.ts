@@ -28,6 +28,25 @@ const MAIN_HTML = join(FIXTURE_DIR, "dashboard.html");
 // tree and the Correlations tab in one dashboard.
 const DEMO_BASELINE = join(__dirname, "demo/fixtures/baseline.json");
 const DEMO_HTML = join(FIXTURE_DIR, "dashboard-demo.html");
+// Named `traces.json` so the banner + <title> in the demo dashboard
+// match the command examples in the top-level README
+// (`perf-sentinel report --input traces.json ...`).
+const DEMO_EVENTS = join(FIXTURE_DIR, "traces.json");
+
+// Inject a cloud_region on every event before the demo render so the
+// GreenOps tab shows a multi-region breakdown with real operational
+// CO2 numbers instead of a single "unknown" row at 0 gCO2. Pins one
+// region per service, picking regions that ship hourly + seasonal
+// grid intensity profiles (eu-west-3 = FR, us-east-1 = US-East,
+// eu-central-1 = DE) so the scorer pulls a non-zero intensity. The
+// shared test fixture (tests/fixtures/report_realistic.json) stays
+// untouched, keeping the non-demo test suite unaffected.
+const DEMO_REGION_BY_SERVICE: Record<string, string> = {
+  "order-svc": "eu-west-3",
+  "payment-svc": "us-east-1",
+  "chat-svc": "eu-central-1"
+};
+const DEMO_REGION_FALLBACK = "eu-west-3";
 
 const DEMO_CORRELATIONS = [
   {
@@ -138,17 +157,19 @@ function renderFixtures() {
     ],
     { stdio: "inherit" }
   );
-  // Demo dashboard: events as input (so Explain has embedded traces)
-  // plus --before for the Diff tab. Correlations are patched in
-  // post-render (see injectDemoCorrelations). Only used by
-  // demo/tour.spec.ts; the regular test suite keeps hitting
-  // dashboard.html.
+  // Demo dashboard: events enriched with per-service cloud_region
+  // (so GreenOps renders a multi-region breakdown with real
+  // operational CO2) + --before for the Diff tab. Correlations are
+  // patched in post-render (see injectDemoCorrelations). Only used
+  // by demo/tour.spec.ts; the regular test suite keeps hitting
+  // dashboard.html built from the pristine fixture.
+  writeDemoEvents(FIXTURE_JSON, DEMO_EVENTS);
   execFileSync(
     BINARY,
     [
       "report",
       "--input",
-      FIXTURE_JSON,
+      DEMO_EVENTS,
       "--before",
       DEMO_BASELINE,
       "--pg-stat",
@@ -161,6 +182,22 @@ function renderFixtures() {
     { stdio: "inherit" }
   );
   injectDemoCorrelations(DEMO_HTML);
+}
+
+// Copy the shared trace fixture and stamp a cloud_region on each
+// event so the demo dashboard's GreenOps tab exercises the multi-
+// region scorer. Events that already carry cloud_region are left
+// alone so manual overrides survive future fixture additions.
+function writeDemoEvents(source: string, dest: string) {
+  const events: Array<Record<string, unknown>> = JSON.parse(readFileSync(source, "utf8"));
+  for (const ev of events) {
+    if (typeof ev.cloud_region === "string" && ev.cloud_region.length > 0) {
+      continue;
+    }
+    const service = typeof ev.service === "string" ? ev.service : "";
+    ev.cloud_region = DEMO_REGION_BY_SERVICE[service] ?? DEMO_REGION_FALLBACK;
+  }
+  writeFileSync(dest, JSON.stringify(events));
 }
 
 // Splice synthetic correlations into the dashboard's embedded JSON

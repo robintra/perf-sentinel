@@ -80,7 +80,14 @@ test("05 correlations cross-trace", async ({ page }, info) => {
   await page.screenshot({ path: outPath("correlations", theme) });
 });
 
-test("06 cheatsheet modal", async ({ page }, info) => {
+test("06 greenops regions breakdown", async ({ page }, info) => {
+  const theme = themeFor(info.project.name);
+  await openDashboard(page, theme, "#green");
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: outPath("greenops", theme) });
+});
+
+test("07 cheatsheet modal", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme);
   await page.keyboard.press("?");
