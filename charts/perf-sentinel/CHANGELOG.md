@@ -6,6 +6,18 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.1.0-rc.1]
+
+First release candidate for the 0.1.0 chart. Chart content is identical
+to the upcoming 0.1.0. The RC exists to dry-run the release pipeline:
+OCI push to `ghcr.io/robintra/charts/perf-sentinel`, Cosign keyless
+signing via the GitHub OIDC token, SLSA level 3 provenance on the
+tarball, draft GitHub Release with both the `.tgz` and the
+`.intoto.jsonl` as assets.
+
+Promote to 0.1.0 once the RC's OCI artifact verifies clean via
+`cosign verify` and `slsa-verifier verify-artifact`.
+
 ## [0.1.0]
 
 Initial release of the perf-sentinel Helm chart.
