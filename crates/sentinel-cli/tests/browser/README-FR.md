@@ -41,3 +41,25 @@ de Playwright. Utilise `actions/setup-node@v6.4.0` avec Node 24,
 installe Chromium via `npx playwright install --with-deps chromium`,
 puis lance la suite. Le rapport HTML est conservé en artefact en cas
 d'échec.
+
+## GIFs de démo et captures du tableau de bord
+
+`npm run demo` regénère trois types d'artefacts dans
+`docs/img/report/` :
+
+- `dashboard_dark.gif` et `dashboard_light.gif` : le parcours scripté
+  enregistré deux fois (un projet par thème primaire, ~28 s chacun,
+  palette optimisée en 1000 px / 15 fps).
+- `findings.png` + `findings-dark.png`, ..., `cheatsheet.png` +
+  `cheatsheet-dark.png` : une capture light + une capture dark par
+  onglet, prises en 1280 x 720 pour que les balises `<picture>` du
+  README servent la bonne variante via `prefers-color-scheme`.
+
+```sh
+cd crates/sentinel-cli/tests/browser
+npm run demo
+```
+
+Nécessite ffmpeg dans le PATH. Éditer `demo/tour.spec.ts` pour le
+scénario des GIFs, `demo/stills.spec.ts` pour les captures, et
+`demo/build-gif.sh` pour le pipeline ffmpeg.

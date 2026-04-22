@@ -21,6 +21,19 @@ perf-sentinel takes a different approach: **protocol-level analysis**. It observ
 
 ## Quick look
 
+In the dashboard:
+
+```bash
+perf-sentinel report --input traces.json --output report.html
+```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_dark.gif">
+  <img alt="dashboard tour" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_light.gif">
+</picture>
+
+...or in the terminal:
+
 ```bash
 perf-sentinel analyze --input traces.json
 ```
@@ -94,6 +107,13 @@ Or produce a single-file HTML dashboard with `report` for post-mortem exploratio
 perf-sentinel report --input traces.json --output report.html
 ```
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_dark.gif">
+  <img alt="dashboard tour" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_light.gif">
+</picture>
+
+Per-tab still frames are in the **Still frames** section at the bottom of this page.
+
 Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Four rankings (by total time, by call count, by mean latency, by shared-buffer blocks touched) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
 
 ![pg-stat hotspots](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
@@ -148,6 +168,38 @@ Finally, tune the I/O-to-energy coefficients to your real infrastructure with `c
 ![calibrate run: warnings and per-service factors printed](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
 
 ![calibrate output: generated TOML with calibration factors](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
+
+**Report dashboard** (`perf-sentinel report`): six still frames, one per tab. The GIFs above scroll through the full tour; these frames freeze each panel so details are legible when zoomed in. Each `<picture>` serves the dark variant when your browser advertises `prefers-color-scheme: dark`:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings-dark.png">
+  <img alt="report dashboard: Findings with Warning + order-svc chips active" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain-dark.png">
+  <img alt="report dashboard: Explain trace tree with five highlighted N+1 SELECTs and a Java JPA suggested fix" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat-dark.png">
+  <img alt="report dashboard: pg_stat Calls ranking, 15 rows" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff-dark.png">
+  <img alt="report dashboard: Diff tab, one new finding flagged as a regression" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations-dark.png">
+  <img alt="report dashboard: Correlations tab, three cross-trace pairs with confidence and median lag" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet-dark.png">
+  <img alt="report dashboard: cheatsheet modal listing the full keyboard shortcut table" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
+</picture>
 
 </details>
 

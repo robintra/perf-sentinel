@@ -1,0 +1,258 @@
+{
+  "analysis": {
+    "duration_ms": 0,
+    "events_processed": 29,
+    "traces_analyzed": 14
+  },
+  "findings": [
+    {
+      "type": "n_plus_one_sql",
+      "severity": "warning",
+      "trace_id": "trace-order-01",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/7/checkout",
+      "pattern": {
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 5,
+        "window_ms": 40,
+        "distinct_params": 5
+      },
+      "suggestion": "Use WHERE ... IN (?) to batch 5 queries into one",
+      "first_timestamp": "2026-04-20T10:00:00.010Z",
+      "last_timestamp": "2026-04-20T10:00:00.050Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 4,
+        "io_intensity_score": 6.0,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "filepath": "com/example/order/OrderService.java",
+        "lineno": 158,
+        "namespace": "org.hibernate.internal.SessionImpl"
+      },
+      "suggested_fix": {
+        "pattern": "n_plus_one_sql",
+        "framework": "java_jpa",
+        "recommendation": "Use JOIN FETCH on the relationship or annotate the repository method with @EntityGraph to load associations in a single query.",
+        "reference_url": "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching"
+      }
+    },
+    {
+      "type": "n_plus_one_sql",
+      "severity": "warning",
+      "trace_id": "trace-order-02",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/8/checkout",
+      "pattern": {
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 5,
+        "window_ms": 40,
+        "distinct_params": 5
+      },
+      "suggestion": "Use WHERE ... IN (?) to batch 5 queries into one",
+      "first_timestamp": "2026-04-20T10:00:01.010Z",
+      "last_timestamp": "2026-04-20T10:00:01.050Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 4,
+        "io_intensity_score": 6.0,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "filepath": "com/example/order/OrderService.java",
+        "lineno": 158,
+        "namespace": "org.hibernate.internal.SessionImpl"
+      },
+      "suggested_fix": {
+        "pattern": "n_plus_one_sql",
+        "framework": "java_jpa",
+        "recommendation": "Use JOIN FETCH on the relationship or annotate the repository method with @EntityGraph to load associations in a single query.",
+        "reference_url": "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching"
+      }
+    },
+    {
+      "type": "redundant_sql",
+      "severity": "info",
+      "trace_id": "trace-payment-01",
+      "service": "payment-svc",
+      "source_endpoint": "GET /api/payment/555",
+      "pattern": {
+        "template": "SELECT id, status FROM payment WHERE id = ?",
+        "occurrences": 4,
+        "window_ms": 30,
+        "distinct_params": 1
+      },
+      "suggestion": "Identical operation executed 4 times: cache result or deduplicate",
+      "first_timestamp": "2026-04-20T10:00:02.000Z",
+      "last_timestamp": "2026-04-20T10:00:02.030Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 3,
+        "io_intensity_score": 4.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch"
+    },
+    {
+      "type": "redundant_sql",
+      "severity": "info",
+      "trace_id": "trace-payment-02",
+      "service": "payment-svc",
+      "source_endpoint": "GET /api/payment/999",
+      "pattern": {
+        "template": "SELECT id, status FROM payment WHERE id = ?",
+        "occurrences": 3,
+        "window_ms": 20,
+        "distinct_params": 1
+      },
+      "suggestion": "Identical operation executed 3 times: cache result or deduplicate",
+      "first_timestamp": "2026-04-20T10:00:03.000Z",
+      "last_timestamp": "2026-04-20T10:00:03.020Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 2,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch"
+    }
+  ],
+  "green_summary": {
+    "total_io_ops": 29,
+    "avoidable_io_ops": 13,
+    "io_waste_ratio": 0.4482758620689655,
+    "io_waste_ratio_band": "high",
+    "top_offenders": [
+      {
+        "endpoint": "POST /api/orders/7/checkout",
+        "service": "order-svc",
+        "io_intensity_score": 6.0,
+        "io_intensity_band": "high"
+      },
+      {
+        "endpoint": "POST /api/orders/8/checkout",
+        "service": "order-svc",
+        "io_intensity_score": 6.0,
+        "io_intensity_band": "high"
+      },
+      {
+        "endpoint": "GET /api/payment/555",
+        "service": "payment-svc",
+        "io_intensity_score": 4.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "GET /api/payment/999",
+        "service": "payment-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "POST /api/chat/send",
+        "service": "chat-svc",
+        "io_intensity_score": 1.0,
+        "io_intensity_band": "healthy"
+      },
+      {
+        "endpoint": "GET /api/orders/12",
+        "service": "order-svc",
+        "io_intensity_score": 1.0,
+        "io_intensity_band": "healthy"
+      },
+      {
+        "endpoint": "GET /api/payment/summary",
+        "service": "payment-svc",
+        "io_intensity_score": 1.0,
+        "io_intensity_band": "healthy"
+      }
+    ],
+    "co2": {
+      "total": {
+        "low": 0.007,
+        "mid": 0.014,
+        "high": 0.028,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_numerator"
+      },
+      "avoidable": {
+        "low": 0.0,
+        "mid": 0.0,
+        "high": 0.0,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_operational_ratio"
+      },
+      "operational_gco2": 0.0,
+      "embodied_gco2": 0.014
+    },
+    "regions": [
+      {
+        "status": "unresolved",
+        "region": "unknown",
+        "grid_intensity_gco2_kwh": 0.0,
+        "pue": 0.0,
+        "io_ops": 29,
+        "co2_gco2": 0.0,
+        "intensity_source": "annual"
+      }
+    ]
+  },
+  "quality_gate": {
+    "passed": false,
+    "rules": [
+      {
+        "rule": "n_plus_one_sql_critical_max",
+        "threshold": 0.0,
+        "actual": 0.0,
+        "passed": true
+      },
+      {
+        "rule": "n_plus_one_http_warning_max",
+        "threshold": 3.0,
+        "actual": 0.0,
+        "passed": true
+      },
+      {
+        "rule": "io_waste_ratio_max",
+        "threshold": 0.3,
+        "actual": 0.4482758620689655,
+        "passed": false
+      }
+    ]
+  },
+  "per_endpoint_io_ops": [
+    {
+      "service": "chat-svc",
+      "endpoint": "POST /api/chat/send",
+      "io_ops": 8
+    },
+    {
+      "service": "order-svc",
+      "endpoint": "GET /api/orders/12",
+      "io_ops": 1
+    },
+    {
+      "service": "order-svc",
+      "endpoint": "POST /api/orders/7/checkout",
+      "io_ops": 6
+    },
+    {
+      "service": "order-svc",
+      "endpoint": "POST /api/orders/8/checkout",
+      "io_ops": 6
+    },
+    {
+      "service": "payment-svc",
+      "endpoint": "GET /api/payment/555",
+      "io_ops": 4
+    },
+    {
+      "service": "payment-svc",
+      "endpoint": "GET /api/payment/999",
+      "io_ops": 3
+    },
+    {
+      "service": "payment-svc",
+      "endpoint": "GET /api/payment/summary",
+      "io_ops": 1
+    }
+  ]
+}

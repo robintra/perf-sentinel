@@ -17,6 +17,7 @@
 /crates/sentinel-cli/tests/browser/test-results/
 /crates/sentinel-cli/tests/browser/playwright-report/
 /crates/sentinel-cli/tests/browser/fixtures/
+/crates/sentinel-cli/tests/browser/demo-videos/
 
 # Release notes live in Dropbox, not in the repo.
 /CHANGELOG.md

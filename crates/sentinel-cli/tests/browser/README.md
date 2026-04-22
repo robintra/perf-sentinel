@@ -39,3 +39,25 @@ so the Rust-only `check` job isn't slowed by the Playwright install.
 Uses `actions/setup-node@v6.4.0` with Node 24, installs Chromium via
 `npx playwright install --with-deps chromium`, then runs this suite.
 Uploads the HTML report as a retained artifact on failure.
+
+## Dashboard demo GIFs and still frames
+
+`npm run demo` regenerates three kinds of artefacts under
+`docs/img/report/`:
+
+- `dashboard_dark.gif` and `dashboard_light.gif`: the scripted tour
+  recorded twice (one project per primary theme, ~28 s each,
+  palette-optimised at 1000 px / 15 fps).
+- `findings.png` + `findings-dark.png`, ..., `cheatsheet.png` +
+  `cheatsheet-dark.png`: one light + one dark still per tab,
+  captured at 1280 x 720 so the README's `<picture>` tags can serve
+  the right variant via `prefers-color-scheme`.
+
+```sh
+cd crates/sentinel-cli/tests/browser
+npm run demo
+```
+
+Requires ffmpeg on the PATH. Edit `demo/tour.spec.ts` for the GIF
+scenario, `demo/stills.spec.ts` for the still frames, and
+`demo/build-gif.sh` for the ffmpeg pipeline.
