@@ -78,9 +78,17 @@ jobs:
 
       - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
 
-      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
-        with:
-          tool: kubeconform
+      # kubeconform is a Go binary. Direct download from the upstream
+      # release is more reliable than taiki-e/install-action which falls
+      # back to cargo-install on x86_64 and exits 101 since kubeconform
+      # is not a Rust crate. Same pattern as crane below.
+      - name: Install kubeconform
+        run: |
+          curl -fsSL -o /tmp/kubeconform.tgz \
+            https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz
+          tar -xzf /tmp/kubeconform.tgz -C /tmp kubeconform
+          sudo install -m 0755 /tmp/kubeconform /usr/local/bin/kubeconform
+          kubeconform -v
 
       - name: helm template | kubeconform
         run: |
@@ -165,31 +173,47 @@ jobs:
     steps:
       - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
 
+      # Cosign pushes the signature as a separate OCI layer, so the
+      # runner needs an authenticated session with GHCR. The GitHub
+      # token provides enough scope thanks to `packages: write`.
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sign OCI artifact
         run: |
           cosign sign --yes \
             "ghcr.io/robintra/charts/perf-sentinel@${{ needs.publish.outputs.oci_digest }}"
 
-  # SLSA level 3 provenance on the .tgz tarball. The generic generator
-  # covers any OCI mediaType (including the application/vnd.cncf.helm.*
-  # shapes used by Helm charts), unlike the container generator which
-  # assumes Docker image mediaTypes. `upload-assets: false` keeps the
-  # provenance as a workflow artifact only. The `github-release` job
-  # then downloads it alongside the .tgz and uploads both to one
-  # GitHub Release in a single softprops call, avoiding a race between
-  # the SLSA generator's release-upload step and ours.
+  # SLSA level 3 provenance on the .tgz tarball. `upload-assets: true`
+  # is mandatory to get the generator to emit the .intoto.jsonl at all,
+  # the reusable workflow does not expose it as a standalone workflow
+  # artifact in any mode. The generator creates a draft GitHub Release
+  # at the tag and uploads the provenance to it. The github-release job
+  # below uses `gh release edit` plus `gh release upload` to update
+  # name, body, prerelease on that release and attach the .tgz. Direct
+  # API calls via gh beat softprops for "update existing release"
+  # semantics (softprops can diverge onto an untagged-* URL in the
+  # draft case).
+  # `continue-on-error: true` covers a v2.1.0 quirk where the `final`
+  # aggregator reports SUCCESS=false despite upstream success.
   provenance:
     name: SLSA provenance
     needs: publish
     permissions:
       actions: read    # read the workflow run to sign
-      contents: write  # needed by the reusable workflow when upload-assets is false but it still computes a build ID
       id-token: write  # OIDC token for the signing step
+      contents: write  # create the draft release and upload the provenance
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
     with:
       base64-subjects: ${{ needs.publish.outputs.tarball_base64_subjects }}
       provenance-name: perf-sentinel-chart.intoto.jsonl
-      upload-assets: false
+      upload-assets: true
+      draft-release: true
+      continue-on-error: true
 
   github-release:
     name: Draft GitHub Release
@@ -206,20 +230,10 @@ jobs:
           name: ${{ needs.publish.outputs.tarball_name }}
           path: out
 
-      # The SLSA generic generator uploads the provenance as a workflow
-      # artifact named exactly `provenance-name`. Download it next to
-      # the .tgz so both land on the release in one softprops call.
-      - name: Download SLSA provenance
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: perf-sentinel-chart.intoto.jsonl
-          path: out
-
       # Extract the section body for the current version from the chart
       # CHANGELOG to seed the GitHub Release body. Falls back to a
       # generic message if the section cannot be found.
-      - name: Extract CHANGELOG snippet
-        id: snippet
+      - name: Extract CHANGELOG snippet to file
         run: |
           v="${{ needs.check-chart-version.outputs.chart_version }}"
           body=$(awk -v v="${v}" '
@@ -230,21 +244,30 @@ jobs:
           if [ -z "${body}" ]; then
             body="Release notes for chart version ${v}. See charts/perf-sentinel/CHANGELOG.md."
           fi
-          # Encode via EOF heredoc to preserve newlines in the output.
-          {
-            echo 'body<<SNIPPET_EOF'
-            printf '%s\n' "${body}"
-            echo 'SNIPPET_EOF'
-          } >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${body}" > /tmp/release-body.md
 
-      - name: Create draft release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          name: perf-sentinel chart v${{ needs.check-chart-version.outputs.chart_version }}
-          body: ${{ steps.snippet.outputs.body }}
-          draft: true
-          prerelease: ${{ needs.check-chart-version.outputs.is_prerelease }}
-          fail_on_unmatched_files: true
-          files: |
-            out/${{ needs.publish.outputs.tarball_name }}
-            out/perf-sentinel-chart.intoto.jsonl
+      # SLSA already created the draft release at this tag with the
+      # .intoto.jsonl asset. We edit its name/body/prerelease in place
+      # and upload the .tgz alongside. `gh release edit` and `gh
+      # release upload` hit the API directly and handle draft releases
+      # correctly, unlike softprops v3.0.0 which creates a parallel
+      # untagged-* draft and loses the user inputs.
+      - name: Update release metadata and attach chart
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHART_VERSION: ${{ needs.check-chart-version.outputs.chart_version }}
+          IS_PRERELEASE: ${{ needs.check-chart-version.outputs.is_prerelease }}
+          TARBALL: ${{ needs.publish.outputs.tarball_name }}
+        run: |
+          title="perf-sentinel chart v${CHART_VERSION}"
+          if [ "${IS_PRERELEASE}" = "true" ]; then
+            prerelease_flag="--prerelease"
+          else
+            prerelease_flag="--latest=false"
+          fi
+          gh release edit "${GITHUB_REF_NAME}" \
+            --title "${title}" \
+            --notes-file /tmp/release-body.md \
+            --draft=true \
+            ${prerelease_flag}
+          gh release upload "${GITHUB_REF_NAME}" "out/${TARBALL}" --clobber
