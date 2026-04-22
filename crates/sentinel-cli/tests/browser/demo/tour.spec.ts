@@ -74,9 +74,12 @@ test("dashboard tour", async ({ page }, testInfo) => {
 
   // --- Wink at the opposite theme and come back ---
   // Cycle auto -> dark -> light -> auto. One click advances one
-  // notch; from a forced primary theme we may need up to three
-  // clicks to land on a given target. Short 300 ms pauses between
-  // clicks keep the cycle readable without dragging the GIF.
+  // notch; from a forced primary theme we need at most three clicks
+  // to land on any of the three states. Short 300 ms pauses between
+  // clicks keep the cycle readable without dragging the GIF. Throws
+  // if the loop exits without reaching the target so a future cycle
+  // change (e.g. adding a fourth state) surfaces loudly instead of
+  // producing a silently-wrong GIF.
   const cycleTo = async (target: "dark" | "light") => {
     for (let i = 0; i < 3; i += 1) {
       const now = await page.evaluate(() =>
@@ -85,6 +88,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
       await page.locator("#theme-toggle").click();
       await pause(page, 300);
     }
+    throw new Error(`cycleTo: theme cycle never reached "${target}"`);
   };
   await cycleTo(opposite);
   await pause(page, 1800);

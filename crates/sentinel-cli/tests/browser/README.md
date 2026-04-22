@@ -61,3 +61,9 @@ npm run demo
 Requires ffmpeg on the PATH. Edit `demo/tour.spec.ts` for the GIF
 scenario, `demo/stills.spec.ts` for the still frames, and
 `demo/build-gif.sh` for the ffmpeg pipeline.
+
+Each run overwrites every committed asset (~5 MB total: 2 GIFs + 12
+PNGs), so each invocation creates new git blobs. Re-run only when
+the dashboard surface changes meaningfully (new tab, layout shift,
+shortcut rebinding) rather than on every doc tweak, otherwise the
+repo accumulates stale large objects.

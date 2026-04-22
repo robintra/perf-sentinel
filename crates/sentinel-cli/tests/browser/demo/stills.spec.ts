@@ -13,7 +13,14 @@ const OUT_DIR = resolve(REPO_ROOT, "docs/img/report");
 const PATH = "/dashboard-demo.html";
 
 function themeFor(projectName: string): "dark" | "light" {
-  return projectName.endsWith("-dark") ? "dark" : "light";
+  if (projectName.endsWith("-dark")) return "dark";
+  if (projectName.endsWith("-light")) return "light";
+  // Throw rather than silently default so a misnamed or newly added
+  // project surfaces here instead of producing a still in the wrong
+  // theme that quietly overwrites a committed asset.
+  throw new Error(
+    `themeFor: project name "${projectName}" must end with -dark or -light`
+  );
 }
 
 function outPath(name: string, theme: "dark" | "light"): string {

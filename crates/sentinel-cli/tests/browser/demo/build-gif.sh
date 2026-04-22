@@ -30,12 +30,17 @@ convert_webm() {
 
 shopt -s nullglob
 found=0
+# Match the exact Playwright output dir for each tour project. The
+# format is `<test-file>-<test-title>-<project-name>`. Anchoring on
+# the full project suffix avoids accidentally matching the stills
+# projects (`dashboard-stills-dark`, `dashboard-stills-light`) if
+# they ever start emitting WebMs.
 for webm in "$BROWSER_DIR"/demo-videos/*/video.webm; do
   found=1
   dir="$(basename "$(dirname "$webm")")"
   case "$dir" in
-    *dashboard-dark*)  out_name="dashboard_dark.gif"  ;;
-    *dashboard-light*) out_name="dashboard_light.gif" ;;
+    tour-dashboard-tour-dashboard-dark)  out_name="dashboard_dark.gif"  ;;
+    tour-dashboard-tour-dashboard-light) out_name="dashboard_light.gif" ;;
     *)
       echo "build-gif: cannot map project for $webm" >&2
       exit 1
