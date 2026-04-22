@@ -20,11 +20,14 @@
 #      (chart changelog edits without a version bump are allowed).
 #   5. Otherwise read the top-level `version:` field from
 #      charts/perf-sentinel/Chart.yaml on HEAD and on origin/<base-ref>.
-#   6. Exit 0 if they differ (a bump happened), 1 otherwise.
+#   6. Compare them with `sort -V` (version-aware):
+#      - HEAD > BASE: proper bump, exit 0.
+#      - HEAD = BASE: unbumped chart change, exit 1.
+#      - HEAD < BASE: downgrade, exit 1 with a distinct error.
 #
 # Exit codes:
 #   0 - no chart change, or a proper version bump
-#   1 - unbumped chart change, missing base ref, or git / parse failure
+#   1 - unbumped chart change, downgrade, missing base ref, or git / parse failure
 
 set -euo pipefail
 
@@ -112,14 +115,23 @@ if [ -z "${BASE_VERSION}" ]; then
   exit 1
 fi
 
-if [ "${HEAD_VERSION}" != "${BASE_VERSION}" ]; then
-  emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION}"
-  exit 0
+# Order the two versions with `sort -V`. The larger value lands on the
+# last line, equal values collapse into one line after deduplication.
+LARGER=$(printf '%s\n%s\n' "${BASE_VERSION}" "${HEAD_VERSION}" | sort -V | tail -n1)
+
+if [ "${HEAD_VERSION}" = "${BASE_VERSION}" ]; then
+  emit_error "Chart modified without a version bump. ${CHART_FILE} version is still ${HEAD_VERSION} on both HEAD and origin/${BASE_REF}. Changed files:"
+  printf '%s\n' "${NON_CHANGELOG}" | while IFS= read -r f; do
+    emit_error "  ${f}"
+  done
+  emit_error "Bump ${CHART_FILE}:version (and add a matching section to ${CHART_CHANGELOG}) before merging."
+  exit 1
 fi
 
-emit_error "Chart modified without a version bump. ${CHART_FILE} version is still ${HEAD_VERSION} on both HEAD and origin/${BASE_REF}. Changed files:"
-printf '%s\n' "${NON_CHANGELOG}" | while IFS= read -r f; do
-  emit_error "  ${f}"
-done
-emit_error "Bump ${CHART_FILE}:version (and add a matching section to ${CHART_CHANGELOG}) before merging."
-exit 1
+if [ "${LARGER}" != "${HEAD_VERSION}" ]; then
+  emit_error "Chart version downgrade detected: ${BASE_VERSION} -> ${HEAD_VERSION} on HEAD. Downgrades are rejected because they break Cosign / SLSA consumers who pin by version. If this is intentional, pick a new version strictly greater than ${BASE_VERSION}."
+  exit 1
+fi
+
+emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION}"
+exit 0

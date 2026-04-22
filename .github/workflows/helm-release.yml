@@ -119,16 +119,30 @@ jobs:
           # Input format for the SLSA generic generator: `<digest>  <name>` lines, base64-encoded.
           echo "tarball_base64_subjects=$(printf '%s  %s' "${digest}" "${name}" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
+      # Crane reads the pushed OCI manifest directly from the registry
+      # and returns the digest. Authoritative and stable across Helm
+      # versions, unlike parsing the `Digest:` line from `helm push`
+      # stdout which is a UX feature that can drift on a minor bump.
+      - name: Install crane
+        run: |
+          curl -fsSL -o /tmp/gcr.tgz \
+            https://github.com/google/go-containerregistry/releases/download/v0.21.5/go-containerregistry_Linux_x86_64.tar.gz
+          tar -xzf /tmp/gcr.tgz -C /tmp crane
+          sudo install -m 0755 /tmp/crane /usr/local/bin/crane
+          crane version
+
       - name: Log in to GHCR
-        run: echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: |
+          echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ github.token }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push chart
         id: push
         run: |
-          helm push "out/${{ steps.package.outputs.tarball_name }}" oci://ghcr.io/robintra/charts 2>&1 | tee push.log
-          digest=$(grep -E '^Digest: ' push.log | awk '{print $2}')
+          helm push "out/${{ steps.package.outputs.tarball_name }}" oci://ghcr.io/robintra/charts
+          digest=$(crane digest "ghcr.io/robintra/charts/perf-sentinel:${{ needs.check-chart-version.outputs.chart_version }}")
           if [ -z "${digest}" ]; then
-            echo "::error::Could not capture OCI digest from helm push output"
+            echo "::error::crane digest returned empty for the pushed chart"
             exit 1
           fi
           echo "oci_digest=${digest}" >> "$GITHUB_OUTPUT"
@@ -159,21 +173,23 @@ jobs:
   # SLSA level 3 provenance on the .tgz tarball. The generic generator
   # covers any OCI mediaType (including the application/vnd.cncf.helm.*
   # shapes used by Helm charts), unlike the container generator which
-  # assumes Docker image mediaTypes. The resulting .intoto.jsonl is
-  # published as a GitHub Release asset (not attached to the OCI layer).
+  # assumes Docker image mediaTypes. `upload-assets: false` keeps the
+  # provenance as a workflow artifact only. The `github-release` job
+  # then downloads it alongside the .tgz and uploads both to one
+  # GitHub Release in a single softprops call, avoiding a race between
+  # the SLSA generator's release-upload step and ours.
   provenance:
     name: SLSA provenance
     needs: publish
     permissions:
       actions: read    # read the workflow run to sign
-      contents: write  # upload provenance to the release
+      contents: write  # needed by the reusable workflow when upload-assets is false but it still computes a build ID
       id-token: write  # OIDC token for the signing step
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
     with:
       base64-subjects: ${{ needs.publish.outputs.tarball_base64_subjects }}
       provenance-name: perf-sentinel-chart.intoto.jsonl
-      upload-assets: true
-      draft-release: true
+      upload-assets: false
 
   github-release:
     name: Draft GitHub Release
@@ -188,6 +204,15 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.publish.outputs.tarball_name }}
+          path: out
+
+      # The SLSA generic generator uploads the provenance as a workflow
+      # artifact named exactly `provenance-name`. Download it next to
+      # the .tgz so both land on the release in one softprops call.
+      - name: Download SLSA provenance
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: perf-sentinel-chart.intoto.jsonl
           path: out
 
       # Extract the section body for the current version from the chart
@@ -219,4 +244,7 @@ jobs:
           body: ${{ steps.snippet.outputs.body }}
           draft: true
           prerelease: ${{ needs.check-chart-version.outputs.is_prerelease }}
-          files: out/${{ needs.publish.outputs.tarball_name }}
+          fail_on_unmatched_files: true
+          files: |
+            out/${{ needs.publish.outputs.tarball_name }}
+            out/perf-sentinel-chart.intoto.jsonl
