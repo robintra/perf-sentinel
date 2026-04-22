@@ -25,12 +25,14 @@ spec:
       containers:
         - name: wget
           image: busybox:1.36.1
+          # Short retry loop absorbs the CoreDNS warm-up race on a freshly started cluster.
           command:
             - sh
             - -c
             - >-
-              wget --spider -q
-              http://{{ include "perf-sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpHttp.port }}/health
+              url="http://{{ include "perf-sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpHttp.port }}/health";
+              for i in 1 2 3 4 5; do wget --spider -q "$url" && exit 0; sleep 3; done;
+              exit 1
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -6,6 +6,16 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.1.1]
+
+### Fixed
+
+- `helm test` no longer races with CoreDNS warm-up on a freshly started
+  cluster. The test Job's wget now retries up to 5 times over 15 seconds
+  instead of giving up on the first `bad address` error when the Service
+  DNS record has not yet propagated. Observed against minikube when
+  chaining `minikube start + helm install + helm test` back to back.
+
 ## [0.1.0-rc.1]
 
 First release candidate for the 0.1.0 chart. Chart content is identical
