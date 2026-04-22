@@ -300,7 +300,7 @@ Les findings sont émis sur stdout en NDJSON. Les métriques Prometheus sont dis
 
 ## Déploiement Kubernetes
 
-Un chart Helm packagé est disponible sous [`charts/perf-sentinel/`](../../charts/perf-sentinel/). Voir [HELM-DEPLOYMENT.md](../HELM-DEPLOYMENT.md) pour le guide d'installation complet (en anglais, une traduction française est en attente) et [`examples/helm/`](../../examples/helm/) pour un exemple complet qui compose le chart avec le chart upstream OpenTelemetry Collector. Les manifests bruts ci-dessous restent utiles aux utilisateurs qui préfèrent déployer sans Helm.
+Un chart Helm packagé est disponible sous [`charts/perf-sentinel/`](../../charts/perf-sentinel/). Voir [HELM-DEPLOYMENT-FR.md](./HELM-DEPLOYMENT-FR.md) pour le guide d'installation complet et [`examples/helm/`](../../examples/helm/) pour un exemple complet qui compose le chart avec le chart upstream OpenTelemetry Collector. Les manifests bruts ci-dessous restent utiles aux utilisateurs qui préfèrent déployer sans Helm.
 
 perf-sentinel se déploie comme un Deployment Kubernetes standard derrière un Service. L'OTel Collector tourne en DaemonSet (par noeud) ou Deployment (centralisé), transmettant les traces à perf-sentinel.
 
@@ -1226,8 +1226,4 @@ Le Java Agent (`-javaagent:`) est incompatible avec les AOT caches JEP 483. Dés
 ### Le starter Spring Boot ne capture pas les appels HTTP sortants
 
 Le `spring-boot-starter-opentelemetry` (Spring Boot 4) fait le pont Micrometer vers OTel mais n'instrumente pas complètement les appels sortants. Utilisez le Java Agent.
-
-<!-- TODO(FR): traduire docs/HELM-DEPLOYMENT.md en docs/FR/HELM-DEPLOYMENT-FR.md.
-     Pour l'instant, la section Déploiement Kubernetes ci-dessus pointe vers le
-     guide anglais. -->
 
