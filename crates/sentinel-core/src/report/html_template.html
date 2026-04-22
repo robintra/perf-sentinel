@@ -159,7 +159,7 @@
 
   <div class="ps-tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></div>
 
-  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" tabindex="0">
+  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
     <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-metrics" id="findings-metrics"></div>
@@ -173,7 +173,7 @@
     <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
   </div>
 
-  <div id="panel-explain" role="tabpanel" aria-labelledby="tab-explain" tabindex="0" style="display: none;">
+  <div id="panel-explain" role="tabpanel" aria-labelledby="tab-explain" style="display: none;">
     <div class="ps-empty" id="explain-empty">Click a finding to view its trace tree here.</div>
     <div id="explain-content" style="display: none;">
       <div class="ps-tree-header" id="explain-breadcrumb"></div>
@@ -183,7 +183,7 @@
     <div class="ps-empty" id="explain-not-embedded" style="display: none;"></div>
   </div>
 
-  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" tabindex="0" style="display: none;">
+  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" style="display: none;">
     <div class="ps-drill" id="pgstat-drill" style="display: none;">
       <div class="ps-drill-label">Filtered from Explain</div>
       <span id="pgstat-drill-text"></span>
@@ -202,7 +202,7 @@
     <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
   </div>
 
-  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" tabindex="0" style="display: none;">
+  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" style="display: none;">
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
@@ -232,7 +232,7 @@
     </div>
   </div>
 
-  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" tabindex="0" style="display: none;">
+  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" style="display: none;">
     <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
@@ -241,7 +241,7 @@
     <div class="ps-list" id="correlations-list"></div>
   </div>
 
-  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" tabindex="0" style="display: none;">
+  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" style="display: none;">
     <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
     <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
     <table class="ps-table" id="green-regions-table" style="display: none;">
@@ -314,7 +314,7 @@
   }
   function currentThemeMode() {
     var stored = sessionGet(STORAGE_KEYS.theme);
-    return THEME_MODES.indexOf(stored) >= 0 ? stored : "auto";
+    return THEME_MODES.includes(stored) ? stored : "auto";
   }
   function resolveThemeColor(mode) {
     if (mode === "dark" || mode === "light") return mode;
@@ -2153,7 +2153,7 @@
         document.body.appendChild(ta);
         ta.select();
         var ok = document.execCommand("copy");
-        document.body.removeChild(ta);
+        ta.remove();
         if (ok) {
           flashCopied();
         } else {
@@ -2199,7 +2199,7 @@
   function wireHashChangeListener() {
     // Skip events triggered by our own writeHash replaceState, apply
     // only real user-driven changes.
-    window.addEventListener("hashchange", function () {
+    globalThis.addEventListener("hashchange", function () {
       var raw = (location.hash || "").replace(/^#/, "");
       if (raw === _lastWrittenHash) return;
       applyHash(readHash());

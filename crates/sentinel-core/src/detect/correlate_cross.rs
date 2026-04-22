@@ -176,6 +176,34 @@ impl PairState {
             self.lags_ms[r as usize] = lag_ms;
         }
     }
+
+    /// Record `trace_id` as the most recently observed trace for this
+    /// pair, unless the value is empty or already equals the current
+    /// record. Trace ids longer than [`MAX_SAMPLE_TRACE_ID_BYTES`] are
+    /// truncated on a UTF-8 boundary.
+    fn update_sample_trace_id(&mut self, trace_id: &str) {
+        if trace_id.is_empty() || self.last_trace_id.as_deref() == Some(trace_id) {
+            return;
+        }
+        let capped = truncate_to_utf8_boundary(trace_id, MAX_SAMPLE_TRACE_ID_BYTES);
+        self.last_trace_id = Some(capped.to_string());
+    }
+}
+
+/// Truncate `s` to at most `max_bytes`, moving the cut backwards to the
+/// nearest UTF-8 character boundary. Trace ids are ASCII in every known
+/// emitter but the correlator cannot assume so when ingesting from
+/// replay files, so the boundary walk guards against slicing inside a
+/// multibyte codepoint.
+fn truncate_to_utf8_boundary(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
 }
 
 /// `SplitMix64` PRNG. Excellent distribution for Algorithm R, 10 lines,
@@ -366,26 +394,7 @@ impl CrossTraceCorrelator {
             state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
-            // Skip empty ids so replayed streams with stripped trace ids
-            // do not clobber a real value observed earlier. Avoid the
-            // `to_string()` allocation when the value matches what is
-            // already recorded, the common case when one trace emits
-            // many findings in the same ingest batch.
-            if !trace_id.is_empty() && state.last_trace_id.as_deref() != Some(trace_id) {
-                let capped = if trace_id.len() > MAX_SAMPLE_TRACE_ID_BYTES {
-                    // Truncate on a UTF-8 boundary. trace ids are ASCII
-                    // in every known emitter, but the daemon cannot
-                    // assume so when ingesting from replay files.
-                    let mut end = MAX_SAMPLE_TRACE_ID_BYTES;
-                    while end > 0 && !trace_id.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    &trace_id[..end]
-                } else {
-                    trace_id
-                };
-                state.last_trace_id = Some(capped.to_string());
-            }
+            state.update_sample_trace_id(trace_id);
         }
     }
 

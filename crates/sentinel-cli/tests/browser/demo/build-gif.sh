@@ -26,6 +26,7 @@ convert_webm() {
   local sz
   sz="$(du -k "$out" | awk '{print $1}')"
   echo "build-gif: wrote $out (${sz} KB)"
+  return 0
 }
 
 shopt -s nullglob
