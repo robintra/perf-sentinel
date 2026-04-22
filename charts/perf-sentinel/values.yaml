@@ -1,0 +1,233 @@
+# Default values for perf-sentinel.
+# This is a YAML-formatted file. Override with -f values-override.yaml or --set.
+
+# -- Container image settings.
+image:
+  # -- Container image repository.
+  repository: ghcr.io/robintra/perf-sentinel
+  # -- Image tag. When empty, falls back to .Chart.AppVersion so `helm upgrade`
+  # to a newer chart automatically picks up the matching daemon version.
+  tag: ""
+  # -- Image pull policy.
+  pullPolicy: IfNotPresent
+  # -- imagePullSecrets, e.g. `[ { name: myRegistryKey } ]`.
+  pullSecrets: []
+
+# -- Override the chart name. Defaults to `.Chart.Name`.
+nameOverride: ""
+# -- Override the full release name. Defaults to `.Release.Name-<chart name>`.
+fullnameOverride: ""
+
+# Workload shape. perf-sentinel is a stateful-per-trace in-memory daemon, so
+# Deployment with replicas=1 is the default and recommended topology. See
+# docs/HELM-DEPLOYMENT.md for the trade-offs of each mode.
+workload:
+  # -- One of: Deployment, DaemonSet, StatefulSet.
+  kind: Deployment
+  # -- Number of replicas. Ignored when kind=DaemonSet.
+  replicas: 1
+  # -- Strategy for Deployment. Ignored for DaemonSet/StatefulSet.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  # -- updateStrategy for DaemonSet/StatefulSet. Ignored for Deployment.
+  updateStrategy:
+    type: RollingUpdate
+  # StatefulSet-specific settings. Reserved for future on-disk persistence;
+  # currently no daemon feature writes here, the toggle is provisioned so
+  # existing users can enable it without chart changes.
+  statefulset:
+    # -- Headless Service name used by the StatefulSet. Defaults to the
+    # release fullname when empty.
+    serviceName: ""
+    persistence:
+      # -- When true, the StatefulSet renders a volumeClaimTemplate mounted
+      # at /var/lib/perf-sentinel. No daemon feature uses this path yet.
+      enabled: false
+      size: 1Gi
+      accessModes:
+        - ReadWriteOnce
+      # -- Leave empty to use the cluster default StorageClass.
+      storageClass: ""
+
+# Service account. The daemon never calls the Kubernetes API, so the default
+# mounts no token. Override only if you wire perf-sentinel into a sidecar
+# pattern that needs downward API access.
+serviceAccount:
+  create: true
+  # -- Name of an existing ServiceAccount. Ignored when create=true.
+  name: ""
+  automountServiceAccountToken: false
+  annotations: {}
+
+# Pod-level security context. UID 65534 matches the scratch-based Dockerfile.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534
+  runAsGroup: 65534
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context. readOnlyRootFilesystem relies on the
+# chart-mounted /tmp emptyDir (see templates/deployment.yaml) for the
+# default json_socket path.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 65534
+  capabilities:
+    drop:
+      - ALL
+
+# Resource requests and limits. Defaults match the raw-manifest baseline in
+# docs/INTEGRATION.md. Tune for throughput: CLAUDE.md documents >100k
+# events/s and <20 MB RSS as targets, so these are generous for most users.
+resources:
+  requests:
+    cpu: 50m
+    memory: 16Mi
+  limits:
+    cpu: 200m
+    memory: 64Mi
+
+# Scheduling knobs. Empty defaults so nothing is forced on the user.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+
+# Liveness and readiness probes. Both hit /health, which is always on,
+# lock-free, and independent of [daemon] api_enabled. The port is named so
+# changing service.ports.otlpHttp.port does not break the probes.
+livenessProbe:
+  httpGet:
+    path: /health
+    port: otlp-http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /health
+    port: otlp-http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 2
+  failureThreshold: 3
+
+# Service shape. ClusterIP is correct for the in-cluster fan-in pattern
+# (collector -> perf-sentinel). Avoid NodePort or LoadBalancer unless a
+# reverse proxy or NetworkPolicy gates the perimeter.
+service:
+  type: ClusterIP
+  annotations: {}
+  ports:
+    otlpGrpc:
+      port: 4317
+      # -- Hint for service meshes that honor appProtocol.
+      appProtocol: grpc
+    otlpHttp:
+      port: 4318
+
+# Prometheus Operator ServiceMonitor. Gated so clusters without the operator
+# render a minimal chart.
+serviceMonitor:
+  enabled: false
+  # -- Namespace where the ServiceMonitor is created. Defaults to the release
+  # namespace when empty.
+  namespace: ""
+  interval: 15s
+  scrapeTimeout: 10s
+  # -- Extra labels applied to the ServiceMonitor (e.g. `release: prometheus`
+  # for the kube-prometheus-stack operator selector).
+  labels: {}
+  # -- Prometheus relabeling rules applied before scraping.
+  relabelings: []
+  # -- Prometheus relabeling rules applied after scraping.
+  metricRelabelings: []
+
+# NetworkPolicy. Fail-closed: when enabled without selectors the rendered
+# policy blocks every ingress. Add namespace or pod selectors below to
+# allow-list the collector, Prometheus, or application namespaces.
+networkPolicy:
+  enabled: false
+  ingress:
+    # -- Array of namespaceSelector blocks, applied as an OR list.
+    # Example: `[ { matchLabels: { kubernetes.io/metadata.name: observability } } ]`.
+    fromNamespaceSelectors: []
+    # -- Array of podSelector blocks, applied as an OR list.
+    # Example: `[ { matchLabels: { app.kubernetes.io/name: otel-collector } } ]`.
+    fromPodSelectors: []
+
+# The full .perf-sentinel.toml content. Surfaced as a ConfigMap and mounted
+# read-only at /etc/perf-sentinel/.perf-sentinel.toml. Edits roll the pods
+# via a checksum/config annotation on the podTemplate.
+#
+# Secrets must never land here. Use extraEnvFrom + a Secret for tokens
+# such as PERF_SENTINEL_EMAPS_TOKEN.
+config:
+  toml: |
+    # Managed by the perf-sentinel Helm chart. Edit via values.yaml and
+    # `helm upgrade`. See docs/CONFIGURATION.md for the full reference.
+
+    [thresholds]
+    n_plus_one_sql_critical_max = 0
+    n_plus_one_http_warning_max = 3
+    io_waste_ratio_max = 0.30
+
+    [detection]
+    n_plus_one_min_occurrences = 5
+    window_duration_ms = 500
+    slow_query_threshold_ms = 500
+    slow_query_min_occurrences = 3
+
+    [green]
+    enabled = true
+    # default_region = "eu-west-3"
+
+    [daemon]
+    # 0.0.0.0 is required inside a pod so the ClusterIP Service can route
+    # to the container. Upstream access control is the Service and the
+    # optional NetworkPolicy, not a loopback bind.
+    listen_address = "0.0.0.0"
+    listen_port_http = 4318
+    listen_port_grpc = 4317
+    environment = "staging"
+    api_enabled = true
+
+    # [daemon.correlation]
+    # enabled = true
+    # window_minutes = 10
+    # lag_threshold_ms = 2000
+
+# Pod-level annotations and labels. `checksum/config` is injected by the
+# template, so do not set it here.
+podAnnotations: {}
+podLabels: {}
+
+# Labels and annotations propagated to every rendered object.
+commonLabels: {}
+commonAnnotations: {}
+
+# Extra environment variables passed to the daemon container.
+# -- Direct env entries, appended as-is.
+extraEnv: []
+# -- envFrom entries, typical use is injecting secret tokens such as
+# `PERF_SENTINEL_EMAPS_TOKEN` via a Secret. Example:
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets
+extraEnvFrom: []
+
+# Extra volumes and volumeMounts, e.g. for a calibration file or TLS certs.
+extraVolumes: []
+extraVolumeMounts: []
+
+# Extra arguments appended to the daemon command. The chart always starts
+# with `["watch", "--config", "/etc/perf-sentinel/.perf-sentinel.toml"]`.
+extraArgs: []

@@ -1,0 +1,36 @@
+perf-sentinel is now installed in namespace "{{ .Release.Namespace }}" as
+release "{{ .Release.Name }}" running as a {{ .Values.workload.kind }}.
+
+Service DNS:
+  OTLP gRPC : {{ include "perf-sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpGrpc.port }}
+  OTLP HTTP : {{ include "perf-sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpHttp.port }}
+
+The HTTP port (4318 by default) serves:
+  - OTLP HTTP ingestion at /v1/traces
+  - Prometheus metrics at /metrics
+  - Query API at /api/*
+  - Liveness probe at /health
+
+Verify the daemon is live:
+
+  kubectl --namespace {{ .Release.Namespace }} port-forward \
+    svc/{{ include "perf-sentinel.fullname" . }} \
+    {{ .Values.service.ports.otlpHttp.port }}:{{ .Values.service.ports.otlpHttp.port }}
+
+  curl -sS http://127.0.0.1:{{ .Values.service.ports.otlpHttp.port }}/api/status
+
+Point your OpenTelemetry Collector (or app) at the gRPC endpoint:
+
+  exporters:
+    otlp/perf-sentinel:
+      endpoint: {{ include "perf-sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpGrpc.port }}
+      tls:
+        insecure: true
+
+Full integration guide: docs/HELM-DEPLOYMENT.md
+{{- if not .Values.networkPolicy.enabled }}
+
+Heads up: NetworkPolicy is disabled. Every pod in the cluster can POST
+OTLP traces and scrape /metrics. Enable `networkPolicy.enabled=true` and
+add ingress selectors before exposing this to untrusted workloads.
+{{- end }}

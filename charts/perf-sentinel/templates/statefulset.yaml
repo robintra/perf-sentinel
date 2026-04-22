@@ -1,0 +1,45 @@
+{{- if eq .Values.workload.kind "StatefulSet" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "perf-sentinel.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "perf-sentinel.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  serviceName: {{ include "perf-sentinel.statefulset.serviceName" . }}
+  replicas: {{ .Values.workload.replicas }}
+  {{- with .Values.workload.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "perf-sentinel.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "perf-sentinel.podAnnotations" . | nindent 8 }}
+      labels:
+        {{- include "perf-sentinel.podLabels" . | nindent 8 }}
+    spec:
+      {{- include "perf-sentinel.podSpec" . | nindent 6 }}
+  {{- if .Values.workload.statefulset.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.workload.statefulset.persistence.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.workload.statefulset.persistence.size | quote }}
+        {{- with .Values.workload.statefulset.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+  {{- end }}
+{{- end }}

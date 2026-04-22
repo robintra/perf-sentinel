@@ -1,0 +1,26 @@
+apiVersion: v2
+name: perf-sentinel
+description: |
+  Lightweight polyglot performance anti-pattern detector for OpenTelemetry
+  traces. Detects N+1 queries, redundant calls, chatty services, connection
+  pool saturation, serialized parallelizable calls, fanout. Scores I/O
+  intensity per endpoint (GreenOps).
+type: application
+version: 0.1.0
+appVersion: "0.5.1"
+kubeVersion: ">=1.24.0-0"
+home: https://github.com/robintra/perf-sentinel
+sources:
+  - https://github.com/robintra/perf-sentinel
+keywords:
+  - performance
+  - n-plus-one
+  - observability
+  - opentelemetry
+  - greenops
+maintainers:
+  - name: robintra
+    url: https://github.com/robintra
+annotations:
+  category: Observability
+  licenses: AGPL-3.0-only

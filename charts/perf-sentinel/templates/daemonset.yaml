@@ -1,0 +1,29 @@
+{{- if eq .Values.workload.kind "DaemonSet" -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "perf-sentinel.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "perf-sentinel.labels" . | nindent 4 }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.workload.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "perf-sentinel.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- include "perf-sentinel.podAnnotations" . | nindent 8 }}
+      labels:
+        {{- include "perf-sentinel.podLabels" . | nindent 8 }}
+    spec:
+      {{- include "perf-sentinel.podSpec" . | nindent 6 }}
+{{- end }}

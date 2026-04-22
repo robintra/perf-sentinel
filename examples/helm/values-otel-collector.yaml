@@ -1,0 +1,96 @@
+# Values for the upstream open-telemetry/opentelemetry-collector chart.
+#
+# Install with:
+#   helm install otel-collector open-telemetry/opentelemetry-collector \
+#     --namespace observability -f values-otel-collector.yaml
+#
+# Topology: receive OTLP (gRPC 4317, HTTP 4318) and Zipkin (9411), batch,
+# fan out to Tempo (storage) and perf-sentinel (analysis). Sized for a
+# local kind or single-node dev cluster, bump resources for real traffic.
+
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Ports exposed by the Service created by the upstream chart. The OTLP
+# ports are what applications hit. The Zipkin port is for apps still
+# emitting Zipkin wire format, common on Spring Boot apps migrating from
+# Sleuth.
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    hostPort: null
+    protocol: TCP
+    appProtocol: grpc
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    hostPort: null
+    protocol: TCP
+  zipkin:
+    enabled: true
+    containerPort: 9411
+    servicePort: 9411
+    hostPort: null
+    protocol: TCP
+
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+    zipkin:
+      endpoint: 0.0.0.0:9411
+
+  processors:
+    batch:
+      timeout: 5s
+      send_batch_size: 256
+
+  exporters:
+    # Primary storage backend. Replace with your Tempo Service DNS.
+    otlp/tempo:
+      endpoint: tempo.monitoring.svc.cluster.local:4317
+      tls:
+        # Flip to false and set `ca_file:` when wiring internal TLS.
+        insecure: true
+    # Anti-pattern detection plus GreenOps scoring. The Service DNS must
+    # match the perf-sentinel chart release name and namespace.
+    otlp/perf-sentinel:
+      endpoint: perf-sentinel.observability.svc.cluster.local:4317
+      tls:
+        # Flip to false and set `ca_file:` in production. perf-sentinel
+        # supports native TLS via [daemon] tls_cert_path / tls_key_path.
+        insecure: true
+
+  service:
+    pipelines:
+      traces:
+        receivers:
+          - otlp
+          - zipkin
+        processors:
+          - batch
+        exporters:
+          - otlp/tempo
+          - otlp/perf-sentinel
+    # Trim chart defaults that pull in metrics and logs pipelines, which
+    # are not needed here.
+    logs: null
+    metrics: null

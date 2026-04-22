@@ -338,6 +338,8 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 
 The daemon binds to `127.0.0.1` by default for security. Inside a container that is unreachable from the host, so the quickstart above overrides the bind address with `--listen-address 0.0.0.0`. The daemon will log a non-loopback warning on startup, which is expected. For real deployments, put a reverse proxy (or a NetworkPolicy on Kubernetes) in front, or mount [`examples/perf-sentinel-docker.toml`](examples/perf-sentinel-docker.toml) for the full compose topology.
 
+For Kubernetes, a Helm chart is available under [`charts/perf-sentinel/`](charts/perf-sentinel/). See [`docs/HELM-DEPLOYMENT.md`](docs/HELM-DEPLOYMENT.md).
+
 ### Quick demo
 
 ```bash

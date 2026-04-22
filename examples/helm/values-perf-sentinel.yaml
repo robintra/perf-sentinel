@@ -1,0 +1,64 @@
+# Values for the perf-sentinel chart, tuned for the combined example.
+#
+# Install with:
+#   helm install perf-sentinel ../../charts/perf-sentinel \
+#     --namespace observability -f values-perf-sentinel.yaml
+
+workload:
+  kind: Deployment
+  replicas: 1
+
+# Flip the Prometheus Operator ServiceMonitor on. Assumes kube-prometheus
+# or a compatible operator is installed and selects on
+# `release: prometheus` (adapt the label below to your operator selector).
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s
+  labels:
+    release: prometheus
+
+# In-cluster config. Secrets (e.g. Electricity Maps API key) must not
+# appear here. Use extraEnvFrom + a Secret for any sensitive value.
+config:
+  toml: |
+    [thresholds]
+    n_plus_one_sql_critical_max = 0
+    n_plus_one_http_warning_max = 3
+    io_waste_ratio_max = 0.30
+
+    [detection]
+    n_plus_one_min_occurrences = 5
+    window_duration_ms = 500
+    slow_query_threshold_ms = 500
+    slow_query_min_occurrences = 3
+
+    [green]
+    enabled = true
+    default_region = "eu-west-3"
+
+    [daemon]
+    # 0.0.0.0 is required inside a pod so the ClusterIP Service can route
+    # to the container. The fan-in is gated by the Service and the
+    # optional NetworkPolicy, not by the bind address.
+    listen_address = "0.0.0.0"
+    listen_port_http = 4318
+    listen_port_grpc = 4317
+    environment = "staging"
+    api_enabled = true
+
+    # Cross-trace correlation is useful for long-running POCs where a
+    # recurring pattern emerges over several minutes. Turn off in CI.
+    [daemon.correlation]
+    enabled = true
+    window_minutes = 10
+    lag_threshold_ms = 2000
+
+# Example: how to inject a scraper token via a Secret. Uncomment and
+# create the Secret first:
+#   kubectl -n observability create secret generic perf-sentinel-secrets \
+#     --from-literal=PERF_SENTINEL_EMAPS_TOKEN=sk-...
+#
+# extraEnvFrom:
+#   - secretRef:
+#       name: perf-sentinel-secrets

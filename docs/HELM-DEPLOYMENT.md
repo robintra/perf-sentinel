@@ -1,0 +1,308 @@
+# Helm deployment guide
+
+This guide walks through deploying perf-sentinel on Kubernetes via the
+packaged Helm chart under [`charts/perf-sentinel/`](../charts/perf-sentinel/).
+The chart ships the daemon (`perf-sentinel watch`) behind a `ClusterIP`
+Service exposing OTLP gRPC (4317) and OTLP HTTP plus `/metrics` plus
+`/api/*` (4318).
+
+For a non-Helm alternative, see the raw manifests in
+[`docs/INTEGRATION.md`](./INTEGRATION.md#kubernetes-deployment).
+
+## TL;DR
+
+```bash
+git clone https://github.com/robintra/perf-sentinel.git
+cd perf-sentinel
+helm install perf-sentinel ./charts/perf-sentinel \
+  --namespace observability --create-namespace
+kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
+```
+
+After the pod is ready, point your OpenTelemetry Collector at
+`perf-sentinel.observability.svc.cluster.local:4317` (gRPC) or `:4318`
+(HTTP). A full end-to-end example composing perf-sentinel with the
+upstream OTel Collector chart lives under
+[`examples/helm/`](../examples/helm/).
+
+## Topology
+
+The chart is sentinel-only by design. Users compose perf-sentinel with
+the upstream
+[open-telemetry/opentelemetry-collector](https://github.com/open-telemetry/opentelemetry-helm-charts)
+chart instead of bundling a collector that would get out of sync with
+upstream releases.
+
+```mermaid
+flowchart LR
+    subgraph apps [Application namespaces]
+        A[api-gateway]
+        B[order-svc]
+        C[payment-svc]
+        D[chat-svc]
+    end
+    subgraph obs [observability namespace]
+        OC[OTel Collector<br/>open-telemetry/opentelemetry-collector]
+        PS[perf-sentinel<br/>this chart]
+    end
+    subgraph mon [monitoring namespace]
+        T[Tempo]
+    end
+    A -->|OTLP or Zipkin| OC
+    B -->|OTLP or Zipkin| OC
+    C -->|OTLP or Zipkin| OC
+    D -->|OTLP or Zipkin| OC
+    OC -->|OTLP gRPC 4317| T
+    OC -->|OTLP gRPC 4317| PS
+```
+
+## Install from a local checkout
+
+Sprint B will publish the chart to an OCI registry
+(`oci://ghcr.io/robintra/charts/perf-sentinel`) via a GitHub Actions
+workflow. Until then, install from a local clone:
+
+```bash
+git clone https://github.com/robintra/perf-sentinel.git
+cd perf-sentinel
+
+# Inspect or override defaults before install.
+helm show values ./charts/perf-sentinel > my-values.yaml
+
+helm install perf-sentinel ./charts/perf-sentinel \
+  --namespace observability --create-namespace \
+  -f my-values.yaml
+```
+
+Chart version and app version are decoupled: `version` is the chart
+release, `appVersion` is the daemon image tag that ships with it. Pin
+the app version explicitly in production via `image.tag`.
+
+## Workload modes
+
+The chart supports three `workload.kind` values. Pick one per install.
+
+### `Deployment` (default)
+
+Single daemon behind a `ClusterIP` Service. This is the recommended
+topology. perf-sentinel is stateful per trace (the `TraceWindow` lives in
+memory), so running one daemon and scaling vertically is the right first
+move. The
+[sharded topology](../examples/docker-compose-sharded.yml) is available
+for multi-daemon deployments, it relies on consistent hashing by
+`trace_id` in the OTel Collector's `loadbalancingexporter` so every span
+of a given trace lands on the same daemon instance.
+
+```yaml
+workload:
+  kind: Deployment
+  replicas: 1
+```
+
+### `DaemonSet`
+
+Rare. Useful only when you have a hard requirement for a daemon on every
+node (e.g. taking over an existing node-local trace forwarder role). Note
+that a DaemonSet splits traces across nodes, which breaks N+1 detection
+unless an upstream collector ensures all spans of a trace reach the same
+daemon. Most users do not need this mode.
+
+```yaml
+workload:
+  kind: DaemonSet
+```
+
+### `StatefulSet`
+
+Reserved for future on-disk persistence. The chart provisions the
+volumeClaimTemplate end-to-end so the toggle works today, but no daemon
+feature currently writes under `/var/lib/perf-sentinel`. Use this mode
+only if you are prototyping a persistence extension.
+
+```yaml
+workload:
+  kind: StatefulSet
+  replicas: 1
+  statefulset:
+    persistence:
+      enabled: true
+      size: 5Gi
+      storageClass: gp3
+```
+
+## Config surface
+
+The chart mounts a single ConfigMap at
+`/etc/perf-sentinel/.perf-sentinel.toml`. Edit the content via
+`values.yaml`:
+
+```yaml
+config:
+  toml: |
+    [thresholds]
+    n_plus_one_sql_critical_max = 0
+    io_waste_ratio_max = 0.25
+
+    [green]
+    enabled = true
+    default_region = "eu-west-3"
+
+    [daemon]
+    listen_address = "0.0.0.0"
+    environment = "production"
+```
+
+Full field reference: [`docs/CONFIGURATION.md`](./CONFIGURATION.md).
+
+### Secrets
+
+The TOML file must never contain secrets (the daemon rejects credential
+fields at config load). Inject sensitive values via environment variables
+fed by a Secret:
+
+```bash
+kubectl -n observability create secret generic perf-sentinel-secrets \
+  --from-literal=PERF_SENTINEL_EMAPS_TOKEN=sk-your-token
+```
+
+```yaml
+extraEnvFrom:
+  - secretRef:
+      name: perf-sentinel-secrets
+```
+
+perf-sentinel itself does not read environment variables for
+configuration directly, so the pattern is: the Secret goes into the pod
+env, and the config file references it via `env:VAR_NAME` for the
+handful of fields that support that form (Electricity Maps `api_key`,
+etc.). See the "Environment variables" section of
+`docs/CONFIGURATION.md`.
+
+### Calibration files and TLS certs
+
+Both go through `extraVolumes` plus `extraVolumeMounts`:
+
+```yaml
+extraVolumes:
+  - name: tls
+    secret:
+      secretName: perf-sentinel-tls
+      defaultMode: 0400
+extraVolumeMounts:
+  - name: tls
+    mountPath: /etc/tls
+    readOnly: true
+
+config:
+  toml: |
+    [daemon]
+    tls_cert_path = "/etc/tls/tls.crt"
+    tls_key_path = "/etc/tls/tls.key"
+```
+
+## Observability
+
+### Prometheus ServiceMonitor
+
+When the Prometheus Operator is installed, flip `serviceMonitor.enabled`
+to scrape `/metrics` on port 4318:
+
+```yaml
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s
+  labels:
+    # Match whatever selector your Prometheus resource uses.
+    release: prometheus
+```
+
+### Exemplars
+
+perf-sentinel emits Prometheus exemplars on
+`perf_sentinel_findings_total`, `perf_sentinel_io_waste_ratio` and
+`perf_sentinel_slow_duration_seconds`. Enable exemplar storage on your
+Prometheus:
+
+```yaml
+prometheus:
+  prometheusSpec:
+    enableFeatures:
+      - exemplar-storage
+```
+
+Then configure Grafana to click through from metric to trace:
+
+```yaml
+datasources:
+  - name: Prometheus
+    type: prometheus
+    jsonData:
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+```
+
+### Without the Prometheus Operator
+
+If you use a plain Prometheus without the operator, add a static scrape
+entry instead:
+
+```yaml
+scrape_configs:
+  - job_name: perf-sentinel
+    kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          names: [observability]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+        regex: perf-sentinel
+        action: keep
+      - source_labels: [__meta_kubernetes_endpoint_port_name]
+        regex: otlp-http
+        action: keep
+```
+
+## Upgrading
+
+```bash
+helm upgrade perf-sentinel ./charts/perf-sentinel \
+  --namespace observability \
+  -f my-values.yaml
+```
+
+The daemon does not hot-reload its config, so changes to `config.toml`
+require a pod restart. The chart handles this automatically: a
+`checksum/config` annotation on the pod template computes a hash of the
+rendered ConfigMap, so any config edit bumps the annotation and triggers
+a rolling restart. No manual `kubectl rollout restart` is needed.
+
+When bumping the chart to a new `appVersion`, pin `image.tag` explicitly
+and review `CHANGELOG.md` for breaking config changes. The chart does
+not yet validate that the daemon version matches the chart version; this
+is the operator's responsibility.
+
+## Uninstalling
+
+```bash
+helm uninstall perf-sentinel --namespace observability
+```
+
+This removes the Deployment, Service, ConfigMap, ServiceAccount and
+(when created) ServiceMonitor and NetworkPolicy. StatefulSet mode with
+persistence retains the underlying PersistentVolumeClaims by default,
+per Kubernetes semantics. Delete them explicitly if you are wiping
+state:
+
+```bash
+kubectl --namespace observability delete pvc \
+  -l app.kubernetes.io/instance=perf-sentinel
+```
+
+## End-to-end example
+
+[`examples/helm/`](../examples/helm/) ships two values files composing
+the perf-sentinel chart with the upstream OTel Collector chart for a
+Zipkin + OTLP fan-out topology to Tempo and perf-sentinel. Walk through
+the README there for the full install + verification recipe.
