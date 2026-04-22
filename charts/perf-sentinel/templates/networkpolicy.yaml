@@ -16,6 +16,7 @@ spec:
       {{- include "perf-sentinel.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
+  {{- if or .Values.networkPolicy.ingress.fromNamespaceSelectors .Values.networkPolicy.ingress.fromPodSelectors }}
   ingress:
     - from:
         {{- range .Values.networkPolicy.ingress.fromNamespaceSelectors }}
@@ -31,4 +32,10 @@ spec:
           port: {{ .Values.service.ports.otlpGrpc.port }}
         - protocol: TCP
           port: {{ .Values.service.ports.otlpHttp.port }}
+  {{- else }}
+  # No ingress selectors supplied: deny all ingress (fail-closed). Add
+  # entries under .Values.networkPolicy.ingress.fromNamespaceSelectors or
+  # .fromPodSelectors to allow-list specific peers.
+  ingress: []
+  {{- end }}
 {{- end }}

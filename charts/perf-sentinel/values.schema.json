@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "perf-sentinel values",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "image": {
       "type": "object",
@@ -126,8 +126,16 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "namespace": { "type": "string" },
-        "interval": { "type": "string" },
-        "scrapeTimeout": { "type": "string" },
+        "interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m|h)$",
+          "description": "Prometheus duration, e.g. 15s, 30s, 1m."
+        },
+        "scrapeTimeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m|h)$",
+          "description": "Prometheus duration, e.g. 10s."
+        },
         "labels": { "type": "object" },
         "relabelings": { "type": "array" },
         "metricRelabelings": { "type": "array" }

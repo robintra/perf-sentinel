@@ -5,13 +5,10 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "perf-sentinel.labels" . | nindent 4 }}
-  {{- with .Values.service.annotations }}
+  {{- $annotations := merge (deepCopy (.Values.service.annotations | default dict)) (.Values.commonAnnotations | default dict) }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- if and (not .Values.service.annotations) .Values.commonAnnotations }}
-  annotations:
-    {{- toYaml .Values.commonAnnotations | nindent 4 }}
   {{- end }}
 spec:
   type: {{ .Values.service.type }}

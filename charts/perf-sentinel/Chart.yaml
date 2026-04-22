@@ -10,6 +10,7 @@ version: 0.1.0
 appVersion: "0.5.1"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
+icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
 sources:
   - https://github.com/robintra/perf-sentinel
 keywords:

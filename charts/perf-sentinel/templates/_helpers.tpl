@@ -89,6 +89,21 @@ Defaults to the full release name.
 {{- end -}}
 
 {{/*
+ConfigMap name. Derived from the fullname, truncated at 63 chars to stay
+within the DNS-1123 label limit even for long release names.
+*/}}
+{{- define "perf-sentinel.configMapName" -}}
+{{- printf "%s-config" (include "perf-sentinel.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+helm test Pod name. Same 63-char guard as the ConfigMap.
+*/}}
+{{- define "perf-sentinel.testPodName" -}}
+{{- printf "%s-test-connection" (include "perf-sentinel.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
 Shared pod spec used by Deployment, DaemonSet and StatefulSet.
 */}}
 {{- define "perf-sentinel.podSpec" -}}
@@ -155,7 +170,7 @@ containers:
 volumes:
   - name: config
     configMap:
-      name: {{ include "perf-sentinel.fullname" . }}-config
+      name: {{ include "perf-sentinel.configMapName" . }}
   - name: tmp
     emptyDir: {}
   {{- with .Values.extraVolumes }}

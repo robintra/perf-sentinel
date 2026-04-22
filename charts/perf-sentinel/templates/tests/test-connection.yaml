@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: "{{ include "perf-sentinel.fullname" . }}-test-connection"
+  name: {{ include "perf-sentinel.testPodName" . | quote }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "perf-sentinel.labels" . | nindent 4 }}
