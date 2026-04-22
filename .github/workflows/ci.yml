@@ -8,7 +8,7 @@ on:
       - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.github/workflows/**'
+      - '.github/workflows/ci.yml'
       - 'sonar-project.properties'
   pull_request:
     branches: [main]
@@ -17,7 +17,7 @@ on:
       - 'tests/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
-      - '.github/workflows/**'
+      - '.github/workflows/ci.yml'
       - 'sonar-project.properties'
   # Manual trigger so CI can be rerun against an arbitrary ref (tag,
   # commit, branch). Useful for re-validating an old release after a
