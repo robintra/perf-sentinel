@@ -107,12 +107,7 @@ Or produce a single-file HTML dashboard with `report` for post-mortem exploratio
 perf-sentinel report --input traces.json --output report.html
 ```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_dark.gif">
-  <img alt="dashboard tour" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_light.gif">
-</picture>
-
-Per-tab still frames are in the **Still frames** section at the bottom of this page.
+The dashboard tour is shown at the top of this page under [Quick look](#quick-look). Per-tab still frames are in the **Still frames** section at the bottom.
 
 Or rank SQL hotspots from a PostgreSQL `pg_stat_statements` export with `pg-stat`. Four rankings (by total time, by call count, by mean latency, by shared-buffer blocks touched) help you spot queries that dominate the DB without being visible in your traces, a sign of instrumentation gaps:
 

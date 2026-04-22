@@ -107,12 +107,7 @@ Ou produis un dashboard HTML single-file avec `report` pour l'exploration post-C
 perf-sentinel report --input traces.json --output report.html
 ```
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_dark.gif">
-  <img alt="tour du dashboard" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_light.gif">
-</picture>
-
-Les captures figées par onglet sont dans la section **Captures** en bas de cette page.
+Le tour du dashboard est affiché en haut de cette page sous [Aperçu rapide](#aperçu-rapide). Les captures figées par onglet sont dans la section **Captures** en bas.
 
 Ou classe les hotspots SQL depuis un export `pg_stat_statements` PostgreSQL avec `pg-stat`. Quatre classements (par temps total, par nombre d'appels, par latence moyenne, par blocs shared-buffer touchés) aident à repérer les requêtes qui dominent la DB sans apparaître dans tes traces, signe d'un trou d'instrumentation :
 
