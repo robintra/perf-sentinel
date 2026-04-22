@@ -12,12 +12,15 @@ For a non-Helm alternative, see the raw manifests in
 ## TL;DR
 
 ```bash
-git clone https://github.com/robintra/perf-sentinel.git
-cd perf-sentinel
-helm install perf-sentinel ./charts/perf-sentinel \
+helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
+  --version 0.1.0 \
   --namespace observability --create-namespace
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
+
+Every published release is Cosign-keyless-signed and shipped with a
+SLSA level 3 provenance attestation. See [Verify the chart signature](#verify-the-chart-signature)
+below to check both before installing.
 
 After the pod is ready, point your OpenTelemetry Collector at
 `perf-sentinel.observability.svc.cluster.local:4317` (gRPC) or `:4318`
@@ -56,11 +59,69 @@ flowchart LR
     OC -->|OTLP gRPC 4317| PS
 ```
 
+## Install from OCI registry
+
+The chart is published as an OCI artifact at
+`oci://ghcr.io/robintra/charts/perf-sentinel`. Every version gets
+Cosign keyless signing (GitHub OIDC, Rekor transparency log) and a
+SLSA level 3 provenance attestation uploaded as a GitHub Release
+asset.
+
+### Pin a version
+
+```bash
+helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
+  --version 0.1.0 \
+  --namespace observability --create-namespace \
+  -f my-values.yaml
+```
+
+Chart version and app version are decoupled: `version` is the chart
+release, `appVersion` is the daemon image tag that ships with it. Pin
+the app version explicitly in production via `image.tag` to avoid
+drift when a newer chart ships.
+
+### Verify the chart signature
+
+Cosign keyless verification ties each release back to a specific
+GitHub Actions workflow run. The certificate identity must match the
+published release workflow, the OIDC issuer must be GitHub Actions:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/robintra/charts/perf-sentinel:0.1.0
+```
+
+A successful run prints the Rekor log entry and the certificate
+details. A mismatched or absent signature exits non-zero.
+
+### Verify the SLSA provenance
+
+The provenance attestation is attached to the GitHub Release as a
+`.intoto.jsonl` asset. Download it next to the packaged `.tgz`, then
+verify with [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier):
+
+```bash
+gh release download chart-v0.1.0 \
+  --repo robintra/perf-sentinel \
+  --pattern 'perf-sentinel-*.tgz' \
+  --pattern '*.intoto.jsonl'
+
+slsa-verifier verify-artifact perf-sentinel-0.1.0.tgz \
+  --provenance-path perf-sentinel-chart.intoto.jsonl \
+  --source-uri github.com/robintra/perf-sentinel \
+  --source-tag chart-v0.1.0
+```
+
+Pair this with the Cosign check above to confirm both the signature on
+the OCI artifact and the build-provenance on the tarball.
+
 ## Install from a local checkout
 
-Sprint B will publish the chart to an OCI registry
-(`oci://ghcr.io/robintra/charts/perf-sentinel`) via a GitHub Actions
-workflow. Until then, install from a local clone:
+For contributors and users who want to inspect, patch, or bisect the
+chart before installing, a local clone still works:
 
 ```bash
 git clone https://github.com/robintra/perf-sentinel.git
@@ -74,9 +135,35 @@ helm install perf-sentinel ./charts/perf-sentinel \
   -f my-values.yaml
 ```
 
-Chart version and app version are decoupled: `version` is the chart
-release, `appVersion` is the daemon image tag that ships with it. Pin
-the app version explicitly in production via `image.tag`.
+Keep the OCI path for production installs. The local path bypasses
+Cosign and SLSA checks by design, so it should not be used against
+shared clusters unless you built the chart yourself.
+
+## Cutting a new chart release
+
+The release workflow (`.github/workflows/helm-release.yml`) triggers
+on tags matching `chart-v*`. The first gate
+(`scripts/check-helm-tag-version.sh`) asserts strict equality between
+the tag and `charts/perf-sentinel/Chart.yaml:version`, including any
+semver prerelease suffix. The flow for a release:
+
+1. On a branch, bump `charts/perf-sentinel/Chart.yaml:version` to the
+   target (e.g. `0.1.0-rc.1` for a release candidate, `0.1.0` for the
+   final). Semver prerelease suffixes are supported.
+2. Add a matching section to `charts/perf-sentinel/CHANGELOG.md`.
+3. Open a PR. The helm-ci workflow runs lint, template+kubeconform
+   across the three workload kinds, and a version-bump guard that
+   fails if the chart was edited without a matching `version:` bump.
+4. Merge the PR, then tag:
+   ```bash
+   git tag chart-v0.1.0-rc.1
+   git push origin chart-v0.1.0-rc.1
+   ```
+5. The helm-release workflow packages the chart, pushes it to OCI,
+   Cosign-signs, generates SLSA provenance, and opens a **draft**
+   GitHub Release. Prerelease tags (`-rc`, `-beta`, `-alpha`) get the
+   `prerelease: true` flag automatically.
+6. Review the draft release and the OCI artifact, then publish.
 
 ## Workload modes
 

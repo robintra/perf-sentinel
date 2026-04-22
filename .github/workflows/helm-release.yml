@@ -1,0 +1,222 @@
+name: Helm release
+
+on:
+  push:
+    tags:
+      - 'chart-v*'
+
+# Workflow-level permissions are the floor. The publish, sign, and
+# provenance jobs narrow `packages: write` and `id-token: write` where
+# they need them. Keyless Cosign signing and the SLSA generic generator
+# both require `id-token: write` for the OIDC token exchange.
+permissions:
+  contents: read
+
+jobs:
+  # First gate: refuse to publish anything if the tag does not match
+  # charts/perf-sentinel/Chart.yaml:version. Logic lives in
+  # scripts/check-helm-tag-version.sh so it can also run locally before
+  # tagging. Every downstream job depends on this.
+  check-chart-version:
+    name: Verify tag matches Chart.yaml
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      chart_version: ${{ steps.extract.outputs.chart_version }}
+      is_prerelease: ${{ steps.extract.outputs.is_prerelease }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Assert tag matches Chart.yaml
+        run: scripts/check-helm-tag-version.sh "${GITHUB_REF_NAME}"
+
+      - name: Extract chart version and prerelease flag
+        id: extract
+        run: |
+          version="${GITHUB_REF_NAME#chart-v}"
+          echo "chart_version=${version}" >> "$GITHUB_OUTPUT"
+          case "${version}" in
+            *-rc*|*-beta*|*-alpha*) echo "is_prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)                      echo "is_prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  lint:
+    name: Helm lint
+    needs: check-chart-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - name: helm lint
+        run: helm lint charts/perf-sentinel/
+
+  template-and-conform:
+    name: Render and validate (${{ matrix.leg }})
+    needs: check-chart-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: deployment
+            args: "--set workload.kind=Deployment"
+          - leg: daemonset
+            args: "--set workload.kind=DaemonSet"
+          - leg: statefulset
+            args: "--set workload.kind=StatefulSet"
+          - leg: flags-on
+            args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: kubeconform
+
+      - name: helm template | kubeconform
+        run: |
+          helm template test charts/perf-sentinel/ ${{ matrix.args }} \
+            | kubeconform -strict -summary -ignore-missing-schemas
+
+  # Packages the chart, pushes it to GHCR as an OCI artifact, and
+  # captures the tarball sha256 + the OCI digest as outputs for the
+  # downstream sign and provenance jobs.
+  publish:
+    name: Package and push to OCI
+    needs: [check-chart-version, lint, template-and-conform]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tarball_name: ${{ steps.package.outputs.tarball_name }}
+      tarball_digest: ${{ steps.package.outputs.tarball_digest }}
+      tarball_base64_subjects: ${{ steps.package.outputs.tarball_base64_subjects }}
+      oci_digest: ${{ steps.push.outputs.oci_digest }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - name: Package chart
+        id: package
+        run: |
+          mkdir -p out
+          helm package charts/perf-sentinel/ -d out/
+          name=$(ls out/ | head -n1)
+          digest=$(sha256sum "out/${name}" | awk '{print $1}')
+          echo "tarball_name=${name}"                               >> "$GITHUB_OUTPUT"
+          echo "tarball_digest=${digest}"                           >> "$GITHUB_OUTPUT"
+          # Input format for the SLSA generic generator: `<digest>  <name>` lines, base64-encoded.
+          echo "tarball_base64_subjects=$(printf '%s  %s' "${digest}" "${name}" | base64 -w0)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        run: echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        id: push
+        run: |
+          helm push "out/${{ steps.package.outputs.tarball_name }}" oci://ghcr.io/robintra/charts 2>&1 | tee push.log
+          digest=$(grep -E '^Digest: ' push.log | awk '{print $2}')
+          if [ -z "${digest}" ]; then
+            echo "::error::Could not capture OCI digest from helm push output"
+            exit 1
+          fi
+          echo "oci_digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload packaged chart artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.package.outputs.tarball_name }}
+          path: out/${{ steps.package.outputs.tarball_name }}
+          retention-days: 7
+
+  sign:
+    name: Cosign keyless sign
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # OIDC token for Cosign keyless signing, posted to Rekor
+    steps:
+      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Sign OCI artifact
+        run: |
+          cosign sign --yes \
+            "ghcr.io/robintra/charts/perf-sentinel@${{ needs.publish.outputs.oci_digest }}"
+
+  # SLSA level 3 provenance on the .tgz tarball. The generic generator
+  # covers any OCI mediaType (including the application/vnd.cncf.helm.*
+  # shapes used by Helm charts), unlike the container generator which
+  # assumes Docker image mediaTypes. The resulting .intoto.jsonl is
+  # published as a GitHub Release asset (not attached to the OCI layer).
+  provenance:
+    name: SLSA provenance
+    needs: publish
+    permissions:
+      actions: read    # read the workflow run to sign
+      contents: write  # upload provenance to the release
+      id-token: write  # OIDC token for the signing step
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    with:
+      base64-subjects: ${{ needs.publish.outputs.tarball_base64_subjects }}
+      provenance-name: perf-sentinel-chart.intoto.jsonl
+      upload-assets: true
+      draft-release: true
+
+  github-release:
+    name: Draft GitHub Release
+    needs: [check-chart-version, publish, sign, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # required for softprops/action-gh-release to upload assets
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download packaged chart
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.publish.outputs.tarball_name }}
+          path: out
+
+      # Extract the section body for the current version from the chart
+      # CHANGELOG to seed the GitHub Release body. Falls back to a
+      # generic message if the section cannot be found.
+      - name: Extract CHANGELOG snippet
+        id: snippet
+        run: |
+          v="${{ needs.check-chart-version.outputs.chart_version }}"
+          body=$(awk -v v="${v}" '
+            $0 == "## [" v "]" { in_section = 1; next }
+            /^## \[/           { if (in_section) exit }
+            in_section
+          ' charts/perf-sentinel/CHANGELOG.md)
+          if [ -z "${body}" ]; then
+            body="Release notes for chart version ${v}. See charts/perf-sentinel/CHANGELOG.md."
+          fi
+          # Encode via EOF heredoc to preserve newlines in the output.
+          {
+            echo 'body<<SNIPPET_EOF'
+            printf '%s\n' "${body}"
+            echo 'SNIPPET_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          name: perf-sentinel chart v${{ needs.check-chart-version.outputs.chart_version }}
+          body: ${{ steps.snippet.outputs.body }}
+          draft: true
+          prerelease: ${{ needs.check-chart-version.outputs.is_prerelease }}
+          files: out/${{ needs.publish.outputs.tarball_name }}

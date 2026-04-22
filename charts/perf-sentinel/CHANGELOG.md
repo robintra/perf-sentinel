@@ -1,0 +1,29 @@
+# Changelog
+
+All notable changes to the perf-sentinel Helm chart are documented in
+this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+Chart versions are independent from the perf-sentinel application
+versions, the chart's `appVersion` field tracks which daemon version is
+the default target.
+
+## [0.1.0]
+
+Initial release of the perf-sentinel Helm chart.
+
+### Added
+
+- Helm chart deployable as Deployment (default), DaemonSet or
+  StatefulSet via `workload.kind`.
+- ConfigMap-backed `.perf-sentinel.toml` with rolling update on
+  content change via `checksum/config` pod annotation.
+- ClusterIP Service exposing OTLP gRPC (4317) and OTLP HTTP (4318).
+- Optional ServiceMonitor for Prometheus Operator users
+  (`serviceMonitor.enabled`).
+- Optional NetworkPolicy (`networkPolicy.enabled`), fail-closed by
+  default when enabled.
+- Liveness and readiness probes wired to the lock-free `/health`
+  endpoint.
+- Extension hooks: `extraEnv`, `extraEnvFrom`, `extraVolumes`,
+  `extraVolumeMounts`, `extraArgs`.
+- Values schema (`values.schema.json`) validating the `workload.kind`
+  enum and shape of the main keys.

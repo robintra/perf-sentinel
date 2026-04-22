@@ -1,0 +1,119 @@
+name: Helm CI
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'examples/helm/**'
+      - '.github/workflows/helm-ci.yml'
+      - 'scripts/check-chart-version-bumped.sh'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref to validate. Defaults to the dispatch ref.'
+        required: false
+        type: string
+
+# PRs get re-pushed often. Cancel in-progress runs on the same ref so
+# the feedback signal stays fresh without stacking redundant jobs.
+concurrency:
+  group: helm-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Helm lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - name: helm lint
+        run: helm lint charts/perf-sentinel/
+
+  template-matrix:
+    name: Render and validate (${{ matrix.leg }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: deployment
+            args: "--set workload.kind=Deployment"
+          - leg: daemonset
+            args: "--set workload.kind=DaemonSet"
+          - leg: statefulset
+            args: "--set workload.kind=StatefulSet"
+          - leg: flags-on
+            args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true"
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: kubeconform
+
+      - name: helm template | kubeconform
+        run: |
+          helm template test charts/perf-sentinel/ ${{ matrix.args }} \
+            | kubeconform -strict -summary -ignore-missing-schemas
+
+  # Ensures the chart-side example values file stays compatible with
+  # the chart's schema. The OTel Collector values file is deliberately
+  # skipped here: it targets the upstream opentelemetry-collector chart,
+  # not this one, so templating our chart against it would fail on keys
+  # our schema rejects.
+  example-values:
+    name: Render example values
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      - uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        with:
+          tool: kubeconform
+
+      - name: helm template -f values-perf-sentinel.yaml | kubeconform
+        run: |
+          helm template test charts/perf-sentinel/ \
+            -f examples/helm/values-perf-sentinel.yaml \
+            | kubeconform -strict -summary -ignore-missing-schemas
+
+  # Guards against chart edits that forget to bump Chart.yaml:version.
+  # Skipped automatically when the PR does not touch the chart, or only
+  # touches the chart CHANGELOG (the script handles both cases).
+  version-bumped:
+    name: Verify chart version bump
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0 # the script needs the base ref to diff
+
+      - name: Assert Chart.yaml:version bumped when chart changes
+        run: scripts/check-chart-version-bumped.sh
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
