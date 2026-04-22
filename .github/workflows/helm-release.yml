@@ -203,12 +203,15 @@ jobs:
         with:
           subject-path: out/${{ needs.publish.outputs.tarball_name }}
 
+  # `provenance` is a hard dependency: a Sigstore / OIDC flake that
+  # fails attestation also blocks the GitHub Release. Keeps the
+  # supply-chain invariant "no release without provenance" true.
   github-release:
     name: Draft GitHub Release
     needs: [check-chart-version, publish, sign, provenance]
     runs-on: ubuntu-latest
     permissions:
-      contents: write # required for softprops/action-gh-release to upload assets
+      contents: write # required by `gh release create` to create the release and upload assets
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -234,7 +237,8 @@ jobs:
           fi
           printf '%s\n' "${body}" > /tmp/release-body.md
 
-      # Sole creator of the GitHub Release now that SLSA no longer pre-creates one.
+      # Sole creator of the GitHub Release. The delete-if-exists guard
+      # makes retags on the same tag idempotent (useful during RC iteration).
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -247,6 +251,9 @@ jobs:
             prerelease_flag="--prerelease"
           else
             prerelease_flag="--latest=false"
+          fi
+          if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
+            gh release delete "${GITHUB_REF_NAME}" --yes --cleanup-tag=false
           fi
           gh release create "${GITHUB_REF_NAME}" "out/${TARBALL}" \
             --title "${title}" \

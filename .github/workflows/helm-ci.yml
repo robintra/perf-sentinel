@@ -7,6 +7,7 @@ on:
       - 'examples/helm/**'
       - '.github/workflows/helm-ci.yml'
       - 'scripts/check-chart-version-bumped.sh'
+      - 'scripts/test/check-chart-version-bumped-test.sh'
   workflow_dispatch:
     inputs:
       ref:
@@ -129,3 +130,19 @@ jobs:
         run: scripts/check-chart-version-bumped.sh
         env:
           GITHUB_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+
+  # Regression net around the bump-guard script itself. Runs every PR
+  # through helm-ci so an edit to the guard that breaks a scenario
+  # fails the PR instead of landing silently.
+  bump-guard-self-test:
+    name: Bump-guard self-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Run self-test harness
+        run: scripts/test/check-chart-version-bumped-test.sh

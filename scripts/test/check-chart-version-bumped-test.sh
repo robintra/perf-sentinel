@@ -165,6 +165,27 @@ scenario_downgrade() {
   commit_all "head, downgrade"
 }
 
+# Bump with a header but empty section body (header + blank then next header).
+scenario_empty_section_body() {
+  write_chart "0.1.0"
+  write_changelog "0.1.0"
+  commit_all "base"
+  git update-ref refs/remotes/origin/main HEAD
+  write_chart "0.1.1"
+  {
+    echo "# Changelog"
+    echo ""
+    echo "## [0.1.1]"
+    echo ""
+    echo "## [0.1.0]"
+    echo ""
+    echo "entry for 0.1.0."
+    echo ""
+  } > "${CHART_CHANGELOG}"
+  echo "# test change" >> "${CHART_DIR}/values.yaml"
+  commit_all "head, bump with empty section"
+}
+
 # --- Drive ------------------------------------------------------------------
 
 run_scenario "no chart change"                      0 scenario_no_change
@@ -174,6 +195,7 @@ run_scenario "proper bump with new section"         0 scenario_proper_bump
 run_scenario "bump without CHANGELOG section"       1 scenario_missing_section
 run_scenario "bump but section was on base"         1 scenario_section_on_base
 run_scenario "version downgrade"                    1 scenario_downgrade
+run_scenario "bump with empty section body"         1 scenario_empty_section_body
 
 echo ""
 echo "Summary: ${PASS} passed, ${FAIL} failed"

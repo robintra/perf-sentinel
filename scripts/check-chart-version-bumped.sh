@@ -153,5 +153,18 @@ if [ "${HEAD_HAS_SECTION}" -eq 0 ] || [ "${BASE_HAS_SECTION}" -eq 1 ]; then
   exit 1
 fi
 
-emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION} (CHANGELOG section present)"
+# Require at least one non-blank line in the new section body.
+SECTION_BODY_LINES=$(awk -v v="${HEAD_VERSION}" '
+  $0 == "## [" v "]" { in_section = 1; next }
+  /^## \[/ && in_section { exit }
+  in_section && NF > 0 { count++ }
+  END { print count + 0 }
+' "${CHART_CHANGELOG}")
+
+if [ "${SECTION_BODY_LINES}" -eq 0 ]; then
+  emit_error "Section \"${SECTION_LINE}\" in ${CHART_CHANGELOG} is empty. Describe the change in at least one non-blank line before merging."
+  exit 1
+fi
+
+emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION} (CHANGELOG section present, ${SECTION_BODY_LINES} non-blank body line(s))"
 exit 0
