@@ -21,13 +21,16 @@
 #   5. Otherwise read the top-level `version:` field from
 #      charts/perf-sentinel/Chart.yaml on HEAD and on origin/<base-ref>.
 #   6. Compare them with `sort -V` (version-aware):
-#      - HEAD > BASE: proper bump, exit 0.
+#      - HEAD > BASE: proper bump, continue to step 7.
 #      - HEAD = BASE: unbumped chart change, exit 1.
 #      - HEAD < BASE: downgrade, exit 1 with a distinct error.
+#   7. On a proper bump, also require that
+#      charts/perf-sentinel/CHANGELOG.md contains a `## [HEAD_VERSION]`
+#      section on HEAD that was NOT already on origin/<base-ref>.
 #
 # Exit codes:
-#   0 - no chart change, or a proper version bump
-#   1 - unbumped chart change, downgrade, missing base ref, or git / parse failure
+#   0 - no chart change, or a proper bump with matching CHANGELOG section
+#   1 - unbumped chart change, downgrade, missing CHANGELOG section, missing base ref, or git / parse failure
 
 set -euo pipefail
 
@@ -133,5 +136,22 @@ if [ "${LARGER}" != "${HEAD_VERSION}" ]; then
   exit 1
 fi
 
-emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION}"
+# Require a new `## [HEAD_VERSION]` section on HEAD that was not on base.
+SECTION_LINE="## [${HEAD_VERSION}]"
+HEAD_HAS_SECTION=0
+BASE_HAS_SECTION=0
+if grep -Fxq "${SECTION_LINE}" "${CHART_CHANGELOG}" 2>/dev/null; then
+  HEAD_HAS_SECTION=1
+fi
+if git show "origin/${BASE_REF}:${CHART_CHANGELOG}" 2>/dev/null \
+     | grep -Fxq "${SECTION_LINE}"; then
+  BASE_HAS_SECTION=1
+fi
+
+if [ "${HEAD_HAS_SECTION}" -eq 0 ] || [ "${BASE_HAS_SECTION}" -eq 1 ]; then
+  emit_error "Chart version bumped to ${HEAD_VERSION} but ${CHART_CHANGELOG} does not have a new \"${SECTION_LINE}\" section on HEAD (or the section was already present on origin/${BASE_REF}). Add the section before merging."
+  exit 1
+fi
+
+emit_notice "Chart version bumped: ${BASE_VERSION} -> ${HEAD_VERSION} (CHANGELOG section present)"
 exit 0

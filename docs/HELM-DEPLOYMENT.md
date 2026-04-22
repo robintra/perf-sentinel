@@ -99,24 +99,34 @@ details. A mismatched or absent signature exits non-zero.
 
 ### Verify the SLSA provenance
 
-The provenance attestation is attached to the GitHub Release as a
-`.intoto.jsonl` asset. Download it next to the packaged `.tgz`, then
-verify with [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier):
+Each published chart tarball carries a SLSA v1.0 build provenance
+attestation produced by `actions/attest-build-provenance` and stored
+on the repository's attestation store. The attestation is queryable
+via `gh`:
 
 ```bash
-gh release download chart-v0.1.0 \
+gh release download chart-v0.1.2 \
   --repo robintra/perf-sentinel \
-  --pattern 'perf-sentinel-*.tgz' \
-  --pattern '*.intoto.jsonl'
+  --pattern 'perf-sentinel-*.tgz'
 
-slsa-verifier verify-artifact perf-sentinel-0.1.0.tgz \
-  --provenance-path perf-sentinel-chart.intoto.jsonl \
-  --source-uri github.com/robintra/perf-sentinel \
-  --source-tag chart-v0.1.0
+gh attestation verify perf-sentinel-0.1.2.tgz \
+  --repo robintra/perf-sentinel
 ```
 
-Pair this with the Cosign check above to confirm both the signature on
-the OCI artifact and the build-provenance on the tarball.
+For users who prefer Sigstore tooling over the `gh` CLI, the same
+attestation is verifiable via Cosign against the OCI artifact:
+
+```bash
+cosign verify-attestation \
+  --type slsaprovenance1 \
+  --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/robintra/charts/perf-sentinel:0.1.2
+```
+
+Pair either recipe with the Cosign signature check above to confirm
+both the signer identity on the OCI artifact and the build-provenance
+on the tarball.
 
 ## Install from a local checkout
 

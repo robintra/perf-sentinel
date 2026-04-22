@@ -6,6 +6,27 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.1.2]
+
+### Fixed
+
+- SLSA build provenance is now reliably attached to each published
+  chart release via `actions/attest-build-provenance`, replacing the
+  previous `slsa-framework/slsa-github-generator` reusable workflow
+  whose draft-release integration diverged onto ephemeral
+  `untagged-*` drafts under the `helm-release.yml` release flow. The
+  provenance is now queryable via `gh attestation verify` without
+  requiring a separate `.intoto.jsonl` asset on the GitHub Release.
+  Cosign signatures on the OCI artifact are unchanged.
+
+### Changed
+
+- `scripts/check-chart-version-bumped.sh` now also requires that
+  `charts/perf-sentinel/CHANGELOG.md` contain a matching
+  `## [NEW_VERSION]` section on HEAD that was not present on the PR
+  base. A PR that bumps the chart version without a corresponding
+  changelog entry now fails CI rather than merging silently.
+
 ## [0.1.1]
 
 ### Fixed

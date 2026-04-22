@@ -74,21 +74,28 @@ Un run réussi affiche l'entrée du log Rekor et les détails du certificat. Un 
 
 ### Vérifier la provenance SLSA
 
-L'attestation de provenance est attachée à la GitHub Release comme asset `.intoto.jsonl`. Téléchargez-la à côté du `.tgz` packagé, puis vérifiez avec [`slsa-verifier`](https://github.com/slsa-framework/slsa-verifier) :
+Chaque tarball de chart publié porte une attestation de provenance de build SLSA v1.0 produite par `actions/attest-build-provenance` et stockée sur l'attestation store du repo. L'attestation est interrogeable via `gh` :
 
 ```bash
-gh release download chart-v0.1.0 \
+gh release download chart-v0.1.2 \
   --repo robintra/perf-sentinel \
-  --pattern 'perf-sentinel-*.tgz' \
-  --pattern '*.intoto.jsonl'
+  --pattern 'perf-sentinel-*.tgz'
 
-slsa-verifier verify-artifact perf-sentinel-0.1.0.tgz \
-  --provenance-path perf-sentinel-chart.intoto.jsonl \
-  --source-uri github.com/robintra/perf-sentinel \
-  --source-tag chart-v0.1.0
+gh attestation verify perf-sentinel-0.1.2.tgz \
+  --repo robintra/perf-sentinel
 ```
 
-Associez cela au contrôle Cosign ci-dessus pour confirmer à la fois la signature sur l'artifact OCI et la provenance de build sur le tarball.
+Pour les utilisateurs qui préfèrent l'outillage Sigstore au CLI `gh`, la même attestation se vérifie via Cosign contre l'artifact OCI :
+
+```bash
+cosign verify-attestation \
+  --type slsaprovenance1 \
+  --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/robintra/charts/perf-sentinel:0.1.2
+```
+
+Associez une des deux recettes au contrôle de signature Cosign ci-dessus pour confirmer à la fois l'identité du signataire sur l'artifact OCI et la provenance de build sur le tarball.
 
 ## Installation depuis un checkout local
 
