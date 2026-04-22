@@ -118,6 +118,9 @@
   #pgstat-body tr.hilite { background: var(--color-background-danger); }
   #pgstat-body tr.hilite td:first-child { color: var(--color-text-danger); font-weight: 500; }
   .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
+  .ps-credit { margin-top: 8px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
+  .ps-credit a { color: var(--color-text-secondary); text-decoration: underline; }
+  .ps-credit a:hover { color: var(--color-text-primary); }
   .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
   .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
   .ps-search:focus { outline: none; border-color: var(--color-border-info); }
@@ -253,6 +256,9 @@
 
   <div class="ps-footer">
     <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back . <span class="ps-kbd">?</span> shortcuts
+  </div>
+  <div class="ps-credit">
+    Powered by <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer">perf-sentinel</a>
   </div>
 </div>
 
