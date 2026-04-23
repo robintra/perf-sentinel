@@ -62,63 +62,20 @@ pub enum TempoError {
 }
 
 // ---------------------------------------------------------------
-// Lookback duration parser
+// Lookback duration parser (thin wrapper around shared helper)
 // ---------------------------------------------------------------
 
 /// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
+///
+/// Delegates to `crate::ingest::lookback::parse` and wraps the error
+/// in `TempoError::InvalidLookback` so the rest of the module keeps a
+/// single error type.
 ///
 /// # Errors
 ///
 /// Returns `TempoError::InvalidLookback` for malformed inputs.
 pub fn parse_lookback(s: &str) -> Result<Duration, TempoError> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err(TempoError::InvalidLookback("empty string".to_string()));
-    }
-
-    let mut total_secs: u64 = 0;
-    let mut num_buf = String::new();
-
-    for ch in s.chars() {
-        if ch.is_ascii_digit() {
-            num_buf.push(ch);
-        } else {
-            if num_buf.is_empty() {
-                return Err(TempoError::InvalidLookback(format!(
-                    "unexpected '{ch}' without a preceding number"
-                )));
-            }
-            let n: u64 = num_buf
-                .parse()
-                .map_err(|_| TempoError::InvalidLookback(format!("invalid number: {num_buf}")))?;
-            num_buf.clear();
-            match ch {
-                'h' => total_secs += n * 3600,
-                'm' => total_secs += n * 60,
-                's' => total_secs += n,
-                _ => {
-                    return Err(TempoError::InvalidLookback(format!(
-                        "unknown unit '{ch}', expected h/m/s"
-                    )));
-                }
-            }
-        }
-    }
-
-    // Trailing number without unit is rejected
-    if !num_buf.is_empty() {
-        return Err(TempoError::InvalidLookback(format!(
-            "number '{num_buf}' without a unit suffix (h/m/s)"
-        )));
-    }
-
-    if total_secs == 0 {
-        return Err(TempoError::InvalidLookback(
-            "duration must be greater than zero".to_string(),
-        ));
-    }
-
-    Ok(Duration::from_secs(total_secs))
+    crate::ingest::lookback::parse(s).map_err(|e| TempoError::InvalidLookback(e.to_string()))
 }
 
 /// Minimal percent-encoding for URI query parameter values.
@@ -615,47 +572,13 @@ async fn drain_fetch_set(
 mod tests {
     use super::*;
 
-    // --- Lookback parser ---
+    // --- Lookback parser (delegation sanity check) ---
 
     #[test]
-    fn parse_lookback_hours() {
+    fn parse_lookback_wraps_shared_helper() {
         assert_eq!(parse_lookback("1h").unwrap(), Duration::from_hours(1));
-        assert_eq!(parse_lookback("24h").unwrap(), Duration::from_hours(24));
-    }
-
-    #[test]
-    fn parse_lookback_minutes() {
-        assert_eq!(parse_lookback("30m").unwrap(), Duration::from_mins(30));
-    }
-
-    #[test]
-    fn parse_lookback_seconds() {
-        assert_eq!(parse_lookback("90s").unwrap(), Duration::from_secs(90));
-    }
-
-    #[test]
-    fn parse_lookback_combined() {
-        assert_eq!(parse_lookback("2h30m").unwrap(), Duration::from_mins(150));
-    }
-
-    #[test]
-    fn parse_lookback_rejects_empty() {
-        assert!(parse_lookback("").is_err());
-    }
-
-    #[test]
-    fn parse_lookback_rejects_no_unit() {
-        assert!(parse_lookback("30").is_err());
-    }
-
-    #[test]
-    fn parse_lookback_rejects_unknown_unit() {
-        assert!(parse_lookback("5d").is_err());
-    }
-
-    #[test]
-    fn parse_lookback_rejects_zero() {
-        assert!(parse_lookback("0h").is_err());
+        let err = parse_lookback("").expect_err("empty must fail");
+        assert!(matches!(err, TempoError::InvalidLookback(_)));
     }
 
     // --- Search response parsing ---

@@ -178,6 +178,35 @@ enum Commands {
         ci: bool,
     },
 
+    /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
+    #[cfg(feature = "jaeger-query")]
+    JaegerQuery {
+        /// Jaeger query API endpoint (e.g. `http://localhost:16686` or `http://victoria:10428`).
+        #[arg(long)]
+        endpoint: String,
+        /// Fetch a single trace by ID.
+        #[arg(long)]
+        trace_id: Option<String>,
+        /// Search traces by service name.
+        #[arg(long)]
+        service: Option<String>,
+        /// Lookback window for search (e.g. `1h`, `30m`, `24h`).
+        #[arg(long, default_value = "1h")]
+        lookback: String,
+        /// Maximum number of traces to fetch.
+        #[arg(long, default_value = "100")]
+        max_traces: usize,
+        /// Path to a `.perf-sentinel.toml` config file.
+        #[arg(short, long)]
+        config: Option<PathBuf>,
+        /// Output format: text (colored, default), json, sarif.
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
+        /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
+        #[arg(long)]
+        ci: bool,
+    },
+
     /// Calibrate energy coefficients from real measurements.
     Calibrate {
         /// Path to a JSON trace file (same format as analyze input).
@@ -418,6 +447,29 @@ async fn main() {
             ci,
         } => {
             cmd_tempo(
+                &endpoint,
+                trace_id.as_deref(),
+                service.as_deref(),
+                &lookback,
+                max_traces,
+                config.as_deref(),
+                format,
+                ci,
+            )
+            .await;
+        }
+        #[cfg(feature = "jaeger-query")]
+        Commands::JaegerQuery {
+            endpoint,
+            trace_id,
+            service,
+            lookback,
+            max_traces,
+            config,
+            format,
+            ci,
+        } => {
+            cmd_jaeger_query(
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
@@ -938,6 +990,62 @@ async fn cmd_tempo(
 
     let report = pipeline::analyze(events, &config);
     emit_report_and_gate(&report, format, ci, "tempo");
+}
+
+#[cfg(feature = "jaeger-query")]
+#[allow(clippy::too_many_arguments)]
+async fn cmd_jaeger_query(
+    endpoint: &str,
+    trace_id: Option<&str>,
+    service: Option<&str>,
+    lookback: &str,
+    max_traces: usize,
+    config_path: Option<&std::path::Path>,
+    format: Option<OutputFormat>,
+    ci: bool,
+) {
+    if trace_id.is_none() && service.is_none() {
+        eprintln!("Error: either --trace-id or --service is required");
+        std::process::exit(1);
+    }
+    if trace_id.is_some() && service.is_some() {
+        eprintln!("Error: --trace-id and --service are mutually exclusive");
+        std::process::exit(1);
+    }
+
+    let lookback_duration = match sentinel_core::ingest::jaeger_query::parse_lookback(lookback) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("Error parsing lookback: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    let config = load_config(config_path);
+
+    let events = match sentinel_core::ingest::jaeger_query::ingest_from_jaeger_query(
+        endpoint,
+        service,
+        trace_id,
+        lookback_duration,
+        max_traces,
+    )
+    .await
+    {
+        Ok(events) => events,
+        Err(e) => {
+            eprintln!("Error fetching traces from Jaeger query API: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    info!(
+        events = events.len(),
+        "Ingested events from Jaeger query API, running analysis"
+    );
+
+    let report = pipeline::analyze(events, &config);
+    emit_report_and_gate(&report, format, ci, "jaeger-query");
 }
 
 fn cmd_calibrate(

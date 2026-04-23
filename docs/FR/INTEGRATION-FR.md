@@ -1203,6 +1203,42 @@ Un 404 dû à un endpoint erroné remonte désormais comme `Tempo returned HTTP 
 
 Au lieu d'interroger Tempo, vous pouvez configurer Tempo pour qu'il forwarde une copie des traces vers perf-sentinel via [son mécanisme de generic forwarding](https://grafana.com/docs/tempo/latest/operations/manage-advanced-systems/generic_forwarding/). Cela évite d'interroger Tempo et fonctionne en temps réel avec `perf-sentinel watch`.
 
+## Intégration API Jaeger query (Jaeger et Victoria Traces)
+
+Si votre infrastructure utilise Jaeger upstream ou [Victoria Traces](https://docs.victoriametrics.com/victoriatraces/) comme backend de traces, les deux parlent l'API HTTP query de Jaeger et sont couverts par un seul subcommand, `perf-sentinel jaeger-query`. Contrairement à l'API `/api/search` de Tempo (ID-only), l'API `/api/traces` de Jaeger retourne les traces complètes en une seule requête HTTP, donc la CLI ne parallélise pas les fetches trace par trace.
+
+### Analyse d'une trace
+
+```bash
+perf-sentinel jaeger-query --endpoint http://jaeger:16686 --trace-id abc123def456
+```
+
+### Recherche par service
+
+```bash
+# Analyser la dernière heure de traces pour order-svc
+perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 1h
+
+# Même recette contre Victoria Traces (API-compatible)
+perf-sentinel jaeger-query --endpoint http://victoria-traces:10428 --service order-svc --lookback 1h
+
+# Mode CI avec quality gate
+perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --lookback 30m --ci
+```
+
+### Prérequis
+
+- Le backend doit exposer l'API HTTP de requête Jaeger (`/api/traces?service=...&lookback=...&limit=...` et `/api/traces/<id>`). Jaeger upstream (toutes les versions récentes) et Victoria Traces sont compatibles nativement.
+- Le flag `--endpoint` pointe vers l'URL de base de l'API de requête (typiquement port 16686 pour Jaeger, port 10428 pour Victoria Traces).
+- Les traces sont récupérées en JSON, parsées par le même chemin `{"data": [...]}` que l'ingestion Jaeger file-mode, puis passent dans le pipeline d'analyse standard. La sortie est identique à `perf-sentinel analyze`.
+- `--lookback` accepte le même format `1h / 30m / 2h30m` que le subcommand `tempo`.
+- `--max-traces` mappe vers le paramètre `limit` de la query backend, qui plafonne le nombre de traces retournées par recherche.
+
+### Caveats
+
+- La lookback côté backend est bornée par la rétention configurée (Jaeger a 48h par défaut, Victoria Traces est configurable). Un `--lookback` plus large que la rétention est silencieusement tronqué à la fenêtre conservée.
+- Une recherche `limit=N` retourne jusqu'à N traces complètes dans un seul body HTTP. perf-sentinel plafonne la réponse à 256 MiB, ce qui couvre les workloads production typiques mais peut nécessiter un ajustement si vous recherchez régulièrement des centaines de grosses traces d'un coup. Baissez `--max-traces` si vous heurtez la limite de body.
+
 ---
 
 ## Troubleshooting

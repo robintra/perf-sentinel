@@ -21,6 +21,10 @@ name = "sentinel_core"
 daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream"]
 # Enable `perf-sentinel tempo` subcommand for querying Grafana Tempo API.
 tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
+# Enable `perf-sentinel jaeger-query` subcommand for querying any
+# backend that speaks the Jaeger query API (Jaeger upstream and
+# Victoria Traces). Shares the HTTP dependency set with `tempo`.
+jaeger-query = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }

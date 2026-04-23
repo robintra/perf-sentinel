@@ -212,7 +212,7 @@ pub fn make_trace(events: Vec<SpanEvent>) -> Trace {
 ///
 /// `response_body` is `Vec<u8>` so binary protocols (OTLP protobuf)
 /// can use the same helper as text/JSON.
-#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub async fn spawn_one_shot_server(
     response_body: Vec<u8>,
 ) -> (String, tokio::task::JoinHandle<()>) {
@@ -238,7 +238,7 @@ pub async fn spawn_one_shot_server(
 /// Build an HTTP/1.1 200 OK response with a text body and the given
 /// `Content-Type`. Used for JSON and Prometheus scrape responses.
 #[must_use]
-#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub fn http_200_text(content_type: &str, body: &str) -> Vec<u8> {
     format!(
         "HTTP/1.1 200 OK\r\n\
@@ -274,7 +274,7 @@ pub fn http_200_bytes(content_type: &str, body: &[u8]) -> Vec<u8> {
 /// Build an HTTP/1.1 status-only response (empty body). Used for 4xx
 /// and 5xx error-path tests.
 #[must_use]
-#[cfg(any(feature = "daemon", feature = "tempo"))]
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub fn http_status(code: u16, reason: &str) -> Vec<u8> {
     format!(
         "HTTP/1.1 {code} {reason}\r\n\
