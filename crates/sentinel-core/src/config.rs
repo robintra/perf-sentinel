@@ -1331,6 +1331,11 @@ impl Config {
             ));
         }
         Self::validate_scaphandre_process_map(cfg)?;
+        // The `AuthHeader` type lives in the `ingest` module, which is
+        // only compiled when hyper is pulled in via one of the daemon /
+        // tempo / jaeger-query features. Bare `cargo publish` builds
+        // `sentinel-core` with no features and must skip the parse.
+        #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
                 .map_err(|msg| format!("[green.scaphandre] auth_header: {msg}"))?;
@@ -1377,6 +1382,9 @@ impl Config {
     fn validate_cloud_energy(cfg: &CloudEnergyConfig) -> Result<(), String> {
         Self::validate_cloud_endpoint(cfg)?;
         Self::validate_cloud_services(cfg)?;
+        // See the twin note in `validate_scaphandre`: the `AuthHeader`
+        // type is feature-gated, so bare no-features builds skip it.
+        #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
                 .map_err(|msg| format!("[green.cloud] auth_header: {msg}"))?;

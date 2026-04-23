@@ -1,6 +1,6 @@
 //! Ingestion stage: reads raw events from various sources.
 
-#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub mod auth_header;
 pub mod jaeger;
 #[cfg(feature = "jaeger-query")]
