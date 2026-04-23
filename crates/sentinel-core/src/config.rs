@@ -1330,10 +1330,21 @@ impl Config {
                 "[green.scaphandre] scrape_interval_secs must be in [1, 3600], got {secs}"
             ));
         }
-        // process_map keys are perf-sentinel service names and values are
-        // Scaphandre `exe` labels. Validate both are non-empty and of
-        // reasonable length; don't run them through is_valid_region_id
-        // because service names may contain dots, slashes, etc.
+        Self::validate_scaphandre_process_map(cfg)?;
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.scaphandre] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Validate `[green.scaphandre].process_map` keys and values.
+    ///
+    /// Service names (keys) and Scaphandre `exe` labels (values) must be
+    /// 1 to 256 chars and free of control characters. Service names are
+    /// intentionally NOT run through `is_valid_region_id` because they
+    /// may legitimately contain dots, slashes and similar.
+    fn validate_scaphandre_process_map(cfg: &ScaphandreConfig) -> Result<(), String> {
         for (service, exe) in &cfg.process_map {
             if service.is_empty() || service.len() > 256 {
                 return Err(format!(
@@ -1358,10 +1369,6 @@ impl Config {
                      contains control characters"
                 ));
             }
-        }
-        if let Some(auth) = cfg.auth_header.as_deref() {
-            crate::ingest::auth_header::AuthHeader::parse(auth)
-                .map_err(|msg| format!("[green.scaphandre] auth_header: {msg}"))?;
         }
         Ok(())
     }
