@@ -632,14 +632,12 @@ fn resolve_auth_header(
         return Ok(Some(value));
     }
     if let Some(name) = env_var {
-        match std::env::var(&name) {
-            Ok(v) => return Ok(Some(v)),
-            Err(e) => {
-                return Err(format!(
-                    "cannot read --auth-header-env variable '{name}': {e}"
-                ));
-            }
-        }
+        return match std::env::var(&name) {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => Err(format!(
+                "cannot read --auth-header-env variable '{name}': {e}"
+            )),
+        };
     }
     Ok(None)
 }

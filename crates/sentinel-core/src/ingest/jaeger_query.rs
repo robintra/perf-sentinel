@@ -82,7 +82,6 @@ pub enum JaegerQueryError {
 /// # Errors
 ///
 /// Returns `JaegerQueryError::InvalidLookback` for malformed inputs.
-#[must_use = "the parsed Duration is the result the caller asked for"]
 pub fn parse_lookback(s: &str) -> Result<Duration, JaegerQueryError> {
     crate::ingest::lookback::parse(s).map_err(Into::into)
 }

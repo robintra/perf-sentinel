@@ -80,7 +80,6 @@ pub enum TempoError {
 /// # Errors
 ///
 /// Returns `TempoError::InvalidLookback` for malformed inputs.
-#[must_use = "the parsed Duration is the result the caller asked for"]
 pub fn parse_lookback(s: &str) -> Result<Duration, TempoError> {
     crate::ingest::lookback::parse(s).map_err(Into::into)
 }

@@ -67,7 +67,6 @@ impl AuthHeader {
     ///
     /// Returns `&'static str` describing the failure. Callers wrap
     /// into their own error variant.
-    #[must_use = "parsed auth header must be attached to a request to take effect"]
     pub fn parse(raw: &str) -> Result<Self, &'static str> {
         if raw.len() > MAX_AUTH_HEADER_INPUT_BYTES {
             return Err("auth header exceeds 8 KiB input cap");

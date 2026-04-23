@@ -36,7 +36,6 @@ pub enum LookbackError {
 ///
 /// Returns `LookbackError` for empty, unit-less, unknown-unit,
 /// zero-valued, or overflowing inputs.
-#[must_use = "the parsed Duration is the result the caller asked for"]
 pub fn parse(s: &str) -> Result<Duration, LookbackError> {
     let s = s.trim();
     if s.is_empty() {
