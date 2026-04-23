@@ -868,11 +868,6 @@ invocation.
   v2.1.0 and supports its own `qualityGates` declaration as a defense in
   depth on top of the perf-sentinel `--ci` exit code.
 
-For a worked Spring Boot + Maven + Jenkins example with the
-`kinexoPipeline` shared library, see
-[`ENTERPRISE-JAVA-INTEGRATION-FR.md`](../ENTERPRISE-JAVA-INTEGRATION-FR.md)
-(French only, for now).
-
 ---
 
 ## Ingestion formats

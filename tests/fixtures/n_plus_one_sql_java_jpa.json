@@ -10,7 +10,7 @@
     "duration_us": 800,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   },
@@ -25,7 +25,7 @@
     "duration_us": 750,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   },
@@ -40,7 +40,7 @@
     "duration_us": 900,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   },
@@ -55,7 +55,7 @@
     "duration_us": 820,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   },
@@ -70,7 +70,7 @@
     "duration_us": 700,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   },
@@ -85,7 +85,7 @@
     "duration_us": 850,
     "source": { "endpoint": "POST /api/orders/42/submit", "method": "OrderService.createOrder" },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
     "code_namespace": "org.springframework.data.jpa.repository.JpaRepository"
   }

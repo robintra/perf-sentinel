@@ -11,9 +11,7 @@
 //      'latest'). Bump deliberately and review the CHANGELOG before each bump.
 //   2. PERF_SENTINEL_TRACES: path to a trace file produced by your
 //      integration test stage. The Java reference setup uses an OTel Java
-//      Agent with the file exporter writing to target/traces.json. See
-//      ENTERPRISE-JAVA-INTEGRATION-FR.md for a worked Spring Boot + Maven
-//      example with the kinexoPipeline shared library.
+//      Agent with the file exporter writing to target/traces.json.
 //   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
 //      [thresholds] section to set quality-gate severity floors.
 //

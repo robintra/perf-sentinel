@@ -849,10 +849,6 @@ GitLab font cela explicitement. Le template GitHub utilise
   comme défense en profondeur en plus du code de sortie `--ci` de
   perf-sentinel.
 
-Pour un exemple complet Spring Boot + Maven + Jenkins avec la shared
-library `kinexoPipeline`, voir
-[`ENTERPRISE-JAVA-INTEGRATION-FR.md`](../../ENTERPRISE-JAVA-INTEGRATION-FR.md).
-
 ---
 
 ## Formats d'ingestion

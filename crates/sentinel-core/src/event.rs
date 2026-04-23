@@ -251,11 +251,11 @@ mod tests {
             function: Some("OrderItemRepository.findByOrderId".to_string()),
             filepath: Some("order-service/src/main/java/OrderItemRepository.java".to_string()),
             lineno: Some(42),
-            namespace: Some("com.kinexo.order.repository".to_string()),
+            namespace: Some("com.example.order.repository".to_string()),
         };
         assert_eq!(
             loc.display_string(),
-            "com.kinexo.order.repository.OrderItemRepository.findByOrderId \
+            "com.example.order.repository.OrderItemRepository.findByOrderId \
              (order-service/src/main/java/OrderItemRepository.java:42)"
         );
     }

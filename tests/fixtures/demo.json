@@ -13,9 +13,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.050Z",
@@ -31,9 +31,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.100Z",
@@ -49,9 +49,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.150Z",
@@ -67,9 +67,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.200Z",
@@ -85,9 +85,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.250Z",
@@ -103,9 +103,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.300Z",
@@ -121,9 +121,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.350Z",
@@ -139,9 +139,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.400Z",
@@ -157,9 +157,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:01.450Z",
@@ -175,9 +175,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "OrderItemRepository.findByOrderId",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/repository/OrderItemRepository.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
     "code_lineno": 42,
-    "code_namespace": "com.kinexo.order.repository"
+    "code_namespace": "com.example.order.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:02.000Z",
@@ -194,9 +194,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "UserClient.fetchUser",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
     "code_lineno": 87,
-    "code_namespace": "com.kinexo.order.client"
+    "code_namespace": "com.example.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.050Z",
@@ -213,9 +213,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "UserClient.fetchUser",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
     "code_lineno": 87,
-    "code_namespace": "com.kinexo.order.client"
+    "code_namespace": "com.example.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.100Z",
@@ -232,9 +232,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "UserClient.fetchUser",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
     "code_lineno": 87,
-    "code_namespace": "com.kinexo.order.client"
+    "code_namespace": "com.example.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.150Z",
@@ -251,9 +251,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "UserClient.fetchUser",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
     "code_lineno": 87,
-    "code_namespace": "com.kinexo.order.client"
+    "code_namespace": "com.example.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:02.200Z",
@@ -270,9 +270,9 @@
       "method": "OrderService::create_order"
     },
     "code_function": "UserClient.fetchUser",
-    "code_filepath": "order-service/src/main/java/com/kinexo/order/client/UserClient.java",
+    "code_filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
     "code_lineno": 87,
-    "code_namespace": "com.kinexo.order.client"
+    "code_namespace": "com.example.order.client"
   },
   {
     "timestamp": "2025-07-10T14:32:03.000Z",
@@ -288,9 +288,9 @@
       "method": "SettingsService::get_settings"
     },
     "code_function": "SettingsRepository.findByKey",
-    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_filepath": "cache-service/src/main/java/com/example/cache/repository/SettingsRepository.java",
     "code_lineno": 31,
-    "code_namespace": "com.kinexo.cache.repository"
+    "code_namespace": "com.example.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:03.050Z",
@@ -306,9 +306,9 @@
       "method": "SettingsService::get_settings"
     },
     "code_function": "SettingsRepository.findByKey",
-    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_filepath": "cache-service/src/main/java/com/example/cache/repository/SettingsRepository.java",
     "code_lineno": 31,
-    "code_namespace": "com.kinexo.cache.repository"
+    "code_namespace": "com.example.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:03.100Z",
@@ -324,9 +324,9 @@
       "method": "SettingsService::get_settings"
     },
     "code_function": "SettingsRepository.findByKey",
-    "code_filepath": "cache-service/src/main/java/com/kinexo/cache/repository/SettingsRepository.java",
+    "code_filepath": "cache-service/src/main/java/com/example/cache/repository/SettingsRepository.java",
     "code_lineno": 31,
-    "code_namespace": "com.kinexo.cache.repository"
+    "code_namespace": "com.example.cache.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:04.000Z",
@@ -343,9 +343,9 @@
       "method": "ProfileService::get_me"
     },
     "code_function": "AuthClient.validateToken",
-    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_filepath": "profile-service/src/main/java/com/example/profile/client/AuthClient.java",
     "code_lineno": 64,
-    "code_namespace": "com.kinexo.profile.client"
+    "code_namespace": "com.example.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:04.050Z",
@@ -362,9 +362,9 @@
       "method": "ProfileService::get_me"
     },
     "code_function": "AuthClient.validateToken",
-    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_filepath": "profile-service/src/main/java/com/example/profile/client/AuthClient.java",
     "code_lineno": 64,
-    "code_namespace": "com.kinexo.profile.client"
+    "code_namespace": "com.example.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:04.100Z",
@@ -381,9 +381,9 @@
       "method": "ProfileService::get_me"
     },
     "code_function": "AuthClient.validateToken",
-    "code_filepath": "profile-service/src/main/java/com/kinexo/profile/client/AuthClient.java",
+    "code_filepath": "profile-service/src/main/java/com/example/profile/client/AuthClient.java",
     "code_lineno": 64,
-    "code_namespace": "com.kinexo.profile.client"
+    "code_namespace": "com.example.profile.client"
   },
   {
     "timestamp": "2025-07-10T14:32:05.000Z",
@@ -399,9 +399,9 @@
       "method": "ReportsService::monthly_summary"
     },
     "code_function": "ReportRepository.aggregateMonthly",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/repository/ReportRepository.java",
     "code_lineno": 128,
-    "code_namespace": "com.kinexo.reports.repository"
+    "code_namespace": "com.example.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:05.800Z",
@@ -417,9 +417,9 @@
       "method": "ReportsService::monthly_summary"
     },
     "code_function": "ReportRepository.aggregateMonthly",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/repository/ReportRepository.java",
     "code_lineno": 128,
-    "code_namespace": "com.kinexo.reports.repository"
+    "code_namespace": "com.example.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:06.600Z",
@@ -435,9 +435,9 @@
       "method": "ReportsService::monthly_summary"
     },
     "code_function": "ReportRepository.aggregateMonthly",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/repository/ReportRepository.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/repository/ReportRepository.java",
     "code_lineno": 128,
-    "code_namespace": "com.kinexo.reports.repository"
+    "code_namespace": "com.example.reports.repository"
   },
   {
     "timestamp": "2025-07-10T14:32:08.000Z",
@@ -454,9 +454,9 @@
       "method": "ReportsService::quarterly_aggregate"
     },
     "code_function": "BillingClient.fetchInvoices",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/client/BillingClient.java",
     "code_lineno": 95,
-    "code_namespace": "com.kinexo.reports.client"
+    "code_namespace": "com.example.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:08.800Z",
@@ -473,9 +473,9 @@
       "method": "ReportsService::quarterly_aggregate"
     },
     "code_function": "BillingClient.fetchInvoices",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/client/BillingClient.java",
     "code_lineno": 95,
-    "code_namespace": "com.kinexo.reports.client"
+    "code_namespace": "com.example.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:09.700Z",
@@ -492,9 +492,9 @@
       "method": "ReportsService::quarterly_aggregate"
     },
     "code_function": "BillingClient.fetchInvoices",
-    "code_filepath": "reports-service/src/main/java/com/kinexo/reports/client/BillingClient.java",
+    "code_filepath": "reports-service/src/main/java/com/example/reports/client/BillingClient.java",
     "code_lineno": 95,
-    "code_namespace": "com.kinexo.reports.client"
+    "code_namespace": "com.example.reports.client"
   },
   {
     "timestamp": "2025-07-10T14:32:11.000Z",
