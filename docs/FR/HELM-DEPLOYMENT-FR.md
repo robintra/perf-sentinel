@@ -172,13 +172,13 @@ Gardez le path OCI pour les installs de production. Le path local contourne volo
 
 Le workflow de release (`.github/workflows/helm-release.yml`) se déclenche sur les tags qui matchent `chart-v*`. Le premier gate (`scripts/check-helm-tag-version.sh`) vérifie l'égalité stricte entre le tag et `charts/perf-sentinel/Chart.yaml:version`, y compris tout suffixe semver de prerelease. Le flow pour une release :
 
-1. Sur une branche, bump `charts/perf-sentinel/Chart.yaml:version` vers la cible (par exemple `0.1.0-rc.1` pour une release candidate, `0.1.0` pour la finale). Les suffixes semver de prerelease sont supportés.
+1. Sur une branche, bump `charts/perf-sentinel/Chart.yaml:version` vers la cible (par exemple `0.3.0-rc.1` pour une release candidate, `0.3.0` pour la finale). Les suffixes semver de prerelease sont supportés.
 2. Ajoutez une section correspondante à `charts/perf-sentinel/CHANGELOG.md`.
 3. Ouvrez une PR. Le workflow helm-ci lance lint, template + kubeconform sur les trois modes de workload, et un garde-fou de bump qui échoue si le chart a été modifié sans bump correspondant du `version:`.
 4. Mergez la PR, puis taggez :
    ```bash
-   git tag chart-v0.1.0-rc.1
-   git push origin chart-v0.1.0-rc.1
+   git tag chart-v0.3.0-rc.1
+   git push origin chart-v0.3.0-rc.1
    ```
 5. Le workflow helm-release package le chart, le pousse en OCI, le signe avec Cosign, génère la provenance SLSA, et ouvre une GitHub Release en **draft**. Les tags de prerelease (`-rc`, `-beta`, `-alpha`) reçoivent automatiquement le flag `prerelease: true`.
 6. Relisez la draft release et l'artifact OCI, puis publiez.

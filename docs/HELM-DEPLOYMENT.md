@@ -208,7 +208,7 @@ the tag and `charts/perf-sentinel/Chart.yaml:version`, including any
 semver prerelease suffix. The flow for a release:
 
 1. On a branch, bump `charts/perf-sentinel/Chart.yaml:version` to the
-   target (e.g. `0.1.0-rc.1` for a release candidate, `0.1.0` for the
+   target (e.g. `0.3.0-rc.1` for a release candidate, `0.3.0` for the
    final). Semver prerelease suffixes are supported.
 2. Add a matching section to `charts/perf-sentinel/CHANGELOG.md`.
 3. Open a PR. The helm-ci workflow runs lint, template+kubeconform
@@ -216,8 +216,8 @@ semver prerelease suffix. The flow for a release:
    fails if the chart was edited without a matching `version:` bump.
 4. Merge the PR, then tag:
    ```bash
-   git tag chart-v0.1.0-rc.1
-   git push origin chart-v0.1.0-rc.1
+   git tag chart-v0.3.0-rc.1
+   git push origin chart-v0.3.0-rc.1
    ```
 5. The helm-release workflow packages the chart, pushes it to OCI,
    Cosign-signs, generates SLSA provenance, and opens a **draft**
