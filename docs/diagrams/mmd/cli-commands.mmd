@@ -12,6 +12,7 @@ flowchart LR
     bench["bench<br/><i>--input file<br/>--iterations N</i>"]
     pgstat["pg-stat<br/><i>--input csv|json<br/>--prometheus URL<br/>--top-n N --traces file</i>"]
     tempo["tempo ⚙ tempo<br/><i>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h</i>"]
+    jaeger_query["jaeger-query ⚙ jaeger-query<br/><i>Jaeger or Victoria Traces<br/>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h --max-traces N</i>"]
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
     query["query<br/><i>--daemon URL<br/>(subcommand)</i>"]
     report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
@@ -19,6 +20,7 @@ flowchart LR
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
     tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
+    jaeger_query_pipeline["Jaeger query fetch<br/>&rarr; pipeline"]
     inspect_pipeline["Pipeline + TUI<br/><i>ratatui 3-panel</i>"]
     demo_pipeline["Pipeline"]
     bench_pipeline["Pipeline<br/><i>throughput measurement</i>"]
@@ -53,7 +55,7 @@ flowchart LR
     report_bench["JSON<br/>perf metrics"]
     report_html["HTML<br/>dashboard<br/><i>single file, offline</i>"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & calibrate & query & report & diff
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & jaeger_query & calibrate & query & report & diff
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
@@ -64,6 +66,11 @@ flowchart LR
     tempo_pipeline --> report_text
     tempo_pipeline --> report_json
     tempo_pipeline --> report_sarif
+
+    jaeger_query --> jaeger_query_pipeline
+    jaeger_query_pipeline --> report_text
+    jaeger_query_pipeline --> report_json
+    jaeger_query_pipeline --> report_sarif
 
     explain --> tree
     tree --> report_text
@@ -107,6 +114,7 @@ flowchart LR
 
     style analyze_pipeline fill:#2d4a3e,stroke:#4ade80
     style tempo_pipeline fill:#2d4a3e,stroke:#4ade80
+    style jaeger_query_pipeline fill:#2d4a3e,stroke:#4ade80
     style demo_pipeline fill:#2d4a3e,stroke:#4ade80
     style bench_pipeline fill:#2d4a3e,stroke:#4ade80
     style inspect_pipeline fill:#2d4a3e,stroke:#4ade80
