@@ -1237,7 +1237,9 @@ perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc --
 ### Caveats
 
 - La lookback côté backend est bornée par la rétention configurée (Jaeger a 48h par défaut, Victoria Traces est configurable). Un `--lookback` plus large que la rétention est silencieusement tronqué à la fenêtre conservée.
-- Une recherche `limit=N` retourne jusqu'à N traces complètes dans un seul body HTTP. perf-sentinel plafonne la réponse à 256 MiB, ce qui couvre les workloads production typiques mais peut nécessiter un ajustement si vous recherchez régulièrement des centaines de grosses traces d'un coup. Baissez `--max-traces` si vous heurtez la limite de body.
+- Une recherche `limit=N` retourne jusqu'à N traces complètes dans un seul body HTTP. perf-sentinel plafonne la réponse à 256 MiB, ce qui couvre les workloads production typiques mais peut nécessiter un ajustement si vous recherchez régulièrement des centaines de grosses traces d'un coup. Baissez `--max-traces` si vous heurtez la limite de body. `--max-traces` est lui-même borné à 10 000 côté CLI.
+- **Pas de support d'auth header.** Le subcommand n'injecte ni Basic Auth ni bearer token ni API key. Les backends derrière un proxy d'auth doivent être atteints via un forward local (tunnel SSH, `kubectl port-forward`, bypass `oauth2-proxy`). Le support direct d'auth headers est tracké pour une itération suivante.
+- **`--endpoint` est une entrée de confiance.** Le validateur rejette les schémas non-http et les URLs avec credentials, mais accepte loopback, RFC 1918 et link-local. Dans un contexte CI où la valeur de l'endpoint pourrait venir d'une PR externe, assainissez l'input en amont avant d'invoquer le subcommand.
 
 ---
 

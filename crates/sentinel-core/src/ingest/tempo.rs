@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
+use crate::ingest::lookback::LookbackError;
 use crate::ingest::otlp::convert_otlp_request;
+use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
 
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use prost::Message;
@@ -31,7 +33,7 @@ pub enum TempoError {
     InvalidEndpoint(String),
 
     #[error("invalid lookback duration: {0}")]
-    InvalidLookback(String),
+    InvalidLookback(#[from] LookbackError),
 
     #[error("HTTP transport error: {0}")]
     Transport(String),
@@ -68,31 +70,15 @@ pub enum TempoError {
 /// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
 ///
 /// Delegates to `crate::ingest::lookback::parse` and wraps the error
-/// in `TempoError::InvalidLookback` so the rest of the module keeps a
-/// single error type.
+/// in `TempoError::InvalidLookback` via `#[from]`, preserving the
+/// underlying `LookbackError` variant as the error source.
 ///
 /// # Errors
 ///
 /// Returns `TempoError::InvalidLookback` for malformed inputs.
+#[must_use = "the parsed Duration is the result the caller asked for"]
 pub fn parse_lookback(s: &str) -> Result<Duration, TempoError> {
-    crate::ingest::lookback::parse(s).map_err(|e| TempoError::InvalidLookback(e.to_string()))
-}
-
-/// Minimal percent-encoding for URI query parameter values.
-/// Encodes `&`, `=`, `#`, `+`, space, and non-ASCII bytes.
-fn percent_encode_query_value(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'&' | b'=' | b'#' | b'+' | b' ' | b'%' | 0x00..=0x1F | 0x7F..=0xFF => {
-                out.push('%');
-                out.push(char::from(b"0123456789ABCDEF"[(b >> 4) as usize]));
-                out.push(char::from(b"0123456789ABCDEF"[(b & 0x0f) as usize]));
-            }
-            _ => out.push(char::from(b)),
-        }
-    }
-    out
+    crate::ingest::lookback::parse(s).map_err(Into::into)
 }
 
 // ---------------------------------------------------------------
@@ -378,30 +364,12 @@ pub async fn ingest_from_tempo(
     lookback: Duration,
     max_traces: usize,
 ) -> Result<Vec<SpanEvent>, TempoError> {
-    // Validate endpoint: must start with http:// or https://, no
-    // credentials in the authority section. We deliberately check for
-    // `@` only in the authority (scheme://authority/path?query), not
-    // in the path or query string, so paths like `/api/traces?owner=foo%40example.com`
-    // are accepted. The `validate_http_authority` helper in config.rs
-    // uses the same strip-then-split-on-`/` technique.
-    if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-        return Err(TempoError::InvalidEndpoint(format!(
-            "endpoint must start with http:// or https://, got '{endpoint}'"
-        )));
-    }
-    let after_scheme = endpoint
-        .strip_prefix("https://")
-        .or_else(|| endpoint.strip_prefix("http://"))
-        .unwrap_or("");
-    // The authority ends at the first `/` (start of path) or `?`
-    // (start of query). Everything before is host[:port] with optional
-    // userinfo. We reject `@` only in that slice.
-    let authority_end = after_scheme.find(['/', '?']).unwrap_or(after_scheme.len());
-    if after_scheme[..authority_end].contains('@') {
-        return Err(TempoError::InvalidEndpoint(
-            "endpoint must not contain credentials (user:pass@host)".to_string(),
-        ));
-    }
+    // Endpoint validation (http(s) scheme, no credentials in the
+    // authority) lives in `crate::ingest::url_enc` and is shared with
+    // `jaeger_query`. We wrap the `&'static str` into the local
+    // error variant so callers keep a single error type.
+    validate_http_endpoint(endpoint)
+        .map_err(|msg| TempoError::InvalidEndpoint(format!("{msg}, got '{endpoint}'")))?;
 
     let client = http_client::build_client();
 

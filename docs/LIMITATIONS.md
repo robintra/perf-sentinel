@@ -139,6 +139,13 @@ The factor is deliberate: it accommodates clients that emit many small batches o
 
 Each TLS listener (OTLP gRPC and OTLP HTTP) caps concurrent in-flight handshakes and live HTTPS connections at **128**. Handshakes run in dedicated tasks so a single stalled peer cannot block the accept loop and the cap bounds fds, rustls buffers and task slots against a handshake flood. A 10s handshake timeout (`TLS_HANDSHAKE_TIMEOUT`) drops peers that complete TCP but never send a `ClientHello`. The cap is not configurable; it mirrors the Unix JSON socket listener budget.
 
+## Query-API subcommands: no outgoing auth, endpoint value must be trusted
+
+The `tempo` and `jaeger-query` subcommands both make outbound HTTP requests to a user-supplied backend endpoint. Two limits to know:
+
+- **No auth header injection.** Neither subcommand supports Basic Auth, bearer tokens, or API keys. Backends sitting behind an authenticated reverse proxy (OAuth2 proxy, Cloudflare Access, AWS IAM-authenticated ALB, etc.) must be reached via a local forward: an SSH tunnel, a `kubectl port-forward` or a `oauth2-proxy --reverse-proxy`. Native auth support is a tracked follow-up.
+- **`--endpoint` is trusted input.** The validator rejects non-`http(s)` schemes and credential-embedded URLs (`user:pass@host`), but it accepts loopback, RFC 1918, link-local, and cloud-metadata targets (`169.254.169.254`). In a single-user CLI invocation this is the expected behaviour (dev-local setups, port-forwarded backends, etc.). In CI pipelines where the endpoint could be sourced from an external PR or an untrusted environment variable, sanitize the value upstream before invoking the subcommand.
+
 ## Carbon estimates accuracy
 
 perf-sentinel uses an **I/O → energy → CO₂ proxy model** to estimate the carbon footprint of analyzed workloads. The chain has three steps and an inherent margin of error at each:

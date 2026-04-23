@@ -197,6 +197,13 @@ Le facteur est intentionnel : il accommode les clients qui émettent beaucoup de
 
 Chaque listener TLS (OTLP gRPC et OTLP HTTP) limite à **128** les handshakes en vol et les connexions HTTPS actives simultanées. Les handshakes tournent dans des tasks dédiées pour qu'un seul pair qui stalle ne bloque pas la boucle d'accept et le cap borne les fds, les buffers rustls et les slots de tasks face à un flood de handshakes. Un timeout de 10s (`TLS_HANDSHAKE_TIMEOUT`) coupe les pairs qui terminent le TCP sans envoyer de `ClientHello`. Le cap n'est pas configurable, il est aligné sur le budget du socket JSON Unix.
 
+## Subcommands query-API : pas d'auth sortante, `--endpoint` est une entrée de confiance
+
+Les subcommands `tempo` et `jaeger-query` effectuent tous deux des requêtes HTTP sortantes vers un backend fourni par l'utilisateur. Deux limites à connaître :
+
+- **Pas d'injection d'auth header.** Aucun des deux subcommands ne supporte Basic Auth, bearer tokens ou API keys. Les backends derrière un reverse proxy authentifié (OAuth2 proxy, Cloudflare Access, ALB AWS authentifié par IAM, etc.) doivent être atteints via un forward local : tunnel SSH, `kubectl port-forward` ou `oauth2-proxy --reverse-proxy`. Le support natif d'auth est tracké pour une itération suivante.
+- **`--endpoint` est une entrée de confiance.** Le validateur rejette les schémas non-`http(s)` et les URLs avec credentials (`user:pass@host`), mais accepte loopback, RFC 1918, link-local et les targets cloud metadata (`169.254.169.254`). Dans une invocation CLI mono-utilisateur c'est le comportement attendu (setups locaux dev, backends port-forwardés). Dans un pipeline CI où la valeur d'endpoint pourrait provenir d'une PR externe ou d'une variable d'environnement non fiable, assainissez la valeur en amont avant d'invoquer le subcommand.
+
 ## Précision des estimations carbone
 
 perf-sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :

@@ -19,17 +19,24 @@ pub enum LookbackError {
 
     #[error("duration must be greater than zero")]
     Zero,
+
+    #[error("duration overflows u64 seconds")]
+    Overflow,
 }
 
 /// Parse a human-readable duration string like `"1h"`, `"30m"`, `"24h"`, `"2h30m"`.
 ///
 /// Accepts the unit suffixes `h`, `m`, `s` and composes them by summing
-/// the contributions (so `"2h30m"` equals 2h + 30m = 9000s).
+/// the contributions (so `"2h30m"` equals 2h + 30m = 9000s). All
+/// arithmetic is checked, so pathological inputs like `"999999999h"`
+/// surface as `LookbackError::Overflow` instead of wrapping silently
+/// in release builds.
 ///
 /// # Errors
 ///
-/// Returns `LookbackError` for empty, unit-less, unknown-unit, or
-/// zero-valued inputs.
+/// Returns `LookbackError` for empty, unit-less, unknown-unit,
+/// zero-valued, or overflowing inputs.
+#[must_use = "the parsed Duration is the result the caller asked for"]
 pub fn parse(s: &str) -> Result<Duration, LookbackError> {
     let s = s.trim();
     if s.is_empty() {
@@ -52,16 +59,20 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
                 .parse()
                 .map_err(|_| LookbackError::Invalid(format!("invalid number: {num_buf}")))?;
             num_buf.clear();
-            match ch {
-                'h' => total_secs += n * 3600,
-                'm' => total_secs += n * 60,
-                's' => total_secs += n,
+            let multiplier: u64 = match ch {
+                'h' => 3600,
+                'm' => 60,
+                's' => 1,
                 _ => {
                     return Err(LookbackError::Invalid(format!(
                         "unknown unit '{ch}', expected h/m/s"
                     )));
                 }
-            }
+            };
+            let component = n.checked_mul(multiplier).ok_or(LookbackError::Overflow)?;
+            total_secs = total_secs
+                .checked_add(component)
+                .ok_or(LookbackError::Overflow)?;
         }
     }
 
@@ -122,5 +133,20 @@ mod tests {
     #[test]
     fn rejects_zero() {
         assert!(matches!(parse("0h"), Err(LookbackError::Zero)));
+    }
+
+    #[test]
+    fn rejects_overflow_on_multiplication() {
+        assert!(matches!(
+            parse("18446744073709551615h"),
+            Err(LookbackError::Overflow)
+        ));
+    }
+
+    #[test]
+    fn rejects_overflow_on_addition() {
+        // Two components each fitting in u64 but whose sum does not.
+        let huge = format!("{0}h{0}h", u64::MAX / 3600);
+        assert!(matches!(parse(&huge), Err(LookbackError::Overflow)));
     }
 }

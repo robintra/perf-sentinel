@@ -10,6 +10,8 @@ pub mod otlp;
 pub mod pg_stat;
 #[cfg(feature = "tempo")]
 pub mod tempo;
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+pub(crate) mod url_enc;
 pub mod zipkin;
 
 use crate::event::SpanEvent;

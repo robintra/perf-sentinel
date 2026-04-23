@@ -179,6 +179,10 @@ enum Commands {
     },
 
     /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
+    ///
+    /// The subcommand does not inject auth headers. Backends behind an
+    /// auth proxy must be reached via a local forward (SSH tunnel,
+    /// kubectl port-forward, etc.). See `docs/LIMITATIONS.md`.
     #[cfg(feature = "jaeger-query")]
     JaegerQuery {
         /// Jaeger query API endpoint (e.g. `http://localhost:16686` or `http://victoria:10428`).
@@ -193,9 +197,9 @@ enum Commands {
         /// Lookback window for search (e.g. `1h`, `30m`, `24h`).
         #[arg(long, default_value = "1h")]
         lookback: String,
-        /// Maximum number of traces to fetch.
-        #[arg(long, default_value = "100")]
-        max_traces: usize,
+        /// Maximum number of traces to fetch (1..=10000).
+        #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
+        max_traces: u32,
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -474,7 +478,7 @@ async fn main() {
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
-                max_traces,
+                max_traces as usize,
                 config.as_deref(),
                 format,
                 ci,

@@ -56,16 +56,17 @@ pub enum JaegerIngestError {
 //
 // These structs and the conversion helper below are shared with the
 // HTTP-mode `jaeger_query` ingestion module, which receives the exact
-// same `{"data": [...]}` payload from the Jaeger query API.
+// same `{"data": [...]}` payload from the Jaeger query API. Kept at
+// `pub(super)` scope so visibility stays within `crate::ingest`.
 
 #[derive(Deserialize)]
-pub(crate) struct JaegerExport {
-    pub(crate) data: Vec<JaegerTrace>,
+pub(super) struct JaegerExport {
+    pub(super) data: Vec<JaegerTrace>,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct JaegerTrace {
+pub(super) struct JaegerTrace {
     #[serde(rename = "traceID")]
     trace_id: String,
     spans: Vec<JaegerSpan>,
@@ -112,7 +113,7 @@ struct JaegerTag {
 
 // ── Conversion ─────────────────────────────────────────────────────
 
-pub(crate) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
+pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
     let cap: usize = export.data.iter().map(|t| t.spans.len()).sum();
     let mut events = Vec::with_capacity(cap);
     for trace in &export.data {
