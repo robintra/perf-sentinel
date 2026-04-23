@@ -62,6 +62,16 @@ The following components are in scope for security reports:
 - Security of the user's own OTel pipeline, Prometheus, Grafana, or any downstream system.
 - Issues specific to running perf-sentinel with `listen_address = "0.0.0.0"` without a reverse proxy, firewall, or network policy. The default is `127.0.0.1` for a reason; exposing the daemon directly to untrusted networks is explicitly discouraged in `docs/LIMITATIONS.md`.
 
+## Automated security checks
+
+The following scans run in CI and block the pipeline on severity `HIGH` or `CRITICAL`:
+
+- **cargo audit** (Rust dependency vulnerabilities): scheduled daily and on every `Cargo.toml` / `Cargo.lock` change. Documented non-applicable advisories live in `audit.toml`. See `.github/workflows/security-audit.yml`.
+- **Clippy with pedantic lints** plus SARIF upload to GitHub Code Scanning: every CI run. Catches logic and API-design issues.
+- **Trivy** (container image vulnerabilities): runs on every release tag before the image is pushed to GHCR or Docker Hub. `ignore-unfixed` is enabled so unpatched upstream CVEs do not block the release. SARIF output is uploaded to GitHub Code Scanning.
+- **Gitleaks** (secret scan): runs on every push and pull request, scanning the full git history with the bundled default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.).
+- **SonarCloud** (code quality and security hotspots): runs when a `SONAR_TOKEN` secret is available, skipped on Dependabot PRs that do not receive repo secrets.
+
 ## Security-relevant design choices
 
 For context, the following choices are deliberate and documented:

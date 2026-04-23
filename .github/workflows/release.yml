@@ -240,6 +240,7 @@ jobs:
     permissions:
       contents: read
       packages: write # required to push the container image to GHCR
+      security-events: write # required to upload Trivy SARIF to GitHub Code Scanning
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -266,6 +267,51 @@ jobs:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
 
+      - name: Extract version
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      # Scan the image before publishing so a vulnerable build cannot
+      # reach GHCR or Docker Hub. Build a single-arch amd64 image and
+      # load it into the local docker daemon (multi-arch loads are not
+      # supported). CVEs found on amd64 apply to arm64 too since they
+      # come from Rust crates linked statically, not from arch-specific
+      # code. The real multi-arch push below rebuilds both platforms.
+      # This block runs before the registry logins so registry tokens
+      # are not materialized in the runner env during the scan.
+      - name: Build image locally for scanning (amd64 only, no push)
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: perf-sentinel:scan
+
+      # ignore-unfixed drops CVEs without an upstream patch. Flagging
+      # them would block releases on a timeline we do not control. Revisit
+      # if a specific unfixed CVE ever justifies a custom mitigation.
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: perf-sentinel:scan
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          format: sarif
+          output: trivy-results.sarif
+          ignore-unfixed: true
+
+      # Always upload so the SARIF lands in Code Scanning even when
+      # Trivy fails the job, which makes the CVE detail reachable for
+      # the fix loop instead of hiding inside the action logs.
+      - name: Upload Trivy SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-image
+
       - name: Log in to GHCR
         uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
         with:
@@ -278,10 +324,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract version
-        id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push multi-arch image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
