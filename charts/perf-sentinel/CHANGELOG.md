@@ -6,6 +6,16 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.1]
+
+### Changed
+
+- `artifacthub-repo.yml` now carries the Artifact Hub
+  `repositoryID` (`70c507ff-c75e-4808-9c3b-87fb5696dce8`) and
+  maintainer email. Artifact Hub re-scrapes the `:artifacthub.io`
+  OCI tag on the next cycle after this tag is published and marks
+  the repository as "Verified publisher".
+
 ## [0.2.0]
 
 ### Added
