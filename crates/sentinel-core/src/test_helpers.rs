@@ -284,3 +284,56 @@ pub fn http_status(code: u16, reason: &str) -> Vec<u8> {
     )
     .into_bytes()
 }
+
+/// Bind an ephemeral TCP port, capture the first request's raw bytes
+/// via an mpsc channel, and write `response` on the wire. Intended for
+/// "did the auth header land on the request?" assertions.
+///
+/// Returns `(endpoint_url, captured_rx, server_join_handle)`. The caller
+/// drives the client, then `rx.recv().await` to read the request bytes.
+/// Unlike [`spawn_one_shot_server`], this helper captures and surfaces
+/// the incoming request rather than discarding it.
+pub async fn spawn_capture_server(
+    response: Vec<u8>,
+) -> (
+    String,
+    tokio::sync::mpsc::Receiver<Vec<u8>>,
+    tokio::task::JoinHandle<()>,
+) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let endpoint = format!("http://{addr}");
+    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+
+    let handle = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut buf = vec![0u8; 8192];
+        let n = socket.read(&mut buf).await.expect("read");
+        buf.truncate(n);
+        tx.send(buf).await.expect("send captured");
+        socket.write_all(&response).await.expect("write");
+        let _ = socket.shutdown().await;
+    });
+    (endpoint, rx, handle)
+}
+
+/// Assert that a type's `Debug` output redacts a known secret.
+/// Shared between every `debug_impl_redacts_*` regression test (cloud
+/// energy, scaphandre, electricity maps).
+macro_rules! assert_debug_redacts_secret {
+    ($value:expr, $secret:expr) => {{
+        let dbg = format!("{:?}", $value);
+        assert!(
+            !dbg.contains($secret),
+            "secret value leaked in Debug output: {dbg}"
+        );
+        assert!(
+            dbg.contains("[REDACTED]"),
+            "Debug output should mention [REDACTED]: {dbg}"
+        );
+    }};
+}
+pub(crate) use assert_debug_redacts_secret;

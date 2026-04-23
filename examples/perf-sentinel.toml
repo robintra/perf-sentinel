@@ -131,13 +131,13 @@ include_network_transport = false
 # Falls back to the embedded profile on any scrape failure. Model tag becomes
 # `electricity_maps_api` for regions with a fresh sample.
 #
-# The `api_key` field accepts a literal string or the `env:VAR_NAME` form —
+# The `api_key` field accepts a literal string or the `env:VAR_NAME` form -
 # prefer the env form so secrets never land in the config file.
 #
 # [green.electricity_maps]
 # api_key = "env:ELECTRICITY_MAPS_API_KEY"
 # endpoint = "https://api.electricitymap.org/v3"
-# poll_interval_secs = 900  # 15 min — respects the free tier rate limit
+# poll_interval_secs = 900  # 15 min - respects the free tier rate limit
 # region_map = { "eu-west-3" = "FR", "us-east-1" = "US-MIDA-PJM", "eu-central-1" = "DE" }
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::http_client::{self, HttpClient};
+use crate::ingest::auth_header::{AuthHeader, parse_scraper_auth_header};
 use crate::report::metrics::MetricsState;
 use crate::score::scaphandre::ops::OpsSnapshotDiff;
 
@@ -86,6 +87,7 @@ async fn fetch_cpu_percent(
     client: &HttpClient,
     base_uri: &hyper::Uri,
     query: &str,
+    auth: Option<&AuthHeader>,
 ) -> Result<f64, CloudScraperError> {
     let encoded_query = percent_encode_query(query);
     let path_and_query = format!("/api/v1/query?query={encoded_query}");
@@ -106,6 +108,7 @@ async fn fetch_cpu_percent(
         &uri,
         "perf-sentinel/cloud-energy-scraper",
         Duration::from_secs(5),
+        auth,
     )
     .await
     .map_err(CloudScraperError::Fetch)?;
@@ -198,6 +201,7 @@ pub fn spawn_cloud_scraper(
     })
 }
 
+#[allow(clippy::too_many_lines)] // Scraper orchestration: URI parse, auth parse, ticker, JoinSet fanout. Splitting would fragment the lifecycle without clarity gain.
 async fn run_cloud_scraper_loop(
     cfg: CloudEnergyConfig,
     state: Arc<CloudEnergyState>,
@@ -217,6 +221,21 @@ async fn run_cloud_scraper_loop(
         }
     };
     let redacted = http_client::redact_endpoint(&uri);
+
+    // Parse the optional auth header once at startup. A parse failure
+    // logs and aborts the task, silent retries would just spam warn logs.
+    // Option<Arc<_>> so the no-auth path pays zero refcount cost in the
+    // per-tick JoinSet fanout below.
+    let Ok(raw_auth) = parse_scraper_auth_header(
+        cfg.auth_header.as_deref(),
+        &cfg.prometheus_endpoint,
+        &redacted,
+        "cloud_energy",
+    ) else {
+        return;
+    };
+    let parsed_auth: Option<Arc<AuthHeader>> = raw_auth.map(Arc::new);
+
     let client = http_client::build_client();
 
     let mut ticker = tokio::time::interval(cfg.scrape_interval);
@@ -258,8 +277,12 @@ async fn run_cloud_scraper_loop(
             let client_clone = client.clone();
             let uri_clone = uri.clone();
             let service_clone = service.clone();
+            // Option::clone is a no-op on None and one Arc bump on Some.
+            let auth_clone = parsed_auth.clone();
             set.spawn(async move {
-                let result = fetch_cpu_percent(&client_clone, &uri_clone, &query).await;
+                let result =
+                    fetch_cpu_percent(&client_clone, &uri_clone, &query, auth_clone.as_deref())
+                        .await;
                 (service_clone, result)
             });
         }
@@ -636,6 +659,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services,
+            auth_header: None,
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
@@ -676,6 +700,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services: HashMap::new(),
+            auth_header: None,
         }
     }
 
@@ -770,6 +795,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services,
+            auth_header: None,
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
@@ -801,6 +827,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services,
+            auth_header: None,
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
@@ -836,6 +863,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services,
+            auth_header: None,
         };
 
         apply_cloud_scrape(&state, &cpu, &ops, &cfg, 100);
@@ -871,6 +899,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services: HashMap::new(),
+            auth_header: None,
         };
         warn_if_slow(&cfg, Duration::from_millis(100));
     }
@@ -885,6 +914,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services: HashMap::new(),
+            auth_header: None,
         };
         warn_if_slow(&cfg, Duration::from_secs(13));
     }
@@ -953,7 +983,7 @@ mod tests {
 
         let client = http_client::build_client();
         let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-        let val = fetch_cpu_percent(&client, &uri, "test_query")
+        let val = fetch_cpu_percent(&client, &uri, "test_query", None)
             .await
             .expect("valid response should parse");
         assert!((val - 42.5).abs() < 1e-10);
@@ -967,7 +997,7 @@ mod tests {
 
         let client = http_client::build_client();
         let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-        let err = fetch_cpu_percent(&client, &uri, "q")
+        let err = fetch_cpu_percent(&client, &uri, "q", None)
             .await
             .expect_err("503 must error");
         match err {
@@ -983,7 +1013,7 @@ mod tests {
 
         let client = http_client::build_client();
         let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-        let err = fetch_cpu_percent(&client, &uri, "q")
+        let err = fetch_cpu_percent(&client, &uri, "q", None)
             .await
             .expect_err("malformed JSON must error");
         assert!(matches!(err, CloudScraperError::JsonParse(_)));
@@ -997,7 +1027,7 @@ mod tests {
 
         let client = http_client::build_client();
         let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-        let err = fetch_cpu_percent(&client, &uri, "query-alpha")
+        let err = fetch_cpu_percent(&client, &uri, "query-alpha", None)
             .await
             .expect_err("empty result must error");
         match err {
@@ -1021,6 +1051,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services: HashMap::new(),
+            auth_header: None,
         };
         let state = CloudEnergyState::new();
         let metrics = Arc::new(MetricsState::new());
@@ -1045,6 +1076,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services: HashMap::new(),
+            auth_header: None,
         };
         let state = CloudEnergyState::new();
         let metrics = Arc::new(MetricsState::new());
@@ -1076,6 +1108,7 @@ mod tests {
             default_instance_type: None,
             cpu_metric: None,
             services,
+            auth_header: None,
         };
         let state = CloudEnergyState::new();
         let metrics = Arc::new(MetricsState::new());
@@ -1106,5 +1139,39 @@ mod tests {
         assert!(format!("{e4}").contains("parse"));
         assert!(format!("{e5}").contains("no result"));
         assert!(format!("{e6}").contains("error status"));
+    }
+
+    /// End-to-end check that a configured `auth_header` lands on the
+    /// Prometheus request wire when `fetch_cpu_percent` is invoked.
+    /// Mirrors the shape of `search_sends_auth_header_on_wire` in
+    /// `jaeger_query.rs`.
+    #[tokio::test]
+    async fn cloud_scraper_sends_auth_header_on_wire() {
+        use crate::ingest::auth_header::AuthHeader;
+
+        let body = r#"{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1234567890.0,"42.5"]}]}}"#;
+        let response = http_200_json(body);
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+
+        let client = http_client::build_client();
+        let base_uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
+        let auth = AuthHeader::parse("Authorization: Bearer topsecret").expect("valid");
+        let val = fetch_cpu_percent(&client, &base_uri, "up", Some(&auth))
+            .await
+            .expect("fetch_cpu_percent must succeed");
+        assert!((val - 42.5).abs() < 1e-10);
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).expect("utf8");
+        assert!(
+            text.contains("authorization: Bearer topsecret")
+                || text.contains("Authorization: Bearer topsecret"),
+            "auth header missing from request, got:\n{text}"
+        );
+        assert!(
+            text.contains("/api/v1/query?query=up"),
+            "PromQL query path missing, got:\n{text}"
+        );
+        server.await.expect("server join");
     }
 }

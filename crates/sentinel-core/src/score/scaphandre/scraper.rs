@@ -13,6 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::http_client::{self, HttpClient};
+use crate::ingest::auth_header::{AuthHeader, parse_scraper_auth_header};
 use crate::report::metrics::MetricsState;
 
 use super::config::ScaphandreConfig;
@@ -38,12 +39,14 @@ const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 pub(super) async fn fetch_metrics_once(
     client: &HttpClient,
     uri: &hyper::Uri,
+    auth: Option<&AuthHeader>,
 ) -> Result<String, ScraperError> {
     let bytes = http_client::fetch_get(
         client,
         uri,
         "perf-sentinel/scaphandre-scraper",
         Duration::from_secs(3),
+        auth,
     )
     .await
     .map_err(ScraperError::Fetch)?;
@@ -135,6 +138,16 @@ async fn run_scraper_loop(
         }
     };
     let redacted = http_client::redact_endpoint(&uri);
+
+    let Ok(parsed_auth) = parse_scraper_auth_header(
+        cfg.auth_header.as_deref(),
+        &cfg.endpoint,
+        &redacted,
+        "scaphandre",
+    ) else {
+        return;
+    };
+
     let client = http_client::build_client();
 
     let mut ticker = tokio::time::interval(cfg.scrape_interval);
@@ -171,7 +184,7 @@ async fn run_scraper_loop(
         let current_ops = metrics.snapshot_service_io_ops();
         let deltas = snapshot_diff.delta_and_advance(current_ops);
 
-        match fetch_metrics_once(&client, &uri).await {
+        match fetch_metrics_once(&client, &uri, parsed_auth.as_ref()).await {
             Ok(body) => {
                 first_failure_warned = false;
                 consecutive_failures = 0;

@@ -250,6 +250,12 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long)]
         prometheus: Option<String>,
+        /// Optional auth header for --prometheus. Example:
+        /// --auth-header "Authorization: Bearer ${TOKEN}". Falls back to
+        /// the `PERF_SENTINEL_PGSTAT_AUTH_HEADER` env var when unset.
+        #[cfg(feature = "daemon")]
+        #[arg(long)]
+        auth_header: Option<String>,
         /// Number of top queries per ranking (default 10).
         #[arg(long, default_value = "10")]
         top_n: usize,
@@ -308,6 +314,12 @@ enum Commands {
         #[cfg(feature = "daemon")]
         #[arg(long, value_name = "URL", conflicts_with = "pg_stat")]
         pg_stat_prometheus: Option<String>,
+        /// Optional auth header for --pg-stat-prometheus. Example:
+        /// --pg-stat-auth-header "Authorization: Bearer ${TOKEN}". Falls
+        /// back to the `PERF_SENTINEL_PGSTAT_AUTH_HEADER` env var when unset.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "NAME_VALUE", requires = "pg_stat_prometheus")]
+        pg_stat_auth_header: Option<String>,
         /// Path to a baseline report JSON, as produced by `analyze
         /// --format json`. When set, the dashboard shows a Diff tab
         /// comparing the current run against the baseline.
@@ -529,6 +541,8 @@ async fn main() {
             input,
             #[cfg(feature = "daemon")]
             prometheus,
+            #[cfg(feature = "daemon")]
+            auth_header,
             top_n,
             traces,
             config,
@@ -540,13 +554,17 @@ async fn main() {
                 // the fetch directly. Creating a nested `Runtime::new()`
                 // here would panic at runtime with "Cannot start a runtime
                 // from within a runtime."
-                let entries =
-                    sentinel_core::ingest::pg_stat::fetch_from_prometheus(prom_endpoint, top_n)
-                        .await
-                        .unwrap_or_else(|e| {
-                            eprintln!("Prometheus fetch failed: {e}");
-                            std::process::exit(1);
-                        });
+                let resolved_auth = resolve_pg_stat_auth_header(auth_header);
+                let entries = sentinel_core::ingest::pg_stat::fetch_from_prometheus(
+                    prom_endpoint,
+                    top_n,
+                    resolved_auth.as_deref(),
+                )
+                .await
+                .unwrap_or_else(|e| {
+                    eprintln!("Prometheus fetch failed: {e}");
+                    std::process::exit(1);
+                });
                 cmd_pg_stat_from_entries(
                     entries,
                     top_n,
@@ -596,6 +614,8 @@ async fn main() {
             pg_stat,
             #[cfg(feature = "daemon")]
             pg_stat_prometheus,
+            #[cfg(feature = "daemon")]
+            pg_stat_auth_header,
             before,
             pg_stat_top,
         } => {
@@ -607,6 +627,8 @@ async fn main() {
                 pg_stat.as_deref(),
                 #[cfg(feature = "daemon")]
                 pg_stat_prometheus.as_deref(),
+                #[cfg(feature = "daemon")]
+                pg_stat_auth_header,
                 before.as_deref(),
                 // `try_from` over `as` so a 16-bit target drops the
                 // flag instead of truncating silently. No supported
@@ -896,14 +918,50 @@ async fn load_pg_stat_from_prometheus(
     url: &str,
     _config: &Config,
     top_n: usize,
+    auth_header: Option<&str>,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let scrape_budget = top_n.max(PROMETHEUS_SCRAPE_FLOOR);
-    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, scrape_budget).await {
+    match sentinel_core::ingest::pg_stat::fetch_from_prometheus(url, scrape_budget, auth_header)
+        .await
+    {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error scraping --pg-stat-prometheus {url}: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+/// Resolve the `pg_stat` auth header value from the `PERF_SENTINEL_PGSTAT_AUTH_HEADER`
+/// env var plus the CLI flag value. Env wins, flag is fallback, matching the
+/// precedence of `PERF_SENTINEL_EMAPS_TOKEN` for Electricity Maps.
+#[cfg(feature = "daemon")]
+fn resolve_pg_stat_auth_header(flag_value: Option<String>) -> Option<String> {
+    resolve_pg_stat_auth_header_with_env(flag_value, || {
+        std::env::var("PERF_SENTINEL_PGSTAT_AUTH_HEADER").ok()
+    })
+}
+
+/// Test-friendly inner form: takes the env-var lookup as a closure so
+/// tests can exercise the precedence branch without mutating the
+/// global process env.
+#[cfg(feature = "daemon")]
+fn resolve_pg_stat_auth_header_with_env(
+    flag_value: Option<String>,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    match (env_lookup(), flag_value) {
+        (Some(from_env), _) => Some(from_env),
+        (None, Some(from_flag)) => {
+            tracing::warn!(
+                "pg-stat auth header supplied via a CLI flag. \
+                 Prefer the PERF_SENTINEL_PGSTAT_AUTH_HEADER environment variable \
+                 to avoid exposing the credential through the process argument list \
+                 or shell history."
+            );
+            Some(from_flag)
+        }
+        (None, None) => None,
     }
 }
 
@@ -933,6 +991,7 @@ async fn cmd_report(
     max_traces_embedded: Option<usize>,
     pg_stat_path: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] pg_stat_prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] pg_stat_auth_header: Option<String>,
     before_path: Option<&std::path::Path>,
     pg_stat_top: Option<usize>,
 ) {
@@ -971,7 +1030,13 @@ async fn cmd_report(
         #[cfg(feature = "daemon")]
         {
             match pg_stat_prometheus {
-                Some(url) => Some(load_pg_stat_from_prometheus(url, &config, top_n).await),
+                Some(url) => {
+                    let resolved_auth = resolve_pg_stat_auth_header(pg_stat_auth_header);
+                    Some(
+                        load_pg_stat_from_prometheus(url, &config, top_n, resolved_auth.as_deref())
+                            .await,
+                    )
+                }
                 None => None,
             }
         }
@@ -1890,5 +1955,35 @@ mod tests {
         let (p50_us, p99_us) = compute_latency_percentiles(&[], 1);
         assert!((p50_us - 0.0).abs() < f64::EPSILON);
         assert!((p99_us - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn pg_stat_auth_header_env_var_takes_precedence_over_flag() {
+        // Env-lookup returns a header → it wins over the --auth-header flag
+        // value, matching the Electricity Maps precedence.
+        let resolved = resolve_pg_stat_auth_header_with_env(
+            Some("Authorization: Bearer from-flag".to_string()),
+            || Some("Authorization: Bearer from-env".to_string()),
+        );
+        assert_eq!(
+            resolved.as_deref(),
+            Some("Authorization: Bearer from-env"),
+            "env var must take precedence over the CLI flag value"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn pg_stat_auth_header_falls_back_to_flag_when_env_unset() {
+        let resolved = resolve_pg_stat_auth_header_with_env(
+            Some("Authorization: Bearer from-flag".to_string()),
+            || None,
+        );
+        assert_eq!(
+            resolved.as_deref(),
+            Some("Authorization: Bearer from-flag"),
+            "flag value is used when the env var is unset"
+        );
     }
 }

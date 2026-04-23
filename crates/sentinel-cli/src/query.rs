@@ -42,6 +42,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
                 &uri,
                 "perf-sentinel-query",
                 timeout,
+                None,
             )
             .await
             {
@@ -363,9 +364,14 @@ fn spawn_explain_fetch(
         else {
             return (trace_id, None);
         };
-        let Ok(body) =
-            sentinel_core::http_client::fetch_get(&client, &uri, "perf-sentinel-query", timeout)
-                .await
+        let Ok(body) = sentinel_core::http_client::fetch_get(
+            &client,
+            &uri,
+            "perf-sentinel-query",
+            timeout,
+            None,
+        )
+        .await
         else {
             return (trace_id, None);
         };

@@ -602,24 +602,8 @@ mod tests {
     /// and we assert the `Authorization` line is present.
     #[tokio::test]
     async fn search_sends_auth_header_on_wire() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        let endpoint = format!("http://{addr}");
-
         let response = http_200_json(SAMPLE_TRACE);
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
-        let server = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.expect("accept");
-            let mut buf = vec![0u8; 8192];
-            let n = socket.read(&mut buf).await.expect("read");
-            buf.truncate(n);
-            tx.send(buf).await.expect("send captured");
-            socket.write_all(&response).await.expect("write");
-            let _ = socket.shutdown().await;
-        });
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
 
         let events = ingest_from_jaeger_query(
             &endpoint,

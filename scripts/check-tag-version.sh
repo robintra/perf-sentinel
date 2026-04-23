@@ -20,8 +20,8 @@
 #   3. Fail loudly if any of the above disagrees with the target tag.
 #
 # Exit codes:
-#   0 — every Cargo.toml matches the target version
-#   1 — mismatch, missing version field, or no crates found
+#   0 - every Cargo.toml matches the target version
+#   1 - mismatch, missing version field, or no crates found
 
 set -euo pipefail
 

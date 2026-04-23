@@ -32,7 +32,7 @@ running the daemon unless you explicitly widen the bind address.
 - The query API can be disabled at startup by setting
   `[daemon] api_enabled = false`. Useful when the daemon runs in a
   hostile multi-tenant host and you only want OTLP ingestion. In that
-  mode, `/metrics` and `/health` stay exposed — they are infrastructure
+  mode, `/metrics` and `/health` stay exposed, they are infrastructure
   surfaces, not part of the query API.
 - For Kubernetes or load-balancer probes, prefer `GET /health` over
   `GET /api/status`: `/health` is always on, holds no locks and stays

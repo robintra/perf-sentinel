@@ -81,6 +81,11 @@ pub enum FetchError {
 /// cloud energy and Electricity Maps scrapers so the fetch/timeout/
 /// body-cap logic lives in one place.
 ///
+/// When `auth` is `Some`, the parsed header is attached to the
+/// request. The value is already marked `sensitive` by
+/// [`crate::ingest::auth_header::AuthHeader::parse`], so hyper
+/// redacts it from debug output and HPACK tables.
+///
 /// # Errors
 ///
 /// Returns [`FetchError`] on request build failure, transport error,
@@ -90,13 +95,18 @@ pub async fn fetch_get(
     uri: &Uri,
     user_agent: &str,
     timeout: std::time::Duration,
+    auth: Option<&crate::ingest::auth_header::AuthHeader>,
 ) -> Result<bytes::Bytes, FetchError> {
     use http_body_util::{BodyExt, Empty, Limited};
 
-    let req = hyper::Request::builder()
+    let mut builder = hyper::Request::builder()
         .method(hyper::Method::GET)
         .uri(uri.clone())
-        .header(hyper::header::USER_AGENT, user_agent)
+        .header(hyper::header::USER_AGENT, user_agent);
+    if let Some(auth) = auth {
+        builder = builder.header(&auth.name, &auth.value);
+    }
+    let req = builder
         .body(Empty::<bytes::Bytes>::new())
         .map_err(FetchError::RequestBuild)?;
 
@@ -222,5 +232,45 @@ mod tests {
             .to_bytes();
         assert_eq!(&body[..], b"hello");
         server.await.unwrap();
+    }
+
+    /// Confirms that when an `AuthHeader` is passed, the header name and
+    /// value land on the request wire. Uses the shared one-shot TCP
+    /// listener + mpsc-capture pattern so the assertion is byte-exact.
+    #[tokio::test]
+    async fn fetch_get_attaches_auth_header() {
+        use crate::ingest::auth_header::AuthHeader;
+
+        let response = b"HTTP/1.1 200 OK\r\n\
+                         Content-Type: text/plain\r\n\
+                         Content-Length: 2\r\n\
+                         Connection: close\r\n\
+                         \r\n\
+                         ok"
+        .to_vec();
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+
+        let client = build_client();
+        let uri: Uri = format!("{endpoint}/").parse().expect("uri");
+        let auth = AuthHeader::parse("Authorization: Bearer topsecret").expect("valid");
+        let bytes = fetch_get(
+            &client,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            Some(&auth),
+        )
+        .await
+        .expect("fetch_get must succeed");
+        assert_eq!(&bytes[..], b"ok");
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).expect("utf8");
+        assert!(
+            text.contains("authorization: Bearer topsecret")
+                || text.contains("Authorization: Bearer topsecret"),
+            "auth header missing from request, got:\n{text}"
+        );
+        server.await.expect("server join");
     }
 }

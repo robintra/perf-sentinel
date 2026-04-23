@@ -327,6 +327,7 @@ struct ScaphandreSection {
     endpoint: Option<String>,
     scrape_interval_secs: Option<u64>,
     process_map: HashMap<String, String>,
+    auth_header: Option<String>,
 }
 
 /// Raw deserialization target for `[green.cloud]`.
@@ -342,6 +343,7 @@ struct CloudSection {
     default_instance_type: Option<String>,
     cpu_metric: Option<String>,
     services: HashMap<String, CloudServiceRaw>,
+    auth_header: Option<String>,
 }
 
 /// Raw deserialization for a single entry in `[green.cloud.services]`.
@@ -652,17 +654,7 @@ impl From<RawConfig> for Config {
                 .green
                 .use_hourly_profiles
                 .unwrap_or(defaults.green_use_hourly_profiles),
-            green_scaphandre: raw.green.scaphandre.endpoint.as_ref().map(|endpoint| {
-                ScaphandreConfig {
-                    endpoint: endpoint.clone(),
-                    // Default scrape interval 5s; clamped in validate_green
-                    // to the [1, 3600] range.
-                    scrape_interval: Duration::from_secs(
-                        raw.green.scaphandre.scrape_interval_secs.unwrap_or(5),
-                    ),
-                    process_map: raw.green.scaphandre.process_map.clone(),
-                }
-            }),
+            green_scaphandre: convert_scaphandre_section(&raw.green.scaphandre),
             green_cloud_energy: convert_cloud_section(&raw.green.cloud),
             green_per_operation_coefficients: raw
                 .green
@@ -817,6 +809,19 @@ fn parse_daemon_environment(value: &str) -> Option<DaemonEnvironment> {
 /// or not present). Per-service entries are classified as either
 /// `InstanceType` or `ManualWatts` based on which fields are set.
 fn convert_cloud_section(raw: &CloudSection) -> Option<CloudEnergyConfig> {
+    convert_cloud_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_CLOUD_AUTH_HEADER").ok()
+    })
+}
+
+/// Test-friendly inner form: takes the env-var lookup as a closure so
+/// tests can exercise the precedence branch without mutating the
+/// global process env. Same pattern as
+/// [`convert_electricity_maps_section_with_env`].
+fn convert_cloud_section_with_env(
+    raw: &CloudSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<CloudEnergyConfig> {
     let endpoint = raw.prometheus_endpoint.as_ref()?;
     let mut services = HashMap::with_capacity(raw.services.len());
     for (name, svc) in &raw.services {
@@ -836,6 +841,18 @@ fn convert_cloud_section(raw: &CloudSection) -> Option<CloudEnergyConfig> {
         };
         services.insert(name.clone(), config);
     }
+
+    // Auth header: env var takes precedence over config file.
+    let from_env = env_lookup();
+    let auth_header = from_env.clone().or_else(|| raw.auth_header.clone());
+    if from_env.is_none() && raw.auth_header.is_some() {
+        tracing::warn!(
+            "[green.cloud] auth_header is set in the config file. \
+             Prefer the PERF_SENTINEL_CLOUD_AUTH_HEADER environment variable \
+             to avoid committing secrets to version control."
+        );
+    }
+
     Some(CloudEnergyConfig {
         prometheus_endpoint: endpoint.clone(),
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(15)),
@@ -843,6 +860,47 @@ fn convert_cloud_section(raw: &CloudSection) -> Option<CloudEnergyConfig> {
         default_instance_type: raw.default_instance_type.clone(),
         cpu_metric: raw.cpu_metric.clone(),
         services,
+        auth_header,
+    })
+}
+
+/// Convert the raw `[green.scaphandre]` TOML section into a typed config.
+///
+/// Returns `None` when `endpoint` is absent (section empty or not present).
+fn convert_scaphandre_section(raw: &ScaphandreSection) -> Option<ScaphandreConfig> {
+    convert_scaphandre_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER").ok()
+    })
+}
+
+/// Test-friendly inner form: takes the env-var lookup as a closure so
+/// tests can exercise the precedence branch without mutating the
+/// global process env. Same pattern as
+/// [`convert_electricity_maps_section_with_env`].
+fn convert_scaphandre_section_with_env(
+    raw: &ScaphandreSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<ScaphandreConfig> {
+    let endpoint = raw.endpoint.as_ref()?;
+
+    // Auth header: env var takes precedence over config file.
+    let from_env = env_lookup();
+    let auth_header = from_env.clone().or_else(|| raw.auth_header.clone());
+    if from_env.is_none() && raw.auth_header.is_some() {
+        tracing::warn!(
+            "[green.scaphandre] auth_header is set in the config file. \
+             Prefer the PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER environment variable \
+             to avoid committing secrets to version control."
+        );
+    }
+
+    Some(ScaphandreConfig {
+        endpoint: endpoint.clone(),
+        // Default scrape interval 5s; clamped in validate_green
+        // to the [1, 3600] range.
+        scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
+        process_map: raw.process_map.clone(),
+        auth_header,
     })
 }
 
@@ -1301,13 +1359,22 @@ impl Config {
                 ));
             }
         }
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.scaphandre] auth_header: {msg}"))?;
+        }
         Ok(())
     }
 
     /// Validate a parsed `[green.cloud]` config section.
     fn validate_cloud_energy(cfg: &CloudEnergyConfig) -> Result<(), String> {
         Self::validate_cloud_endpoint(cfg)?;
-        Self::validate_cloud_services(cfg)
+        Self::validate_cloud_services(cfg)?;
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.cloud] auth_header: {msg}"))?;
+        }
+        Ok(())
     }
 
     /// Validate `[green.cloud]` endpoint, scrape interval, provider, and instance type.
@@ -3174,6 +3241,86 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let cfg = convert_electricity_maps_section_with_env(&raw, || Some("from-env".to_string()))
             .expect("env-supplied token should produce a valid config");
         assert_eq!(cfg.auth_token, "from-env");
+    }
+
+    #[test]
+    fn cloud_auth_header_env_var_takes_precedence_over_config_file() {
+        // Env-lookup returns a header → it wins over `auth_header` in the file.
+        // Mirrors electricity_maps_env_var_takes_precedence_over_config_file.
+        let raw = CloudSection {
+            prometheus_endpoint: Some("http://prometheus:9090".to_string()),
+            scrape_interval_secs: None,
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+            auth_header: Some("Authorization: Bearer from-file".to_string()),
+        };
+        let cfg = convert_cloud_section_with_env(&raw, || {
+            Some("Authorization: Bearer from-env".to_string())
+        })
+        .expect("cloud section should convert");
+        assert_eq!(
+            cfg.auth_header.as_deref(),
+            Some("Authorization: Bearer from-env"),
+            "env var must take precedence over the config file value"
+        );
+    }
+
+    #[test]
+    fn cloud_auth_header_falls_back_to_config_when_env_unset() {
+        let raw = CloudSection {
+            prometheus_endpoint: Some("http://prometheus:9090".to_string()),
+            scrape_interval_secs: None,
+            default_provider: None,
+            default_instance_type: None,
+            cpu_metric: None,
+            services: HashMap::new(),
+            auth_header: Some("Authorization: Bearer from-file".to_string()),
+        };
+        let cfg =
+            convert_cloud_section_with_env(&raw, || None).expect("cloud section should convert");
+        assert_eq!(
+            cfg.auth_header.as_deref(),
+            Some("Authorization: Bearer from-file"),
+            "config value is used when the env var is unset"
+        );
+    }
+
+    #[test]
+    fn scaphandre_auth_header_env_var_takes_precedence_over_config_file() {
+        let raw = ScaphandreSection {
+            endpoint: Some("http://localhost:8080/metrics".to_string()),
+            scrape_interval_secs: None,
+            process_map: HashMap::new(),
+            auth_header: Some("Authorization: Bearer from-file".to_string()),
+        };
+        let cfg = convert_scaphandre_section_with_env(&raw, || {
+            Some("Authorization: Bearer from-env".to_string())
+        })
+        .expect("scaphandre section should convert");
+        assert_eq!(
+            cfg.auth_header.as_deref(),
+            Some("Authorization: Bearer from-env"),
+            "env var must take precedence over the config file value"
+        );
+    }
+
+    #[test]
+    fn scaphandre_auth_header_falls_back_to_config_when_env_unset() {
+        let raw = ScaphandreSection {
+            endpoint: Some("http://localhost:8080/metrics".to_string()),
+            scrape_interval_secs: None,
+            process_map: HashMap::new(),
+            auth_header: Some("Authorization: Bearer from-file".to_string()),
+        };
+        let cfg = convert_scaphandre_section_with_env(&raw, || None)
+            .expect("scaphandre section should convert");
+        assert_eq!(
+            cfg.auth_header.as_deref(),
+            Some("Authorization: Bearer from-file"),
+            "config value is used when the env var is unset"
+        );
     }
 
     // --- validate_electricity_maps error paths ---

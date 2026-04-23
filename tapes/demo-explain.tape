@@ -3,13 +3,13 @@
 # Companion to tapes/demo.tape. Showcases the two rendering paths of the
 # `perf-sentinel explain` mode:
 #
-#   1. span-anchored annotations — findings whose `pattern.template`
+#   1. span-anchored annotations - findings whose `pattern.template`
 #      matches a span template are rendered inline next to the span.
 #      Demonstrated via the fanout trace (trace-demo-fanout), where
 #      `← excessive fanout warning (×21)` lands cleanly on the parent
 #      span and the 21 children are rendered in a compact tree below.
 #
-#   2. trace-level findings header — findings whose `pattern.template`
+#   2. trace-level findings header - findings whose `pattern.template`
 #      is a service name or an entry endpoint (chatty service, pool
 #      saturation, serialized calls) cannot anchor on a single span
 #      and are surfaced in a dedicated `⚠ Trace-level findings:`

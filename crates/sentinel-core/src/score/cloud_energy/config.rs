@@ -37,7 +37,7 @@ pub enum ServiceCloudConfig {
 ///
 /// Parsed from `[green.cloud]` in `.perf-sentinel.toml`. The subsystem
 /// is only active when `prometheus_endpoint` is set.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CloudEnergyConfig {
     /// Prometheus/VictoriaMetrics HTTP API endpoint
     /// (e.g. `"http://prometheus:9090"`). Must start with `http://`.
@@ -58,6 +58,33 @@ pub struct CloudEnergyConfig {
     /// Per-service configuration mapping service name to either an
     /// instance type lookup or manual watts override.
     pub services: HashMap<String, ServiceCloudConfig>,
+    /// Optional auth header in curl format (`"Name: Value"`) attached
+    /// to every Prometheus request. Required for Grafana Cloud, Grafana
+    /// Mimir or any ingress that enforces bearer/basic auth. Stored as
+    /// plain `String` (not `secrecy::SecretString`) to avoid adding a
+    /// dependency. The manual `Debug` impl below redacts this field so
+    /// `tracing::debug!(?config)` never leaks the credential. Resolved
+    /// via the `PERF_SENTINEL_CLOUD_AUTH_HEADER` environment variable
+    /// with fallback to this field; env wins when both are set.
+    pub auth_header: Option<String>,
+}
+
+// Manual Debug impl to redact the auth header (potentially a secret).
+impl std::fmt::Debug for CloudEnergyConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudEnergyConfig")
+            .field("prometheus_endpoint", &self.prometheus_endpoint)
+            .field("scrape_interval", &self.scrape_interval)
+            .field("default_provider", &self.default_provider)
+            .field("default_instance_type", &self.default_instance_type)
+            .field("cpu_metric", &self.cpu_metric)
+            .field("services", &self.services)
+            .field(
+                "auth_header",
+                &self.auth_header.as_ref().map(|_| "[REDACTED]"),
+            )
+            .finish()
+    }
 }
 
 impl ServiceCloudConfig {
@@ -69,5 +96,40 @@ impl ServiceCloudConfig {
                 cpu_query.as_deref()
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_config() -> CloudEnergyConfig {
+        CloudEnergyConfig {
+            prometheus_endpoint: "http://prometheus:9090".to_string(),
+            scrape_interval: Duration::from_secs(15),
+            default_provider: Some("aws".to_string()),
+            default_instance_type: Some("c5.xlarge".to_string()),
+            cpu_metric: None,
+            services: HashMap::new(),
+            auth_header: Some("Authorization: Bearer super-secret-do-not-log".to_string()),
+        }
+    }
+
+    #[test]
+    fn debug_impl_redacts_auth_header() {
+        // Regression guard against `#[derive(Debug)]` being
+        // reintroduced on the struct, which would print the credential.
+        let cfg = sample_config();
+        crate::test_helpers::assert_debug_redacts_secret!(&cfg, "super-secret-do-not-log");
+    }
+
+    #[test]
+    fn debug_impl_preserves_non_secret_fields() {
+        let cfg = sample_config();
+        let dbg = format!("{cfg:?}");
+        assert!(dbg.contains("prometheus_endpoint"));
+        assert!(dbg.contains("http://prometheus:9090"));
+        assert!(dbg.contains("c5.xlarge"));
+        assert!(dbg.contains("aws"));
     }
 }

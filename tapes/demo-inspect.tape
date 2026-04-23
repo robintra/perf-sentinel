@@ -12,7 +12,7 @@
 # so the navigation below is deterministic across runs. With the demo
 # fixture, positions are:
 #   0: chatty         (WARNING)
-#   1: fanout         (WARNING, 22 spans — good detail view)
+#   1: fanout         (WARNING, 22 spans - good detail view)
 #   2: nplus-http     (WARNING)
 #   3: nplus-sql      (CRITICAL, 10 occurrences)
 #   4: pool           (WARNING)
@@ -28,7 +28,7 @@
 #   - detail.png         : position 1 (fanout) with detail panel active
 #                          via Tab Tab, scroll_offset = 0 (top of tree)
 #   - detail-scrolled.png: same trace, after `Down` × 15 in the detail
-#                          panel — viewport has scrolled through the
+#                          panel - viewport has scrolled through the
 #                          fanout span tree to reveal its bottom half
 #   - critical.png       : position 3 (N+1 SQL, CRITICAL red)
 #   - info.png           : position 5 (redundant HTTP, INFO cyan)

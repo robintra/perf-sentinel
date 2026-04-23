@@ -201,6 +201,7 @@ fn test_scrape_fixture(
         endpoint: "http://localhost:8080/metrics".to_string(),
         scrape_interval: Duration::from_secs(5),
         process_map,
+        auth_header: None,
     };
     (state, readings, deltas, cfg)
 }
@@ -308,7 +309,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
     // Drive the full fetch through the real hyper-util client.
     let client = build_scraper_client();
     let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-    let fetched = fetch_metrics_once(&client, &uri)
+    let fetched = fetch_metrics_once(&client, &uri, None)
         .await
         .expect("fake server fetch should succeed");
     server.await.unwrap();
@@ -333,6 +334,7 @@ async fn fetch_metrics_once_reads_from_fake_server() {
         endpoint,
         scrape_interval: Duration::from_secs(5),
         process_map,
+        auth_header: None,
     };
     apply_scrape(&state, &readings, &deltas, &cfg, 1_000);
     let snap = state.snapshot(1_000, 60_000);
@@ -370,7 +372,7 @@ async fn fetch_metrics_once_surfaces_http_error_status() {
 
     let client = build_scraper_client();
     let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-    let err = fetch_metrics_once(&client, &uri)
+    let err = fetch_metrics_once(&client, &uri, None)
         .await
         .expect_err("500 should error");
     server.await.unwrap();
@@ -552,6 +554,7 @@ async fn spawn_scraper_happy_path_updates_state() {
         endpoint,
         scrape_interval: Duration::from_millis(50),
         process_map,
+        auth_header: None,
     };
     let state = Arc::new(ScaphandreState::default());
     let metrics = Arc::new(crate::report::metrics::MetricsState::default());
@@ -617,6 +620,7 @@ async fn spawn_scraper_500_keeps_running_and_state_empty() {
         endpoint,
         scrape_interval: Duration::from_millis(40),
         process_map: HashMap::new(),
+        auth_header: None,
     };
     let state = Arc::new(ScaphandreState::default());
     let metrics = Arc::new(crate::report::metrics::MetricsState::default());
@@ -646,6 +650,7 @@ async fn spawn_scraper_invalid_uri_exits_cleanly() {
         endpoint: "not a valid :: uri".to_string(),
         scrape_interval: Duration::from_secs(5),
         process_map: HashMap::new(),
+        auth_header: None,
     };
     let state = Arc::new(ScaphandreState::default());
     let metrics = Arc::new(crate::report::metrics::MetricsState::default());
@@ -671,6 +676,7 @@ async fn spawn_scraper_unreachable_endpoint_keeps_running() {
         endpoint: "http://127.0.0.1:1/metrics".to_string(),
         scrape_interval: Duration::from_millis(50),
         process_map: HashMap::new(),
+        auth_header: None,
     };
     let state = Arc::new(ScaphandreState::default());
     let metrics = Arc::new(crate::report::metrics::MetricsState::default());
@@ -721,7 +727,7 @@ async fn fetch_metrics_once_rejects_oversized_body() {
 
     let client = build_scraper_client();
     let uri = <hyper::Uri as std::str::FromStr>::from_str(&endpoint).unwrap();
-    let err = fetch_metrics_once(&client, &uri)
+    let err = fetch_metrics_once(&client, &uri, None)
         .await
         .expect_err("oversized body must fail with BodyRead (LengthLimit)");
     server.await.unwrap();
@@ -747,4 +753,33 @@ fn scraper_error_display_messages_are_informative() {
     assert!(format!("{e1}").contains("fetch failed"));
     assert!(format!("{e2}").contains("fetch failed"));
     assert!(format!("{e3}").contains("fetch failed"));
+}
+
+/// End-to-end check that a configured `auth_header` lands on the
+/// Scaphandre request wire when `fetch_metrics_once` is invoked.
+/// Mirrors the shape of `search_sends_auth_header_on_wire` in
+/// `jaeger_query.rs`.
+#[tokio::test]
+async fn scaphandre_scraper_sends_auth_header_on_wire() {
+    use crate::ingest::auth_header::AuthHeader;
+
+    let response = crate::test_helpers::http_200_text("text/plain", "");
+    let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+
+    let client = build_scraper_client();
+    let uri = <hyper::Uri as std::str::FromStr>::from_str(&format!("{endpoint}/metrics")).unwrap();
+    let auth = AuthHeader::parse("Authorization: Bearer topsecret").expect("valid");
+    let body = fetch_metrics_once(&client, &uri, Some(&auth))
+        .await
+        .expect("fetch_metrics_once must succeed");
+    assert_eq!(body, "");
+
+    let captured = rx.recv().await.expect("captured request");
+    let text = std::str::from_utf8(&captured).expect("utf8");
+    assert!(
+        text.contains("authorization: Bearer topsecret")
+            || text.contains("Authorization: Bearer topsecret"),
+        "auth header missing from request, got:\n{text}"
+    );
+    server.await.expect("server join");
 }

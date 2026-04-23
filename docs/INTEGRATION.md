@@ -105,6 +105,7 @@ Flags:
 - `--max-traces-embedded <N>`: cap on embedded Explain traces. When unset, the sink trims lowest-IIS traces to target a ~5 MB HTML file size. A banner in the Findings tab surfaces the trim ratio when it kicks in.
 - `--pg-stat <FILE>`: cross-reference a `pg_stat_statements` CSV or JSON export. Enables a pg_stat tab and the Explain-to-pg_stat cross-navigation for SQL spans whose normalized template matches a pg_stat row.
 - `--pg-stat-prometheus <URL>`: one-shot HTTP GET against a `postgres_exporter` instance, same effect as `--pg-stat` without the intermediate file. Mutually exclusive with `--pg-stat`.
+- `--pg-stat-auth-header "Name: Value"`: optional auth header attached to the `--pg-stat-prometheus` request (same `"Name: Value"` format as `--auth-header` on the `tempo` and `jaeger-query` subcommands). The environment variable `PERF_SENTINEL_PGSTAT_AUTH_HEADER` takes precedence over the flag. Prefer the env var in production to avoid exposing the credential through the process argument list or shell history. When the value is supplied via the flag and the env var is not, a startup warning nudges you toward the env var. Required for Grafana Cloud, Grafana Mimir or any Prometheus ingress enforcing bearer/basic auth. The value is marked `sensitive` so hyper redacts it from debug output and HPACK tables. Sending it over plain `http://` emits a `tracing::warn!`, prefer `https://` in production.
 - `--before <FILE>`: baseline report JSON (the output of `analyze --format json`). Enables a Diff tab showing new findings, resolved findings, severity changes, and per-endpoint I/O deltas relative to the baseline.
 
 Exit codes differ from `analyze --ci`: `report` always exits 0, even when the quality gate fails. The gate status is rendered as a badge in the HTML top bar. Use `analyze --ci` when you need the CI exit-code signal.
@@ -1127,6 +1128,23 @@ The `process_map` maps perf-sentinel service names to the `exe` label in Scaphan
 
 Services not present in `process_map` or when the endpoint is unreachable, fall back to the proxy model transparently. The model tag flips to `"scaphandre_rapl"` for services using measured energy. Only the `watch` daemon mode uses Scaphandre; the `analyze` batch command always uses the proxy model.
 
+#### Authenticated Scaphandre endpoint
+
+If the Scaphandre exporter sits behind a reverse proxy enforcing basic auth or a bearer-token ingress, add an `auth_header` entry:
+
+```toml
+[green.scaphandre]
+endpoint = "https://scaphandre.my-cluster.example/metrics"
+scrape_interval_secs = 5
+auth_header = "Authorization: Basic <base64>"
+```
+
+The value follows the same `"Name: Value"` format as the `--auth-header` flag on the `tempo` and `jaeger-query` subcommands. The parsed value is marked `sensitive`, hyper redacts it from debug output and HTTP/2 HPACK tables, and the struct's manual `Debug` impl prevents it leaking through any `tracing::debug!(?config)` call.
+
+The environment variable `PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER` takes precedence over the config file. Prefer the env var in production to avoid committing secrets to version control. When the value is set in the config file and the env var is not, a startup warning nudges you toward the env var.
+
+Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup, prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
+
 ### Cloud-native energy estimation (AWS / GCP / Azure)
 
 For cloud VMs that do not expose RAPL (most non-bare-metal instances), perf-sentinel can estimate per-service energy using CPU utilization metrics from a Prometheus endpoint and the SPECpower model.
@@ -1159,6 +1177,22 @@ instance_type = "Standard_D8s_v3"
 The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using SPECpower data embedded in the binary (~60 common instance types across AWS, GCP, Azure). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
 
 **Energy source precedence.** When both Scaphandre and cloud energy are configured for the same service, Scaphandre wins (direct RAPL measurement is more precise than CPU% interpolation). The full chain: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+
+#### Authenticated Prometheus endpoint
+
+If your Prometheus sits behind basic auth, a bearer-token proxy, or a hosted service like Grafana Cloud or Grafana Mimir, add an `auth_header` entry:
+
+```toml
+[green.cloud]
+prometheus_endpoint = "https://prometheus.grafana-cloud.example/api/prom"
+auth_header = "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}"
+```
+
+The value follows the same `"Name: Value"` format as the `--auth-header` flag on the `tempo` and `jaeger-query` subcommands. The parsed value is marked `sensitive`, hyper redacts it from debug output and HTTP/2 HPACK tables, and the struct's manual `Debug` impl prevents it leaking through any `tracing::debug!(?config)` call.
+
+The environment variable `PERF_SENTINEL_CLOUD_AUTH_HEADER` takes precedence over the config file. Prefer the env var in production to avoid committing secrets to version control. When the value is set in the config file and the env var is not, a startup warning nudges you toward the env var.
+
+Sending an auth header over plain `http://` emits a `tracing::warn!` once at scraper startup, prefer `https://` in production. A malformed header disables the scraper subsystem with a `tracing::error!` rather than retrying silently.
 
 ### Calibrate the proxy model from on-site measurements
 

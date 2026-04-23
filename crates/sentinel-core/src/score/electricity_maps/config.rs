@@ -61,15 +61,7 @@ mod tests {
         // this test fails and the CI catches the leak before any log
         // line can expose a real token.
         let cfg = sample_config();
-        let debug_output = format!("{cfg:?}");
-        assert!(
-            !debug_output.contains("super-secret-token-do-not-log"),
-            "auth token must not appear in Debug output: {debug_output}"
-        );
-        assert!(
-            debug_output.contains("[REDACTED]"),
-            "Debug output should mention [REDACTED]: {debug_output}"
-        );
+        crate::test_helpers::assert_debug_redacts_secret!(&cfg, "super-secret-token-do-not-log");
     }
 
     #[test]

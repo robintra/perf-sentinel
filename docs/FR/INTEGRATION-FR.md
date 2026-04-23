@@ -105,6 +105,7 @@ Flags :
 - `--max-traces-embedded <N>` : cap sur les traces embarquées pour l'onglet Explain. Sans valeur, la sortie est ajustée automatiquement pour viser une taille HTML d'environ 5 Mo en coupant les traces à plus faible IIS. Un bandeau dans l'onglet Findings remonte le ratio tronqué quand la coupe s'applique.
 - `--pg-stat <FICHIER>` : cross-référence un export `pg_stat_statements` CSV ou JSON. Active l'onglet pg_stat et la navigation croisée Explain vers pg_stat sur les spans SQL dont le template normalisé correspond à une ligne pg_stat.
 - `--pg-stat-prometheus <URL>` : scrape one-shot d'un `postgres_exporter`, même effet que `--pg-stat` sans le fichier intermédiaire. Mutuellement exclusif avec `--pg-stat`.
+- `--pg-stat-auth-header "Nom: Valeur"` : en-tête d'authentification optionnel attaché à la requête `--pg-stat-prometheus` (même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`). La variable d'environnement `PERF_SENTINEL_PGSTAT_AUTH_HEADER` est prioritaire sur le flag. Préférez la variable d'environnement en production pour éviter d'exposer le secret dans la liste des arguments de processus ou l'historique shell. Quand la valeur est fournie via le flag et que la variable d'environnement est absente, un warning de démarrage oriente vers la variable d'environnement. Requis pour Grafana Cloud, Grafana Mimir ou tout ingress Prometheus appliquant une auth basic ou bearer. La valeur est marquée `sensitive` pour que hyper la masque dans les logs debug et les tables HPACK. L'envoyer en clair via `http://` déclenche un `tracing::warn!`, préférez `https://` en production.
 - `--before <FICHIER>` : rapport baseline JSON (la sortie de `analyze --format json`). Active un onglet Diff qui affiche les nouveaux findings, les findings résolus, les changements de sévérité et les deltas d'I/O par endpoint par rapport à la baseline.
 
 Les codes de sortie diffèrent de `analyze --ci` : `report` sort toujours 0, même quand la quality gate échoue. Le statut de la gate est rendu comme un badge dans la barre supérieure du HTML. Utilise `analyze --ci` quand tu as besoin du signal d'exit-code en CI.
@@ -1106,6 +1107,23 @@ process_map = { "order-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet"
 
 Le `process_map` mappe les noms de service perf-sentinel au label `exe` dans la métrique `scaph_process_power_consumption_microwatts` de Scaphandre. Le daemon scrape cet endpoint toutes les `scrape_interval_secs` secondes et calcule un coefficient énergie-par-op par service. Les services absents du `process_map` retombent sur le modèle proxy. Le tag de modèle passe à `"scaphandre_rapl"`. Seul le mode daemon `watch` utilise Scaphandre.
 
+#### Endpoint Scaphandre authentifié
+
+Si l'exporter Scaphandre est placé derrière un reverse proxy avec auth basic ou un ingress bearer-token, ajoutez une entrée `auth_header` :
+
+```toml
+[green.scaphandre]
+endpoint = "https://scaphandre.mon-cluster.example/metrics"
+scrape_interval_secs = 5
+auth_header = "Authorization: Basic <base64>"
+```
+
+La valeur suit le même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
+
+La variable d'environnement `PERF_SENTINEL_SCAPHANDRE_AUTH_HEADER` est prioritaire sur le fichier de config. Préférez la variable d'environnement en production pour éviter de committer des secrets dans le contrôle de version. Quand la valeur est définie dans le fichier de config et que la variable d'environnement est absente, un warning de démarrage oriente vers la variable d'environnement.
+
+Envoyer un auth header en clair via `http://` déclenche un `tracing::warn!` au démarrage du scraper, préférez `https://` en production. Un header mal formé désactive le sous-système avec un `tracing::error!` plutôt que de réessayer en silence.
+
 ### Estimation d'énergie cloud (AWS / GCP / Azure)
 
 Pour les VMs cloud sans accès RAPL, perf-sentinel peut estimer l'énergie par service via les métriques d'utilisation CPU depuis un endpoint Prometheus et le modèle SPECpower.
@@ -1138,6 +1156,22 @@ instance_type = "Standard_D8s_v3"
 Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` en utilisant les données SPECpower embarquées (~60 types d'instances courants). Le tag de modèle est `"cloud_specpower"`. Fonctionnalité daemon uniquement.
 
 **Précédence des sources d'énergie.** Quand Scaphandre et cloud energy sont configurés pour le même service, Scaphandre gagne (mesure RAPL directe). La chaîne complète : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+
+#### Endpoint Prometheus authentifié
+
+Si votre Prometheus est derrière une auth basic, un proxy bearer-token, ou un service managé comme Grafana Cloud ou Grafana Mimir, ajoutez une entrée `auth_header` :
+
+```toml
+[green.cloud]
+prometheus_endpoint = "https://prometheus.grafana-cloud.example/api/prom"
+auth_header = "Authorization: Bearer ${GRAFANA_CLOUD_TOKEN}"
+```
+
+La valeur suit le même format `"Nom: Valeur"` que le flag `--auth-header` des sous-commandes `tempo` et `jaeger-query`. Elle est marquée `sensitive`, hyper la masque dans les logs debug et les tables HPACK HTTP/2, et l'impl manuelle de `Debug` de la struct empêche toute fuite via un `tracing::debug!(?config)`.
+
+La variable d'environnement `PERF_SENTINEL_CLOUD_AUTH_HEADER` est prioritaire sur le fichier de config. Préférez la variable d'environnement en production pour éviter de committer des secrets dans le contrôle de version. Quand la valeur est définie dans le fichier de config et que la variable d'environnement est absente, un warning de démarrage oriente vers la variable d'environnement.
+
+Envoyer un auth header en clair via `http://` déclenche un `tracing::warn!` au démarrage du scraper, préférez `https://` en production. Un header mal formé désactive le sous-système avec un `tracing::error!` plutôt que de réessayer en silence.
 
 ### Calibration du modèle proxy avec des mesures terrain
 

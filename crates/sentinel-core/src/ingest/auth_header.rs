@@ -102,6 +102,47 @@ impl AuthHeader {
     }
 }
 
+/// Parse an optional auth header for a daemon scraper, applying the
+/// shared operator UX: a parse failure emits a `tracing::error!` with
+/// the pre-redacted endpoint (credentials in URL userinfo cannot leak
+/// through this path) and returns `Err(())` to signal that the caller
+/// must disable the subsystem. A successfully parsed header over
+/// cleartext `http://` emits a `tracing::warn!`.
+///
+/// Shared between the `cloud_energy` and `scaphandre` scrapers so the
+/// three-branch parse/warn/disable logic lives in one place.
+///
+/// # Errors
+///
+/// Returns `Err(())` when `raw` is `Some` and fails `AuthHeader::parse`.
+/// The caller should immediately abort the scraper task.
+#[cfg(feature = "daemon")]
+pub(crate) fn parse_scraper_auth_header(
+    raw: Option<&str>,
+    endpoint: &str,
+    redacted_endpoint: &str,
+    subsystem: &'static str,
+) -> Result<Option<AuthHeader>, ()> {
+    let parsed = match raw.map(AuthHeader::parse).transpose() {
+        Ok(v) => v,
+        Err(msg) => {
+            tracing::error!(
+                subsystem = subsystem,
+                endpoint = redacted_endpoint,
+                reason = msg,
+                "Scraper disabled, invalid auth_header"
+            );
+            return Err(());
+        }
+    };
+    if parsed.is_some() && endpoint.starts_with("http://") {
+        tracing::warn!(
+            "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
+        );
+    }
+    Ok(parsed)
+}
+
 // Manual Debug guarantees the value is never printed, even if a
 // future refactor drops hyper's sensitive flag for some reason.
 impl std::fmt::Debug for AuthHeader {

@@ -432,19 +432,42 @@ fn parse_json(text: &str) -> Result<Vec<PgStatEntry>, PgStatError> {
 /// metrics exposed by `postgres_exporter`, converts them to
 /// [`PgStatEntry`] structs, and normalizes SQL templates.
 ///
+/// When `auth_header` is `Some`, the `"Name: Value"` string is parsed
+/// once via [`crate::ingest::auth_header::AuthHeader::parse`] and the
+/// resulting header is attached to the outbound request. Required for
+/// Grafana Cloud, Grafana Mimir and any Prometheus ingress enforcing
+/// bearer/basic auth.
+///
 /// # Errors
 ///
-/// Returns [`PgStatError::PrometheusRequest`] on transport errors
-/// and [`PgStatError::PrometheusFormat`] if the response cannot be parsed.
+/// Returns [`PgStatError::PrometheusRequest`] on transport errors,
+/// invalid auth headers, or auth-over-cleartext warnings, and
+/// [`PgStatError::PrometheusFormat`] if the response cannot be parsed.
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 pub async fn fetch_from_prometheus(
     endpoint: &str,
     top_n: usize,
+    auth_header: Option<&str>,
 ) -> Result<Vec<PgStatEntry>, PgStatError> {
+    use crate::ingest::auth_header::AuthHeader;
+
     // Validate the endpoint URL before issuing the request. Consistent with
     // the Scaphandre and cloud energy scrapers, we reject malformed URLs,
     // non-http(s) schemes, and credentials in the authority.
     validate_prometheus_endpoint(endpoint)?;
+
+    // Parse the optional auth header once. Reuse the existing
+    // PrometheusRequest variant for the error path, same shape as the
+    // URL parse failure above.
+    let parsed_auth = auth_header
+        .map(AuthHeader::parse)
+        .transpose()
+        .map_err(|msg| PgStatError::PrometheusRequest(format!("invalid auth header: {msg}")))?;
+    if parsed_auth.is_some() && endpoint.starts_with("http://") {
+        tracing::warn!(
+            "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
+        );
+    }
 
     let client = crate::http_client::build_client();
     // PromQL query. The parentheses and underscores are safe for URL
@@ -456,17 +479,23 @@ pub async fn fetch_from_prometheus(
         .map_err(|e| PgStatError::PrometheusRequest(format!("invalid URL: {e}")))?;
 
     let timeout = std::time::Duration::from_secs(30);
-    let body = crate::http_client::fetch_get(&client, &uri, "perf-sentinel/pg-stat", timeout)
-        .await
-        .map_err(|e| {
-            // Redact the endpoint before surfacing the transport error, so
-            // credentials accidentally embedded in the URL never leak to
-            // stdout/stderr.
-            PgStatError::PrometheusRequest(format!(
-                "{e} (endpoint: {})",
-                crate::http_client::redact_endpoint(&uri)
-            ))
-        })?;
+    let body = crate::http_client::fetch_get(
+        &client,
+        &uri,
+        "perf-sentinel/pg-stat",
+        timeout,
+        parsed_auth.as_ref(),
+    )
+    .await
+    .map_err(|e| {
+        // Redact the endpoint before surfacing the transport error, so
+        // credentials accidentally embedded in the URL never leak to
+        // stdout/stderr.
+        PgStatError::PrometheusRequest(format!(
+            "{e} (endpoint: {})",
+            crate::http_client::redact_endpoint(&uri)
+        ))
+    })?;
 
     parse_prometheus_response(&body)
 }
@@ -1026,5 +1055,44 @@ mod tests {
             matches!(result, Err(PgStatError::PrometheusRequest(msg)) if msg.contains("scheme")),
             "must reject non-http(s) schemes"
         );
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[tokio::test]
+    async fn fetch_from_prometheus_sends_auth_header_on_wire() {
+        let body = r#"{"status":"success","data":{"resultType":"vector","result":[]}}"#;
+        let response = crate::test_helpers::http_200_text("application/json", body);
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+
+        let entries = fetch_from_prometheus(&endpoint, 5, Some("Authorization: Bearer topsecret"))
+            .await
+            .expect("fetch_from_prometheus must succeed");
+        assert!(entries.is_empty());
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).expect("utf8");
+        assert!(
+            text.contains("authorization: Bearer topsecret")
+                || text.contains("Authorization: Bearer topsecret"),
+            "auth header missing from request, got:\n{text}"
+        );
+        server.await.expect("server join");
+    }
+
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
+    #[tokio::test]
+    async fn fetch_from_prometheus_rejects_invalid_auth_header() {
+        let err = fetch_from_prometheus("http://prometheus.local:9090", 5, Some("NoColonHere"))
+            .await
+            .expect_err("malformed auth header must be rejected");
+        match err {
+            PgStatError::PrometheusRequest(msg) => {
+                assert!(
+                    msg.contains("invalid auth header"),
+                    "error message should flag the auth header parse failure, got: {msg}"
+                );
+            }
+            other => panic!("expected PrometheusRequest, got {other:?}"),
+        }
     }
 }
