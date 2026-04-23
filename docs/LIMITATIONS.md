@@ -139,12 +139,30 @@ The factor is deliberate: it accommodates clients that emit many small batches o
 
 Each TLS listener (OTLP gRPC and OTLP HTTP) caps concurrent in-flight handshakes and live HTTPS connections at **128**. Handshakes run in dedicated tasks so a single stalled peer cannot block the accept loop and the cap bounds fds, rustls buffers and task slots against a handshake flood. A 10s handshake timeout (`TLS_HANDSHAKE_TIMEOUT`) drops peers that complete TCP but never send a `ClientHello`. The cap is not configurable; it mirrors the Unix JSON socket listener budget.
 
-## Query-API subcommands: no outgoing auth, endpoint value must be trusted
+## Query-API subcommands: endpoint value must be trusted
 
-The `tempo` and `jaeger-query` subcommands both make outbound HTTP requests to a user-supplied backend endpoint. Two limits to know:
+The `tempo` and `jaeger-query` subcommands both make outbound HTTP requests to a user-supplied backend endpoint. One constraint to know:
 
-- **No auth header injection.** Neither subcommand supports Basic Auth, bearer tokens, or API keys. Backends sitting behind an authenticated reverse proxy (OAuth2 proxy, Cloudflare Access, AWS IAM-authenticated ALB, etc.) must be reached via a local forward: an SSH tunnel, a `kubectl port-forward` or a `oauth2-proxy --reverse-proxy`. Native auth support is a tracked follow-up.
 - **`--endpoint` is trusted input.** The validator rejects non-`http(s)` schemes and credential-embedded URLs (`user:pass@host`), but it accepts loopback, RFC 1918, link-local, and cloud-metadata targets (`169.254.169.254`). In a single-user CLI invocation this is the expected behaviour (dev-local setups, port-forwarded backends, etc.). In CI pipelines where the endpoint could be sourced from an external PR or an untrusted environment variable, sanitize the value upstream before invoking the subcommand.
+
+### Auth headers
+
+Both subcommands support an optional `--auth-header "Name: Value"` flag that attaches a single custom header to every backend request. Use it for Bearer tokens, Basic Auth, or custom API-key headers. The parsed value is marked `sensitive` so hyper redacts it from debug output and HTTP/2 HPACK tables, and the subcommand never logs the value. Examples:
+
+```bash
+perf-sentinel jaeger-query --endpoint https://jaeger.prod \
+  --service order-svc --lookback 1h \
+  --auth-header "Authorization: Bearer ${JAEGER_TOKEN}"
+
+perf-sentinel tempo --endpoint https://tempo.prod \
+  --service order-svc --lookback 1h \
+  --auth-header "X-API-Key: ${TEMPO_KEY}"
+```
+
+Two caveats when using `--auth-header`:
+
+- The value is visible in `ps`/`/proc/<pid>/cmdline` for the lifetime of the invocation. Prefer shell-expanded env vars (`${VAR}`) over pasting the secret literally, so it only lives in the process's own environment.
+- Only one header is supported per invocation. If you need Basic Auth and an additional tenant header, compose the flag with the primary auth scheme and set the secondary one at the proxy layer.
 
 ## Carbon estimates accuracy
 

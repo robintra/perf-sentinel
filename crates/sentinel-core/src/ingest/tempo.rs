@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
+use crate::ingest::auth_header::AuthHeader;
 use crate::ingest::lookback::LookbackError;
 use crate::ingest::otlp::convert_otlp_request;
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
@@ -34,6 +35,9 @@ pub enum TempoError {
 
     #[error("invalid lookback duration: {0}")]
     InvalidLookback(#[from] LookbackError),
+
+    #[error("invalid auth header: {0}")]
+    InvalidAuthHeader(String),
 
     #[error("HTTP transport error: {0}")]
     Transport(String),
@@ -138,12 +142,17 @@ async fn fetch_raw(
     max_bytes: usize,
     map_404: bool,
     timeout: Duration,
+    auth: Option<&AuthHeader>,
 ) -> Result<bytes::Bytes, TempoError> {
-    let req = hyper::Request::builder()
+    let mut builder = hyper::Request::builder()
         .method(hyper::Method::GET)
         .uri(&uri)
         .header("Accept", accept)
-        .header("User-Agent", "perf-sentinel")
+        .header("User-Agent", "perf-sentinel");
+    if let Some(auth) = auth {
+        builder = builder.header(&auth.name, &auth.value);
+    }
+    let req = builder
         .body(http_body_util::Empty::<bytes::Bytes>::new())
         .map_err(|e| TempoError::Transport(e.to_string()))?;
 
@@ -184,6 +193,7 @@ async fn fetch_bytes(
     client: &HttpClient,
     uri: hyper::Uri,
     max_bytes: usize,
+    auth: Option<&AuthHeader>,
 ) -> Result<bytes::Bytes, TempoError> {
     fetch_raw(
         client,
@@ -192,6 +202,7 @@ async fn fetch_bytes(
         max_bytes,
         true,
         FETCH_TRACE_TIMEOUT,
+        auth,
     )
     .await
 }
@@ -201,6 +212,7 @@ async fn fetch_json(
     client: &HttpClient,
     uri: hyper::Uri,
     max_bytes: usize,
+    auth: Option<&AuthHeader>,
 ) -> Result<String, TempoError> {
     let body = fetch_raw(
         client,
@@ -209,6 +221,7 @@ async fn fetch_json(
         max_bytes,
         false,
         SEARCH_TIMEOUT,
+        auth,
     )
     .await?;
     String::from_utf8(body.to_vec()).map_err(|e| TempoError::BodyRead(e.to_string()))
@@ -229,6 +242,7 @@ pub async fn search_traces(
     service: &str,
     lookback: Duration,
     limit: usize,
+    auth: Option<&AuthHeader>,
 ) -> Result<Vec<String>, TempoError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -244,7 +258,7 @@ pub async fn search_traces(
         .parse()
         .map_err(|_| TempoError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let json = fetch_json(client, uri, MAX_SEARCH_BODY_BYTES).await?;
+    let json = fetch_json(client, uri, MAX_SEARCH_BODY_BYTES, auth).await?;
 
     let response: SearchResponse =
         serde_json::from_str(&json).map_err(|e| TempoError::JsonParse(e.to_string()))?;
@@ -268,6 +282,7 @@ pub async fn fetch_trace(
     client: &HttpClient,
     endpoint: &str,
     trace_id: &str,
+    auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
     // Validate trace_id is hex-only (OTLP spec: hex-encoded 16/32 bytes).
     if !trace_id.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -280,7 +295,7 @@ pub async fn fetch_trace(
         .parse()
         .map_err(|_| TempoError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_bytes(client, uri, MAX_TRACE_BODY_BYTES).await?;
+    let body = fetch_bytes(client, uri, MAX_TRACE_BODY_BYTES, auth).await?;
 
     let request = ExportTraceServiceRequest::decode(body)
         .map_err(|e| TempoError::ProtobufDecode(e.to_string()))?;
@@ -363,6 +378,7 @@ pub async fn ingest_from_tempo(
     trace_id: Option<&str>,
     lookback: Duration,
     max_traces: usize,
+    auth_header: Option<&str>,
 ) -> Result<Vec<SpanEvent>, TempoError> {
     // Endpoint validation (http(s) scheme, no credentials in the
     // authority) lives in `crate::ingest::url_enc` and is shared with
@@ -371,11 +387,22 @@ pub async fn ingest_from_tempo(
     validate_http_endpoint(endpoint)
         .map_err(|msg| TempoError::InvalidEndpoint(format!("{msg}, got '{endpoint}'")))?;
 
+    // Parse the optional auth header once, clone it into each fetch
+    // task. AuthHeader marks its value as `sensitive`, so hyper never
+    // prints it in debug output or HPACK tables.
+    let parsed_auth = auth_header
+        .map(AuthHeader::parse)
+        .transpose()
+        .map_err(|msg| TempoError::InvalidAuthHeader(msg.to_string()))?;
+    if parsed_auth.is_some() {
+        tracing::info!("Using auth header for Tempo requests");
+    }
+
     let client = http_client::build_client();
 
     if let Some(tid) = trace_id {
         tracing::info!(trace_id = tid, "Fetching single trace from Tempo");
-        return fetch_trace(&client, endpoint, tid).await;
+        return fetch_trace(&client, endpoint, tid, parsed_auth.as_ref()).await;
     }
 
     let svc = service.ok_or_else(|| {
@@ -389,7 +416,15 @@ pub async fn ingest_from_tempo(
         "Searching Tempo for traces"
     );
 
-    let trace_ids = search_traces(&client, endpoint, svc, lookback, max_traces).await?;
+    let trace_ids = search_traces(
+        &client,
+        endpoint,
+        svc,
+        lookback,
+        max_traces,
+        parsed_auth.as_ref(),
+    )
+    .await?;
     let total = trace_ids.len();
     tracing::info!(count = total, "Found traces, fetching...");
 
@@ -398,14 +433,15 @@ pub async fn ingest_from_tempo(
     // query-frontend. Mirrors the pattern used by
     // `score::cloud_energy::scraper` for per-service Prometheus CPU queries.
     // The hyper client holds an `Arc` internally, so `.clone()` is cheap;
-    // the endpoint is cloned per task so each owned future is `'static` as
-    // required by `spawn`.
+    // the endpoint and the parsed auth header are cloned per task so
+    // each owned future is `'static` as required by `spawn`.
     let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(FETCH_CONCURRENCY));
     let mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)> =
         tokio::task::JoinSet::new();
     for tid in trace_ids {
         let client_clone = client.clone();
         let endpoint_owned = endpoint.to_string();
+        let auth_clone = parsed_auth.clone();
         let sem = std::sync::Arc::clone(&semaphore);
         set.spawn(async move {
             let Ok(_permit) = sem.acquire_owned().await else {
@@ -414,7 +450,8 @@ pub async fn ingest_from_tempo(
                     Err(TempoError::Transport("semaphore closed".to_string())),
                 );
             };
-            let result = fetch_trace(&client_clone, &endpoint_owned, &tid).await;
+            let result =
+                fetch_trace(&client_clone, &endpoint_owned, &tid, auth_clone.as_ref()).await;
             (tid, result)
         });
     }
@@ -620,6 +657,7 @@ mod tests {
             None,
             Duration::from_mins(1),
             10,
+            None,
         )
         .await
         .expect_err("non-http must be rejected");
@@ -637,6 +675,7 @@ mod tests {
             Some("abc"),
             Duration::from_mins(1),
             10,
+            None,
         )
         .await
         .expect_err("credentials must be rejected");
@@ -649,9 +688,16 @@ mod tests {
     #[tokio::test]
     async fn ingest_from_tempo_rejects_missing_service_and_trace_id() {
         // Neither trace_id nor service supplied, must error.
-        let err = ingest_from_tempo("http://tempo.local", None, None, Duration::from_mins(1), 10)
-            .await
-            .expect_err("missing both must be rejected");
+        let err = ingest_from_tempo(
+            "http://tempo.local",
+            None,
+            None,
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("missing both must be rejected");
         match err {
             TempoError::InvalidEndpoint(msg) => {
                 assert!(msg.contains("trace-id") || msg.contains("service"));
@@ -681,6 +727,7 @@ mod tests {
             Some("abc123"),
             Duration::from_mins(1),
             10,
+            None,
         )
         .await;
         match result {
@@ -696,7 +743,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_trace_rejects_non_hex_trace_id() {
         let client = http_client::build_client();
-        let err = fetch_trace(&client, "http://tempo.local", "not-hex-id!")
+        let err = fetch_trace(&client, "http://tempo.local", "not-hex-id!", None)
             .await
             .expect_err("non-hex must be rejected");
         match err {
@@ -717,7 +764,7 @@ mod tests {
 
         let (endpoint, server) = spawn_one_shot_server(http_200_proto(&buf)).await;
         let client = http_client::build_client();
-        let events = fetch_trace(&client, &endpoint, "abc123def456")
+        let events = fetch_trace(&client, &endpoint, "abc123def456", None)
             .await
             .expect("valid OTLP must decode");
         assert!(events.is_empty());
@@ -728,7 +775,7 @@ mod tests {
     async fn fetch_trace_surfaces_404_as_trace_not_found() {
         let (endpoint, server) = spawn_one_shot_server(http_status(404, "Not Found")).await;
         let client = http_client::build_client();
-        let err = fetch_trace(&client, &endpoint, "abc123")
+        let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("404 must surface as TraceNotFound");
         assert!(matches!(err, TempoError::TraceNotFound(_)));
@@ -739,7 +786,7 @@ mod tests {
     async fn fetch_trace_surfaces_500_as_http_status() {
         let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
         let client = http_client::build_client();
-        let err = fetch_trace(&client, &endpoint, "abc123")
+        let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("500 must surface as HttpStatus");
         match err {
@@ -755,7 +802,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(garbage).await;
 
         let client = http_client::build_client();
-        let err = fetch_trace(&client, &endpoint, "abc123")
+        let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("malformed protobuf must surface as ProtobufDecode");
         assert!(matches!(err, TempoError::ProtobufDecode(_)));
@@ -769,9 +816,16 @@ mod tests {
         let body = r#"{"traces":[{"traceID":"aaa111"},{"traceID":"bbb222"}]}"#;
         let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
         let client = http_client::build_client();
-        let ids = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(5), 10)
-            .await
-            .expect("search must succeed");
+        let ids = search_traces(
+            &client,
+            &endpoint,
+            "foo-svc",
+            Duration::from_mins(5),
+            10,
+            None,
+        )
+        .await
+        .expect("search must succeed");
         assert_eq!(ids, vec!["aaa111".to_string(), "bbb222".to_string()]);
         server.await.unwrap();
     }
@@ -781,9 +835,16 @@ mod tests {
         let body = r#"{"traces":[]}"#;
         let (endpoint, server) = spawn_one_shot_server(http_200_json(body)).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
-            .await
-            .expect_err("empty search result must be NoTracesFound");
+        let err = search_traces(
+            &client,
+            &endpoint,
+            "foo-svc",
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("empty search result must be NoTracesFound");
         assert!(matches!(err, TempoError::NoTracesFound));
         server.await.unwrap();
     }
@@ -792,9 +853,16 @@ mod tests {
     async fn search_traces_malformed_json_surfaces_json_parse() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
-            .await
-            .expect_err("malformed JSON must be JsonParse");
+        let err = search_traces(
+            &client,
+            &endpoint,
+            "foo-svc",
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("malformed JSON must be JsonParse");
         assert!(matches!(err, TempoError::JsonParse(_)));
         server.await.unwrap();
     }
@@ -803,9 +871,16 @@ mod tests {
     async fn search_traces_http_500_surfaces_http_status() {
         let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
         let client = http_client::build_client();
-        let err = search_traces(&client, &endpoint, "foo-svc", Duration::from_mins(1), 10)
-            .await
-            .expect_err("500 must surface as HttpStatus");
+        let err = search_traces(
+            &client,
+            &endpoint,
+            "foo-svc",
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("500 must surface as HttpStatus");
         match err {
             TempoError::HttpStatus { status: 500, .. } => {}
             other => panic!("expected HttpStatus {{ status: 500, .. }}, got {other:?}"),
@@ -853,9 +928,16 @@ mod tests {
             let _ = socket.shutdown().await;
         });
 
-        let err = ingest_from_tempo(&endpoint, Some("foo-svc"), None, Duration::from_mins(5), 5)
-            .await
-            .expect_err("empty trace must surface as NoTracesFound after loop");
+        let err = ingest_from_tempo(
+            &endpoint,
+            Some("foo-svc"),
+            None,
+            Duration::from_mins(5),
+            5,
+            None,
+        )
+        .await
+        .expect_err("empty trace must surface as NoTracesFound after loop");
         // The trace was fetched successfully but contained zero spans,
         // so the aggregated result is empty → NoTracesFound at the end.
         assert!(matches!(err, TempoError::NoTracesFound));
@@ -1001,9 +1083,16 @@ mod tests {
             }
         });
 
-        let err = ingest_from_tempo(&endpoint, Some("foo-svc"), None, Duration::from_mins(5), 10)
-            .await
-            .expect_err("mixed-outcome run with only empty successes must surface NoTracesFound");
+        let err = ingest_from_tempo(
+            &endpoint,
+            Some("foo-svc"),
+            None,
+            Duration::from_mins(5),
+            10,
+            None,
+        )
+        .await
+        .expect_err("mixed-outcome run with only empty successes must surface NoTracesFound");
         assert!(
             matches!(err, TempoError::NoTracesFound),
             "expected NoTracesFound, got {err:?}"

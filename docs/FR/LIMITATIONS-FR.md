@@ -197,12 +197,30 @@ Le facteur est intentionnel : il accommode les clients qui émettent beaucoup de
 
 Chaque listener TLS (OTLP gRPC et OTLP HTTP) limite à **128** les handshakes en vol et les connexions HTTPS actives simultanées. Les handshakes tournent dans des tasks dédiées pour qu'un seul pair qui stalle ne bloque pas la boucle d'accept et le cap borne les fds, les buffers rustls et les slots de tasks face à un flood de handshakes. Un timeout de 10s (`TLS_HANDSHAKE_TIMEOUT`) coupe les pairs qui terminent le TCP sans envoyer de `ClientHello`. Le cap n'est pas configurable, il est aligné sur le budget du socket JSON Unix.
 
-## Subcommands query-API : pas d'auth sortante, `--endpoint` est une entrée de confiance
+## Subcommands query-API : `--endpoint` est une entrée de confiance
 
-Les subcommands `tempo` et `jaeger-query` effectuent tous deux des requêtes HTTP sortantes vers un backend fourni par l'utilisateur. Deux limites à connaître :
+Les subcommands `tempo` et `jaeger-query` effectuent tous deux des requêtes HTTP sortantes vers un backend fourni par l'utilisateur. Une contrainte à connaître :
 
-- **Pas d'injection d'auth header.** Aucun des deux subcommands ne supporte Basic Auth, bearer tokens ou API keys. Les backends derrière un reverse proxy authentifié (OAuth2 proxy, Cloudflare Access, ALB AWS authentifié par IAM, etc.) doivent être atteints via un forward local : tunnel SSH, `kubectl port-forward` ou `oauth2-proxy --reverse-proxy`. Le support natif d'auth est tracké pour une itération suivante.
 - **`--endpoint` est une entrée de confiance.** Le validateur rejette les schémas non-`http(s)` et les URLs avec credentials (`user:pass@host`), mais accepte loopback, RFC 1918, link-local et les targets cloud metadata (`169.254.169.254`). Dans une invocation CLI mono-utilisateur c'est le comportement attendu (setups locaux dev, backends port-forwardés). Dans un pipeline CI où la valeur d'endpoint pourrait provenir d'une PR externe ou d'une variable d'environnement non fiable, assainissez la valeur en amont avant d'invoquer le subcommand.
+
+### Headers d'authentification
+
+Les deux subcommands supportent un flag optionnel `--auth-header "Name: Value"` qui attache un header custom à chaque requête backend. Utilisable pour Bearer tokens, Basic Auth ou headers API-key custom. La valeur parsée est marquée `sensitive`, donc hyper la redacte des debug outputs et des tables HPACK HTTP/2, et le subcommand ne log jamais la valeur. Exemples :
+
+```bash
+perf-sentinel jaeger-query --endpoint https://jaeger.prod \
+  --service order-svc --lookback 1h \
+  --auth-header "Authorization: Bearer ${JAEGER_TOKEN}"
+
+perf-sentinel tempo --endpoint https://tempo.prod \
+  --service order-svc --lookback 1h \
+  --auth-header "X-API-Key: ${TEMPO_KEY}"
+```
+
+Deux caveats d'usage de `--auth-header` :
+
+- La valeur est visible dans `ps`/`/proc/<pid>/cmdline` le temps de l'invocation. Préférez l'expansion shell de variables d'env (`${VAR}`) plutôt que de coller le secret en dur, pour qu'il ne vive que dans l'environnement du process.
+- Un seul header est supporté par invocation. Si vous avez besoin de Basic Auth plus d'un header de tenant, composez le flag avec le schéma d'auth primaire et gérez le secondaire au niveau du reverse proxy.
 
 ## Précision des estimations carbone
 

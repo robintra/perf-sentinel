@@ -167,6 +167,10 @@ enum Commands {
         /// Maximum number of traces to fetch.
         #[arg(long, default_value = "100")]
         max_traces: usize,
+        /// Optional auth header in curl format to attach to every Tempo request.
+        /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
+        #[arg(long)]
+        auth_header: Option<String>,
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -179,10 +183,6 @@ enum Commands {
     },
 
     /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
-    ///
-    /// The subcommand does not inject auth headers. Backends behind an
-    /// auth proxy must be reached via a local forward (SSH tunnel,
-    /// kubectl port-forward, etc.). See `docs/LIMITATIONS.md`.
     #[cfg(feature = "jaeger-query")]
     JaegerQuery {
         /// Jaeger query API endpoint (e.g. `http://localhost:16686` or `http://victoria:10428`).
@@ -200,6 +200,10 @@ enum Commands {
         /// Maximum number of traces to fetch (1..=10000).
         #[arg(long, default_value = "100", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         max_traces: u32,
+        /// Optional auth header in curl format to attach to every backend request.
+        /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
+        #[arg(long)]
+        auth_header: Option<String>,
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -446,6 +450,7 @@ async fn main() {
             service,
             lookback,
             max_traces,
+            auth_header,
             config,
             format,
             ci,
@@ -456,6 +461,7 @@ async fn main() {
                 service.as_deref(),
                 &lookback,
                 max_traces,
+                auth_header.as_deref(),
                 config.as_deref(),
                 format,
                 ci,
@@ -469,6 +475,7 @@ async fn main() {
             service,
             lookback,
             max_traces,
+            auth_header,
             config,
             format,
             ci,
@@ -479,6 +486,7 @@ async fn main() {
                 service.as_deref(),
                 &lookback,
                 max_traces as usize,
+                auth_header.as_deref(),
                 config.as_deref(),
                 format,
                 ci,
@@ -948,6 +956,7 @@ async fn cmd_tempo(
     service: Option<&str>,
     lookback: &str,
     max_traces: usize,
+    auth_header: Option<&str>,
     config_path: Option<&std::path::Path>,
     format: Option<OutputFormat>,
     ci: bool,
@@ -977,6 +986,7 @@ async fn cmd_tempo(
         trace_id,
         lookback_duration,
         max_traces,
+        auth_header,
     )
     .await
     {
@@ -1004,6 +1014,7 @@ async fn cmd_jaeger_query(
     service: Option<&str>,
     lookback: &str,
     max_traces: usize,
+    auth_header: Option<&str>,
     config_path: Option<&std::path::Path>,
     format: Option<OutputFormat>,
     ci: bool,
@@ -1033,6 +1044,7 @@ async fn cmd_jaeger_query(
         trace_id,
         lookback_duration,
         max_traces,
+        auth_header,
     )
     .await
     {

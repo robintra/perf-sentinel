@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use crate::event::SpanEvent;
 use crate::http_client::{self, HttpClient};
+use crate::ingest::auth_header::AuthHeader;
 use crate::ingest::jaeger::{JaegerExport, convert_jaeger_export};
 use crate::ingest::lookback::LookbackError;
 use crate::ingest::url_enc::{percent_encode_query_value, validate_http_endpoint};
@@ -46,6 +47,9 @@ pub enum JaegerQueryError {
 
     #[error("invalid lookback duration: {0}")]
     InvalidLookback(#[from] LookbackError),
+
+    #[error("invalid auth header: {0}")]
+    InvalidAuthHeader(String),
 
     #[error("HTTP transport error: {0}")]
     Transport(String),
@@ -124,14 +128,19 @@ const MAX_TRACE_ID_LEN: usize = 128;
 async fn fetch_json(
     client: &HttpClient,
     uri: hyper::Uri,
+    auth: Option<&AuthHeader>,
     map_404: bool,
 ) -> Result<bytes::Bytes, JaegerQueryError> {
     let run = async {
-        let req = hyper::Request::builder()
+        let mut builder = hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri(&uri)
             .header("Accept", "application/json")
-            .header("User-Agent", "perf-sentinel")
+            .header("User-Agent", "perf-sentinel");
+        if let Some(auth) = auth {
+            builder = builder.header(&auth.name, &auth.value);
+        }
+        let req = builder
             .body(http_body_util::Empty::<bytes::Bytes>::new())
             .map_err(|e| JaegerQueryError::Transport(e.to_string()))?;
 
@@ -196,6 +205,7 @@ pub async fn search_and_fetch_traces(
     service: &str,
     lookback: Duration,
     limit: usize,
+    auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     let encoded_service = percent_encode_query_value(service);
     let lookback_secs = lookback.as_secs();
@@ -206,7 +216,7 @@ pub async fn search_and_fetch_traces(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, false).await?;
+    let body = fetch_json(client, uri, auth, false).await?;
 
     // `serde_json::from_slice` operates directly on `&[u8]`, avoiding
     // the `Bytes -> Vec<u8> -> String` round trip that would double
@@ -236,6 +246,7 @@ pub async fn fetch_trace(
     client: &HttpClient,
     endpoint: &str,
     trace_id: &str,
+    auth: Option<&AuthHeader>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_trace_id(trace_id)?;
 
@@ -244,7 +255,7 @@ pub async fn fetch_trace(
         .parse()
         .map_err(|_| JaegerQueryError::InvalidEndpoint(endpoint.to_string()))?;
 
-    let body = fetch_json(client, uri, true).await?;
+    let body = fetch_json(client, uri, auth, true).await?;
 
     let export: JaegerExport =
         serde_json::from_slice(&body).map_err(|e| JaegerQueryError::JsonParse(e.to_string()))?;
@@ -265,9 +276,22 @@ pub async fn ingest_from_jaeger_query(
     trace_id: Option<&str>,
     lookback: Duration,
     max_traces: usize,
+    auth_header: Option<&str>,
 ) -> Result<Vec<SpanEvent>, JaegerQueryError> {
     validate_http_endpoint(endpoint)
         .map_err(|msg| JaegerQueryError::InvalidEndpoint(format!("{msg}, got '{endpoint}'")))?;
+
+    // Parse the optional auth header once, reuse the typed form on
+    // every request. The value is redacted from tracing output by
+    // both the hyper sensitive flag and the manual Debug impl on
+    // AuthHeader, so the credential never appears in logs.
+    let parsed_auth = auth_header
+        .map(AuthHeader::parse)
+        .transpose()
+        .map_err(|msg| JaegerQueryError::InvalidAuthHeader(msg.to_string()))?;
+    if parsed_auth.is_some() {
+        tracing::info!("Using auth header for Jaeger query requests");
+    }
 
     let client = http_client::build_client();
 
@@ -276,7 +300,7 @@ pub async fn ingest_from_jaeger_query(
             trace_id = tid,
             "Fetching single trace from Jaeger query API"
         );
-        return fetch_trace(&client, endpoint, tid).await;
+        return fetch_trace(&client, endpoint, tid, parsed_auth.as_ref()).await;
     }
 
     let svc = service.ok_or_else(|| {
@@ -290,7 +314,15 @@ pub async fn ingest_from_jaeger_query(
         "Querying Jaeger API for traces"
     );
 
-    search_and_fetch_traces(&client, endpoint, svc, lookback, max_traces).await
+    search_and_fetch_traces(
+        &client,
+        endpoint,
+        svc,
+        lookback,
+        max_traces,
+        parsed_auth.as_ref(),
+    )
+    .await
 }
 
 /// Check that a trace ID is a non-empty hex string of at most
@@ -365,10 +397,16 @@ mod tests {
     async fn search_traces_returns_span_events() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
         let client = http_client::build_client();
-        let events =
-            search_and_fetch_traces(&client, &endpoint, "order-svc", Duration::from_mins(1), 10)
-                .await
-                .expect("search must succeed");
+        let events = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect("search must succeed");
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].service, "order-svc");
         server.await.expect("server join");
@@ -378,10 +416,16 @@ mod tests {
     async fn search_empty_data_surfaces_no_traces_found() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(r#"{"data":[]}"#)).await;
         let client = http_client::build_client();
-        let err =
-            search_and_fetch_traces(&client, &endpoint, "order-svc", Duration::from_mins(1), 10)
-                .await
-                .expect_err("empty search must surface NoTracesFound");
+        let err = search_and_fetch_traces(
+            &client,
+            &endpoint,
+            "order-svc",
+            Duration::from_mins(1),
+            10,
+            None,
+        )
+        .await
+        .expect_err("empty search must surface NoTracesFound");
         assert!(matches!(err, JaegerQueryError::NoTracesFound));
         server.await.expect("server join");
     }
@@ -390,9 +434,10 @@ mod tests {
     async fn search_http_500_surfaces_http_status() {
         let (endpoint, server) = spawn_one_shot_server(http_status(500, "Internal")).await;
         let client = http_client::build_client();
-        let err = search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10)
-            .await
-            .expect_err("500 must surface HttpStatus");
+        let err =
+            search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
+                .await
+                .expect_err("500 must surface HttpStatus");
         assert!(matches!(
             err,
             JaegerQueryError::HttpStatus { status: 500, .. }
@@ -404,9 +449,10 @@ mod tests {
     async fn search_malformed_json_surfaces_json_parse() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json("not json")).await;
         let client = http_client::build_client();
-        let err = search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10)
-            .await
-            .expect_err("malformed JSON must surface JsonParse");
+        let err =
+            search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
+                .await
+                .expect_err("malformed JSON must surface JsonParse");
         assert!(matches!(err, JaegerQueryError::JsonParse(_)));
         server.await.expect("server join");
     }
@@ -415,7 +461,7 @@ mod tests {
     async fn fetch_trace_returns_span_events() {
         let (endpoint, server) = spawn_one_shot_server(http_200_json(SAMPLE_TRACE)).await;
         let client = http_client::build_client();
-        let events = fetch_trace(&client, &endpoint, "abc123")
+        let events = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect("fetch must succeed");
         assert_eq!(events.len(), 1);
@@ -426,7 +472,7 @@ mod tests {
     async fn fetch_trace_404_surfaces_trace_not_found() {
         let (endpoint, server) = spawn_one_shot_server(http_status(404, "Not Found")).await;
         let client = http_client::build_client();
-        let err = fetch_trace(&client, &endpoint, "abc123")
+        let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("404 must surface TraceNotFound");
         assert!(matches!(err, JaegerQueryError::TraceNotFound(_)));
@@ -436,7 +482,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_trace_rejects_non_hex_id() {
         let client = http_client::build_client();
-        let err = fetch_trace(&client, "http://jaeger.local", "not-hex!")
+        let err = fetch_trace(&client, "http://jaeger.local", "not-hex!", None)
             .await
             .expect_err("non-hex must be rejected");
         assert!(matches!(err, JaegerQueryError::InvalidTraceId(_)));
@@ -445,7 +491,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_trace_rejects_empty_id() {
         let client = http_client::build_client();
-        let err = fetch_trace(&client, "http://jaeger.local", "")
+        let err = fetch_trace(&client, "http://jaeger.local", "", None)
             .await
             .expect_err("empty must be rejected");
         match err {
@@ -458,7 +504,7 @@ mod tests {
     async fn fetch_trace_rejects_oversized_id() {
         let client = http_client::build_client();
         let oversized = "a".repeat(MAX_TRACE_ID_LEN + 1);
-        let err = fetch_trace(&client, "http://jaeger.local", &oversized)
+        let err = fetch_trace(&client, "http://jaeger.local", &oversized, None)
             .await
             .expect_err("oversized must be rejected");
         match err {
@@ -475,6 +521,7 @@ mod tests {
             None,
             Duration::from_mins(1),
             10,
+            None,
         )
         .await
         .expect_err("non-http must be rejected");
@@ -489,6 +536,7 @@ mod tests {
             Some("abc"),
             Duration::from_mins(1),
             10,
+            None,
         )
         .await
         .expect_err("credentials must be rejected");
@@ -506,6 +554,7 @@ mod tests {
             None,
             Duration::from_mins(1),
             10,
+            None,
         )
         .await
         .expect_err("missing both must be rejected");
@@ -521,10 +570,72 @@ mod tests {
             None,
             Duration::from_mins(1),
             5,
+            None,
         )
         .await
         .expect("end-to-end search must succeed");
         assert_eq!(events.len(), 1);
+        server.await.expect("server join");
+    }
+
+    #[tokio::test]
+    async fn ingest_rejects_malformed_auth_header() {
+        let err = ingest_from_jaeger_query(
+            "http://jaeger.local",
+            Some("svc"),
+            None,
+            Duration::from_mins(1),
+            10,
+            Some("NoColonHere"),
+        )
+        .await
+        .expect_err("malformed auth header must be rejected");
+        assert!(matches!(err, JaegerQueryError::InvalidAuthHeader(_)));
+    }
+
+    /// End-to-end check that a configured `--auth-header` lands on the
+    /// request wire. The mock server captures the raw request bytes
+    /// and we assert the `Authorization` line is present.
+    #[tokio::test]
+    async fn search_sends_auth_header_on_wire() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let endpoint = format!("http://{addr}");
+
+        let response = http_200_json(SAMPLE_TRACE);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(1);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 8192];
+            let n = socket.read(&mut buf).await.expect("read");
+            buf.truncate(n);
+            tx.send(buf).await.expect("send captured");
+            socket.write_all(&response).await.expect("write");
+            let _ = socket.shutdown().await;
+        });
+
+        let events = ingest_from_jaeger_query(
+            &endpoint,
+            Some("order-svc"),
+            None,
+            Duration::from_mins(1),
+            5,
+            Some("Authorization: Bearer topsecret"),
+        )
+        .await
+        .expect("ingest must succeed");
+        assert_eq!(events.len(), 1);
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).expect("utf8");
+        assert!(
+            text.contains("authorization: Bearer topsecret")
+                || text.contains("Authorization: Bearer topsecret"),
+            "auth header missing from request, got:\n{text}"
+        );
         server.await.expect("server join");
     }
 }
