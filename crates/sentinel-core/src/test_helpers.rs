@@ -293,6 +293,7 @@ pub fn http_status(code: u16, reason: &str) -> Vec<u8> {
 /// drives the client, then `rx.recv().await` to read the request bytes.
 /// Unlike [`spawn_one_shot_server`], this helper captures and surfaces
 /// the incoming request rather than discarding it.
+#[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
 pub async fn spawn_capture_server(
     response: Vec<u8>,
 ) -> (

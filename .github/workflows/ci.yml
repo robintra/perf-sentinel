@@ -78,6 +78,14 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # Mirrors what `cargo publish -p perf-sentinel-core` does: builds
+      # the crate with no features enabled. Catches refs from unconditional
+      # code paths (e.g. `impl Config`) into feature-gated modules that
+      # the full-feature Clippy run above happily resolves but a bare
+      # crates.io publish rejects.
+      - name: Check perf-sentinel-core with no features (crates.io parity)
+        run: cargo check -p perf-sentinel-core --no-default-features --all-targets
+
       - name: Clippy report (JSON for SonarCloud and SARIF)
         run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
 
