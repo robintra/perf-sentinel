@@ -6,6 +6,28 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.0]
+
+### Added
+
+- Artifact Hub listing. The chart is now discoverable on
+  artifacthub.io. `charts/perf-sentinel/artifacthub-repo.yml`
+  documents the repository ownership and is pushed to the OCI
+  registry under the special `artifacthub.io` tag on every release.
+  `Chart.yaml` now carries `artifacthub.io/*` annotations
+  (category, license, links, images).
+- SPDX SBOM per release. Every chart release ships a Syft-generated
+  SPDX SBOM as a GitHub Release asset, attested via
+  `actions/attest` with the SBOM predicate and verifiable through
+  `gh attestation verify --predicate-type https://spdx.dev/Document/v2.3`.
+
+### Changed
+
+- `docs/HELM-DEPLOYMENT.md` (and its French parity) gains an
+  Artifact Hub section, an SBOM verification subsection, and an
+  OCI-based `gh attestation verify oci://...` recipe alongside the
+  existing tarball-based one.
+
 ## [0.1.2]
 
 ### Fixed

@@ -25,3 +25,6 @@
 *.tgz
 ci/
 OWNERS
+# Artifact Hub repo metadata is pushed as a separate OCI artifact,
+# no need to bundle it inside every chart tarball.
+artifacthub-repo.yml

@@ -18,9 +18,10 @@ helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
 
-Every published release is Cosign-keyless-signed and shipped with a
-SLSA level 3 provenance attestation. See [Verify the chart signature](#verify-the-chart-signature)
-below to check both before installing.
+Every published release is Cosign-keyless-signed, shipped with a
+SLSA v1.0 build provenance attestation, and shipped with an SPDX
+SBOM. See [Software supply chain](#software-supply-chain) below to
+check them before installing.
 
 After the pod is ready, point your OpenTelemetry Collector at
 `perf-sentinel.observability.svc.cluster.local:4317` (gRPC) or `:4318`
@@ -81,7 +82,37 @@ release, `appVersion` is the daemon image tag that ships with it. Pin
 the app version explicitly in production via `image.tag` to avoid
 drift when a newer chart ships.
 
-### Verify the chart signature
+## Artifact Hub
+
+The chart is indexed on [Artifact Hub](https://artifacthub.io), where
+users can discover it, browse its values schema, and read the
+changelog.
+
+Registration flow (done by the maintainer once per chart):
+
+1. Sign in to artifacthub.io with a GitHub account.
+2. In the control panel, add a repository of kind "Helm charts (OCI)"
+   pointing to `oci://ghcr.io/robintra/charts/perf-sentinel`.
+3. Artifact Hub issues a `repositoryID` (UUID).
+4. Edit `charts/perf-sentinel/artifacthub-repo.yml`, replace the
+   `REPLACE_AFTER_ARTIFACTHUB_REGISTRATION` placeholder with the
+   UUID, commit and push.
+5. Tag a new chart release (patch bump) so the release workflow
+   pushes the updated `artifacthub-repo.yml` to the OCI registry
+   under the special `artifacthub.io` tag.
+6. Artifact Hub polls the registry and picks up the new metadata
+   within 30 minutes. The "Verified publisher" badge appears on the
+   next processing cycle.
+
+## Software supply chain
+
+Every published release is Cosign-keyless-signed, ships with a SLSA
+v1.0 build provenance attestation, and ships with an SPDX SBOM
+attested under the SPDX predicate. Users should check at least the
+Cosign signature before installing, and the full set in
+regulated environments.
+
+### Verify the Cosign signature
 
 Cosign keyless verification ties each release back to a specific
 GitHub Actions workflow run. The certificate identity must match the
@@ -91,13 +122,13 @@ published release workflow, the OIDC issuer must be GitHub Actions:
 cosign verify \
   --certificate-identity-regexp '^https://github.com/robintra/perf-sentinel/\.github/workflows/helm-release\.yml@refs/tags/chart-v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  ghcr.io/robintra/charts/perf-sentinel:0.1.0
+  ghcr.io/robintra/charts/perf-sentinel:0.2.0
 ```
 
 A successful run prints the Rekor log entry and the certificate
 details. A mismatched or absent signature exits non-zero.
 
-### Verify the SLSA provenance
+### Verify the SLSA build provenance
 
 Each published chart tarball carries a SLSA v1.0 build provenance
 attestation produced by `actions/attest-build-provenance` and stored
@@ -105,17 +136,46 @@ on the repository's attestation store (not on the OCI registry). The
 attestation is queryable via `gh`:
 
 ```bash
-gh release download chart-v0.1.2 \
+gh release download chart-v0.2.0 \
   --repo robintra/perf-sentinel \
   --pattern 'perf-sentinel-*.tgz'
 
-gh attestation verify perf-sentinel-0.1.2.tgz \
+gh attestation verify perf-sentinel-0.2.0.tgz \
   --repo robintra/perf-sentinel
 ```
 
-Pair this with the Cosign signature check above to confirm both the
-signer identity on the OCI artifact and the build-provenance on the
+If you already have the OCI artifact pulled and prefer not to fetch
+the tarball, verify the build provenance directly against the OCI
+reference:
+
+```bash
+docker login ghcr.io
+gh attestation verify oci://ghcr.io/robintra/charts/perf-sentinel:0.2.0 \
+  --repo robintra/perf-sentinel
+```
+
+Either recipe produces the same assurance. Pair whichever one you
+pick with the Cosign signature check above to confirm both the
+signer identity on the OCI artifact and the build provenance on the
 tarball.
+
+### Verify the SBOM
+
+Each release ships an SPDX SBOM as a GitHub Release asset and as a
+signed attestation on the repository's attestation store.
+
+Fetch and verify:
+
+```bash
+gh release download chart-v0.2.0 --repo robintra/perf-sentinel \
+  --pattern 'perf-sentinel-chart-*.spdx.json'
+
+gh attestation verify perf-sentinel-chart-0.2.0.spdx.json \
+  --repo robintra/perf-sentinel \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+The SBOM captures the chart's declared dependencies at release time.
 
 ## Install from a local checkout
 

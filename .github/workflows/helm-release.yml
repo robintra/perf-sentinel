@@ -149,6 +149,26 @@ jobs:
           fi
           echo "oci_digest=${digest}" >> "$GITHUB_OUTPUT"
 
+      # oras is a Go binary like crane / kubeconform, direct upstream
+      # download for the same reliability reasons.
+      - name: Install oras
+        run: |
+          curl -fsSL -o /tmp/oras.tgz \
+            https://github.com/oras-project/oras/releases/download/v1.3.2/oras_1.3.2_linux_amd64.tar.gz
+          tar -xzf /tmp/oras.tgz -C /tmp oras
+          sudo install -m 0755 /tmp/oras /usr/local/bin/oras
+          oras version
+
+      # Artifact Hub looks for the metadata at the special
+      # `:artifacthub.io` tag on the OCI repository. oras reuses the
+      # Docker config written by the earlier `crane auth login`.
+      - name: Push artifacthub-repo.yml to OCI
+        run: |
+          oras push \
+            ghcr.io/robintra/charts/perf-sentinel:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            charts/perf-sentinel/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+
       - name: Upload packaged chart artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -203,12 +223,49 @@ jobs:
         with:
           subject-path: out/${{ needs.publish.outputs.tarball_name }}
 
-  # `provenance` is a hard dependency: a Sigstore / OIDC flake that
-  # fails attestation also blocks the GitHub Release. Keeps the
-  # supply-chain invariant "no release without provenance" true.
+  # SPDX SBOM on the packaged chart. Attested separately via
+  # actions/attest with the SPDX predicate type, alongside the
+  # SLSA build provenance attestation from the `provenance` job.
+  sbom:
+    name: Generate SBOM and attest
+    needs: [check-chart-version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write     # OIDC token for the SBOM attestation signing
+      attestations: write # store the SBOM attestation on the repo
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.publish.outputs.tarball_name }}
+          path: out
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          file: out/${{ needs.publish.outputs.tarball_name }}
+          format: spdx-json
+          artifact-name: perf-sentinel-chart-${{ needs.check-chart-version.outputs.chart_version }}.spdx.json
+          output-file: out/perf-sentinel-chart-${{ needs.check-chart-version.outputs.chart_version }}.spdx.json
+          upload-artifact: true
+          upload-release-assets: false
+
+      - name: Attest SBOM
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
+        with:
+          subject-path: out/${{ needs.publish.outputs.tarball_name }}
+          predicate-type: https://spdx.dev/Document/v2.3
+          predicate-path: out/perf-sentinel-chart-${{ needs.check-chart-version.outputs.chart_version }}.spdx.json
+
+  # `provenance` and `sbom` are hard dependencies: a Sigstore / OIDC
+  # flake that fails either attestation also blocks the GitHub
+  # Release. Keeps the supply-chain invariant "no release without
+  # provenance and SBOM" true.
   github-release:
     name: Draft GitHub Release
-    needs: [check-chart-version, publish, sign, provenance]
+    needs: [check-chart-version, publish, sign, provenance, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write # required by `gh release create` to create the release and upload assets
@@ -219,6 +276,12 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.publish.outputs.tarball_name }}
+          path: out
+
+      - name: Download SBOM
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: perf-sentinel-chart-${{ needs.check-chart-version.outputs.chart_version }}.spdx.json
           path: out
 
       # Extract the section body for the current version from the chart
@@ -247,6 +310,7 @@ jobs:
           TARBALL: ${{ needs.publish.outputs.tarball_name }}
         run: |
           title="perf-sentinel chart v${CHART_VERSION}"
+          sbom="perf-sentinel-chart-${CHART_VERSION}.spdx.json"
           if [ "${IS_PRERELEASE}" = "true" ]; then
             prerelease_flag="--prerelease"
           else
@@ -255,7 +319,7 @@ jobs:
           if gh release view "${GITHUB_REF_NAME}" > /dev/null 2>&1; then
             gh release delete "${GITHUB_REF_NAME}" --yes --cleanup-tag=false
           fi
-          gh release create "${GITHUB_REF_NAME}" "out/${TARBALL}" \
+          gh release create "${GITHUB_REF_NAME}" "out/${TARBALL}" "out/${sbom}" \
             --title "${title}" \
             --notes-file /tmp/release-body.md \
             --draft \

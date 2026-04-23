@@ -1,0 +1,13 @@
+# Artifact Hub repository metadata.
+# See https://artifacthub.io/docs/topics/repositories/
+#
+# repositoryID is issued by artifacthub.io after the repository has been
+# registered there. The initial release ships with the placeholder
+# below and will be updated in a follow-up release once Robin has
+# completed the registration step documented in
+# docs/HELM-DEPLOYMENT.md.
+repositoryID: REPLACE_AFTER_ARTIFACTHUB_REGISTRATION
+
+owners:
+  - name: Robin Trassard
+    email: REPLACE_WITH_ROBIN_EMAIL
