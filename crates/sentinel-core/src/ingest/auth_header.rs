@@ -10,7 +10,9 @@
 //! # Validation rules
 //!
 //! Parsing is intentionally strict. Beyond the hyper-level checks
-//! (token-only name, VCHAR + SP + HTAB value) we reject:
+//! (token-only name, VCHAR + SP + HTAB value, so internal tabs and
+//! spaces inside the value ARE preserved as-is, only CR/LF and
+//! non-visible ASCII are rejected) we reject:
 //!
 //! - Raw inputs longer than 8 KiB, to bound the per-task clone in the
 //!   Tempo parallel fanout and stop a pathological `--auth-header
@@ -163,6 +165,19 @@ mod tests {
     #[test]
     fn rejects_crlf_in_value() {
         assert!(AuthHeader::parse("X: a\r\nY: b").is_err());
+    }
+
+    /// Confirms the documented behaviour that internal whitespace in
+    /// the value (including horizontal tabs, per RFC 7230 VCHAR + SP +
+    /// HTAB) is preserved as-is. Only surrounding whitespace is
+    /// trimmed; only CR/LF/non-visible ASCII is rejected.
+    #[test]
+    fn preserves_internal_tabs_and_spaces() {
+        let auth = AuthHeader::parse("Authorization: Bearer\tfoo bar").expect("valid");
+        assert_eq!(
+            auth.value.to_str().expect("visible ascii"),
+            "Bearer\tfoo bar"
+        );
     }
 
     #[test]
