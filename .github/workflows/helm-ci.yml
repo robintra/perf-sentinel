@@ -7,6 +7,7 @@ on:
       - 'examples/helm/**'
       - '.github/workflows/helm-ci.yml'
       - 'scripts/check-chart-version-bumped.sh'
+      - 'scripts/check-chart-appversion-annotation.sh'
       - 'scripts/test/check-chart-version-bumped-test.sh'
   workflow_dispatch:
     inputs:
@@ -130,6 +131,23 @@ jobs:
         run: scripts/check-chart-version-bumped.sh
         env:
           GITHUB_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+
+  # Catches drift between Chart.yaml:appVersion and the image tag
+  # inside the `artifacthub.io/images` annotation. Artifact Hub would
+  # otherwise advertise a stale daemon image whenever a bump forgets
+  # the annotation.
+  appversion-annotation:
+    name: Verify appVersion matches artifacthub.io/images tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Assert appVersion matches annotation
+        run: scripts/check-chart-appversion-annotation.sh
 
   # Regression net around the bump-guard script itself. Runs every PR
   # through helm-ci so an edit to the guard that breaks a scenario

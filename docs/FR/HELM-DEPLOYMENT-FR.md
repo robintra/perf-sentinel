@@ -8,7 +8,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INTEGRAT
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace observability --create-namespace
 kubectl --namespace observability get pods -l app.kubernetes.io/name=perf-sentinel
 ```
@@ -46,13 +46,13 @@ flowchart LR
 
 ## Installation depuis le registre OCI
 
-Le chart est publié en tant qu'artifact OCI sous `oci://ghcr.io/robintra/charts/perf-sentinel`. Chaque version reçoit une signature Cosign keyless (GitHub OIDC, log de transparence Rekor) et une attestation de provenance SLSA niveau 3 publiée en asset de GitHub Release.
+Le chart est publié en tant qu'artifact OCI sous `oci://ghcr.io/robintra/charts/perf-sentinel`. Chaque version reçoit une signature Cosign keyless (GitHub OIDC, log de transparence Rekor), une attestation de provenance de build SLSA v1.0 stockée sur l'attestation store du repo, et un SBOM SPDX livré à la fois en asset de GitHub Release et en tant qu'attestation signée.
 
 ### Pinner une version
 
 ```bash
 helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
-  --version 0.1.0 \
+  --version 0.2.0 \
   --namespace observability --create-namespace \
   -f my-values.yaml
 ```
