@@ -289,8 +289,13 @@ pub async fn ingest_from_jaeger_query(
         .map(AuthHeader::parse)
         .transpose()
         .map_err(|msg| JaegerQueryError::InvalidAuthHeader(msg.to_string()))?;
-    if parsed_auth.is_some() {
-        tracing::info!("Using auth header for Jaeger query requests");
+    if let Some(auth) = parsed_auth.as_ref() {
+        tracing::info!(header_name = %auth.name, "Using auth header for Jaeger query requests");
+        if endpoint.starts_with("http://") {
+            tracing::warn!(
+                "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
+            );
+        }
     }
 
     let client = http_client::build_client();

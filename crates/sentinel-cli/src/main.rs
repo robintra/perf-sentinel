@@ -169,8 +169,13 @@ enum Commands {
         max_traces: usize,
         /// Optional auth header in curl format to attach to every Tempo request.
         /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
-        #[arg(long)]
+        #[arg(long, conflicts_with = "auth_header_env")]
         auth_header: Option<String>,
+        /// Read the auth header value from the named environment variable,
+        /// avoiding the `ps`-visibility of --auth-header. The env var value
+        /// must already be in `Name: Value` curl format.
+        #[arg(long, conflicts_with = "auth_header")]
+        auth_header_env: Option<String>,
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -202,8 +207,13 @@ enum Commands {
         max_traces: u32,
         /// Optional auth header in curl format to attach to every backend request.
         /// Example: --auth-header "Authorization: Bearer ${TOKEN}".
-        #[arg(long)]
+        #[arg(long, conflicts_with = "auth_header_env")]
         auth_header: Option<String>,
+        /// Read the auth header value from the named environment variable,
+        /// avoiding the `ps`-visibility of --auth-header. The env var value
+        /// must already be in `Name: Value` curl format.
+        #[arg(long, conflicts_with = "auth_header")]
+        auth_header_env: Option<String>,
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
@@ -451,17 +461,25 @@ async fn main() {
             lookback,
             max_traces,
             auth_header,
+            auth_header_env,
             config,
             format,
             ci,
         } => {
+            let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
             cmd_tempo(
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
                 max_traces,
-                auth_header.as_deref(),
+                resolved_auth.as_deref(),
                 config.as_deref(),
                 format,
                 ci,
@@ -476,17 +494,25 @@ async fn main() {
             lookback,
             max_traces,
             auth_header,
+            auth_header_env,
             config,
             format,
             ci,
         } => {
+            let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
             cmd_jaeger_query(
                 &endpoint,
                 trace_id.as_deref(),
                 service.as_deref(),
                 &lookback,
                 max_traces as usize,
-                auth_header.as_deref(),
+                resolved_auth.as_deref(),
                 config.as_deref(),
                 format,
                 ci,
@@ -591,6 +617,31 @@ async fn main() {
             .await;
         }
     }
+}
+
+/// Resolve the final auth header string from the two mutually
+/// exclusive CLI flags. clap already rejects the "both set" case via
+/// `conflicts_with`; this helper only handles "neither / one / other"
+/// and reads the env var when `--auth-header-env` is used.
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
+fn resolve_auth_header(
+    direct: Option<String>,
+    env_var: Option<String>,
+) -> Result<Option<String>, String> {
+    if let Some(value) = direct {
+        return Ok(Some(value));
+    }
+    if let Some(name) = env_var {
+        match std::env::var(&name) {
+            Ok(v) => return Ok(Some(v)),
+            Err(e) => {
+                return Err(format!(
+                    "cannot read --auth-header-env variable '{name}': {e}"
+                ));
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn load_config(path: Option<&std::path::Path>) -> Config {

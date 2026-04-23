@@ -394,8 +394,13 @@ pub async fn ingest_from_tempo(
         .map(AuthHeader::parse)
         .transpose()
         .map_err(|msg| TempoError::InvalidAuthHeader(msg.to_string()))?;
-    if parsed_auth.is_some() {
-        tracing::info!("Using auth header for Tempo requests");
+    if let Some(auth) = parsed_auth.as_ref() {
+        tracing::info!(header_name = %auth.name, "Using auth header for Tempo requests");
+        if endpoint.starts_with("http://") {
+            tracing::warn!(
+                "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
+            );
+        }
     }
 
     let client = http_client::build_client();
@@ -889,6 +894,78 @@ mod tests {
     }
 
     // --- ingest_from_tempo: end-to-end search+fetch flow ---
+
+    /// Verifies that `--auth-header` propagates on BOTH the search and
+    /// the per-trace fetch connections. Parallel to
+    /// `jaeger_query::tests::search_sends_auth_header_on_wire` but
+    /// covers the two-step tempo flow, including the `JoinSet` fanout
+    /// clone that the jaeger-query single-request path does not
+    /// exercise.
+    #[tokio::test]
+    async fn ingest_from_tempo_sends_auth_header_on_both_connections() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let search_body = r#"{"traces":[{"traceID":"abcdef"}]}"#;
+        let search_resp = http_200_json(search_body);
+        let mut proto_buf = Vec::new();
+        ExportTraceServiceRequest {
+            resource_spans: vec![],
+        }
+        .encode(&mut proto_buf)
+        .expect("encode protobuf");
+        let trace_resp = http_200_proto(&proto_buf);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let endpoint = format!("http://{addr}");
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(2);
+        let server = tokio::spawn(async move {
+            // Connection 1: /api/search
+            let (mut socket, _) = listener.accept().await.expect("accept 1");
+            let mut rbuf = vec![0u8; 4096];
+            let n = socket.read(&mut rbuf).await.expect("read 1");
+            rbuf.truncate(n);
+            tx.send(rbuf).await.expect("send 1");
+            socket.write_all(&search_resp).await.expect("write 1");
+            let _ = socket.shutdown().await;
+            drop(socket);
+
+            // Connection 2: /api/traces/<id>
+            let (mut socket, _) = listener.accept().await.expect("accept 2");
+            let mut rbuf = vec![0u8; 4096];
+            let n = socket.read(&mut rbuf).await.expect("read 2");
+            rbuf.truncate(n);
+            tx.send(rbuf).await.expect("send 2");
+            socket.write_all(&trace_resp).await.expect("write 2");
+            let _ = socket.shutdown().await;
+        });
+
+        // Empty-trace OTLP means the aggregated run returns NoTracesFound,
+        // which is what we want: we are asserting on wire content, not on
+        // the final event list.
+        let _ = ingest_from_tempo(
+            &endpoint,
+            Some("foo-svc"),
+            None,
+            Duration::from_mins(5),
+            5,
+            Some("Authorization: Bearer topsecret"),
+        )
+        .await;
+
+        for label in ["search", "fetch"] {
+            let captured = rx.recv().await.expect("captured request");
+            let text = std::str::from_utf8(&captured).expect("utf8");
+            assert!(
+                text.to_lowercase()
+                    .contains("authorization: bearer topsecret"),
+                "auth header missing from {label} request, got:\n{text}"
+            );
+        }
+        server.await.expect("server join");
+    }
 
     #[tokio::test]
     async fn ingest_from_tempo_search_then_fetch_aggregates_events() {

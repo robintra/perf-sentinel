@@ -159,10 +159,28 @@ perf-sentinel tempo --endpoint https://tempo.prod \
   --auth-header "X-API-Key: ${TEMPO_KEY}"
 ```
 
-Two caveats when using `--auth-header`:
+Validation (rejected at parse time with a dedicated exit code):
 
-- The value is visible in `ps`/`/proc/<pid>/cmdline` for the lifetime of the invocation. Prefer shell-expanded env vars (`${VAR}`) over pasting the secret literally, so it only lives in the process's own environment.
+- Raw input must be under 8 KiB.
+- Name and value must be non-empty after trimming.
+- Value must be valid HTTP per RFC 7230 (no CR, LF, or non-visible ASCII).
+- Header name must not be `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, or `Proxy-Connection`. These framing and authority headers are blocked to prevent request smuggling and cache poisoning via an untrusted environment variable expansion.
+
+### `--auth-header-env NAME`: ps-safe alternative
+
+Both subcommands also accept `--auth-header-env NAME`, which reads the header line from the named environment variable instead of from `argv`. This avoids `ps`/`/proc/<pid>/cmdline` exposure. The env var value must already be in `Name: Value` curl format. `--auth-header` and `--auth-header-env` are mutually exclusive at the clap level.
+
+```bash
+export JAEGER_AUTH="Authorization: Bearer ${JAEGER_TOKEN}"
+perf-sentinel jaeger-query --endpoint https://jaeger.prod \
+  --service order-svc --lookback 1h \
+  --auth-header-env JAEGER_AUTH
+```
+
+Caveats shared by both flags:
+
 - Only one header is supported per invocation. If you need Basic Auth and an additional tenant header, compose the flag with the primary auth scheme and set the secondary one at the proxy layer.
+- Setting `--auth-header` together with an `http://` endpoint emits a `tracing::warn!` because the credential would travel in cleartext. Prefer `https://` whenever the backend supports it.
 
 ## Carbon estimates accuracy
 

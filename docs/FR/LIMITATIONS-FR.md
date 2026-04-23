@@ -217,10 +217,28 @@ perf-sentinel tempo --endpoint https://tempo.prod \
   --auth-header "X-API-Key: ${TEMPO_KEY}"
 ```
 
-Deux caveats d'usage de `--auth-header` :
+Validation (rejet au parse avec exit code dédié) :
 
-- La valeur est visible dans `ps`/`/proc/<pid>/cmdline` le temps de l'invocation. Préférez l'expansion shell de variables d'env (`${VAR}`) plutôt que de coller le secret en dur, pour qu'il ne vive que dans l'environnement du process.
-- Un seul header est supporté par invocation. Si vous avez besoin de Basic Auth plus d'un header de tenant, composez le flag avec le schéma d'auth primaire et gérez le secondaire au niveau du reverse proxy.
+- Entrée brute sous 8 KiB.
+- Nom et valeur non vides après trim.
+- Valeur HTTP valide selon RFC 7230 (pas de CR, LF ni ASCII non visible).
+- Nom d'header refusé si : `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Ces headers de framing et d'authority sont bloqués pour éviter request smuggling et cache poisoning via une variable d'environnement non fiable.
+
+### `--auth-header-env NAME` : alternative ps-safe
+
+Les deux subcommands acceptent aussi `--auth-header-env NAME`, qui lit la ligne d'header depuis la variable d'environnement nommée au lieu de `argv`. Cela évite l'exposition `ps`/`/proc/<pid>/cmdline`. La valeur de la variable doit déjà être au format curl `Name: Value`. `--auth-header` et `--auth-header-env` sont mutuellement exclusifs au niveau clap.
+
+```bash
+export JAEGER_AUTH="Authorization: Bearer ${JAEGER_TOKEN}"
+perf-sentinel jaeger-query --endpoint https://jaeger.prod \
+  --service order-svc --lookback 1h \
+  --auth-header-env JAEGER_AUTH
+```
+
+Caveats partagés par les deux flags :
+
+- Un seul header par invocation. Si vous avez besoin de Basic Auth plus d'un header de tenant, composez le flag avec le schéma d'auth primaire et gérez le secondaire au niveau du reverse proxy.
+- Passer `--auth-header` avec un endpoint `http://` émet un `tracing::warn!` car la credential voyagerait en clair. Préférez `https://` dès que le backend le permet.
 
 ## Précision des estimations carbone
 
