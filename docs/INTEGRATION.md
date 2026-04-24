@@ -957,10 +957,64 @@ handled by the cleanup workflow, the gh-pages branch only carries
 reports for open PRs plus the single `baseline.json`. No unbounded
 growth.
 
-**Other providers**. GitLab Pages and Jenkins artifact-server support
-is planned in a future release, each with its own mechanics. Consumers
-of the GitLab or Jenkins templates keep the markdown sticky comment
-path unchanged for now.
+**Other providers**. See "Interactive report via GitLab Pages" below
+for the GitLab equivalent. Jenkins HTML Publisher support is planned
+in a future release. Consumers of the Jenkins template keep the
+archived SARIF path unchanged for now.
+
+### Interactive report via GitLab Pages
+
+Equivalent to the GitHub Pages path above, adapted to GitLab's native
+"View deployment" button on the merge request UI. One deployment per
+MR under a path prefix `mr-<IID>`, one baseline refreshed on every
+push to the default branch. Requires GitLab 17.9 or later for
+[dynamic path prefixes on Pages deployments](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments).
+
+Clicking "View deployment" on the MR sidebar opens the report at
+`${CI_PAGES_URL}/mr-<IID>/`. The Diff tab is the default landing
+view when a baseline is available, the Findings list otherwise.
+
+**Setup** (opt-in, requires GitLab Pages on the project):
+
+1. Confirm GitLab 17.9 or later, or gitlab.com (always up to date).
+2. Enable GitLab Pages under `Settings -> Pages` if not already on.
+3. Uncomment the `perf-sentinel-pages` job at the bottom of
+   [`docs/ci-templates/gitlab-ci.yml`](./ci-templates/gitlab-ci.yml).
+   It runs in the same `perf-sentinel` stage and reuses the
+   `PERF_SENTINEL_VERSION / PERF_SENTINEL_TRACES / PERF_SENTINEL_CONFIG`
+   variables already declared for the main job.
+
+The job differentiates two trigger paths via its `rules:` block:
+
+- **On merge request** (`$CI_PIPELINE_SOURCE == "merge_request_event"`),
+  fetches the trunk baseline from
+  `${CI_PAGES_URL}/perf-sentinel-reports/baseline.json` (silent 404
+  fallback when absent), produces `public/index.html` via
+  `perf-sentinel report --output public/index.html`, deploys with
+  `path_prefix: "mr-${CI_MERGE_REQUEST_IID}"` and
+  `pages.expire_in: 30 days`. The `environment.url` on the job
+  points to `${CI_PAGES_URL}/mr-<IID>/`, so the "View deployment"
+  button renders on the MR UI alongside production / staging
+  environments.
+- **On push to the default branch**, produces
+  `public/perf-sentinel-reports/baseline.json` via
+  `perf-sentinel analyze --format json`, deploys with an empty
+  `path_prefix` so the file lands at the site root and future MR
+  deployments can fetch it.
+
+**Retention** is handled natively by GitLab via `pages.expire_in`,
+so no cleanup workflow is needed. Closed MRs lose their `mr-<IID>/`
+deployment automatically 30 days after the last push.
+
+**Storage footprint** is equivalent to the GitHub Pages path, a
+typical report is 80 to 150 KB and a baseline JSON is 10 to 50 KB.
+With retention active, only open MRs plus the current baseline
+consume space.
+
+**Dependencies**. No third-party GitLab CI component. The job uses
+`curl` to install the pinned perf-sentinel release binary and
+`GitLab Pages` built-in keyword for deployment. No deploy token or
+runner token beyond the default `CI_JOB_TOKEN` is required.
 
 ### Where SARIF surfaces in each provider
 

@@ -126,3 +126,81 @@ perf-sentinel:
       allow_failure: false
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       allow_failure: true
+
+# Optional: publish an interactive HTML report on GitLab Pages, one
+# deployment per merge request, plus a baseline on the default branch.
+# The sticky "View deployment" button on the MR UI opens the report
+# directly. Requires GitLab 17.9 or later for pages.path_prefix with
+# dynamic variables. Ref:
+# https://docs.gitlab.com/user/project/pages/#create-multiple-deployments
+#
+# Uncomment the whole block to enable. Works out of the box on
+# gitlab.com (Pages enabled by default) and on self-hosted GitLab
+# 17.9+ with Pages enabled by the admin. See docs/INTEGRATION.md
+# "Interactive report via GitLab Pages" for the full setup.
+#
+# perf-sentinel-pages:
+#   stage: perf-sentinel
+#   image: debian:bookworm-slim
+#   # Same trace-file dependency as the main `perf-sentinel` job.
+#   # Uncomment one of the two forms below once your integration-test
+#   # job exists, matching what you chose on the main job.
+#   # dependencies:
+#   #   - integration-tests
+#   # needs:
+#   #   - integration-tests
+#   before_script:
+#     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+#     - |
+#       set -euo pipefail
+#       BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+#       curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+#       curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+#       grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+#       mkdir -p "${CI_PROJECT_DIR}/bin"
+#       install -m 0755 perf-sentinel-linux-amd64 "${CI_PROJECT_DIR}/bin/perf-sentinel"
+#       "${CI_PROJECT_DIR}/bin/perf-sentinel" --version
+#   script:
+#     - |
+#       set -euo pipefail
+#       mkdir -p public/perf-sentinel-reports
+#       if [ "${CI_PIPELINE_SOURCE}" = "merge_request_event" ]; then
+#         # Fetch the baseline published by the previous default-branch
+#         # run so the Diff tab of the HTML report has a trunk baseline.
+#         # Silent 404 fallback: the report still renders without the
+#         # Diff tab when no baseline exists yet.
+#         BEFORE_ARGS=()
+#         if curl -sSLf -o baseline.json "${CI_PAGES_URL}/perf-sentinel-reports/baseline.json"; then
+#           BEFORE_ARGS=(--before baseline.json)
+#         fi
+#         "${CI_PROJECT_DIR}/bin/perf-sentinel" report \
+#           --input "${PERF_SENTINEL_TRACES}" \
+#           --config "${PERF_SENTINEL_CONFIG}" \
+#           --output public/index.html \
+#           "${BEFORE_ARGS[@]}"
+#       else
+#         # Default branch: refresh the baseline JSON so future MR
+#         # deployments can fetch it above.
+#         "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
+#           --input "${PERF_SENTINEL_TRACES}" \
+#           --config "${PERF_SENTINEL_CONFIG}" \
+#           --format json \
+#           > public/perf-sentinel-reports/baseline.json
+#       fi
+#   artifacts:
+#     paths: [public]
+#   pages:
+#     path_prefix: "${PAGES_PATH_PREFIX}"
+#     expire_in: 30 days
+#   environment:
+#     name: "${PAGES_ENV_NAME}"
+#     url: "${CI_PAGES_URL}/${PAGES_PATH_PREFIX}"
+#   rules:
+#     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+#       variables:
+#         PAGES_PATH_PREFIX: "mr-${CI_MERGE_REQUEST_IID}"
+#         PAGES_ENV_NAME: "pages/mr-${CI_MERGE_REQUEST_IID}"
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+#       variables:
+#         PAGES_PATH_PREFIX: ""
+#         PAGES_ENV_NAME: "pages/default"
