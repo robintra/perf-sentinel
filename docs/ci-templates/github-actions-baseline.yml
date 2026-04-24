@@ -1,0 +1,104 @@
+# perf-sentinel baseline workflow (opt-in companion to github-actions.yml)
+#
+# Runs on every push to `main` and publishes a fresh baseline report
+# JSON to gh-pages at `perf-sentinel-reports/baseline.json`. The main
+# PR workflow fetches this file so the Diff tab of the interactive
+# HTML report compares the PR's traces against the latest merged state.
+#
+# What you must adapt before using this template:
+#   1. PERF_SENTINEL_VERSION / PERF_SENTINEL_TRACES / PERF_SENTINEL_CONFIG:
+#      same three vars as in `github-actions.yml`, kept in sync.
+#   2. Plug your integration-test stage below the checkout step so the
+#      trace file exists when `perf-sentinel analyze` runs.
+#
+# Prerequisites (one-time, per-repo):
+#   - Create an empty `gh-pages` branch.
+#   - Enable GitHub Pages in Settings -> Pages, source = gh-pages.
+#
+# See docs/INTEGRATION.md "Interactive report via GitHub Pages" for the
+# full setup guide.
+
+name: perf-sentinel baseline
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write   # required to push to gh-pages
+
+jobs:
+  baseline:
+    name: Publish trunk baseline to gh-pages
+    runs-on: ubuntu-latest
+    env:
+      PERF_SENTINEL_VERSION: "0.5.0"
+      PERF_SENTINEL_TRACES: "test-traces.json"
+      PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Place your integration-test stage here. It must produce the
+      # trace file at $PERF_SENTINEL_TRACES before perf-sentinel runs.
+      # Keep it symmetric with the PR workflow's test stage so the
+      # baseline reflects the same scenarios the PR comparison cares
+      # about.
+      #
+      # - name: Run integration tests with OTel tracing
+      #   run: ./scripts/run-integration-tests.sh
+      #   env:
+      #     OTEL_TRACES_EXPORTER: otlp_file
+      #     OTEL_EXPORTER_OTLP_FILE_PATH: ${{ env.PERF_SENTINEL_TRACES }}
+
+      - name: Install perf-sentinel from GitHub Releases
+        run: |
+          set -euo pipefail
+          BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+          curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+          curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+          grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          install -m 0755 perf-sentinel-linux-amd64 "${GITHUB_WORKSPACE}/bin/perf-sentinel"
+          echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
+          "${GITHUB_WORKSPACE}/bin/perf-sentinel" --version
+
+      - name: Run perf-sentinel analyze (baseline)
+        run: |
+          set -euo pipefail
+          perf-sentinel analyze \
+            --input "${PERF_SENTINEL_TRACES}" \
+            --config "${PERF_SENTINEL_CONFIG}" \
+            --format json \
+            --output baseline.json
+
+      - name: Checkout gh-pages worktree
+        # The report is pushed to gh-pages via plain git, not a
+        # third-party deploy action, so this template carries zero
+        # external dependency beyond actions/checkout.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          path: gh-pages-worktree
+
+      - name: Publish baseline to gh-pages
+        run: |
+          set -euo pipefail
+          mkdir -p gh-pages-worktree/perf-sentinel-reports
+          cp baseline.json gh-pages-worktree/perf-sentinel-reports/baseline.json
+          cd gh-pages-worktree
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add perf-sentinel-reports/baseline.json
+          if git diff --cached --quiet; then
+            echo "baseline unchanged, nothing to publish"
+          else
+            git commit -m "chore: refresh perf-sentinel baseline from ${GITHUB_SHA::7}"
+            # Retry once via rebase if a concurrent PR-report or
+            # cleanup push landed between our checkout and this push.
+            git push || {
+              git pull --rebase origin gh-pages
+              git push
+            }
+          fi

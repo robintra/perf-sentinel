@@ -872,6 +872,82 @@ Mécaniques par fournisseur pour le split PR vs trunk :
   conditionnel sur `CHANGE_ID` pour que le bloc post ne réintroduise
   pas le blocage sur trunk.
 
+### Rapport interactif via GitHub Pages
+
+Le sticky comment de PR (bloc markdown avec comptage des findings et
+statut du quality gate) donne aux reviewers une vue d'ensemble
+immédiate. Pour une inspection plus approfondie (arbre des spans avec
+les N+1 surlignés, suggested fix framework-specific, drill-down
+pg_stat, Diff complet contre trunk), le template GitHub Actions publie
+optionnellement un **dashboard HTML complet** sur GitHub Pages à
+chaque PR, lié depuis le sticky comment sous la forme :
+
+> 📊 **[Rapport interactif (vue Diff)](...)**
+
+Cliquer sur le lien ouvre le rapport sur la tab Diff, qui est la vue
+naturelle pour un reviewer : nouveaux findings introduits par la PR,
+findings résolus (régressions corrigées), changements de sévérité et
+deltas des métriques I/O par endpoint. Les autres tabs (Findings,
+Explain, pg_stat, Correlations, GreenOps) sont à un clic via la barre
+d'onglets.
+
+Les rapports sont des HTML single-file auto-contenus avec routing par
+hash, donc partager un finding précis revient à copier l'URL depuis
+la barre d'adresse.
+
+**Mise en place** (opt-in, nécessite GitHub Pages sur le dépôt) :
+
+1. Créer une branche `gh-pages` vide dans le dépôt (bootstrap standard
+   GitHub Pages, à faire une seule fois).
+2. Activer GitHub Pages dans `Settings -> Pages`, source = branche
+   `gh-pages`, dossier = `/ (root)`.
+3. Copier le workflow baseline companion depuis
+   [`docs/ci-templates/github-actions-baseline.yml`](../ci-templates/github-actions-baseline.yml)
+   vers `.github/workflows/perf-sentinel-baseline.yml`. Il tourne sur
+   chaque push vers `main` et stocke le rapport baseline sous
+   `gh-pages/perf-sentinel-reports/baseline.json`.
+4. Copier le workflow de cleanup depuis
+   [`docs/ci-templates/github-actions-report-cleanup.yml`](../ci-templates/github-actions-report-cleanup.yml)
+   vers `.github/workflows/perf-sentinel-report-cleanup.yml`. Il
+   tourne à la fermeture de PR et supprime le répertoire par-PR.
+5. Décommenter les blocs `Download baseline from gh-pages`, `Generate
+   interactive HTML report`, `Checkout gh-pages worktree` et `Publish
+   report to gh-pages` dans votre workflow principal (le commentaire
+   d'en-tête dans
+   [`docs/ci-templates/github-actions.yml`](../ci-templates/github-actions.yml)
+   les localise).
+
+Une fois les trois workflows en place, chaque PR obtient son propre
+rapport interactif à une URL stable :
+
+```
+https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/
+```
+
+Le baseline est rafraîchi à chaque push vers `main`, donc la tab Diff
+compare toujours les traces de la PR contre le dernier état mergé.
+
+Si GitHub Pages n'est pas activé, le template retombe sur le sticky
+comment markdown seulement. Aucun changement de comportement pour les
+adoptants existants.
+
+**Dépendances**. Le deploy utilise du `git` en clair contre la branche
+`gh-pages`, authentifié par le `GITHUB_TOKEN` intégré et la permission
+`contents: write` déclarée au niveau workflow. Aucune action tierce
+de deploy n'est requise, ce qui garde le template exempt de surface
+supply-chain pour le chemin d'upload. Seule `actions/checkout`
+(pinnée) est réutilisée dans les trois workflows.
+
+**Empreinte de stockage**. Un rapport typique fait 80 à 150 Ko. Avec
+la rétention gérée par le workflow de cleanup, la branche gh-pages ne
+porte que les rapports des PRs ouvertes plus l'unique
+`baseline.json`. Pas de croissance illimitée.
+
+**Autres fournisseurs**. Le support GitLab Pages et Jenkins artifact-
+server est prévu dans une prochaine release, chacun avec sa propre
+mécanique. Les consommateurs des templates GitLab ou Jenkins gardent
+le chemin sticky comment markdown inchangé pour l'instant.
+
 ### Où SARIF apparaît selon le fournisseur
 
 - **GitHub Code Scanning** liste chaque finding dans l'onglet Security du

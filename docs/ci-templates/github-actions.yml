@@ -53,7 +53,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       # Place your integration-test stage here. It must produce the trace file
       # at $PERF_SENTINEL_TRACES before perf-sentinel runs. Example:
@@ -82,6 +82,35 @@ jobs:
           echo "${GITHUB_WORKSPACE}/bin" >> "${GITHUB_PATH}"
           "${GITHUB_WORKSPACE}/bin/perf-sentinel" --version
 
+      # Interactive HTML report via GitHub Pages (opt-in). The four
+      # blocks labelled "Download baseline from gh-pages", "Generate
+      # interactive HTML report", "Checkout gh-pages worktree" and
+      # "Publish report to gh-pages" below are commented by default
+      # so this template stays functional without GitHub Pages.
+      # Enable them once you have:
+      #   1. created an empty `gh-pages` branch in this repo,
+      #   2. enabled Pages in Settings -> Pages with source = gh-pages,
+      #   3. added `perf-sentinel-baseline.yml` (see
+      #      docs/ci-templates/github-actions-baseline.yml) so the
+      #      Diff tab of the HTML report has a trunk baseline to
+      #      compare against,
+      #   4. added `perf-sentinel-report-cleanup.yml` (see
+      #      docs/ci-templates/github-actions-report-cleanup.yml) so
+      #      the gh-pages branch does not grow unbounded.
+      # See docs/INTEGRATION.md "Interactive report via GitHub Pages"
+      # for the full recipe.
+      #
+      # - name: Download baseline from gh-pages
+      #   # If the baseline does not exist yet (first run on a fresh
+      #   # repo), curl returns 404 and the rest of the pipeline
+      #   # proceeds without baseline. The HTML report still renders,
+      #   # just without the Diff tab.
+      #   run: |
+      #     set +e
+      #     BASELINE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY##*/}/perf-sentinel-reports/baseline.json"
+      #     curl -sSLf -o baseline.json "${BASELINE_URL}" || echo "baseline not available yet, skipping Diff tab"
+      #     set -e
+
       - name: Run perf-sentinel analyze
         id: analyze
         # Continue on error so we can still upload SARIF and comment on PRs
@@ -105,6 +134,62 @@ jobs:
           sarif_file: findings.sarif
           category: perf-sentinel
 
+      # - name: Generate interactive HTML report
+      #   # Unlike SARIF which is static, the HTML is a full dashboard
+      #   # (Findings, Explain, pg_stat, Diff, Correlations, GreenOps)
+      #   # with deep-link hash routing, designed to be linked from the
+      #   # PR comment for interactive review. The --before flag is
+      #   # appended only when the baseline was fetched above.
+      #   if: always() && hashFiles(env.PERF_SENTINEL_TRACES) != ''
+      #   run: |
+      #     set -euo pipefail
+      #     args=(
+      #       --input "${PERF_SENTINEL_TRACES}"
+      #       --config "${PERF_SENTINEL_CONFIG}"
+      #       --output report.html
+      #     )
+      #     if [ -f baseline.json ]; then
+      #       args+=(--before baseline.json)
+      #     fi
+      #     perf-sentinel report "${args[@]}"
+      #
+      # - name: Checkout gh-pages worktree
+      #   # The report is pushed to gh-pages via plain git rather than
+      #   # a third-party deploy action, keeping the template free of
+      #   # external dependencies beyond actions/checkout.
+      #   if: github.event_name == 'pull_request' && hashFiles('report.html') != ''
+      #   uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      #   with:
+      #     ref: gh-pages
+      #     path: gh-pages-worktree
+      #
+      # - name: Publish report to gh-pages
+      #   # A companion cleanup workflow removes the pr-N/ directory
+      #   # when the PR closes (see
+      #   # docs/ci-templates/github-actions-report-cleanup.yml).
+      #   if: github.event_name == 'pull_request' && hashFiles('report.html') != ''
+      #   run: |
+      #     set -euo pipefail
+      #     DEST="gh-pages-worktree/perf-sentinel-reports/pr-${{ github.event.pull_request.number }}"
+      #     mkdir -p "${DEST}"
+      #     cp report.html "${DEST}/index.html"
+      #     cd gh-pages-worktree
+      #     git config user.name "github-actions[bot]"
+      #     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      #     git add "perf-sentinel-reports/pr-${{ github.event.pull_request.number }}/"
+      #     if git diff --cached --quiet; then
+      #       echo "report unchanged, nothing to publish"
+      #     else
+      #       git commit -m "chore: publish perf-sentinel report for PR #${{ github.event.pull_request.number }}"
+      #       # Retry once via rebase if a concurrent baseline or
+      #       # cleanup push landed on gh-pages between our checkout
+      #       # and this push.
+      #       git push || {
+      #         git pull --rebase origin gh-pages
+      #         git push
+      #       }
+      #     fi
+
       - name: Generate PR comment summary
         if: github.event_name == 'pull_request' && hashFiles('findings.sarif') != ''
         run: |
@@ -116,6 +201,19 @@ jobs:
             --format json \
             --output report.json || true
           {
+            # Prepend the interactive report link when the HTML was
+            # produced (i.e. the Pages blocks above are uncommented).
+            # The baseline presence decides whether to land on #diff
+            # (reviewer view, preferred) or #findings (first scan).
+            if [ -f report.html ]; then
+              PAGES_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY##*/}/perf-sentinel-reports/pr-${{ github.event.pull_request.number }}/"
+              if [ -f baseline.json ]; then
+                echo "📊 **[Interactive report (Diff view)](${PAGES_URL}#diff)**"
+              else
+                echo "📊 **[Interactive report](${PAGES_URL}#findings)**"
+              fi
+              echo ""
+            fi
             echo "## perf-sentinel report"
             echo
             echo '```'

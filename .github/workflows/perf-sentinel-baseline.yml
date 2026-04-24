@@ -1,0 +1,85 @@
+# Dogfood baseline workflow for perf-sentinel itself.
+#
+# Runs on every push to `main`, builds the current binary from source,
+# analyzes a committed fixture trace, and publishes the baseline JSON
+# to gh-pages under `perf-sentinel-reports/baseline.json`.
+#
+# Paired with `perf-sentinel-report-cleanup.yml`. A per-PR HTML report
+# workflow is not yet wired (cleanup stays no-op until that lands).
+#
+# Consumer-facing equivalent lives at
+# `docs/ci-templates/github-actions-baseline.yml` and differs in that
+# it installs a pinned release of perf-sentinel instead of building
+# from source.
+
+name: perf-sentinel baseline (dogfood)
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write   # required to push to gh-pages
+
+concurrency:
+  group: perf-sentinel-baseline
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    name: Publish trunk baseline to gh-pages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: baseline
+
+      - name: Build perf-sentinel from source
+        run: cargo build --release --bin perf-sentinel
+
+      - name: Run perf-sentinel analyze on the classic N+1 fixture
+        # The fixture exercises the flagship N+1 SQL detector. It is
+        # committed and versioned, so the baseline evolves only when
+        # the analyzer itself changes, which is exactly the signal we
+        # want in the Diff tab of future PR reports.
+        run: |
+          set -euo pipefail
+          ./target/release/perf-sentinel analyze \
+            --input tests/fixtures/n_plus_one_sql.json \
+            --format json \
+            --output baseline.json
+
+      - name: Checkout gh-pages worktree
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: gh-pages
+          path: gh-pages-worktree
+
+      - name: Publish baseline to gh-pages
+        run: |
+          set -euo pipefail
+          mkdir -p gh-pages-worktree/perf-sentinel-reports
+          cp baseline.json gh-pages-worktree/perf-sentinel-reports/baseline.json
+          cd gh-pages-worktree
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add perf-sentinel-reports/baseline.json
+          if git diff --cached --quiet; then
+            echo "baseline unchanged, nothing to publish"
+          else
+            git commit -m "chore: refresh perf-sentinel baseline from ${GITHUB_SHA::7}"
+            # Retry once via rebase if a concurrent PR-report or
+            # cleanup push landed between our checkout and this push.
+            git push || {
+              git pull --rebase origin gh-pages
+              git push
+            }
+          fi
