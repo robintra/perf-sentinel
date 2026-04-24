@@ -957,10 +957,8 @@ handled by the cleanup workflow, the gh-pages branch only carries
 reports for open PRs plus the single `baseline.json`. No unbounded
 growth.
 
-**Other providers**. See "Interactive report via GitLab Pages" below
-for the GitLab equivalent. Jenkins HTML Publisher support is planned
-in a future release. Consumers of the Jenkins template keep the
-archived SARIF path unchanged for now.
+**Other providers**. See "Interactive report via GitLab Pages" and
+"Interactive report via Jenkins HTML Publisher" below.
 
 ### Interactive report via GitLab Pages
 
@@ -1015,6 +1013,68 @@ consume space.
 `curl` to install the pinned perf-sentinel release binary and
 `GitLab Pages` built-in keyword for deployment. No deploy token or
 runner token beyond the default `CI_JOB_TOKEN` is required.
+
+### Interactive report via Jenkins HTML Publisher
+
+Equivalent to the GitHub and GitLab paths above, adapted to the
+[HTML Publisher plugin](https://plugins.jenkins.io/htmlpublisher/)
+that is pre-installed on most enterprise Jenkins. The plugin exposes
+the report at a stable URL `${BUILD_URL}perf-sentinel/` and adds a
+"perf-sentinel" link in the build sidebar, next to the Warnings NG
+report already configured by the template.
+
+Opening that link drops the reviewer into the Findings tab (the
+default landing when no baseline is wired, see the Diff tab note
+below). The five other tabs (Explain, pg_stat, Correlations,
+GreenOps, and a greyed-out Diff tab) are one click away via the
+tab strip.
+
+**Setup** (opt-in, requires the HTML Publisher plugin on the
+controller):
+
+1. Confirm the HTML Publisher plugin is installed. Manage Jenkins
+   -> Plugins -> Installed plugins, search for "HTML Publisher".
+   If missing, install and restart the controller.
+2. Uncomment the `Generate interactive HTML report` stage in
+   [`docs/ci-templates/jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy),
+   placed right before the `Quality gate (PR only)` stage.
+3. Uncomment the `publishHTML([...])` block in the `post { always }`
+   section of the same file. It is paired with the stage above so
+   both need to be enabled together for the link to appear.
+
+Once enabled, every build (branch or pull request) produces a
+report available at
+`${JENKINS_URL}/job/<job-name>/<build-number>/perf-sentinel/`. The
+build sidebar carries a "perf-sentinel" link that always points to
+the newest build's report via `alwaysLinkToLastBuild: true`. The
+`keepAll: true` option retains per-build reports so historical
+builds remain browsable.
+
+**Diff tab absent by default**. Unlike GitHub Actions and GitLab CI
+where a companion baseline workflow refreshes `baseline.json` on
+every push to the default branch, this template does not wire a
+Jenkins baseline. The Diff tab of the report is therefore empty.
+Users who want the Diff tab can extend the template with the
+[Copy Artifact plugin](https://plugins.jenkins.io/copyartifact/) to
+pull a `baseline.json` from the last successful build of the
+default-branch job, then pass it to
+`perf-sentinel report --before baseline.json`. This enhancement is
+out of scope for this template.
+
+**No PR comment posting**. Jenkins does not have a native
+pull-request comment mechanism equivalent to GitHub's sticky
+comment or GitLab's Code Quality widget. Reviewers who follow a
+Jenkins build consult the build page directly, same pattern as for
+Warnings NG findings. Teams who want a PR comment can wire the
+`gh` CLI or a forge-specific REST API from within the pipeline,
+but that requires managing a forge token in Jenkins credentials
+and is out of scope for this template.
+
+**Storage footprint** is per-build and retained indefinitely
+(`keepAll: true`). A typical report is 80 to 150 KB. For long-lived
+Jenkins controllers with high build volume, pair
+`publishHTML keepAll: true` with the build discarder in the job
+configuration (e.g. keep last N builds) to cap the footprint.
 
 ### Where SARIF surfaces in each provider
 

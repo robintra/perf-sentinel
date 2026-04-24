@@ -944,9 +944,7 @@ porte que les rapports des PRs ouvertes plus l'unique
 `baseline.json`. Pas de croissance illimitée.
 
 **Autres fournisseurs**. Voir "Rapport interactif via GitLab Pages"
-ci-dessous pour l'équivalent GitLab. Le support Jenkins HTML Publisher
-est prévu dans une prochaine release. Les consommateurs du template
-Jenkins gardent le chemin SARIF archivé inchangé pour l'instant.
+et "Rapport interactif via Jenkins HTML Publisher" ci-dessous.
 
 ### Rapport interactif via GitLab Pages
 
@@ -1005,6 +1003,71 @@ courant consomment de l'espace.
 `curl` pour installer le binaire perf-sentinel pinné et le keyword
 natif `pages` de GitLab pour le deployment. Aucun deploy token ou
 runner token au-delà du `CI_JOB_TOKEN` par défaut n'est requis.
+
+### Rapport interactif via Jenkins HTML Publisher
+
+Équivalent des chemins GitHub et GitLab ci-dessus, adapté au
+[plugin HTML Publisher](https://plugins.jenkins.io/htmlpublisher/)
+pré-installé sur la plupart des Jenkins entreprise. Le plugin
+expose le rapport à une URL stable `${BUILD_URL}perf-sentinel/` et
+ajoute un lien "perf-sentinel" dans la sidebar du build, à côté du
+rapport Warnings NG déjà configuré par le template.
+
+Ouvrir ce lien pose le reviewer sur la tab Findings (vue de landing
+par défaut quand aucun baseline n'est branché, voir la note Diff
+ci-dessous). Les cinq autres tabs (Explain, pg_stat, Correlations,
+GreenOps et une tab Diff grisée) sont à un clic via la barre
+d'onglets.
+
+**Mise en place** (opt-in, nécessite le plugin HTML Publisher sur
+le controller) :
+
+1. Vérifier que le plugin HTML Publisher est installé. Manage
+   Jenkins -> Plugins -> Installed plugins, rechercher "HTML
+   Publisher". Si absent, installer puis redémarrer le controller.
+2. Décommenter le stage `Generate interactive HTML report` dans
+   [`docs/ci-templates/jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy),
+   placé juste avant le stage `Quality gate (PR only)`.
+3. Décommenter le bloc `publishHTML([...])` dans la section
+   `post { always }` du même fichier. Il est apparié au stage
+   ci-dessus, donc les deux doivent être activés ensemble pour que
+   le lien apparaisse.
+
+Une fois activé, chaque build (branch ou pull request) produit un
+rapport disponible à
+`${JENKINS_URL}/job/<job-name>/<build-number>/perf-sentinel/`. La
+sidebar du build porte un lien "perf-sentinel" qui pointe toujours
+vers le rapport du dernier build via `alwaysLinkToLastBuild: true`.
+L'option `keepAll: true` retient les rapports par build, les
+anciens builds restent donc navigables.
+
+**Tab Diff absente par défaut**. Contrairement à GitHub Actions et
+GitLab CI où un workflow baseline companion rafraîchit
+`baseline.json` à chaque push sur la branche par défaut, ce
+template ne branche pas de baseline Jenkins. La tab Diff du rapport
+est donc vide. Les utilisateurs qui veulent la tab Diff peuvent
+étendre le template avec le
+[plugin Copy Artifact](https://plugins.jenkins.io/copyartifact/)
+pour tirer un `baseline.json` depuis le dernier build réussi du
+job sur la branche par défaut, puis le passer à
+`perf-sentinel report --before baseline.json`. Cette évolution est
+hors scope pour ce template.
+
+**Pas de posting automatique de PR comment**. Jenkins n'a pas de
+mécanisme natif de commentaire de pull request équivalent au sticky
+comment GitHub ou au widget Code Quality GitLab. Les reviewers qui
+suivent un build Jenkins consultent la page du build directement,
+comme pour les findings Warnings NG. Les équipes qui veulent un PR
+comment peuvent brancher la CLI `gh` ou une API REST spécifique
+depuis le pipeline, mais cela nécessite de gérer un token forge
+dans les credentials Jenkins et reste hors scope pour ce template.
+
+**Empreinte de stockage** par-build et retenue indéfiniment
+(`keepAll: true`). Un rapport typique fait 80 à 150 Ko. Pour des
+controllers Jenkins long-lived avec gros volume de builds, appairer
+`publishHTML keepAll: true` avec le build discarder dans la config
+du job (par exemple garder les N derniers builds) pour plafonner
+l'empreinte.
 
 ### Où SARIF apparaît selon le fournisseur
 

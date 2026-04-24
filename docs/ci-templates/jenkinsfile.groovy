@@ -18,6 +18,9 @@
 // Required Jenkins plugins:
 //   - Warnings Next Generation (publishes SARIF as a structured issue tree)
 //   - Pipeline Utility Steps   (only if you want to readJSON the report)
+//   - HTML Publisher           (optional, enables the interactive HTML
+//                               report block below via publishHTML;
+//                               pre-installed on most enterprise Jenkins)
 //
 // See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
 // the full integration guide and the quality-gate philosophy.
@@ -78,6 +81,28 @@ pipeline {
             }
         }
 
+        // Optional: produce the interactive HTML dashboard that the
+        // HTML Publisher plugin exposes under `${BUILD_URL}perf-sentinel/`.
+        // Works on both branch and pull-request builds. The Diff tab
+        // of the report is absent on Jenkins by default because this
+        // template does not wire a baseline; the other tabs (Findings,
+        // Explain, pg_stat, Correlations, GreenOps) render normally.
+        // See docs/INTEGRATION.md "Interactive report via Jenkins
+        // HTML Publisher" for the full setup and the baseline
+        // enhancement path via the Copy Artifact plugin.
+        //
+        // stage('Generate interactive HTML report') {
+        //     steps {
+        //         sh '''
+        //             set -euo pipefail
+        //             ./perf-sentinel report \\
+        //                 --input ${PERF_SENTINEL_TRACES} \\
+        //                 --config ${PERF_SENTINEL_CONFIG} \\
+        //                 --output report.html
+        //         '''
+        //     }
+        // }
+
         stage('Quality gate (PR only)') {
             // Philosophy: the gate blocks when the build was triggered
             // by a pull request so the developer still has a chance
@@ -131,6 +156,28 @@ pipeline {
                     [threshold: 1, type: 'TOTAL_ERROR', criticality: 'FAILURE']
                 ] : []
             )
+            // Optional: expose the interactive HTML report produced
+            // by the "Generate interactive HTML report" stage above
+            // at a stable URL `${BUILD_URL}perf-sentinel/` on the
+            // build page, alongside Warnings NG. Requires the
+            // HTML Publisher plugin listed in the header.
+            //
+            // Enable both the stage above and this block together,
+            // uncommenting only one leaves the sidebar pointing at
+            // an empty report. `allowMissing: true` keeps this step
+            // tolerant when the report stage was skipped, `keepAll:
+            // true` retains the report for every build,
+            // `alwaysLinkToLastBuild` makes the sidebar "Last
+            // report" link point to the newest.
+            //
+            // publishHTML([
+            //     reportDir: '.',
+            //     reportFiles: 'report.html',
+            //     reportName: 'perf-sentinel',
+            //     keepAll: true,
+            //     alwaysLinkToLastBuild: true,
+            //     allowMissing: true
+            // ])
         }
     }
 }
