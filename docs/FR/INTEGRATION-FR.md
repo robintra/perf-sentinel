@@ -894,7 +894,7 @@ Chaque finding est mappé vers un résultat SARIF avec `ruleId`, `level`, `logic
 
 ## Champ de confiance sur les findings
 
-Chaque finding émis en JSON ou SARIF porte un champ `confidence` indiquant le contexte source de la détection. Les consommateurs en aval, en particulier [perf-lint](https://github.com/robintra/perf-lint), utilisent ce champ pour augmenter ou réduire la sévérité affichée dans l'IDE selon le degré de confiance à accorder au finding.
+Chaque finding émis en JSON ou SARIF porte un champ `confidence` qui indique le contexte source de la détection. Le champ est conçu pour les consommateurs en aval comme perf-lint, une intégration IDE compagnon planifiée qui ajustera la sévérité affichée dans l'IDE selon le niveau de confiance à accorder au finding. Tout outil tiers qui consomme les sorties JSON ou SARIF de perf-sentinel peut utiliser ce champ de la même manière.
 
 Valeurs :
 
@@ -944,7 +944,7 @@ environment = "production"
 
 La valeur est tamponnée sur chaque finding émis par cette instance de daemon. Les valeurs invalides (tout sauf `staging`/`production`, insensible à la casse) sont rejetées au chargement de la config avec une erreur claire. Le mode batch `analyze` ignore ce champ et émet toujours `ci_batch`.
 
-**Interop perf-lint.** perf-lint lit le champ `confidence` sur les findings runtime importés et applique un multiplicateur de sévérité : les findings `ci_batch` sont affichés en hints, `daemon_staging` en warnings, `daemon_production` en errors. Ainsi un finding observé sur du trafic production réel apparaît plus bruyamment dans l'IDE qu'un finding observé uniquement dans une fixture CI.
+**Interopérabilité avec perf-lint (planifié).** perf-lint (planifié comme intégration IDE compagnon, pas encore publié) lira le champ `confidence` sur les findings runtime importés et appliquera un multiplicateur de sévérité : les findings `ci_batch` affichés en hints, `daemon_staging` en warnings, `daemon_production` en errors. Ainsi un finding observé sur du trafic production réel remontera plus visiblement dans l'IDE qu'un finding observé uniquement dans une fixture CI.
 
 ---
 

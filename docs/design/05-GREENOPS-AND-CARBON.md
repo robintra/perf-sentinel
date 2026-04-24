@@ -541,7 +541,7 @@ The carbon intensity and PUE of the **source** region (where the data originates
 
 **Limitations.** See `docs/LIMITATIONS.md` "Network transport energy" for the full discussion: wide estimate range, no CDN effects, no compression modeling, config-based region detection only, no last-mile modeling.
 
-## Confidence field on findings (perf-lint interop)
+## Confidence field on findings (planned perf-lint interop)
 
 A `confidence` field is stamped on every `Finding` in the JSON and SARIF report, indicating the source context of the detection. The value is set by the pipeline caller (`pipeline::analyze_with_traces` for batch mode → always `CiBatch`; `daemon::process_traces` for streaming mode → derived from `config.daemon_environment`). Detectors themselves never reason about confidence. They emit `Confidence::default()` and the caller overrides it.
 
@@ -559,4 +559,4 @@ The field surfaces in:
 - **SARIF v2.1.0**: per-result `properties.confidence` bag entry AND a standard SARIF `rank` value (0-100).
 - **CLI terminal output**: NOT displayed (the terminal stays clean for interactive use).
 
-The primary consumer is perf-lint, which imports runtime findings from perf-sentinel's JSON output and applies a severity multiplier based on the confidence. See `docs/INTEGRATION.md` for the integration example.
+The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from perf-sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` for the integration example.

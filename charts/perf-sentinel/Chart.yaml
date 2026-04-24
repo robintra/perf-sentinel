@@ -1,7 +1,7 @@
 apiVersion: v2
 name: perf-sentinel
 description: |
-  Lightweight polyglot performance anti-pattern detector for OpenTelemetry
+  Lightweight polyglot performance anti-pattern detector for distributed
   traces. Detects N+1 queries, redundant calls, chatty services, connection
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
@@ -41,3 +41,4 @@ annotations:
       platforms:
         - linux/amd64
         - linux/arm64
+

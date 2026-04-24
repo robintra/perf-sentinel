@@ -913,7 +913,7 @@ Upload the SARIF file to your code scanning dashboard. Each finding maps to a SA
 
 ## Finding confidence field
 
-Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. Downstream consumers, in particular [perf-lint](https://github.com/robintra/perf-lint), use this field to boost or reduce the severity shown in the IDE depending on how much trust to place in the finding.
+Every finding emitted in JSON or SARIF carries a `confidence` field indicating the source context of the detection. The field is designed for downstream consumers such as perf-lint, a planned companion IDE integration that will boost or reduce the severity shown in the IDE depending on how much trust to place in the finding. Any custom tooling that consumes perf-sentinel's JSON or SARIF output can use the same field the same way.
 
 Values:
 
@@ -963,7 +963,7 @@ environment = "production"
 
 The value is stamped on every finding emitted by that daemon instance. Invalid values (anything other than `staging`/`production`, case-insensitive) are rejected at config load with a clear error. Batch `analyze` mode ignores this field and always emits `ci_batch`.
 
-**perf-lint interop.** perf-lint reads the `confidence` field on imported runtime findings and applies a severity multiplier: `ci_batch` findings are shown as hints, `daemon_staging` as warnings, `daemon_production` as errors. This way a finding that has been observed on real production traffic surfaces louder in the IDE than one observed only in a CI fixture.
+**Planned perf-lint interop.** perf-lint (planned as a companion IDE integration, not yet published) will read the `confidence` field on imported runtime findings and apply a severity multiplier: `ci_batch` findings shown as hints, `daemon_staging` as warnings, `daemon_production` as errors. This way a finding that has been observed on real production traffic will surface louder in the IDE than one observed only in a CI fixture.
 
 ---
 

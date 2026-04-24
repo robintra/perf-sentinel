@@ -6,23 +6,23 @@ a `ClusterIP` Service exposing OTLP gRPC (4317) and OTLP HTTP + `/metrics`
 + `/api/*` (4318).
 
 perf-sentinel is a lightweight, polyglot performance anti-pattern detector
-for OpenTelemetry traces. It detects N+1 SQL, N+1 HTTP, redundant queries,
+for distributed traces. It detects N+1 SQL, N+1 HTTP, redundant queries,
 chatty services, connection pool saturation, serialized but parallelizable
 calls and excessive fanout. It also scores I/O intensity per endpoint
 (`GreenOps`) and emits SCI v1.0-aligned CO2 estimates.
 
 ## Chart at a glance
 
-| Key                 | Default                        | Notes                                                                 |
-|---------------------|--------------------------------|-----------------------------------------------------------------------|
-| `image.repository`  | `ghcr.io/robintra/perf-sentinel` | Published on GHCR.                                                  |
-| `image.tag`         | `""` (falls back to `appVersion`) | Pin explicitly in production.                                      |
-| `workload.kind`     | `Deployment`                   | `DaemonSet` and `StatefulSet` are opt-in.                             |
-| `workload.replicas` | `1`                            | Per-trace state lives in memory, prefer vertical scaling first.       |
-| `service.type`      | `ClusterIP`                    | Do not switch to `NodePort` or `LoadBalancer` without a gateway.      |
-| `serviceMonitor.enabled` | `false`                   | Flip on when the Prometheus Operator is installed.                    |
-| `networkPolicy.enabled`  | `false`                   | Fail-closed when enabled without selectors.                           |
-| `[daemon] environment`   | `"staging"` (via `config.toml`) | Stamps every finding with a confidence tag consumed by perf-lint. |
+| Key                      | Default                           | Notes                                                             |
+|--------------------------|-----------------------------------|-------------------------------------------------------------------|
+| `image.repository`       | `ghcr.io/robintra/perf-sentinel`  | Published on GHCR.                                                |
+| `image.tag`              | `""` (falls back to `appVersion`) | Pin explicitly in production.                                     |
+| `workload.kind`          | `Deployment`                      | `DaemonSet` and `StatefulSet` are opt-in.                         |
+| `workload.replicas`      | `1`                               | Per-trace state lives in memory, prefer vertical scaling first.   |
+| `service.type`           | `ClusterIP`                       | Do not switch to `NodePort` or `LoadBalancer` without a gateway.  |
+| `serviceMonitor.enabled` | `false`                           | Flip on when the Prometheus Operator is installed.                |
+| `networkPolicy.enabled`  | `false`                           | Fail-closed when enabled without selectors.                       |
+| `[daemon] environment`   | `"staging"` (via `config.toml`)   | Stamps every finding with a confidence tag consumed by downstream tooling (perf-lint, planned). |
 
 ## Install from a local checkout
 

@@ -496,7 +496,7 @@ Le coefficient par défaut est `4e-11 kWh/octet` (0.04 kWh/Go), le milieu de la 
 
 **Limitations.** Voir `docs/FR/LIMITATIONS-FR.md` "Énergie de transport réseau" pour la discussion complète.
 
-## Champ de confiance sur les findings (interop perf-lint)
+## Champ de confiance sur les findings (interop perf-lint planifié)
 
 Un champ `confidence` est tamponné sur chaque `Finding` dans le rapport JSON et SARIF, indiquant le contexte source de la détection. La valeur est définie par l'appelant du pipeline (`pipeline::analyze_with_traces` pour le mode batch → toujours `CiBatch` ; `daemon::process_traces` pour le mode streaming → dérivé de `config.daemon_environment`). Les détecteurs eux-mêmes ne raisonnent jamais sur la confiance : ils émettent `Confidence::default()` et l'appelant écrase.
 
@@ -514,4 +514,4 @@ Le champ apparaît dans :
 - **SARIF v2.1.0** : entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
 - **Sortie terminal CLI** : NON affiché (le terminal reste propre pour l'usage interactif).
 
-Le consommateur principal est perf-lint, qui importe les findings runtime depuis la sortie JSON de perf-sentinel et applique un multiplicateur de sévérité basé sur la confiance. Voir `docs/FR/INTEGRATION-FR.md` pour l'exemple d'intégration.
+Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil tiers qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` pour l'exemple d'intégration.

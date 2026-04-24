@@ -54,7 +54,7 @@ The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io
 
 ### JSON stability contract
 
-The enum values (`healthy`, `moderate`, `high`, `critical`) are **stable across versions**. Downstream consumers (SARIF, Grafana, perf-lint, etc.) can safely branch on these labels.
+The enum values (`healthy`, `moderate`, `high`, `critical`) are **stable across versions**. Downstream consumers (SARIF, Grafana, planned IDE integrations such as perf-lint, etc.) can safely branch on these labels.
 
 The **numeric thresholds** behind the labels are **versioned with the binary**. They may evolve as we gather real usage data. This mirrors the existing pattern where `co2.model` evolves across `io_proxy_v1 → v2 → v3` without breaking consumers who just want to know which model was used.
 

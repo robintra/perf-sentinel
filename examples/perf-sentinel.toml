@@ -167,7 +167,9 @@ max_payload_size = 1048576
 # Deployment environment stamped on every finding as `confidence`:
 # - "staging"    → `daemon_staging`    (medium confidence, default)
 # - "production" → `daemon_production` (high confidence)
-# Consumed by perf-lint (IDE integration) to boost or reduce severity.
+# Consumed by downstream tooling. The `confidence` value is designed for
+# a future IDE companion (perf-lint, planned) that will surface
+# production-observed findings louder than CI-observed ones.
 environment = "staging"
 
 # Optional TLS for OTLP gRPC and HTTP listeners. Both fields must be
