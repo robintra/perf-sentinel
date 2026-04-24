@@ -127,17 +127,84 @@ perf-sentinel:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
       allow_failure: true
 
+# Free-tier compatible alternative: single Pages deployment on the
+# default branch only. Publishes baseline.json AND an interactive
+# HTML snapshot at the project Pages root. No per-MR deployment
+# (pages.path_prefix requires Premium or Ultimate, see the note in
+# docs/INTEGRATION.md "Interactive report via GitLab Pages"). Use
+# this block on gitlab.com Free tier or any self-hosted GitLab
+# without the multi-deployment feature flag.
+#
+# Trade-off: MR reviewers see the trunk snapshot of the report, not
+# their own MR's analysis. Still useful as a trend dashboard. Pick
+# the path_prefix block below instead if you have Premium or
+# Ultimate for per-MR interactive reports.
+#
+# Uncomment the whole block to enable. Pick either this block OR the
+# path_prefix block below, not both (they would fight over the root
+# deployment).
+#
+# perf-sentinel-pages-simple:
+#   stage: perf-sentinel
+#   image: debian:bookworm-slim
+#   # Same trace-file dependency as the main `perf-sentinel` job.
+#   # Uncomment one of the two forms below once your integration-test
+#   # job exists, matching what you chose on the main job.
+#   # dependencies:
+#   #   - integration-tests
+#   # needs:
+#   #   - integration-tests
+#   before_script:
+#     - apt-get update && apt-get install -y --no-install-recommends curl ca-certificates
+#     - |
+#       set -euo pipefail
+#       BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+#       curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+#       curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+#       grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+#       mkdir -p "${CI_PROJECT_DIR}/bin"
+#       install -m 0755 perf-sentinel-linux-amd64 "${CI_PROJECT_DIR}/bin/perf-sentinel"
+#       "${CI_PROJECT_DIR}/bin/perf-sentinel" --version
+#   script:
+#     - |
+#       set -euo pipefail
+#       mkdir -p public/perf-sentinel-reports
+#       # One pass writes both artifacts:
+#       # - public/index.html is the interactive HTML landing,
+#       # - public/perf-sentinel-reports/baseline.json is the baseline
+#       #   kept for any tool that wants to consume it downstream.
+#       "${CI_PROJECT_DIR}/bin/perf-sentinel" report \
+#         --input "${PERF_SENTINEL_TRACES}" \
+#         --config "${PERF_SENTINEL_CONFIG}" \
+#         --output public/index.html
+#       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
+#         --input "${PERF_SENTINEL_TRACES}" \
+#         --config "${PERF_SENTINEL_CONFIG}" \
+#         --format json \
+#         > public/perf-sentinel-reports/baseline.json
+#   artifacts:
+#     paths: [public]
+#   # `pages: true` opts a non-`pages`-named job into becoming the
+#   # project's Pages job. See https://docs.gitlab.com/ee/ci/yaml/#pages
+#   pages: true
+#   environment:
+#     name: pages/default
+#     url: "${CI_PAGES_URL}"
+#   rules:
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
 # Optional: publish an interactive HTML report on GitLab Pages, one
 # deployment per merge request, plus a baseline on the default branch.
 # The sticky "View deployment" button on the MR UI opens the report
-# directly. Requires GitLab 17.9 or later for pages.path_prefix with
-# dynamic variables. Ref:
+# directly. Requires GitLab 17.9 or later AND Premium or Ultimate tier
+# for pages.path_prefix with dynamic variables. Ref:
 # https://docs.gitlab.com/user/project/pages/#create-multiple-deployments
 #
-# Uncomment the whole block to enable. Works out of the box on
-# gitlab.com (Pages enabled by default) and on self-hosted GitLab
-# 17.9+ with Pages enabled by the admin. See docs/INTEGRATION.md
-# "Interactive report via GitLab Pages" for the full setup.
+# Uncomment the whole block to enable. Works on gitlab.com Premium or
+# Ultimate, and on self-hosted GitLab 17.9+ with Pages enabled by the
+# admin. For Free tier, use the perf-sentinel-pages-simple block above
+# instead. See docs/INTEGRATION.md "Interactive report via GitLab
+# Pages" for the full setup.
 #
 # perf-sentinel-pages:
 #   stage: perf-sentinel
@@ -169,8 +236,13 @@ perf-sentinel:
 #         # run so the Diff tab of the HTML report has a trunk baseline.
 #         # Silent 404 fallback: the report still renders without the
 #         # Diff tab when no baseline exists yet.
+#         # Strip the MR path prefix: baseline lives at the project Pages
+#         # root (empty path_prefix), not under mr-<IID>/. The numeric
+#         # IID glob avoids stripping if a project slug happens to start
+#         # with "mr-".
+#         PAGES_ROOT_URL="${CI_PAGES_URL%/mr-[0-9]*}"
 #         BEFORE_ARGS=()
-#         if curl -sSLf -o baseline.json "${CI_PAGES_URL}/perf-sentinel-reports/baseline.json"; then
+#         if curl -sSLf -o baseline.json "${PAGES_ROOT_URL}/perf-sentinel-reports/baseline.json"; then
 #           BEFORE_ARGS=(--before baseline.json)
 #         fi
 #         "${CI_PROJECT_DIR}/bin/perf-sentinel" report \
@@ -194,7 +266,9 @@ perf-sentinel:
 #     expire_in: 30 days
 #   environment:
 #     name: "${PAGES_ENV_NAME}"
-#     url: "${CI_PAGES_URL}/${PAGES_PATH_PREFIX}"
+#     # CI_PAGES_URL already carries the active path_prefix at runtime.
+#     # See https://docs.gitlab.com/ee/ci/variables/predefined_variables.html#ci_pages_url
+#     url: "${CI_PAGES_URL}"
 #   rules:
 #     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 #       variables:

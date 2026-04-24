@@ -963,56 +963,87 @@ growth.
 ### Interactive report via GitLab Pages
 
 Equivalent to the GitHub Pages path above, adapted to GitLab's native
-"View deployment" button on the merge request UI. One deployment per
-MR under a path prefix `mr-<IID>`, one baseline refreshed on every
-push to the default branch. Requires GitLab 17.9 or later for
-[dynamic path prefixes on Pages deployments](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments).
+deployment surface. Two template blocks are provided in
+[`docs/ci-templates/gitlab-ci.yml`](./ci-templates/gitlab-ci.yml),
+pick the one matching your GitLab tier.
 
-Clicking "View deployment" on the MR sidebar opens the report at
-`${CI_PAGES_URL}/mr-<IID>/`. The Diff tab is the default landing
-view when a baseline is available, the Findings list otherwise.
+**Tier note**. The per-MR deployment mode (`pages.path_prefix`) is
+documented as [Experiment, Tier: Premium or
+Ultimate](https://docs.gitlab.com/user/project/pages/#create-multiple-deployments),
+and is not available on gitlab.com Free. On Free, the MR deployment
+appears successful in the environments list but is not actually
+served. A Free-tier compatible fallback is provided alongside.
 
-**Setup** (opt-in, requires GitLab Pages on the project):
+| Block | Tier | Behavior |
+| --- | --- | --- |
+| `perf-sentinel-pages-simple` | Free | Single deployment on the default branch. Publishes the trunk snapshot of the report AND the baseline JSON at the project Pages root. MR reviewers see the trunk view, not their own MR's analysis. |
+| `perf-sentinel-pages` | Premium or Ultimate | One deployment per MR under path prefix `mr-<IID>`, 30-day auto-expiry via `expire_in`. Baseline on the default branch at the Pages root. Native "View deployment" button on the MR UI. |
 
-1. Confirm GitLab 17.9 or later, or gitlab.com (always up to date).
-2. Enable GitLab Pages under `Settings -> Pages` if not already on.
-3. Uncomment the `perf-sentinel-pages` job at the bottom of
+Pick either block, not both (they would fight over the root deployment).
+
+**Setup** (opt-in, requires GitLab Pages enabled on the project):
+
+1. Enable GitLab Pages under `Settings -> Pages` if not already on.
+2. Uncomment exactly one block in
    [`docs/ci-templates/gitlab-ci.yml`](./ci-templates/gitlab-ci.yml).
-   It runs in the same `perf-sentinel` stage and reuses the
+   Both run in the `perf-sentinel` stage and reuse
    `PERF_SENTINEL_VERSION / PERF_SENTINEL_TRACES / PERF_SENTINEL_CONFIG`
-   variables already declared for the main job.
+   already declared for the main job.
+3. For `perf-sentinel-pages`, confirm GitLab 17.9 or later. Not
+   required for `perf-sentinel-pages-simple`.
 
-The job differentiates two trigger paths via its `rules:` block:
+**Behavior of `perf-sentinel-pages` (Premium or Ultimate)**. The job
+differentiates two trigger paths via its `rules:` block:
 
 - **On merge request** (`$CI_PIPELINE_SOURCE == "merge_request_event"`),
-  fetches the trunk baseline from
-  `${CI_PAGES_URL}/perf-sentinel-reports/baseline.json` (silent 404
-  fallback when absent), produces `public/index.html` via
+  fetches the trunk baseline from the project Pages root (strips the
+  MR prefix from `CI_PAGES_URL` via `${CI_PAGES_URL%/mr-[0-9]*}`,
+  silent 404 fallback when absent), produces `public/index.html` via
   `perf-sentinel report --output public/index.html`, deploys with
   `path_prefix: "mr-${CI_MERGE_REQUEST_IID}"` and
-  `pages.expire_in: 30 days`. The `environment.url` on the job
-  points to `${CI_PAGES_URL}/mr-<IID>/`, so the "View deployment"
-  button renders on the MR UI alongside production / staging
-  environments.
+  `pages.expire_in: 30 days`. `environment.url` points to the active
+  `${CI_PAGES_URL}`, which GitLab resolves to the MR-scoped deployment
+  URL at runtime.
 - **On push to the default branch**, produces
   `public/perf-sentinel-reports/baseline.json` via
   `perf-sentinel analyze --format json`, deploys with an empty
   `path_prefix` so the file lands at the site root and future MR
   deployments can fetch it.
 
-**Retention** is handled natively by GitLab via `pages.expire_in`,
-so no cleanup workflow is needed. Closed MRs lose their `mr-<IID>/`
-deployment automatically 30 days after the last push.
+**Behavior of `perf-sentinel-pages-simple` (Free)**. Runs only on the
+default branch. Writes both `public/index.html` (the interactive
+trunk snapshot) and `public/perf-sentinel-reports/baseline.json` in
+one pass, then deploys a single Pages site at the project root.
 
-**Storage footprint** is equivalent to the GitHub Pages path, a
-typical report is 80 to 150 KB and a baseline JSON is 10 to 50 KB.
-With retention active, only open MRs plus the current baseline
-consume space.
+**Retention**. `perf-sentinel-pages` delegates retention to GitLab.
+Parallel deployments are deleted immediately when the MR is closed or
+merged. The `pages.expire_in: 30 days` on the template is a backstop
+for stale-open MRs (GitLab's default is 24 hours when unset, which we
+widen so a long-running MR keeps its live report). Setting
+`expire_in: never` disables time-based expiry entirely and relies on
+close/merge events only. Use `never` only if your team reliably closes
+or merges MRs, otherwise abandoned MRs accumulate until the quota cap
+kicks in. `perf-sentinel-pages-simple` has no retention concern, it
+keeps a single deployment that is overwritten on every default-branch
+push.
+
+**Quota**. gitlab.com allows up to 100 additional parallel deployments
+on Premium and 500 on Ultimate, tracked per namespace on top of the
+main deployment. Self-managed instances expose the limit through admin
+configuration. `perf-sentinel-pages-simple` is a single deployment,
+not subject to this cap. For projects running near the cap on
+`perf-sentinel-pages`, `expire_in` can be lowered or MRs should be
+closed/merged promptly to release slots.
+
+**Storage footprint**. A typical report is 80 to 150 KB and a
+baseline JSON is 10 to 50 KB. With retention active on the
+Premium path, only open MRs plus the current baseline consume space.
+The Free path stores a single deployment.
 
 **Dependencies**. No third-party GitLab CI component. The job uses
-`curl` to install the pinned perf-sentinel release binary and
-`GitLab Pages` built-in keyword for deployment. No deploy token or
-runner token beyond the default `CI_JOB_TOKEN` is required.
+`curl` to install the pinned perf-sentinel release binary and the
+built-in `pages:` keyword for deployment. No deploy token or runner
+token beyond the default `CI_JOB_TOKEN` is required.
 
 ### Interactive report via Jenkins HTML Publisher
 
