@@ -6,6 +6,18 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.6]
+
+### Changed
+
+- Artifact Hub-facing `README.md` refreshed: the "Install from a local
+  checkout" section no longer claims an OCI-published chart is pending,
+  since OCI publication has been live since 0.2.0. The section now
+  frames local-checkout install as the path for iterating on values or
+  templates, and points to `docs/HELM-DEPLOYMENT.md` and the Artifact
+  Hub badge for the OCI install. No `appVersion` or image tag change,
+  the chart keeps pointing at `ghcr.io/robintra/perf-sentinel:0.5.3`.
+
 ## [0.2.5]
 
 ### Added
