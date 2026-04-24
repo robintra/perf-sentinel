@@ -71,14 +71,14 @@ perf-sentinel:
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format sarif \
-        --output findings.sarif
+        > findings.sarif
     # JSON report for downstream tooling and the Code Quality conversion.
     - |
       "${CI_PROJECT_DIR}/bin/perf-sentinel" analyze \
         --input "${PERF_SENTINEL_TRACES}" \
         --config "${PERF_SENTINEL_CONFIG}" \
         --format json \
-        --output perf-sentinel-report.json || true
+        > perf-sentinel-report.json || true
     # Convert findings to GitLab Code Quality format. GitLab expects an array
     # of {description, fingerprint, severity, location.path, location.lines}.
     # Note: code_location field names match the v0.4.1 stable contract

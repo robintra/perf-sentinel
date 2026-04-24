@@ -71,7 +71,7 @@ jobs:
             --input "${PERF_SENTINEL_TRACES}" \
             --config "${PERF_SENTINEL_CONFIG}" \
             --format json \
-            --output baseline.json
+            > baseline.json
 
       - name: Checkout gh-pages worktree
         # The report is pushed to gh-pages via plain git, not a

@@ -124,7 +124,7 @@ jobs:
             --input "${PERF_SENTINEL_TRACES}" \
             --config "${PERF_SENTINEL_CONFIG}" \
             --format sarif \
-            --output findings.sarif
+            > findings.sarif
           echo "exit_code=$?" >> "${GITHUB_OUTPUT}"
 
       - name: Upload SARIF to GitHub Code Scanning
@@ -199,7 +199,7 @@ jobs:
             --input "${PERF_SENTINEL_TRACES}" \
             --config "${PERF_SENTINEL_CONFIG}" \
             --format json \
-            --output report.json || true
+            > report.json || true
           {
             # Prepend the interactive report link when the HTML was
             # produced (i.e. the Pages blocks above are uncommented).
