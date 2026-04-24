@@ -296,7 +296,10 @@ jobs:
           if [ -z "${body}" ]; then
             body="Release notes for chart version ${v}. See charts/perf-sentinel/CHANGELOG.md."
           fi
-          printf '%s\n' "${body}" > /tmp/release-body.md
+          # Strip leading blank lines so the rendered release body starts
+          # on the first content line, not on the blank line that follows
+          # the `## [X.Y.Z]` CHANGELOG header.
+          printf '%s\n' "${body}" | sed '/./,$!d' > /tmp/release-body.md
           # Standing pointer so readers can jump from the GitHub Release
           # to the chart's public Artifact Hub page in one click.
           printf '\n---\n\nView this release on [Artifact Hub](https://artifacthub.io/packages/helm/perf-sentinel/perf-sentinel).\n' >> /tmp/release-body.md
