@@ -36,11 +36,22 @@ on:
     branches: [ main ]
   push:
     branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: read
   security-events: write   # required for github/codeql-action/upload-sarif
   pull-requests: write     # required to comment on PRs
+
+concurrency:
+  # Shared with perf-sentinel-baseline.yml and
+  # perf-sentinel-report-cleanup.yml so all three workflows that push
+  # to gh-pages serialize through one lock. Prevents the 3-way race
+  # where three PRs closed in the same minute overwrite each other on
+  # push. cancel-in-progress: false so an in-flight publish runs to
+  # completion.
+  group: gh-pages-deploy
+  cancel-in-progress: false
 
 jobs:
   perf-sentinel:
@@ -129,7 +140,7 @@ jobs:
 
       - name: Upload SARIF to GitHub Code Scanning
         if: always() && hashFiles('findings.sarif') != ''
-        uses: github/codeql-action/upload-sarif@4dd16135b69a43b6c8efb853346f8437d92d3c93 # v3.26.6
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: findings.sarif
           category: perf-sentinel
@@ -230,8 +241,18 @@ jobs:
           } > pr-comment.md
 
       - name: Post PR comment
+        # Fork PRs receive a read-only GITHUB_TOKEN regardless of the
+        # workflow's permissions: block, so
+        # marocchino/sticky-pull-request-comment fails with "Resource
+        # not accessible by integration". We tolerate that failure to
+        # keep the build green, at the price of no sticky comment on
+        # fork PRs. SARIF upload still runs, reviewers see findings in
+        # the Checks UI. Projects that need the sticky comment on fork
+        # PRs should migrate to the pull_request_target + workflow_run
+        # split. See docs/INTEGRATION.md "Fork PR limitations".
         if: github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
-        uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           header: perf-sentinel
           path: pr-comment.md

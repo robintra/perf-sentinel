@@ -895,6 +895,16 @@ Les rapports sont des HTML single-file auto-contenus avec routing par
 hash, donc partager un finding précis revient à copier l'URL depuis
 la barre d'adresse.
 
+**Tier GitHub Pages requis**. Sur un compte GitHub Free personnel,
+Pages n'est disponible que pour les dépôts publics. Les dépôts privés
+nécessitent GitHub Pro, Team ou Enterprise Cloud. Voir
+[les plans GitHub](https://docs.github.com/en/get-started/learning-about-github/githubs-products)
+pour la liste à jour. Activer Pages sur un dépôt privé avec un compte
+Free laisse le push de branche réussir, mais Pages sert du 404 en
+permanence sans erreur dans le log Actions. Il faut soit upgrader le
+compte, soit rendre le dépôt public, soit sauter le bloc Pages et
+rester sur le mode SARIF + sticky comment markdown.
+
 **Mise en place** (opt-in, nécessite GitHub Pages sur le dépôt) :
 
 1. Créer une branche `gh-pages` vide dans le dépôt (bootstrap standard
@@ -930,6 +940,37 @@ compare toujours les traces de la PR contre le dernier état mergé.
 Si GitHub Pages n'est pas activé, le template retombe sur le sticky
 comment markdown seulement. Aucun changement de comportement pour les
 adoptants existants.
+
+**Limitations des PRs fork**. Le step `Post PR comment` est marqué
+`continue-on-error: true` parce que les PRs fork reçoivent un
+`GITHUB_TOKEN` read-only quelles que soient les `permissions:`
+déclarées au niveau workflow. Sans la tolérance, chaque PR fork
+ferait passer le CI en rouge au step sticky-comment même quand le
+reste de la pipeline a réussi. Avec la tolérance en place, les PRs
+fork uploadent quand même leur SARIF dans l'onglet Security et l'UI
+Checks montre le résultat du quality gate, mais aucun sticky comment
+n'apparaît dans la conversation de la PR. Les PRs internes au même
+dépôt (contributeurs internes, même org) gardent l'expérience
+complète, sticky comment inclus. Les projets pour qui le sticky
+comment sur PRs fork est un requis dur doivent migrer vers le
+pattern `pull_request_target` + `workflow_run` documenté par
+[GitHub Security Lab](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
+Ce pattern sépare la pipeline en un workflow read-only qui build et
+upload des artefacts, et un workflow write-enabled déclenché par
+`workflow_run` qui download ces artefacts et poste le commentaire.
+Il n'est pas le défaut du template parce qu'il double la surface YAML
+et demande un passage d'artefacts soigné, pas proportionné pour un
+template starter.
+
+**Trade-off de concurrency**. Le guard `concurrency.group:
+gh-pages-deploy` sérialise les runs de ce workflow avec les workflows
+baseline et cleanup, pour que trois PRs fermées dans la même minute
+ne se marchent pas dessus sur gh-pages. Comme le guard est déclaré
+au niveau workflow, il sérialise aussi les runs qui ne toucheraient
+pas Pages (par exemple quand les blocs Pages sont commentés). Les
+dépôts à fort débit de PRs peuvent splitter les étapes Pages dans un
+job dédié et restreindre la concurrency à ce job. Sauté ici pour
+garder le template compact.
 
 **Dépendances**. Le deploy utilise du `git` en clair contre la branche
 `gh-pages`, authentifié par le `GITHUB_TOKEN` intégré et la permission
@@ -1284,7 +1325,7 @@ jobs:
 
       - name: Uploader le SARIF
         if: hashFiles('diff.sarif') != ''
-        uses: github/codeql-action/upload-sarif@4dd16135b69a43b6c8efb853346f8437d92d3c93 # v3.26.6
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: diff.sarif
           category: perf-sentinel-diff
@@ -1302,7 +1343,7 @@ jobs:
             echo "- $REGRESSIONS régression(s) de sévérité"
           } > pr-comment.md
 
-      - uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
+      - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           header: perf-sentinel-diff
           path: pr-comment.md

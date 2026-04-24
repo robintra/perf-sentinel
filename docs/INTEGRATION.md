@@ -909,6 +909,16 @@ The reports are self-contained single-file HTML with deep-link hash
 routing, so sharing a specific finding is as simple as copying the
 URL from the address bar.
 
+**GitHub Pages tier requirement**. On a personal GitHub Free account,
+Pages is only available for public repositories. Private repositories
+need GitHub Pro, Team, or Enterprise Cloud. See
+[GitHub's plans](https://docs.github.com/en/get-started/learning-about-github/githubs-products)
+for the current list. If you try to enable Pages on a private repo
+with a Free account, the branch push succeeds but Pages serves 404
+permanently with no error in the Actions log. Either upgrade the
+account, make the repository public, or skip the Pages block and stay
+on the SARIF + markdown sticky comment mode.
+
 **Setup** (opt-in, requires GitHub Pages on the repository):
 
 1. Create an empty `gh-pages` branch in the repo (one-time, standard
@@ -944,6 +954,35 @@ always compares the PR's traces against the latest merged state.
 If GitHub Pages is not enabled, the template falls back to the
 markdown-only sticky comment. No behaviour change for existing
 adopters.
+
+**Fork PR limitations**. The `Post PR comment` step is marked
+`continue-on-error: true` because fork PRs receive a read-only
+`GITHUB_TOKEN` regardless of the workflow's `permissions:` block.
+Without the tolerance, every fork PR would turn the CI red at the
+sticky-comment step even when the rest of the pipeline succeeded.
+With the tolerance in place, fork PRs still upload SARIF findings to
+the Security tab and the Checks UI shows the quality gate result, but
+no sticky comment appears on the PR conversation. Same-repo PRs
+(internal contributors, same org) keep the full experience, sticky
+comment included. Projects where the sticky comment on fork PRs is a
+hard requirement should migrate to the `pull_request_target` +
+`workflow_run` split documented by [GitHub Security Lab](https://securitylab.github.com/research/github-actions-preventing-pwn-requests/).
+That pattern splits the pipeline into a read-only workflow that
+builds and uploads artifacts and a write-enabled workflow triggered
+by `workflow_run` that downloads those artifacts and posts the
+comment. It is not the default in this template because it doubles
+the YAML surface and needs careful artifact passing, not proportional
+for a getting-started template.
+
+**Concurrency trade-off**. The `concurrency.group: gh-pages-deploy`
+guard serializes runs of this workflow against the baseline and
+cleanup workflows, so three PRs closed in the same minute cannot
+race each other on gh-pages. Because the guard is declared at
+workflow scope, it also serializes runs that would not touch Pages
+(for example when the Pages blocks are commented out). Repositories
+with heavy PR throughput can split the Pages-related steps into a
+dedicated job and narrow the concurrency to that job only. Skipped
+here to keep the template compact.
 
 **Dependencies**. The deploy uses plain `git` against the `gh-pages`
 branch, authenticated with the built-in `GITHUB_TOKEN` and the
@@ -1288,7 +1327,7 @@ jobs:
 
       - name: Upload SARIF
         if: hashFiles('diff.sarif') != ''
-        uses: github/codeql-action/upload-sarif@4dd16135b69a43b6c8efb853346f8437d92d3c93 # v3.26.6
+        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
         with:
           sarif_file: diff.sarif
           category: perf-sentinel-diff
@@ -1306,7 +1345,7 @@ jobs:
             echo "- $REGRESSIONS severity regression(s)"
           } > pr-comment.md
 
-      - uses: marocchino/sticky-pull-request-comment@331f8f5b4215f0445d3c07b4967662a32a2d3e31 # v2.9.0
+      - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           header: perf-sentinel-diff
           path: pr-comment.md

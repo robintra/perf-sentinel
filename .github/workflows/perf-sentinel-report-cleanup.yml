@@ -11,9 +11,18 @@ name: perf-sentinel report cleanup (dogfood)
 on:
   pull_request:
     types: [ closed ]
+  workflow_dispatch:
 
 permissions:
   contents: write   # required to push to gh-pages
+
+concurrency:
+  # Shared with github-actions.yml and perf-sentinel-baseline.yml so
+  # all three workflows that push to gh-pages serialize through one
+  # lock. cancel-in-progress: false so an in-flight cleanup runs to
+  # completion.
+  group: gh-pages-deploy
+  cancel-in-progress: false
 
 jobs:
   cleanup:

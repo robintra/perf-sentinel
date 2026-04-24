@@ -90,7 +90,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --message-format=json > clippy-report.json || true
 
       - name: Install clippy-sarif and sarif-fmt
-        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -111,7 +111,7 @@ jobs:
         run: cargo test --workspace
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        uses: taiki-e/install-action@787505cde8a44ea468a00478fe52baf23b15bccd # v2.75.21
         with:
           tool: cargo-llvm-cov
 
