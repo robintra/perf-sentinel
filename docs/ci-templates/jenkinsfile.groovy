@@ -78,17 +78,28 @@ pipeline {
             }
         }
 
-        stage('Quality gate') {
+        stage('Quality gate (PR only)') {
+            // Philosophy: the gate blocks when the build was triggered
+            // by a pull request so the developer still has a chance
+            // to fix before merge, but never blocks a branch build.
+            // The archived SARIF + Warnings NG publication below
+            // carry the signal for trunk runs. A red pipeline on
+            // main would only keep the default branch red,
+            // demotivate the team, and eventually push them to
+            // disable this stage. `env.CHANGE_ID` is set by
+            // MultiBranch Pipeline only for pull-request builds.
+            when { expression { env.CHANGE_ID != null } }
             steps {
-                // Re-run with --ci to enforce thresholds. Exit code 1 fails
-                // the stage; the pipeline goes red.
+                // Re-run with --ci to enforce thresholds. Exit code
+                // 1 fails the stage and the build goes red. On branch
+                // builds (env.CHANGE_ID == null) this stage is
+                // skipped and the build stays green.
                 sh '''
                     set -euo pipefail
                     ./perf-sentinel analyze \\
                         --ci \\
                         --input ${PERF_SENTINEL_TRACES} \\
-                        --config ${PERF_SENTINEL_CONFIG} \\
-                        --format json > /dev/null
+                        --config ${PERF_SENTINEL_CONFIG}
                 '''
             }
         }
@@ -100,10 +111,10 @@ pipeline {
                 artifacts: 'perf-sentinel-report.json, perf-sentinel-results.sarif, target/traces.json',
                 allowEmptyArchive: true
             )
-            // Publish SARIF via Warnings NG. Duplicates the perf-sentinel
-            // gate as a defense-in-depth measure: if the SARIF lists any
-            // ERROR-level issue, the build is marked FAILURE even when the
-            // earlier --ci stage was somehow skipped.
+            // Publish SARIF via Warnings NG. On pull-request builds
+            // the attached qualityGates also fails the build on any
+            // ERROR-level issue, providing defense-in-depth for the
+            // perf-sentinel --ci stage.
             recordIssues(
                 tools: [
                     sarif(
@@ -112,9 +123,13 @@ pipeline {
                         name: 'perf-sentinel'
                     )
                 ],
-                qualityGates: [
+                // Philosophy: the Warnings NG quality gate only
+                // activates on pull-request builds. On branch builds
+                // the SARIF is still published for dashboarding but
+                // does not fail the pipeline.
+                qualityGates: env.CHANGE_ID != null ? [
                     [threshold: 1, type: 'TOTAL_ERROR', criticality: 'FAILURE']
-                ]
+                ] : []
             )
         }
     }

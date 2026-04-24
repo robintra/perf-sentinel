@@ -842,18 +842,51 @@ path) and you are done.
 
 ### Quality-gate philosophy
 
-All three templates run `perf-sentinel analyze --ci` as the gating step. The
-`--ci` flag does one thing: when any threshold defined in
-`[thresholds]` of `.perf-sentinel.toml` is breached, the process exits with
-code `1`. The CI provider then turns that into a red build, which is the
-signal you want on a pull request.
+All three templates run `perf-sentinel analyze --ci` as the gating
+step. The `--ci` flag does one thing: when any threshold defined in
+`[thresholds]` of `.perf-sentinel.toml` is breached, the process exits
+with code `1`. The three templates then translate that exit code into
+a build outcome that depends on **which trigger** started the run:
 
-The recommended setup runs perf-sentinel **twice** in the same job: once
-without `--ci` to always produce a SARIF artifact (so reviewers can inspect
-findings even when the gate fails) and once with `--ci` to enforce the
-gate. The Jenkins and GitLab templates do this explicitly. The GitHub
-template uses `continue-on-error` to achieve the same effect in a single
-invocation.
+- **On a pull request**: the gate blocks. A red build on a PR is the
+  signal the author needs to fix the finding before merge. This is
+  the moment in the workflow where the cost of correction is lowest,
+  the author is still in context and the code is not yet on trunk.
+- **On a push to trunk (default branch)**: the gate is informational
+  only. The SARIF is still uploaded to Code Scanning / the Code
+  Quality widget / Warnings NG, so dashboards and trend analysis
+  keep working, but the build stays green. Once the PR has been
+  accepted and merged, the developer is the one who decides when
+  and what ships to production. perf-sentinel should not stand
+  between a merged commit and a release.
+
+This split avoids a common failure mode of PR-gates that also
+enforce on trunk: main stays red for longer than intended, the team
+works around it, and the tool eventually gets disabled.
+
+The recommended setup runs perf-sentinel **twice** in the same job:
+once without `--ci` to always produce a SARIF artifact (so reviewers
+can inspect findings even when the gate fails) and once with `--ci`
+to enforce the gate. The Jenkins and GitLab templates do this
+explicitly. The GitHub template uses `continue-on-error` to achieve
+the same effect in a single invocation.
+
+Per-provider mechanics for the PR-vs-trunk split:
+
+- **GitHub Actions** splits the enforcement into two steps. The PR
+  step runs when `github.event_name == 'pull_request'` and calls
+  `exit 1` on breach. The trunk step runs on the push trigger and
+  emits a `::warning::` annotation without failing the job.
+- **GitLab CI** uses `allow_failure: true` on the
+  `$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH` rule. The job still
+  runs and still returns exit code 1 on breach, but the pipeline
+  badge stays green and the job appears with a yellow warning icon.
+- **Jenkins** uses a `when { expression { env.CHANGE_ID != null } }`
+  guard on the `Quality gate (PR only)` stage. `CHANGE_ID` is
+  populated by MultiBranch Pipeline only on pull-request builds. On
+  branch builds the stage is skipped entirely. The Warnings NG
+  `qualityGates` is also made conditional on `CHANGE_ID` so the
+  post-block does not re-introduce blocking on trunk.
 
 ### Where SARIF surfaces in each provider
 

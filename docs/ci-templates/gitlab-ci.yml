@@ -115,6 +115,14 @@ perf-sentinel:
     reports:
       codequality: gl-code-quality-report.json
     expire_in: 1 week
+  # Philosophy: the gate blocks a merge request so the developer
+  # still has a chance to fix before merge, but never blocks a
+  # pipeline on the default branch. Code Quality widget + SARIF
+  # artifact carry the signal for trunk runs. A red pipeline on
+  # main would only keep the default branch red, demotivate the
+  # team, and eventually push them to disable this job.
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      allow_failure: false
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      allow_failure: true

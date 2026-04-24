@@ -33,9 +33,9 @@ name: perf-sentinel
 
 on:
   pull_request:
-    branches: [main]
+    branches: [ main ]
   push:
-    branches: [main]
+    branches: [ main ]
 
 permissions:
   contents: read
@@ -138,8 +138,23 @@ jobs:
           header: perf-sentinel
           path: pr-comment.md
 
-      - name: Enforce quality gate
-        if: steps.analyze.outcome == 'failure'
+      - name: Enforce quality gate (PR only)
+        # Philosophy: the gate blocks on PRs so the developer still
+        # has a chance to fix before merge, but never blocks a push
+        # to trunk. The SARIF upload and PR comment above already
+        # carry the signal. Exit 1 on trunk would only keep main
+        # red, demotivate the team, and eventually push them to
+        # disable the workflow.
+        if: steps.analyze.outcome == 'failure' && github.event_name == 'pull_request'
         run: |
-          echo "::error::perf-sentinel quality gate failed. See SARIF findings in the Security tab."
+          echo "::error::perf-sentinel quality gate failed. See SARIF findings in the Security tab and the PR comment above."
           exit 1
+
+      - name: Report quality gate outcome (trunk)
+        # Surface the gate outcome on trunk as a warning, without
+        # failing the run. The workflow stays green. The SARIF
+        # upload still feeds Code Scanning for dashboarding and
+        # trend analysis.
+        if: steps.analyze.outcome == 'failure' && github.event_name == 'push'
+        run: |
+          echo "::warning::perf-sentinel quality gate would have failed on trunk. This is informational only and the workflow stays green. See SARIF findings in the Security tab."
