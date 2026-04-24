@@ -6,6 +6,15 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.5]
+
+### Added
+
+- `artifacthub.io/official: "true"` annotation on `Chart.yaml` so the
+  chart can claim the Artifact Hub "Official" badge. The annotation
+  alone does not flip the badge, Artifact Hub staff validate ownership
+  before it activates.
+
 ## [0.2.3]
 
 ### Changed
