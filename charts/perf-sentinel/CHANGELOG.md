@@ -27,6 +27,21 @@ the default target.
   alone does not flip the badge, Artifact Hub staff validate ownership
   before it activates.
 
+## [0.2.4]
+
+### Changed
+
+- Chart `description` and Artifact Hub-facing `README.md` intro now
+  read "distributed traces" instead of "OpenTelemetry traces",
+  reflecting that perf-sentinel also ingests Jaeger, Zipkin, Tempo and
+  pg_stat_statements feeds, not only OTLP.
+- `[daemon] environment` row in the "Chart at a glance" table rewords
+  the `confidence` tag description: consumed by downstream tooling,
+  with perf-lint called out as a planned companion IDE integration
+  (not yet published, dead GitHub link removed).
+- No `appVersion` or image tag change, the chart keeps pointing at
+  `ghcr.io/robintra/perf-sentinel:0.5.3`.
+
 ## [0.2.3]
 
 ### Changed
