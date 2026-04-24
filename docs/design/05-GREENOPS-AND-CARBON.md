@@ -342,7 +342,7 @@ Each profile's arithmetic mean approximates the corresponding flat annual value 
 
 Sources: Electricity Maps annual open-data reports (2023-2024 typical diurnal shapes by zone), ENTSO-E Transparency Platform (European grid composition and demand curves), RTE eco2mix daily data (France), Fraunhofer ISE Energy-Charts (Germany), NGESO carbonintensity.org.uk (UK), EIA hourly generation data (US-East).
 
-The table intentionally does **not** embed monthly profiles (24x12). The additional 12x data for seasonal variance provides marginal accuracy gain compared to the complexity cost. The `IntensitySource` tag already distinguishes annual vs hourly, so extending to monthly in a future sprint would be backward-compatible.
+The table intentionally does **not** embed monthly profiles (24x12). The additional 12x data for seasonal variance provides marginal accuracy gain compared to the complexity cost. The `IntensitySource` tag already distinguishes annual vs hourly, so extending to monthly later would be backward-compatible.
 
 The scoring path walks each span once and dispatches between three intensity sources:
 

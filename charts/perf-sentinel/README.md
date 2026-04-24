@@ -26,8 +26,10 @@ calls and excessive fanout. It also scores I/O intensity per endpoint
 
 ## Install from a local checkout
 
-While an OCI-published chart is on the roadmap (Sprint B), the current
-install path is a local chart directory:
+Installing from a local checkout is useful when iterating on a values
+file or on the chart templates. For the OCI install path (the default
+for most users), see [`docs/HELM-DEPLOYMENT.md`](../../docs/HELM-DEPLOYMENT.md)
+or the Artifact Hub badge at the top of this page.
 
 ```bash
 git clone https://github.com/robintra/perf-sentinel.git
