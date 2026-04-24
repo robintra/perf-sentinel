@@ -297,6 +297,9 @@ jobs:
             body="Release notes for chart version ${v}. See charts/perf-sentinel/CHANGELOG.md."
           fi
           printf '%s\n' "${body}" > /tmp/release-body.md
+          # Standing pointer so readers can jump from the GitHub Release
+          # to the chart's public Artifact Hub page in one click.
+          printf '\n---\n\nView this release on [Artifact Hub](https://artifacthub.io/packages/helm/perf-sentinel/perf-sentinel).\n' >> /tmp/release-body.md
 
       # Sole creator of the GitHub Release. The delete-if-exists guard
       # makes retags on the same tag idempotent (useful during RC iteration).
