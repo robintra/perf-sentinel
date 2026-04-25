@@ -9,6 +9,22 @@ Service exposing OTLP gRPC (4317) and OTLP HTTP plus `/metrics` plus
 For a non-Helm alternative, see the raw manifests in
 [`docs/INSTRUMENTATION.md`](./INSTRUMENTATION.md#kubernetes-deployment).
 
+## Contents
+
+- [TL;DR](#tldr): one-block install command.
+- [Topology](#topology): why the chart is sentinel-only by design.
+- [Install from OCI registry](#install-from-oci-registry): production install path with Cosign verification.
+- [Artifact Hub](#artifact-hub): listing and metadata.
+- [Software supply chain](#software-supply-chain): Cosign keyless signatures, SLSA provenance, SBOM, public-good attestation.
+- [Install from a local checkout](#install-from-a-local-checkout): for contributors and bisecting.
+- [Cutting a new chart release](#cutting-a-new-chart-release): release workflow and tag pattern.
+- [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
+- [Config surface](#config-surface): chart values that map to `.perf-sentinel.toml`.
+- [Observability](#observability): Prometheus ServiceMonitor and exemplars.
+- [Upgrading](#upgrading): `helm upgrade` flow.
+- [Uninstalling](#uninstalling): `helm uninstall` flow.
+- [End-to-end example](#end-to-end-example): worked example composing the chart with the upstream OpenTelemetry Collector chart.
+
 ## TL;DR
 
 ```bash

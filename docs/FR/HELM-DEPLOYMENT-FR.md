@@ -4,6 +4,22 @@ Ce guide décrit le déploiement de perf-sentinel sur Kubernetes via le chart He
 
 Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md#déploiement-kubernetes).
 
+## Sommaire
+
+- [TL;DR](#tldr) : commande d'installation en un bloc.
+- [Topologie](#topologie) : pourquoi le chart est sentinel-only par design.
+- [Installation depuis le registre OCI](#installation-depuis-le-registre-oci) : chemin d'installation production avec vérification Cosign.
+- [Artifact Hub](#artifact-hub) : référencement et métadonnées.
+- [Chaîne d'approvisionnement logicielle](#chaîne-dapprovisionnement-logicielle) : signatures Cosign keyless, provenance SLSA, SBOM, attestation public-good.
+- [Installation depuis un checkout local](#installation-depuis-un-checkout-local) : pour les contributeurs et le bisect.
+- [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : workflow de release et pattern de tag.
+- [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
+- [Surface de configuration](#surface-de-configuration) : valeurs du chart qui mappent vers `.perf-sentinel.toml`.
+- [Observabilité](#observabilité) : Prometheus ServiceMonitor et exemplars.
+- [Mise à jour](#mise-à-jour) : flux `helm upgrade`.
+- [Désinstallation](#désinstallation) : flux `helm uninstall`.
+- [Exemple bout en bout](#exemple-bout-en-bout) : exemple complet composant le chart avec le chart upstream OpenTelemetry Collector.
+
 ## TL;DR
 
 ```bash

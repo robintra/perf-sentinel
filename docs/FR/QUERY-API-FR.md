@@ -10,6 +10,15 @@ NDJSON.
 L'API a été livrée en v0.4.0. Cette page la documente comme
 surface produit de premier plan, avec un contrat de stabilité.
 
+## Sommaire
+
+- [Vue d'ensemble des endpoints](#vue-densemble-des-endpoints) : description en une ligne par endpoint.
+- [Endpoints](#endpoints) : référence complète par endpoint avec requête, réponse et exemples concrets.
+- [Réponses d'erreur](#réponses-derreur) : codes de statut et formes du body.
+- [Cas d'usage](#cas-dusage) : alerting Prometheus, panneaux Grafana custom, runbooks SRE.
+- [Contrat de stabilité](#contrat-de-stabilité) : garanties de stabilité v0.4.1+.
+- [Voir aussi](#voir-aussi) : références croisées vers les docs reliées.
+
 ## Vue d'ensemble des endpoints
 
 | Méthode | Chemin                     | Rôle                                                                           |

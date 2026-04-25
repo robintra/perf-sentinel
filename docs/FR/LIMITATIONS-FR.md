@@ -1,5 +1,35 @@
 # Limitations connues et compromis
 
+## Sommaire
+
+- [Fiabilité de la capture OTLP](#fiabilité-de-la-capture-otlp) : pourquoi perf-sentinel peut manquer des spans en tant qu'écouteur passif.
+- [Tokenizer SQL](#tokenizer-sql) : compromis du normaliseur regex vs un parseur SQL complet.
+- [Paramètres bindés des ORM et classification N+1 vs redundant](#paramètres-bindés-des-orm-et-classification-n1-vs-redundant) : impact des placeholders nommés sur la classification.
+- [Findings lents et ratio de gaspillage](#findings-lents-et-ratio-de-gaspillage) : pourquoi les findings lents ne contribuent pas au ratio de gaspillage I/O.
+- [Interprétation des scores](#interprétation-des-scores) : les bandes healthy / moderate / high / critical pour `io_intensity_score` et `io_waste_ratio`.
+- [La détection de fanout nécessite `parent_span_id`](#la-détection-de-fanout-nécessite-parent_span_id) : prérequis d'instrumentation.
+- [Détection des services bavards (chatty service)](#détection-des-services-bavards-chatty-service) : portée par-trace, HTTP uniquement.
+- [Détection de saturation du pool de connexions](#détection-de-saturation-du-pool-de-connexions) : heuristique basée sur le chevauchement des spans SQL, pas sur les métriques du pool.
+- [Détection des appels sérialisés](#détection-des-appels-sérialisés) : heuristique de niveau info sur les spans frères séquentiels.
+- [`rss_peak_bytes` sous Windows](#rss_peak_bytes-sous-windows) : pourquoi le RSS du bench est null sous Windows.
+- [Échantillonnage en mode daemon](#échantillonnage-en-mode-daemon) : conséquences de `sampling_rate < 1.0`.
+- [Nombre maximum d'événements par trace](#nombre-maximum-dévénements-par-trace) : cap du ring buffer par trace.
+- [Limites de longueur des champs à l'ingestion](#limites-de-longueur-des-champs-à-lingestion) : caps en octets appliqués à la frontière d'ingestion.
+- [Taille du binaire](#taille-du-binaire) : cible de la release et ce qui contribue à la taille.
+- [Dashboard HTML : guard formula-injection CSV](#dashboard-html--guard-formula-injection-csv) : neutralisation OWASP CSV-injection dans les CSVs exportés.
+- [Pas d'authentification (TLS disponible, auth non intégrée)](#pas-dauthentification-tls-disponible-auth-non-intégrée) : politique d'accès réseau pour les endpoints d'ingestion.
+- [Subcommands query-API : `--endpoint` est une entrée de confiance](#subcommands-query-api---endpoint-est-une-entrée-de-confiance) : surface SSRF sur `tempo` et `jaeger-query`.
+- [Précision des estimations carbone](#précision-des-estimations-carbone) : méthodologie proxy I/O vers énergie vers CO₂ et son incertitude.
+- [Corrélation cross-trace](#corrélation-cross-trace) : co-occurrence statistique, pas causalité.
+- [Attributs de code source OTel](#attributs-de-code-source-otel) : les attributs `code.*` requis pour `code_location`.
+- [API de requêtage du daemon](#api-de-requêtage-du-daemon) : pas d'auth intégrée, à gater via network policy ou reverse proxy.
+- [Ingestion automatisée pg_stat depuis Prometheus](#ingestion-automatisée-pg_stat-depuis-prometheus) : prérequis pour le flag `--prometheus`.
+- [Secrets et credentials](#secrets-et-credentials) : pattern env-var-prioritaire pour les scrapers.
+- [API Electricity Maps](#api-electricity-maps) : gestion de la clé d'API et caveats.
+- [Ingestion Tempo](#ingestion-tempo) : prérequis du format protobuf.
+- [Constante énergétique gCO2eq (section legacy)](#constante-énergétique-gco2eq-section-legacy-conservée-pour-les-références-croisées) : référence croisée vers Précision des estimations carbone.
+- [Ingestion pg_stat_statements](#ingestion-pg_stat_statements) : pas de corrélation par trace, signal hotspot complémentaire.
+
 ## Fiabilité de la capture OTLP
 
 perf-sentinel est un **écouteur passif** : il reçoit les traces transmises par les SDKs ou collecteurs OpenTelemetry. Contrairement à un agent in-process (ex. Hypersistence Utils), il ne peut pas garantir la capture de chaque span. Des spans peuvent être perdus à cause de :

@@ -2,6 +2,24 @@
 
 perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur le port 4317, HTTP sur le port 4318). Ce guide vous accompagne de zéro jusqu'à votre premier finding pour chaque topologie de déploiement.
 
+## Sommaire
+
+- [Choisissez votre topologie](#choisissez-votre-topologie) : tableau comparatif des quatre modes de déploiement supportés.
+- [Démarrage rapide : CI batch](#démarrage-rapide--ci-batch) : exécuter perf-sentinel depuis un pipeline CI contre un fixture de traces.
+- [Démarrage rapide : collector central](#démarrage-rapide--collector-central) : déploiement production via OpenTelemetry Collector.
+- [Démarrage rapide : sidecar](#démarrage-rapide--sidecar) : debug d'un seul service en dev ou staging.
+- [Démarrage rapide : daemon direct](#démarrage-rapide--daemon-direct) : développement local.
+- [Pour aller plus loin](#pour-aller-plus-loin) : pointeurs vers INSTRUMENTATION-FR.md et CI-FR.md pour les sujets côté application et côté CI.
+- [Formats d'ingestion](#formats-dingestion) : règles d'auto-détection JSON natif, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements.
+- [Mode explain](#mode-explain) : vue arborescente d'une trace.
+- [Export SARIF](#export-sarif) : sortie SARIF v2.1.0 pour le code scanning GitHub ou GitLab.
+- [Champ de confiance sur les findings](#champ-de-confiance-sur-les-findings) : champ `confidence` JSON / SARIF pour les consommateurs aval.
+- [API de requêtage du daemon](#api-de-requêtage-du-daemon) : API HTTP sur le port OTLP HTTP, voir aussi [QUERY-API-FR.md](./QUERY-API-FR.md) pour la référence complète.
+- [Configuration avancée du scoring carbone](#configuration-avancée-du-scoring-carbone) : scoring multi-région, Scaphandre, énergie cloud-native, Electricity Maps, calibration.
+- [Intégration Tempo](#intégration-tempo) : interroger un backend Grafana Tempo directement avec `perf-sentinel tempo`.
+- [Intégration API Jaeger query](#intégration-api-jaeger-query-jaeger-et-victoria-traces) : Jaeger upstream et Victoria Traces via une seule sous-commande.
+- [Troubleshooting](#troubleshooting) : problèmes d'ingestion et de détection courants.
+
 ## Choisissez votre topologie
 
 | Topologie                                                     | Idéal pour                        | Effort         | Modifications des services      |

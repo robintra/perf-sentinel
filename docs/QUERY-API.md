@@ -8,6 +8,15 @@ on-call runbooks or custom CI gate scripts without parsing NDJSON logs.
 The API shipped in v0.4.0. This page documents it as a
 first-class product surface with a stability contract.
 
+## Contents
+
+- [Endpoint overview](#endpoint-overview): one-line description per endpoint.
+- [Endpoints](#endpoints): full per-endpoint reference with request, response and worked examples.
+- [Error responses](#error-responses): status codes and body shapes.
+- [Use cases](#use-cases): Prometheus alerting, custom Grafana panels, SRE runbooks.
+- [Stability contract](#stability-contract): the v0.4.1+ stability guarantees.
+- [See also](#see-also): cross-references to related docs.
+
 ## Endpoint overview
 
 | Method | Path                       | Purpose                                                                       |

@@ -2,6 +2,24 @@
 
 perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on port 4318). This guide walks you from zero to your first finding for each deployment topology.
 
+## Contents
+
+- [Choose your topology](#choose-your-topology): comparison table for the four supported deployment modes.
+- [Quick start: CI batch analysis](#quick-start-ci-batch-analysis): run perf-sentinel from a CI pipeline against a trace fixture.
+- [Quick start: central collector](#quick-start-central-collector): production deployment via OpenTelemetry Collector.
+- [Quick start: sidecar](#quick-start-sidecar): single-service debug in dev or staging.
+- [Quick start: direct daemon](#quick-start-direct-daemon): local development.
+- [Going further](#going-further): pointers to INSTRUMENTATION.md and CI.md for application-side and CI-side concerns.
+- [Ingestion formats](#ingestion-formats): native JSON, OTLP, Jaeger, Zipkin, Tempo, pg_stat_statements auto-detection rules.
+- [Explain mode](#explain-mode): trace-tree view of a single trace.
+- [SARIF export](#sarif-export): SARIF v2.1.0 output for GitHub or GitLab code scanning.
+- [Finding confidence field](#finding-confidence-field): JSON / SARIF `confidence` field for downstream consumers.
+- [Daemon query API](#daemon-query-api): HTTP API on the OTLP HTTP port, see also [QUERY-API.md](./QUERY-API.md) for the full reference.
+- [Advanced carbon scoring setup](#advanced-carbon-scoring-setup): multi-region scoring, Scaphandre, cloud-native energy, Electricity Maps, calibration.
+- [Tempo integration](#tempo-integration): query a Grafana Tempo backend directly with `perf-sentinel tempo`.
+- [Jaeger query API integration](#jaeger-query-api-integration-jaeger-and-victoria-traces): Jaeger upstream and Victoria Traces via a single subcommand.
+- [Troubleshooting](#troubleshooting): common ingestion and detection issues.
+
 ## Choose your topology
 
 | Topology                                                | Best for                          | Effort | Changes to services     |

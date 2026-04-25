@@ -7,6 +7,15 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
   <img alt="CLI commands overview" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
 </picture>
 
+## Contents
+
+- [Subcommands](#subcommands): which subcommands read `.perf-sentinel.toml`.
+- [Sections](#sections): full per-section reference (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, ...).
+- [Minimal configuration](#minimal-configuration): the smallest useful `.perf-sentinel.toml`.
+- [Full configuration example](#full-configuration-example): every section populated with example values.
+- [Legacy flat format](#legacy-flat-format): pre-section format kept for backward compatibility.
+- [Environment variables](#environment-variables): which env vars override config-file values.
+
 ## Subcommands
 
 | Subcommand  | Description                                                                                                                                                                                                         |

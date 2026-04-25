@@ -1,5 +1,35 @@
 # Known limitations and trade-offs
 
+## Contents
+
+- [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
+- [SQL tokenizer](#sql-tokenizer): regex-based normalizer trade-offs.
+- [ORM bind parameters and N+1 vs redundant classification](#orm-bind-parameters-and-n1-vs-redundant-classification): how named bind placeholders affect classification.
+- [Slow findings and waste ratio](#slow-findings-and-waste-ratio): why slow findings do not contribute to the I/O waste ratio.
+- [Score interpretation](#score-interpretation): the healthy / moderate / high / critical bands for `io_intensity_score` and `io_waste_ratio`.
+- [Fanout detection requires `parent_span_id`](#fanout-detection-requires-parent_span_id): instrumentation prerequisite.
+- [`rss_peak_bytes` on Windows](#rss_peak_bytes-on-windows): why bench RSS is null on Windows.
+- [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
+- [Maximum events per trace](#maximum-events-per-trace): per-trace ring-buffer cap.
+- [Field length limits at ingestion](#field-length-limits-at-ingestion): per-field byte caps applied at the ingestion boundary.
+- [Binary size](#binary-size): release-binary target and what contributes to it.
+- [HTML dashboard: CSV formula-injection guard](#html-dashboard-csv-formula-injection-guard): OWASP CSV-injection neutralization in exported CSVs.
+- [No authentication (TLS available, auth not built-in)](#no-authentication-tls-available-auth-not-built-in): network access policy for ingestion endpoints.
+- [Query-API subcommands: endpoint value must be trusted](#query-api-subcommands-endpoint-value-must-be-trusted): SSRF surface on `tempo` and `jaeger-query`.
+- [Carbon estimates accuracy](#carbon-estimates-accuracy): I/O to energy to CO₂ proxy methodology and its uncertainty.
+- [Chatty service detection](#chatty-service-detection): per-trace HTTP-only scope.
+- [Connection pool saturation detection](#connection-pool-saturation-detection): heuristic based on SQL span overlap, not pool metrics.
+- [Serialized calls detection](#serialized-calls-detection): info-severity heuristic on sequential sibling spans.
+- [Cross-trace correlation](#cross-trace-correlation): statistical co-occurrence, not causality.
+- [OTel source code attributes](#otel-source-code-attributes): the `code.*` attributes required for `code_location`.
+- [Daemon query API](#daemon-query-api): no built-in auth, gate via network policy or reverse proxy.
+- [Automated pg_stat ingestion from Prometheus](#automated-pg_stat-ingestion-from-prometheus): prerequisites for the `--prometheus` flag.
+- [Secrets and credentials](#secrets-and-credentials): env-var-preferred pattern for scrapers.
+- [Electricity Maps API](#electricity-maps-api): API-key handling and caveats.
+- [Tempo ingestion](#tempo-ingestion): protobuf format requirement.
+- [gCO2eq energy constant (legacy section)](#gco2eq-energy-constant-legacy-section-kept-for-cross-references): cross-reference to Carbon estimates accuracy.
+- [pg_stat_statements ingestion](#pg_stat_statements-ingestion): no trace correlation, complementary hotspot signal.
+
 ## OTLP capture reliability
 
 perf-sentinel is a **passive listener**: it receives traces forwarded by OpenTelemetry SDKs or collectors. Unlike an in-process agent (e.g., Hypersistence Utils), it cannot guarantee that every span is captured. Spans may be lost due to:
