@@ -17,6 +17,15 @@ name: perf-sentinel baseline (dogfood)
 on:
   push:
     branches: [ main ]
+    # The baseline output depends only on the perf-sentinel binary and
+    # the committed fixture. Skip docs-only and license-only commits to
+    # avoid burning ~5-10 minutes of runner time on a build whose result
+    # would be byte-identical to the previous baseline.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
   workflow_dispatch:
 
 permissions:
