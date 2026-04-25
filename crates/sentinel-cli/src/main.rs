@@ -1477,7 +1477,8 @@ fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
 
     let (report, traces) = pipeline::analyze_with_traces(events, &config);
 
-    let mut app = tui::App::new(report.findings, traces, detect_config);
+    let mut app = tui::App::new(report.findings, traces, detect_config)
+        .with_correlations(report.correlations);
     if let Err(e) = tui::run(&mut app) {
         eprintln!("TUI error: {e}");
         std::process::exit(1);
