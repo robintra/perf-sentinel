@@ -2,7 +2,7 @@
 
 Ce guide décrit le déploiement de perf-sentinel sur Kubernetes via le chart Helm packagé sous [`charts/perf-sentinel/`](../../charts/perf-sentinel/). Le chart déploie le daemon (`perf-sentinel watch`) derrière un Service `ClusterIP` qui expose OTLP gRPC (4317) et OTLP HTTP plus `/metrics` plus `/api/*` (4318).
 
-Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INTEGRATION-FR.md`](./INTEGRATION-FR.md#déploiement-kubernetes).
+Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md#déploiement-kubernetes).
 
 ## TL;DR
 

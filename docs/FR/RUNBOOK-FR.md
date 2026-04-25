@@ -536,5 +536,5 @@ Une fois qu'il démarre proprement, déployez en production.
 
 - [LIMITATIONS-FR.md](LIMITATIONS-FR.md) : ce que le daemon ne persiste pas et ne garantit pas.
 - [QUERY-API-FR.md](QUERY-API-FR.md) : référence `/api/findings`, `/api/explain`, `/api/correlations`, `/api/status`.
-- [INTEGRATION-FR.md](INTEGRATION-FR.md) : mise en place de bout en bout, intégration Tempo, câblage OTLP par langage.
+- [INTEGRATION-FR.md](INTEGRATION-FR.md) : mise en place de bout en bout, quatre topologies supportées, intégration Tempo et Jaeger. Voir [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) pour le câblage OTLP par langage et [CI-FR.md](CI-FR.md) pour les recettes d'intégration CI.
 - [CONFIGURATION-FR.md](CONFIGURATION-FR.md) : référence complète `[daemon]`, `[detection]`, `[green]`, `[daemon.correlation]`.

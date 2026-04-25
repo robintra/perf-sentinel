@@ -534,5 +534,5 @@ Once it starts cleanly, roll it out to production.
 
 - [LIMITATIONS.md](LIMITATIONS.md): what the daemon does *not* persist or guarantee.
 - [QUERY-API.md](QUERY-API.md): reference for `/api/findings`, `/api/explain`, `/api/correlations`, `/api/status`.
-- [INTEGRATION.md](INTEGRATION.md): end-to-end setup, Tempo integration, per-language OTLP wiring.
+- [INTEGRATION.md](INTEGRATION.md): end-to-end setup, four supported topologies, Tempo and Jaeger integration. See [INSTRUMENTATION.md](INSTRUMENTATION.md) for per-language OTLP wiring and [CI.md](CI.md) for the CI integration recipes.
 - [CONFIGURATION.md](CONFIGURATION.md): full `[daemon]`, `[detection]`, `[green]`, `[daemon.correlation]` reference.

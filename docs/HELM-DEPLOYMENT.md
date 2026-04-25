@@ -7,7 +7,7 @@ Service exposing OTLP gRPC (4317) and OTLP HTTP plus `/metrics` plus
 `/api/*` (4318).
 
 For a non-Helm alternative, see the raw manifests in
-[`docs/INTEGRATION.md`](./INTEGRATION.md#kubernetes-deployment).
+[`docs/INSTRUMENTATION.md`](./INSTRUMENTATION.md#kubernetes-deployment).
 
 ## TL;DR
 

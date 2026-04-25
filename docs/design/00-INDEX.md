@@ -6,7 +6,9 @@ For user-facing documentation, see the parent `docs/` directory:
 - [ARCHITECTURE.md](../ARCHITECTURE.md): pipeline overview and module responsibilities
 - [CONFIGURATION.md](../CONFIGURATION.md): full `.perf-sentinel.toml` reference
 - [LIMITATIONS.md](../LIMITATIONS.md): known trade-offs
-- [INTEGRATION.md](../INTEGRATION.md): OTLP setup guides (Java, .NET, Rust)
+- [INTEGRATION.md](../INTEGRATION.md): topology overview and quick starts
+- [INSTRUMENTATION.md](../INSTRUMENTATION.md): OTLP setup guides (Java, Quarkus, .NET, Rust)
+- [CI.md](../CI.md): CI mode, GitHub Actions / GitLab CI / Jenkins recipes
 
 ## Table of contents
 

@@ -6,7 +6,9 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 - [ARCHITECTURE-FR.md](../ARCHITECTURE-FR.md) : vue d'ensemble du pipeline et responsabilités des modules
 - [CONFIGURATION-FR.md](../CONFIGURATION-FR.md) : référence complète `.perf-sentinel.toml`
 - [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : compromis connus
-- [INTEGRATION-FR.md](../INTEGRATION-FR.md) : guides de configuration OTLP (Java, .NET, Rust)
+- [INTEGRATION-FR.md](../INTEGRATION-FR.md) : vue d'ensemble des topologies et démarrages rapides
+- [INSTRUMENTATION-FR.md](../INSTRUMENTATION-FR.md) : guides de configuration OTLP (Java, Quarkus, .NET, Rust)
+- [CI-FR.md](../CI-FR.md) : mode CI, recettes GitHub Actions / GitLab CI / Jenkins
 
 ## Table des matières
 
