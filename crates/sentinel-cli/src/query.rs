@@ -216,6 +216,7 @@ fn print_correlation_entry(
     c: &sentinel_core::detect::correlate_cross::CrossTraceCorrelation,
     colors: AnsiColors,
 ) {
+    use sentinel_core::text_safety::sanitize_for_terminal;
     let AnsiColors {
         bold,
         red,
@@ -235,12 +236,12 @@ fn print_correlation_entry(
         "  {bold}#{} {}{reset} in {}",
         index + 1,
         c.source.finding_type.as_str(),
-        c.source.service
+        sanitize_for_terminal(&c.source.service)
     );
     println!(
         "    {dim}->{reset} {} in {}",
         c.target.finding_type.as_str(),
-        c.target.service
+        sanitize_for_terminal(&c.target.service)
     );
     println!(
         "    {dim}Observed:{reset} {} times, \
@@ -252,7 +253,8 @@ fn print_correlation_entry(
     );
     println!(
         "    {dim}Period:{reset} {} .. {}",
-        c.first_seen, c.last_seen
+        sanitize_for_terminal(&c.first_seen),
+        sanitize_for_terminal(&c.last_seen)
     );
     println!();
 }
@@ -407,6 +409,10 @@ async fn run_inspect_action(
         findings.iter().map(|f| f.trace_id.clone()).collect();
     let pre_rendered_trees =
         fetch_explain_trees(client, base_url.to_string(), timeout, &trace_ids, 16).await;
+    // Fetch correlations once (single endpoint, no per-trace fanout).
+    // Graceful degrade to empty list if the daemon is older or the
+    // endpoint is unreachable, the panel will then show its hint.
+    let correlations = fetch_correlations(client, base_url, timeout).await;
     let traces: Vec<sentinel_core::correlate::Trace> = trace_ids
         .into_iter()
         .map(|tid| sentinel_core::correlate::Trace {
@@ -425,9 +431,29 @@ async fn run_inspect_action(
         serialized_min_sequential: 3,
     };
     let mut app = crate::tui::App::new(findings, traces, detect_config)
-        .with_pre_rendered_trees(pre_rendered_trees);
+        .with_pre_rendered_trees(pre_rendered_trees)
+        .with_correlations(correlations);
     if let Err(e) = crate::tui::run(&mut app) {
         eprintln!("TUI error: {e}");
         std::process::exit(1);
     }
+}
+
+#[cfg(feature = "tui")]
+async fn fetch_correlations(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    timeout: std::time::Duration,
+) -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
+    let Ok(uri) = format!("{base_url}/api/correlations").parse::<sentinel_core::http_client::Uri>()
+    else {
+        return Vec::new();
+    };
+    let Ok(body) =
+        sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
+            .await
+    else {
+        return Vec::new();
+    };
+    serde_json::from_slice(&body).unwrap_or_default()
 }

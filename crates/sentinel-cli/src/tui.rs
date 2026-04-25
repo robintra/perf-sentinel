@@ -17,14 +17,17 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 
 use sentinel_core::correlate::Trace;
+use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
 use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
 use sentinel_core::explain;
+use sentinel_core::text_safety::sanitize_for_terminal;
 /// Panel that currently has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
     Traces,
     Findings,
     Detail,
+    Correlations,
 }
 
 /// Application state for the TUI.
@@ -50,6 +53,11 @@ pub struct App {
     /// When `Some(text)`, takes precedence over the `detect + build_tree`
     /// path that requires `traces[i].spans` to be populated.
     pre_rendered_trees: std::collections::HashMap<String, String>,
+    /// Cross-trace correlations to display in the Correlations panel.
+    /// Empty in batch mode (correlator is daemon-only). Populated by
+    /// `query inspect` from `/api/correlations`.
+    correlations: Vec<CrossTraceCorrelation>,
+    pub selected_correlation: usize,
 }
 
 impl App {
@@ -104,6 +112,8 @@ impl App {
             scroll_offset: 0,
             cached_detail: None,
             pre_rendered_trees: std::collections::HashMap::new(),
+            correlations: Vec::new(),
+            selected_correlation: 0,
         }
     }
 
@@ -119,6 +129,19 @@ impl App {
     ) -> Self {
         self.pre_rendered_trees = trees;
         self
+    }
+
+    /// Attach cross-trace correlations fetched from a daemon. The
+    /// Correlations panel renders them as a navigable list.
+    pub(crate) fn with_correlations(mut self, correlations: Vec<CrossTraceCorrelation>) -> Self {
+        self.correlations = correlations;
+        self
+    }
+
+    /// Number of correlations available in the Correlations panel.
+    #[must_use]
+    pub fn correlation_count(&self) -> usize {
+        self.correlations.len()
     }
 
     /// Number of traces available.
@@ -242,6 +265,11 @@ impl App {
             Panel::Detail => {
                 self.scroll_offset = self.scroll_offset.saturating_sub(1);
             }
+            Panel::Correlations => {
+                if self.selected_correlation > 0 {
+                    self.selected_correlation -= 1;
+                }
+            }
         }
     }
 
@@ -272,6 +300,11 @@ impl App {
                     self.scroll_offset = self.scroll_offset.saturating_add(1);
                 }
             }
+            Panel::Correlations => {
+                if self.selected_correlation + 1 < self.correlation_count() {
+                    self.selected_correlation += 1;
+                }
+            }
         }
     }
 
@@ -280,20 +313,24 @@ impl App {
         self.active_panel = match self.active_panel {
             Panel::Traces => Panel::Findings,
             Panel::Findings => Panel::Detail,
-            Panel::Detail => Panel::Traces,
+            Panel::Detail => Panel::Correlations,
+            Panel::Correlations => Panel::Traces,
         };
     }
 
     /// Move focus to the previous panel.
     pub fn prev_panel(&mut self) {
         self.active_panel = match self.active_panel {
-            Panel::Traces => Panel::Detail,
+            Panel::Traces => Panel::Correlations,
             Panel::Findings => Panel::Traces,
             Panel::Detail => Panel::Findings,
+            Panel::Correlations => Panel::Detail,
         };
     }
 
     /// Handle Enter key: drill into next panel.
+    // TODO: in a follow-up, jump to `correlation.sample_trace_id` from
+    // the Correlations panel into the Detail panel for that trace.
     pub fn enter(&mut self) {
         match self.active_panel {
             Panel::Traces => {
@@ -306,14 +343,14 @@ impl App {
                 self.active_panel = Panel::Detail;
                 self.scroll_offset = 0;
             }
-            Panel::Detail => {}
+            Panel::Detail | Panel::Correlations => {}
         }
     }
 
     /// Handle Escape: go back to previous panel.
     pub fn escape(&mut self) {
         match self.active_panel {
-            Panel::Traces => {}
+            Panel::Traces | Panel::Correlations => {}
             Panel::Findings => self.active_panel = Panel::Traces,
             Panel::Detail => self.active_panel = Panel::Findings,
         }
@@ -376,11 +413,16 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
 
     let top = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+        .constraints([
+            Constraint::Percentage(25),
+            Constraint::Percentage(50),
+            Constraint::Percentage(25),
+        ])
         .split(chunks[0]);
 
     draw_traces_panel(f, app, top[0]);
     draw_findings_panel(f, app, top[1]);
+    draw_correlations_panel(f, app, top[2]);
     draw_detail_panel(f, app, chunks[1]);
 }
 
@@ -463,6 +505,71 @@ fn draw_findings_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout:
     if !indices.is_empty() {
         state.select(Some(app.selected_finding));
     }
+
+    let list = List::new(items).block(block).highlight_style(
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .add_modifier(Modifier::REVERSED),
+    );
+
+    f.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_correlations_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+    let block = Block::default()
+        .title(" Correlations ")
+        .borders(Borders::ALL)
+        .border_style(panel_style(app, Panel::Correlations));
+
+    if app.correlations.is_empty() {
+        let hint = Paragraph::new(
+            "No correlations available.\n\nLaunch via 'query inspect' against a daemon to see cross-trace pairs.",
+        )
+        .block(block)
+        .wrap(Wrap { trim: true })
+        .style(Style::default().fg(Color::DarkGray));
+        f.render_widget(hint, area);
+        return;
+    }
+
+    let items: Vec<ListItem> = app
+        .correlations
+        .iter()
+        .map(|c| {
+            let line = Line::from(vec![
+                Span::styled(
+                    format!(
+                        "{}:{} ",
+                        sanitize_for_terminal(&c.source.service),
+                        c.source.finding_type.as_str()
+                    ),
+                    Style::default().fg(Color::Yellow),
+                ),
+                Span::raw("-> "),
+                Span::styled(
+                    format!(
+                        "{}:{}  ",
+                        sanitize_for_terminal(&c.target.service),
+                        c.target.finding_type.as_str()
+                    ),
+                    Style::default().fg(Color::Cyan),
+                ),
+                Span::styled(
+                    format!("{:.0}% ", c.confidence * 100.0),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("{:.0}ms ", c.median_lag_ms),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(format!("({}x)", c.co_occurrence_count)),
+            ]);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let mut state = ListState::default();
+    state.select(Some(app.selected_correlation));
 
     let list = List::new(items).block(block).highlight_style(
         Style::default()
@@ -713,12 +820,16 @@ mod tests {
         app.next_panel();
         assert_eq!(app.active_panel, Panel::Detail);
         app.next_panel();
+        assert_eq!(app.active_panel, Panel::Correlations);
+        app.next_panel();
         assert_eq!(app.active_panel, Panel::Traces);
     }
 
     #[test]
     fn prev_panel_cycles() {
         let mut app = make_test_app();
+        app.prev_panel();
+        assert_eq!(app.active_panel, Panel::Correlations);
         app.prev_panel();
         assert_eq!(app.active_panel, Panel::Detail);
         app.prev_panel();
@@ -1008,6 +1119,168 @@ mod tests {
         assert_ne!(
             before, after,
             "border style must differ when active panel changes"
+        );
+    }
+
+    fn make_correlation(src_svc: &str, tgt_svc: &str) -> CrossTraceCorrelation {
+        use sentinel_core::detect::correlate_cross::CorrelationEndpoint;
+        CrossTraceCorrelation {
+            source: CorrelationEndpoint {
+                finding_type: FindingType::NPlusOneSql,
+                service: src_svc.to_string(),
+                template: "SELECT * FROM t WHERE id = ?".to_string(),
+            },
+            target: CorrelationEndpoint {
+                finding_type: FindingType::SlowHttp,
+                service: tgt_svc.to_string(),
+                template: "GET /api/x".to_string(),
+            },
+            co_occurrence_count: 47,
+            source_total_occurrences: 50,
+            confidence: 0.92,
+            median_lag_ms: 214.0,
+            first_seen: "2026-04-25T10:00:00.000Z".to_string(),
+            last_seen: "2026-04-25T10:30:00.000Z".to_string(),
+            sample_trace_id: Some("trace-sample".to_string()),
+        }
+    }
+
+    fn buffer_contains(buf: &ratatui::buffer::Buffer, needle: &str) -> bool {
+        let area = buf.area;
+        for y in 0..area.height {
+            let mut line = String::new();
+            for x in 0..area.width {
+                line.push_str(buf[(x, y)].symbol());
+            }
+            if line.contains(needle) {
+                return true;
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn with_correlations_populates_field() {
+        let app = make_test_app()
+            .with_correlations(vec![make_correlation("a", "b"), make_correlation("c", "d")]);
+        assert_eq!(app.correlation_count(), 2);
+    }
+
+    #[test]
+    fn next_panel_cycles_through_four_panels() {
+        let mut app = make_test_app();
+        assert_eq!(app.active_panel, Panel::Traces);
+        app.next_panel();
+        assert_eq!(app.active_panel, Panel::Findings);
+        app.next_panel();
+        assert_eq!(app.active_panel, Panel::Detail);
+        app.next_panel();
+        assert_eq!(app.active_panel, Panel::Correlations);
+        app.next_panel();
+        assert_eq!(app.active_panel, Panel::Traces);
+    }
+
+    #[test]
+    fn correlations_panel_shows_empty_hint_when_zero() {
+        let mut app = make_test_app();
+        app.active_panel = Panel::Correlations;
+        let buf = render_once(&mut app, 120, 40);
+        assert!(
+            buffer_contains(&buf, "No correlations available"),
+            "missing empty-state hint, dump:\n{buf:?}"
+        );
+    }
+
+    #[test]
+    fn correlations_panel_renders_each_pair() {
+        let mut app = make_test_app().with_correlations(vec![
+            make_correlation("svc-alpha", "svc-beta"),
+            make_correlation("svc-gamma", "svc-delta"),
+        ]);
+        app.active_panel = Panel::Correlations;
+        // Test exercises the full layout: the 25% Correlations column at
+        // typical terminal widths (80 to 160) truncates the metrics tail.
+        // Use a very wide TestBackend so the entire row fits and every
+        // field is asserted. Narrow-width rendering is covered by
+        // `correlations_panel_renders_at_typical_width`.
+        let buf = render_once(&mut app, 320, 40);
+        assert!(
+            buffer_contains(&buf, "svc-alpha"),
+            "first correlation source missing"
+        );
+        assert!(
+            buffer_contains(&buf, "svc-delta"),
+            "second correlation target missing"
+        );
+        assert!(
+            buffer_contains(&buf, "92%"),
+            "confidence percentage missing"
+        );
+    }
+
+    #[test]
+    fn correlations_panel_renders_at_typical_width() {
+        let mut app = make_test_app().with_correlations(vec![
+            make_correlation("svc-alpha", "svc-beta"),
+            make_correlation("svc-gamma", "svc-delta"),
+        ]);
+        app.active_panel = Panel::Correlations;
+        let buf = render_once(&mut app, 160, 40);
+        assert!(
+            buffer_contains(&buf, "svc-alpha"),
+            "source service prefix must remain visible at typical width"
+        );
+        assert!(
+            buffer_contains(&buf, "svc-gamma"),
+            "second source service prefix must remain visible"
+        );
+    }
+
+    #[test]
+    fn correlations_panel_strips_ansi_from_service_name() {
+        use sentinel_core::detect::correlate_cross::CorrelationEndpoint;
+        let mut hostile = make_correlation("a", "b");
+        hostile.source.service = "evil\x1b[2J\x1b[H wipe".to_string();
+        hostile.target = CorrelationEndpoint {
+            finding_type: FindingType::SlowHttp,
+            service: "click\x1b]8;;https://attacker/\x07tag\x1b]8;;\x07".to_string(),
+            template: "GET /x".to_string(),
+        };
+        let mut app = make_test_app().with_correlations(vec![hostile]);
+        app.active_panel = Panel::Correlations;
+        let buf = render_once(&mut app, 320, 40);
+        let mut full = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                full.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(
+            !full.as_bytes().contains(&0x1b),
+            "ESC byte from service leaked into terminal buffer"
+        );
+        assert!(
+            !full.as_bytes().contains(&0x07),
+            "BEL byte from OSC 8 leaked into terminal buffer"
+        );
+    }
+
+    #[test]
+    fn move_down_in_correlations_panel_advances_selection() {
+        let mut app = make_test_app().with_correlations(vec![
+            make_correlation("a", "b"),
+            make_correlation("c", "d"),
+            make_correlation("e", "f"),
+        ]);
+        app.active_panel = Panel::Correlations;
+        assert_eq!(app.selected_correlation, 0);
+        app.move_down();
+        app.move_down();
+        assert_eq!(app.selected_correlation, 2);
+        app.move_down();
+        assert_eq!(
+            app.selected_correlation, 2,
+            "selection must clamp at last index"
         );
     }
 }

@@ -74,7 +74,20 @@ pub struct RenderOptions {
     pub diff: Option<DiffReport>,
 }
 
-/// Render a report to a self-contained HTML string.
+/// Counters describing how many candidate traces ended up embedded in
+/// the rendered HTML. Returned by [`render`] so callers can surface a
+/// trim notice to the user when `kept < total`. Field naming mirrors
+/// the private `TrimSummary` struct used inside the JSON payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderStats {
+    /// Number of traces actually embedded in the rendered HTML.
+    pub kept: usize,
+    /// Total candidate traces before any size or cap-driven trim.
+    pub total: usize,
+}
+
+/// Render a report to a self-contained HTML string and return how many
+/// traces were embedded vs. how many were candidates.
 ///
 /// # Panics
 ///
@@ -92,7 +105,7 @@ pub struct RenderOptions {
 /// let events = load_events();
 /// let cfg = sentinel_core::config::Config::default();
 /// let (report, traces) = analyze_with_traces(events, &cfg);
-/// let html = render(&report, &traces, &RenderOptions {
+/// let (html, _stats) = render(&report, &traces, &RenderOptions {
 ///     input_label: "traces.json".to_string(),
 ///     max_traces_embedded: None,
 ///     pg_stat: None,
@@ -101,9 +114,11 @@ pub struct RenderOptions {
 /// assert!(html.starts_with("<!DOCTYPE html>"));
 /// ```
 #[must_use]
-pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> String {
+pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (String, RenderStats) {
     let sanitized_label = sanitize_input_label(&options.input_label);
     let payload = build_payload_with_label(report, traces, options, &sanitized_label);
+    let kept = payload.embedded_traces.len();
+    let total = payload.trimmed_traces.as_ref().map_or(kept, |s| s.total);
     // Serialization of our fixed-shape payload cannot fail: all nested
     // types are `Serialize`, every map key is `&'static str`, and there
     // are no non-string map keys anywhere in the tree. If a future
@@ -112,7 +127,8 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> Str
     // payload's map keys `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
     let title = derive_page_title(&sanitized_label);
-    inject(&json, &title)
+    let html = inject(&json, &title);
+    (html, RenderStats { kept, total })
 }
 
 /// Render and write a rendered HTML dashboard to `output`.
@@ -131,7 +147,7 @@ pub fn write(
     options: &RenderOptions,
     output: &Path,
 ) -> std::io::Result<()> {
-    let html = render(report, traces, options);
+    let (html, _stats) = render(report, traces, options);
     std::fs::write(output, html)
 }
 
@@ -569,7 +585,7 @@ mod tests {
 
         assert_eq!(report.findings.len(), 2, "fixture must yield 2 findings");
 
-        let html = render(&report, &traces, &opts("report_minimal.json", None));
+        let (html, _) = render(&report, &traces, &opts("report_minimal.json", None));
         assert!(html.starts_with("<!DOCTYPE html>"));
         assert!(html.contains(r#"<script id="report-data""#));
         assert!(html.contains("trace-report-minimal"));
@@ -579,7 +595,7 @@ mod tests {
     #[test]
     fn quality_gate_rules_scaffold_and_csv_confidence_present() {
         let report = minimal_report(vec![]);
-        let html = render(&report, &[], &opts("traces.json", None));
+        let (html, _) = render(&report, &[], &opts("traces.json", None));
 
         assert!(
             html.contains(r#"id="quality-gate-rules""#),
@@ -606,7 +622,7 @@ mod tests {
             trace_id: "t1".into(),
             spans: vec![span("t1", "s1", None, "svc", "/ep", hostile)],
         };
-        let html = render(&report, &[trace], &opts("-", None));
+        let (html, _) = render(&report, &[trace], &opts("-", None));
         // The raw closing tag must not appear anywhere in the payload.
         // Count the occurrences in the entire document: the static shell
         // has one (`</script>` closing the JSON block) and one (`</script>`
@@ -645,7 +661,7 @@ mod tests {
         let weird = "a\0b\x01c\x7fd\u{1F600}";
         let f = finding("t1", "svc", "/ep", weird);
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("traces.json", None));
+        let (html, _) = render(&report, &[], &opts("traces.json", None));
 
         let start = html.find("<script id=\"report-data\"").expect("script tag");
         let open = html[start..]
@@ -693,7 +709,7 @@ mod tests {
         let mut report = minimal_report(findings);
         report.green_summary.top_offenders = offenders;
 
-        let html = render(&report, &traces, &opts("-", Some(10)));
+        let (html, stats) = render(&report, &traces, &opts("-", Some(10)));
         let json_blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
         let embedded = value["embedded_traces"].as_array().expect("array");
@@ -701,6 +717,29 @@ mod tests {
         let summary = &value["trimmed_traces"];
         assert_eq!(summary["kept"].as_u64().unwrap(), 10);
         assert_eq!(summary["total"].as_u64().unwrap(), 100);
+        assert_eq!(stats.kept, 10);
+        assert_eq!(stats.total, 100);
+    }
+
+    #[test]
+    fn render_stats_match_total_when_no_trim() {
+        let mut findings = Vec::new();
+        let mut traces = Vec::new();
+        for i in 0..3 {
+            let tid = format!("t{i}");
+            let svc = format!("svc-{i}");
+            let ep = format!("/ep-{i}");
+            let tpl = format!("SELECT * FROM t{i} WHERE id = ?");
+            findings.push(finding(&tid, &svc, &ep, &tpl));
+            traces.push(Trace {
+                trace_id: tid.clone(),
+                spans: vec![span(&tid, "s", None, &svc, &ep, &tpl)],
+            });
+        }
+        let report = minimal_report(findings);
+        let (_, stats) = render(&report, &traces, &opts("-", None));
+        assert_eq!(stats.kept, stats.total);
+        assert_eq!(stats.kept, 3);
     }
 
     #[test]
@@ -717,7 +756,7 @@ mod tests {
             trace_id: "t1".into(),
             spans: vec![span("t1", "s1", None, "svc", "/ep", "SELECT * FROM t")],
         };
-        let html = render(&report, &[trace], &opts("-", None));
+        let (html, _) = render(&report, &[trace], &opts("-", None));
         let json_blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
         assert!(
@@ -965,7 +1004,7 @@ mod tests {
         let report = minimal_report(vec![f]);
         let mut options = opts("-", None);
         options.pg_stat = Some(synthetic_pg_stat());
-        let html = render(&report, &[], &options);
+        let (html, _) = render(&report, &[], &options);
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         let entries = value["pg_stat"]["rankings"][0]["entries"]
@@ -982,7 +1021,7 @@ mod tests {
     fn omits_pg_stat_when_absent() {
         let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("-", None));
+        let (html, _) = render(&report, &[], &opts("-", None));
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         assert!(
@@ -1007,7 +1046,7 @@ mod tests {
         let diff = crate::diff::diff_runs(&before, &after);
         let mut options = opts("-", None);
         options.diff = Some(diff);
-        let html = render(&after, &[], &options);
+        let (html, _) = render(&after, &[], &options);
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         let new = value["diff"]["new_findings"].as_array().expect("new array");
@@ -1022,7 +1061,7 @@ mod tests {
     fn omits_diff_when_absent() {
         let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("-", None));
+        let (html, _) = render(&report, &[], &opts("-", None));
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         assert!(value.get("diff").is_none());
@@ -1049,7 +1088,7 @@ mod tests {
         // the pg_stat rankings.
         let mut with_pg = opts("-", None);
         with_pg.pg_stat = Some(synthetic_pg_stat());
-        let html_with = render(&report, std::slice::from_ref(&trace), &with_pg);
+        let (html_with, _) = render(&report, std::slice::from_ref(&trace), &with_pg);
         let blob_with = extract_payload_json(&html_with);
         let v_with: serde_json::Value = serde_json::from_str(&blob_with).unwrap();
         let pg_templates: Vec<&str> = v_with["pg_stat"]["rankings"][0]["entries"]
@@ -1086,7 +1125,7 @@ mod tests {
         // `hasPgStat` in the JS is false and no cross-nav handler ever
         // attaches.
         let without_pg = opts("-", None);
-        let html_without = render(&report, &[trace], &without_pg);
+        let (html_without, _) = render(&report, &[trace], &without_pg);
         let blob_without = extract_payload_json(&html_without);
         let v_without: serde_json::Value = serde_json::from_str(&blob_without).unwrap();
         assert!(v_without.get("pg_stat").is_none());
@@ -1142,7 +1181,7 @@ mod tests {
         let report = minimal_report(vec![f]);
         let mut options = opts("-", None);
         options.pg_stat = Some(pg_stat);
-        let html = render(&report, &[], &options);
+        let (html, _) = render(&report, &[], &options);
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
         let rankings = value["pg_stat"]["rankings"].as_array().unwrap();
@@ -1328,7 +1367,7 @@ mod tests {
         // produced for a minimal report.
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("-", None));
+        let (html, _) = render(&report, &[], &opts("-", None));
         assert!(!html.contains("id=\"explain-copy-link\""));
         assert!(!html.contains("id=\"green-copy-link\""));
         // The CSS class backing every copy-link button must exist.
@@ -1378,7 +1417,7 @@ mod tests {
         // title injection only sees the title placeholder.
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("{{REPORT_JSON}}.json", None));
+        let (html, _) = render(&report, &[], &opts("{{REPORT_JSON}}.json", None));
         // The title text is HTML-escaped, so `{` and `}` survive as
         // literal bytes. There must be no injection into the JSON
         // block (which would appear as a trailing stray `}` outside
@@ -1398,7 +1437,7 @@ mod tests {
         // never consumed.
         let f = finding("t1", "svc", "/ep", "SELECT '{{PAGE_TITLE}}'");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("normal.json", None));
+        let (html, _) = render(&report, &[], &opts("normal.json", None));
         assert!(
             html.contains("SELECT '{{PAGE_TITLE}}'"),
             "user-controlled placeholder literal must survive in the JSON payload"
@@ -1415,7 +1454,7 @@ mod tests {
         // bytes (`[31m`) pass through as plain text.
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);
-        let html = render(&report, &[], &opts("a\x1b[31mb\x00c\u{202e}d.json", None));
+        let (html, _) = render(&report, &[], &opts("a\x1b[31mb\x00c\u{202e}d.json", None));
         assert!(!html.contains('\x1b'), "ESC must not leak into the title");
         assert!(
             !html.contains('\x00'),
@@ -1436,7 +1475,7 @@ mod tests {
         let f = finding("t1", "svc", "/ep", "SELECT 1");
         let report = minimal_report(vec![f]);
 
-        let html_with_path = render(
+        let (html_with_path, _) = render(
             &report,
             &[],
             &opts("/tmp/reports/prod-2026-04-21.json", None),
@@ -1446,20 +1485,20 @@ mod tests {
             "title should show the filename without path components"
         );
 
-        let html_stdin = render(&report, &[], &opts("-", None));
+        let (html_stdin, _) = render(&report, &[], &opts("-", None));
         assert!(
             html_stdin.contains("<title>perf-sentinel report</title>"),
             "stdin label falls back to the default title"
         );
 
-        let html_empty = render(&report, &[], &opts("", None));
+        let (html_empty, _) = render(&report, &[], &opts("", None));
         assert!(
             html_empty.contains("<title>perf-sentinel report</title>"),
             "empty label falls back to the default title"
         );
 
         // HTML-unsafe characters in the filename are escaped.
-        let html_hostile = render(&report, &[], &opts("/tmp/<hack>&.json", None));
+        let (html_hostile, _) = render(&report, &[], &opts("/tmp/<hack>&.json", None));
         assert!(
             html_hostile.contains("<title>perf-sentinel: &lt;hack&gt;&amp;.json</title>"),
             "unsafe characters in the filename are HTML-escaped"
@@ -1504,7 +1543,7 @@ mod tests {
         let f = finding("t1", "svc", "/ep", "SELECT * FROM t");
         let mut report = minimal_report(vec![f]);
         report.correlations = vec![correlation];
-        let html = render(&report, &[], &opts("-", None));
+        let (html, _) = render(&report, &[], &opts("-", None));
         let blob = extract_payload_json(&html);
         let value: serde_json::Value = serde_json::from_str(&blob).unwrap();
 

@@ -1688,6 +1688,70 @@ fn cli_report_overrides_default_cap_with_explicit_flag() {
     );
 }
 
+#[test]
+fn cli_report_logs_trim_notice_when_capped() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+            "--max-traces-embedded",
+            "1",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("trimmed for file size"),
+        "expected trim notice in stderr, got:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("--max-traces-embedded"),
+        "expected hint about --max-traces-embedded in stderr, got:\n{stderr}"
+    );
+}
+
+#[test]
+fn cli_report_omits_trim_notice_when_no_trim() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/report_realistic.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("report.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+            "--max-traces-embedded",
+            "100",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(output.status.success());
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("trimmed for file size"),
+        "trim notice must not appear when embedded == total, got:\n{stderr}"
+    );
+}
+
 // ---------------------------------------------------------------------
 // `report` subcommand extensions: --pg-stat, --before, mutual exclusion.
 // ---------------------------------------------------------------------

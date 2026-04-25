@@ -1060,11 +1060,19 @@ async fn cmd_report(
         diff,
     };
 
-    if let Err(e) = sentinel_core::report::html::write(&report, &traces, &options, output) {
+    let (html, stats) = sentinel_core::report::html::render(&report, &traces, &options);
+    if let Err(e) = std::fs::write(output, &html) {
         eprintln!("Error writing HTML report to {}: {e}", output.display());
         std::process::exit(1);
     }
     info!("HTML report written to {}", output.display());
+    if stats.kept < stats.total {
+        let trimmed = stats.total - stats.kept;
+        info!(
+            "Embedded {} of {} traces in the dashboard ({} trimmed for file size). Use --max-traces-embedded <higher> to keep more.",
+            stats.kept, stats.total, trimmed
+        );
+    }
 }
 
 #[cfg(feature = "tempo")]
