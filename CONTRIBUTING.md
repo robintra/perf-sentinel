@@ -150,14 +150,14 @@ Before tagging, bump `workspace.package.version` in the root `Cargo.toml` and ru
 
 ```bash
 # Bump the workspace version (manually or via cargo-edit)
-# cargo set-version --workspace 0.5.3
+# cargo set-version --workspace 0.5.4
 
 # Verify the tag you're about to push matches every Cargo.toml
-./scripts/check-tag-version.sh v0.5.3
+./scripts/check-tag-version.sh v0.5.4
 
 # Tag and push
-git tag v0.5.3
-git push origin v0.5.3
+git tag v0.5.4
+git push origin v0.5.4
 ```
 
 The same check runs as the first job of the release workflow (`check-versions`). If the tag and any `Cargo.toml` in the workspace disagree, the workflow aborts before any artifact is built or published, saving you from deleting a broken release post-hoc.
