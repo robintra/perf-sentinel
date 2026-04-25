@@ -1201,8 +1201,9 @@ mod tests {
         let line = format_top_finding_types(&findings).expect("7 findings must surface a line");
         assert!(line.contains("Most common:"), "got: {line}");
         assert!(line.contains("n_plus_one_sql (3)"), "got: {line}");
-        assert!(
-            line.matches('(').count() == 2,
+        assert_eq!(
+            line.matches('(').count(),
+            2,
             "expected 2 entries, got: {line}"
         );
     }
