@@ -131,6 +131,8 @@
   .ps-diff-section-header { font-size: 12px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
   .ps-diff-section-header.red { color: var(--color-text-danger); }
   .ps-diff-section-header.green { color: var(--color-text-success); }
+  .ps-quality-gate { margin: 12px 0 18px 0; }
+  .ps-section-title { font-size: 12px; font-weight: 500; margin: 0 0 8px 0; color: var(--color-text-primary); }
   .ps-panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
   .ps-export-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; }
   .ps-export-btn:hover { background: var(--color-background-info); }
@@ -166,6 +168,7 @@
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
     <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
     <div class="ps-metrics" id="findings-metrics"></div>
+    <div class="ps-quality-gate" id="quality-gate-rules" style="display: none;"></div>
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
@@ -625,6 +628,56 @@
         true
       ));
     }
+  }
+
+  // -------- quality gate rules --------
+  function formatRuleNumber(n) {
+    if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(3);
+  }
+
+  function renderQualityGateRules() {
+    var host = document.getElementById("quality-gate-rules");
+    if (!host) return;
+    // Clear before any early return so a re-render that drops to zero
+    // rules removes stale rows instead of leaving them visible.
+    host.replaceChildren();
+    var rules = (report.quality_gate && report.quality_gate.rules) || [];
+    if (rules.length === 0) {
+      host.style.display = "none";
+      return;
+    }
+    host.style.display = "";
+
+    host.appendChild(el("h3", "ps-section-title", "Quality gate rules"));
+
+    var table = el("table", "ps-table");
+    var thead = el("thead");
+    var headRow = el("tr");
+    ["Rule", "Threshold", "Actual", "Status"].forEach(function (label) {
+      headRow.appendChild(el("th", null, label));
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = el("tbody");
+    rules.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, r.rule));
+      tr.appendChild(el("td", null, formatRuleNumber(r.threshold)));
+      tr.appendChild(el("td", null, formatRuleNumber(r.actual)));
+      var statusTd = el("td");
+      statusTd.appendChild(el(
+        "span",
+        r.passed ? "ps-gate-pass" : "ps-gate-fail",
+        r.passed ? "PASS" : "FAIL"
+      ));
+      tr.appendChild(statusTd);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    host.appendChild(table);
   }
 
   // -------- filters --------
@@ -1538,7 +1591,8 @@
       "severity", "type", "service", "endpoint", "template",
       "occurrences", "first_timestamp", "last_timestamp",
       "code_function", "code_filepath", "code_lineno",
-      "suggested_fix_framework", "suggested_fix_recommendation"
+      "suggested_fix_framework", "suggested_fix_recommendation",
+      "confidence"
     ];
     var rows = applyFilters().filter(function (f) {
       var blob = [
@@ -1563,7 +1617,8 @@
         loc.filepath || "",
         loc.lineno ?? "",
         fix.framework || "",
-        fix.recommendation || ""
+        fix.recommendation || "",
+        f.confidence ?? ""
       ];
     });
     downloadCsv("findings", buildCsv(header, rows));
@@ -2067,6 +2122,7 @@
   function renderAllPanels() {
     renderTrimBanner();
     renderFindingsMetrics();
+    renderQualityGateRules();
     renderFilterChips();
     restorePersistedPgStatRanking();
     renderFindingsList();

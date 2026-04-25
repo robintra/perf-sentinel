@@ -577,6 +577,27 @@ mod tests {
     }
 
     #[test]
+    fn quality_gate_rules_scaffold_and_csv_confidence_present() {
+        let report = minimal_report(vec![]);
+        let html = render(&report, &[], &opts("traces.json", None));
+
+        assert!(
+            html.contains(r#"id="quality-gate-rules""#),
+            "Findings tab must carry the quality gate rules host"
+        );
+        assert!(
+            html.contains("renderQualityGateRules"),
+            "renderAllPanels must call renderQualityGateRules"
+        );
+        // Anchor on the preceding CSV column to distinguish the header
+        // array from any other `confidence` mention in the payload.
+        assert!(
+            html.contains(r#""suggested_fix_recommendation","#) && html.contains(r#""confidence""#),
+            "Findings CSV header must include confidence after suggested_fix_recommendation"
+        );
+    }
+
+    #[test]
     fn escapes_closing_script_tag_in_embedded_json() {
         let hostile = "</script><img src=x onerror=alert(1)>";
         let f = finding("t1", "svc", "/ep", hostile);
