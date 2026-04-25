@@ -385,6 +385,88 @@ fn cli_analyze_ci_passes_clean() {
 }
 
 #[test]
+fn cli_analyze_text_shows_severity_breakdown() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Found 1 issue(s):"),
+        "header missing, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("critical") && stdout.contains("warning") && stdout.contains("info"),
+        "severity breakdown line missing, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_analyze_help_documents_correlations_are_daemon_only() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--help"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Cross-trace correlations"),
+        "analyze --help must mention correlations, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("perf-sentinel watch")
+            && stdout.contains("perf-sentinel query correlations"),
+        "analyze --help must point at watch + query correlations, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_analyze_ci_text_lists_quality_gate_rules() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--ci",
+            "--format",
+            "text",
+            "--input",
+            &fixture_path,
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Quality gate:"),
+        "missing quality gate header, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("PASS") || stdout.contains("FAIL"),
+        "quality gate must list at least one rule outcome (PASS or FAIL), got:\n{stdout}"
+    );
+}
+
+#[test]
 fn cli_analyze_ci_fails_on_violations() {
     let fixture_path = format!(
         "{}/../../tests/fixtures/n_plus_one_sql.json",

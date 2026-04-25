@@ -67,6 +67,11 @@ enum PgStatOutputFormat {
 #[derive(Subcommand)]
 enum Commands {
     /// Analyze trace files in batch mode. Reads from stdin if no --input is given.
+    ///
+    /// Cross-trace correlations are computed by the daemon's rolling
+    /// window correlator and are not available in batch analyze. Use
+    /// `perf-sentinel watch` then `perf-sentinel query correlations`
+    /// for cross-trace findings.
     Analyze {
         /// Path to a JSON trace file to analyze. If omitted, reads from stdin.
         #[arg(short, long)]

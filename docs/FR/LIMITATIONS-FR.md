@@ -479,6 +479,14 @@ Limitations :
 - **Mode batch non supporté.** La commande `analyze` ne lance pas le corrélateur. La corrélation cross-trace est intrinsèquement une préoccupation du streaming.
 - **Cardinalité.** Le plafond `max_tracked_pairs` (défaut 1000) empêche la croissance mémoire non bornée. Si vous avez de nombreux types de findings distincts sur de nombreux services, certaines paires peuvent être évincées avant d'atteindre le seuil de co-occurrences.
 
+Pour consommer les corrélations :
+
+- Lancer un daemon : `perf-sentinel watch --otlp-grpc 0.0.0.0:4317`.
+- Interroger : `perf-sentinel query correlations`.
+- Ou ouvrir le dashboard généré par `perf-sentinel report` à partir d'un payload qui contient des corrélations (seuls les rapports produits par le daemon en contiennent).
+
+Le mode batch `analyze` reporte toujours un tableau de corrélations vide. C'est voulu, pas un bug.
+
 ## Attributs de code source OTel
 
 Les findings incluent un champ `code_location` (avec `function`, `filepath`, `lineno`, `namespace`) quand les spans OTel portent les attributs `code.*` correspondants. Cela permet des annotations au niveau source dans les rapports SARIF (annotations inline GitHub/GitLab).

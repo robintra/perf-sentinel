@@ -29,6 +29,16 @@ pub struct InlineFinding {
     pub severity: String,
     pub occurrences: usize,
     pub suggestion: String,
+    /// Framework-specific actionable fix carried over from the source
+    /// finding so the tree view can render it inline. Absent when the
+    /// finding had no inferred framework.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_fix: Option<crate::detect::suggestions::SuggestedFix>,
+    /// Source code location carried over from the source finding.
+    /// Absent when the instrumentation agent did not emit `code.*`
+    /// span attributes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_location: Option<crate::event::CodeLocation>,
 }
 
 impl InlineFinding {
@@ -39,6 +49,8 @@ impl InlineFinding {
             severity: f.severity.as_str().to_string(),
             occurrences: f.pattern.occurrences,
             suggestion: f.suggestion.clone(),
+            suggested_fix: f.suggested_fix.clone(),
+            code_location: f.code_location.clone(),
         }
     }
 }
@@ -249,6 +261,7 @@ pub fn format_tree_text(tree: &ExplainTree, use_color: bool) -> String {
 /// sees whole-trace issues (chatty service, pool saturation, serialized
 /// calls) before drilling into individual spans.
 fn format_trace_level_findings(out: &mut String, findings: &[InlineFinding], c: &TreeColors) {
+    use crate::text_safety::sanitize_for_terminal;
     use std::fmt::Write;
 
     if findings.is_empty() {
@@ -269,18 +282,54 @@ fn format_trace_level_findings(out: &mut String, findings: &[InlineFinding], c: 
         let _ = writeln!(
             out,
             "  {severity_color}\u{2022} {} {} (\u{00d7}{}){}",
-            f.finding_type.replace('_', " "),
-            f.severity,
+            sanitize_for_terminal(&f.finding_type.replace('_', " ")),
+            sanitize_for_terminal(&f.severity),
             f.occurrences,
             c.reset,
         );
-        let _ = writeln!(
-            out,
-            "      {}\u{2514}\u{2500} suggestion: {}{}",
-            c.dim, f.suggestion, c.reset,
-        );
+        write_finding_details(out, "      ", f, c);
     }
     let _ = writeln!(out);
+}
+
+/// Indented sub-lines under an annotated finding (suggestion, optional
+/// fix and code location), using `├─` / `└─` connectors.
+fn write_finding_details(out: &mut String, prefix: &str, f: &InlineFinding, c: &TreeColors) {
+    use crate::text_safety::{safe_url, sanitize_for_terminal};
+    use std::fmt::Write;
+
+    let mut lines: Vec<String> = Vec::with_capacity(3);
+    lines.push(format!(
+        "suggestion: {}",
+        sanitize_for_terminal(&f.suggestion)
+    ));
+    if let Some(ref fix) = f.suggested_fix {
+        let url_part = match fix.reference_url.as_deref().and_then(safe_url) {
+            Some(u) => format!(" ({u})"),
+            None => String::new(),
+        };
+        lines.push(format!(
+            "fix [{}]: {}{url_part}",
+            sanitize_for_terminal(&fix.framework),
+            sanitize_for_terminal(&fix.recommendation),
+        ));
+    }
+    if let Some(ref loc) = f.code_location {
+        let s = loc.display_string();
+        if !s.is_empty() {
+            lines.push(format!("location: {}", sanitize_for_terminal(&s)));
+        }
+    }
+
+    let last = lines.len().saturating_sub(1);
+    for (i, line) in lines.iter().enumerate() {
+        let connector = if i == last {
+            "\u{2514}\u{2500}"
+        } else {
+            "\u{251c}\u{2500}"
+        };
+        let _ = writeln!(out, "{prefix}{}{connector} {line}{}", c.dim, c.reset);
+    }
 }
 
 fn format_node(
@@ -291,6 +340,7 @@ fn format_node(
     c: &TreeColors,
     depth: usize,
 ) {
+    use crate::text_safety::sanitize_for_terminal;
     use std::fmt::Write;
 
     let connector = if is_last {
@@ -303,7 +353,11 @@ fn format_node(
     let _ = write!(
         out,
         "{prefix}{connector}{}{}{} {}({duration_str}){}",
-        c.bold, node.template, c.reset, c.dim, c.reset,
+        c.bold,
+        sanitize_for_terminal(&node.template),
+        c.reset,
+        c.dim,
+        c.reset,
     );
 
     // Annotate findings inline
@@ -316,8 +370,8 @@ fn format_node(
         let _ = write!(
             out,
             " {severity_color}\u{2190} {} {} (\u{00d7}{}){}",
-            f.finding_type.replace('_', " "),
-            f.severity,
+            sanitize_for_terminal(&f.finding_type.replace('_', " ")),
+            sanitize_for_terminal(&f.severity),
             f.occurrences,
             c.reset,
         );
@@ -331,12 +385,9 @@ fn format_node(
         format!("{prefix}\u{2502}  ")
     };
 
+    let detail_prefix = format!("{child_prefix}  ");
     for f in &node.findings {
-        let _ = writeln!(
-            out,
-            "{child_prefix}  {}\u{2514}\u{2500} suggestion: {}{}",
-            c.dim, f.suggestion, c.reset,
-        );
+        write_finding_details(out, &detail_prefix, f, c);
     }
 
     if depth < MAX_TREE_DEPTH {
@@ -691,6 +742,209 @@ mod tests {
         let tree = build_tree(&trace, &[finding]);
 
         assert!(tree.roots[0].findings.is_empty());
+    }
+
+    #[test]
+    fn fix_and_location_render_inline_under_a_finding() {
+        use crate::detect::suggestions::SuggestedFix;
+        use crate::event::CodeLocation;
+
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let mut finding =
+            make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        finding.suggested_fix = Some(SuggestedFix {
+            pattern: "n_plus_one_sql".to_string(),
+            framework: "java_jpa".to_string(),
+            recommendation: "Use @BatchSize on the lazy collection".to_string(),
+            reference_url: Some("https://docs.example.com/batch".to_string()),
+        });
+        finding.code_location = Some(CodeLocation {
+            function: Some("findItems".to_string()),
+            filepath: Some("src/main/java/orders/OrderService.java".to_string()),
+            lineno: Some(118),
+            namespace: Some("com.foo.orders.OrderService".to_string()),
+        });
+
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+
+        assert!(
+            text.contains("suggestion: Use WHERE order_id IN (?)"),
+            "missing suggestion line, got:\n{text}"
+        );
+        assert!(
+            text.contains("fix [java_jpa]: Use @BatchSize on the lazy collection (https://docs.example.com/batch)"),
+            "missing fix line, got:\n{text}"
+        );
+        assert!(
+            text.contains("location:")
+                && text.contains("src/main/java/orders/OrderService.java:118"),
+            "missing location line, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn finding_without_fix_or_location_keeps_only_suggestion() {
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let finding = make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+
+        assert!(text.contains("suggestion:"), "got:\n{text}");
+        assert!(!text.contains("fix ["), "fix line leaked, got:\n{text}");
+        assert!(
+            !text.contains("location:"),
+            "location line leaked, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn fix_without_location_renders_without_location_line() {
+        use crate::detect::suggestions::SuggestedFix;
+
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let mut finding =
+            make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        finding.suggested_fix = Some(SuggestedFix {
+            pattern: "n_plus_one_sql".to_string(),
+            framework: "rust_diesel".to_string(),
+            recommendation: "Use belonging_to + grouped_by".to_string(),
+            reference_url: None,
+        });
+
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+
+        assert!(
+            text.contains("fix [rust_diesel]: Use belonging_to + grouped_by"),
+            "missing fix line, got:\n{text}"
+        );
+        assert!(
+            !text.contains("location:"),
+            "location must be omitted, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn ansi_escape_in_template_is_stripped_from_tree() {
+        let mut events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        // Override the normalized template with attacker-controlled bytes.
+        events[0].target = "evil\x1b[2J\x1b[H wipe".to_string();
+        let trace = make_trace(events);
+        let tree = build_tree(&trace, &[]);
+        let text = format_tree_text(&tree, false);
+        assert!(
+            !text.as_bytes().contains(&0x1b),
+            "ESC byte from template leaked, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn ansi_escape_in_suggestion_is_stripped() {
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let mut finding =
+            make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        finding.suggestion = "click \x1b]8;;https://attacker/\x07here\x1b]8;;\x07".to_string();
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+        assert!(
+            !text.as_bytes().contains(&0x1b),
+            "ESC leaked from suggestion, got:\n{text}"
+        );
+        assert!(
+            !text.as_bytes().contains(&0x07),
+            "BEL leaked from suggestion, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn ansi_escape_in_code_location_is_stripped() {
+        use crate::event::CodeLocation;
+
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let mut finding =
+            make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        finding.code_location = Some(CodeLocation {
+            function: Some("findItems\x1b[31m".to_string()),
+            filepath: Some("src/Foo.java".to_string()),
+            lineno: Some(10),
+            namespace: Some("com.foo".to_string()),
+        });
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+        assert!(
+            !text.as_bytes().contains(&0x1b),
+            "ESC leaked from code_location, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn non_https_reference_url_is_omitted_in_tree() {
+        use crate::detect::suggestions::SuggestedFix;
+
+        let events = crate::test_helpers::make_sql_series_events(5);
+        let trace = make_trace(events);
+        let mut finding =
+            make_finding_for("trace-1", "SELECT * FROM order_item WHERE order_id = ?");
+        finding.suggested_fix = Some(SuggestedFix {
+            pattern: "n_plus_one_sql".to_string(),
+            framework: "java_jpa".to_string(),
+            recommendation: "Use @BatchSize".to_string(),
+            reference_url: Some("javascript:alert(1)".to_string()),
+        });
+
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+        assert!(
+            !text.contains("javascript:"),
+            "javascript: URL leaked, got:\n{text}"
+        );
+        assert!(
+            text.contains("fix [java_jpa]: Use @BatchSize"),
+            "recommendation must still render, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn trace_level_finding_renders_fix_inline() {
+        use crate::detect::suggestions::SuggestedFix;
+
+        let events = vec![make_sql_event(
+            "trace-1",
+            "span-1",
+            "SELECT 1",
+            "2025-07-10T14:32:01.000Z",
+        )];
+        let trace = make_trace(events);
+        let mut finding = make_chatty_finding("trace-1");
+        finding.suggested_fix = Some(SuggestedFix {
+            pattern: "chatty_service".to_string(),
+            framework: "java_generic".to_string(),
+            recommendation: "Aggregate calls behind a BFF".to_string(),
+            reference_url: None,
+        });
+
+        let tree = build_tree(&trace, &[finding]);
+        let text = format_tree_text(&tree, false);
+
+        assert!(
+            text.contains("Trace-level findings:"),
+            "missing header, got:\n{text}"
+        );
+        assert!(
+            text.contains("fix [java_generic]: Aggregate calls behind a BFF"),
+            "trace-level finding must render fix line, got:\n{text}"
+        );
     }
 
     #[test]

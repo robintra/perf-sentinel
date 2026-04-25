@@ -25,6 +25,7 @@ pub mod pipeline;
 pub mod quality_gate;
 pub mod report;
 pub mod score;
+pub mod text_safety;
 pub(crate) mod time;
 
 #[cfg(test)]

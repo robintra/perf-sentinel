@@ -2,11 +2,13 @@
 //! pretty-printers and the top-level `emit_report_and_gate` used by every
 //! command that produces a `Report`.
 
-use std::borrow::Cow;
+use std::collections::HashMap;
 
 use sentinel_core::detect::{Confidence, Severity};
 use sentinel_core::report::json::JsonReportSink;
 use sentinel_core::report::{Report, ReportSink};
+use sentinel_core::score::carbon::IntensitySource;
+use sentinel_core::text_safety::{safe_url, sanitize_for_terminal};
 
 use crate::OutputFormat;
 
@@ -124,31 +126,14 @@ pub(crate) fn interpret_color(
     }
 }
 
-/// Replace ASCII control characters with `?` so an attacker-controlled
-/// string in a JSON `Report` cannot inject ANSI escape sequences,
-/// OSC 8 hyperlinks, cursor controls or other terminal payloads.
-fn sanitize_for_terminal(input: &str) -> Cow<'_, str> {
-    if !input.bytes().any(|b| b < 0x20 || b == 0x7f) {
-        return Cow::Borrowed(input);
-    }
-    let cleaned: String = input
-        .chars()
-        .map(|c| {
-            let code = c as u32;
-            if code < 0x20 || code == 0x7f { '?' } else { c }
-        })
-        .collect();
-    Cow::Owned(cleaned)
-}
-
-/// Return the URL only when it is HTTPS and free of control chars.
-/// Defends against schema spoofing and OSC 8 hyperlink injection from
-/// `suggested_fix.reference_url` values planted in a `--before` report.
-fn safe_url(url: &str) -> Option<&str> {
-    if url.starts_with("https://") && !url.bytes().any(|b| b < 0x20 || b == 0x7f) {
-        Some(url)
-    } else {
-        None
+/// Snake-case label for an `IntensitySource`, matching the JSON
+/// representation so the terminal vocabulary aligns with the dashboard.
+const fn intensity_source_label(source: IntensitySource) -> &'static str {
+    match source {
+        IntensitySource::Annual => "annual",
+        IntensitySource::Hourly => "hourly",
+        IntensitySource::MonthlyHourly => "monthly_hourly",
+        IntensitySource::RealTime => "real_time",
     }
 }
 
@@ -191,10 +176,73 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
         findings.len(),
         colors.reset
     );
+    if let Some(line) = format_severity_breakdown(findings, colors) {
+        println!("{line}");
+    }
+    if let Some(line) = format_top_finding_types(findings) {
+        println!("{line}");
+    }
     println!();
     for (i, finding) in findings.iter().enumerate() {
         print_finding_entry(i, finding, colors);
         println!();
+    }
+}
+
+/// One-line severity breakdown printed under the `Found N issue(s):`
+/// header. Returns `None` for empty inputs so the caller can skip the
+/// line entirely.
+fn format_severity_breakdown(
+    findings: &[sentinel_core::detect::Finding],
+    colors: AnsiColors,
+) -> Option<String> {
+    if findings.is_empty() {
+        return None;
+    }
+    let mut critical = 0usize;
+    let mut warning = 0usize;
+    let mut info = 0usize;
+    for f in findings {
+        match f.severity {
+            Severity::Critical => critical += 1,
+            Severity::Warning => warning += 1,
+            Severity::Info => info += 1,
+        }
+    }
+    let AnsiColors {
+        red,
+        yellow,
+        dim,
+        reset,
+        ..
+    } = colors;
+    Some(format!(
+        "  {red}{critical} critical{reset}, {yellow}{warning} warning{reset}, {dim}{info} info{reset}"
+    ))
+}
+
+/// Top-N (2 normally, 3 above 10) finding types by frequency. None on
+/// runs of 5 findings or fewer to avoid noise.
+fn format_top_finding_types(findings: &[sentinel_core::detect::Finding]) -> Option<String> {
+    if findings.len() <= 5 {
+        return None;
+    }
+    let mut counts: HashMap<&'static str, usize> = HashMap::new();
+    for f in findings {
+        *counts.entry(f.finding_type.as_str()).or_insert(0) += 1;
+    }
+    let mut pairs: Vec<(&'static str, usize)> = counts.into_iter().collect();
+    pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+    let take = if findings.len() > 10 { 3 } else { 2 };
+    let formatted: Vec<String> = pairs
+        .into_iter()
+        .take(take)
+        .map(|(k, v)| format!("{k} ({v})"))
+        .collect();
+    if formatted.is_empty() {
+        None
+    } else {
+        Some(format!("  Most common: {}", formatted.join(", ")))
     }
 }
 
@@ -248,6 +296,12 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         "    {cyan}Suggestion:{reset} {}",
         sanitize_for_terminal(&finding.suggestion)
     );
+    if finding.confidence != Confidence::CiBatch {
+        println!(
+            "    {dim}Confidence:{reset} {}",
+            finding.confidence.as_str()
+        );
+    }
     if let Some(ref fix) = finding.suggested_fix {
         let recommendation = sanitize_for_terminal(&fix.recommendation);
         match fix.reference_url.as_deref().and_then(safe_url) {
@@ -335,15 +389,29 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         }
     }
 
-    // Per-region breakdown when more than one region was resolved.
-    if summary.regions.len() > 1 {
+    // Per-region breakdown whenever at least one region was resolved.
+    // Always emitted (even mono-region) so the intensity source is
+    // visible to the user, matching the dashboard's per-region table.
+    if !summary.regions.is_empty() {
         println!();
         println!("  {bold}Per-region breakdown:{reset}");
         for region in &summary.regions {
-            println!(
-                "    - {}: {} I/O ops, {:.6} gCO\u{2082}",
-                region.region, region.io_ops, region.co2_gco2,
-            );
+            // Unresolved regions carry placeholder zero intensity. Render
+            // an explicit marker rather than `0 gCO2/kWh, source: annual`
+            // so a reader does not mistake an unknown region for a clean
+            // grid.
+            if region.status == sentinel_core::score::carbon::REGION_STATUS_UNRESOLVED {
+                println!(
+                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} (intensity: unresolved, source: -)",
+                    region.region, region.io_ops, region.co2_gco2,
+                );
+            } else {
+                let source_str = intensity_source_label(region.intensity_source);
+                println!(
+                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str})",
+                    region.region, region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
+                );
+            }
         }
     }
 
@@ -396,6 +464,7 @@ fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bo
         bold,
         red,
         green,
+        dim,
         reset,
         ..
     } = ansi_colors(force_color);
@@ -403,6 +472,14 @@ fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bo
     let gate_color = if gate.passed { green } else { red };
     let gate_label = if gate.passed { "PASSED" } else { "FAILED" };
     println!("{bold}Quality gate: {gate_color}{gate_label}{reset}");
+    for rule in &gate.rules {
+        let status_color = if rule.passed { green } else { red };
+        let status_label = if rule.passed { "PASS" } else { "FAIL" };
+        println!(
+            "  {dim}-{reset} {}: {} (actual {}) {status_color}{status_label}{reset}",
+            rule.rule, rule.threshold, rule.actual,
+        );
+    }
     println!();
 }
 
@@ -1067,36 +1144,123 @@ mod tests {
         );
     }
 
-    #[test]
-    fn sanitize_for_terminal_borrows_clean_input() {
-        match sanitize_for_terminal("clean ascii") {
-            Cow::Borrowed(s) => assert_eq!(s, "clean ascii"),
-            Cow::Owned(_) => panic!("clean input should not allocate"),
-        }
+    fn finding_with(severity: Severity, ftype: FindingType) -> Finding {
+        let mut f = sample_finding();
+        f.severity = severity;
+        f.finding_type = ftype;
+        f
     }
 
     #[test]
-    fn sanitize_for_terminal_replaces_all_control_chars() {
-        let dirty = "a\x1bb\x07c\x00d\x7fe\nf";
-        let cleaned = sanitize_for_terminal(dirty);
-        assert_eq!(cleaned.as_ref(), "a?b?c?d?e?f");
+    fn severity_breakdown_is_none_for_empty_input() {
+        assert!(format_severity_breakdown(&[], no_colors()).is_none());
     }
 
     #[test]
-    fn safe_url_accepts_clean_https() {
-        assert_eq!(
-            safe_url("https://example.com/x"),
-            Some("https://example.com/x")
+    fn severity_breakdown_counts_each_bucket() {
+        let findings = vec![
+            finding_with(Severity::Critical, FindingType::NPlusOneSql),
+            finding_with(Severity::Critical, FindingType::SlowSql),
+            finding_with(Severity::Warning, FindingType::RedundantSql),
+            finding_with(Severity::Info, FindingType::SlowHttp),
+        ];
+        let line = format_severity_breakdown(&findings, no_colors())
+            .expect("non-empty input must yield a line");
+        assert!(line.contains("2 critical"), "got: {line}");
+        assert!(line.contains("1 warning"), "got: {line}");
+        assert!(line.contains("1 info"), "got: {line}");
+    }
+
+    #[test]
+    fn top_finding_types_skipped_when_five_or_fewer() {
+        let findings = vec![
+            finding_with(Severity::Warning, FindingType::NPlusOneSql),
+            finding_with(Severity::Warning, FindingType::NPlusOneSql),
+            finding_with(Severity::Warning, FindingType::SlowSql),
+            finding_with(Severity::Warning, FindingType::RedundantSql),
+            finding_with(Severity::Warning, FindingType::SlowHttp),
+        ];
+        assert!(
+            format_top_finding_types(&findings).is_none(),
+            "5 findings must not surface a `Most common` line"
         );
     }
 
     #[test]
-    fn safe_url_rejects_non_https_and_control_chars() {
-        assert_eq!(safe_url("http://example.com"), None);
-        assert_eq!(safe_url("javascript:alert(1)"), None);
-        assert_eq!(safe_url("ftp://example.com"), None);
-        assert_eq!(safe_url("https://a.com/\x1b[0m"), None);
-        assert_eq!(safe_url(""), None);
+    fn top_finding_types_takes_two_when_total_between_six_and_ten() {
+        let mut findings = Vec::new();
+        for _ in 0..3 {
+            findings.push(finding_with(Severity::Warning, FindingType::NPlusOneSql));
+        }
+        for _ in 0..2 {
+            findings.push(finding_with(Severity::Warning, FindingType::RedundantSql));
+        }
+        for _ in 0..2 {
+            findings.push(finding_with(Severity::Warning, FindingType::SlowHttp));
+        }
+        let line = format_top_finding_types(&findings).expect("7 findings must surface a line");
+        assert!(line.contains("Most common:"), "got: {line}");
+        assert!(line.contains("n_plus_one_sql (3)"), "got: {line}");
+        assert!(
+            line.matches('(').count() == 2,
+            "expected 2 entries, got: {line}"
+        );
+    }
+
+    #[test]
+    fn top_finding_types_takes_three_when_total_over_ten() {
+        let mut findings = Vec::new();
+        for _ in 0..5 {
+            findings.push(finding_with(Severity::Warning, FindingType::NPlusOneSql));
+        }
+        for _ in 0..4 {
+            findings.push(finding_with(Severity::Warning, FindingType::RedundantSql));
+        }
+        for _ in 0..3 {
+            findings.push(finding_with(Severity::Warning, FindingType::SlowHttp));
+        }
+        for _ in 0..1 {
+            findings.push(finding_with(Severity::Warning, FindingType::SlowSql));
+        }
+        let line = format_top_finding_types(&findings).expect("13 findings must surface a line");
+        assert!(line.contains("n_plus_one_sql (5)"), "got: {line}");
+        assert!(line.contains("redundant_sql (4)"), "got: {line}");
+        assert!(line.contains("slow_http (3)"), "got: {line}");
+        assert!(
+            !line.contains("slow_sql (1)"),
+            "should cap at top 3, got: {line}"
+        );
+    }
+
+    #[test]
+    fn top_finding_types_does_not_panic_on_thousand_entries() {
+        let findings: Vec<Finding> = (0..1000)
+            .map(|i| {
+                let kind = match i % 4 {
+                    0 => FindingType::NPlusOneSql,
+                    1 => FindingType::RedundantSql,
+                    2 => FindingType::SlowHttp,
+                    _ => FindingType::SlowSql,
+                };
+                finding_with(Severity::Warning, kind)
+            })
+            .collect();
+        let line = format_top_finding_types(&findings).expect("1000 findings must surface a line");
+        assert!(line.contains("Most common:"), "got: {line}");
+    }
+
+    #[test]
+    fn intensity_source_label_covers_every_variant() {
+        assert_eq!(intensity_source_label(IntensitySource::Annual), "annual");
+        assert_eq!(intensity_source_label(IntensitySource::Hourly), "hourly");
+        assert_eq!(
+            intensity_source_label(IntensitySource::MonthlyHourly),
+            "monthly_hourly"
+        );
+        assert_eq!(
+            intensity_source_label(IntensitySource::RealTime),
+            "real_time"
+        );
     }
 
     #[test]
