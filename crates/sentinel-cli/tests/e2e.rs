@@ -433,6 +433,28 @@ fn cli_analyze_help_documents_correlations_are_daemon_only() {
     );
 }
 
+#[cfg(feature = "tui")]
+#[test]
+fn cli_inspect_help_documents_report_input() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["inspect", "--help"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Report JSON"),
+        "inspect --help must mention Report JSON input, got:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("/api/export/report"),
+        "inspect --help must reference the daemon snapshot endpoint, got:\n{stdout}"
+    );
+}
+
 #[test]
 fn cli_analyze_ci_text_lists_quality_gate_rules() {
     let fixture_path = format!(

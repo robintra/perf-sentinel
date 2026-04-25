@@ -1,8 +1,11 @@
 # VHS script, generates docs/img/inspect/demo.gif and five still frames
 # (main.png, detail.png, detail-scrolled.png, critical.png, info.png).
 #
-# Showcases the `perf-sentinel inspect` TUI mode, a 3-panel interactive
-# explorer for traces, findings and finding details. The tape launches
+# Showcases the `perf-sentinel inspect` TUI mode, a 4-panel interactive
+# explorer for traces, findings, finding details and cross-trace
+# correlations. The Correlations panel stays empty in batch mode (the
+# correlator is daemon-only), the tape exercises the other three. The
+# tape launches
 # the TUI, navigates down through the trace list one position at a time
 # with ~2s pauses so the viewer can watch the findings panel color flip
 # between severity levels (yellow WARNING → red CRITICAL → cyan INFO),
@@ -74,8 +77,9 @@ Enter
 Sleep 500ms
 Show
 
+Sleep 1s
 Type "perf-sentinel inspect --input traces.json"
-Sleep 500ms
+Sleep 1500ms
 Enter
 Sleep 3s
 Screenshot docs/img/inspect/main.png
@@ -104,13 +108,16 @@ Sleep 2s
 Screenshot docs/img/inspect/detail-scrolled.png
 Sleep 4s
 
-# Rewind back to the traces panel (1 Tab cycles Detail → Traces) and
-# walk down to the CRITICAL trace (N+1 SQL ×10 at position 3).
-# `move_down` on Traces automatically resets `scroll_offset` and
-# clears `cached_detail`, so the scrolled state does not leak into
-# the next trace's view. The
-# findings panel header flips from yellow WARNING to red CRITICAL as
-# the viewer watches the color shift.
+# Rewind back to the traces panel. Two Tabs because the cycle is now
+# Detail → Correlations → Traces (the Correlations panel was added in
+# the 4-panel layout). Then walk down to the CRITICAL trace (N+1 SQL
+# ×10 at position 3). `move_down` on Traces automatically resets
+# `scroll_offset` and clears `cached_detail`, so the scrolled state
+# does not leak into the next trace's view. The findings panel
+# header flips from yellow WARNING to red CRITICAL as the viewer
+# watches the color shift.
+Tab
+Sleep 1s
 Tab
 Sleep 3s
 Down

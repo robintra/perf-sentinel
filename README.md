@@ -154,6 +154,10 @@ Finally, tune the I/O-to-energy coefficients to your real infrastructure with `c
 
 ![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
+`inspect --input` also auto-detects a pre-computed Report JSON (e.g. a daemon snapshot from `/api/export/report`). Findings and Correlations panels light up fully. The Detail panel surfaces a span-tree-unavailable hint that points at the two paths which do carry raw spans:
+
+![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span-tree hint](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+
 **pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries three ways (by total execution time, by call count, by mean latency). Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
 
 ![pg-stat: top hotspots by total time, calls and mean latency](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)

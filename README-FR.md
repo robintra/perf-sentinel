@@ -154,6 +154,10 @@ Enfin, ajuste les coefficients I/O-vers-énergie à ton infrastructure réelle a
 
 ![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
 
+`inspect --input` accepte aussi un Report JSON pré-calculé (par exemple un snapshot daemon issu de `/api/export/report`). Les panels Findings et Correlations s'allument complètement, le panel Detail affiche un message qui pointe vers les deux chemins qui portent les vrais spans :
+
+![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et message Detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+
 **Mode pg-stat** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`) : classe les requêtes SQL de trois manières (par temps d'exécution total, par nombre d'appels, par latence moyenne). Cross-référence avec tes traces via `--traces` pour repérer les requêtes qui dominent la DB sans apparaître dans ton instrumentation :
 
 ![pg-stat : top hotspots par temps total, appels et latence moyenne](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)

@@ -177,8 +177,11 @@ impl App {
     /// Mirrors the line construction in [`draw_detail_panel`]: 7 always-
     /// present metadata rows (type header, template, occurrences, service,
     /// endpoint, suggestion, plus the blank between the header and the
-    /// body), +1 when the finding carries a `green_impact`, +2 for the
-    /// blank + "Span tree:" header, +N for the cached span tree text.
+    /// body), +1 when the finding carries a `green_impact`, then either
+    /// the cached span tree (+2 for the header, +N for the tree lines)
+    /// or the unavailability hint (+5 for the blank, header, and 3 hint
+    /// lines pointing at `inspect --input <events>.json` and `query
+    /// inspect`).
     ///
     /// Used by [`App::move_down`] to clamp the Detail-panel scroll offset
     /// so `Down`/`j` cannot scroll past the content. Long wrapped lines
@@ -200,6 +203,9 @@ impl App {
             // +2 for blank + "Span tree:" header, +N for the tree lines.
             let tree_count = u16::try_from(text.lines().count()).unwrap_or(u16::MAX);
             count = count.saturating_add(2).saturating_add(tree_count);
+        } else {
+            // +2 for blank + "Span tree:" header, +3 for the hint lines.
+            count = count.saturating_add(5);
         }
         count
     }
@@ -414,9 +420,9 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     let top = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(25),
-            Constraint::Percentage(50),
-            Constraint::Percentage(25),
+            Constraint::Percentage(20),
+            Constraint::Percentage(45),
+            Constraint::Percentage(35),
         ])
         .split(chunks[0]);
 
@@ -672,6 +678,30 @@ fn draw_detail_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::R
         for tree_line in tree_text.lines() {
             lines.push(Line::from(tree_line.to_string()));
         }
+    } else {
+        // No span tree available: the input was a Report (no embedded
+        // spans) or a daemon trace that the explain endpoint did not
+        // return. Surface the two paths that produce a real tree so
+        // the user knows what to try next.
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Span tree:",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "Not available for this trace. Reports do not carry raw spans.",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  - perf-sentinel inspect --input <events>.json  (raw events)",
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  - perf-sentinel query inspect                  (live daemon)",
+            Style::default().fg(Color::DarkGray),
+        )));
     }
 
     let paragraph = Paragraph::new(lines)
@@ -1215,6 +1245,30 @@ mod tests {
         assert!(
             buffer_contains(&buf, "92%"),
             "confidence percentage missing"
+        );
+    }
+
+    #[test]
+    fn detail_panel_shows_hint_when_spans_unavailable() {
+        // make_test_app() builds traces with `spans: vec![]`, mirroring
+        // a Report-mode input or a query-inspect trace whose explain
+        // tree did not come back from the daemon. The Detail panel
+        // must surface the two paths that produce a real tree.
+        let mut app = make_test_app();
+        app.active_panel = Panel::Findings;
+        app.enter(); // drill into Detail
+        let buf = render_once(&mut app, 160, 40);
+        assert!(
+            buffer_contains(&buf, "Not available"),
+            "Detail panel must surface a span-tree-unavailable hint"
+        );
+        assert!(
+            buffer_contains(&buf, "inspect --input"),
+            "hint must mention `inspect --input <events>.json`"
+        );
+        assert!(
+            buffer_contains(&buf, "query inspect"),
+            "hint must mention `query inspect`"
         );
     }
 

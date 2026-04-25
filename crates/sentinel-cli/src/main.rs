@@ -144,9 +144,16 @@ enum Commands {
     },
 
     /// Interactive TUI to inspect traces and findings.
+    ///
+    /// `--input` accepts either a raw events JSON (auto-detected:
+    /// native, Jaeger or Zipkin) or a pre-computed Report JSON
+    /// (e.g. a daemon snapshot from `/api/export/report`). With a
+    /// Report input the Findings and Correlations panels light up
+    /// fully; the Detail panel falls back to per-trace stubs because
+    /// Reports do not carry raw spans.
     #[cfg(feature = "tui")]
     Inspect {
-        /// Path to a JSON trace file.
+        /// Path to a JSON trace file or a pre-computed Report JSON.
         #[arg(short, long)]
         input: PathBuf,
         /// Path to a `.perf-sentinel.toml` config file.
@@ -1470,12 +1477,25 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
 fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
     let config = load_config(config_path);
     let raw = read_events(Some(input), config.max_payload_size);
-
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
-
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
-    let (report, traces) = pipeline::analyze_with_traces(events, &config);
+    // Auto-detect events array vs pre-computed Report object, same shape
+    // contract as `report --input`. A Report payload (e.g. a daemon
+    // snapshot dumped via /api/export/report) lights up the Findings and
+    // Correlations panels. The Detail panel falls back to a per-trace
+    // stub with no spans because Reports don't carry raw spans.
+    let (report, mut traces) = load_report_from_input(&raw, &config);
+    if traces.is_empty() && !report.findings.is_empty() {
+        let trace_ids: std::collections::BTreeSet<String> =
+            report.findings.iter().map(|f| f.trace_id.clone()).collect();
+        traces = trace_ids
+            .into_iter()
+            .map(|tid| sentinel_core::correlate::Trace {
+                trace_id: tid,
+                spans: vec![],
+            })
+            .collect();
+    }
 
     let mut app = tui::App::new(report.findings, traces, detect_config)
         .with_correlations(report.correlations);

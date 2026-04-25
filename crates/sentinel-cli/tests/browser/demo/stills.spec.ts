@@ -1,5 +1,5 @@
-import { test } from "@playwright/test";
-import { resolve } from "node:path";
+import {test} from "@playwright/test";
+import {resolve} from "node:path";
 
 // Captures one clean screenshot per tab for the docs. Runs twice
 // (once per dashboard-stills-* project) to produce light + dark
@@ -42,13 +42,43 @@ async function openDashboard(
   await page.waitForTimeout(200);
 }
 
+// Capture full viewport width but clip vertically to the bottom of the
+// `.ps-footer` element (last visible content) plus a small padding.
+// Avoids both the empty space below short tabs (diff, greenops) and the
+// truncation of long tabs (pg_stat) when the viewport is fixed.
+async function clipScreenshot(
+  page: import("@playwright/test").Page,
+  path: string
+) {
+  const height = await page.evaluate(() => {
+    // `.ps-credit` is the very last visible element ("Powered by ..."),
+    // sitting just below `.ps-footer` (the keyboard shortcuts line).
+    const credit = document.querySelector(".ps-credit");
+    if (credit) {
+      const rect = credit.getBoundingClientRect();
+      return Math.ceil(rect.bottom + window.scrollY + 16);
+    }
+    return Math.max(
+      document.body.scrollHeight,
+      document.documentElement.scrollHeight
+    );
+  });
+  const viewport = page.viewportSize();
+  const width = viewport?.width ?? 1280;
+  await page.screenshot({
+    path,
+    fullPage: true,
+    clip: { x: 0, y: 0, width, height: Math.max(height, 200) },
+  });
+}
+
 test("01 findings with severity + service filters", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme);
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("findings", theme) });
+  await clipScreenshot(page, outPath("findings", theme));
 });
 
 test("02 explain trace tree", async ({ page }, info) => {
@@ -56,35 +86,35 @@ test("02 explain trace tree", async ({ page }, info) => {
   await openDashboard(page, theme);
   await page.locator("#findings-list .ps-row").first().click();
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("explain", theme) });
+  await clipScreenshot(page, outPath("explain", theme));
 });
 
 test("03 pg_stat Calls ranking", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#pgstat&ranking=calls");
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("pg-stat", theme) });
+  await clipScreenshot(page, outPath("pg-stat", theme));
 });
 
 test("04 diff regression", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#diff");
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("diff", theme) });
+  await clipScreenshot(page, outPath("diff", theme));
 });
 
 test("05 correlations cross-trace", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#correlations");
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("correlations", theme) });
+  await clipScreenshot(page, outPath("correlations", theme));
 });
 
 test("06 greenops regions breakdown", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#green");
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("greenops", theme) });
+  await clipScreenshot(page, outPath("greenops", theme));
 });
 
 test("07 cheatsheet modal", async ({ page }, info) => {
@@ -93,5 +123,5 @@ test("07 cheatsheet modal", async ({ page }, info) => {
   await page.keyboard.press("?");
   await page.waitForSelector("#cheatsheet[open]");
   await page.waitForTimeout(150);
-  await page.screenshot({ path: outPath("cheatsheet", theme) });
+  await clipScreenshot(page, outPath("cheatsheet", theme));
 });

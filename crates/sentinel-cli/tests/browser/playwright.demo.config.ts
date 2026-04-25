@@ -1,4 +1,4 @@
-import { defineConfig, devices } from "@playwright/test";
+import {defineConfig, devices} from "@playwright/test";
 
 // Demo-only Playwright config. Drives four artefact groups that
 // `npm run demo` ships to docs/img/report/:
@@ -13,7 +13,11 @@ import { defineConfig, devices } from "@playwright/test";
 // Kept separate from playwright.config.ts so `npx playwright test`
 // (and CI) never picks up the demo as a regular test.
 
-const VIEWPORT = { width: 1280, height: 720 } as const;
+// 1280x900 keeps long content (15+ pg_stat rows + footer) fully in
+// frame for the tour video. Stills clip to content height in
+// stills.spec.ts, so short tabs (diff, greenops) stay compact even
+// with this taller viewport.
+const VIEWPORT = { width: 1280, height: 900 } as const;
 
 export default defineConfig({
   testDir: "./demo",
