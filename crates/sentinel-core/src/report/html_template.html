@@ -632,7 +632,7 @@
 
   // -------- quality gate rules --------
   function formatRuleNumber(n) {
-    if (typeof n !== "number" || !isFinite(n)) return "-";
+    if (!Number.isFinite(n)) return "-";
     if (Number.isInteger(n)) return String(n);
     return n.toFixed(3);
   }
