@@ -1092,12 +1092,29 @@ ci-dessous). Les cinq autres tabs (Explain, pg_stat, Correlations,
 GreenOps et une tab Diff grisée) sont à un clic via la barre
 d'onglets.
 
+**Prérequis du pipeline Jenkins** :
+
+- Utiliser un **MultiBranch Pipeline** avec un plugin de
+  branch-source installé (GitHub Branch Source, Bitbucket Branch
+  Source, GitLab Branch Source ou Gitea Branch Source). Le test
+  `env.CHANGE_ID` qui garde le stage de quality gate sur les builds
+  PR n'est positionné que par ces plugins. Dans un Pipeline
+  classique single-branch, `CHANGE_ID` est toujours null et le
+  quality gate ne bloque jamais.
+- Utiliser un **agent Linux** (ou un controller sans agent sur un
+  hôte Linux). Le template s'appuie sur `sh`, `curl`, `sha256sum`,
+  `chmod`, dont aucun n'est disponible par défaut sur les agents
+  Windows.
+
 **Mise en place** (opt-in, nécessite le plugin HTML Publisher sur
 le controller) :
 
-1. Vérifier que le plugin HTML Publisher est installé. Manage
-   Jenkins -> Plugins -> Installed plugins, rechercher "HTML
-   Publisher". Si absent, installer puis redémarrer le controller.
+1. Vérifier que le plugin HTML Publisher (>= 1.10 pour la
+   compatibilité CSP) est installé. Manage Jenkins -> Plugins ->
+   Installed plugins, rechercher "HTML Publisher". Si absent,
+   installer puis redémarrer le controller. Le plugin Warnings Next
+   Generation utilisé par le reste du template doit être en
+   >= 9.11.0 pour le tool SARIF.
 2. Décommenter le stage `Generate interactive HTML report` dans
    [`docs/ci-templates/jenkinsfile.groovy`](../ci-templates/jenkinsfile.groovy),
    placé juste avant le stage `Quality gate (PR only)`.
@@ -1113,6 +1130,64 @@ sidebar du build porte un lien "perf-sentinel" qui pointe toujours
 vers le rapport du dernier build via `alwaysLinkToLastBuild: true`.
 L'option `keepAll: true` retient les rapports par build, les
 anciens builds restent donc navigables.
+
+Si le rapport apparaît sans style avec une navigation par onglets
+cassée, voir **Configurer Jenkins pour rendre le rapport
+interactif** ci-dessous. Jenkins applique par défaut une Content
+Security Policy stricte qui bloque le CSS et le JavaScript inline,
+ce qui est la cause la plus fréquente d'une page sidebar
+perf-sentinel sans style.
+
+**Configurer Jenkins pour rendre le rapport interactif**.
+
+Jenkins applique par défaut une
+[Content Security Policy](https://www.jenkins.io/doc/book/security/configuring-content-security-policy/)
+stricte au contenu servi depuis les workspaces de build. Le rapport
+HTML perf-sentinel embarque CSS et JavaScript inline dans un seul
+fichier autonome, ce que le CSP par défaut bloque. Sans relâcher la
+policy ou utiliser une Resource Root URL, cliquer sur le lien
+sidebar `${BUILD_URL}perf-sentinel/` affiche une page HTML sans
+style avec une navigation par onglets cassée, et aucun message dans
+le log du build.
+
+Deux options pour corriger, par ordre de préférence :
+
+**Option A : configurer une Resource Root URL** (Jenkins 2.200+,
+recommandée). Sert le contenu utilisateur depuis un domaine séparé,
+ce qui fait que le CSP de l'instance principale ne s'applique plus.
+Définir l'URL dans `Manage Jenkins > System > Resource Root URL`.
+Voir l'[aide intégrée](https://www.jenkins.io/doc/book/security/user-content/#resource-root-url)
+pour les détails. Aucun changement de template requis, tous les
+rapports de tous les jobs en bénéficient immédiatement.
+
+**Option B : relâcher le CSP** (legacy, portée plus large). Définir
+la propriété système Java suivante au démarrage du controller
+Jenkins (ou la lancer une fois via la Script Console pour un test à
+portée de session) :
+
+```groovy
+System.setProperty(
+    "hudson.model.DirectoryBrowserSupport.CSP",
+    "sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+)
+```
+
+Compromis :
+
+- Affecte tout le contenu HTML servi par tous les jobs de
+  l'instance, pas seulement les rapports perf-sentinel.
+- Ajoute `'unsafe-inline'` pour les styles et les scripts.
+  Acceptable sur une instance Jenkins où vous faites confiance aux
+  jobs exécutés, risqué sur une instance multi-tenant avec des
+  contributeurs non fiables.
+- Revient au défaut au redémarrage de Jenkins, sauf si persisté via
+  les options de démarrage (`JAVA_OPTS`, `jenkins.xml` ou unit
+  systemd).
+
+Une future release perf-sentinel pourrait produire un rapport
+CSP-friendly (CSS et JavaScript dans des fichiers voisins) qui
+fonctionnerait avec le CSP Jenkins par défaut. Pas de date
+engagée.
 
 **Tab Diff absente par défaut**. Contrairement à GitHub Actions et
 GitLab CI où un workflow baseline companion rafraîchit

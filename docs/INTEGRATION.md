@@ -1099,12 +1099,26 @@ below). The five other tabs (Explain, pg_stat, Correlations,
 GreenOps, and a greyed-out Diff tab) are one click away via the
 tab strip.
 
+**Jenkins pipeline requirements**:
+
+- Use a **MultiBranch Pipeline** with a branch-source plugin
+  installed (GitHub Branch Source, Bitbucket Branch Source, GitLab
+  Branch Source, or Gitea Branch Source). The `env.CHANGE_ID` check
+  that gates the quality-gate stage on PR builds is only set by
+  these plugins. Inside a classic single-branch Pipeline,
+  `CHANGE_ID` is always null and the quality gate never blocks.
+- Use a **Linux agent** (or a controller without agents on a Linux
+  host). The template relies on `sh`, `curl`, `sha256sum`, `chmod`,
+  none of which are available on Windows agents by default.
+
 **Setup** (opt-in, requires the HTML Publisher plugin on the
 controller):
 
-1. Confirm the HTML Publisher plugin is installed. Manage Jenkins
-   -> Plugins -> Installed plugins, search for "HTML Publisher".
-   If missing, install and restart the controller.
+1. Confirm the HTML Publisher plugin (>= 1.10 for CSP compatibility)
+   is installed. Manage Jenkins -> Plugins -> Installed plugins,
+   search for "HTML Publisher". If missing, install and restart
+   the controller. The Warnings Next Generation plugin used by the
+   rest of the template needs to be at >= 9.11.0 for the SARIF tool.
 2. Uncomment the `Generate interactive HTML report` stage in
    [`docs/ci-templates/jenkinsfile.groovy`](./ci-templates/jenkinsfile.groovy),
    placed right before the `Quality gate (PR only)` stage.
@@ -1119,6 +1133,59 @@ build sidebar carries a "perf-sentinel" link that always points to
 the newest build's report via `alwaysLinkToLastBuild: true`. The
 `keepAll: true` option retains per-build reports so historical
 builds remain browsable.
+
+If the report renders unstyled with broken tab navigation, see
+**Configuring Jenkins to render the interactive report** below.
+Jenkins applies a strict default Content Security Policy that
+blocks inline CSS and JavaScript, which is the most common cause
+of an unstyled perf-sentinel sidebar page.
+
+**Configuring Jenkins to render the interactive report**.
+
+Jenkins applies a strict
+[Content Security Policy](https://www.jenkins.io/doc/book/security/configuring-content-security-policy/)
+by default to content served from build workspaces. The
+perf-sentinel HTML report packs CSS and JavaScript inline in a
+single self-contained file, which the default CSP blocks. Without
+relaxing the policy or using a Resource Root URL, clicking the
+`${BUILD_URL}perf-sentinel/` sidebar link shows an unstyled HTML
+page with broken tab navigation and no message in the build log.
+
+Two options to fix, in order of preference:
+
+**Option A: configure a Resource Root URL** (Jenkins 2.200+,
+recommended). Serves user-generated content from a separate domain
+so the main instance CSP no longer applies. Set the URL in
+`Manage Jenkins > System > Resource Root URL`. See the
+[inline help](https://www.jenkins.io/doc/book/security/user-content/#resource-root-url)
+for details. No template change required, all reports across all
+jobs benefit immediately.
+
+**Option B: relax the CSP** (legacy, broader scope). Set the
+following Java system property on the Jenkins controller startup
+(or run it once via the Script Console for a session-scoped
+experiment):
+
+```groovy
+System.setProperty(
+    "hudson.model.DirectoryBrowserSupport.CSP",
+    "sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+)
+```
+
+Tradeoffs:
+
+- Affects all HTML content served by all jobs on the instance, not
+  just perf-sentinel reports.
+- Adds `'unsafe-inline'` for both styles and scripts. Acceptable on
+  a Jenkins instance where you trust the jobs being run, risky on a
+  multi-tenant instance with untrusted contributors.
+- Reverts to default on Jenkins restart unless persisted via the
+  startup options (`JAVA_OPTS`, `jenkins.xml`, or systemd unit).
+
+A future perf-sentinel release may produce a CSP-friendly report
+(CSS and JavaScript split into sibling files) that works on the
+default Jenkins CSP. No date committed.
 
 **Diff tab absent by default**. Unlike GitHub Actions and GitLab CI
 where a companion baseline workflow refreshes `baseline.json` on

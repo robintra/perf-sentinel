@@ -6,6 +6,15 @@
 // `perf-sentinel analyze --ci` (non-zero exit on threshold breach) and
 // duplicated in the Warnings NG `qualityGates` for double safety.
 //
+// Pipeline type requirement: this template targets MultiBranch Pipelines
+// (the standard for repos with PR-based workflows). The `env.CHANGE_ID`
+// check that gates the quality-gate stage on PR builds is only set by
+// the MultiBranch Pipeline plus a branch-source plugin (GitHub Branch
+// Source, Bitbucket Branch Source, GitLab Branch Source, Gitea Branch
+// Source). Inside a classic single-branch Pipeline, `CHANGE_ID` is
+// always null and the quality gate never blocks. See INTEGRATION.md
+// section "Interactive report via Jenkins HTML Publisher" for details.
+//
 // What you must adapt before using this template:
 //   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
 //      'latest'). Bump deliberately and review the CHANGELOG before each bump.
@@ -16,17 +25,45 @@
 //      [thresholds] section to set quality-gate severity floors.
 //
 // Required Jenkins plugins:
-//   - Warnings Next Generation (publishes SARIF as a structured issue tree)
+//   - Warnings Next Generation >= 9.11.0 (publishes SARIF as a structured
+//                               issue tree. v9.11.0 introduced the SARIF
+//                               tool, earlier versions throw
+//                               NoSuchMethodError on `recordIssues`. See
+//                               https://plugins.jenkins.io/warnings-ng/releases/)
 //   - Pipeline Utility Steps   (only if you want to readJSON the report)
-//   - HTML Publisher           (optional, enables the interactive HTML
+//   - HTML Publisher >= 1.10   (optional, enables the interactive HTML
 //                               report block below via publishHTML;
-//                               pre-installed on most enterprise Jenkins)
+//                               version 1.10+ is CSP-compatible, earlier
+//                               versions break in modern Jenkins instances.
+//                               Pre-installed on most enterprise Jenkins.)
 //
 // See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
 // the full integration guide and the quality-gate philosophy.
 
 pipeline {
-    agent any
+    // The template uses Linux shell commands (curl, sha256sum, chmod, sh).
+    // On Jenkins controllers with mixed Linux/Windows agents, pinning a
+    // Linux label avoids landing on a Windows executor where these
+    // commands are unavailable. Rename the label to match your own
+    // controller setup. On a single Linux-only controller with no
+    // labels configured, replace this line with `agent any` so the
+    // build does not queue forever waiting for a label that never
+    // matches.
+    agent { label 'linux' }
+
+    options {
+        // 30 minutes is plenty for a perf-sentinel run on a typical
+        // trace fixture. Adjust if your integration test stage takes
+        // longer to produce $PERF_SENTINEL_TRACES.
+        timeout(time: 30, unit: 'MINUTES')
+        // Avoid concurrent runs on the same branch overwriting each
+        // other's archived artifacts. The default behavior queues new
+        // builds behind the running one. For teams iterating fast on
+        // PR feedback, replace with `disableConcurrentBuilds(abortPrevious: true)`
+        // so each new push aborts the in-flight build instead of
+        // queuing.
+        disableConcurrentBuilds()
+    }
 
     environment {
         PERF_SENTINEL_VERSION = '0.5.0'
@@ -141,6 +178,13 @@ pipeline {
             // ERROR-level issue, providing defense-in-depth for the
             // perf-sentinel --ci stage.
             recordIssues(
+                // enabledForFailure: true ensures Warnings NG processes
+                // the SARIF report even when the build was marked
+                // FAILURE by the earlier Quality gate stage. Without
+                // this, the panel would be empty on PR builds that
+                // exceed thresholds, the most valuable case for
+                // reviewers.
+                enabledForFailure: true,
                 tools: [
                     sarif(
                         pattern: 'perf-sentinel-results.sarif',
