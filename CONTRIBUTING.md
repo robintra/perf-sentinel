@@ -150,20 +150,20 @@ Before tagging, bump `workspace.package.version` in the root `Cargo.toml` and ru
 
 ```bash
 # Bump the workspace version (manually or via cargo-edit)
-# cargo set-version --workspace 0.5.0
+# cargo set-version --workspace 0.5.3
 
 # Verify the tag you're about to push matches every Cargo.toml
-./scripts/check-tag-version.sh v0.5.0
+./scripts/check-tag-version.sh v0.5.3
 
 # Tag and push
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.5.3
+git push origin v0.5.3
 ```
 
 The same check runs as the first job of the release workflow (`check-versions`). If the tag and any `Cargo.toml` in the workspace disagree, the workflow aborts before any artifact is built or published, saving you from deleting a broken release post-hoc.
 
 Bump targets beyond `Cargo.toml`:
-- `PERF_SENTINEL_VERSION` in the three CI templates under `docs/ci-templates/` and their referenced examples in `docs/INTEGRATION.md` and `docs/FR/INTEGRATION-FR.md`.
+- `PERF_SENTINEL_VERSION` in the three CI templates under `docs/ci-templates/` and their referenced examples in `docs/CI.md` and `docs/FR/CI-FR.md`.
 - `CHANGELOG.md`: move the `[Unreleased]` section content under a new `[x.y.z]` header.
 - `CLAUDE.md`: update the "Version" status line after the tag is pushed.
 

@@ -15,15 +15,15 @@
 #   3. PERF_SENTINEL_CONFIG: path to your .perf-sentinel.toml. Tune the
 #      [thresholds] section to set quality-gate severity floors.
 #
-# See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
-# the full integration guide and the quality-gate philosophy.
+# See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
+# integration guide and the quality-gate philosophy.
 
 stages:
   - test
   - perf-sentinel
 
 variables:
-  PERF_SENTINEL_VERSION: "0.5.0"
+  PERF_SENTINEL_VERSION: "0.5.3"
   PERF_SENTINEL_TRACES: "test-traces.json"
   PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 
@@ -131,7 +131,7 @@ perf-sentinel:
 # default branch only. Publishes baseline.json AND an interactive
 # HTML snapshot at the project Pages root. No per-MR deployment
 # (pages.path_prefix requires Premium or Ultimate, see the note in
-# docs/INTEGRATION.md "Interactive report via GitLab Pages"). Use
+# docs/CI.md "Interactive report via GitLab Pages"). Use
 # this block on gitlab.com Free tier or any self-hosted GitLab
 # without the multi-deployment feature flag.
 #
@@ -203,8 +203,8 @@ perf-sentinel:
 # Uncomment the whole block to enable. Works on gitlab.com Premium or
 # Ultimate, and on self-hosted GitLab 17.9+ with Pages enabled by the
 # admin. For Free tier, use the perf-sentinel-pages-simple block above
-# instead. See docs/INTEGRATION.md "Interactive report via GitLab
-# Pages" for the full setup.
+# instead. See docs/CI.md "Interactive report via GitLab Pages"
+# for the full setup.
 #
 # perf-sentinel-pages:
 #   stage: perf-sentinel

@@ -559,4 +559,4 @@ The field surfaces in:
 - **SARIF v2.1.0**: per-result `properties.confidence` bag entry AND a standard SARIF `rank` value (0-100).
 - **CLI terminal output**: NOT displayed (the terminal stays clean for interactive use).
 
-The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from perf-sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` for the integration example.
+The planned consumer is perf-lint, a companion IDE integration (not yet published), which will import runtime findings from perf-sentinel's JSON output and apply a severity multiplier based on the confidence. Any custom tooling consuming the same JSON or SARIF output can use the field the same way. See `docs/INTEGRATION.md` "Finding confidence field" for the integration example.

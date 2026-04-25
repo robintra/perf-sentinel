@@ -554,7 +554,7 @@ L'app envoie les traces à `localhost:4317` (pas de saut réseau). Voir [`exampl
 
 ---
 
-Pour l'instrumentation OTLP par langage (Java, .NET, Rust), voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md). Pour la référence complète de configuration, voir [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md). Pour l'API HTTP de requêtage du daemon (findings, explain, corrélations, status), voir [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md). Pour le workflow post-mortem quand une trace est plus ancienne que la fenêtre live du daemon, voir [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md). Pour la documentation de conception détaillée, voir [docs/FR/design/](docs/FR/design/00-INDEX-FR.md).
+Pour une vue d'ensemble de bout en bout et les quatre topologies supportées, voir [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md). Pour l'instrumentation OTLP par langage (Java, Quarkus, .NET, Rust), voir [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md). Pour les recettes d'intégration CI (GitHub Actions, GitLab CI, Jenkins) et la sous-commande `diff` pour la détection de régressions sur PR, voir [docs/FR/CI-FR.md](docs/FR/CI-FR.md). Pour la référence complète de configuration, voir [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md). Pour l'API HTTP de requêtage du daemon (findings, explain, corrélations, status), voir [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md). Pour le workflow post-mortem quand une trace est plus ancienne que la fenêtre live du daemon, voir [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md). Pour la documentation de conception détaillée, voir [docs/FR/design/](docs/FR/design/00-INDEX-FR.md).
 
 ## Normes et sources de données
 

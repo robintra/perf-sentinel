@@ -84,7 +84,7 @@ securityContext:
       - ALL
 
 # Resource requests and limits. Defaults match the raw-manifest baseline in
-# docs/INTEGRATION.md. Tune for throughput: CLAUDE.md documents >100k
+# docs/INSTRUMENTATION.md. Tune for throughput: CLAUDE.md documents >100k
 # events/s and <20 MB RSS as targets, so these are generous for most users.
 resources:
   requests:

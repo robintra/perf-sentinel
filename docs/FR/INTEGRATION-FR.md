@@ -230,7 +230,7 @@ Métriques clés :
 - `perf_sentinel_traces_analyzed_total` : total de traces complétées
 - `perf_sentinel_slow_duration_seconds{type}` : histogram des durées de spans lents (utiliser `histogram_quantile()` pour des percentiles globaux sur des instances shardées)
 
-Voir [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
+Voir [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) pour la config complète avec les options de sampling et filtrage.
 
 ---
 
@@ -259,7 +259,7 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 docker compose -f examples/docker-compose-sidecar.yml logs -f perf-sentinel
 ```
 
-Voir [`examples/docker-compose-sidecar.yml`](../examples/docker-compose-sidecar.yml) pour la configuration complète.
+Voir [`examples/docker-compose-sidecar.yml`](../../examples/docker-compose-sidecar.yml) pour la configuration complète.
 
 ---
 

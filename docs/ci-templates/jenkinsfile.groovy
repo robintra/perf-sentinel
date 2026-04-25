@@ -12,8 +12,8 @@
 // the MultiBranch Pipeline plus a branch-source plugin (GitHub Branch
 // Source, Bitbucket Branch Source, GitLab Branch Source, Gitea Branch
 // Source). Inside a classic single-branch Pipeline, `CHANGE_ID` is
-// always null and the quality gate never blocks. See INTEGRATION.md
-// section "Interactive report via Jenkins HTML Publisher" for details.
+// always null and the quality gate never blocks. See CI.md section
+// "Interactive report via Jenkins HTML Publisher" for details.
 //
 // What you must adapt before using this template:
 //   1. PERF_SENTINEL_VERSION: pin to an exact release tag (never use
@@ -37,8 +37,8 @@
 //                               versions break in modern Jenkins instances.
 //                               Pre-installed on most enterprise Jenkins.)
 //
-// See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
-// the full integration guide and the quality-gate philosophy.
+// See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
+// integration guide and the quality-gate philosophy.
 
 pipeline {
     // The template uses Linux shell commands (curl, sha256sum, chmod, sh).
@@ -66,7 +66,7 @@ pipeline {
     }
 
     environment {
-        PERF_SENTINEL_VERSION = '0.5.0'
+        PERF_SENTINEL_VERSION = '0.5.3'
         PERF_SENTINEL_TRACES  = 'target/traces.json'
         PERF_SENTINEL_CONFIG  = '.perf-sentinel.toml'
     }
@@ -124,9 +124,9 @@ pipeline {
         // of the report is absent on Jenkins by default because this
         // template does not wire a baseline; the other tabs (Findings,
         // Explain, pg_stat, Correlations, GreenOps) render normally.
-        // See docs/INTEGRATION.md "Interactive report via Jenkins
-        // HTML Publisher" for the full setup and the baseline
-        // enhancement path via the Copy Artifact plugin.
+        // See docs/CI.md "Interactive report via Jenkins HTML
+        // Publisher" for the full setup and the baseline enhancement
+        // path via the Copy Artifact plugin.
         //
         // stage('Generate interactive HTML report') {
         //     steps {

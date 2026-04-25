@@ -231,7 +231,7 @@ Cette approche est recommandée pour les déploiements en production car :
 - Le sampling et le filtrage se font au niveau du collector
 - perf-sentinel peut être ajouté ou retiré sans toucher au code applicatif
 
-Une configuration de référence complète est fournie dans [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) avec un fichier Docker Compose associé dans [`examples/docker-compose-collector.yml`](../examples/docker-compose-collector.yml).
+Une configuration de référence complète est fournie dans [`examples/otel-collector-config.yaml`](../../examples/otel-collector-config.yaml) avec un fichier Docker Compose associé dans [`examples/docker-compose-collector.yml`](../../examples/docker-compose-collector.yml).
 
 ### Mise en place de bout en bout avec Docker Compose
 

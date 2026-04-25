@@ -9,7 +9,7 @@
 #   - Create an empty `gh-pages` branch.
 #   - Enable GitHub Pages in Settings -> Pages, source = gh-pages.
 #
-# See docs/INTEGRATION.md "Interactive report via GitHub Pages" for the
+# See docs/CI.md "Interactive report via GitHub Pages" for the
 # full setup guide.
 
 name: perf-sentinel report cleanup

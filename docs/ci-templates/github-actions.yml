@@ -26,8 +26,8 @@
 #      like marocchino/sticky-pull-request-comment. Bump SHAs deliberately
 #      using a tool such as Dependabot configured with `update-types: ["sha"]`.
 #
-# See docs/INTEGRATION.md (English) or docs/FR/INTEGRATION-FR.md (French) for
-# the full integration guide and the quality-gate philosophy.
+# See docs/CI.md (English) or docs/FR/CI-FR.md (French) for the full CI
+# integration guide and the quality-gate philosophy.
 
 name: perf-sentinel
 
@@ -58,7 +58,7 @@ jobs:
     name: Performance anti-pattern scan
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.5.0"
+      PERF_SENTINEL_VERSION: "0.5.3"
       PERF_SENTINEL_TRACES: "test-traces.json"
       PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 
@@ -108,8 +108,8 @@ jobs:
       #   4. added `perf-sentinel-report-cleanup.yml` (see
       #      docs/ci-templates/github-actions-report-cleanup.yml) so
       #      the gh-pages branch does not grow unbounded.
-      # See docs/INTEGRATION.md "Interactive report via GitHub Pages"
-      # for the full recipe.
+      # See docs/CI.md "Interactive report via GitHub Pages" for
+      # the full recipe.
       #
       # - name: Download baseline from gh-pages
       #   # If the baseline does not exist yet (first run on a fresh
@@ -249,7 +249,7 @@ jobs:
         # fork PRs. SARIF upload still runs, reviewers see findings in
         # the Checks UI. Projects that need the sticky comment on fork
         # PRs should migrate to the pull_request_target + workflow_run
-        # split. See docs/INTEGRATION.md "Fork PR limitations".
+        # split. See docs/CI.md "Fork PR limitations".
         if: github.event_name == 'pull_request' && hashFiles('pr-comment.md') != ''
         continue-on-error: true
         uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4

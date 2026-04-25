@@ -514,4 +514,4 @@ Le champ apparaît dans :
 - **SARIF v2.1.0** : entrée de bag `properties.confidence` par résultat ET une valeur standard `rank` SARIF (0-100).
 - **Sortie terminal CLI** : NON affiché (le terminal reste propre pour l'usage interactif).
 
-Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil tiers qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` pour l'exemple d'intégration.
+Le consommateur planifié est perf-lint, une intégration IDE compagnon (pas encore publiée), qui importera les findings runtime depuis la sortie JSON de perf-sentinel et appliquera un multiplicateur de sévérité basé sur la confiance. Tout outil tiers qui consomme la même sortie JSON ou SARIF peut utiliser ce champ de la même manière. Voir `docs/FR/INTEGRATION-FR.md` "Champ de confiance sur les findings" pour l'exemple d'intégration.

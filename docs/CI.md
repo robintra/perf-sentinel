@@ -98,7 +98,7 @@ suggested fixes, pg_stat drill-down, full Diff against trunk), the
 GitHub Actions template optionally publishes a **full HTML dashboard**
 to GitHub Pages on every PR, linked from the sticky comment as:
 
-> 📊 **[Interactive report (Diff view)](...)**
+> 📊 **Interactive report (Diff view)** → `https://<owner>.github.io/<repo>/perf-sentinel-reports/pr-<N>/index.html#diff`
 
 Clicking the link opens the report on the Diff tab, which is the
 natural view for a reviewer: new findings introduced by the PR,
@@ -450,7 +450,7 @@ jobs:
   diff:
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.5.0"
+      PERF_SENTINEL_VERSION: "0.5.3"
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:

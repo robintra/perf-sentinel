@@ -15,7 +15,7 @@
 #   - Create an empty `gh-pages` branch.
 #   - Enable GitHub Pages in Settings -> Pages, source = gh-pages.
 #
-# See docs/INTEGRATION.md "Interactive report via GitHub Pages" for the
+# See docs/CI.md "Interactive report via GitHub Pages" for the
 # full setup guide.
 
 name: perf-sentinel baseline
@@ -41,7 +41,7 @@ jobs:
     name: Publish trunk baseline to gh-pages
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.5.0"
+      PERF_SENTINEL_VERSION: "0.5.3"
       PERF_SENTINEL_TRACES: "test-traces.json"
       PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 

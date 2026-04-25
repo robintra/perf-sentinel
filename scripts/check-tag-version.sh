@@ -3,8 +3,8 @@
 # Verify a release tag matches every Cargo.toml in the workspace.
 #
 # Usage:
-#   scripts/check-tag-version.sh v0.5.0
-#   scripts/check-tag-version.sh 0.5.0         # leading `v` optional
+#   scripts/check-tag-version.sh v0.5.3
+#   scripts/check-tag-version.sh 0.5.3         # leading `v` optional
 #
 # Called by .github/workflows/release.yml as the first gate of the
 # release flow, also runnable locally before tagging to catch drift
@@ -45,7 +45,7 @@ if [ "$#" -ne 1 ] || [ -z "${1:-}" ]; then
   exit 1
 fi
 
-# Strip an optional leading `v` so both `v0.5.0` and `0.5.0` are accepted.
+# Strip an optional leading `v` so both `v0.5.3` and `0.5.3` are accepted.
 TARGET_VERSION="${1#v}"
 
 # Section-scoped awk: avoids accidental matches on dependency version
