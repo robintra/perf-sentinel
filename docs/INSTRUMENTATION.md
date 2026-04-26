@@ -224,6 +224,8 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # send to both
 ```
 
+The OTel Collector ships gzip-compressed exports by default. perf-sentinel accepts both gzip and uncompressed payloads on the OTLP/HTTP endpoint (`POST /v1/traces`), no `compression: none` override required. The decompressed body still respects the `[daemon] max_payload_size` limit (1 MB by default).
+
 This approach is recommended for production deployments because:
 - Zero code changes in your services
 - No rebuild, no redeployment

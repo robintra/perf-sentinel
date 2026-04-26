@@ -53,6 +53,81 @@ fn get_int_attribute(attrs: &[KeyValue], key: &str) -> Option<i64> {
     })
 }
 
+// ── code.* attribute extraction ─────────────────────────────────────
+
+/// Code-frame attributes read from a single span's attribute set.
+///
+/// Borrows from the span attributes, so the lifetime is tied to the
+/// `resource_spans` buffer (same lifetime as the values stored in
+/// `span_index`). All fields are independently optional because
+/// OpenTelemetry agents do not always emit the full set.
+#[derive(Default)]
+struct CodeAttrs<'a> {
+    function_name: Option<&'a str>,
+    filepath: Option<&'a str>,
+    lineno: Option<i64>,
+    namespace: Option<&'a str>,
+}
+
+impl CodeAttrs<'_> {
+    fn has_any(&self) -> bool {
+        self.function_name.is_some()
+            || self.filepath.is_some()
+            || self.lineno.is_some()
+            || self.namespace.is_some()
+    }
+}
+
+/// Read code.* attributes from a span attribute set.
+///
+/// Reads stable semconv v1.33.0 names first, falls back to legacy names.
+/// Namespace falls back to the prefix of the FQ function name (split on
+/// the last `.`) when no explicit `code.namespace` attribute is present,
+/// because `JAVA_RULES` matches on namespace substrings.
+fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
+    let function_name = get_str_attribute(attrs, "code.function.name")
+        .or_else(|| get_str_attribute(attrs, "code.function"));
+    let filepath = get_str_attribute(attrs, "code.file.path")
+        .or_else(|| get_str_attribute(attrs, "code.filepath"));
+    let lineno = get_int_attribute(attrs, "code.line.number")
+        .or_else(|| get_int_attribute(attrs, "code.lineno"));
+    let namespace = get_str_attribute(attrs, "code.namespace")
+        .or_else(|| function_name.and_then(|fq| fq.rsplit_once('.').map(|(ns, _)| ns)));
+    CodeAttrs {
+        function_name,
+        filepath,
+        lineno,
+        namespace,
+    }
+}
+
+/// Walk parent span chain to find the nearest span carrying any code.* attribute.
+///
+/// OpenTelemetry auto-instrumentation typically attaches `code.*` to the
+/// user-frame span (controller, service), not to the inner JDBC or
+/// HTTP-client span. Without this walk, framework-aware suggestions never
+/// fire on JPA, EF Core or Diesel stacks. The walk is bounded by `MAX_DEPTH`
+/// to prevent loops on malformed parent chains.
+fn extract_code_attrs<'a>(span: &'a Span, span_index: &HashMap<&[u8], &'a Span>) -> CodeAttrs<'a> {
+    const MAX_DEPTH: usize = 8;
+    let mut current = span;
+    let mut depth = 0;
+    loop {
+        let attrs = read_code_attrs(&current.attributes);
+        if attrs.has_any() {
+            return attrs;
+        }
+        if current.parent_span_id.is_empty() || depth >= MAX_DEPTH {
+            return CodeAttrs::default();
+        }
+        let Some(parent) = span_index.get(current.parent_span_id.as_slice()) else {
+            return CodeAttrs::default();
+        };
+        current = *parent;
+        depth += 1;
+    }
+}
+
 // ── Main conversion function ────────────────────────────────────────
 
 /// Convert an OTLP `ExportTraceServiceRequest` into `SpanEvent`s.
@@ -219,11 +294,14 @@ fn convert_span(
             .map(str::to_string)
     });
 
-    // code.* attributes: extract from the span's own attributes.
-    let code_function = get_str_attribute(attrs, "code.function").map(str::to_string);
-    let code_filepath = get_str_attribute(attrs, "code.filepath").map(str::to_string);
-    let code_lineno = get_int_attribute(attrs, "code.lineno").and_then(|v| u32::try_from(v).ok());
-    let code_namespace = get_str_attribute(attrs, "code.namespace").map(str::to_string);
+    // code.* attributes: walk parent span chain (OTel JDBC and HTTP-client
+    // spans rarely carry their own code.*; the user frame sits on a parent).
+    // Stable semconv v1.33.0 names are tried first with legacy fallback.
+    let code = extract_code_attrs(span, span_index);
+    let code_function = code.function_name.map(str::to_string);
+    let code_filepath = code.filepath.map(str::to_string);
+    let code_lineno = code.lineno.and_then(|v| u32::try_from(v).ok());
+    let code_namespace = code.namespace.map(str::to_string);
 
     let mut event = SpanEvent {
         timestamp,
@@ -336,10 +414,21 @@ pub fn otlp_http_router(
         StatusCode::OK
     }
 
-    Router::new()
+    let router = Router::new()
         .route("/v1/traces", post(handle_traces))
         .with_state(sender)
-        .layer(axum::extract::DefaultBodyLimit::max(max_payload_size))
+        .layer(axum::extract::DefaultBodyLimit::max(max_payload_size));
+
+    // Decompress gzipped OTLP/HTTP exports (the OTel Collector ships gzip
+    // by default). Layered as outermost so the request flow is decompress
+    // → DefaultBodyLimit → handler. The Bytes extractor enforces the
+    // payload cap on the decompressed stream, which is what we want for
+    // memory safety: tower-http does streaming decompression and cannot
+    // pre-allocate beyond what Bytes will accept.
+    #[cfg(feature = "daemon")]
+    let router = router.layer(tower_http::decompression::RequestDecompressionLayer::new());
+
+    router
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -877,5 +966,367 @@ mod tests {
         );
         let events = convert_otlp_request(&req);
         assert!(events[0].cloud_region.is_none());
+    }
+
+    // ── code.* parent walk and stable convention support ────────────
+
+    fn make_span_with_code_attrs(
+        span_id: &[u8],
+        parent_span_id: &[u8],
+        name: &str,
+        code_attrs: Vec<KeyValue>,
+    ) -> Span {
+        Span {
+            trace_id: vec![1; 16],
+            span_id: span_id.to_vec(),
+            parent_span_id: parent_span_id.to_vec(),
+            name: name.to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000,
+            attributes: code_attrs,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn code_attrs_inherited_from_immediate_parent() {
+        // HTTP server parent carries code.namespace; JDBC child has none.
+        // Walker must surface the parent namespace on the child SpanEvent.
+        let parent = make_span_with_code_attrs(
+            &[10; 8],
+            &[],
+            "GET /api/orders",
+            vec![
+                make_kv("http.route", "GET /api/orders"),
+                make_kv("code.namespace", "com.foo.OrderController"),
+                make_kv("code.function", "list"),
+            ],
+        );
+        let child = make_sql_span(
+            &[1; 16],
+            &[20; 8],
+            &[10; 8],
+            "SELECT * FROM orders",
+            0,
+            1_000_000,
+        );
+        let req = make_request("order-svc", vec![parent, child]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code_namespace.as_deref(),
+            Some("com.foo.OrderController")
+        );
+        assert_eq!(events[0].code_function.as_deref(), Some("list"));
+    }
+
+    #[test]
+    fn code_attrs_inherited_from_grandparent() {
+        // HTTP -> Service (carries code.*) -> Hibernate -> JDBC (no code.*).
+        // Walker must traverse multiple levels.
+        let http = make_span_with_code_attrs(
+            &[10; 8],
+            &[],
+            "GET /api/orders",
+            vec![make_kv("http.route", "GET /api/orders")],
+        );
+        let service = make_span_with_code_attrs(
+            &[11; 8],
+            &[10; 8],
+            "OrderService.list",
+            vec![
+                make_kv("code.namespace", "com.foo.OrderService"),
+                make_kv("code.function", "list"),
+            ],
+        );
+        let hibernate = make_span_with_code_attrs(&[12; 8], &[11; 8], "Hibernate.query", vec![]);
+        let jdbc = make_sql_span(&[1; 16], &[13; 8], &[12; 8], "SELECT 1", 0, 1_000_000);
+        let req = make_request("order-svc", vec![http, service, hibernate, jdbc]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code_namespace.as_deref(),
+            Some("com.foo.OrderService")
+        );
+    }
+
+    #[test]
+    fn code_attrs_orphan_span_returns_none() {
+        // Span with no parent and no code.* must yield code_namespace = None.
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert!(events[0].code_namespace.is_none());
+        assert!(events[0].code_function.is_none());
+    }
+
+    #[test]
+    fn code_attrs_max_depth_safety() {
+        // Build a chain of 20 nested spans, none with code.*. Walker stops at
+        // MAX_DEPTH = 8 and returns None without infinite-looping.
+        let mut spans = Vec::new();
+        for i in 0..20u8 {
+            let id = [i + 1; 8];
+            let parent = if i == 0 { vec![] } else { vec![i; 8] };
+            spans.push(make_span_with_code_attrs(
+                &id,
+                &parent,
+                &format!("level.{i}"),
+                vec![],
+            ));
+        }
+        let leaf = make_sql_span(&[1; 16], &[100; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+        spans.push(leaf);
+        let req = make_request("svc", spans);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert!(events[0].code_namespace.is_none());
+    }
+
+    #[test]
+    fn code_attrs_self_takes_precedence() {
+        // Span has its own code.namespace; parent has a different one.
+        // The span's own attrs must win; the walker only triggers when the
+        // span itself has nothing.
+        let parent = make_span_with_code_attrs(
+            &[10; 8],
+            &[],
+            "GET /api/x",
+            vec![make_kv("code.namespace", "com.parent")],
+        );
+        let mut child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+        child
+            .attributes
+            .push(make_kv("code.namespace", "com.child"));
+        let req = make_request("svc", vec![parent, child]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].code_namespace.as_deref(), Some("com.child"));
+    }
+
+    // ── Stable code.* conventions (semconv v1.33.0) ─────────────────
+
+    #[test]
+    fn code_attrs_stable_conventions() {
+        // Stable names only. Namespace must be derived from the FQ
+        // function name by splitting on the last dot.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes.extend(vec![
+            make_kv("code.function.name", "com.foo.OrderService.findItems"),
+            make_kv("code.file.path", "src/main/java/com/foo/OrderService.java"),
+            make_int_kv("code.line.number", 42),
+        ]);
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code_function.as_deref(),
+            Some("com.foo.OrderService.findItems")
+        );
+        assert_eq!(
+            events[0].code_filepath.as_deref(),
+            Some("src/main/java/com/foo/OrderService.java")
+        );
+        assert_eq!(events[0].code_lineno, Some(42));
+        assert_eq!(
+            events[0].code_namespace.as_deref(),
+            Some("com.foo.OrderService")
+        );
+    }
+
+    #[test]
+    fn code_attrs_legacy_conventions_still_work() {
+        // Legacy names only. No regression from the stable-name addition.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes.extend(vec![
+            make_kv("code.function", "findItems"),
+            make_kv("code.namespace", "com.foo.OrderService"),
+            make_kv("code.filepath", "src/OrderService.java"),
+            make_int_kv("code.lineno", 99),
+        ]);
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].code_function.as_deref(), Some("findItems"));
+        assert_eq!(
+            events[0].code_namespace.as_deref(),
+            Some("com.foo.OrderService")
+        );
+        assert_eq!(events[0].code_lineno, Some(99));
+    }
+
+    #[test]
+    fn code_attrs_legacy_namespace_wins_over_derivation() {
+        // Pathological agent emits both a stable FQ function name AND an
+        // explicit legacy code.namespace. The explicit value must win,
+        // not the derivation from rsplit_once.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes.extend(vec![
+            make_kv("code.function.name", "com.foo.X.y"),
+            make_kv("code.namespace", "com.bar.X"),
+        ]);
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].code_namespace.as_deref(), Some("com.bar.X"));
+    }
+
+    #[test]
+    fn code_attrs_no_dot_in_fq_name() {
+        // Bare function name (Rust, C, JS callbacks) has no dot to split on.
+        // Namespace stays None.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes.push(make_kv("code.function.name", "main"));
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].code_function.as_deref(), Some("main"));
+        assert!(events[0].code_namespace.is_none());
+    }
+
+    #[test]
+    fn java_rules_match_via_derived_namespace() {
+        // End-to-end: a stable-convention FQ name on a JPA repository span
+        // must produce a SpanEvent whose code_namespace triggers JAVA_RULES
+        // (via the JPA prefix). Verifies that namespace derivation feeds
+        // the suggestion engine correctly.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes.push(make_kv(
+            "code.function.name",
+            "org.springframework.data.jpa.repository.support.SimpleJpaRepository.findAll",
+        ));
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        let ns = events[0]
+            .code_namespace
+            .as_deref()
+            .expect("namespace derived from FQ name");
+        assert_eq!(
+            ns,
+            "org.springframework.data.jpa.repository.support.SimpleJpaRepository"
+        );
+        assert!(ns.contains("org.springframework.data.jpa"));
+    }
+
+    // ── OTLP/HTTP handler with gzip decompression ───────────────────
+
+    #[cfg(feature = "daemon")]
+    mod http_handler {
+        use super::*;
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode, header};
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use prost::Message;
+        use std::io::Write;
+        use tokio::sync::mpsc;
+        use tower::ServiceExt;
+
+        fn build_minimal_request_bytes() -> Vec<u8> {
+            let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+            let req = make_request("svc", vec![span]);
+            req.encode_to_vec()
+        }
+
+        fn gzip(body: &[u8]) -> Vec<u8> {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(body).expect("gzip encode");
+            encoder.finish().expect("gzip finish")
+        }
+
+        #[tokio::test]
+        async fn otlp_http_accepts_gzip_request() {
+            let (tx, mut rx) = mpsc::channel(8);
+            let router = otlp_http_router(tx, 1_048_576);
+
+            let body = build_minimal_request_bytes();
+            let gzipped = gzip(&body);
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .header(header::CONTENT_ENCODING, "gzip")
+                .body(Body::from(gzipped))
+                .expect("build request");
+
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let events = rx.recv().await.expect("event batch sent");
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].target, "SELECT 1");
+        }
+
+        #[tokio::test]
+        async fn otlp_http_accepts_uncompressed_request() {
+            let (tx, mut rx) = mpsc::channel(8);
+            let router = otlp_http_router(tx, 1_048_576);
+
+            let body = build_minimal_request_bytes();
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .body(Body::from(body))
+                .expect("build request");
+
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::OK);
+
+            let events = rx.recv().await.expect("event batch sent");
+            assert_eq!(events.len(), 1);
+        }
+
+        #[tokio::test]
+        async fn otlp_http_rejects_unsupported_encoding() {
+            // Brotli is not enabled; tower-http surfaces this as 415.
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+            let router = otlp_http_router(tx, 1_048_576);
+
+            let body = build_minimal_request_bytes();
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .header(header::CONTENT_ENCODING, "br")
+                .body(Body::from(body))
+                .expect("build request");
+
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        }
+
+        #[tokio::test]
+        async fn otlp_http_content_type_check_with_gzip() {
+            // Gzip body but JSON Content-Type. The Content-Type guard runs
+            // after decompression and must still reject this with 415.
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+            let router = otlp_http_router(tx, 1_048_576);
+
+            let body = build_minimal_request_bytes();
+            let gzipped = gzip(&body);
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::CONTENT_ENCODING, "gzip")
+                .body(Body::from(gzipped))
+                .expect("build request");
+
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        }
     }
 }

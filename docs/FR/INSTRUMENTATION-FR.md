@@ -224,6 +224,8 @@ service:
       exporters: [otlp/perf-sentinel, otlp/jaeger]   # envoyer aux deux
 ```
 
+Le collecteur OTel envoie ses exports compressés en gzip par défaut. perf-sentinel accepte nativement les payloads gzippés et non compressés sur l'endpoint OTLP/HTTP (`POST /v1/traces`), aucun override `compression: none` n'est requis. Le body décompressé reste soumis à la limite `[daemon] max_payload_size` (1 Mo par défaut).
+
 Cette approche est recommandée pour les déploiements en production car :
 - Zero modification de code dans vos services
 - Pas de rebuild, pas de redéploiement
