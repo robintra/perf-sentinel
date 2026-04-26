@@ -520,6 +520,7 @@ mod tests {
             last_timestamp: "2026-04-21T00:00:01Z".into(),
             green_impact: None,
             confidence: Confidence::CiBatch,
+            classification_method: None,
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,

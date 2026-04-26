@@ -77,6 +77,7 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
             last_timestamp: last_ts,
             green_impact: None,
             confidence: Confidence::default(),
+            classification_method: None,
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,

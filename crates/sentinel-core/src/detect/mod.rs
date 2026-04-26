@@ -6,6 +6,7 @@ pub mod fanout;
 pub mod n_plus_one;
 pub mod pool_saturation;
 pub mod redundant;
+pub mod sanitizer_aware;
 pub mod serialized;
 pub mod slow;
 pub mod suggestions;
@@ -91,6 +92,18 @@ pub struct Finding {
     /// layer oblivious to runtime context.
     #[serde(default)]
     pub confidence: Confidence,
+    /// How this finding's type was classified.
+    ///
+    /// `None` (default, omitted from JSON) means direct classification
+    /// via the standard pipeline rules (`distinct_params >= threshold`
+    /// for N+1, repeated identical `(template, params)` for redundant).
+    /// `Some(SanitizerHeuristic)` means the type was inferred via the
+    /// 0.5.7 sanitizer-aware heuristic, because the OpenTelemetry agent
+    /// collapsed every parameter to `?` and the standard distinct-params
+    /// signal was unusable. Operators can filter on this field to spot
+    /// where the heuristic is firing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification_method: Option<ClassificationMethod>,
     /// Source code location from `OTel` `code.*` span attributes.
     /// `None` when the instrumentation agent does not emit these attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,6 +202,27 @@ impl Confidence {
             Self::DaemonProduction => 90,
         }
     }
+}
+
+/// How a [`Finding`]'s type was determined.
+///
+/// Orthogonal to [`Confidence`]: confidence describes the runtime context
+/// (CI vs production daemon), `ClassificationMethod` describes which
+/// detection rule produced the type. Stored in
+/// [`Finding::classification_method`] as `Option`; `None` means the
+/// standard direct rule fired.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClassificationMethod {
+    /// Standard pipeline classification (e.g. `distinct_params >=
+    /// threshold` for N+1, repeated identical `(template, params)` for
+    /// redundant). Equivalent to the absence of the field; emitted
+    /// explicitly only when a caller wants to be unambiguous.
+    Direct,
+    /// Reclassified via the 0.5.7 sanitizer-aware heuristic, because the
+    /// OpenTelemetry agent's SQL sanitizer collapsed every parameter to
+    /// `?`, making the standard distinct-params check unreliable.
+    SanitizerHeuristic,
 }
 
 /// Pattern details for a finding.
@@ -325,6 +359,7 @@ pub struct DetectConfig {
     pub chatty_service_min_calls: u32,
     pub pool_saturation_concurrent_threshold: u32,
     pub serialized_min_sequential: u32,
+    pub sanitizer_aware_classification: sanitizer_aware::SanitizerAwareMode,
 }
 
 impl From<&crate::config::Config> for DetectConfig {
@@ -338,6 +373,7 @@ impl From<&crate::config::Config> for DetectConfig {
             chatty_service_min_calls: config.chatty_service_min_calls,
             pool_saturation_concurrent_threshold: config.pool_saturation_concurrent_threshold,
             serialized_min_sequential: config.serialized_min_sequential,
+            sanitizer_aware_classification: config.sanitizer_aware_classification,
         }
     }
 }
@@ -358,6 +394,7 @@ pub(crate) struct PerTraceFindingArgs<'a> {
     pub last_timestamp: &'a str,
     pub code_location: Option<crate::event::CodeLocation>,
     pub instrumentation_scopes: Vec<String>,
+    pub classification_method: Option<ClassificationMethod>,
 }
 
 /// Build a [`Finding`] from the common fields shared by per-trace
@@ -381,6 +418,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         last_timestamp: args.last_timestamp.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
+        classification_method: args.classification_method,
         code_location: args.code_location,
         instrumentation_scopes: args.instrumentation_scopes,
         suggested_fix: None,
@@ -440,12 +478,19 @@ pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
         // Each detector returns a Vec<Finding>. Using append() instead of
         // extend() avoids iterator overhead: append moves the backing
         // allocation in O(1) when the source Vec owns its buffer.
-        findings.append(&mut n_plus_one::detect_n_plus_one(
+        // n_plus_one runs before redundant, and the resulting findings
+        // are passed to redundant so it can skip templates already
+        // classified as N+1 (including those reclassified by the
+        // sanitizer-aware heuristic).
+        let mut n_plus_one_findings = n_plus_one::detect_n_plus_one(
             trace,
             config.n_plus_one_threshold,
             config.window_ms,
-        ));
-        findings.append(&mut redundant::detect_redundant(trace));
+            config.sanitizer_aware_classification,
+        );
+        let mut redundant_findings = redundant::detect_redundant(trace, &n_plus_one_findings);
+        findings.append(&mut n_plus_one_findings);
+        findings.append(&mut redundant_findings);
         findings.append(&mut slow::detect_slow(
             trace,
             config.slow_threshold_ms,
@@ -502,6 +547,7 @@ mod tests {
             chatty_service_min_calls: 15,
             pool_saturation_concurrent_threshold: 10,
             serialized_min_sequential: 3,
+            sanitizer_aware_classification: sanitizer_aware::SanitizerAwareMode::default(),
         }
     }
 

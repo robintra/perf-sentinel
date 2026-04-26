@@ -99,6 +99,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         last_timestamp: last_ts.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
+        classification_method: None,
         code_location: None,
         instrumentation_scopes: Vec::new(),
         suggested_fix: None,

@@ -359,6 +359,8 @@ mod tests {
                 chatty_service_min_calls: 15,
                 pool_saturation_concurrent_threshold: 10,
                 serialized_min_sequential: 3,
+                sanitizer_aware_classification:
+                    crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
             },
             start_time: std::time::Instant::now(),
             correlator,

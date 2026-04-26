@@ -133,6 +133,19 @@ Le seuil de 2 (minimum pour signaler) attrape tout doublon exact. Contrairement 
 
 Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__param_0`, Hibernate avec `?1`) produisent des spans SQL ou les valeurs réelles ne sont pas visibles dans `db.statement`/`db.query.text`. Dans ce cas, les patterns N+1 (même requête avec des valeurs différentes) apparaissent comme des requêtes redondantes (même template, mêmes params visibles), car perf-sentinel ne peut pas distinguer les valeurs bindées. Les deux findings identifient correctement le pattern de requêtes répétées. Les ORM qui injectent les valeurs littérales (SeaORM en requêtes brutes, JDBC sans prepared statements) permettent une classification précise N+1 vs redondant.
 
+### Classification consciente du sanitizer (0.5.7+)
+
+La même forme apparaît dès que l'agent OpenTelemetry exécute son sanitizer d'instructions SQL (actif par défaut), puisque les littéraux sont remplacés par `?` avant que le span n'atteigne perf-sentinel. La règle standard de paramètres distincts ne voit qu'un seul groupe de paramètres vides et rejette le groupe, donc le détecteur de redondance classe à tort le N+1 en `redundant_sql` et l'opérateur reçoit la mauvaise recommandation.
+
+L'heuristique consciente du sanitizer introduite en 0.5.7 restaure la classification correcte en effectuant une seconde passe sur les mêmes groupes `(event_type, template)` que la première passe a rejetés. Elle ne s'active que lorsque chaque span du groupe a un vecteur `params` vide et un placeholder `?` dans son template (la signature sur le fil d'un N+1 sanitisé, les requêtes vraiment sans littéraux comme `SELECT NOW()` n'ont pas de `?` dans le template). Elle évalue ensuite deux signaux indépendants :
+
+1. **Marqueur de scope d'instrumentation** (confiance élevée). Les chaînes `instrumentation_scopes` par span sont fouillées, en mode insensible à la casse, à la recherche de l'une des sous-chaînes ORM connues : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django.db`, `active-record`/`activerecord`, `gorm`, `sqlx`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`. Une correspondance fait basculer le verdict en `LikelyNPlusOne`.
+2. **Repli sur la variance temporelle** (confiance moyenne). En l'absence de marqueur ORM, l'heuristique calcule le coefficient de variation (`écart-type / moyenne`) des `duration_us`. Les vrais accès N+1 touchent des lignes différentes avec des états de cache différents, donc les durées s'étalent (CV typiquement 0,4 à 1,0), les appels redondants sur du contenu en cache se regroupent (CV proche de 0). Le seuil de `0,5` est empirique et constitue le seul levier de l'heuristique. Au moins 3 spans sont nécessaires pour une estimation de variance stable.
+
+Le mode configurable `[detection] sanitizer_aware_classification` contrôle l'émission : `auto` (défaut) exige `LikelyNPlusOne`, `always` reclassifie tout groupe sanitisé sans condition, et `never` désactive entièrement la seconde passe. Les findings émis par l'heuristique portent `classification_method = SanitizerHeuristic` pour permettre aux consommateurs de les distinguer des classifications directes.
+
+Limites connues : une vraie redondance à un seul paramètre dont le littéral se trouve écrasé par le sanitizer (par exemple `SELECT * FROM config WHERE key = ?` interrogé 10 fois pour la même clé) ne peut pas être distinguée d'un N+1 sans signal de scope ou de variance. En mode `auto` le verdict reste `Inconclusive` et le détecteur de redondance reprend la main comme avant. En mode `always` il bascule en N+1 et l'opérateur reçoit une recommandation légèrement décalée (mais cette mauvaise recommandation va dans le sens de la réduction du dommage, le batch fetch est un sur-ensemble strict de "mettre une valeur en cache").
+
 ## Détection lente
 
 ### Arithmétique saturante

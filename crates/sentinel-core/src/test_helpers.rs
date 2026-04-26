@@ -158,6 +158,36 @@ pub fn make_n_plus_one_events() -> Vec<SpanEvent> {
     make_sql_series_events(6)
 }
 
+/// Build `count` SQL events that simulate an OpenTelemetry-sanitized N+1:
+/// every span shares the template `SELECT * FROM order_items WHERE
+/// order_id = ?` with the literal already collapsed to `?`. The optional
+/// `scope` is attached as the `instrumentation_scopes` chain on every
+/// span (use `Some("io.opentelemetry.spring-data-jpa-3.0")` to exercise
+/// the ORM-marker signal). Optional `durations` overrides the per-span
+/// `duration_us`; when `None` every span uses the default 800µs.
+pub fn make_sanitized_n_plus_one_events(
+    count: usize,
+    scope: Option<&str>,
+    durations: Option<&[u64]>,
+) -> Vec<SpanEvent> {
+    (0..count)
+        .map(|i| {
+            let duration = durations.and_then(|d| d.get(i)).copied().unwrap_or(800);
+            let mut event = make_sql_event_with_duration(
+                "trace-1",
+                &format!("span-{i}"),
+                "SELECT * FROM order_items WHERE order_id = ?",
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                duration,
+            );
+            if let Some(s) = scope {
+                event.instrumentation_scopes = vec![s.to_string()];
+            }
+            event
+        })
+        .collect()
+}
+
 /// Build a minimal `Finding` with the given type and severity.
 /// All other fields use sensible defaults. Tests that need specific
 /// values (e.g. a different template or `trace_id`) can mutate the
@@ -187,6 +217,7 @@ pub fn make_finding(
             io_intensity_band: InterpretationLevel::for_iis(6.0),
         }),
         confidence: crate::detect::Confidence::default(),
+        classification_method: None,
         code_location: None,
         instrumentation_scopes: Vec::new(),
         suggested_fix: None,

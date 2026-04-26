@@ -44,6 +44,9 @@ pub struct Config {
     pub pool_saturation_concurrent_threshold: u32,
     /// Minimum sequential independent sibling calls to flag as serialized.
     pub serialized_min_sequential: u32,
+    /// Sanitizer-aware classification mode for SQL N+1 vs redundant.
+    /// See [`crate::detect::sanitizer_aware::SanitizerAwareMode`].
+    pub sanitizer_aware_classification: crate::detect::sanitizer_aware::SanitizerAwareMode,
 
     // --- Green ---
     /// Whether `GreenOps` scoring is enabled.
@@ -171,6 +174,8 @@ impl Default for Config {
             chatty_service_min_calls: 15,
             pool_saturation_concurrent_threshold: 10,
             serialized_min_sequential: 3,
+            sanitizer_aware_classification:
+                crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
             // Green
             green_enabled: true,
             green_default_region: None,
@@ -288,6 +293,7 @@ struct DetectionSection {
     chatty_service_min_calls: Option<u32>,
     pool_saturation_concurrent_threshold: Option<u32>,
     serialized_min_sequential: Option<u32>,
+    sanitizer_aware_classification: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -634,6 +640,10 @@ impl From<RawConfig> for Config {
                 .detection
                 .serialized_min_sequential
                 .unwrap_or(defaults.serialized_min_sequential),
+            sanitizer_aware_classification:
+                crate::detect::sanitizer_aware::SanitizerAwareMode::from_config(
+                    raw.detection.sanitizer_aware_classification.as_deref(),
+                ),
 
             // Green
             green_enabled: raw.green.enabled.unwrap_or(defaults.green_enabled),
@@ -1863,6 +1873,39 @@ max_payload_size = 2097152
         assert!((config.sampling_rate - 0.5).abs() < f64::EPSILON);
         assert_eq!(config.max_events_per_trace, 500);
         assert_eq!(config.max_payload_size, 2_097_152);
+    }
+
+    #[test]
+    fn parse_sanitizer_aware_classification_modes() {
+        use crate::detect::sanitizer_aware::SanitizerAwareMode;
+
+        let default_config = load_from_str("").unwrap();
+        assert_eq!(
+            default_config.sanitizer_aware_classification,
+            SanitizerAwareMode::Auto
+        );
+
+        for (value, expected) in [
+            ("auto", SanitizerAwareMode::Auto),
+            ("always", SanitizerAwareMode::Always),
+            ("never", SanitizerAwareMode::Never),
+            ("ALWAYS", SanitizerAwareMode::Always),
+        ] {
+            let toml = format!("[detection]\nsanitizer_aware_classification = \"{value}\"\n");
+            let config = load_from_str(&toml).unwrap();
+            assert_eq!(
+                config.sanitizer_aware_classification, expected,
+                "value: {value}"
+            );
+        }
+
+        let unknown =
+            load_from_str("[detection]\nsanitizer_aware_classification = \"unknown\"\n").unwrap();
+        assert_eq!(
+            unknown.sanitizer_aware_classification,
+            SanitizerAwareMode::Auto,
+            "unknown value should fall back to Auto"
+        );
     }
 
     #[test]

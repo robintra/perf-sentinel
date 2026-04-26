@@ -1770,6 +1770,7 @@ mod tests {
                 io_intensity_band: sentinel_core::InterpretationLevel::for_iis(6.0),
             }),
             confidence: Confidence::default(),
+            classification_method: None,
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,

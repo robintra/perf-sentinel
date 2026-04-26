@@ -429,6 +429,8 @@ async fn run_inspect_action(
         chatty_service_min_calls: 15,
         pool_saturation_concurrent_threshold: 10,
         serialized_min_sequential: 3,
+        sanitizer_aware_classification:
+            sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
     };
     let mut app = crate::tui::App::new(findings, traces, detect_config)
         .with_pre_rendered_trees(pre_rendered_trees)

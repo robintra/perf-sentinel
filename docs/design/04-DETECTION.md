@@ -133,6 +133,19 @@ The threshold of 2 (minimum to flag) catches any exact duplicate. Unlike N+1 whi
 
 ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hibernate with `?1`) produce SQL spans where actual parameter values are not visible in `db.statement`/`db.query.text`. In this case, N+1 patterns (same query with different values) appear as redundant queries (same template, same visible params), because perf-sentinel cannot distinguish the bound values. Both findings correctly identify the repeated query pattern. ORMs that inline literal values (SeaORM raw statements, JDBC without prepared statements) allow accurate N+1 vs redundant classification.
 
+### Sanitizer-aware classification (0.5.7+)
+
+The same shape appears whenever the OpenTelemetry agent runs its SQL statement sanitizer (default ON), since literals are collapsed to `?` before the span reaches perf-sentinel. The standard distinct-params rule sees one bucket of empty params and rejects the group, so the redundant detector misclassifies the N+1 as `redundant_sql` and the operator gets the wrong remediation.
+
+The 0.5.7 sanitizer-aware heuristic recovers the correct classification by running a second pass over the same `(event_type, template)` groups that the first pass rejected. It activates only when every span in the group has an empty `params` vector and a `?` placeholder in its template (the on-wire signature of a sanitized N+1, truly literal-free queries like `SELECT NOW()` have no `?` in the template). It then evaluates two independent signals:
+
+1. **Instrumentation scope marker** (high confidence). Per-span `instrumentation_scopes` chains are searched, case-insensitively, for any of the known ORM substrings: `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django.db`, `active-record`/`activerecord`, `gorm`, `sqlx`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`. A match flips the verdict to `LikelyNPlusOne`.
+2. **Timing-variance fallback** (medium confidence). When no ORM marker is present, the heuristic computes the coefficient of variation (`std-dev / mean`) of `duration_us`. True N+1 lookups hit different rows with different cache states, so durations spread out (CV typically 0.4 to 1.0), cached redundant calls cluster tightly (CV near 0). The threshold of `0.5` is empirical and is the only knob in the heuristic. At least 3 spans are required for a stable variance estimate.
+
+The configurable `[detection] sanitizer_aware_classification` mode gates emission: `auto` (default) requires `LikelyNPlusOne`, `always` reclassifies every sanitized group regardless of signal, and `never` disables the second pass entirely. Findings emitted by the heuristic carry `classification_method = SanitizerHeuristic` so consumers can distinguish them from direct classifications.
+
+Known limits: a real single-param redundancy whose literal happens to be collapsed by the sanitizer (e.g. `SELECT * FROM config WHERE key = ?` queried 10 times for the same key) cannot be distinguished from an N+1 without scope or variance signal. In `auto` mode the verdict stays `Inconclusive` and the redundant detector picks it up as before. In `always` mode it flips to N+1 and the operator gets a slightly wrong remediation (but the wrong remediation in this direction is harm-reducing, batch fetch is a strict superset of "cache one value").
+
 ## Slow detection
 
 ### Saturation arithmetic

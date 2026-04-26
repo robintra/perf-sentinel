@@ -867,6 +867,7 @@ mod tests {
                 io_intensity_band: InterpretationLevel::for_iis(6.0),
             }),
             confidence: Confidence::CiBatch,
+            classification_method: None,
             code_location: Some(CodeLocation {
                 function: Some("findItems".to_string()),
                 filepath: Some("src/main/java/orders/OrderService.java".to_string()),

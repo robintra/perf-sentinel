@@ -479,6 +479,8 @@ fn explain_tree_from_n_plus_one_fixture() {
         chatty_service_min_calls: 15,
         pool_saturation_concurrent_threshold: 10,
         serialized_min_sequential: 3,
+        sanitizer_aware_classification:
+            sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
     };
     let findings = sentinel_core::detect::detect(std::slice::from_ref(trace), &detect_config);
     let tree = sentinel_core::explain::build_tree(trace, &findings);
@@ -492,6 +494,80 @@ fn explain_tree_from_n_plus_one_fixture() {
     let json = sentinel_core::explain::format_tree_json(&tree).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(parsed["trace_id"], "trace-n1-sql");
+}
+
+#[test]
+fn sanitizer_aware_heuristic_reclassifies_jpa_n_plus_one_end_to_end() {
+    use sentinel_core::detect::ClassificationMethod;
+    use sentinel_core::event::{EventSource, EventType, SpanEvent};
+
+    // Synthesize what perf-sentinel would receive from an OTel-instrumented
+    // Spring Data JPA service with the default SQL sanitizer ON: 10 SQL
+    // spans, identical pre-sanitized template, no literals to extract,
+    // ORM scope chain stamped on each span. Without the heuristic the
+    // group would land in `redundant_sql`. With `auto` mode, the
+    // ORM-scope signal flips it to `n_plus_one_sql` carrying the
+    // `sanitizer_heuristic` classification marker.
+    let events: Vec<SpanEvent> = (0..10)
+        .map(|i| SpanEvent {
+            timestamp: format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+            trace_id: "trace-jpa-sanitized".to_string(),
+            span_id: format!("span-{i}"),
+            parent_span_id: None,
+            service: "order-svc".to_string(),
+            cloud_region: None,
+            event_type: EventType::Sql,
+            operation: "SELECT".to_string(),
+            target: "SELECT * FROM order_items WHERE order_id = ?".to_string(),
+            duration_us: 800,
+            source: EventSource {
+                endpoint: "POST /api/orders/42/submit".to_string(),
+                method: "OrderService.createOrder".to_string(),
+            },
+            status_code: None,
+            response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
+            instrumentation_scopes: vec!["io.opentelemetry.spring-data-jpa-3.0".to_string()],
+        })
+        .collect();
+
+    let config = Config::default();
+    let report = pipeline::analyze(events, &config);
+
+    let n_plus_one: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .collect();
+    let redundant: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::RedundantSql)
+        .collect();
+
+    assert_eq!(
+        n_plus_one.len(),
+        1,
+        "expected one n_plus_one_sql finding, got {} (all findings: {:?})",
+        n_plus_one.len(),
+        report
+            .findings
+            .iter()
+            .map(|f| &f.finding_type)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        n_plus_one[0].classification_method,
+        Some(ClassificationMethod::SanitizerHeuristic),
+    );
+    assert_eq!(n_plus_one[0].pattern.occurrences, 10);
+    assert!(
+        redundant.is_empty(),
+        "redundant detector should have skipped the reclassified group"
+    );
 }
 
 #[test]

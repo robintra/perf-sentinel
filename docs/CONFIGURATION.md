@@ -59,6 +59,33 @@ Detection algorithm parameters.
 | `chatty_service_min_calls`             | integer | `15`    | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold.                |
 | `pool_saturation_concurrent_threshold` | integer | `10`    | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps.          |
 | `serialized_min_sequential`            | integer | `3`     | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable. |
+| `sanitizer_aware_classification`       | string  | `"auto"`| How to classify SQL groups whose literals were collapsed to `?` by an OpenTelemetry agent's statement sanitizer. One of `"auto"`, `"always"`, `"never"`. See note below.                                                                                |
+
+#### `sanitizer_aware_classification`
+
+OpenTelemetry agents ship with their SQL statement sanitizer ON by
+default to keep PII out of trace attributes. When it is on, every span
+of an ORM-induced N+1 reaches perf-sentinel with the same template and
+no extractable parameters, so the standard distinct-params rule rejects
+the group and the redundant detector picks it up as `redundant_sql`
+instead of `n_plus_one_sql`. This setting controls the heuristic that
+recovers the correct classification:
+
+- `"auto"` (default): emit `n_plus_one_sql` when an ORM marker is
+  present in the spans' instrumentation scopes (Spring Data, Hibernate,
+  EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, ...) or when
+  the per-span timing variance is high enough to indicate distinct row
+  lookups. Otherwise leave the group to the redundant detector.
+- `"always"`: reclassify any sanitized group with at least
+  `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
+  may flip a real single-param redundancy.
+- `"never"`: disable the heuristic entirely and reproduce pre-0.5.7
+  behavior.
+
+Findings reclassified by the heuristic carry
+`classification_method = "sanitizer_heuristic"` in their JSON
+representation so operators can spot where it is firing. Findings
+produced by the standard rule omit the field.
 
 ### `[green]`
 

@@ -81,6 +81,7 @@ mod tests {
                 last_timestamp: "2025-07-10T14:32:01.250Z".to_string(),
                 green_impact: None,
                 confidence: crate::detect::Confidence::default(),
+                classification_method: None,
                 code_location: None,
                 instrumentation_scopes: Vec::new(),
                 suggested_fix: None,

@@ -8,8 +8,10 @@ use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
+use crate::normalize::NormalizedEvent;
 
-use super::{Finding, FindingType, Severity};
+use super::sanitizer_aware::{self, SanitizerAwareMode, SanitizerVerdict};
+use super::{ClassificationMethod, Finding, FindingType, Severity};
 
 /// Occurrence count at which an N+1 finding escalates from
 /// `Severity::Warning` to `Severity::Critical`.
@@ -22,12 +24,20 @@ pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
 
 /// Detect N+1 patterns in a single trace.
 ///
-/// Groups spans by (`event_type`, template) and flags groups where:
-/// - The number of occurrences >= threshold
-/// - The number of distinct parameter sets >= threshold
-/// - The time window of occurrences <= `window_limit`
+/// First pass groups spans by (`event_type`, template) and flags groups
+/// where the number of occurrences and distinct parameter sets both
+/// reach `threshold` within `window_limit` milliseconds.
+///
+/// Second pass (gated on `mode`) reclassifies sanitizer-collapsed groups
+/// where every span has empty `params` and a `?` placeholder in its
+/// template. See [`super::sanitizer_aware`] for the heuristic.
 #[must_use]
-pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Vec<Finding> {
+pub fn detect_n_plus_one(
+    trace: &Trace,
+    threshold: u32,
+    window_limit: u64,
+    mode: SanitizerAwareMode,
+) -> Vec<Finding> {
     let threshold = threshold as usize;
 
     // Group spans by (event_type, template) using borrowed keys
@@ -42,6 +52,7 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
 
     let mut findings = Vec::new();
 
+    // First pass: standard distinct-params N+1 detection.
     for ((event_type, template), indices) in &groups {
         if indices.len() < threshold {
             continue;
@@ -57,55 +68,135 @@ pub fn detect_n_plus_one(trace: &Trace, threshold: u32, window_limit: u64) -> Ve
             continue;
         }
 
-        // Compute window and timestamp bounds in a single pass (no allocation)
-        let (window_ms, min_ts, max_ts) = compute_window_and_bounds_iter(
-            indices
-                .iter()
-                .map(|&i| trace.spans[i].event.timestamp.as_str()),
-        );
-
-        // Filter out groups that span beyond the window limit
-        if window_ms > window_limit {
-            continue;
-        }
-
-        // Use the first span for metadata
-        let first = &trace.spans[indices[0]];
-        let severity = if indices.len() >= CRITICAL_OCCURRENCE_THRESHOLD {
-            Severity::Critical
-        } else {
-            Severity::Warning
-        };
-
-        let suggestion = match event_type {
-            EventType::Sql => format!(
-                "Use WHERE ... IN (?) to batch {} queries into one",
-                indices.len()
-            ),
-            EventType::HttpOut => format!(
-                "Use batch endpoint with ?ids=... to batch {} calls into one",
-                indices.len()
-            ),
-        };
-
-        findings.push(super::build_per_trace_finding(super::PerTraceFindingArgs {
-            finding_type: FindingType::from_event_type_n_plus_one(event_type),
-            severity,
-            trace_id: &trace.trace_id,
-            first_span: first,
+        if let Some(finding) = build_n_plus_one_finding(
+            trace,
+            event_type,
             template,
-            occurrences: indices.len(),
-            window_ms,
-            distinct_params: distinct_params.len(),
-            suggestion,
-            first_timestamp: min_ts,
-            last_timestamp: max_ts,
-            code_location: first.event.code_location(),
-            instrumentation_scopes: first.event.instrumentation_scopes.clone(),
-        }));
+            indices,
+            distinct_params.len(),
+            window_limit,
+            None,
+        ) {
+            findings.push(finding);
+        }
+    }
+
+    // Second pass: sanitizer-aware reclassification of groups that the
+    // first pass rejected because the OTel agent collapsed every literal
+    // to `?` (so distinct_params is always 1). Skipped entirely when the
+    // operator opted out via `sanitizer_aware_classification = "never"`.
+    if mode != SanitizerAwareMode::Never {
+        for ((event_type, template), indices) in &groups {
+            if indices.len() < threshold {
+                continue;
+            }
+            // Defensive: a group large enough for the first pass with
+            // distinct_params >= threshold cannot also be sanitized
+            // (params would all be `["?"]`, distinct_params == 1).
+            // Skip anyway so the invariant is explicit.
+            let already_emitted = findings.iter().any(|f| {
+                f.pattern.template == *template
+                    && f.finding_type == FindingType::from_event_type_n_plus_one(event_type)
+            });
+            if already_emitted {
+                continue;
+            }
+
+            // SQL is the only sanitizer-affected event type. HTTP outbound
+            // calls do not go through the OTel SQL sanitizer.
+            if **event_type != EventType::Sql {
+                continue;
+            }
+
+            let spans: Vec<&NormalizedEvent> = indices.iter().map(|&i| &trace.spans[i]).collect();
+            if !sanitizer_aware::looks_sanitized(&spans) {
+                continue;
+            }
+
+            let scopes = sanitizer_aware::collect_scopes(&spans);
+            let verdict = sanitizer_aware::classify_sanitized_sql_group(&spans, &scopes);
+            let should_emit = matches!(
+                (mode, verdict),
+                (SanitizerAwareMode::Always, _)
+                    | (SanitizerAwareMode::Auto, SanitizerVerdict::LikelyNPlusOne)
+            );
+            if !should_emit {
+                continue;
+            }
+
+            // distinct_params is always 1 on a sanitized group; the
+            // pattern field reflects the on-wire reality.
+            if let Some(finding) = build_n_plus_one_finding(
+                trace,
+                event_type,
+                template,
+                indices,
+                1,
+                window_limit,
+                Some(ClassificationMethod::SanitizerHeuristic),
+            ) {
+                findings.push(finding);
+            }
+        }
     }
 
     findings
+}
+
+/// Shared finding builder used by both detection passes. Returns `None`
+/// when the group spans more than `window_limit` milliseconds.
+fn build_n_plus_one_finding(
+    trace: &Trace,
+    event_type: &EventType,
+    template: &str,
+    indices: &[usize],
+    distinct_params: usize,
+    window_limit: u64,
+    classification_method: Option<ClassificationMethod>,
+) -> Option<Finding> {
+    let (window_ms, min_ts, max_ts) = compute_window_and_bounds_iter(
+        indices
+            .iter()
+            .map(|&i| trace.spans[i].event.timestamp.as_str()),
+    );
+    if window_ms > window_limit {
+        return None;
+    }
+
+    let first = &trace.spans[indices[0]];
+    let severity = if indices.len() >= CRITICAL_OCCURRENCE_THRESHOLD {
+        Severity::Critical
+    } else {
+        Severity::Warning
+    };
+
+    let suggestion = match event_type {
+        EventType::Sql => format!(
+            "Use WHERE ... IN (?) to batch {} queries into one",
+            indices.len()
+        ),
+        EventType::HttpOut => format!(
+            "Use batch endpoint with ?ids=... to batch {} calls into one",
+            indices.len()
+        ),
+    };
+
+    Some(super::build_per_trace_finding(super::PerTraceFindingArgs {
+        finding_type: FindingType::from_event_type_n_plus_one(event_type),
+        severity,
+        trace_id: &trace.trace_id,
+        first_span: first,
+        template,
+        occurrences: indices.len(),
+        window_ms,
+        distinct_params,
+        suggestion,
+        first_timestamp: min_ts,
+        last_timestamp: max_ts,
+        code_location: first.event.code_location(),
+        instrumentation_scopes: first.event.instrumentation_scopes.clone(),
+        classification_method,
+    }))
 }
 
 /// Slice-based variant for computing window from a slice of timestamps.
@@ -218,7 +309,7 @@ mod tests {
         let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
@@ -242,7 +333,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
@@ -255,7 +346,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events(4);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
         assert!(findings.is_empty());
     }
 
@@ -283,7 +374,7 @@ mod tests {
         ];
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
         assert!(findings.is_empty());
     }
 
@@ -292,7 +383,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events_with_stride(12, 10);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
@@ -314,7 +405,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
         // Only 1 distinct param set, below threshold of 5
         assert!(findings.is_empty());
     }
@@ -334,7 +425,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
         assert!(findings.is_empty());
     }
 
@@ -393,7 +484,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].pattern.window_ms, 500);
@@ -404,7 +495,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events(5);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 0);
+        let findings = detect_n_plus_one(&trace, 5, 0, SanitizerAwareMode::Auto);
         assert!(findings.is_empty());
     }
 
@@ -413,7 +504,7 @@ mod tests {
         let events = crate::test_helpers::make_sql_series_events_with_stride(9, 10);
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Warning);
@@ -434,7 +525,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].severity, Severity::Critical);
@@ -484,11 +575,100 @@ mod tests {
         let events = crate::test_helpers::make_n_plus_one_events();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
         assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.300Z");
+    }
+
+    // --- Sanitizer-aware reclassification (0.5.7+) ---
+
+    #[test]
+    fn reclassifies_n_plus_one_when_sanitizer_on_with_orm_scope() {
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            10,
+            Some("io.opentelemetry.spring-data-jpa-3.0"),
+            None,
+        );
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+        assert_eq!(findings[0].pattern.occurrences, 10);
+        // distinct_params reflects the on-wire reality: the sanitizer
+        // erased every literal, so there is one distinct (empty) params
+        // slice in the group.
+        assert_eq!(findings[0].pattern.distinct_params, 1);
+    }
+
+    #[test]
+    fn reclassifies_n_plus_one_when_sanitizer_on_with_high_variance_timing() {
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let events =
+            crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+    }
+
+    #[test]
+    fn does_not_reclassify_when_sanitizer_on_but_low_variance() {
+        let durations = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
+        let events =
+            crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        // Inconclusive verdict: heuristic stays silent, leaves the group
+        // for the redundant detector.
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn mode_never_disables_reclassification_entirely() {
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            10,
+            Some("io.opentelemetry.spring-data-jpa-3.0"),
+            None,
+        );
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn mode_always_reclassifies_regardless_of_signals() {
+        let durations = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
+        let events =
+            crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+    }
+
+    #[test]
+    fn first_pass_findings_carry_no_classification_method() {
+        // Non-regression: the standard distinct-params path should not
+        // stamp the heuristic marker.
+        let events = crate::test_helpers::make_n_plus_one_events();
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].classification_method, None);
     }
 
     #[test]
@@ -515,7 +695,7 @@ mod tests {
             .collect();
 
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
 
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
