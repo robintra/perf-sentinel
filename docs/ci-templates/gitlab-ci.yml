@@ -23,7 +23,7 @@ stages:
   - perf-sentinel
 
 variables:
-  PERF_SENTINEL_VERSION: "0.5.4"
+  PERF_SENTINEL_VERSION: "0.5.5"
   PERF_SENTINEL_TRACES: "test-traces.json"
   PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 
