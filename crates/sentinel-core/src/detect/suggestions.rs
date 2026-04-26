@@ -190,12 +190,12 @@ const RUST_RULES: &[(Framework, &[Hint])] = &[
 /// the OTLP ingest walker.
 ///
 /// Order matters: more-specific scopes first. `hibernate-reactive`
-/// must win over `hibernate`; `quarkus` (the Quarkus REST/JAX-RS
+/// must win over `hibernate`. `quarkus` (the Quarkus REST/JAX-RS
 /// short name) must win over `hibernate` so a Quarkus non-reactive
 /// app gets Quarkus-specific advice rather than raw JPA. Helidon and
 /// Rust ORMs are not listed here because the upstream agent emits
 /// the same `helidon` scope for both SE and MP, and Rust apps name
-/// their tracers themselves; both are better disambiguated through
+/// their tracers themselves. Both are better disambiguated through
 /// the namespace heuristics below.
 const SCOPE_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaQuarkusReactive, &["hibernate-reactive"]),
@@ -517,21 +517,22 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
     let ns = loc.namespace.as_deref().unwrap_or("");
     if let Some(filepath) = loc.filepath.as_deref() {
         let language = language_from_filepath(filepath)?;
-        for (framework, hints) in language.rules() {
-            if hints.iter().any(|hint| hint_matches(ns, *hint)) {
-                return Some(*framework);
-            }
-        }
-        return Some(language.generic());
+        return Some(match_namespace_against_language(ns, language).unwrap_or(language.generic()));
     }
     if ns.is_empty() {
         return None;
     }
-    for language in [Language::Java, Language::Csharp, Language::Rust] {
-        for (framework, hints) in language.rules() {
-            if hints.iter().any(|hint| hint_matches(ns, *hint)) {
-                return Some(*framework);
-            }
+    [Language::Java, Language::Csharp, Language::Rust]
+        .into_iter()
+        .find_map(|language| match_namespace_against_language(ns, language))
+}
+
+/// Try each rule of `language` against `ns`. Returns the first matching
+/// framework, or `None` when no rule matches.
+fn match_namespace_against_language(ns: &str, language: Language) -> Option<Framework> {
+    for (framework, hints) in language.rules() {
+        if hints.iter().any(|hint| hint_matches(ns, *hint)) {
+            return Some(*framework);
         }
     }
     None

@@ -65,7 +65,7 @@ pub const MAX_CODE_NAMESPACE_LENGTH: usize = 512;
 pub const MAX_SCOPE_NAME_LENGTH: usize = 256;
 
 /// Maximum number of instrumentation scopes captured per span. Matches
-/// the OTLP parent-walk depth bound (`CODE_ATTRS_MAX_DEPTH = 8`); the
+/// the OTLP parent-walk depth bound (`CODE_ATTRS_MAX_DEPTH = 8`). The
 /// JSON ingest path has no such structural bound, so the cap fires there.
 pub const MAX_INSTRUMENTATION_SCOPES: usize = 8;
 

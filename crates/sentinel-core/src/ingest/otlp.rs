@@ -282,7 +282,7 @@ fn build_span_index(
 }
 
 /// Build a `span_id -> instrumentation scope name` index alongside the
-/// span index. Same 100k cap as `build_span_index`; entries beyond the
+/// span index. Same 100k cap as `build_span_index`, entries beyond the
 /// cap simply lose scope attribution.
 fn build_scope_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
