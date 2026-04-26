@@ -58,6 +58,17 @@ pub const MAX_CODE_FILEPATH_LENGTH: usize = 1024;
 /// Maximum length for `code_namespace` (bytes).
 pub const MAX_CODE_NAMESPACE_LENGTH: usize = 512;
 
+/// Maximum length for a single instrumentation scope name (bytes).
+/// Real OpenTelemetry scope names are short (`io.opentelemetry.spring-data-3.0`
+/// is 33 bytes), so 256 leaves comfortable headroom while bounding the
+/// memory amplification of the per-finding Vec clone.
+pub const MAX_SCOPE_NAME_LENGTH: usize = 256;
+
+/// Maximum number of instrumentation scopes captured per span. Matches
+/// the OTLP parent-walk depth bound (`CODE_ATTRS_MAX_DEPTH = 8`); the
+/// JSON ingest path has no such structural bound, so the cap fires there.
+pub const MAX_INSTRUMENTATION_SCOPES: usize = 8;
+
 /// Truncate a string to `max_len` bytes on a char boundary.
 fn truncate_field(s: &mut String, max_len: usize) {
     if s.len() <= max_len {
@@ -84,6 +95,24 @@ fn sanitize_optional_string(field: &mut Option<String>, max_len: usize) {
         return;
     }
     if let Some(s) = field.as_mut() {
+        truncate_field(s, max_len);
+    }
+}
+
+/// Drop entries with control characters, truncate the remainder to
+/// `max_len` and cap the Vec at `max_count`.
+///
+/// Used for `instrumentation_scopes` (OpenTelemetry scope names from
+/// arbitrary agents, including the JSON ingest path which has no
+/// structural depth bound). Bounds both the per-element and per-event
+/// memory amplification when those scope names propagate into the
+/// per-finding clone.
+fn sanitize_string_vec(field: &mut Vec<String>, max_len: usize, max_count: usize) {
+    field.retain(|s| !crate::config::has_control_char(s));
+    if field.len() > max_count {
+        field.truncate(max_count);
+    }
+    for s in field.iter_mut() {
         truncate_field(s, max_len);
     }
 }
@@ -117,6 +146,11 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     sanitize_optional_string(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
     sanitize_optional_string(&mut event.code_filepath, MAX_CODE_FILEPATH_LENGTH);
     sanitize_optional_string(&mut event.code_namespace, MAX_CODE_NAMESPACE_LENGTH);
+    sanitize_string_vec(
+        &mut event.instrumentation_scopes,
+        MAX_SCOPE_NAME_LENGTH,
+        MAX_INSTRUMENTATION_SCOPES,
+    );
 }
 
 /// Source code location extracted from `OTel` `code.*` span attributes.
@@ -674,5 +708,48 @@ mod tests {
             Some("src/main/java/com/foo/Repo.java")
         );
         assert_eq!(event.code_namespace.as_deref(), Some("com.foo.Repo"));
+    }
+
+    // ── instrumentation_scopes sanitization ─────────────────────
+
+    #[test]
+    fn sanitize_truncates_long_instrumentation_scope() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.instrumentation_scopes = vec!["x".repeat(1024)];
+        sanitize_span_event(&mut event);
+        assert_eq!(event.instrumentation_scopes.len(), 1);
+        assert!(event.instrumentation_scopes[0].len() <= MAX_SCOPE_NAME_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_drops_instrumentation_scope_with_control_char() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.instrumentation_scopes = vec![
+            "io.opentelemetry.spring-data".to_string(),
+            "\x1b[31mio.opentelemetry.evil\x1b[0m".to_string(),
+            "io.opentelemetry.hibernate".to_string(),
+        ];
+        sanitize_span_event(&mut event);
+        assert_eq!(
+            event.instrumentation_scopes,
+            vec![
+                "io.opentelemetry.spring-data".to_string(),
+                "io.opentelemetry.hibernate".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn sanitize_caps_oversize_instrumentation_scopes_vec() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.instrumentation_scopes = (0..32)
+            .map(|i| format!("io.opentelemetry.scope-{i}"))
+            .collect();
+        sanitize_span_event(&mut event);
+        assert_eq!(
+            event.instrumentation_scopes.len(),
+            MAX_INSTRUMENTATION_SCOPES
+        );
+        assert_eq!(event.instrumentation_scopes[0], "io.opentelemetry.scope-0");
     }
 }
