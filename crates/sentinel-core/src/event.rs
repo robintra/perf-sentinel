@@ -70,6 +70,24 @@ fn truncate_field(s: &mut String, max_len: usize) {
     s.truncate(end);
 }
 
+/// Drop the field if it contains any ASCII control character, otherwise truncate.
+///
+/// Mirrors the silent-drop posture used for `cloud.region` invalid values.
+/// Control characters in `code.*` would render badly in TUI/CLI output and
+/// could enable log-injection if any future log site emitted them raw.
+fn sanitize_optional_string(field: &mut Option<String>, max_len: usize) {
+    if field
+        .as_deref()
+        .is_some_and(crate::config::has_control_char)
+    {
+        *field = None;
+        return;
+    }
+    if let Some(s) = field.as_mut() {
+        truncate_field(s, max_len);
+    }
+}
+
 /// Sanitize all string fields on a [`SpanEvent`] to enforce length limits.
 ///
 /// Maximum length for the `timestamp` field (bytes).
@@ -96,15 +114,9 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
     truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
     truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
-    if let Some(ref mut f) = event.code_function {
-        truncate_field(f, MAX_CODE_FUNCTION_LENGTH);
-    }
-    if let Some(ref mut f) = event.code_filepath {
-        truncate_field(f, MAX_CODE_FILEPATH_LENGTH);
-    }
-    if let Some(ref mut f) = event.code_namespace {
-        truncate_field(f, MAX_CODE_NAMESPACE_LENGTH);
-    }
+    sanitize_optional_string(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
+    sanitize_optional_string(&mut event.code_filepath, MAX_CODE_FILEPATH_LENGTH);
+    sanitize_optional_string(&mut event.code_namespace, MAX_CODE_NAMESPACE_LENGTH);
 }
 
 /// Source code location extracted from `OTel` `code.*` span attributes.
@@ -615,5 +627,44 @@ mod tests {
         event.code_filepath = Some("x".repeat(2000));
         sanitize_span_event(&mut event);
         assert!(event.code_filepath.as_ref().unwrap().len() <= MAX_CODE_FILEPATH_LENGTH);
+    }
+
+    #[test]
+    fn sanitize_drops_code_function_with_control_char() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_function = Some("findItems\x1b[31m".to_string());
+        sanitize_span_event(&mut event);
+        assert!(event.code_function.is_none());
+    }
+
+    #[test]
+    fn sanitize_drops_code_filepath_with_newline() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_filepath = Some("src/main.rs\nINJECT".to_string());
+        sanitize_span_event(&mut event);
+        assert!(event.code_filepath.is_none());
+    }
+
+    #[test]
+    fn sanitize_drops_code_namespace_with_del() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_namespace = Some("com.foo\x7fX".to_string());
+        sanitize_span_event(&mut event);
+        assert!(event.code_namespace.is_none());
+    }
+
+    #[test]
+    fn sanitize_keeps_clean_code_fields() {
+        let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
+        event.code_function = Some("findItems".to_string());
+        event.code_filepath = Some("src/main/java/com/foo/Repo.java".to_string());
+        event.code_namespace = Some("com.foo.Repo".to_string());
+        sanitize_span_event(&mut event);
+        assert_eq!(event.code_function.as_deref(), Some("findItems"));
+        assert_eq!(
+            event.code_filepath.as_deref(),
+            Some("src/main/java/com/foo/Repo.java")
+        );
+        assert_eq!(event.code_namespace.as_deref(), Some("com.foo.Repo"));
     }
 }

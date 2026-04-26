@@ -1019,7 +1019,7 @@ fn warn_outside_comfort_zone<T>(
 }
 
 /// `true` if `s` contains any ASCII control character (< 0x20 or DEL).
-fn has_control_char(s: &str) -> bool {
+pub(crate) fn has_control_char(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || b == 0x7F)
 }
 
