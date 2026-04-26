@@ -56,7 +56,7 @@ tokio-rustls = { version = "0.26.4", optional = true, default-features = false, 
 
 tokio-stream = { version = "0.1.18", optional = true }
 # Provides RequestDecompressionLayer for OTLP/HTTP gzip decompression on /v1/traces.
-tower-http = { version = "0.6.8", features = ["decompression-gzip"], optional = true }
+tower-http = { version = "0.6.8", features = ["decompression-gzip", "limit"], optional = true }
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util", "timeout"] }
