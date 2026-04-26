@@ -59,7 +59,7 @@ Detection algorithm parameters.
 | `chatty_service_min_calls`             | integer | `15`    | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold.                |
 | `pool_saturation_concurrent_threshold` | integer | `10`    | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps.          |
 | `serialized_min_sequential`            | integer | `3`     | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable. |
-| `sanitizer_aware_classification`       | string  | `"auto"`| How to classify SQL groups whose literals were collapsed to `?` by an OpenTelemetry agent's statement sanitizer. One of `"auto"`, `"always"`, `"never"`. See note below.                                                                                |
+| `sanitizer_aware_classification`       | string  | `"auto"`| How to classify SQL groups whose literals were collapsed to `?` by an OpenTelemetry agent's statement sanitizer. One of `"auto"`, `"strict"`, `"always"`, `"never"`. See note below.                                                                    |
 
 #### `sanitizer_aware_classification`
 
@@ -71,21 +71,30 @@ the group and the redundant detector picks it up as `redundant_sql`
 instead of `n_plus_one_sql`. This setting controls the heuristic that
 recovers the correct classification:
 
-- `"auto"` (default): emit `n_plus_one_sql` when an ORM marker is
-  present in the spans' instrumentation scopes (Spring Data, Hibernate,
-  EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, ...) or when
-  the per-span timing variance is high enough to indicate distinct row
-  lookups. Otherwise leave the group to the redundant detector.
+- `"auto"` (default): emit `n_plus_one_sql` when **either** the ORM
+  scope signal (Spring Data, Hibernate, EF Core, SQLAlchemy,
+  ActiveRecord, GORM, Prisma, Diesel, ...) **or** the per-span timing
+  variance is high enough to indicate distinct row lookups. Otherwise
+  leave the group to the redundant detector. Best recall on production
+  Spring Data, EF Core and similar ORM stacks.
+- `"strict"`: reclassify only when **both** signals fire conjointly:
+  ORM scope present **and** timing variance high. Preserves
+  `redundant_sql` precision on cached identical queries (legacy polling
+  loops, unmemoized config lookups served from row cache), at the cost
+  of missing N+1 patterns whose rows happen to be cache-warm. Use this
+  when actionable `redundant_sql` findings are valuable signal that
+  should not be silently absorbed into `n_plus_one_sql`.
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.
 - `"never"`: disable the heuristic entirely and reproduce pre-0.5.7
   behavior.
 
-Findings reclassified by the heuristic carry
-`classification_method = "sanitizer_heuristic"` in their JSON
-representation so operators can spot where it is firing. Findings
-produced by the standard rule omit the field.
+Findings reclassified by the heuristic (whether under `"auto"`,
+`"strict"`, or `"always"`) carry `classification_method =
+"sanitizer_heuristic"` in their JSON representation so operators can
+spot where it is firing. Findings produced by the standard rule omit
+the field.
 
 ### `[green]`
 

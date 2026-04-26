@@ -1890,6 +1890,8 @@ max_payload_size = 2097152
             ("always", SanitizerAwareMode::Always),
             ("never", SanitizerAwareMode::Never),
             ("ALWAYS", SanitizerAwareMode::Always),
+            ("strict", SanitizerAwareMode::Strict),
+            ("STRICT", SanitizerAwareMode::Strict),
         ] {
             let toml = format!("[detection]\nsanitizer_aware_classification = \"{value}\"\n");
             let config = load_from_str(&toml).unwrap();

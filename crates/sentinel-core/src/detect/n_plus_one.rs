@@ -111,13 +111,17 @@ fn classify_group(
     {
         return None;
     }
-    let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices);
-    let should_emit = matches!(
-        (mode, verdict),
-        (SanitizerAwareMode::Always, _)
-            | (SanitizerAwareMode::Auto, SanitizerVerdict::LikelyNPlusOne)
-    );
-    should_emit.then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
+    // `Always` short-circuits the verdict computation entirely: the
+    // mode emits on every sanitized group regardless of signal, so
+    // running `has_orm_scope` and `timing_variance_suggests_n_plus_one`
+    // would only allocate and discard.
+    if mode == SanitizerAwareMode::Always {
+        return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
+    }
+    let verdict =
+        sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices, mode);
+    matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
+        .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
 }
 
 /// Build a finding for a classified group. Returns `None` if the group's
@@ -648,6 +652,59 @@ mod tests {
                 .iter()
                 .map(|f| &f.finding_type)
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn strict_mode_keeps_redundant_for_orm_scope_with_low_variance() {
+        // Reproduces the simulation-lab redundant_sql case: 15 identical
+        // queries via Spring Data JPA, all served from the same cached
+        // row. ORM scope present but timing tight. Auto would flip this
+        // to n_plus_one_sql, Strict must let the redundant detector
+        // pick it up.
+        let durations = [100u64; 15];
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            15,
+            Some("io.opentelemetry.hibernate-6.0"),
+            Some(&durations),
+        );
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(
+            n_plus_one.is_empty(),
+            "Strict must not reclassify when timing variance is flat: got {:?}",
+            n_plus_one
+                .iter()
+                .map(|f| &f.finding_type)
+                .collect::<Vec<_>>()
+        );
+        let redundant = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
+        assert_eq!(redundant.len(), 1);
+        assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
+        assert_eq!(redundant[0].pattern.occurrences, 15);
+        // The redundant detector must not stamp the heuristic marker on
+        // its own findings, even when Strict declined to reclassify.
+        assert_eq!(redundant[0].classification_method, None);
+    }
+
+    #[test]
+    fn strict_mode_still_flags_n_plus_one_when_variance_high() {
+        // Real ORM-induced N+1: 10 lookups against different rows, the
+        // cache hit/miss spread the durations enough to clear CV > 0.5.
+        // Strict emits because both signals (ORM scope + variance) fire.
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            10,
+            Some("io.opentelemetry.spring-data-jpa-3.0"),
+            Some(&durations),
+        );
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(n_plus_one.len(), 1);
+        assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            n_plus_one[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
         );
     }
 

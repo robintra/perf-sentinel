@@ -59,7 +59,7 @@ Paramètres des algorithmes de détection.
 | `chatty_service_min_calls`             | entier | `15`   | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil.                                                |
 | `pool_saturation_concurrent_threshold` | entier | `10`   | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans. |
 | `serialized_min_sequential`            | entier | `3`    | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.               |
-| `sanitizer_aware_classification`       | chaîne | `"auto"`| Classification des groupes SQL dont les littéraux ont été remplacés par `?` par le sanitizer d'instruction d'un agent OpenTelemetry. Une valeur parmi `"auto"`, `"always"`, `"never"`. Voir la note ci-dessous.                                                              |
+| `sanitizer_aware_classification`       | chaîne | `"auto"`| Classification des groupes SQL dont les littéraux ont été remplacés par `?` par le sanitizer d'instruction d'un agent OpenTelemetry. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous.                                                  |
 
 #### `sanitizer_aware_classification`
 
@@ -72,22 +72,32 @@ détecteur de redondance le récupère sous l'étiquette `redundant_sql` au
 lieu de `n_plus_one_sql`. Ce paramètre contrôle l'heuristique qui
 restaure la classification correcte :
 
-- `"auto"` (défaut) : émet `n_plus_one_sql` quand un marqueur ORM est
-  présent dans les `instrumentation_scopes` des spans (Spring Data,
-  Hibernate, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel,
-  ...) ou quand la variance des durées par span est suffisante pour
-  indiquer des accès à des lignes distinctes. Sinon, le groupe reste à
-  la charge du détecteur de redondance.
+- `"auto"` (défaut) : émet `n_plus_one_sql` quand **soit** un marqueur
+  ORM est présent dans les `instrumentation_scopes` des spans (Spring
+  Data, Hibernate, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma,
+  Diesel, ...) **soit** la variance des durées par span est suffisante
+  pour indiquer des accès à des lignes distinctes. Sinon, le groupe
+  reste à la charge du détecteur de redondance. Meilleur rappel sur les
+  stacks production Spring Data, EF Core et similaires.
+- `"strict"` : reclassifie uniquement quand **les deux** signaux fire
+  conjointement : marqueur ORM présent **et** variance temporelle
+  élevée. Préserve la précision de `redundant_sql` sur les requêtes
+  identiques servies depuis le cache (boucles de polling legacy,
+  lookups de config non mémoïsés servis depuis le row cache), au prix
+  de manquer les N+1 dont toutes les lignes se trouvent en cache. À
+  utiliser quand les findings `redundant_sql` sont un signal exploitable
+  qui ne doit pas être absorbé silencieusement par `n_plus_one_sql`.
 - `"always"` : reclassifie tout groupe sanitisé qui atteint
   `n_plus_one_min_occurrences` spans en `n_plus_one_sql`. Plus agressif,
   peut requalifier une vraie redondance à un seul paramètre.
 - `"never"` : désactive complètement l'heuristique et reproduit le
   comportement antérieur à la 0.5.7.
 
-Les findings reclassifiés par l'heuristique portent
-`classification_method = "sanitizer_heuristic"` dans leur représentation
-JSON, ce qui permet à un opérateur de repérer où elle se déclenche. Les
-findings produits par la règle standard omettent ce champ.
+Les findings reclassifiés par l'heuristique (sous `"auto"`, `"strict"`
+ou `"always"`) portent `classification_method = "sanitizer_heuristic"`
+dans leur représentation JSON, ce qui permet à un opérateur de repérer
+où elle se déclenche. Les findings produits par la règle standard
+omettent ce champ.
 
 ### `[green]`
 

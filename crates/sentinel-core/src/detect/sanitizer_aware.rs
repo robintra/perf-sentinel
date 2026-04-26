@@ -31,8 +31,11 @@
 //!    `0.5` is empirical.
 //!
 //! The configurable [`SanitizerAwareMode`] gates final emission:
-//! `Auto` (default) requires `LikelyNPlusOne`, `Always` always emits,
-//! `Never` keeps pre-0.5.7 behavior.
+//! `Auto` (default) requires `LikelyNPlusOne` from the OR-logic
+//! classifier (either signal fires), `Strict` (0.5.8+) requires
+//! `LikelyNPlusOne` from the AND-logic classifier (both signals fire
+//! conjointly), `Always` always emits, `Never` keeps pre-0.5.7
+//! behavior.
 //!
 //! Known limit: `looks_sanitized` cannot tell a sanitized literal `?`
 //! apart from a `PostgreSQL` JSONB existence operator (`data ? 'key'`)
@@ -48,10 +51,18 @@ use crate::normalize::NormalizedEvent;
 ///
 /// Wired from `[detection] sanitizer_aware_classification` in
 /// `.perf-sentinel.toml`. Default is [`SanitizerAwareMode::Auto`].
+///
+/// Modes trade recall (catch more N+1) against precision (preserve
+/// `redundant_sql` findings on legitimate repeated identical queries).
+/// `Auto` favors recall, `Strict` favors precision, `Always` and `Never`
+/// are the two ends of the dial.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SanitizerAwareMode {
-    /// Reclassify only when the heuristic returns
-    /// [`SanitizerVerdict::LikelyNPlusOne`].
+    /// Reclassify when **either** the ORM scope signal **or** the timing
+    /// variance signal fires. Default. Best recall on production stacks
+    /// where the ORM scope is almost always present, at the cost of
+    /// hiding `redundant_sql` findings on truly repeated identical
+    /// queries served from cache.
     #[default]
     Auto,
     /// Reclassify any sanitized group with `>= threshold` occurrences.
@@ -59,6 +70,20 @@ pub enum SanitizerAwareMode {
     Always,
     /// Disable the heuristic entirely. Reproduces pre-0.5.7 behavior.
     Never,
+    /// Reclassify only when **both** signals fire conjointly: ORM scope
+    /// present **and** per-span timing variance high enough to indicate
+    /// distinct row lookups. Preserves `redundant_sql` precision on
+    /// repeated identical queries served from cache, at the cost of
+    /// missing N+1 on stacks where row-level cache makes timings cluster.
+    ///
+    /// The precision gain is most valuable on hot-path identical
+    /// queries that **do** traverse an ORM scope (cache-warming loops,
+    /// polling repositories, unmemoized `findById(sameId)` in legacy
+    /// code), since `Auto` would mislabel those as `n_plus_one_sql`. On
+    /// queries that bypass the ORM (raw JDBC, hand-rolled drivers) the
+    /// scope signal is absent under both modes, so `Strict` and `Auto`
+    /// behave identically (`Auto` falls through to the variance signal).
+    Strict,
 }
 
 impl SanitizerAwareMode {
@@ -77,6 +102,7 @@ impl SanitizerAwareMode {
                 "auto" => Self::Auto,
                 "always" => Self::Always,
                 "never" => Self::Never,
+                "strict" => Self::Strict,
                 _ => {
                     tracing::warn!(
                         value = sanitize_for_log(raw).as_ref(),
@@ -95,6 +121,7 @@ impl SanitizerAwareMode {
             Self::Auto => "auto",
             Self::Always => "always",
             Self::Never => "never",
+            Self::Strict => "strict",
         }
     }
 }
@@ -234,11 +261,22 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
 /// Requires at least 3 spans for a stable variance estimate. Returns
 /// `false` for fewer spans, zero mean, or empty input.
 ///
-/// Asymmetric harm: a false positive flips a sanitized `redundant_sql`
-/// group to `n_plus_one_sql` (same `avoidable_io_ops` weight, the
-/// suggestion text differs); a false negative leaves a real N+1 silent
-/// for the redundant detector to pick up. Threshold tuned to favor
-/// false positives over silent misses.
+/// Asymmetric harm under `Auto`: a false positive flips a sanitized
+/// `redundant_sql` group to `n_plus_one_sql` (same `avoidable_io_ops`
+/// weight, the suggestion text differs), a false negative leaves a real
+/// N+1 silent for the redundant detector to pick up. Threshold tuned to
+/// favor false positives over silent misses.
+///
+/// Under `Strict` (0.5.8+) this signal becomes load-bearing: it is the
+/// only gate that lets a sanitized group reach `LikelyNPlusOne` once
+/// the ORM scope check has passed. A real ORM-induced N+1 against a
+/// fully warm row cache (e.g. 100 lookups by primary key with all rows
+/// in `shared_buffers`) can cluster within ±10% (CV ~ 0.1) and stay
+/// silent under `Strict`. The 0.5 threshold is preserved across modes
+/// pending empirical validation in the simulation lab. If lab traffic
+/// shows the threshold to be too restrictive under `Strict`, the right
+/// follow-up is exposing a `[detection] sanitizer_aware_min_cv` knob
+/// rather than picking a new global default.
 #[must_use]
 pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     if spans.len() < 3 {
@@ -257,32 +295,62 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     cv > 0.5
 }
 
-/// Combined verdict: ORM scope wins (high-confidence reclassification),
-/// otherwise fall back to timing variance.
+/// Combined verdict for `Auto` mode: ORM scope wins (high-confidence
+/// reclassification), otherwise fall back to timing variance. Either
+/// signal alone is enough to return `LikelyNPlusOne`.
 #[must_use]
 pub fn classify_sanitized_sql_group(
     spans: &[&NormalizedEvent],
     scopes: &[String],
 ) -> SanitizerVerdict {
-    if has_orm_scope(scopes) {
-        return SanitizerVerdict::LikelyNPlusOne;
+    if has_orm_scope(scopes) || timing_variance_suggests_n_plus_one(spans) {
+        SanitizerVerdict::LikelyNPlusOne
+    } else {
+        SanitizerVerdict::Inconclusive
     }
-    if timing_variance_suggests_n_plus_one(spans) {
-        return SanitizerVerdict::LikelyNPlusOne;
+}
+
+/// Combined verdict for `Strict` mode: requires the two signals to fire
+/// **conjointly**. Preserves `redundant_sql` precision on cached
+/// identical queries (where the ORM scope is present but the timing
+/// variance is low), at the cost of missing N+1 patterns whose rows all
+/// happen to be cache-warm.
+#[must_use]
+pub fn classify_sanitized_sql_group_strict(
+    spans: &[&NormalizedEvent],
+    scopes: &[String],
+) -> SanitizerVerdict {
+    if has_orm_scope(scopes) && timing_variance_suggests_n_plus_one(spans) {
+        SanitizerVerdict::LikelyNPlusOne
+    } else {
+        SanitizerVerdict::Inconclusive
     }
-    SanitizerVerdict::Inconclusive
 }
 
 /// Index-based variant for the detection hot path: borrows directly
 /// from the trace's span vector without an intermediate
-/// `Vec<&NormalizedEvent>`.
+/// `Vec<&NormalizedEvent>`. Dispatches to the OR-logic
+/// (`classify_sanitized_sql_group`) or AND-logic
+/// (`classify_sanitized_sql_group_strict`) entry point based on `mode`.
+///
+/// `Always` and `Never` are filtered upstream in
+/// [`super::n_plus_one`] so they never reach this dispatcher in
+/// production, but the match stays exhaustive (no `_`) so a future
+/// fifth variant on [`SanitizerAwareMode`] fails to compile here
+/// rather than silently picking the OR fallback.
 pub(super) fn classify_sanitized_sql_group_indexed(
     spans: &[NormalizedEvent],
     indices: &[usize],
+    mode: SanitizerAwareMode,
 ) -> SanitizerVerdict {
     let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
     let scopes = collect_scopes(&group);
-    classify_sanitized_sql_group(&group, &scopes)
+    match mode {
+        SanitizerAwareMode::Strict => classify_sanitized_sql_group_strict(&group, &scopes),
+        SanitizerAwareMode::Auto | SanitizerAwareMode::Always | SanitizerAwareMode::Never => {
+            classify_sanitized_sql_group(&group, &scopes)
+        }
+    }
 }
 
 /// Sanitize an arbitrary user-controlled string for inclusion in a
@@ -376,6 +444,26 @@ mod tests {
             SanitizerAwareMode::from_config(Some(" Never ")),
             SanitizerAwareMode::Never
         );
+        assert_eq!(
+            SanitizerAwareMode::from_config(Some("strict")),
+            SanitizerAwareMode::Strict
+        );
+        assert_eq!(
+            SanitizerAwareMode::from_config(Some("STRICT")),
+            SanitizerAwareMode::Strict
+        );
+    }
+
+    #[test]
+    fn as_str_round_trips_every_variant() {
+        for mode in [
+            SanitizerAwareMode::Auto,
+            SanitizerAwareMode::Always,
+            SanitizerAwareMode::Never,
+            SanitizerAwareMode::Strict,
+        ] {
+            assert_eq!(SanitizerAwareMode::from_config(Some(mode.as_str())), mode);
+        }
     }
 
     #[test]
@@ -564,6 +652,95 @@ mod tests {
         let scopes = collect_scopes(&refs);
         assert_eq!(
             classify_sanitized_sql_group(&refs, &scopes),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    // --- Strict mode (0.5.8+): both signals required ---
+
+    /// Helper: build a sanitized group with explicit ORM scope and
+    /// per-span durations, then return `(refs, scopes)` ready to feed
+    /// into either classifier.
+    fn build_sanitized_group_for_strict(
+        scope: Option<&str>,
+        durations: &[u64],
+    ) -> (Vec<NormalizedEvent>, Vec<String>) {
+        let events: Vec<SpanEvent> = durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let mut e = make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_items WHERE order_id = ?",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                );
+                e.instrumentation_scopes = scope.map(|s| vec![s.to_string()]).unwrap_or_default();
+                e
+            })
+            .collect();
+        let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        let scopes = collect_scopes(&refs);
+        (normalized, scopes)
+    }
+
+    #[test]
+    fn strict_orm_scope_only_low_variance_returns_inconclusive() {
+        // The simulation lab redundant_sql case: 15 identical SELECT
+        // count(*) from a Spring Data JPA repository, all served from
+        // the same cached row. ORM scope present, timing tight.
+        // Auto would reclassify, Strict must not.
+        let low_variance = [
+            100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102, 98, 101, 99, 100, 102,
+        ];
+        let (normalized, scopes) =
+            build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    #[test]
+    fn strict_orm_scope_and_high_variance_returns_likely_n_plus_one() {
+        // Real ORM-induced N+1: 10 lookups against different rows, cache
+        // hit/miss spread the durations. Both signals fire, Strict emits.
+        let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let (normalized, scopes) = build_sanitized_group_for_strict(
+            Some("io.opentelemetry.spring-data-jpa-3.0"),
+            &high_variance,
+        );
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes),
+            SanitizerVerdict::LikelyNPlusOne
+        );
+    }
+
+    #[test]
+    fn strict_no_orm_scope_high_variance_returns_inconclusive() {
+        // Variance alone is not enough under Strict: an N+1 from a
+        // hand-rolled JDBC layer (no ORM marker on the scope chain) stays
+        // unclassified. Auto would emit on the variance signal.
+        let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    #[test]
+    fn strict_no_signal_returns_inconclusive() {
+        let low_variance = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes),
             SanitizerVerdict::Inconclusive
         );
     }
