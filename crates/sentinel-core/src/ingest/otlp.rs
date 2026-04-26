@@ -55,13 +55,21 @@ fn get_int_attribute(attrs: &[KeyValue], key: &str) -> Option<i64> {
 
 // ── code.* attribute extraction ─────────────────────────────────────
 
+/// Maximum parent-span hops when walking for `code.*` attributes.
+///
+/// Java auto-instrumented stacks can chain HTTP server, Filter,
+/// `DispatcherServlet`, Controller, Service, Repository, Hibernate, JDBC,
+/// which is 8 levels. Real OpenTelemetry SDKs typically span fewer layers
+/// (Spring AOP proxies stay invisible).
+const CODE_ATTRS_MAX_DEPTH: usize = 8;
+
 /// Code-frame attributes read from a single span's attribute set.
 ///
 /// Borrows from the span attributes, so the lifetime is tied to the
 /// `resource_spans` buffer (same lifetime as the values stored in
 /// `span_index`). All fields are independently optional because
 /// OpenTelemetry agents do not always emit the full set.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct CodeAttrs<'a> {
     function_name: Option<&'a str>,
     filepath: Option<&'a str>,
@@ -70,6 +78,7 @@ struct CodeAttrs<'a> {
 }
 
 impl CodeAttrs<'_> {
+    #[inline]
     fn has_any(&self) -> bool {
         self.function_name.is_some()
             || self.filepath.is_some()
@@ -81,9 +90,13 @@ impl CodeAttrs<'_> {
 /// Read code.* attributes from a span attribute set.
 ///
 /// Reads stable semconv v1.33.0 names first, falls back to legacy names.
-/// Namespace falls back to the prefix of the FQ function name (split on
-/// the last `.`) when no explicit `code.namespace` attribute is present,
-/// because `JAVA_RULES` matches on namespace substrings.
+/// Namespace fallback splits the stable `code.function.name` (which is
+/// fully-qualified by spec) on the last `.`. The legacy `code.function`
+/// is documented as a bare function name, so we deliberately do not
+/// feed it into the namespace derivation: that would surface false
+/// positives in `JAVA_RULES` for agents that happen to pack a dotted
+/// value into the legacy attribute.
+#[inline]
 fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
     let function_name = get_str_attribute(attrs, "code.function.name")
         .or_else(|| get_str_attribute(attrs, "code.function"));
@@ -91,8 +104,10 @@ fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
         .or_else(|| get_str_attribute(attrs, "code.filepath"));
     let lineno = get_int_attribute(attrs, "code.line.number")
         .or_else(|| get_int_attribute(attrs, "code.lineno"));
-    let namespace = get_str_attribute(attrs, "code.namespace")
-        .or_else(|| function_name.and_then(|fq| fq.rsplit_once('.').map(|(ns, _)| ns)));
+    let namespace = get_str_attribute(attrs, "code.namespace").or_else(|| {
+        get_str_attribute(attrs, "code.function.name")
+            .and_then(|fq| fq.rsplit_once('.').map(|(ns, _)| ns))
+    });
     CodeAttrs {
         function_name,
         filepath,
@@ -106,10 +121,9 @@ fn read_code_attrs(attrs: &[KeyValue]) -> CodeAttrs<'_> {
 /// OpenTelemetry auto-instrumentation typically attaches `code.*` to the
 /// user-frame span (controller, service), not to the inner JDBC or
 /// HTTP-client span. Without this walk, framework-aware suggestions never
-/// fire on JPA, EF Core or Diesel stacks. The walk is bounded by `MAX_DEPTH`
-/// to prevent loops on malformed parent chains.
+/// fire on JPA, EF Core or Diesel stacks. The walk is bounded by
+/// `CODE_ATTRS_MAX_DEPTH` to prevent loops on malformed parent chains.
 fn extract_code_attrs<'a>(span: &'a Span, span_index: &HashMap<&[u8], &'a Span>) -> CodeAttrs<'a> {
-    const MAX_DEPTH: usize = 8;
     let mut current = span;
     let mut depth = 0;
     loop {
@@ -117,7 +131,7 @@ fn extract_code_attrs<'a>(span: &'a Span, span_index: &HashMap<&[u8], &'a Span>)
         if attrs.has_any() {
             return attrs;
         }
-        if current.parent_span_id.is_empty() || depth >= MAX_DEPTH {
+        if current.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
             return CodeAttrs::default();
         }
         let Some(parent) = span_index.get(current.parent_span_id.as_slice()) else {
@@ -1066,10 +1080,11 @@ mod tests {
 
     #[test]
     fn code_attrs_max_depth_safety() {
-        // Build a chain of 20 nested spans, none with code.*. Walker stops at
-        // MAX_DEPTH = 8 and returns None without infinite-looping.
+        // Chain depth larger than CODE_ATTRS_MAX_DEPTH, none carry code.*.
+        // Walker terminates at the cap and returns None without looping.
+        let depth = u8::try_from(CODE_ATTRS_MAX_DEPTH * 2 + 4).unwrap();
         let mut spans = Vec::new();
-        for i in 0..20u8 {
+        for i in 0..depth {
             let id = [i + 1; 8];
             let parent = if i == 0 { vec![] } else { vec![i; 8] };
             spans.push(make_span_with_code_attrs(
@@ -1079,7 +1094,7 @@ mod tests {
                 vec![],
             ));
         }
-        let leaf = make_sql_span(&[1; 16], &[100; 8], &[20; 8], "SELECT 1", 0, 1_000_000);
+        let leaf = make_sql_span(&[1; 16], &[100; 8], &[depth; 8], "SELECT 1", 0, 1_000_000);
         spans.push(leaf);
         let req = make_request("svc", spans);
         let events = convert_otlp_request(&req);
@@ -1178,6 +1193,26 @@ mod tests {
 
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].code_namespace.as_deref(), Some("com.bar.X"));
+    }
+
+    #[test]
+    fn code_attrs_legacy_function_does_not_derive_namespace() {
+        // Legacy `code.function` is documented as a bare function name, even
+        // when an agent technically packs a dotted value into it. We must
+        // NOT derive a namespace from it; doing so would surface false
+        // positives in JAVA_RULES on agents that emit `code.function = "X.y"`.
+        let mut span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        span.attributes
+            .push(make_kv("code.function", "OrderService.findItems"));
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].code_function.as_deref(),
+            Some("OrderService.findItems")
+        );
+        assert!(events[0].code_namespace.is_none());
     }
 
     #[test]
