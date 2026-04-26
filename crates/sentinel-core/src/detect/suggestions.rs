@@ -207,18 +207,39 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
 /// Match any scope in the chain against any rule. Returns the first
 /// rule's framework whose substring list intersects the scope chain.
 fn detect_framework_from_scopes(scopes: &[String]) -> Option<Framework> {
-    if scopes.is_empty() {
-        return None;
-    }
     for (framework, needles) in SCOPE_RULES {
         if scopes
             .iter()
-            .any(|scope| needles.iter().any(|needle| scope.contains(needle)))
+            .any(|scope| needles.iter().any(|needle| scope_matches(scope, needle)))
         {
             return Some(*framework);
         }
     }
     None
+}
+
+/// Boundary-aware match against an OpenTelemetry scope name.
+///
+/// Restricts matches to the canonical `io.opentelemetry.<short>` form
+/// emitted by the upstream agent, with optional version suffix
+/// (`-1.8`, `-3.0`, ...) and optional sub-scope (`-server`, `-client`,
+/// `-mutiny`, ...). Rejects third-party tracer names that happen to
+/// contain a needle as a substring (e.g. `com.acme.quarkus-monitoring`
+/// would no longer match the `quarkus` rule).
+fn scope_matches(scope: &str, needle: &str) -> bool {
+    let Some(rest) = scope.strip_prefix("io.opentelemetry.") else {
+        return false;
+    };
+    let Some(after) = rest.strip_prefix(needle) else {
+        return false;
+    };
+    // The needle must end at a segment boundary: either the end of
+    // the scope name, a version suffix `-...`, or another sub-scope
+    // separator. This rejects partial-segment matches like `quarkus`
+    // against `quarkus-resteasy-classic` if we ever decide we want
+    // only the reactive variant. Today every entry is a full segment,
+    // so end-of-string and `-` are the natural anchors.
+    after.is_empty() || after.starts_with('-')
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1090,6 +1111,45 @@ mod tests {
         // detector skips scope rules and uses namespace.
         let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["com.example.custom-tracer"]);
         f.code_location = Some(loc("Repository.java", Some("org.hibernate.SessionImpl")));
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_third_party_tracer_named_after_framework_does_not_match() {
+        // A third-party tracer like `com.acme.quarkus-monitoring` contains
+        // the substring `quarkus` but is not under the `io.opentelemetry.`
+        // prefix, so the boundary-aware matcher refuses it. Without this
+        // guard we would fire JavaQuarkus on any user library that happens
+        // to embed a framework name.
+        let f = finding_with_scopes(FindingType::NPlusOneSql, &["com.acme.quarkus-monitoring"]);
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn scope_partial_segment_does_not_match() {
+        // `quarkus` must end at a segment boundary (end of string or `-`).
+        // `quarkusextension-1.0` should not match the `quarkus` rule.
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.opentelemetry.quarkusextension-1.0"],
+        );
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn scope_matches_canonical_versioned_form() {
+        // The canonical agent form is `io.opentelemetry.<short>-<version>`.
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.opentelemetry.spring-data-3.0"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_matches_canonical_bare_form() {
+        // Bare canonical form (no version) is also accepted.
+        let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.spring-data"]);
         assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
     }
 

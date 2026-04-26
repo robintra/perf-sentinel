@@ -290,10 +290,7 @@ fn build_scope_index(
     let mut index: HashMap<&[u8], &str> = HashMap::new();
     let mut count = 0usize;
     'outer: for scope_spans in &resource_spans.scope_spans {
-        let scope_name = scope_spans
-            .scope
-            .as_ref()
-            .map_or("", |s| s.name.as_str());
+        let scope_name = scope_spans.scope.as_ref().map_or("", |s| s.name.as_str());
         if scope_name.is_empty() {
             continue;
         }

@@ -117,12 +117,16 @@ pub fn detect_slow_cross_trace(
     let threshold_us = threshold_ms.saturating_mul(1000);
     let min_occ = min_occurrences as usize;
 
-    // Entries: (duration_us, trace_id, timestamp, service, endpoint)
+    // Entries: (duration_us, trace_id, timestamp, &SpanEvent). The
+    // span reference carries `service`, `source.endpoint`, code_location
+    // and instrumentation_scopes for the worst-trace finding.
     // Pre-filter: only collect spans that exceed the threshold to avoid processing
     // non-slow spans (reduces HashMap size from N to ~1% of N in typical workloads).
     #[allow(clippy::type_complexity)]
-    let mut groups: HashMap<(&EventType, &str), Vec<(u64, &str, &str, &str, &str)>> =
-        HashMap::with_capacity(traces.len().min(256));
+    let mut groups: HashMap<
+        (&EventType, &str),
+        Vec<(u64, &str, &str, &crate::event::SpanEvent)>,
+    > = HashMap::with_capacity(traces.len().min(256));
     for trace in traces {
         for span in &trace.spans {
             if span.event.duration_us <= threshold_us {
@@ -135,8 +139,7 @@ pub fn detect_slow_cross_trace(
                     span.event.duration_us,
                     trace.trace_id.as_str(),
                     span.event.timestamp.as_str(),
-                    span.event.service.as_str(),
-                    span.event.source.endpoint.as_str(),
+                    &span.event,
                 ));
         }
     }
@@ -159,7 +162,7 @@ pub fn detect_slow_cross_trace(
 fn build_cross_trace_finding(
     event_type: &EventType,
     template: &str,
-    entries: &mut [(u64, &str, &str, &str, &str)],
+    entries: &mut [(u64, &str, &str, &crate::event::SpanEvent)],
     min_occ: usize,
     threshold_us: u64,
 ) -> Option<Finding> {
@@ -167,12 +170,12 @@ fn build_cross_trace_finding(
         return None;
     }
 
-    let distinct_traces: HashSet<&str> = entries.iter().map(|&(_, tid, _, _, _)| tid).collect();
+    let distinct_traces: HashSet<&str> = entries.iter().map(|&(_, tid, _, _)| tid).collect();
     if distinct_traces.len() < 2 {
         return None;
     }
 
-    entries.sort_by_key(|&(dur, _, _, _, _)| dur);
+    entries.sort_by_key(|&(dur, _, _, _)| dur);
     let n = entries.len();
     let p50 = entries[percentile_index(n, 50)].0;
     let p95 = entries[percentile_index(n, 95)].0;
@@ -183,7 +186,7 @@ fn build_cross_trace_finding(
     }
 
     let max_dur = entries[n - 1].0;
-    let (_, worst_trace_id, _, worst_service, worst_endpoint) = entries[n - 1];
+    let (_, worst_trace_id, _, worst_event) = entries[n - 1];
     let (window_ms, first_ts, last_ts) =
         super::n_plus_one::compute_window_and_bounds_iter(entries.iter().map(|e| e.2));
 
@@ -208,8 +211,8 @@ fn build_cross_trace_finding(
         finding_type: FindingType::from_event_type_slow(event_type),
         severity,
         trace_id: worst_trace_id.to_string(),
-        service: worst_service.to_string(),
-        source_endpoint: worst_endpoint.to_string(),
+        service: worst_event.service.clone(),
+        source_endpoint: worst_event.source.endpoint.clone(),
         pattern: Pattern {
             template: template.to_string(),
             occurrences: n,
@@ -221,8 +224,8 @@ fn build_cross_trace_finding(
         last_timestamp: last_ts.to_string(),
         green_impact: None,
         confidence: Confidence::default(),
-        code_location: None,
-        instrumentation_scopes: Vec::new(),
+        code_location: worst_event.code_location(),
+        instrumentation_scopes: worst_event.instrumentation_scopes.clone(),
         suggested_fix: None,
     })
 }
