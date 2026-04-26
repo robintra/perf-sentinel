@@ -82,6 +82,7 @@ mod tests {
                 green_impact: None,
                 confidence: crate::detect::Confidence::default(),
                 code_location: None,
+                instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
             }],
             green_summary: crate::test_helpers::make_test_green_summary(10, 5, 0.5),

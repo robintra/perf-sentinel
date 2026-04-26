@@ -495,6 +495,7 @@ mod tests {
                 code_filepath: None,
                 code_lineno: None,
                 code_namespace: None,
+                instrumentation_scopes: Vec::new(),
             },
             template: template.into(),
             params: vec![],
@@ -520,6 +521,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::CiBatch,
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         }
     }

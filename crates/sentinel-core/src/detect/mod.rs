@@ -95,6 +95,16 @@ pub struct Finding {
     /// `None` when the instrumentation agent does not emit these attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_location: Option<crate::event::CodeLocation>,
+    /// OpenTelemetry instrumentation scope chain captured from the
+    /// originating span and its ancestors (leaf to root, deduplicated).
+    /// Used by [`suggestions::enrich`] as a primary framework signal:
+    /// the scope name (e.g. `io.opentelemetry.spring-data-3.0`) is
+    /// emitted by the agent regardless of how the user names their
+    /// repository class, so it survives user-code naming quirks.
+    /// Empty when the upstream format does not carry scope info
+    /// (Jaeger, Zipkin) or when the trace is synthetic.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub instrumentation_scopes: Vec<String>,
     /// Framework-specific actionable fix, populated by
     /// [`suggestions::enrich`] after the per-trace detectors run. `None`
     /// when no framework can be inferred from `code_location` or when the
@@ -347,6 +357,7 @@ pub(crate) struct PerTraceFindingArgs<'a> {
     pub first_timestamp: &'a str,
     pub last_timestamp: &'a str,
     pub code_location: Option<crate::event::CodeLocation>,
+    pub instrumentation_scopes: Vec<String>,
 }
 
 /// Build a [`Finding`] from the common fields shared by per-trace
@@ -371,6 +382,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         green_impact: None,
         confidence: Confidence::default(),
         code_location: args.code_location,
+        instrumentation_scopes: args.instrumentation_scopes,
         suggested_fix: None,
     }
 }

@@ -442,6 +442,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         }
     }
@@ -581,6 +582,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         }
     }
@@ -685,6 +687,7 @@ mod tests {
                 code_filepath: None,
                 code_lineno: None,
                 code_namespace: None,
+                instrumentation_scopes: Vec::new(),
             },
             template: "SELECT ?".to_string(),
             params: vec!["1".to_string()],
@@ -711,6 +714,7 @@ mod tests {
                 code_filepath: None,
                 code_lineno: None,
                 code_namespace: None,
+                instrumentation_scopes: Vec::new(),
             },
             template: "SELECT ?".to_string(),
             params: vec!["2".to_string()],

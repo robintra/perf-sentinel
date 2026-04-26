@@ -117,6 +117,7 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
         green_impact: None,
         confidence: Confidence::default(),
         code_location: None,
+        instrumentation_scopes: Vec::new(),
         suggested_fix: None,
     }
 }

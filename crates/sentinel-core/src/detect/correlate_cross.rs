@@ -537,6 +537,7 @@ mod tests {
             green_impact: None,
             confidence: crate::detect::Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         }
     }

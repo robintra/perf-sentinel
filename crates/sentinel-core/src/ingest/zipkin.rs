@@ -164,6 +164,10 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         code_filepath,
         code_lineno,
         code_namespace,
+        // Zipkin does not carry OpenTelemetry instrumentation scope
+        // information. Empty list disables the scope-based framework
+        // detection path; namespace heuristics still fire.
+        instrumentation_scopes: Vec::new(),
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

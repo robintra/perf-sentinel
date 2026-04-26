@@ -229,6 +229,14 @@ pub struct SpanEvent {
     /// `OTel` `code.namespace` attribute: the namespace (e.g. Java package).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_namespace: Option<String>,
+    /// OpenTelemetry instrumentation scope names captured at ingest time:
+    /// the leaf span's scope at index 0, then each unique ancestor scope
+    /// up to a bounded depth. Lets framework detection identify Spring
+    /// Data, Hibernate, Quarkus, Helidon and friends from the
+    /// `io.opentelemetry.<module>` strings emitted by the agent, without
+    /// relying on user-code naming conventions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub instrumentation_scopes: Vec<String>,
 }
 
 impl SpanEvent {

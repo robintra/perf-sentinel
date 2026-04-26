@@ -65,6 +65,7 @@ pub fn make_sql_event_with_duration(
         code_filepath: None,
         code_lineno: None,
         code_namespace: None,
+        instrumentation_scopes: Vec::new(),
     }
 }
 
@@ -96,6 +97,7 @@ pub fn make_http_event_with_duration(
         code_filepath: None,
         code_lineno: None,
         code_namespace: None,
+        instrumentation_scopes: Vec::new(),
     }
 }
 
@@ -186,6 +188,7 @@ pub fn make_finding(
         }),
         confidence: crate::detect::Confidence::default(),
         code_location: None,
+        instrumentation_scopes: Vec::new(),
         suggested_fix: None,
     }
 }

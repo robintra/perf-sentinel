@@ -281,6 +281,62 @@ fn build_span_index(
     index
 }
 
+/// Build a `span_id -> instrumentation scope name` index alongside the
+/// span index. Same 100k cap as `build_span_index`; entries beyond the
+/// cap simply lose scope attribution.
+fn build_scope_index(
+    resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
+) -> HashMap<&[u8], &str> {
+    let mut index: HashMap<&[u8], &str> = HashMap::new();
+    let mut count = 0usize;
+    'outer: for scope_spans in &resource_spans.scope_spans {
+        let scope_name = scope_spans
+            .scope
+            .as_ref()
+            .map_or("", |s| s.name.as_str());
+        if scope_name.is_empty() {
+            continue;
+        }
+        for span in &scope_spans.spans {
+            index.insert(&span.span_id, scope_name);
+            count += 1;
+            if count >= 100_000 {
+                break 'outer;
+            }
+        }
+    }
+    index
+}
+
+/// Collect the leaf span's scope plus each unique ancestor scope, up to
+/// `CODE_ATTRS_MAX_DEPTH`. Result is ordered leaf to root and
+/// deduplicated. Empty when no scope is recorded for any span on the
+/// chain.
+fn collect_instrumentation_scopes(
+    span: &Span,
+    span_index: &HashMap<&[u8], &Span>,
+    scope_index: &HashMap<&[u8], &str>,
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut current = span;
+    let mut depth = 0;
+    loop {
+        if let Some(name) = scope_index.get(current.span_id.as_slice())
+            && !out.iter().any(|s| s == *name)
+        {
+            out.push((*name).to_string());
+        }
+        if current.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
+            return out;
+        }
+        let Some(parent) = span_index.get(current.parent_span_id.as_slice()) else {
+            return out;
+        };
+        current = *parent;
+        depth += 1;
+    }
+}
+
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
     let mut events = Vec::new();
@@ -303,6 +359,7 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             .map(str::to_string);
 
         let span_index = build_span_index(resource_spans);
+        let scope_index = build_scope_index(resource_spans);
 
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
@@ -311,6 +368,7 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
                     &service_name,
                     resource_cloud_region.as_deref(),
                     &span_index,
+                    &scope_index,
                 ) {
                     events.push(event);
                 }
@@ -327,6 +385,7 @@ fn convert_span(
     service_name: &str,
     resource_cloud_region: Option<&str>,
     span_index: &HashMap<&[u8], &Span>,
+    scope_index: &HashMap<&[u8], &str>,
 ) -> Option<SpanEvent> {
     let classified = classify_span_attrs(&span.attributes);
 
@@ -424,6 +483,8 @@ fn convert_span(
     let code_lineno = code.lineno.and_then(|v| u32::try_from(v).ok());
     let code_namespace = code.namespace.map(str::to_string);
 
+    let instrumentation_scopes = collect_instrumentation_scopes(span, span_index, scope_index);
+
     let mut event = SpanEvent {
         timestamp,
         trace_id,
@@ -445,6 +506,7 @@ fn convert_span(
         code_filepath,
         code_lineno,
         code_namespace,
+        instrumentation_scopes,
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)
@@ -1078,6 +1140,92 @@ mod tests {
         let req = make_request("order-svc", vec![span]);
         let events = convert_otlp_request(&req);
         assert!(events[0].cloud_region.is_none());
+    }
+
+    // ── instrumentation_scopes capture from OTLP ──────────────────
+
+    fn scoped_request(service: &str, scoped: Vec<(&str, Vec<Span>)>) -> ExportTraceServiceRequest {
+        use opentelemetry_proto::tonic::common::v1::InstrumentationScope;
+        ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(Resource {
+                    attributes: vec![make_kv("service.name", service)],
+                    ..Default::default()
+                }),
+                scope_spans: scoped
+                    .into_iter()
+                    .map(|(name, spans)| ScopeSpans {
+                        scope: Some(InstrumentationScope {
+                            name: name.to_string(),
+                            ..Default::default()
+                        }),
+                        spans,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[test]
+    fn instrumentation_scope_captured_from_leaf_only() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        let req = scoped_request("svc", vec![("io.opentelemetry.jdbc", vec![span])]);
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].instrumentation_scopes,
+            vec!["io.opentelemetry.jdbc"]
+        );
+    }
+
+    #[test]
+    fn instrumentation_scopes_walk_parent_chain_deduped() {
+        // Lab-shaped trace: HTTP server (spring-webmvc) -> Spring
+        // Data span (spring-data-3.0) -> Hibernate (hibernate-6.0)
+        // -> JDBC leaf (jdbc). Walker collects unique scopes leaf
+        // to root.
+        let http = make_span_with_code_attrs(
+            &[10; 8],
+            &[],
+            "GET /api/orders",
+            vec![make_kv("http.route", "GET /api/orders")],
+        );
+        let spring_data =
+            make_span_with_code_attrs(&[11; 8], &[10; 8], "OrderRepository.findById", vec![]);
+        let hibernate = make_span_with_code_attrs(&[12; 8], &[11; 8], "Session.find", vec![]);
+        let jdbc = make_sql_span(&[1; 16], &[13; 8], &[12; 8], "SELECT 1", 0, 1_000_000);
+        let req = scoped_request(
+            "svc",
+            vec![
+                ("io.opentelemetry.spring-webmvc-6.0", vec![http]),
+                ("io.opentelemetry.spring-data-3.0", vec![spring_data]),
+                ("io.opentelemetry.hibernate-6.0", vec![hibernate]),
+                ("io.opentelemetry.jdbc", vec![jdbc]),
+            ],
+        );
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1, "only the JDBC span yields a SpanEvent");
+        assert_eq!(
+            events[0].instrumentation_scopes,
+            vec![
+                "io.opentelemetry.jdbc",
+                "io.opentelemetry.hibernate-6.0",
+                "io.opentelemetry.spring-data-3.0",
+                "io.opentelemetry.spring-webmvc-6.0",
+            ],
+            "leaf-to-root order, deduplicated"
+        );
+    }
+
+    #[test]
+    fn instrumentation_scopes_empty_when_scope_absent() {
+        let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+        let req = make_request("svc", vec![span]);
+        let events = convert_otlp_request(&req);
+        assert_eq!(events.len(), 1);
+        assert!(events[0].instrumentation_scopes.is_empty());
     }
 
     #[test]

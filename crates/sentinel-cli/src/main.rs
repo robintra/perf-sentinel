@@ -1771,6 +1771,7 @@ mod tests {
             }),
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         }
     }

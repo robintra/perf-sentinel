@@ -520,6 +520,7 @@ mod tests {
             code_filepath: None,
             code_lineno: None,
             code_namespace: None,
+            instrumentation_scopes: Vec::new(),
         }
     }
 

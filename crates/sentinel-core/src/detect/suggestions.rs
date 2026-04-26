@@ -182,6 +182,45 @@ const RUST_RULES: &[(Framework, &[Hint])] = &[
     (Framework::RustSeaOrm, &[Hint::Substring("sea_orm::")]),
 ];
 
+/// OpenTelemetry instrumentation scope rules. The scope name string
+/// (e.g. `io.opentelemetry.spring-data-3.0`) is emitted by the agent
+/// regardless of how the user names their classes, so this is the most
+/// reliable framework signal when available. We match short-name
+/// substrings against any scope in the leaf-to-root chain captured by
+/// the OTLP ingest walker.
+///
+/// Order matters: more-specific scopes first. `hibernate-reactive`
+/// must win over `hibernate`; `quarkus` (the Quarkus REST/JAX-RS
+/// short name) must win over `hibernate` so a Quarkus non-reactive
+/// app gets Quarkus-specific advice rather than raw JPA. Helidon and
+/// Rust ORMs are not listed here because the upstream agent emits
+/// the same `helidon` scope for both SE and MP, and Rust apps name
+/// their tracers themselves; both are better disambiguated through
+/// the namespace heuristics below.
+const SCOPE_RULES: &[(Framework, &[&str])] = &[
+    (Framework::JavaQuarkusReactive, &["hibernate-reactive"]),
+    (Framework::JavaQuarkus, &["quarkus"]),
+    (Framework::JavaWebFlux, &["spring-webflux", "r2dbc"]),
+    (Framework::JavaJpa, &["spring-data", "hibernate"]),
+];
+
+/// Match any scope in the chain against any rule. Returns the first
+/// rule's framework whose substring list intersects the scope chain.
+fn detect_framework_from_scopes(scopes: &[String]) -> Option<Framework> {
+    if scopes.is_empty() {
+        return None;
+    }
+    for (framework, needles) in SCOPE_RULES {
+        if scopes
+            .iter()
+            .any(|scope| needles.iter().any(|needle| scope.contains(needle)))
+        {
+            return Some(*framework);
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Language {
     Java,
@@ -435,20 +474,24 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
     FIXES.get(&(finding.finding_type.clone(), framework))
 }
 
-/// Pure framework detector. Operates only on the finding's
-/// `code_location` field. Returns `None` when no information is
-/// available. Otherwise returns the most specific framework matched
-/// by the namespace, or the language's generic fallback when the
-/// language is known via the filepath but no rule matches.
+/// Pure framework detector. Inspects three signals in order:
 ///
-/// When `filepath` is missing we cannot identify the language with
-/// certainty, so we try every language's rules in order (Java, C#,
-/// Rust) and return the first hit. This recovers the common case
-/// where an OpenTelemetry agent emits `code.namespace` on a parent span but
-/// not `code.filepath`. No generic fallback fires in that path:
-/// without a filepath we will not guess a language for an unknown
-/// namespace.
+/// 1. **Instrumentation scope chain** captured at OTLP ingest time
+///    (`io.opentelemetry.spring-data-3.0`, `io.opentelemetry.hibernate-6.0`,
+///    etc.). Most reliable, agent-emitted, naming-quirk-immune.
+/// 2. **`code_location` namespace** with filepath-derived language.
+///    Returns the language-generic fallback when no namespace rule
+///    matches but the language is known.
+/// 3. **`code_location` namespace alone** when filepath is absent.
+///    Tries every language's rules in order (Java, C#, Rust) and
+///    returns the first hit. No generic fallback in this path
+///    because we cannot know which language to fall back to.
+///
+/// `None` when no signal is available.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
+    if let Some(framework) = detect_framework_from_scopes(&finding.instrumentation_scopes) {
+        return Some(framework);
+    }
     let loc = finding.code_location.as_ref()?;
     let ns = loc.namespace.as_deref().unwrap_or("");
     if let Some(filepath) = loc.filepath.as_deref() {
@@ -547,6 +590,14 @@ mod tests {
     fn finding_with_location(ft: FindingType, loc: Option<CodeLocation>) -> Finding {
         let mut f = make_finding(ft, Severity::Warning);
         f.code_location = loc;
+        f.suggested_fix = None;
+        f
+    }
+
+    fn finding_with_scopes(ft: FindingType, scopes: &[&str]) -> Finding {
+        let mut f = make_finding(ft, Severity::Warning);
+        f.code_location = None;
+        f.instrumentation_scopes = scopes.iter().map(|s| (*s).to_string()).collect();
         f.suggested_fix = None;
         f
     }
@@ -917,6 +968,129 @@ mod tests {
             )),
         );
         assert_eq!(detect_framework(&f), Some(Framework::CsharpGeneric));
+    }
+
+    // ── Scope-based detection (OpenTelemetry instrumentation scope) ─
+
+    #[test]
+    fn scope_detects_jpa_from_spring_data() {
+        // Lab case at the wire level: leaf JDBC span, parent
+        // Spring Data span. Walker captured both scope names.
+        let f = finding_with_scopes(
+            FindingType::RedundantSql,
+            &[
+                "io.opentelemetry.jdbc",
+                "io.opentelemetry.hibernate-6.0",
+                "io.opentelemetry.spring-data-3.0",
+            ],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_detects_jpa_from_hibernate_alone() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.opentelemetry.jdbc", "io.opentelemetry.hibernate-6.0"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_detects_quarkus_reactive_via_hibernate_reactive() {
+        // hibernate-reactive must win over plain hibernate.
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &[
+                "io.opentelemetry.hibernate-reactive-1.0",
+                "io.opentelemetry.quarkus-resteasy-reactive-3.0",
+            ],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkusReactive));
+    }
+
+    #[test]
+    fn scope_detects_quarkus_non_reactive_via_quarkus_short_name() {
+        // Non-reactive Quarkus emits scope "quarkus" on REST spans
+        // and "hibernate" on DB spans. Quarkus rule ordered before
+        // JPA so we get JavaQuarkus, not JavaJpa.
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &[
+                "io.opentelemetry.jdbc",
+                "io.opentelemetry.hibernate-6.0",
+                "io.opentelemetry.quarkus-resteasy-reactive-3.0",
+            ],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkus));
+    }
+
+    #[test]
+    fn scope_detects_webflux_via_r2dbc() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &[
+                "io.opentelemetry.r2dbc-1.0",
+                "io.opentelemetry.spring-webflux-5.0",
+            ],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaWebFlux));
+    }
+
+    #[test]
+    fn scope_detects_webflux_via_spring_webflux() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneHttp,
+            &["io.opentelemetry.spring-webflux-5.0"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaWebFlux));
+    }
+
+    #[test]
+    fn scope_wins_over_namespace_user_code() {
+        // When both signals are present, scope should win because
+        // it is more reliable than the user-class-name suffix.
+        let mut f = finding_with_scopes(
+            FindingType::RedundantSql,
+            &["io.opentelemetry.spring-data-3.0"],
+        );
+        f.code_location = Some(loc(
+            "OrderRepository.java",
+            Some("com.example.OrderRepository"),
+        ));
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_falls_back_to_namespace_when_no_scope_rule_matches() {
+        // Scope is jdbc-only (no framework hint there). Detection
+        // falls through to the namespace path and picks up the
+        // Hibernate substring.
+        let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.jdbc"]);
+        f.code_location = Some(loc("Repository.java", Some("org.hibernate.SessionImpl")));
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_falls_back_to_namespace_when_scope_chain_empty() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc(
+                "Repository.java",
+                Some("org.springframework.data.jpa.repository.JpaRepository"),
+            )),
+        );
+        // empty scopes by default
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn scope_unknown_falls_back_to_namespace() {
+        // Unknown scope name (synthetic or third-party tracer):
+        // detector skips scope rules and uses namespace.
+        let mut f = finding_with_scopes(FindingType::NPlusOneSql, &["com.example.custom-tracer"]);
+        f.code_location = Some(loc("Repository.java", Some("org.hibernate.SessionImpl")));
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
     }
 
     // ── Cross-language fallthrough ───────────────────────────────

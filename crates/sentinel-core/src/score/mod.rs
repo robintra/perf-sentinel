@@ -333,6 +333,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 
@@ -529,6 +530,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 
@@ -575,6 +577,7 @@ mod tests {
                 green_impact: None,
                 confidence: Confidence::default(),
                 code_location: None,
+                instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
             },
             Finding {
@@ -595,6 +598,7 @@ mod tests {
                 green_impact: None,
                 confidence: Confidence::default(),
                 code_location: None,
+                instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
             },
         ];
@@ -696,6 +700,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 
@@ -842,6 +847,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 
@@ -900,6 +906,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
         let slow_finding = Finding {
@@ -920,6 +927,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 
@@ -1015,6 +1023,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
         // disable hourly profiles so avoidable ratio math
@@ -1431,6 +1440,7 @@ mod tests {
             green_impact: None,
             confidence: Confidence::default(),
             code_location: None,
+            instrumentation_scopes: Vec::new(),
             suggested_fix: None,
         };
 

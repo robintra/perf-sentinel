@@ -206,6 +206,10 @@ fn convert_jaeger_span(
         code_filepath,
         code_lineno,
         code_namespace,
+        // Jaeger does not carry OpenTelemetry instrumentation scope
+        // information. Empty list disables the scope-based framework
+        // detection path; namespace heuristics still fire.
+        instrumentation_scopes: Vec::new(),
     };
     crate::event::sanitize_span_event(&mut event);
     Some(event)

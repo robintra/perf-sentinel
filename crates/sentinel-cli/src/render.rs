@@ -873,6 +873,7 @@ mod tests {
                 lineno: Some(118),
                 namespace: Some("com.foo.orders.OrderService".to_string()),
             }),
+            instrumentation_scopes: Vec::new(),
             suggested_fix: Some(SuggestedFix {
                 pattern: "n_plus_one_sql".to_string(),
                 framework: "java_jpa".to_string(),
