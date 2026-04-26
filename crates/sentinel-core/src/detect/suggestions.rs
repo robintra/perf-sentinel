@@ -83,20 +83,41 @@ impl Framework {
     }
 }
 
+/// Pattern for matching a hint against a namespace string.
+///
+/// `Substring` keeps the existing segment-boundary-aware substring
+/// match: the hint must sit between segment delimiters (`.` for Java
+/// and C#, `::` for Rust). `LastSegmentEndsWith` matches the suffix of
+/// the namespace's last segment only, used for user-code naming
+/// conventions like Spring Data's `*Repository` where the framework
+/// package itself does not appear in the span's `code.namespace`.
+#[derive(Clone, Copy)]
+enum Hint {
+    Substring(&'static str),
+    LastSegmentEndsWith(&'static str),
+}
+
 /// Per-language detection tables. Each entry is `(framework, namespace
 /// hints)`. Order matters within a language: more-specific frameworks
-/// first, generic last. The detector returns the first match.
+/// first, user-code conventions and generic last. The detector returns
+/// the first match.
 ///
-/// Substring (`contains`) match against the namespace string. Hints
-/// embed enough of the package path to keep false positives rare. For
-/// Rust we anchor on the `::` separator to distinguish `diesel::` from
-/// user crates that happen to contain `diesel` in a name.
-const JAVA_RULES: &[(Framework, &[&str])] = &[
+/// `Substring` hints embed enough of the package path to keep false
+/// positives rare. For Rust we anchor on the `::` separator to
+/// distinguish `diesel::` from user crates that happen to contain
+/// `diesel` in a name. `LastSegmentEndsWith` hints recognise user-code
+/// naming conventions when the framework package is not in the
+/// span's `code.namespace` (e.g. an OpenTelemetry agent attaches `code.*` to
+/// the user's Spring Data repository class).
+const JAVA_RULES: &[(Framework, &[Hint])] = &[
     // Helidon MP must come before Helidon SE: `io.helidon.microprofile`
     // is a sub-package of `io.helidon`, so the catch-all SE hint would
     // otherwise win on MP code.
-    (Framework::JavaHelidonMp, &["io.helidon.microprofile"]),
-    (Framework::JavaHelidonSe, &["io.helidon"]),
+    (
+        Framework::JavaHelidonMp,
+        &[Hint::Substring("io.helidon.microprofile")],
+    ),
+    (Framework::JavaHelidonSe, &[Hint::Substring("io.helidon")]),
     // Quarkus reactive must come before JavaQuarkus and JavaJpa: `io.quarkus.hibernate.reactive`
     // also contains `io.quarkus.hibernate.orm` ancestors and `org.hibernate.reactive` contains
     // `org.hibernate`. The catch-all `io.quarkus` belongs to non-reactive Quarkus, so reactive
@@ -104,11 +125,11 @@ const JAVA_RULES: &[(Framework, &[&str])] = &[
     (
         Framework::JavaQuarkusReactive,
         &[
-            "io.quarkus.hibernate.reactive",
-            "io.quarkus.panache.reactive",
-            "io.quarkus.reactive",
-            "org.hibernate.reactive",
-            "io.smallrye.mutiny",
+            Hint::Substring("io.quarkus.hibernate.reactive"),
+            Hint::Substring("io.quarkus.panache.reactive"),
+            Hint::Substring("io.quarkus.reactive"),
+            Hint::Substring("org.hibernate.reactive"),
+            Hint::Substring("io.smallrye.mutiny"),
         ],
     ),
     // Non-reactive Quarkus: ORM (Hibernate ORM under Quarkus), imperative Panache, then any
@@ -116,37 +137,49 @@ const JAVA_RULES: &[(Framework, &[&str])] = &[
     (
         Framework::JavaQuarkus,
         &[
-            "io.quarkus.hibernate.orm",
-            "io.quarkus.panache.common",
-            "io.quarkus",
+            Hint::Substring("io.quarkus.hibernate.orm"),
+            Hint::Substring("io.quarkus.panache.common"),
+            Hint::Substring("io.quarkus"),
         ],
     ),
     (
         Framework::JavaWebFlux,
-        &["org.springframework.web.reactive", "reactor.core"],
+        &[
+            Hint::Substring("org.springframework.web.reactive"),
+            Hint::Substring("reactor.core"),
+        ],
     ),
+    // JPA framework packages first, then user-code conventions. The
+    // OTel Java agent often attaches `code.namespace` to the user's
+    // Spring Data repository (e.g. `com.example.OrderRepository`)
+    // where the framework name never appears; the suffix patterns
+    // catch those cases without matching `org.hibernate` style spans
+    // (handled by the substrings above) more aggressively.
     (
         Framework::JavaJpa,
         &[
-            "jakarta.persistence",
-            "javax.persistence",
-            "org.hibernate",
-            "org.springframework.data.jpa",
+            Hint::Substring("jakarta.persistence"),
+            Hint::Substring("javax.persistence"),
+            Hint::Substring("org.hibernate"),
+            Hint::Substring("org.springframework.data.jpa"),
+            Hint::LastSegmentEndsWith("Repository"),
+            Hint::LastSegmentEndsWith("Repo"),
+            Hint::LastSegmentEndsWith("Dao"),
         ],
     ),
 ];
 
-const CSHARP_RULES: &[(Framework, &[&str])] = &[(
+const CSHARP_RULES: &[(Framework, &[Hint])] = &[(
     Framework::CsharpEfCore,
     &[
-        "Microsoft.EntityFrameworkCore",
-        "Pomelo.EntityFrameworkCore",
+        Hint::Substring("Microsoft.EntityFrameworkCore"),
+        Hint::Substring("Pomelo.EntityFrameworkCore"),
     ],
 )];
 
-const RUST_RULES: &[(Framework, &[&str])] = &[
-    (Framework::RustDiesel, &["diesel::"]),
-    (Framework::RustSeaOrm, &["sea_orm::"]),
+const RUST_RULES: &[(Framework, &[Hint])] = &[
+    (Framework::RustDiesel, &[Hint::Substring("diesel::")]),
+    (Framework::RustSeaOrm, &[Hint::Substring("sea_orm::")]),
 ];
 
 #[derive(Debug, Clone, Copy)]
@@ -157,7 +190,7 @@ enum Language {
 }
 
 impl Language {
-    const fn rules(self) -> &'static [(Framework, &'static [&'static str])] {
+    const fn rules(self) -> &'static [(Framework, &'static [Hint])] {
         match self {
             Self::Java => JAVA_RULES,
             Self::Csharp => CSHARP_RULES,
@@ -208,6 +241,13 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
                 "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/\
                  Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching",
             ),
+        ),
+        (
+            (RedundantSql, JavaJpa),
+            "Add Spring's @Cacheable on the repository or service method, \
+             or share the EntityManager within the request via @Transactional \
+             so Hibernate's first-level cache deduplicates the read.",
+            Some("https://docs.spring.io/spring-framework/reference/integration/cache.html"),
         ),
         (
             (NPlusOneSql, JavaQuarkusReactive),
@@ -397,20 +437,61 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
 
 /// Pure framework detector. Operates only on the finding's
 /// `code_location` field. Returns `None` when no information is
-/// available or when the file extension is not supported. Otherwise
-/// returns the most specific framework matched by the namespace, or the
-/// language's generic fallback when no rule matches.
+/// available. Otherwise returns the most specific framework matched
+/// by the namespace, or the language's generic fallback when the
+/// language is known via the filepath but no rule matches.
+///
+/// When `filepath` is missing we cannot identify the language with
+/// certainty, so we try every language's rules in order (Java, C#,
+/// Rust) and return the first hit. This recovers the common case
+/// where an OpenTelemetry agent emits `code.namespace` on a parent span but
+/// not `code.filepath`. No generic fallback fires in that path:
+/// without a filepath we will not guess a language for an unknown
+/// namespace.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
     let loc = finding.code_location.as_ref()?;
-    let filepath = loc.filepath.as_ref()?;
-    let language = language_from_filepath(filepath)?;
     let ns = loc.namespace.as_deref().unwrap_or("");
-    for (framework, hints) in language.rules() {
-        if hints.iter().any(|hint| namespace_matches(ns, hint)) {
-            return Some(*framework);
+    if let Some(filepath) = loc.filepath.as_deref() {
+        let language = language_from_filepath(filepath)?;
+        for (framework, hints) in language.rules() {
+            if hints.iter().any(|hint| hint_matches(ns, *hint)) {
+                return Some(*framework);
+            }
+        }
+        return Some(language.generic());
+    }
+    if ns.is_empty() {
+        return None;
+    }
+    for language in [Language::Java, Language::Csharp, Language::Rust] {
+        for (framework, hints) in language.rules() {
+            if hints.iter().any(|hint| hint_matches(ns, *hint)) {
+                return Some(*framework);
+            }
         }
     }
-    Some(language.generic())
+    None
+}
+
+/// Dispatch a hint against the namespace.
+fn hint_matches(ns: &str, hint: Hint) -> bool {
+    match hint {
+        Hint::Substring(needle) => namespace_contains_segment(ns, needle),
+        Hint::LastSegmentEndsWith(suffix) => last_segment(ns).ends_with(suffix),
+    }
+}
+
+/// Last segment of a `.` or `::` separated namespace. Empty for an
+/// empty input; returns the whole string when no separator is present.
+fn last_segment(ns: &str) -> &str {
+    let last_dot = ns.rfind('.').map(|i| i + 1);
+    let last_colon = ns.rfind("::").map(|i| i + 2);
+    match (last_dot, last_colon) {
+        (Some(a), Some(b)) => &ns[a.max(b)..],
+        (Some(a), None) => &ns[a..],
+        (None, Some(b)) => &ns[b..],
+        (None, None) => ns,
+    }
 }
 
 /// Segment-boundary-aware substring match. Returns `true` when `hint`
@@ -426,7 +507,7 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// single occurrence) and so we always land on a `char` boundary, since
 /// `str::find` returns indices aligned to the start of the matched
 /// substring.
-fn namespace_matches(ns: &str, hint: &str) -> bool {
+fn namespace_contains_segment(ns: &str, hint: &str) -> bool {
     let bytes = ns.as_bytes();
     let mut start = 0;
     while let Some(found) = ns[start..].find(hint) {
@@ -857,7 +938,11 @@ mod tests {
     }
 
     #[test]
-    fn returns_none_when_filepath_absent_even_if_namespace_present() {
+    fn detects_framework_via_namespace_when_filepath_absent() {
+        // OpenTelemetry agents often emit `code.namespace` on a parent span
+        // without `code.filepath`. When the namespace alone is
+        // recognised, we return the matching framework instead of
+        // bailing out.
         let f = finding_with_location(
             FindingType::NPlusOneSql,
             Some(CodeLocation {
@@ -867,7 +952,103 @@ mod tests {
                 namespace: Some("org.hibernate.SessionImpl".to_string()),
             }),
         );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn returns_none_when_filepath_absent_and_namespace_unrecognized() {
+        // Without a filepath we cannot identify the language, so an
+        // unrecognised namespace must yield None rather than guessing.
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(CodeLocation {
+                function: Some("processPayment".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("custom.PaymentEngine".to_string()),
+            }),
+        );
         assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn detects_jpa_from_user_repository_class_without_filepath() {
+        // Lab case: OTel Java agent attaches `code.namespace` to the
+        // user's Spring Data repository (e.g.
+        // `com.perfsim.order.domain.OrderRepository`). The suffix
+        // `Repository` flags this as JPA without needing the
+        // framework package to appear in the namespace.
+        let f = finding_with_location(
+            FindingType::RedundantSql,
+            Some(CodeLocation {
+                function: Some("slowQuery".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("com.perfsim.order.domain.OrderRepository".to_string()),
+            }),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn detects_jpa_from_user_dao_class_without_filepath() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(CodeLocation {
+                function: Some("findAll".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("com.example.legacy.OrderDao".to_string()),
+            }),
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn user_code_suffix_does_not_match_unrelated_class_without_filepath() {
+        // `HttpClientWrapper` ends with neither Repository, Repo nor
+        // Dao, so we must not mis-tag this finding as JPA. With no
+        // filepath we cannot infer the language, so the result is
+        // None (no language-generic guess).
+        let f = finding_with_location(
+            FindingType::RedundantSql,
+            Some(CodeLocation {
+                function: Some("send".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("com.example.HttpClientWrapper".to_string()),
+            }),
+        );
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn enrich_populates_jpa_fix_for_user_repository_without_filepath() {
+        // End-to-end: the lab's redundant_sql finding with only a
+        // user-code namespace (no filepath, no framework package)
+        // must come out with `framework: java_jpa` and a usable
+        // recommendation.
+        let mut findings = vec![finding_with_location(
+            FindingType::RedundantSql,
+            Some(CodeLocation {
+                function: Some("slowQuery".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("com.perfsim.order.domain.OrderRepository".to_string()),
+            }),
+        )];
+        enrich(&mut findings);
+        let fix = findings[0]
+            .suggested_fix
+            .as_ref()
+            .expect("expected suggested_fix to be set");
+        assert_eq!(fix.framework, "java_jpa");
+        assert_eq!(fix.pattern, "redundant_sql");
+        assert!(
+            fix.recommendation.contains("@Cacheable")
+                || fix.recommendation.contains("EntityManager"),
+            "redundant_sql JPA fix should reference @Cacheable or EntityManager"
+        );
     }
 
     // ── Lookup table ─────────────────────────────────────────────
