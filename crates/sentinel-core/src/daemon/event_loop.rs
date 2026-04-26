@@ -9,6 +9,8 @@ use tokio::time::{Duration, interval};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
 use crate::detect;
+#[cfg(test)]
+use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{Confidence, DetectConfig};
 use crate::event::SpanEvent;
 use crate::normalize;
@@ -531,8 +533,7 @@ mod tests {
             chatty_service_min_calls: 15,
             pool_saturation_concurrent_threshold: 10,
             serialized_min_sequential: 3,
-            sanitizer_aware_classification:
-                crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
+            sanitizer_aware_classification: SanitizerAwareMode::default(),
         }
     }
 

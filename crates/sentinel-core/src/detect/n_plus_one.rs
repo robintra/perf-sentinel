@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
-use crate::normalize::NormalizedEvent;
 
 use super::sanitizer_aware::{self, SanitizerAwareMode, SanitizerVerdict};
 use super::{ClassificationMethod, Finding, FindingType, Severity};
@@ -24,13 +23,22 @@ pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
 
 /// Detect N+1 patterns in a single trace.
 ///
-/// First pass groups spans by (`event_type`, template) and flags groups
-/// where the number of occurrences and distinct parameter sets both
-/// reach `threshold` within `window_limit` milliseconds.
+/// Groups spans by (`event_type`, template) and emits a finding when the
+/// number of occurrences reaches `threshold` within `window_limit` ms.
+/// The classification of each group is decided in one of two ways:
 ///
-/// Second pass (gated on `mode`) reclassifies sanitizer-collapsed groups
-/// where every span has empty `params` and a `?` placeholder in its
-/// template. See [`super::sanitizer_aware`] for the heuristic.
+/// - **Direct** (`distinct_params >= threshold`): the standard rule. The
+///   resulting finding has `classification_method = None`.
+/// - **Sanitizer heuristic** (gated on `mode`, SQL only): the group has
+///   fewer distinct param sets than the threshold but every span looks
+///   like the `OTel` SQL sanitizer collapsed its literals to `?`. See
+///   [`sanitizer_aware`] for the verdict logic. The resulting finding
+///   has `classification_method = Some(SanitizerHeuristic)`.
+///
+/// The two paths are mutually exclusive by construction
+/// ([`sanitizer_aware::looks_sanitized`] requires `params.is_empty()` on
+/// every span, so a group reaching the direct rule's distinct-params
+/// threshold cannot also be sanitized), so a single loop suffices.
 #[must_use]
 pub fn detect_n_plus_one(
     trace: &Trace,
@@ -40,7 +48,6 @@ pub fn detect_n_plus_one(
 ) -> Vec<Finding> {
     let threshold = threshold as usize;
 
-    // Group spans by (event_type, template) using borrowed keys
     let mut groups: HashMap<(&EventType, &str), Vec<usize>> =
         HashMap::with_capacity(trace.spans.len().min(64));
     for (i, span) in trace.spans.iter().enumerate() {
@@ -51,107 +58,78 @@ pub fn detect_n_plus_one(
     }
 
     let mut findings = Vec::new();
-
-    // First pass: standard distinct-params N+1 detection.
     for ((event_type, template), indices) in &groups {
-        if indices.len() < threshold {
+        let Some((distinct_params, classification_method)) =
+            classify_group(trace, event_type, indices, threshold, mode)
+        else {
             continue;
-        }
-
-        // Count distinct parameter sets using borrowed slices
-        let distinct_params: HashSet<&[String]> = indices
-            .iter()
-            .map(|&i| trace.spans[i].params.as_slice())
-            .collect();
-
-        if distinct_params.len() < threshold {
-            continue;
-        }
-
-        if let Some(finding) = build_n_plus_one_finding(
+        };
+        if let Some(finding) = build_finding(
             trace,
             event_type,
             template,
             indices,
-            distinct_params.len(),
             window_limit,
-            None,
+            distinct_params,
+            classification_method,
         ) {
             findings.push(finding);
         }
     }
-
-    // Second pass: sanitizer-aware reclassification of groups that the
-    // first pass rejected because the OTel agent collapsed every literal
-    // to `?` (so distinct_params is always 1). Skipped entirely when the
-    // operator opted out via `sanitizer_aware_classification = "never"`.
-    if mode != SanitizerAwareMode::Never {
-        for ((event_type, template), indices) in &groups {
-            if indices.len() < threshold {
-                continue;
-            }
-            // Defensive: a group large enough for the first pass with
-            // distinct_params >= threshold cannot also be sanitized
-            // (params would all be `["?"]`, distinct_params == 1).
-            // Skip anyway so the invariant is explicit.
-            let already_emitted = findings.iter().any(|f| {
-                f.pattern.template == *template
-                    && f.finding_type == FindingType::from_event_type_n_plus_one(event_type)
-            });
-            if already_emitted {
-                continue;
-            }
-
-            // SQL is the only sanitizer-affected event type. HTTP outbound
-            // calls do not go through the OTel SQL sanitizer.
-            if **event_type != EventType::Sql {
-                continue;
-            }
-
-            let spans: Vec<&NormalizedEvent> = indices.iter().map(|&i| &trace.spans[i]).collect();
-            if !sanitizer_aware::looks_sanitized(&spans) {
-                continue;
-            }
-
-            let scopes = sanitizer_aware::collect_scopes(&spans);
-            let verdict = sanitizer_aware::classify_sanitized_sql_group(&spans, &scopes);
-            let should_emit = matches!(
-                (mode, verdict),
-                (SanitizerAwareMode::Always, _)
-                    | (SanitizerAwareMode::Auto, SanitizerVerdict::LikelyNPlusOne)
-            );
-            if !should_emit {
-                continue;
-            }
-
-            // distinct_params is always 1 on a sanitized group; the
-            // pattern field reflects the on-wire reality.
-            if let Some(finding) = build_n_plus_one_finding(
-                trace,
-                event_type,
-                template,
-                indices,
-                1,
-                window_limit,
-                Some(ClassificationMethod::SanitizerHeuristic),
-            ) {
-                findings.push(finding);
-            }
-        }
-    }
-
     findings
 }
 
-/// Shared finding builder used by both detection passes. Returns `None`
-/// when the group spans more than `window_limit` milliseconds.
-fn build_n_plus_one_finding(
+/// Decide whether a `(event_type, template)` group qualifies as N+1 and
+/// under which classification method.
+///
+/// Returns `Some((distinct_params, classification_method))` to emit a
+/// finding, `None` to skip the group. Two emit paths:
+/// - direct rule (`distinct_params >= threshold`): returns
+///   `(distinct_params, None)`.
+/// - sanitizer heuristic (SQL only, gated on `mode`): returns
+///   `(1, Some(ClassificationMethod::SanitizerHeuristic))`.
+fn classify_group(
+    trace: &Trace,
+    event_type: &EventType,
+    indices: &[usize],
+    threshold: usize,
+    mode: SanitizerAwareMode,
+) -> Option<(usize, Option<ClassificationMethod>)> {
+    if indices.len() < threshold {
+        return None;
+    }
+    let distinct_params: HashSet<&[String]> = indices
+        .iter()
+        .map(|&i| trace.spans[i].params.as_slice())
+        .collect();
+    if distinct_params.len() >= threshold {
+        return Some((distinct_params.len(), None));
+    }
+    if mode == SanitizerAwareMode::Never
+        || *event_type != EventType::Sql
+        || !sanitizer_aware::looks_sanitized_indexed(&trace.spans, indices)
+    {
+        return None;
+    }
+    let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices);
+    let should_emit = matches!(
+        (mode, verdict),
+        (SanitizerAwareMode::Always, _)
+            | (SanitizerAwareMode::Auto, SanitizerVerdict::LikelyNPlusOne)
+    );
+    should_emit.then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
+}
+
+/// Build a finding for a classified group. Returns `None` if the group's
+/// time window exceeds `window_limit` ms.
+#[allow(clippy::too_many_arguments)] // every arg is irreducibly distinct
+fn build_finding(
     trace: &Trace,
     event_type: &EventType,
     template: &str,
     indices: &[usize],
-    distinct_params: usize,
     window_limit: u64,
+    distinct_params: usize,
     classification_method: Option<ClassificationMethod>,
 ) -> Option<Finding> {
     let (window_ms, min_ts, max_ts) = compute_window_and_bounds_iter(
@@ -169,7 +147,6 @@ fn build_n_plus_one_finding(
     } else {
         Severity::Warning
     };
-
     let suggestion = match event_type {
         EventType::Sql => format!(
             "Use WHERE ... IN (?) to batch {} queries into one",
@@ -619,6 +596,9 @@ mod tests {
             findings[0].classification_method,
             Some(ClassificationMethod::SanitizerHeuristic)
         );
+        // distinct_params reflects the on-wire reality on a sanitized
+        // group: every span has the same empty params slice.
+        assert_eq!(findings[0].pattern.distinct_params, 1);
     }
 
     #[test]
@@ -651,12 +631,23 @@ mod tests {
         let events =
             crate::test_helpers::make_sanitized_n_plus_one_events(10, None, Some(&durations));
         let trace = make_trace(events);
-        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        assert_eq!(n_plus_one.len(), 1);
+        assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
         assert_eq!(
-            findings[0].classification_method,
+            n_plus_one[0].classification_method,
             Some(ClassificationMethod::SanitizerHeuristic)
+        );
+        // The cross-detector skip must prevent the redundant detector
+        // from emitting the same template twice.
+        let redundant_findings = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
+        assert!(
+            redundant_findings.is_empty(),
+            "redundant detector should skip a template already classified as n+1, got: {:?}",
+            redundant_findings
+                .iter()
+                .map(|f| &f.finding_type)
+                .collect::<Vec<_>>()
         );
     }
 

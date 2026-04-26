@@ -8,7 +8,7 @@
 //! for an ORM-induced N+1 every span ends up with the same `template`
 //! containing `?` and an empty `params` vector. The standard
 //! `distinct_params >= threshold` check in [`super::n_plus_one`] sees
-//! one distinct empty params slice and never fires; the redundant
+//! one distinct empty params slice and never fires, the redundant
 //! detector then groups all the spans together and misclassifies them
 //! as `redundant_sql`. This module provides the heuristic that recovers
 //! the correct classification.
@@ -20,16 +20,27 @@
 //! 2. [`has_orm_scope`]: at least one OpenTelemetry instrumentation scope
 //!    on the spans matches a known ORM marker (Hibernate, Spring Data,
 //!    EF Core, `SQLAlchemy`, `ActiveRecord`, GORM, Prisma, Diesel, etc.).
-//!    A positive match is treated as strong evidence of N+1.
+//!    Markers are matched with a word-boundary check (preceded and
+//!    followed by a non-alphanumeric byte), so `jpa` only fires on
+//!    `spring-data-jpa` and friends, never on `myappjpastats`. A positive
+//!    match is treated as strong evidence of N+1.
 //! 3. [`timing_variance_suggests_n_plus_one`]: when the scope signal is
 //!    absent, fall back to the coefficient of variation of `duration_us`.
 //!    True N+1 hits different rows with different cache states, so the
-//!    spread is wider; cached redundant calls cluster tightly. Threshold
+//!    spread is wider, cached redundant calls cluster tightly. Threshold
 //!    `0.5` is empirical.
 //!
 //! The configurable [`SanitizerAwareMode`] gates final emission:
 //! `Auto` (default) requires `LikelyNPlusOne`, `Always` always emits,
 //! `Never` keeps pre-0.5.7 behavior.
+//!
+//! Known limit: `looks_sanitized` cannot tell a sanitized literal `?`
+//! apart from a `PostgreSQL` JSONB existence operator (`data ? 'key'`)
+//! when the latter happens to appear in a query with no other
+//! literals. The harm direction is asymmetric: a misclassified JSONB
+//! group flips from `redundant_sql` to `n_plus_one_sql`, both of which
+//! contribute equally to `GreenOps` `avoidable_io_ops`, only the
+//! suggestion text differs.
 
 use crate::normalize::NormalizedEvent;
 
@@ -53,6 +64,11 @@ pub enum SanitizerAwareMode {
 impl SanitizerAwareMode {
     /// Parse the TOML string. Unknown values warn and fall back to
     /// [`SanitizerAwareMode::Auto`].
+    ///
+    /// The warning emits a sanitized form of the offending value
+    /// (control characters replaced, length capped at 32 bytes) so a
+    /// stray credential-shaped string in the config file does not land
+    /// verbatim in logs.
     #[must_use]
     pub fn from_config(value: Option<&str>) -> Self {
         match value.map(str::trim) {
@@ -63,7 +79,7 @@ impl SanitizerAwareMode {
                 "never" => Self::Never,
                 _ => {
                     tracing::warn!(
-                        value = raw,
+                        value = sanitize_for_log(raw).as_ref(),
                         "unknown sanitizer_aware_classification value, defaulting to 'auto'"
                     );
                     Self::Auto
@@ -134,7 +150,9 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
 /// one `?` placeholder, and `params` is empty (because `normalize_sql`
 /// only extracts literal numbers and strings, not pre-existing `?`
 /// placeholders). A non-sanitized N+1 has `params` populated with one
-/// entry per literal; a sanitized N+1 has `params == []` on every span.
+/// entry per literal, a sanitized N+1 has `params == []` on every span.
+///
+/// See the module-level note for the JSONB `?` operator caveat.
 #[must_use]
 pub fn looks_sanitized(spans: &[&NormalizedEvent]) -> bool {
     !spans.is_empty()
@@ -143,22 +161,58 @@ pub fn looks_sanitized(spans: &[&NormalizedEvent]) -> bool {
             .all(|s| s.params.is_empty() && s.template.contains('?'))
 }
 
+/// Index-based variant of [`looks_sanitized`] for the detection hot path.
+/// Avoids materializing a `Vec<&NormalizedEvent>` before the cheap
+/// per-span check, so the heavy `classify_sanitized_sql_group_indexed`
+/// only runs on groups that already pass the fast gate.
+pub(super) fn looks_sanitized_indexed(spans: &[NormalizedEvent], indices: &[usize]) -> bool {
+    !indices.is_empty()
+        && indices.iter().all(|&i| {
+            let s = &spans[i];
+            s.params.is_empty() && s.template.contains('?')
+        })
+}
+
 /// Returns `true` when any of the supplied instrumentation scopes contains
-/// an ORM marker (case-insensitive).
+/// an ORM marker. Matching is ASCII-case-insensitive and word-bounded:
+/// the marker substring must be preceded and followed by a non-word
+/// byte (anything that is not `[A-Za-z0-9_]`) or by the start/end of the
+/// scope. This prevents `jpa` from firing on `myappjpastats` or `sqlx`
+/// from firing on `mysqlxapackage`. Allocation-free.
 #[must_use]
 pub fn has_orm_scope(scopes: &[String]) -> bool {
-    scopes.iter().any(|scope| {
-        let lower = scope.to_ascii_lowercase();
-        ORM_SCOPE_MARKERS
-            .iter()
-            .any(|marker| lower.contains(marker))
+    scopes
+        .iter()
+        .any(|scope| ORM_SCOPE_MARKERS.iter().any(|m| contains_marker(scope, m)))
+}
+
+/// ASCII case-insensitive substring search with word-boundary anchoring.
+fn contains_marker(haystack: &str, needle: &str) -> bool {
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.is_empty() || h.len() < n.len() {
+        return false;
+    }
+    h.windows(n.len()).enumerate().any(|(i, w)| {
+        if !w.eq_ignore_ascii_case(n) {
+            return false;
+        }
+        let before_ok = i == 0 || !is_word_byte(h[i - 1]);
+        let after = i + n.len();
+        let after_ok = after == h.len() || !is_word_byte(h[after]);
+        before_ok && after_ok
     })
+}
+
+const fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 /// Aggregate the instrumentation scopes from every span in a group,
 /// deduplicated. Spans in a single ORM-induced N+1 share the same scope
-/// chain, so most groups produce a single-entry vector, but the helper
-/// stays defensive against multi-source aggregation.
+/// chain, so most groups produce a single-entry vector. Bounded by the
+/// per-span scope cap enforced at ingest (`event::cap_instrumentation_scopes`),
+/// so the linear-scan dedup stays cheap.
 #[must_use]
 pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -174,11 +228,17 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
 
 /// Returns `true` when the coefficient of variation (std-dev / mean) of
 /// the per-span `duration_us` values exceeds `0.5`. True N+1 hits
-/// different rows with different cache states, so durations spread out;
+/// different rows with different cache states, so durations spread out,
 /// truly redundant calls hit the same cache lines and cluster tightly.
 ///
 /// Requires at least 3 spans for a stable variance estimate. Returns
 /// `false` for fewer spans, zero mean, or empty input.
+///
+/// Asymmetric harm: a false positive flips a sanitized `redundant_sql`
+/// group to `n_plus_one_sql` (same `avoidable_io_ops` weight, the
+/// suggestion text differs); a false negative leaves a real N+1 silent
+/// for the redundant detector to pick up. Threshold tuned to favor
+/// false positives over silent misses.
 #[must_use]
 pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     if spans.len() < 3 {
@@ -213,6 +273,46 @@ pub fn classify_sanitized_sql_group(
     SanitizerVerdict::Inconclusive
 }
 
+/// Index-based variant for the detection hot path: borrows directly
+/// from the trace's span vector without an intermediate
+/// `Vec<&NormalizedEvent>`.
+pub(super) fn classify_sanitized_sql_group_indexed(
+    spans: &[NormalizedEvent],
+    indices: &[usize],
+) -> SanitizerVerdict {
+    let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
+    let scopes = collect_scopes(&group);
+    classify_sanitized_sql_group(&group, &scopes)
+}
+
+/// Sanitize an arbitrary user-controlled string for inclusion in a
+/// `tracing` event: replace control characters with `_` and cap at 32
+/// bytes (UTF-8 boundary preserved). Mirrors the project's pattern of
+/// never letting raw config values reach the log surface unchecked.
+fn sanitize_for_log(value: &str) -> std::borrow::Cow<'_, str> {
+    const MAX_LEN: usize = 32;
+    let truncated = if value.len() > MAX_LEN {
+        let cut = value
+            .char_indices()
+            .take_while(|(i, _)| *i <= MAX_LEN)
+            .last()
+            .map_or(0, |(i, c)| i + c.len_utf8());
+        &value[..cut.min(value.len())]
+    } else {
+        value
+    };
+    if truncated.chars().any(char::is_control) {
+        std::borrow::Cow::Owned(
+            truncated
+                .chars()
+                .map(|c| if c.is_control() { '_' } else { c })
+                .collect(),
+        )
+    } else {
+        std::borrow::Cow::Borrowed(truncated)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,6 +334,28 @@ mod tests {
 
     fn normalize_one(event: SpanEvent) -> NormalizedEvent {
         normalize::normalize_all(vec![event]).remove(0)
+    }
+
+    /// Build N normalized sanitized events with the supplied per-span
+    /// `duration_us`, no scope. Shared by the timing-variance tests so
+    /// the boilerplate (build / normalize / collect refs) stays in one
+    /// place.
+    fn sanitized_normalized_with_durations(durations: &[u64]) -> Vec<NormalizedEvent> {
+        durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let mut e = make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_items WHERE order_id = ?",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                );
+                e.instrumentation_scopes = Vec::new();
+                normalize_one(e)
+            })
+            .collect()
     }
 
     #[test]
@@ -336,41 +458,49 @@ mod tests {
     }
 
     #[test]
+    fn has_orm_scope_respects_word_boundary() {
+        // Short markers like `jpa` and `sqlx` must not match arbitrary
+        // substrings: a hostile or coincidental scope like
+        // `mysqlxapackage` or `myappjpastats` must NOT trigger the
+        // heuristic.
+        assert!(!has_orm_scope(&["mysqlxapackage".to_string()]));
+        assert!(!has_orm_scope(&["myappjpastats".to_string()]));
+        assert!(!has_orm_scope(&["my-jpastore".to_string()]));
+        assert!(!has_orm_scope(&["spring-database".to_string()]));
+        // Real OTel scope shapes still match.
+        assert!(has_orm_scope(&[
+            "io.opentelemetry.spring-data-jpa-3.0".to_string()
+        ]));
+        assert!(has_orm_scope(&["io.opentelemetry.go.gorm.v1".to_string()]));
+    }
+
+    #[test]
+    fn sanitize_for_log_redacts_control_chars_and_truncates() {
+        assert_eq!(sanitize_for_log("ab\x00c\nd").as_ref(), "ab_c_d");
+        assert_eq!(sanitize_for_log("abc").as_ref(), "abc");
+        let long = "x".repeat(200);
+        let out = sanitize_for_log(&long);
+        assert!(
+            out.len() <= 40,
+            "expected truncation, got {} bytes",
+            out.len()
+        );
+    }
+
+    #[test]
     fn timing_variance_high_cv_returns_true() {
         // Dispersed durations: cache cold/warm states across N+1 row
         // lookups. CV ~ 0.68 on this set.
-        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
-        let events: Vec<SpanEvent> = durations
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                sanitized_event_with_scope(
-                    &format!("span-{i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
-                    *d,
-                )
-            })
-            .collect();
-        let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
+        let normalized =
+            sanitized_normalized_with_durations(&[100, 50, 200, 60, 250, 80, 300, 70, 150, 400]);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert!(timing_variance_suggests_n_plus_one(&refs));
     }
 
     #[test]
     fn timing_variance_low_cv_returns_false() {
-        let durations = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
-        let events: Vec<SpanEvent> = durations
-            .iter()
-            .enumerate()
-            .map(|(i, d)| {
-                sanitized_event_with_scope(
-                    &format!("span-{i}"),
-                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
-                    *d,
-                )
-            })
-            .collect();
-        let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
+        let normalized =
+            sanitized_normalized_with_durations(&[100, 102, 98, 101, 99, 100, 101, 99, 100, 102]);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert!(!timing_variance_suggests_n_plus_one(&refs));
     }

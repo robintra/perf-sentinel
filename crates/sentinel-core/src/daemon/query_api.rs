@@ -14,6 +14,8 @@ use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
 use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator};
+#[cfg(test)]
+use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{self, DetectConfig};
 use crate::explain;
 use crate::report::metrics::MetricsState;
@@ -359,8 +361,7 @@ mod tests {
                 chatty_service_min_calls: 15,
                 pool_saturation_concurrent_threshold: 10,
                 serialized_min_sequential: 3,
-                sanitizer_aware_classification:
-                    crate::detect::sanitizer_aware::SanitizerAwareMode::default(),
+                sanitizer_aware_classification: SanitizerAwareMode::default(),
             },
             start_time: std::time::Instant::now(),
             correlator,
