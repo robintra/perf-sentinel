@@ -89,6 +89,8 @@
   .ps-sev-crit { background: var(--color-background-danger); color: var(--color-text-danger); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
   .ps-sev-warn { background: var(--color-background-warning); color: var(--color-text-warning); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
   .ps-sev-info { background: var(--color-background-info); color: var(--color-text-info); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-badge-estimated { display: inline-block; background: var(--color-background-warning); color: var(--color-text-warning); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
+  .ps-badge-measured { display: inline-block; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
   .ps-fin-main { min-width: 0; }
   .ps-fin-type { font-weight: 500; font-size: 13px; margin-bottom: 2px; }
   .ps-fin-service { color: var(--color-text-tertiary); font-weight: 400; font-size: 11px; }
@@ -251,7 +253,7 @@
     <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
     <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
     <table class="ps-table" id="green-regions-table" style="display: none;">
-      <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th></tr></thead>
+      <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th><th>Estimated</th></tr></thead>
       <tbody id="green-regions-body"></tbody>
     </table>
     <div class="ps-empty" id="green-regions-empty" style="display: none;">No region breakdown available.</div>
@@ -1060,8 +1062,31 @@
       tr.appendChild(el("td", null, String(r.io_ops || 0)));
       tr.appendChild(el("td", null, formatGco2(r.co2_gco2 || 0)));
       tr.appendChild(el("td", null, r.intensity_source || "-"));
+      tr.appendChild(buildEstimatedCell(r));
       tbody.appendChild(tr);
     });
+  }
+
+  function buildEstimatedCell(r) {
+    var td = document.createElement("td");
+    if (r.intensity_estimated === true) {
+      var badge = el("span", "ps-badge-estimated", "Estimated");
+      var tip = r.intensity_estimation_method
+        ? "Method: " + r.intensity_estimation_method +
+          ". Estimated by Electricity Maps using their internal model. " +
+          "Less precise than measured data but reliable for trend analysis."
+        : "Estimated by Electricity Maps. Less precise than measured data " +
+          "but reliable for trend analysis.";
+      badge.setAttribute("title", tip);
+      td.appendChild(badge);
+    } else if (r.intensity_estimated === false) {
+      var measured = el("span", "ps-badge-measured", "Measured");
+      measured.setAttribute("title", "Source data measured directly from the grid operator.");
+      td.appendChild(measured);
+    } else {
+      td.textContent = "-";
+    }
+    return td;
   }
 
   // -------- pg_stat / diff / correlations state --------

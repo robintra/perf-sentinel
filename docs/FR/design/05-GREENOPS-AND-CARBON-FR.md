@@ -471,6 +471,22 @@ Les deux champs utilisent `#[serde(skip_serializing_if = "Option::is_none")]` po
 
 C'est le signal qu'un reporting Scope 2 attend pour distinguer les émissions mesurées des émissions modélisées. Les auditeurs admettent typiquement les valeurs estimées quand la méthodologie est documentée, surfacer le tag d'algorithme (`TIME_SLICER_AVERAGE`, `GENERAL_PURPOSE_ZONE_DEVELOPMENT`, etc.) rend la piste d'audit auto-portée.
 
+### Rendu utilisateur (0.5.10)
+
+Les deux champs sont surfacés dans les deux couches de rendu visibles par l'opérateur, qui voit la distinction d'un seul coup d'œil.
+
+**Dashboard.** Le tableau Regions de l'onglet GreenOps gagne une 6e colonne `Estimated`. Trois états visuels : un badge orange `Estimated` quand `intensity_estimated == true` (le hover surface une infobulle avec la `intensity_estimation_method`), un badge vert `Measured` quand `intensity_estimated == false`, un tiret neutre pour les lignes dont `intensity_source` n'est pas `real_time` (les profils annuels, horaires et mensuels-horaires ne portent pas de metadata d'estimation, le champ reste `None` de bout en bout). Les deux badges réutilisent les variables CSS de la palette existante (`--color-background-warning`, `--color-text-warning`, `--color-background-success`, `--color-text-success`) pour que les thèmes sombre et clair s'adaptent automatiquement.
+
+**Terminal.** La ligne par-région de `print_green_summary` gagne un suffixe après le champ `source: real_time`. Format :
+
+```
+- fr: 42 I/O ops, 0.000123 gCO₂ (56 gCO₂/kWh, source: real_time, estimated/TIME_SLICER_AVERAGE)
+- de: 24 I/O ops, 0.000456 gCO₂ (380 gCO₂/kWh, source: real_time, measured)
+- us-east-1: 12 I/O ops, 0.000789 gCO₂ (410 gCO₂/kWh, source: annual)
+```
+
+Le suffixe est vide quand `intensity_estimated` est `None`, donc les scrapers de logs existants continuent à matcher la forme de ligne pre-0.5.10.
+
 ## Coefficients énergétiques par opération
 
 Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.

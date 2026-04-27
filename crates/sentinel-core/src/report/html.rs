@@ -825,6 +825,54 @@ mod tests {
         );
     }
 
+    /// Visual validation artifact for the 0.5.10 estimation surface.
+    /// Loads the 3-state Region fixture, renders the HTML to
+    /// `/tmp/perf-sentinel-0.5.10-validation.html`, and exits. Marked
+    /// `#[ignore]` so it does not run in CI: the goal is a manual
+    /// visual check via the user's browser, not an automated assertion.
+    /// Run with `cargo test --release validation_html_for_three_estimation_states -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "manual visual validation artifact, not run in CI"]
+    fn validation_html_for_three_estimation_states() {
+        let fixture_path = format!(
+            "{}/../../tests/fixtures/report_three_estimation_states.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
+        let report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
+        let traces: Vec<Trace> = vec![];
+        let (html, _) = render(
+            &report,
+            &traces,
+            &opts("report_three_estimation_states.json", None),
+        );
+        let out = "/tmp/perf-sentinel-0.5.10-validation.html";
+        std::fs::write(out, &html).expect("/tmp writable");
+        eprintln!(
+            "Wrote {} bytes to {out} for visual validation. Open in a browser.",
+            html.len()
+        );
+    }
+
+    #[test]
+    fn template_carries_estimated_column_and_helper() {
+        // Locks in the 0.5.10 dashboard surface for the
+        // `intensity_estimated` / `intensity_estimation_method` fields.
+        // The actual JS-rendered cell is exercised manually via
+        // browser validation (no JSDOM in the test suite).
+        for needle in [
+            "<th>Estimated</th>",
+            "function buildEstimatedCell",
+            "ps-badge-estimated",
+            "ps-badge-measured",
+        ] {
+            assert!(
+                TEMPLATE.contains(needle),
+                "template missing required 0.5.10 artifact: {needle}"
+            );
+        }
+    }
+
     /// Description fragments that must appear in the cheatsheet modal.
     /// Each entry is a substring (not an exact line) so minor wording
     /// tweaks around each fragment do not break the test. If you

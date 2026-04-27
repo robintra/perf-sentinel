@@ -2556,7 +2556,7 @@ mod tests {
             "intensity_estimation_method missing from JSON: {json}"
         );
 
-        let round_tripped: carbon::RegionBreakdown = serde_json::from_str(&json).unwrap();
+        let round_tripped: RegionBreakdown = serde_json::from_str(&json).unwrap();
         assert_eq!(&round_tripped, row);
     }
 

@@ -498,6 +498,22 @@ Both fields use `#[serde(skip_serializing_if = "Option::is_none")]` so consumers
 
 This is the signal Scope 2 reports need to distinguish measured emissions from modeled ones. Auditors typically allow estimated values when the methodology is documented, surfacing the algorithm tag (`TIME_SLICER_AVERAGE`, `GENERAL_PURPOSE_ZONE_DEVELOPMENT`, etc.) makes the audit trail self-contained.
 
+### User-facing rendering (0.5.10)
+
+The two fields are surfaced in the two user-visible rendering layers so operators read the distinction at a glance.
+
+**Dashboard.** The Regions table in the GreenOps tab carries a sixth column `Estimated`. Three visual states: an orange `Estimated` badge when `intensity_estimated == true` (hover surfaces a tooltip with the `intensity_estimation_method`), a green `Measured` badge when `intensity_estimated == false`, a neutral dash for rows whose `intensity_source` is not `real_time` (annual / hourly / monthly_hourly profiles carry no estimation metadata, the field stays `None` end-to-end). Both badges reuse the existing palette CSS variables (`--color-background-warning`, `--color-text-warning`, `--color-background-success`, `--color-text-success`) so dark and light themes adapt automatically.
+
+**Terminal.** The `print_green_summary` per-region line gains a suffix after the `source: real_time` field. Format:
+
+```
+- fr: 42 I/O ops, 0.000123 gCO₂ (56 gCO₂/kWh, source: real_time, estimated/TIME_SLICER_AVERAGE)
+- de: 24 I/O ops, 0.000456 gCO₂ (380 gCO₂/kWh, source: real_time, measured)
+- us-east-1: 12 I/O ops, 0.000789 gCO₂ (410 gCO₂/kWh, source: annual)
+```
+
+The suffix is empty when `intensity_estimated` is `None`, so existing log scrapers keep matching pre-0.5.10 line shapes.
+
 ## Per-operation energy coefficients
 
 The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for every I/O operation. This treats a read-only `SELECT` hitting an index the same as a disk-heavy `INSERT` writing to WAL and data pages. The per-operation coefficient feature refines this by applying a multiplier based on the operation type.

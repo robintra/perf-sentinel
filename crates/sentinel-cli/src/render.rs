@@ -2,6 +2,7 @@
 //! pretty-printers and the top-level `emit_report_and_gate` used by every
 //! command that produces a `Report`.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use sentinel_core::detect::{Confidence, Severity};
@@ -134,6 +135,25 @@ const fn intensity_source_label(source: IntensitySource) -> &'static str {
         IntensitySource::Hourly => "hourly",
         IntensitySource::MonthlyHourly => "monthly_hourly",
         IntensitySource::RealTime => "real_time",
+    }
+}
+
+/// Suffix appended to the per-region terminal line surfacing the
+/// `Electricity Maps` `isEstimated` / `estimationMethod` metadata.
+/// Empty when the region carries no estimation metadata (older JSON
+/// reports without the field, non-`Electricity Maps` sources). The
+/// returned value still has to go through `sanitize_for_terminal` at
+/// the print sink because `estimation_method` may originate from a
+/// user-supplied `--input` JSON that bypasses the API-side sanitizer.
+fn format_estimation_suffix(
+    is_estimated: Option<bool>,
+    estimation_method: Option<&str>,
+) -> Cow<'static, str> {
+    match (is_estimated, estimation_method) {
+        (Some(true), Some(method)) => Cow::Owned(format!(", estimated/{method}")),
+        (Some(true), None) => Cow::Borrowed(", estimated"),
+        (Some(false), _) => Cow::Borrowed(", measured"),
+        (None, _) => Cow::Borrowed(""),
     }
 }
 
@@ -407,8 +427,16 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
                 );
             } else {
                 let source_str = intensity_source_label(region.intensity_source);
+                // estimation_method may originate from a user-supplied
+                // --input JSON, sanitize at the print sink so a hostile
+                // baseline cannot inject ANSI / OSC 8 / control bytes.
+                let raw_suffix = format_estimation_suffix(
+                    region.intensity_estimated,
+                    region.intensity_estimation_method.as_deref(),
+                );
+                let estimation_suffix = sanitize_for_terminal(&raw_suffix);
                 println!(
-                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str})",
+                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str}{estimation_suffix})",
                     region.region, region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
                 );
             }
@@ -1267,12 +1295,84 @@ mod tests {
     }
 
     #[test]
+    fn format_estimation_suffix_covers_every_combination() {
+        assert_eq!(
+            format_estimation_suffix(Some(true), Some("TIME_SLICER_AVERAGE")).as_ref(),
+            ", estimated/TIME_SLICER_AVERAGE"
+        );
+        assert_eq!(
+            format_estimation_suffix(Some(true), None).as_ref(),
+            ", estimated"
+        );
+        assert_eq!(
+            format_estimation_suffix(Some(false), Some("ignored")).as_ref(),
+            ", measured"
+        );
+        assert_eq!(
+            format_estimation_suffix(Some(false), None).as_ref(),
+            ", measured"
+        );
+        assert_eq!(format_estimation_suffix(None, None).as_ref(), "");
+        assert_eq!(format_estimation_suffix(None, Some("ignored")).as_ref(), "");
+
+        // The three constant arms must stay borrowed (no allocation).
+        assert!(matches!(
+            format_estimation_suffix(Some(true), None),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            format_estimation_suffix(Some(false), None),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(
+            format_estimation_suffix(None, None),
+            Cow::Borrowed(_)
+        ));
+    }
+
+    #[test]
+    fn estimation_suffix_strips_terminal_escapes_when_method_is_hostile() {
+        // Defense-in-depth: estimation_method from a --input JSON
+        // bypasses the API-side sanitizer, so the terminal sink must
+        // still strip control bytes. Mirrors the parity that every
+        // other user-controlled string in print_green_summary already
+        // gets via sanitize_for_terminal.
+        let hostile = "ATTACK\x1b[2J\x1b[H";
+        let raw = format_estimation_suffix(Some(true), Some(hostile));
+        let cleaned = sanitize_for_terminal(&raw);
+        assert!(
+            !cleaned.bytes().any(|b| b < 0x20 || b == 0x7f),
+            "sanitized suffix must contain no control bytes, got: {cleaned:?}"
+        );
+        assert!(cleaned.contains("estimated/ATTACK"));
+    }
+
+    #[test]
     fn empty_diff_keeps_no_differences_message() {
         let out = render_text(&empty_diff());
         assert!(
             out.contains("No differences detected between the two trace sets."),
             "no-diff message missing, got:\n{out}"
         );
+    }
+
+    /// Visual snapshot helper for the 0.5.10 terminal estimation suffix.
+    /// Loads the 3-state Region fixture and prints `print_green_summary`
+    /// to stdout. Run with
+    /// `cargo test --release validation_terminal_for_three_estimation_states -- --ignored --nocapture`
+    /// and paste the output into the release snapshot.
+    #[test]
+    #[ignore = "manual visual snapshot helper, not run in CI"]
+    fn validation_terminal_for_three_estimation_states() {
+        let fixture_path = format!(
+            "{}/../../tests/fixtures/report_three_estimation_states.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
+        let report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
+        eprintln!("--- print_green_summary on 3-state fixture ---");
+        print_green_summary(&report.green_summary, false);
+        eprintln!("--- end ---");
     }
 
     #[test]

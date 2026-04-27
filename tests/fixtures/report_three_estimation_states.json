@@ -1,0 +1,518 @@
+{
+  "analysis": {
+    "duration_ms": 0,
+    "events_processed": 78,
+    "traces_analyzed": 10
+  },
+  "findings": [
+    {
+      "type": "n_plus_one_sql",
+      "severity": "critical",
+      "trace_id": "trace-demo-nplus-sql",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/42/submit",
+      "pattern": {
+        "template": "SELECT * FROM order_item WHERE order_id = ?",
+        "occurrences": 10,
+        "window_ms": 450,
+        "distinct_params": 10
+      },
+      "suggestion": "Use WHERE ... IN (?) to batch 10 queries into one",
+      "first_timestamp": "2025-07-10T14:32:01.000Z",
+      "last_timestamp": "2025-07-10T14:32:01.450Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 9,
+        "io_intensity_score": 7.5,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "OrderItemRepository.findByOrderId",
+        "filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
+        "lineno": 42,
+        "namespace": "com.example.order.repository"
+      }
+    },
+    {
+      "type": "n_plus_one_http",
+      "severity": "warning",
+      "trace_id": "trace-demo-nplus-http",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/42/submit",
+      "pattern": {
+        "template": "GET /api/users/{id}",
+        "occurrences": 5,
+        "window_ms": 200,
+        "distinct_params": 5
+      },
+      "suggestion": "Use batch endpoint with ?ids=... to batch 5 calls into one",
+      "first_timestamp": "2025-07-10T14:32:02.000Z",
+      "last_timestamp": "2025-07-10T14:32:02.200Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 4,
+        "io_intensity_score": 7.5,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "UserClient.fetchUser",
+        "filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
+        "lineno": 87,
+        "namespace": "com.example.order.client"
+      },
+      "suggested_fix": {
+        "pattern": "n_plus_one_http",
+        "framework": "java_generic",
+        "recommendation": "Coalesce the calls into a batch endpoint, or cache the per-request results with Spring's @Cacheable using a request-scoped cache.",
+        "reference_url": "https://docs.spring.io/spring-framework/reference/integration/cache.html"
+      }
+    },
+    {
+      "type": "redundant_sql",
+      "severity": "info",
+      "trace_id": "trace-demo-redundant-sql",
+      "service": "cache-svc",
+      "source_endpoint": "GET /api/settings",
+      "pattern": {
+        "template": "SELECT * FROM settings WHERE key = ?",
+        "occurrences": 3,
+        "window_ms": 100,
+        "distinct_params": 1
+      },
+      "suggestion": "Identical operation executed 3 times: cache result or deduplicate",
+      "first_timestamp": "2025-07-10T14:32:03.000Z",
+      "last_timestamp": "2025-07-10T14:32:03.100Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 2,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "SettingsRepository.findByKey",
+        "filepath": "cache-service/src/main/java/com/example/cache/repository/SettingsRepository.java",
+        "lineno": 31,
+        "namespace": "com.example.cache.repository"
+      },
+      "suggested_fix": {
+        "pattern": "redundant_sql",
+        "framework": "java_generic",
+        "recommendation": "Add a service-level cache (Caffeine, Spring Cache) or deduplicate the query within the request scope.",
+        "reference_url": "https://docs.spring.io/spring-framework/reference/integration/cache.html"
+      }
+    },
+    {
+      "type": "redundant_http",
+      "severity": "info",
+      "trace_id": "trace-demo-redundant-http",
+      "service": "profile-svc",
+      "source_endpoint": "GET /api/profile/me",
+      "pattern": {
+        "template": "GET /api/token/validate",
+        "occurrences": 3,
+        "window_ms": 100,
+        "distinct_params": 1
+      },
+      "suggestion": "Identical operation executed 3 times: cache result or deduplicate",
+      "first_timestamp": "2025-07-10T14:32:04.000Z",
+      "last_timestamp": "2025-07-10T14:32:04.100Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 2,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "AuthClient.validateToken",
+        "filepath": "profile-service/src/main/java/com/example/profile/client/AuthClient.java",
+        "lineno": 64,
+        "namespace": "com.example.profile.client"
+      }
+    },
+    {
+      "type": "slow_sql",
+      "severity": "warning",
+      "trace_id": "trace-demo-slow-sql",
+      "service": "reports-svc",
+      "source_endpoint": "GET /api/reports/monthly",
+      "pattern": {
+        "template": "SELECT * FROM reports WHERE month = ?",
+        "occurrences": 3,
+        "window_ms": 1600,
+        "distinct_params": 3
+      },
+      "suggestion": "Consider adding an index or optimizing query",
+      "first_timestamp": "2025-07-10T14:32:05.000Z",
+      "last_timestamp": "2025-07-10T14:32:06.600Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "ReportRepository.aggregateMonthly",
+        "filepath": "reports-service/src/main/java/com/example/reports/repository/ReportRepository.java",
+        "lineno": 128,
+        "namespace": "com.example.reports.repository"
+      }
+    },
+    {
+      "type": "slow_http",
+      "severity": "warning",
+      "trace_id": "trace-demo-slow-http",
+      "service": "reports-svc",
+      "source_endpoint": "GET /api/reports/quarterly",
+      "pattern": {
+        "template": "GET /api/reports/quarterly/{id}",
+        "occurrences": 3,
+        "window_ms": 1700,
+        "distinct_params": 3
+      },
+      "suggestion": "Consider caching or optimizing endpoint",
+      "first_timestamp": "2025-07-10T14:32:08.000Z",
+      "last_timestamp": "2025-07-10T14:32:09.700Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "BillingClient.fetchInvoices",
+        "filepath": "reports-service/src/main/java/com/example/reports/client/BillingClient.java",
+        "lineno": 95,
+        "namespace": "com.example.reports.client"
+      }
+    },
+    {
+      "type": "excessive_fanout",
+      "severity": "warning",
+      "trace_id": "trace-demo-fanout",
+      "service": "checkout-svc",
+      "source_endpoint": "POST /api/checkout/confirm",
+      "pattern": {
+        "template": "SELECT ?",
+        "occurrences": 21,
+        "window_ms": 20,
+        "distinct_params": 21
+      },
+      "suggestion": "Parent span has 21 children (threshold: 20). Consider batching child operations to reduce fanout.",
+      "first_timestamp": "2025-07-10T14:32:11.010Z",
+      "last_timestamp": "2025-07-10T14:32:11.030Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 22.0,
+        "io_intensity_band": "critical"
+      },
+      "confidence": "ci_batch"
+    },
+    {
+      "type": "chatty_service",
+      "severity": "warning",
+      "trace_id": "trace-demo-chatty",
+      "service": "gateway-svc",
+      "source_endpoint": "GET /api/dashboard/home",
+      "pattern": {
+        "template": "GET /api/dashboard/home",
+        "occurrences": 16,
+        "window_ms": 300,
+        "distinct_params": 16
+      },
+      "suggestion": "Chatty trace: GET /api/dashboard/home triggers 16 inter-service HTTP calls (top: GET /api/messages/inbox x1, GET /api/events/upcoming x1). Consider aggregating calls with a batch endpoint or a BFF (Backend for Frontend) layer",
+      "first_timestamp": "2025-07-10T14:32:12.000Z",
+      "last_timestamp": "2025-07-10T14:32:12.300Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 16.0,
+        "io_intensity_band": "critical"
+      },
+      "confidence": "ci_batch"
+    },
+    {
+      "type": "pool_saturation",
+      "severity": "warning",
+      "trace_id": "trace-demo-pool",
+      "service": "orders-svc",
+      "source_endpoint": "POST /api/orders/bulk",
+      "pattern": {
+        "template": "orders-svc",
+        "occurrences": 10,
+        "window_ms": 0,
+        "distinct_params": 10
+      },
+      "suggestion": "Potential connection pool saturation: service orders-svc has 10 concurrent SQL spans within 0ms window. Consider increasing the connection pool size, optimizing long-running queries or using connection pool metrics (db.client.connection.pool.*) for precise monitoring",
+      "first_timestamp": "2025-07-10T14:32:13.000Z",
+      "last_timestamp": "2025-07-10T14:32:13.000Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
+      },
+      "confidence": "ci_batch"
+    },
+    {
+      "type": "serialized_calls",
+      "severity": "info",
+      "trace_id": "trace-demo-serialized",
+      "service": "dashboard-svc",
+      "source_endpoint": "GET /api/dashboard",
+      "pattern": {
+        "template": "GET /api/dashboard",
+        "occurrences": 3,
+        "window_ms": 180,
+        "distinct_params": 3
+      },
+      "suggestion": "3 sequential independent calls could potentially be parallelized: GET /api/users/{id} (80ms) -> GET /api/orders/{id} (85ms) -> GET /api/notifications/{id} (75ms). Total sequential: 240ms, potential parallel: ~85ms. If these calls are independent, consider executing them in parallel (e.g., tokio::join!, CompletableFuture.allOf(), Task.WhenAll())",
+      "first_timestamp": "2025-07-10T14:32:14.000Z",
+      "last_timestamp": "2025-07-10T14:32:14.180Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 0,
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      "confidence": "ci_batch"
+    }
+  ],
+  "green_summary": {
+    "total_io_ops": 78,
+    "avoidable_io_ops": 17,
+    "io_waste_ratio": 0.21794871794871795,
+    "io_waste_ratio_band": "moderate",
+    "top_offenders": [
+      {
+        "endpoint": "POST /api/checkout/confirm",
+        "service": "checkout-svc",
+        "io_intensity_score": 22.0,
+        "io_intensity_band": "critical"
+      },
+      {
+        "endpoint": "GET /api/dashboard/home",
+        "service": "gateway-svc",
+        "io_intensity_score": 16.0,
+        "io_intensity_band": "critical"
+      },
+      {
+        "endpoint": "POST /api/orders/bulk",
+        "service": "orders-svc",
+        "io_intensity_score": 10.0,
+        "io_intensity_band": "critical"
+      },
+      {
+        "endpoint": "POST /api/orders/42/submit",
+        "service": "order-svc",
+        "io_intensity_score": 7.5,
+        "io_intensity_band": "high"
+      },
+      {
+        "endpoint": "GET /api/settings",
+        "service": "cache-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "GET /api/dashboard",
+        "service": "dashboard-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "GET /api/profile/me",
+        "service": "profile-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "GET /api/reports/monthly",
+        "service": "reports-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      },
+      {
+        "endpoint": "GET /api/reports/quarterly",
+        "service": "reports-svc",
+        "io_intensity_score": 3.0,
+        "io_intensity_band": "moderate"
+      }
+    ],
+    "co2": {
+      "total": {
+        "low": 0.005684,
+        "mid": 0.011368,
+        "high": 0.022736,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_numerator"
+      },
+      "avoidable": {
+        "low": 0.000149,
+        "mid": 0.000298,
+        "high": 0.000596,
+        "model": "io_proxy_v1",
+        "methodology": "sci_v1_operational_ratio"
+      },
+      "operational_gco2": 0.001368,
+      "embodied_gco2": 0.01
+    },
+    "regions": [
+      {
+        "status": "known",
+        "region": "fr",
+        "grid_intensity_gco2_kwh": 56.0,
+        "pue": 1.2,
+        "io_ops": 42,
+        "co2_gco2": 0.000123,
+        "intensity_source": "real_time",
+        "intensity_estimated": true,
+        "intensity_estimation_method": "TIME_SLICER_AVERAGE"
+      },
+      {
+        "status": "known",
+        "region": "de",
+        "grid_intensity_gco2_kwh": 380.0,
+        "pue": 1.2,
+        "io_ops": 24,
+        "co2_gco2": 0.000456,
+        "intensity_source": "real_time",
+        "intensity_estimated": false
+      },
+      {
+        "status": "known",
+        "region": "us-east-1",
+        "grid_intensity_gco2_kwh": 410.0,
+        "pue": 1.135,
+        "io_ops": 12,
+        "co2_gco2": 0.000789,
+        "intensity_source": "annual"
+      }
+    ]
+  },
+  "quality_gate": {
+    "passed": false,
+    "rules": [
+      {
+        "rule": "n_plus_one_sql_critical_max",
+        "threshold": 0.0,
+        "actual": 1.0,
+        "passed": false
+      },
+      {
+        "rule": "n_plus_one_http_warning_max",
+        "threshold": 3.0,
+        "actual": 1.0,
+        "passed": true
+      },
+      {
+        "rule": "io_waste_ratio_max",
+        "threshold": 0.3,
+        "actual": 0.21794871794871795,
+        "passed": true
+      }
+    ]
+  },
+  "per_endpoint_io_ops": [
+    {
+      "service": "cache-svc",
+      "endpoint": "GET /api/settings",
+      "io_ops": 3
+    },
+    {
+      "service": "checkout-svc",
+      "endpoint": "POST /api/checkout/confirm",
+      "io_ops": 22
+    },
+    {
+      "service": "dashboard-svc",
+      "endpoint": "GET /api/dashboard",
+      "io_ops": 3
+    },
+    {
+      "service": "gateway-svc",
+      "endpoint": "GET /api/dashboard/home",
+      "io_ops": 16
+    },
+    {
+      "service": "order-svc",
+      "endpoint": "POST /api/orders/42/submit",
+      "io_ops": 15
+    },
+    {
+      "service": "orders-svc",
+      "endpoint": "POST /api/orders/bulk",
+      "io_ops": 10
+    },
+    {
+      "service": "profile-svc",
+      "endpoint": "GET /api/profile/me",
+      "io_ops": 3
+    },
+    {
+      "service": "reports-svc",
+      "endpoint": "GET /api/reports/monthly",
+      "io_ops": 3
+    },
+    {
+      "service": "reports-svc",
+      "endpoint": "GET /api/reports/quarterly",
+      "io_ops": 3
+    }
+  ],
+  "correlations": [
+    {
+      "source": {
+        "finding_type": "n_plus_one_sql",
+        "service": "order-svc",
+        "template": "SELECT * FROM order_item WHERE order_id = ?"
+      },
+      "target": {
+        "finding_type": "slow_http",
+        "service": "payment-svc",
+        "template": "POST /api/payment/{id}/charge"
+      },
+      "co_occurrence_count": 47,
+      "source_total_occurrences": 51,
+      "confidence": 0.92,
+      "median_lag_ms": 214.0,
+      "first_seen": "2025-07-10T14:00:00.000Z",
+      "last_seen": "2025-07-10T14:30:00.000Z",
+      "sample_trace_id": "trace-corr-1"
+    },
+    {
+      "source": {
+        "finding_type": "redundant_sql",
+        "service": "chat-svc",
+        "template": "SELECT id FROM users WHERE id = ?"
+      },
+      "target": {
+        "finding_type": "n_plus_one_sql",
+        "service": "order-svc",
+        "template": "SELECT * FROM order_item WHERE order_id = ?"
+      },
+      "co_occurrence_count": 32,
+      "source_total_occurrences": 38,
+      "confidence": 0.84,
+      "median_lag_ms": 87.0,
+      "first_seen": "2025-07-10T14:05:00.000Z",
+      "last_seen": "2025-07-10T14:30:00.000Z",
+      "sample_trace_id": "trace-corr-2"
+    },
+    {
+      "source": {
+        "finding_type": "slow_http",
+        "service": "payment-svc",
+        "template": "POST /api/payment/{id}/charge"
+      },
+      "target": {
+        "finding_type": "chatty_service",
+        "service": "gateway-svc",
+        "template": "GET /api/dashboard/home"
+      },
+      "co_occurrence_count": 24,
+      "source_total_occurrences": 31,
+      "confidence": 0.77,
+      "median_lag_ms": 412.0,
+      "first_seen": "2025-07-10T14:10:00.000Z",
+      "last_seen": "2025-07-10T14:30:00.000Z",
+      "sample_trace_id": "trace-corr-3"
+    }
+  ]
+}
