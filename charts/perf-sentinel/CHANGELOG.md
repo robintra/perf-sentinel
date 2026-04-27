@@ -6,6 +6,17 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.12]
+
+### Changed
+
+- `appVersion` bumped to `0.5.9`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.9`. The
+  `artifacthub.io/images` annotation is updated in lockstep so the
+  Artifact Hub listing advertises the matching image. Pickup the new
+  binary with `helm upgrade` or override `image.tag` to stay on
+  `0.5.8` if you pin.
+
 ## [0.2.11]
 
 ### Changed
