@@ -2437,7 +2437,10 @@ mod tests {
         // eu-west-3 annual = 56.0, but real-time = 200.0
         let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
         let mut rt = HashMap::new();
-        rt.insert("eu-west-3".to_string(), 200.0);
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry::measured(200.0),
+        );
 
         let ctx = CarbonContext {
             default_region: None,
@@ -2464,7 +2467,10 @@ mod tests {
         // eu-west-3 has an hourly profile, but real-time should win.
         let trace = make_trace_at_hour("trace-1", "eu-west-3", 14, 4);
         let mut rt = HashMap::new();
-        rt.insert("eu-west-3".to_string(), 300.0);
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry::measured(300.0),
+        );
 
         let ctx = CarbonContext {
             default_region: None,
@@ -2494,7 +2500,10 @@ mod tests {
             carbon::EnergyEntry::scaphandre(5e-7),
         );
         let mut rt = HashMap::new();
-        rt.insert("eu-west-3".to_string(), 100.0);
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry::measured(100.0),
+        );
 
         let ctx = CarbonContext {
             default_region: None,
@@ -2511,12 +2520,146 @@ mod tests {
     }
 
     #[test]
+    fn realtime_intensity_estimation_metadata_round_trips_through_json() {
+        // Positive-case wire-format guard: when the API returns
+        // estimation flags, the serialized region row must carry both
+        // fields so external consumers (HTML dashboard, Scope 2
+        // tooling) see the same values, and the row must round-trip
+        // back to an equal `RegionBreakdown`.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let mut rt = HashMap::new();
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry {
+                gco2_per_kwh: 200.0,
+                is_estimated: Some(true),
+                estimation_method: Some("TIME_SLICER_AVERAGE".to_string()),
+            },
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let row = &summary.regions[0];
+
+        let json = serde_json::to_string(row).unwrap();
+        assert!(
+            json.contains("\"intensity_estimated\":true"),
+            "intensity_estimated missing from JSON: {json}"
+        );
+        assert!(
+            json.contains("\"intensity_estimation_method\":\"TIME_SLICER_AVERAGE\""),
+            "intensity_estimation_method missing from JSON: {json}"
+        );
+
+        let round_tripped: carbon::RegionBreakdown = serde_json::from_str(&json).unwrap();
+        assert_eq!(&round_tripped, row);
+    }
+
+    #[test]
+    fn realtime_intensity_estimation_metadata_lands_in_region_breakdown() {
+        // When the API returns isEstimated=true + estimationMethod, the
+        // RegionBreakdown row carries the same flags so consumers can
+        // distinguish measured from estimated values.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let mut rt = HashMap::new();
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry {
+                gco2_per_kwh: 200.0,
+                is_estimated: Some(true),
+                estimation_method: Some("TIME_SLICER_AVERAGE".to_string()),
+            },
+        );
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let row = &summary.regions[0];
+        assert_eq!(row.intensity_source, IntensitySource::RealTime);
+        assert_eq!(row.intensity_estimated, Some(true));
+        assert_eq!(
+            row.intensity_estimation_method.as_deref(),
+            Some("TIME_SLICER_AVERAGE")
+        );
+    }
+
+    #[test]
+    fn realtime_intensity_without_metadata_leaves_region_fields_none() {
+        // Forward-compat with API responses that omit isEstimated. The
+        // breakdown row must serialize without the optional fields so
+        // older consumers stay compatible.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let mut rt = HashMap::new();
+        rt.insert(
+            "eu-west-3".to_string(),
+            carbon::RealTimeIntensityEntry::measured(200.0),
+        );
+
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: Some(rt),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let row = &summary.regions[0];
+        assert_eq!(row.intensity_source, IntensitySource::RealTime);
+        assert!(row.intensity_estimated.is_none());
+        assert!(row.intensity_estimation_method.is_none());
+
+        // Verify JSON serialization drops the optional fields.
+        let json = serde_json::to_string(row).unwrap();
+        assert!(
+            !json.contains("intensity_estimated"),
+            "intensity_estimated must be omitted when None: {json}"
+        );
+        assert!(
+            !json.contains("intensity_estimation_method"),
+            "intensity_estimation_method must be omitted when None: {json}"
+        );
+    }
+
+    #[test]
+    fn non_realtime_source_drops_estimation_metadata_from_breakdown() {
+        // Even if the accumulator captures realtime metadata, the
+        // breakdown row only surfaces it when intensity_source ends up
+        // RealTime. With sources falling back to Annual the optional
+        // fields must be None.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            real_time_intensity: None,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let row = &summary.regions[0];
+        assert!(row.intensity_estimated.is_none());
+        assert!(row.intensity_estimation_method.is_none());
+    }
+
+    #[test]
     fn realtime_for_out_of_table_region_uses_generic_pue() {
         // A region not in the carbon table but with real-time intensity
         // should still produce CO2 (using GENERIC_PUE, not 0.0).
         let trace = make_trace_with_region("trace-1", "moon-base-1", 4);
         let mut rt = HashMap::new();
-        rt.insert("moon-base-1".to_string(), 150.0);
+        rt.insert(
+            "moon-base-1".to_string(),
+            carbon::RealTimeIntensityEntry::measured(150.0),
+        );
 
         let ctx = CarbonContext {
             default_region: None,

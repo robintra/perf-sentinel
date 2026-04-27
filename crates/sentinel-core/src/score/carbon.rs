@@ -275,6 +275,18 @@ pub struct RegionBreakdown {
     pub co2_gco2: f64,
     #[serde(default)]
     pub intensity_source: IntensitySource,
+    /// Whether the real-time intensity was estimated by `Electricity Maps`
+    /// rather than measured directly. Only present when
+    /// `intensity_source == RealTime`. `Some(true)` means estimated,
+    /// `Some(false)` means measured, `None` means unknown (the API
+    /// did not surface the field).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intensity_estimated: Option<bool>,
+    /// Estimation algorithm tag returned by `Electricity Maps`
+    /// alongside an estimated value, e.g. `"TIME_SLICER_AVERAGE"`.
+    /// Only present when `intensity_estimated == Some(true)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intensity_estimation_method: Option<String>,
 }
 
 /// Carbon scoring configuration. Built via [`Config::carbon_context()`].
@@ -301,8 +313,43 @@ pub struct CarbonContext {
     /// Multiplied with the proxy model `ENERGY_PER_IO_OP_KWH` per service.
     pub calibration: Option<crate::calibrate::CalibrationData>,
     /// Real-time grid intensity from Electricity Maps (daemon only).
-    /// Keys are lowercased cloud region names, values are gCO2/kWh.
-    pub real_time_intensity: Option<HashMap<String, f64>>,
+    /// Keys are lowercased cloud region names, values carry gCO2/kWh
+    /// plus the optional `isEstimated` / `estimationMethod` metadata
+    /// surfaced by the API.
+    pub real_time_intensity: Option<HashMap<String, RealTimeIntensityEntry>>,
+}
+
+/// One real-time intensity value from `Electricity Maps`, carrying the
+/// optional `isEstimated` and `estimationMethod` metadata fields the
+/// API surfaces alongside `carbonIntensity`. Plumbed through
+/// [`CarbonContext::real_time_intensity`] so the per-region breakdown
+/// can flag when the value was estimated rather than measured.
+#[derive(Debug, Clone)]
+#[must_use]
+pub struct RealTimeIntensityEntry {
+    /// Grid intensity in gCO₂eq/kWh.
+    pub gco2_per_kwh: f64,
+    /// `Some(true)` if the API marked this value as estimated,
+    /// `Some(false)` if explicitly measured, `None` if the field was
+    /// absent from the response (forward-compatibility with API
+    /// versions that may stop emitting it).
+    pub is_estimated: Option<bool>,
+    /// Method tag returned alongside an estimated value, e.g.
+    /// `"TIME_SLICER_AVERAGE"` or `"GENERAL_PURPOSE_ZONE_DEVELOPMENT"`.
+    /// Typically `Some` only when `is_estimated == Some(true)`.
+    pub estimation_method: Option<String>,
+}
+
+impl RealTimeIntensityEntry {
+    /// Build a measured entry with no estimation metadata. Convenience
+    /// constructor for tests and callers that only have a raw `f64`.
+    pub fn measured(gco2_per_kwh: f64) -> Self {
+        Self {
+            gco2_per_kwh,
+            is_estimated: None,
+            estimation_method: None,
+        }
+    }
 }
 
 impl Default for CarbonContext {

@@ -312,7 +312,7 @@ fn build_tick_ctx<'a>(
         .unwrap_or_default();
     // Electricity Maps real-time intensity (independent of energy snapshot).
     let emaps_snap = emaps_state
-        .map(|s| s.snapshot(now, emaps_staleness_ms))
+        .map(|s| s.snapshot_with_metadata(now, emaps_staleness_ms))
         .unwrap_or_default();
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.

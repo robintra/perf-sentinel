@@ -25,6 +25,13 @@ pub(super) struct RegionAccumulator {
     pub(super) any_cloud_specpower: bool,
     /// Whether any span in this region used a calibrated proxy energy.
     pub(super) any_calibrated: bool,
+    /// Latest `Electricity Maps` `isEstimated` flag observed for this
+    /// region, captured when the source flips to `RealTime`. All spans
+    /// in a single batch resolve against the same per-region snapshot,
+    /// so this is constant across spans in practice.
+    pub(super) realtime_estimated: Option<bool>,
+    /// Latest `Electricity Maps` `estimationMethod` tag observed.
+    pub(super) realtime_estimation_method: Option<String>,
 }
 
 /// Aggregated "which intensity sources / measured-energy backends did
@@ -63,7 +70,7 @@ pub(super) fn build_region_breakdowns(
     for (region, acc) in per_region {
         operational_gco2 += acc.co2_gco2;
         update_flags_from_accumulator(&mut flags, &acc);
-        regions.push(build_single_region_row(region, &acc));
+        regions.push(build_single_region_row(region, acc));
     }
     if unknown_ops > 0 {
         tracing::debug!(
@@ -79,6 +86,8 @@ pub(super) fn build_region_breakdowns(
             io_ops: unknown_ops,
             co2_gco2: 0.0,
             intensity_source: IntensitySource::Annual,
+            intensity_estimated: None,
+            intensity_estimation_method: None,
         });
     }
     (regions, flags, operational_gco2)
@@ -109,22 +118,31 @@ fn update_flags_from_accumulator(flags: &mut ReportFlags, acc: &RegionAccumulato
 /// Known regions (present in the embedded carbon table) use the
 /// canonical PUE; out-of-table regions use the generic PUE when a
 /// custom profile produced non-zero CO₂, and a zeroed row otherwise.
-fn build_single_region_row(region: String, acc: &RegionAccumulator) -> RegionBreakdown {
+///
+/// Takes `acc` by value so the optional `realtime_estimation_method`
+/// `String` can move directly into the row instead of being cloned.
+fn build_single_region_row(region: String, acc: RegionAccumulator) -> RegionBreakdown {
     if let Some((_, pue)) = lookup_region_lower(&region) {
         // Time-weighted mean intensity for display. Guaranteed non-zero
         // ops because the accumulator was only inserted after
         // incrementing total_ops.
         let mean_intensity = acc.intensity_sum_per_op / acc.total_ops as f64;
         let intensity_source = acc.max_intensity_source;
+        let total_ops = acc.total_ops;
+        let co2_gco2 = acc.co2_gco2;
         maybe_warn_eu_central_1_profile(&region, intensity_source);
+        let (intensity_estimated, intensity_estimation_method) =
+            realtime_metadata_for_row(intensity_source, acc);
         return RegionBreakdown {
             status: REGION_STATUS_KNOWN.to_string(),
             region,
             grid_intensity_gco2_kwh: mean_intensity,
             pue,
-            io_ops: acc.total_ops,
-            co2_gco2: acc.co2_gco2,
+            io_ops: total_ops,
+            co2_gco2,
             intensity_source,
+            intensity_estimated,
+            intensity_estimation_method,
         };
     }
     // Out-of-table region: name resolved but not in our table. When a
@@ -146,18 +164,43 @@ fn build_single_region_row(region: String, acc: &RegionAccumulator) -> RegionBre
         0.0
     };
     let pue_display = if has_co2 { GENERIC_PUE } else { 0.0 };
+    let intensity_source = if has_co2 {
+        acc.max_intensity_source
+    } else {
+        IntensitySource::Annual
+    };
+    let total_ops = acc.total_ops;
+    let co2_gco2 = acc.co2_gco2;
+    let (intensity_estimated, intensity_estimation_method) =
+        realtime_metadata_for_row(intensity_source, acc);
     RegionBreakdown {
         status: REGION_STATUS_OUT_OF_TABLE.to_string(),
         region,
         grid_intensity_gco2_kwh: mean_intensity,
         pue: pue_display,
-        io_ops: acc.total_ops,
-        co2_gco2: acc.co2_gco2,
-        intensity_source: if has_co2 {
-            acc.max_intensity_source
-        } else {
-            IntensitySource::Annual
-        },
+        io_ops: total_ops,
+        co2_gco2,
+        intensity_source,
+        intensity_estimated,
+        intensity_estimation_method,
+    }
+}
+
+/// Surface the Electricity Maps estimation flags only when the
+/// row's effective `intensity_source` is `RealTime`. Other sources
+/// (annual, hourly, monthly hourly) carry no estimation metadata
+/// and must serialize without the optional fields.
+///
+/// Consumes the accumulator so the optional `String` moves out
+/// without an extra allocation.
+fn realtime_metadata_for_row(
+    source: IntensitySource,
+    acc: RegionAccumulator,
+) -> (Option<bool>, Option<String>) {
+    if source == IntensitySource::RealTime {
+        (acc.realtime_estimated, acc.realtime_estimation_method)
+    } else {
+        (None, None)
     }
 }
 

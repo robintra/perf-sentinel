@@ -124,24 +124,24 @@ fn process_span_for_carbon(
     let Some(region_ctx) = resolve_span_region(span, ctx, state) else {
         return;
     };
-    let (intensity_used, span_source) = resolve_span_intensity(span, &region_ctx, ctx);
+    let intensity = resolve_span_intensity(span, &region_ctx, ctx);
     let (energy_kwh, measured_model, calibrated) = resolve_span_energy(span, ctx);
-    let op_co2 = per_op_gco2(energy_kwh, intensity_used, region_ctx.pue);
+    let op_co2 = per_op_gco2(energy_kwh, intensity.value, region_ctx.pue);
 
     let region_ref = region_ctx.region_ref;
     let pue = region_ctx.pue;
+    let intensity_value = intensity.value;
     accumulate_span_into_region(
         &mut state.per_region,
         region_ctx,
         op_co2,
-        intensity_used,
-        span_source,
+        &intensity,
         measured_model,
         calibrated,
     );
 
     state.total_transport_gco2 +=
-        network_transport_contribution(span, region_ref, intensity_used, pue, ctx);
+        network_transport_contribution(span, region_ref, intensity_value, pue, ctx);
 }
 
 /// Resolve the region for a span, apply the cardinality cap, and
@@ -236,6 +236,17 @@ fn resolve_span_region<'a>(
     })
 }
 
+/// Output of [`resolve_span_intensity`]: the chosen value, its source
+/// tag, and (when source is `RealTime`) the optional `Electricity Maps`
+/// estimation metadata that should be propagated into the per-region
+/// breakdown.
+struct SpanIntensity<'a> {
+    value: f64,
+    source: IntensitySource,
+    realtime_estimated: Option<bool>,
+    realtime_estimation_method: Option<&'a str>,
+}
+
 /// Pick the best-available intensity (g/kWh) + its source tag for a
 /// single span. Precedence: Electricity Maps real-time > custom hourly
 /// > embedded hourly > flat annual.
@@ -243,11 +254,11 @@ fn resolve_span_region<'a>(
 /// Mirrors `resolve_hourly_intensity` in carbon.rs but uses the
 /// pre-cached profile refs from [`SpanRegionContext`] to avoid
 /// redundant `HashMap` probes on the hot path.
-fn resolve_span_intensity(
+fn resolve_span_intensity<'a>(
     span: &crate::normalize::NormalizedEvent,
     region_ctx: &SpanRegionContext<'_>,
-    ctx: &CarbonContext,
-) -> (f64, IntensitySource) {
+    ctx: &'a CarbonContext,
+) -> SpanIntensity<'a> {
     // Real-time intensity from Electricity Maps takes highest precedence.
     let region_key_borrow: &str = region_ctx
         .region_key
@@ -257,21 +268,36 @@ fn resolve_span_intensity(
         .real_time_intensity
         .as_ref()
         .and_then(|rt| rt.get(region_key_borrow));
-    if let Some(&rt_intensity) = real_time_val {
-        return (rt_intensity, IntensitySource::RealTime);
+    if let Some(entry) = real_time_val {
+        return SpanIntensity {
+            value: entry.gco2_per_kwh,
+            source: IntensitySource::RealTime,
+            realtime_estimated: entry.is_estimated,
+            realtime_estimation_method: entry.estimation_method.as_deref(),
+        };
     }
 
     let region_has_hourly = ctx.use_hourly_profiles
         && (region_ctx.custom_profile.is_some() || region_ctx.embedded_profile.is_some());
     if !region_has_hourly {
-        return (region_ctx.annual_intensity, IntensitySource::Annual);
+        return SpanIntensity {
+            value: region_ctx.annual_intensity,
+            source: IntensitySource::Annual,
+            realtime_estimated: None,
+            realtime_estimation_method: None,
+        };
     }
 
     // Hourly intensity lookup. parse_utc_hour returns None for non-UTC
     // offsets and non-ISO-8601 shapes, in which case we fall back to the
     // flat annual intensity rather than silently using a default hour.
     let Some(hour) = crate::time::parse_utc_hour(&span.event.timestamp) else {
-        return (region_ctx.annual_intensity, IntensitySource::Annual);
+        return SpanIntensity {
+            value: region_ctx.annual_intensity,
+            source: IntensitySource::Annual,
+            realtime_estimated: None,
+            realtime_estimation_method: None,
+        };
     };
     let month_opt = crate::time::parse_utc_month(&span.event.timestamp);
 
@@ -282,7 +308,12 @@ fn resolve_span_intensity(
         } else {
             IntensitySource::Hourly
         };
-        return (val, src);
+        return SpanIntensity {
+            value: val,
+            source: src,
+            realtime_estimated: None,
+            realtime_estimation_method: None,
+        };
     }
     if let Some(ep) = region_ctx.embedded_profile {
         let val = ep.intensity_at(hour, month_opt);
@@ -291,13 +322,23 @@ fn resolve_span_intensity(
         } else {
             IntensitySource::Hourly
         };
-        return (val, src);
+        return SpanIntensity {
+            value: val,
+            source: src,
+            realtime_estimated: None,
+            realtime_estimation_method: None,
+        };
     }
 
     // Invariant: region_has_hourly implies custom or embedded is Some.
     // This branch is unreachable.
     debug_assert!(false, "region_has_hourly was true but no profile found");
-    (region_ctx.annual_intensity, IntensitySource::Annual)
+    SpanIntensity {
+        value: region_ctx.annual_intensity,
+        source: IntensitySource::Annual,
+        realtime_estimated: None,
+        realtime_estimation_method: None,
+    }
 }
 
 /// Pick the best-available energy (kWh) for a single span and report
@@ -342,8 +383,7 @@ fn accumulate_span_into_region(
     per_region: &mut BTreeMap<String, RegionAccumulator>,
     region_ctx: SpanRegionContext<'_>,
     op_co2: f64,
-    intensity_used: f64,
-    span_source: IntensitySource,
+    intensity: &SpanIntensity<'_>,
     measured_model: Option<&'static str>,
     calibrated: bool,
 ) {
@@ -369,9 +409,23 @@ fn accumulate_span_into_region(
     };
     acc.co2_gco2 += op_co2;
     acc.total_ops += 1;
-    acc.intensity_sum_per_op += intensity_used;
-    if span_source > acc.max_intensity_source {
-        acc.max_intensity_source = span_source;
+    acc.intensity_sum_per_op += intensity.value;
+    if intensity.source > acc.max_intensity_source {
+        acc.max_intensity_source = intensity.source;
+    }
+    // Capture Electricity Maps estimation metadata when the source is
+    // RealTime. All spans of one batch share the same per-tick snapshot
+    // of `ctx.real_time_intensity`, so every span for the same region
+    // carries the identical metadata. Last-write-wins is therefore a
+    // degenerate equality, the loop converges immediately. We compare
+    // before re-allocating the `Option<String>` so the cost stays at
+    // O(1 alloc) per region per batch instead of O(spans).
+    if intensity.source == IntensitySource::RealTime {
+        acc.realtime_estimated = intensity.realtime_estimated;
+        if acc.realtime_estimation_method.as_deref() != intensity.realtime_estimation_method {
+            acc.realtime_estimation_method =
+                intensity.realtime_estimation_method.map(str::to_string);
+        }
     }
     match measured_model {
         Some(super::carbon::CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,

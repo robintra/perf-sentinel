@@ -434,6 +434,43 @@ energy_per_op_kwh = kwh / ops_in_window
 
 **Ce que cloud SPECpower ne fait PAS.** Voir `docs/FR/LIMITATIONS-FR.md` "Limites de précision du cloud SPECpower" pour la discussion complète. Le modèle SPECpower capture la puissance proportionnelle au CPU mais pas la mémoire, les I/O ou le réseau. La multi-tenance n'est pas corrigée. La précision est d'environ +/-30%.
 
+## Intégration intensité temps réel Electricity Maps
+
+Le bloc `[green.electricity_maps]` active le polling temps réel de l'intensité carbone du réseau électrique. Le scraper du daemon interroge périodiquement l'endpoint `/carbon-intensity/latest` d'Electricity Maps par zone et alimente le `CarbonContext` du tick courant, où la valeur prend la précédence sur les profils annuels et horaires pour les régions cloud mappées. Documenté à <https://app.electricitymaps.com/developer-hub/api/getting-started>.
+
+**Déduplication par zone.** Le scraper itère sur `region_map` (`cloud_region -> zone`) mais une zone donnée n'est récupérée qu'une seule fois par tick, même si plusieurs `cloud_region` pointent dessus (montages multi-AZ classiques, ou `aws:eu-west-3` et `local-k3d` tous deux pinnés sur `FR`). La lecture est ensuite dispatchée à chaque `cloud_region` qui correspond. Le nombre d'appels API reste proportionnel au nombre de zones distinctes, pas à la taille de `region_map`. Critique sur les tiers à quota contraint, le tier gratuit en particulier limite à une seule zone aujourd'hui mais le calcul de quota bénéficie quand même d'un même mapping de zone partagé entre staging et prod.
+
+**Métadonnées d'estimation.** L'API Electricity Maps expose deux champs optionnels à côté de `carbonIntensity` :
+
+```json
+{
+  "zone": "FR",
+  "carbonIntensity": 56.0,
+  "isEstimated": true,
+  "estimationMethod": "TIME_SLICER_AVERAGE"
+}
+```
+
+`isEstimated` vaut `true` quand l'API a comblé un trou (zone Tier B/C, ou trou temporel comblé par un algorithme comme `TIME_SLICER_AVERAGE`), et `false` pour les valeurs entièrement mesurées. perf-sentinel parse les deux champs avec `#[serde(default)]` pour rester forward-compatible si une version future de l'API cesse de les émettre.
+
+Les flags se propagent à travers `IntensityReading` (state) jusqu'au `CarbonContext.real_time_intensity` du tick puis jusqu'à l'accumulateur par région. La ligne `green_summary.regions[]` les expose comme deux champs optionnels :
+
+```json
+{
+  "status": "known",
+  "region": "eu-west-3",
+  "intensity_source": "real_time",
+  "grid_intensity_gco2_kwh": 56.0,
+  "intensity_estimated": true,
+  "intensity_estimation_method": "TIME_SLICER_AVERAGE",
+  "co2_gco2": 1.234
+}
+```
+
+Les deux champs utilisent `#[serde(skip_serializing_if = "Option::is_none")]` pour que les consommateurs qui les ignorent continuent à désérialiser la ligne sans changement. Les champs n'apparaissent que quand `intensity_source == "real_time"`. Les spans qui retombent sur les profils annuels ou horaires ne portent jamais la metadata, même si l'accumulateur l'a capturée depuis un span voisin.
+
+C'est le signal qu'un reporting Scope 2 attend pour distinguer les émissions mesurées des émissions modélisées. Les auditeurs admettent typiquement les valeurs estimées quand la méthodologie est documentée, surfacer le tag d'algorithme (`TIME_SLICER_AVERAGE`, `GENERAL_PURPOSE_ZONE_DEVELOPMENT`, etc.) rend la piste d'audit auto-portée.
+
 ## Coefficients énergétiques par opération
 
 Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
