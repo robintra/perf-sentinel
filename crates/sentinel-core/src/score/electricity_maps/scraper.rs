@@ -553,6 +553,11 @@ mod tests {
     /// so the test can assert "one API call per unique zone, not one
     /// per `cloud_region`". `responses` maps `?zone=XX` query value to
     /// the JSON body to return.
+    ///
+    /// Zones absent from `responses` get an HTTP 503. Callers that map
+    /// every zone in their `region_map` into `responses` see no 503,
+    /// callers that intentionally omit a zone (partial-failure tests)
+    /// rely on this fallback to simulate a per-zone API failure.
     async fn spawn_counting_server(
         responses: HashMap<String, String>,
     ) -> (
@@ -589,15 +594,18 @@ mod tests {
                         .and_then(|line| line.split("zone=").nth(1))
                         .and_then(|tail| tail.split_whitespace().next())
                         .unwrap_or("");
-                    let body = responses
-                        .get(zone)
-                        .cloned()
-                        .unwrap_or_else(|| r#"{"carbonIntensity":0.0}"#.to_string());
-                    let resp = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
-                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                        body.len()
-                    );
+                    // Zones not in `responses` get a 503 so partial-failure
+                    // tests can simulate "FR ok, DE ko" by listing only FR.
+                    let resp = match responses.get(zone) {
+                        Some(body) => format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                             Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        ),
+                        None => "HTTP/1.1 503 Service Unavailable\r\n\
+                                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+                            .to_string(),
+                    };
                     let _ = socket.write_all(resp.as_bytes()).await;
                     let _ = socket.shutdown().await;
                 });
@@ -701,5 +709,91 @@ mod tests {
                 Some("TIME_SLICER_AVERAGE")
             );
         }
+    }
+
+    #[tokio::test]
+    async fn run_scraper_loop_publishes_state_when_some_zones_succeed_and_others_fail() {
+        // 0.5.9 partial-success regression guard. Two unique zones, FR
+        // returns 200 (success), DE returns 503 (failure). The 0.5.9
+        // contract: even if one zone fails, the loop still calls
+        // `state.publish(new_table)` so successful zones land in the
+        // snapshot, and (zone-set-level semantic) the
+        // `consecutive_failures` counter is reset because at least
+        // one zone returned data.
+        //
+        // What this test locks in: the publish-on-partial-success
+        // observable. We pre-seed the state with a stale entry for
+        // `aws:eu-central-1` so we can distinguish "publish ran and
+        // preserved the stale entry via current_owned" from "publish
+        // never ran and we observe leftover state from a different
+        // path".
+        //
+        // What this test does NOT lock in directly: the
+        // `consecutive_failures` counter value. The variable is
+        // closure-local in `run_scraper_loop` and not exposed
+        // anywhere observable. A future change that re-incremented
+        // the counter on any per-zone failure (request-level
+        // regression) would not fail this test. Capturing the
+        // tracing::warn! emission would be the only direct way to
+        // assert it, which would require a tracing-subscriber
+        // dev-dependency we do not currently carry.
+        let mut responses = HashMap::new();
+        responses.insert(
+            "FR".to_string(),
+            r#"{"zone":"FR","carbonIntensity":56.0}"#.to_string(),
+        );
+        // DE intentionally absent, the helper returns 503 for it.
+        let (endpoint, _counter, server_handle) = spawn_counting_server(responses).await;
+
+        let mut region_map = HashMap::new();
+        region_map.insert("aws:eu-west-3".to_string(), "FR".to_string());
+        region_map.insert("aws:eu-central-1".to_string(), "DE".to_string());
+
+        let state = ElectricityMapsState::new();
+
+        // Pre-seed DE with a stale reading so we can prove the publish
+        // path preserved it via `current_owned`. Without this seed,
+        // a regression where `state.publish` is skipped would leave
+        // the state empty and the "DE absent" assertion below would
+        // still pass (degenerate-equal to "publish skipped").
+        state.insert_for_test("aws:eu-central-1".into(), 999.0, 1);
+
+        let config = ElectricityMapsConfig {
+            api_endpoint: endpoint,
+            auth_token: "tok".to_string(),
+            poll_interval: std::time::Duration::from_mins(1),
+            region_map,
+        };
+        let scraper_handle = spawn_electricity_maps_scraper(config, state.clone());
+
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        scraper_handle.abort();
+        server_handle.abort();
+
+        let snap = state.snapshot(monotonic_ms() + 1_000_000, u64::MAX);
+
+        // FR succeeded, its cloud_region must carry the fresh value.
+        let fr = snap
+            .get("aws:eu-west-3")
+            .copied()
+            .expect("FR cloud_region must be present after a partial-success publish");
+        assert!(
+            (fr - 56.0).abs() < 1e-10,
+            "FR cloud_region must carry the fresh 56.0 reading, got {fr}"
+        );
+
+        // DE failed, its pre-seeded stale value must be preserved by
+        // the current_owned + insert-only-on-success pattern. This is
+        // the "all-or-nothing per shared zone" invariant in action:
+        // a failed zone keeps its previous reading, it is neither
+        // wiped nor replaced with placeholder data.
+        let de = snap
+            .get("aws:eu-central-1")
+            .copied()
+            .expect("DE cloud_region must keep its pre-seeded stale value after a 503");
+        assert!(
+            (de - 999.0).abs() < 1e-10,
+            "DE cloud_region must preserve the stale 999.0 reading after the 503, got {de}"
+        );
     }
 }
