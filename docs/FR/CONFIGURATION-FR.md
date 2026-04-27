@@ -257,9 +257,11 @@ Intensité carbone en temps réel via l'API Electricity Maps. Mode daemon unique
 
 | Champ                | Type    | Défaut                               | Description                                                 |
 |----------------------|---------|--------------------------------------|-------------------------------------------------------------|
-| `api_key`            | string  | aucun                                | Token API. Préférez la variable `PERF_SENTINEL_EMAPS_TOKEN` |
-| `endpoint`           | string  | `https://api.electricitymaps.com/v3` | URL de base (`http://` ou `https://`)                       |
-| `poll_interval_secs` | integer | `300`                                | Intervalle de sondage en secondes (plage : 60-86400)        |
+| `api_key`              | string  | aucun                                | Token API. Préférez la variable `PERF_SENTINEL_EMAPS_TOKEN` |
+| `endpoint`             | string  | `https://api.electricitymaps.com/v4` | URL de base (`http://` ou `https://`). v3 reste accepté mais émet un avertissement de dépréciation au démarrage |
+| `poll_interval_secs`   | integer | `300`                                | Intervalle de sondage en secondes (plage : 60-86400)        |
+| `emission_factor_type` | string  | `lifecycle`                          | Modèle de facteur d'émission. `lifecycle` (défaut) inclut les émissions amont (fabrication, transport). `direct` inclut uniquement la combustion. Certains référentiels Scope 2 préfèrent `direct` pour une comptabilité stricte |
+| `temporal_granularity` | string  | `hourly`                             | Agrégation temporelle de la réponse API. `hourly` (défaut), `5_minutes` ou `15_minutes`. Les valeurs sub-horaires nécessitent un plan payant qui les expose, sinon l'API agrège silencieusement en horaire |
 
 La sous-table `region_map` associe les régions cloud aux zones Electricity Maps :
 
@@ -277,6 +279,10 @@ poll_interval_secs = 300
 **Staleness :** si le dernier sondage réussi date de plus de 3x `poll_interval_secs`, le scraper retombe sur les profils horaires embarqués.
 
 **Limites de débit :** le tier gratuit d'Electricity Maps autorise environ 30 requêtes par mois et par zone. Les utilisateurs du tier gratuit doivent mettre `poll_interval_secs = 3600` ou plus. La valeur par défaut de 300s est prévue pour les plans payants.
+
+**Version d'API :** l'endpoint par défaut cible v4 depuis perf-sentinel 0.5.11. v3 reste accepté (le schéma de réponse est identique sur `carbon-intensity/latest`), mais un avertissement de dépréciation est loggué une fois au démarrage du daemon. Pour le faire taire, mettez `endpoint = "https://api.electricitymaps.com/v4"` explicitement. Pour rester délibérément sur v3 (par exemple pour valider A/B contre v4), laissez `endpoint = "https://api.electricitymaps.com/v3"` et acceptez l'avertissement.
+
+**Valeurs inconnues pour `emission_factor_type` et `temporal_granularity` :** ces deux knobs utilisent un parser fail-graceful. Une faute de frappe ou une valeur non supportée (par exemple `temporal_granularity = "5min"` au lieu de `"5_minutes"`) ne rejette pas la config au chargement. La valeur est sanitisée, un `tracing::warn!` est émis, et le daemon retombe sur le défaut. Surveillez les logs du daemon au démarrage si vous suspectez une faute de frappe, la ligne warn nommera le champ et la valeur fautifs.
 
 #### `[green] calibration_file` (optionnel)
 

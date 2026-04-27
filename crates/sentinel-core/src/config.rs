@@ -378,6 +378,8 @@ struct ElectricityMapsSection {
     endpoint: Option<String>,
     poll_interval_secs: Option<u64>,
     region_map: HashMap<String, String>,
+    emission_factor_type: Option<String>,
+    temporal_granularity: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -952,10 +954,26 @@ fn convert_electricity_maps_section_with_env(
     }
 
     let poll_secs = raw.poll_interval_secs.unwrap_or(300);
+    // Trim trailing slashes so the URL we build downstream
+    // (`format!("{api_endpoint}/carbon-intensity/latest?zone={zone}")`)
+    // never produces a double-slash like `.../v4//carbon-intensity/...`,
+    // and so `is_legacy_v3_endpoint` matches `.../v3/` (trailing slash).
     let api_endpoint = raw
         .endpoint
         .clone()
-        .unwrap_or_else(|| "https://api.electricitymaps.com/v3".to_string());
+        .unwrap_or_else(|| {
+            crate::score::electricity_maps::config::DEFAULT_ELECTRICITY_MAPS_ENDPOINT.to_string()
+        })
+        .trim_end_matches('/')
+        .to_string();
+    let emission_factor_type =
+        crate::score::electricity_maps::config::EmissionFactorType::from_config(
+            raw.emission_factor_type.as_deref(),
+        );
+    let temporal_granularity =
+        crate::score::electricity_maps::config::TemporalGranularity::from_config(
+            raw.temporal_granularity.as_deref(),
+        );
     Some(crate::score::electricity_maps::ElectricityMapsConfig {
         api_endpoint,
         auth_token: token,
@@ -967,6 +985,8 @@ fn convert_electricity_maps_section_with_env(
             .iter()
             .map(|(k, v)| (k.to_ascii_lowercase(), v.clone()))
             .collect(),
+        emission_factor_type,
+        temporal_granularity,
     })
 }
 
@@ -3229,6 +3249,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
     // at the top of this module, but Qodana flags the fully-qualified
     // forms as unnecessary; using the short names reads cleaner anyway.
     use crate::score::electricity_maps::ElectricityMapsConfig;
+    use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
 
     #[test]
     fn electricity_maps_empty_api_key_returns_none() {
@@ -3239,6 +3260,8 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
             endpoint: None,
             poll_interval_secs: None,
             region_map: HashMap::new(),
+            emission_factor_type: None,
+            temporal_granularity: None,
         };
         // Pass a stubbed env-lookup that returns None so the test is
         // independent of the ambient process environment (no `unsafe`
@@ -3258,14 +3281,74 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
             endpoint: None,
             poll_interval_secs: Some(600),
             region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
         };
         let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
         assert_eq!(cfg.auth_token, "file-token");
         assert_eq!(cfg.poll_interval, Duration::from_mins(10));
         // default endpoint fallback
-        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v3");
+        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v4");
         // region key was lowercased (it was already lowercase, so idempotent)
         assert!(cfg.region_map.contains_key("eu-west-3"));
+    }
+
+    #[test]
+    fn electricity_maps_legacy_v3_endpoint_loads_cleanly() {
+        // Backward-compat guard: an explicit v3 endpoint in the TOML
+        // must still produce a valid ElectricityMapsConfig. The
+        // deprecation warning is emitted at scraper startup (covered
+        // by the `is_legacy_v3_endpoint` unit tests), the conversion
+        // path here just keeps the field as-is.
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("tok".to_string()),
+            endpoint: Some("https://api.electricitymaps.com/v3".to_string()),
+            poll_interval_secs: Some(300),
+            region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
+        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v3");
+    }
+
+    #[test]
+    fn electricity_maps_endpoint_trailing_slash_is_normalized() {
+        // A copy-paste with trailing slash must not produce a
+        // double-slash URL when we later format
+        // `{api_endpoint}/carbon-intensity/latest`. The trim happens at
+        // config-load so the canonical form propagates everywhere
+        // (state, logs, error messages).
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("tok".to_string()),
+            endpoint: Some("https://api.electricitymaps.com/v4/".to_string()),
+            poll_interval_secs: Some(300),
+            region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
+        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v4");
+    }
+
+    #[test]
+    fn electricity_maps_endpoint_strips_multiple_trailing_slashes() {
+        let mut region_map = HashMap::new();
+        region_map.insert("eu-west-3".to_string(), "FR".to_string());
+        let raw = ElectricityMapsSection {
+            api_key: Some("tok".to_string()),
+            endpoint: Some("https://api.electricitymaps.com/v4///".to_string()),
+            poll_interval_secs: Some(300),
+            region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
+        };
+        let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
+        assert_eq!(cfg.api_endpoint, "https://api.electricitymaps.com/v4");
     }
 
     #[test]
@@ -3278,6 +3361,8 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
             endpoint: Some("https://custom.api/v3".to_string()),
             poll_interval_secs: Some(120),
             region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
         };
         let cfg = convert_electricity_maps_section_with_env(&raw, || None).expect("should convert");
         assert!(cfg.region_map.contains_key("eu-west-3"));
@@ -3297,6 +3382,8 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
             endpoint: None,
             poll_interval_secs: None,
             region_map,
+            emission_factor_type: None,
+            temporal_granularity: None,
         };
         let cfg = convert_electricity_maps_section_with_env(&raw, || Some("from-env".to_string()))
             .expect("env-supplied token should produce a valid config");
@@ -3388,7 +3475,7 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
     #[test]
     fn validate_electricity_maps_rejects_control_char_in_token() {
         let cfg = ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "tok\x07en".to_string(), // contains a control char
             poll_interval: Duration::from_mins(5),
             region_map: {
@@ -3396,6 +3483,8 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
                 m.insert("eu-west-3".to_string(), "FR".to_string());
                 m
             },
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
         assert!(err.contains("control"));
@@ -3404,10 +3493,12 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
     #[test]
     fn validate_electricity_maps_rejects_empty_region_map() {
         let cfg = ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "tok".to_string(),
             poll_interval: Duration::from_mins(5),
             region_map: HashMap::new(),
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
         assert!(err.contains("region_map"));
@@ -3418,10 +3509,12 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let mut region_map = HashMap::new();
         region_map.insert("eu-west-3".to_string(), String::new());
         let cfg = ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "tok".to_string(),
             poll_interval: Duration::from_mins(5),
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
         assert!(err.contains("empty"));
@@ -3432,10 +3525,12 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         let mut region_map = HashMap::new();
         region_map.insert("eu-west-3".to_string(), "FR".to_string());
         let cfg = ElectricityMapsConfig {
-            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
             auth_token: "tok".to_string(),
             poll_interval: Duration::from_secs(10), // below 60
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let err = Config::validate_electricity_maps(&cfg).unwrap_err();
         assert!(err.contains("poll_interval"));

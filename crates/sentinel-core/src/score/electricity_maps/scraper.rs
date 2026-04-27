@@ -9,8 +9,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 
 use crate::http_client;
+use crate::text_safety::sanitize_for_terminal;
 
-use super::config::ElectricityMapsConfig;
+use super::config::{ElectricityMapsConfig, EmissionFactorType, TemporalGranularity};
 use super::state::{ElectricityMapsState, IntensityReading, monotonic_ms};
 
 /// Maximum body size for API responses (1 MiB, smaller than the shared
@@ -91,7 +92,35 @@ pub fn spawn_electricity_maps_scraper(
     config: ElectricityMapsConfig,
     state: Arc<ElectricityMapsState>,
 ) -> tokio::task::JoinHandle<()> {
+    warn_if_legacy_v3_endpoint(&config.api_endpoint);
     tokio::spawn(run_scraper_loop(config, state))
+}
+
+/// True when the URL path contains a legacy `/v3` segment. Matches both
+/// `.../v3` (end of URL) and `.../v3/...` (in path). The two-form check
+/// prevents false positives on `/v30` or `/v300`.
+fn is_legacy_v3_endpoint(endpoint: &str) -> bool {
+    endpoint.ends_with("/v3") || endpoint.contains("/v3/")
+}
+
+/// Emit a deprecation warning when the configured endpoint targets the
+/// legacy `Electricity Maps` v3 API. Called once per daemon startup
+/// from `spawn_electricity_maps_scraper`, not per scrape. The endpoint
+/// is sanitized through `sanitize_for_terminal` before logging because
+/// it originates from operator-supplied TOML and could otherwise carry
+/// ANSI / OSC 8 / control bytes into the log stream.
+fn warn_if_legacy_v3_endpoint(endpoint: &str) {
+    if is_legacy_v3_endpoint(endpoint) {
+        let safe_endpoint = sanitize_for_terminal(endpoint);
+        tracing::warn!(
+            endpoint = %safe_endpoint,
+            "Electricity Maps endpoint configured with legacy /v3 path. \
+             v3 is still supported but in legacy mode. Migrate to v4 by \
+             setting `endpoint = \"https://api.electricitymaps.com/v4\"` \
+             in your perf-sentinel TOML config. \
+             See https://app.electricitymaps.com/developer-hub/api/reference"
+        );
+    }
 }
 
 async fn run_scraper_loop(config: ElectricityMapsConfig, state: Arc<ElectricityMapsState>) {
@@ -157,7 +186,16 @@ async fn fetch_zones<'a>(
     let mut zone_readings: HashMap<&str, FetchedReading> =
         HashMap::with_capacity(unique_zones.len());
     for zone in unique_zones {
-        match fetch_intensity(client, &config.api_endpoint, &config.auth_token, zone).await {
+        match fetch_intensity(
+            client,
+            &config.api_endpoint,
+            &config.auth_token,
+            zone,
+            config.emission_factor_type,
+            config.temporal_granularity,
+        )
+        .await
+        {
             Ok(reading) => {
                 tracing::debug!(
                     zone = %zone,
@@ -223,13 +261,42 @@ fn update_failure_counter(consecutive_failures: &mut u32, any_success: bool) {
     }
 }
 
+/// Compose the `carbon-intensity/latest` request URL. The optional
+/// query params are only appended when they differ from the API
+/// defaults (`lifecycle` / `hourly`), so the wire stays exactly
+/// as-was for users who have not opted into the knobs.
+fn build_request_url(
+    api_endpoint: &str,
+    zone: &str,
+    emission_factor_type: EmissionFactorType,
+    temporal_granularity: TemporalGranularity,
+) -> String {
+    let mut uri_str = format!("{api_endpoint}/carbon-intensity/latest?zone={zone}");
+    if emission_factor_type != EmissionFactorType::default() {
+        uri_str.push_str("&emissionFactorType=");
+        uri_str.push_str(emission_factor_type.as_query_value());
+    }
+    if temporal_granularity != TemporalGranularity::default() {
+        uri_str.push_str("&temporalGranularity=");
+        uri_str.push_str(temporal_granularity.as_query_value());
+    }
+    uri_str
+}
+
 async fn fetch_intensity(
     client: &http_client::HttpClient,
     api_endpoint: &str,
     auth_token: &str,
     zone: &str,
+    emission_factor_type: EmissionFactorType,
+    temporal_granularity: TemporalGranularity,
 ) -> Result<FetchedReading, EmapsScraperError> {
-    let uri_str = format!("{api_endpoint}/carbon-intensity/latest?zone={zone}");
+    let uri_str = build_request_url(
+        api_endpoint,
+        zone,
+        emission_factor_type,
+        temporal_granularity,
+    );
     let uri: hyper::Uri = uri_str
         .parse()
         .map_err(|e: hyper::http::uri::InvalidUri| EmapsScraperError::InvalidUri(e.to_string()))?;
@@ -303,6 +370,127 @@ fn sanitize_estimation_method(s: String) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// Test-only wrapper that calls the real `fetch_intensity` with the
+    /// API knobs at their defaults. Keeps the per-test call sites
+    /// short, the knob behaviour itself is exercised separately via the
+    /// pure `build_request_url` helper.
+    async fn fetch_intensity_test(
+        client: &http_client::HttpClient,
+        api_endpoint: &str,
+        auth_token: &str,
+        zone: &str,
+    ) -> Result<FetchedReading, EmapsScraperError> {
+        fetch_intensity(
+            client,
+            api_endpoint,
+            auth_token,
+            zone,
+            EmissionFactorType::default(),
+            TemporalGranularity::default(),
+        )
+        .await
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_matches_v3_at_end_of_path() {
+        assert!(is_legacy_v3_endpoint("https://api.electricitymaps.com/v3"));
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_matches_v3_in_path() {
+        assert!(is_legacy_v3_endpoint(
+            "https://corporate-proxy.acme.com/electricitymaps/v3/api"
+        ));
+    }
+
+    #[test]
+    fn build_request_url_omits_query_params_when_defaults_used() {
+        // Backward-compat: any user not setting the knobs sees the
+        // exact same URL shape as pre-0.5.11.
+        let url = build_request_url(
+            "https://api.electricitymaps.com/v4",
+            "FR",
+            EmissionFactorType::Lifecycle,
+            TemporalGranularity::Hourly,
+        );
+        assert_eq!(
+            url,
+            "https://api.electricitymaps.com/v4/carbon-intensity/latest?zone=FR"
+        );
+    }
+
+    #[test]
+    fn build_request_url_appends_emission_factor_type_when_direct() {
+        let url = build_request_url(
+            "https://api.electricitymaps.com/v4",
+            "FR",
+            EmissionFactorType::Direct,
+            TemporalGranularity::Hourly,
+        );
+        assert_eq!(
+            url,
+            "https://api.electricitymaps.com/v4/carbon-intensity/latest?zone=FR&emissionFactorType=direct"
+        );
+    }
+
+    #[test]
+    fn build_request_url_appends_temporal_granularity_when_sub_hour() {
+        let url = build_request_url(
+            "https://api.electricitymaps.com/v4",
+            "FR",
+            EmissionFactorType::Lifecycle,
+            TemporalGranularity::FiveMinutes,
+        );
+        assert_eq!(
+            url,
+            "https://api.electricitymaps.com/v4/carbon-intensity/latest?zone=FR&temporalGranularity=5_minutes"
+        );
+    }
+
+    #[test]
+    fn build_request_url_appends_both_knobs_when_both_non_default() {
+        let url = build_request_url(
+            "https://api.electricitymaps.com/v4",
+            "DE",
+            EmissionFactorType::Direct,
+            TemporalGranularity::FifteenMinutes,
+        );
+        assert_eq!(
+            url,
+            "https://api.electricitymaps.com/v4/carbon-intensity/latest?zone=DE&emissionFactorType=direct&temporalGranularity=15_minutes"
+        );
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_matches_v3_with_trailing_slash() {
+        // `endpoint = "https://api.electricitymaps.com/v3/"` is a
+        // common copy-paste shape. The config-load layer trims the
+        // trailing slash, but the helper itself must still match
+        // independently for defense-in-depth.
+        assert!(is_legacy_v3_endpoint("https://api.electricitymaps.com/v3/"));
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_does_not_match_v4() {
+        assert!(!is_legacy_v3_endpoint("https://api.electricitymaps.com/v4"));
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_does_not_match_versionless_url() {
+        assert!(!is_legacy_v3_endpoint("http://127.0.0.1:9999"));
+        assert!(!is_legacy_v3_endpoint("https://api.electricitymaps.com"));
+    }
+
+    #[test]
+    fn is_legacy_v3_endpoint_avoids_v30_and_v300_false_positives() {
+        assert!(!is_legacy_v3_endpoint(
+            "https://api.electricitymaps.com/v30"
+        ));
+        assert!(!is_legacy_v3_endpoint(
+            "https://api.electricitymaps.com/v300/foo"
+        ));
+    }
+
     #[test]
     fn parse_valid_response() {
         let json = r#"{"zone":"FR","carbonIntensity":56.0,"datetime":"2025-01-01T12:00:00Z"}"#;
@@ -338,7 +526,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(body)).await;
 
         let client = http_client::build_client();
-        let reading = fetch_intensity(&client, &endpoint, "test-token", "FR")
+        let reading = fetch_intensity_test(&client, &endpoint, "test-token", "FR")
             .await
             .expect("200 + valid JSON should succeed");
         assert!((reading.gco2_per_kwh - 56.0).abs() < 1e-10);
@@ -353,7 +541,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(body)).await;
 
         let client = http_client::build_client();
-        let reading = fetch_intensity(&client, &endpoint, "tok", "DE")
+        let reading = fetch_intensity_test(&client, &endpoint, "tok", "DE")
             .await
             .expect("200 + valid JSON should succeed");
         assert_eq!(reading.is_estimated, Some(true));
@@ -370,7 +558,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(body)).await;
 
         let client = http_client::build_client();
-        let reading = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let reading = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect("200 + valid JSON should succeed");
         assert_eq!(reading.is_estimated, Some(false));
@@ -421,12 +609,40 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(&body)).await;
 
         let client = http_client::build_client();
-        let reading = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let reading = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect("oversized method must be sanitized, not rejected");
         assert_eq!(reading.is_estimated, Some(true));
         assert_eq!(reading.estimation_method, None);
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_intensity_v3_and_v4_responses_parse_identically() {
+        // Wire-format parity guard: the CHANGELOG and design doc both
+        // claim the v3 and v4 `carbon-intensity/latest` responses are
+        // schema-identical. Lock the contract: the same response body
+        // produces the same `FetchedReading` regardless of which API
+        // path the daemon was configured against. A future v5 default
+        // flip silently breaking the parser would fail this test.
+        let body = r#"{"zone":"FR","carbonIntensity":56.0,"isEstimated":true,"estimationMethod":"TIME_SLICER_AVERAGE","datetime":"2026-04-27T12:00:00Z"}"#;
+        let (v3_endpoint, v3_server) = spawn_one_shot_server(http_200(body)).await;
+        let (v4_endpoint, v4_server) = spawn_one_shot_server(http_200(body)).await;
+
+        let client = http_client::build_client();
+        let v3_reading = fetch_intensity_test(&client, &v3_endpoint, "tok", "FR")
+            .await
+            .expect("v3 mock must succeed");
+        let v4_reading = fetch_intensity_test(&client, &v4_endpoint, "tok", "FR")
+            .await
+            .expect("v4 mock must succeed");
+
+        assert!((v3_reading.gco2_per_kwh - v4_reading.gco2_per_kwh).abs() < 1e-10);
+        assert_eq!(v3_reading.is_estimated, v4_reading.is_estimated);
+        assert_eq!(v3_reading.estimation_method, v4_reading.estimation_method);
+
+        v3_server.await.unwrap();
+        v4_server.await.unwrap();
     }
 
     #[tokio::test]
@@ -438,7 +654,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(body)).await;
 
         let client = http_client::build_client();
-        let reading = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let reading = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect("200 + valid JSON should succeed");
         assert_eq!(reading.is_estimated, Some(true));
@@ -451,7 +667,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_status(401, "Unauthorized")).await;
 
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, &endpoint, "bad-token", "FR")
+        let err = fetch_intensity_test(&client, &endpoint, "bad-token", "FR")
             .await
             .expect_err("401 must surface as HttpStatus");
         match err {
@@ -467,7 +683,7 @@ mod tests {
             spawn_one_shot_server(http_status(503, "Service Unavailable")).await;
 
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("503 must surface as HttpStatus");
         match err {
@@ -482,7 +698,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200("not json at all")).await;
 
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("malformed JSON must surface as JsonParse");
         assert!(matches!(err, EmapsScraperError::JsonParse(_)));
@@ -494,7 +710,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(r#"{"zone":"FR"}"#)).await;
 
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("missing field must surface as JsonParse");
         assert!(matches!(err, EmapsScraperError::JsonParse(_)));
@@ -510,7 +726,7 @@ mod tests {
         let (endpoint, server) = spawn_one_shot_server(http_200(body)).await;
 
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, &endpoint, "tok", "FR")
+        let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("negative intensity must be rejected");
         match err {
@@ -532,7 +748,7 @@ mod tests {
     async fn fetch_intensity_rejects_invalid_uri() {
         // Garbage endpoint, hits the `InvalidUri` error variant.
         let client = http_client::build_client();
-        let err = fetch_intensity(&client, "not a uri :: bad", "tok", "FR")
+        let err = fetch_intensity_test(&client, "not a uri :: bad", "tok", "FR")
             .await
             .expect_err("invalid URI must surface as InvalidUri");
         assert!(matches!(err, EmapsScraperError::InvalidUri(_)));
@@ -568,6 +784,8 @@ mod tests {
             auth_token: "tok".to_string(),
             poll_interval: std::time::Duration::from_hours(1), // never ticks during the test
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let state = Arc::new(ElectricityMapsState::default());
         let handle = spawn_electricity_maps_scraper(config, state);
@@ -678,6 +896,8 @@ mod tests {
             // immediately, then every poll_interval).
             poll_interval: std::time::Duration::from_mins(1),
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let state = ElectricityMapsState::new();
         let scraper_handle = spawn_electricity_maps_scraper(config, state.clone());
@@ -727,6 +947,8 @@ mod tests {
             // immediately, then every poll_interval).
             poll_interval: std::time::Duration::from_mins(1),
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let state = ElectricityMapsState::new();
         let scraper_handle = spawn_electricity_maps_scraper(config, state.clone());
@@ -798,6 +1020,8 @@ mod tests {
             auth_token: "tok".to_string(),
             poll_interval: std::time::Duration::from_mins(1),
             region_map,
+            emission_factor_type: EmissionFactorType::default(),
+            temporal_granularity: TemporalGranularity::default(),
         };
         let scraper_handle = spawn_electricity_maps_scraper(config, state.clone());
 

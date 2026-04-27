@@ -10,7 +10,7 @@ pub mod scraper;
 #[cfg(feature = "daemon")]
 pub mod state;
 
-pub use config::ElectricityMapsConfig;
+pub use config::{ElectricityMapsConfig, EmissionFactorType, TemporalGranularity};
 #[cfg(feature = "daemon")]
 pub use scraper::spawn_electricity_maps_scraper;
 #[cfg(feature = "daemon")]

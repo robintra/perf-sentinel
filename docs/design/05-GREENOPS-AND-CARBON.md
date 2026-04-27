@@ -514,6 +514,14 @@ The two fields are surfaced in the two user-visible rendering layers so operator
 
 The suffix is empty when `intensity_estimated` is `None`, so existing log scrapers keep matching pre-0.5.10 line shapes.
 
+### API version (0.5.11)
+
+perf-sentinel targets the `Electricity Maps` API v4 endpoint by default since 0.5.11. Earlier releases defaulted to v3, which Electricity Maps still serves but considers legacy. The migration was triggered by the v4 promotion to "latest" in the developer hub reference (<https://app.electricitymaps.com/developer-hub/api/reference>) and is forward-defense against an eventual v3 retirement.
+
+The response schema on the `carbon-intensity/latest` endpoint is byte-identical between v3 and v4, so the migration is transparent for downstream consumers (`green_summary.regions[]` rows are unchanged regardless of the configured API version, the parsing path is the same struct).
+
+Backward compatibility: existing `.perf-sentinel.toml` configs that pin `endpoint = "https://api.electricitymaps.com/v3"` keep working. The scraper detects the legacy path at startup via `is_legacy_v3_endpoint` (matches `.../v3` at end of URL or `.../v3/...` in path, with word-boundary guards against false positives like `/v30` or `/v300`) and emits a `tracing::warn!` message once per daemon start, pointing the operator to the v4 migration. The detection helper is a pure boolean function and is unit-tested without capturing the tracing output, the warning wrapper itself is production-only and uses the existing `tracing::warn!` macro pattern shared with `update_failure_counter`.
+
 ## Per-operation energy coefficients
 
 The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for every I/O operation. This treats a read-only `SELECT` hitting an index the same as a disk-heavy `INSERT` writing to WAL and data pages. The per-operation coefficient feature refines this by applying a multiplier based on the operation type.

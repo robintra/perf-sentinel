@@ -254,9 +254,11 @@ Real-time carbon intensity from the Electricity Maps API. Daemon-only.
 
 | Field                | Type    | Default                              | Description                                                             |
 |----------------------|---------|--------------------------------------|-------------------------------------------------------------------------|
-| `api_key`            | string  | none                                 | API auth token. Prefer `PERF_SENTINEL_EMAPS_TOKEN` env var for security |
-| `endpoint`           | string  | `https://api.electricitymaps.com/v3` | API base URL (`http://` or `https://`)                                  |
-| `poll_interval_secs` | integer | `300`                                | Poll interval in seconds (range: 60-86400). Free tier: use 3600+        |
+| `api_key`              | string  | none                                 | API auth token. Prefer `PERF_SENTINEL_EMAPS_TOKEN` env var for security |
+| `endpoint`             | string  | `https://api.electricitymaps.com/v4` | API base URL (`http://` or `https://`). v3 still works but emits a deprecation warning at startup |
+| `poll_interval_secs`   | integer | `300`                                | Poll interval in seconds (range: 60-86400). Free tier: use 3600+        |
+| `emission_factor_type` | string  | `lifecycle`                          | Emission factor model. `lifecycle` (default) includes upstream emissions (manufacturing, transport). `direct` includes only combustion. Some Scope 2 frameworks prefer `direct` for stricter accountability |
+| `temporal_granularity` | string  | `hourly`                             | API response aggregation. `hourly` (default), `5_minutes`, or `15_minutes`. Sub-hour values require a paid plan that exposes them, otherwise the API silently coarsens to hourly |
 
 The `region_map` sub-table maps cloud regions to Electricity Maps zone codes:
 
@@ -275,6 +277,10 @@ poll_interval_secs = 300
 
 
 **Rate limits:** the Electricity Maps free tier allows approximately 30 requests per month per zone. For free tier users, set `poll_interval_secs = 3600` or higher. The default of 300s is intended for paid plans.
+
+**API version:** the default endpoint targets v4 since perf-sentinel 0.5.11. v3 remains accepted (the response schema is identical on `carbon-intensity/latest`), but a deprecation warning is logged once at daemon startup. To silence the warning, set `endpoint = "https://api.electricitymaps.com/v4"` explicitly. To keep v3 deliberately (for example to A/B-validate against v4), leave `endpoint = "https://api.electricitymaps.com/v3"` and acknowledge the warning.
+
+**Unknown values for `emission_factor_type` and `temporal_granularity`:** these two knobs use a fail-graceful parser. A typo or unsupported value (e.g. `temporal_granularity = "5min"` instead of `"5_minutes"`) does not reject the config at load time. The value is sanitized, a `tracing::warn!` is emitted, and the daemon falls back to the default. Watch the daemon logs at startup if you suspect a typo, the warn line will name the offending field and value.
 
 #### `[green] calibration_file` (optional)
 

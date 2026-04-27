@@ -487,6 +487,14 @@ Les deux champs sont surfacés dans les deux couches de rendu visibles par l'op�
 
 Le suffixe est vide quand `intensity_estimated` est `None`, donc les scrapers de logs existants continuent à matcher la forme de ligne pre-0.5.10.
 
+### Version d'API (0.5.11)
+
+perf-sentinel cible l'endpoint `Electricity Maps` API v4 par défaut depuis 0.5.11. Les versions précédentes par défaut sur v3, qu'Electricity Maps continue à servir mais considère comme legacy. La migration a été déclenchée par la promotion de v4 en "latest" dans la doc reference du developer hub (<https://app.electricitymaps.com/developer-hub/api/reference>) et constitue une protection forward-defense contre une éventuelle dépréciation de v3.
+
+Le schéma de réponse sur l'endpoint `carbon-intensity/latest` est byte-identical entre v3 et v4, donc la migration est transparente pour les consommateurs en aval (les lignes `green_summary.regions[]` sont inchangées quelle que soit la version d'API configurée, le path de parsing utilise la même struct).
+
+Rétro-compatibilité : les configs `.perf-sentinel.toml` existantes qui pinnent `endpoint = "https://api.electricitymaps.com/v3"` continuent à fonctionner. Le scraper détecte le path legacy au démarrage via `is_legacy_v3_endpoint` (matche `.../v3` en fin d'URL ou `.../v3/...` dans le path, avec garde de word-boundary contre les faux positifs type `/v30` ou `/v300`) et émet un `tracing::warn!` une fois par démarrage du daemon, pointant l'opérateur vers la migration v4. Le helper de détection est une fonction booléenne pure unit-testée sans capturer la sortie tracing, le wrapper de warning est production-only et utilise le pattern `tracing::warn!` partagé avec `update_failure_counter`.
+
 ## Coefficients énergétiques par opération
 
 Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) pour chaque opération I/O. Cela traite un `SELECT` en lecture seule sur un index de la même manière qu'un `INSERT` écrivant dans le WAL et les pages de données. Les coefficients par opération affinent cela en appliquant un multiplicateur selon le type d'opération.
