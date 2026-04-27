@@ -96,95 +96,130 @@ pub fn spawn_electricity_maps_scraper(
 
 async fn run_scraper_loop(config: ElectricityMapsConfig, state: Arc<ElectricityMapsState>) {
     let client = http_client::build_client();
-    let interval = config.poll_interval;
-    let mut ticker = tokio::time::interval(interval);
+    let mut ticker = tokio::time::interval(config.poll_interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     let mut consecutive_failures: u32 = 0;
 
     loop {
         ticker.tick().await;
+        let any_success = run_one_tick(&client, &config, &state).await;
+        update_failure_counter(&mut consecutive_failures, any_success);
+    }
+}
 
-        // Deduplicate zones so a region_map mapping multiple cloud_regions
-        // to the same zone (e.g. two AZs in the same country, or both an
-        // aws region and a local-k3d cluster pinned to FR) only spends
-        // one API call per zone per tick. Critical on quota-constrained
-        // tiers, free tier especially. BTreeSet for deterministic
-        // iteration order (stable test snapshots).
-        let unique_zones: BTreeSet<&str> = config.region_map.values().map(String::as_str).collect();
+/// Execute one polling tick. Returns `true` when at least one unique
+/// zone returned a fresh reading and the new state table was published,
+/// `false` when no zones were configured or every fetch failed.
+///
+/// Deduplicates zones so a `region_map` mapping multiple `cloud_region`
+/// keys to the same zone (two AZs in the same country, or an AWS region
+/// and a local-k3d cluster both pinned to `FR`) only spends one API
+/// call per zone per tick. Critical on quota-constrained tiers.
+/// `cloud_region` keys sharing the same zone are atomically updated
+/// together: either all of them get the fresh reading or none do, the
+/// previous reading is preserved by the `current_owned + insert-only-
+/// on-success` pattern.
+async fn run_one_tick(
+    client: &http_client::HttpClient,
+    config: &ElectricityMapsConfig,
+    state: &ElectricityMapsState,
+) -> bool {
+    // BTreeSet for deterministic iteration order (stable test snapshots).
+    let unique_zones: BTreeSet<&str> = config.region_map.values().map(String::as_str).collect();
 
-        // Skip the tick when there is no zone to fetch. Otherwise an
-        // empty region_map would mark every tick as a failure and
-        // eventually fire the diagnostic warn even though no API call
-        // was attempted.
-        if unique_zones.is_empty() {
-            continue;
-        }
+    // Empty `region_map`: skip without recording a failure. Otherwise
+    // an unconfigured map would eventually fire the diagnostic warn
+    // even though no API call was attempted.
+    if unique_zones.is_empty() {
+        return false;
+    }
 
-        let now = monotonic_ms();
-        let mut new_table = state.current_owned();
-        let mut zone_readings: HashMap<&str, FetchedReading> =
-            HashMap::with_capacity(unique_zones.len());
-        for zone in &unique_zones {
-            match fetch_intensity(&client, &config.api_endpoint, &config.auth_token, zone).await {
-                Ok(reading) => {
-                    tracing::debug!(
-                        zone = %zone,
-                        intensity = reading.gco2_per_kwh,
-                        "Electricity Maps: fetched intensity"
-                    );
-                    zone_readings.insert(*zone, reading);
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        zone = %zone,
-                        error = %e,
-                        "Electricity Maps: failed to fetch intensity"
-                    );
-                }
+    let zone_readings = fetch_zones(client, config, &unique_zones).await;
+    if zone_readings.is_empty() {
+        return false;
+    }
+
+    let now = monotonic_ms();
+    let mut new_table = state.current_owned();
+    dispatch_readings(&zone_readings, &config.region_map, now, &mut new_table);
+    state.publish(new_table);
+    true
+}
+
+/// Fetch every unique zone in `unique_zones`. Returns a map keyed by
+/// zone code containing only the zones that returned 200 + valid JSON.
+async fn fetch_zones<'a>(
+    client: &http_client::HttpClient,
+    config: &ElectricityMapsConfig,
+    unique_zones: &BTreeSet<&'a str>,
+) -> HashMap<&'a str, FetchedReading> {
+    let mut zone_readings: HashMap<&str, FetchedReading> =
+        HashMap::with_capacity(unique_zones.len());
+    for zone in unique_zones {
+        match fetch_intensity(client, &config.api_endpoint, &config.auth_token, zone).await {
+            Ok(reading) => {
+                tracing::debug!(
+                    zone = %zone,
+                    intensity = reading.gco2_per_kwh,
+                    "Electricity Maps: fetched intensity"
+                );
+                zone_readings.insert(*zone, reading);
             }
-        }
-
-        // Dispatch each zone reading to every cloud_region mapped to it.
-        // Cloud_regions sharing the same zone are atomically updated
-        // together: either all of them get the fresh reading or none
-        // do (if the per-zone fetch failed, the previous reading is
-        // preserved by the current_owned + insert-only-on-success
-        // pattern).
-        let any_success = !zone_readings.is_empty();
-        for (cloud_region, zone) in &config.region_map {
-            if let Some(reading) = zone_readings.get(zone.as_str()) {
-                new_table.insert(
-                    cloud_region.clone(),
-                    IntensityReading {
-                        gco2_per_kwh: reading.gco2_per_kwh,
-                        last_update_ms: now,
-                        is_estimated: reading.is_estimated,
-                        estimation_method: reading.estimation_method.clone(),
-                    },
+            Err(e) => {
+                tracing::debug!(
+                    zone = %zone,
+                    error = %e,
+                    "Electricity Maps: failed to fetch intensity"
                 );
             }
         }
+    }
+    zone_readings
+}
 
-        if any_success {
-            state.publish(new_table);
-            consecutive_failures = 0;
-        } else {
-            // 0.5.9 note: this counter is now zone-set-level, not
-            // request-level. With the dedup pass above, a partial-
-            // success tick (zone FR ok, zone DE ko) resets the
-            // counter because at least one zone returned data. Only
-            // a tick where all unique zones fail will increment.
-            consecutive_failures = consecutive_failures.saturating_add(1);
-            if consecutive_failures == FAILURE_THRESHOLD {
-                tracing::warn!(
-                    failures = consecutive_failures,
-                    "Electricity Maps: {} consecutive failures, \
-                     falling back to embedded profiles",
-                    consecutive_failures
-                );
-            }
+/// Spread each successful zone reading across every `cloud_region`
+/// mapped to that zone. Mutates `new_table` in place so the caller can
+/// publish the resulting snapshot.
+fn dispatch_readings(
+    zone_readings: &HashMap<&str, FetchedReading>,
+    region_map: &HashMap<String, String>,
+    now: u64,
+    new_table: &mut HashMap<String, IntensityReading>,
+) {
+    for (cloud_region, zone) in region_map {
+        if let Some(reading) = zone_readings.get(zone.as_str()) {
+            new_table.insert(
+                cloud_region.clone(),
+                IntensityReading {
+                    gco2_per_kwh: reading.gco2_per_kwh,
+                    last_update_ms: now,
+                    is_estimated: reading.is_estimated,
+                    estimation_method: reading.estimation_method.clone(),
+                },
+            );
         }
+    }
+}
+
+/// Reset on success, increment otherwise. Emit the diagnostic warn
+/// once when the threshold is hit. The counter is zone-set-level: a
+/// partial-success tick (zone FR ok, zone DE ko) resets it because at
+/// least one zone returned data. Only a tick where all unique zones
+/// fail will increment.
+fn update_failure_counter(consecutive_failures: &mut u32, any_success: bool) {
+    if any_success {
+        *consecutive_failures = 0;
+        return;
+    }
+    *consecutive_failures = consecutive_failures.saturating_add(1);
+    if *consecutive_failures == FAILURE_THRESHOLD {
+        tracing::warn!(
+            failures = *consecutive_failures,
+            "Electricity Maps: {} consecutive failures, \
+             falling back to embedded profiles",
+            *consecutive_failures
+        );
     }
 }
 
@@ -526,7 +561,7 @@ mod tests {
     /// immediately so the test doesn't hang.
     #[tokio::test]
     async fn spawn_scraper_returns_joinhandle_and_aborts_cleanly() {
-        let mut region_map = std::collections::HashMap::new();
+        let mut region_map = HashMap::new();
         region_map.insert("eu-west-3".to_string(), "FR".to_string());
         let config = ElectricityMapsConfig {
             api_endpoint: "http://127.0.0.1:1".to_string(), // unreachable
