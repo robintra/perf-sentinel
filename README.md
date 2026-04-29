@@ -375,7 +375,26 @@ Finally, tune the I/O-to-energy coefficients to your real infrastructure with `c
 
 </details>
 
-In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON report:
+In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON report. The example below is the audit-grade shape (resolved region with monthly hourly profile, Electricity Maps scoring config surfaced for Scope 2 reporting). Reproduce it with:
+
+```bash
+cat > /tmp/perf-sentinel-readme.toml <<'EOF'
+[green]
+default_region = "eu-west-3"
+
+[green.electricity_maps]
+endpoint = "https://api.electricitymaps.com/v4"
+region_map = { "eu-west-3" = "FR" }
+EOF
+
+PERF_SENTINEL_EMAPS_TOKEN=mock-token \
+  perf-sentinel analyze \
+    --input tests/fixtures/demo.json \
+    --config /tmp/perf-sentinel-readme.toml \
+    --format json
+```
+
+The `default_region` knob maps every span without a `cloud_region` attribute to `eu-west-3`, the `region_map` entry pins it to the French electricity grid, and the `mock-token` env var is enough to surface `green_summary.scoring_config` (the scraper does not run on the batch `analyze` path, only the methodology metadata is recorded).
 
 <details>
 <summary>Example JSON report</summary>
@@ -383,9 +402,9 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
 ```json
 {
   "analysis": {
-    "duration_ms": 0,
-    "events_processed": 10,
-    "traces_analyzed": 1
+    "duration_ms": 1,
+    "events_processed": 78,
+    "traces_analyzed": 10
   },
   "findings": [
     {
@@ -405,30 +424,68 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
       "last_timestamp": "2025-07-10T14:32:01.450Z",
       "green_impact": {
         "estimated_extra_io_ops": 9,
-        "io_intensity_score": 10.0,
-        "io_intensity_band": "critical"
+        "io_intensity_score": 7.5,
+        "io_intensity_band": "high"
       },
-      "confidence": "ci_batch"
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "OrderItemRepository.findByOrderId",
+        "filepath": "order-service/src/main/java/com/example/order/repository/OrderItemRepository.java",
+        "lineno": 42,
+        "namespace": "com.example.order.repository"
+      }
+    },
+    {
+      "type": "n_plus_one_http",
+      "severity": "warning",
+      "trace_id": "trace-demo-nplus-http",
+      "service": "order-svc",
+      "source_endpoint": "POST /api/orders/42/submit",
+      "pattern": {
+        "template": "GET /api/users/{id}",
+        "occurrences": 5,
+        "window_ms": 200,
+        "distinct_params": 5
+      },
+      "suggestion": "Use batch endpoint with ?ids=... to batch 5 calls into one",
+      "first_timestamp": "2025-07-10T14:32:02.000Z",
+      "last_timestamp": "2025-07-10T14:32:02.200Z",
+      "green_impact": {
+        "estimated_extra_io_ops": 4,
+        "io_intensity_score": 7.5,
+        "io_intensity_band": "high"
+      },
+      "confidence": "ci_batch",
+      "code_location": {
+        "function": "UserClient.fetchUser",
+        "filepath": "order-service/src/main/java/com/example/order/client/UserClient.java",
+        "lineno": 87,
+        "namespace": "com.example.order.client"
+      },
+      "suggested_fix": {
+        "pattern": "n_plus_one_http",
+        "framework": "java_generic",
+        "recommendation": "Coalesce the calls into a batch endpoint, or cache the per-request results with Spring's @Cacheable using a request-scoped cache.",
+        "reference_url": "https://docs.spring.io/spring-framework/reference/integration/cache.html"
+      }
     }
   ],
   "green_summary": {
-    "total_io_ops": 10,
-    "avoidable_io_ops": 9,
-    "io_waste_ratio": 0.9,
-    "io_waste_ratio_band": "critical",
+    "total_io_ops": 78,
+    "avoidable_io_ops": 17,
+    "io_waste_ratio": 0.218,
+    "io_waste_ratio_band": "moderate",
     "top_offenders": [
-      {
-        "endpoint": "POST /api/orders/42/submit",
-        "service": "order-svc",
-        "io_intensity_score": 10.0,
-        "io_intensity_band": "critical"
-      }
+      { "endpoint": "POST /api/checkout/confirm",   "service": "checkout-svc",  "io_intensity_score": 22.0, "io_intensity_band": "critical" },
+      { "endpoint": "GET /api/dashboard/home",      "service": "gateway-svc",   "io_intensity_score": 16.0, "io_intensity_band": "critical" },
+      { "endpoint": "POST /api/orders/bulk",        "service": "orders-svc",    "io_intensity_score": 10.0, "io_intensity_band": "critical" },
+      { "endpoint": "POST /api/orders/42/submit",   "service": "order-svc",     "io_intensity_score":  7.5, "io_intensity_band": "high" }
     ],
     "co2": {
-      "total":     { "low": 0.000512, "mid": 0.001024, "high": 0.002048, "model": "io_proxy_v3", "methodology": "sci_v1_numerator" },
-      "avoidable": { "low": 0.000011, "mid": 0.000021, "high": 0.000043, "model": "io_proxy_v3", "methodology": "sci_v1_operational_ratio" },
-      "operational_gco2": 0.000024,
-      "embodied_gco2":    0.001
+      "total":     { "low": 0.005147, "mid": 0.010293, "high": 0.020586, "model": "io_proxy_v3", "methodology": "sci_v1_numerator" },
+      "avoidable": { "low": 0.000032, "mid": 0.000064, "high": 0.000128, "model": "io_proxy_v3", "methodology": "sci_v1_operational_ratio" },
+      "operational_gco2": 0.000293,
+      "embodied_gco2":    0.01
     },
     "regions": [
       {
@@ -436,24 +493,36 @@ In CI mode (`perf-sentinel analyze --ci`), the output is a structured JSON repor
         "region": "eu-west-3",
         "grid_intensity_gco2_kwh": 42.0,
         "pue": 1.135,
-        "io_ops": 10,
-        "co2_gco2": 0.000024,
+        "io_ops": 78,
+        "co2_gco2": 0.000293,
         "intensity_source": "monthly_hourly"
       }
-    ]
+    ],
+    "scoring_config": {
+      "api_version": "v4",
+      "emission_factor_type": "lifecycle",
+      "temporal_granularity": "hourly"
+    }
   },
   "quality_gate": {
     "passed": false,
     "rules": [
       { "rule": "n_plus_one_sql_critical_max", "threshold": 0.0, "actual": 1.0, "passed": false },
-      { "rule": "n_plus_one_http_warning_max", "threshold": 3.0, "actual": 0.0, "passed": true },
-      { "rule": "io_waste_ratio_max", "threshold": 0.1, "actual": 0.9, "passed": false }
+      { "rule": "n_plus_one_http_warning_max", "threshold": 3.0, "actual": 1.0, "passed": true },
+      { "rule": "io_waste_ratio_max",          "threshold": 0.3, "actual": 0.218, "passed": true }
     ]
-  }
+  },
+  "per_endpoint_io_ops": [
+    { "service": "checkout-svc", "endpoint": "POST /api/checkout/confirm",  "io_ops": 22 },
+    { "service": "gateway-svc",  "endpoint": "GET /api/dashboard/home",     "io_ops": 16 },
+    { "service": "order-svc",    "endpoint": "POST /api/orders/42/submit",  "io_ops": 15 }
+  ]
 }
 ```
 
 </details>
+
+The full demo run emits 11 findings, 9 `top_offenders` and 9 `per_endpoint_io_ops` entries. The block above keeps a representative subset for readability. Pre-0.5.x consumers stay forward-compatible because every recent field is additive: `code_location`, `suggested_fix`, `scoring_config`, `regions[].intensity_estimated`, `correlations` and `transport_gco2` all use `#[serde(skip_serializing_if)]` so they are omitted when absent.
 
 ### How to read the report
 
