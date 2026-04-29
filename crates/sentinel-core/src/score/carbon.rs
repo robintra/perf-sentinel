@@ -27,6 +27,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use crate::event::SpanEvent;
+use crate::score::electricity_maps::config::{
+    ApiVersion, ElectricityMapsConfig, EmissionFactorType, TemporalGranularity,
+};
 
 pub use super::carbon_profiles::HourlyProfile;
 pub(crate) use super::carbon_profiles::HourlyProfileRef;
@@ -317,6 +320,41 @@ pub struct CarbonContext {
     /// plus the optional `isEstimated` / `estimationMethod` metadata
     /// surfaced by the API.
     pub real_time_intensity: Option<HashMap<String, RealTimeIntensityEntry>>,
+    /// Active Electricity Maps scoring configuration (API version,
+    /// emission factor type, temporal granularity). Surfaced on
+    /// [`crate::report::GreenSummary::scoring_config`] so auditors can
+    /// verify which carbon model produced the numbers without reading
+    /// the operator's TOML. `None` when Electricity Maps is not
+    /// configured.
+    pub scoring_config: Option<ScoringConfig>,
+}
+
+/// Active Electricity Maps scoring configuration. Three dimensions
+/// surfaced together because they all influence the carbon numbers:
+/// API version (v3 deprecated, v4 default), emission factor model
+/// (lifecycle default, direct opt-in), temporal granularity (hourly
+/// default, sub-hour opt-in). Built via
+/// [`ScoringConfig::from_electricity_maps`] at config load time.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ScoringConfig {
+    pub api_version: ApiVersion,
+    pub emission_factor_type: EmissionFactorType,
+    pub temporal_granularity: TemporalGranularity,
+}
+
+impl ScoringConfig {
+    /// Build from the live Electricity Maps config. Used by
+    /// [`crate::config::Config::carbon_context`] when the daemon (or
+    /// the analyze pipeline) has the `[green.electricity_maps]` block
+    /// loaded.
+    #[must_use]
+    pub fn from_electricity_maps(cfg: &ElectricityMapsConfig) -> Self {
+        Self {
+            api_version: ApiVersion::from_endpoint(&cfg.api_endpoint),
+            emission_factor_type: cfg.emission_factor_type,
+            temporal_granularity: cfg.temporal_granularity,
+        }
+    }
 }
 
 /// One real-time intensity value from `Electricity Maps`, carrying the
@@ -366,6 +404,7 @@ impl Default for CarbonContext {
             custom_hourly_profiles: None,
             calibration: None,
             real_time_intensity: None,
+            scoring_config: None,
         }
     }
 }
@@ -1862,5 +1901,99 @@ mod tests {
     fn energy_coefficient_sql_empty_target() {
         let event = make_sql_target_event("");
         assert!((energy_coefficient(&event) - SQL_OTHER_COEFF).abs() < f64::EPSILON);
+    }
+
+    // --- ScoringConfig (0.5.12 audit-trail surface) ---
+
+    #[test]
+    fn scoring_config_default_is_v4_lifecycle_hourly() {
+        let cfg = ScoringConfig::default();
+        assert_eq!(cfg.api_version, ApiVersion::V4);
+        assert_eq!(cfg.emission_factor_type, EmissionFactorType::Lifecycle);
+        assert_eq!(cfg.temporal_granularity, TemporalGranularity::Hourly);
+    }
+
+    #[test]
+    fn scoring_config_round_trip_json_all_defaults() {
+        let cfg = ScoringConfig::default();
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: ScoringConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg, back);
+        assert!(json.contains("\"v4\""));
+        assert!(json.contains("\"lifecycle\""));
+        assert!(json.contains("\"hourly\""));
+    }
+
+    #[test]
+    fn scoring_config_round_trip_json_all_optins() {
+        let cfg = ScoringConfig {
+            api_version: ApiVersion::V3,
+            emission_factor_type: EmissionFactorType::Direct,
+            temporal_granularity: TemporalGranularity::FiveMinutes,
+        };
+        let json = serde_json::to_string(&cfg).unwrap();
+        let back: ScoringConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(cfg, back);
+        assert!(json.contains("\"v3\""));
+        assert!(json.contains("\"direct\""));
+        assert!(json.contains("\"5_minutes\""));
+    }
+
+    #[test]
+    fn scoring_config_from_electricity_maps_derives_api_version_from_endpoint() {
+        // ElectricityMapsConfig has no Default impl (auth_token is
+        // mandatory), build manually. The test asserts that the
+        // api_version field is derived from the endpoint URL and the
+        // two knobs are copied through verbatim.
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v3".to_string(),
+            auth_token: "test-token".to_string(),
+            poll_interval: std::time::Duration::from_mins(5),
+            region_map: HashMap::new(),
+            emission_factor_type: EmissionFactorType::Direct,
+            temporal_granularity: TemporalGranularity::FifteenMinutes,
+        };
+        let scoring = ScoringConfig::from_electricity_maps(&cfg);
+        assert_eq!(scoring.api_version, ApiVersion::V3);
+        assert_eq!(scoring.emission_factor_type, EmissionFactorType::Direct);
+        assert_eq!(
+            scoring.temporal_granularity,
+            TemporalGranularity::FifteenMinutes
+        );
+    }
+
+    #[test]
+    fn scoring_config_from_electricity_maps_v4_default_endpoint() {
+        // Lock the v4 path so a future short-circuit on V3 in
+        // `from_electricity_maps` cannot regress the default detection.
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://api.electricitymaps.com/v4".to_string(),
+            auth_token: "test-token".to_string(),
+            poll_interval: std::time::Duration::from_mins(5),
+            region_map: HashMap::new(),
+            emission_factor_type: EmissionFactorType::Lifecycle,
+            temporal_granularity: TemporalGranularity::Hourly,
+        };
+        let scoring = ScoringConfig::from_electricity_maps(&cfg);
+        assert_eq!(scoring.api_version, ApiVersion::V4);
+        assert_eq!(scoring.emission_factor_type, EmissionFactorType::Lifecycle);
+        assert_eq!(scoring.temporal_granularity, TemporalGranularity::Hourly);
+    }
+
+    #[test]
+    fn scoring_config_from_electricity_maps_custom_endpoint() {
+        // Lock the Custom path so an enterprise proxy or mock URL
+        // without a `/vN` suffix surfaces correctly on the
+        // `green_summary.scoring_config.api_version` chip.
+        let cfg = ElectricityMapsConfig {
+            api_endpoint: "https://corp-proxy.acme.internal/electricity-maps".to_string(),
+            auth_token: "test-token".to_string(),
+            poll_interval: std::time::Duration::from_mins(5),
+            region_map: HashMap::new(),
+            emission_factor_type: EmissionFactorType::Lifecycle,
+            temporal_granularity: TemporalGranularity::Hourly,
+        };
+        let scoring = ScoringConfig::from_electricity_maps(&cfg);
+        assert_eq!(scoring.api_version, ApiVersion::Custom);
     }
 }

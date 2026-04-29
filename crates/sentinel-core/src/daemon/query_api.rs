@@ -47,6 +47,12 @@ pub struct QueryApiState {
     /// to populate the `Report.analysis` fields, and bumps
     /// `export_report_requests_total` per call.
     pub metrics: Arc<MetricsState>,
+    /// Active Electricity Maps scoring configuration, copied from the
+    /// loaded `Config` at daemon startup. Surfaces on
+    /// `/api/export/report` even though that snapshot does not run a
+    /// live scoring pass, so the audit chip stays visible whenever
+    /// Electricity Maps is configured. `None` otherwise.
+    pub scoring_config: Option<crate::score::carbon::ScoringConfig>,
 }
 
 /// Build the query API router.
@@ -285,7 +291,17 @@ async fn handle_export_report(
     // gluing the cumulative event count in, which would mix span-type
     // buckets and mislead the HTML dashboard. Callers who want scoring
     // run `analyze` on the trace file.
-    let green_summary = GreenSummary::disabled(0);
+    //
+    // `scoring_config` is the exception: even though scoring is not
+    // recomputed here, the Electricity Maps client config is known at
+    // daemon startup, so the audit chip surfaces on this snapshot too.
+    // Otherwise an operator pulling a live snapshot while EM is fully
+    // configured would see `scoring_config: null` and mistakenly
+    // conclude EM is not configured.
+    let mut green_summary = GreenSummary::disabled(0);
+    green_summary
+        .scoring_config
+        .clone_from(&state.scoring_config);
     let quality_gate = QualityGate {
         passed: true,
         rules: vec![],
@@ -366,6 +382,7 @@ mod tests {
             start_time: std::time::Instant::now(),
             correlator,
             metrics: Arc::new(MetricsState::new()),
+            scoring_config: None,
         })
     }
 
@@ -718,5 +735,82 @@ mod tests {
         assert_eq!(report.correlations.len(), 1);
         assert_eq!(report.correlations[0].source.service, "order-svc");
         assert_eq!(report.correlations[0].target.service, "payment-svc");
+    }
+
+    #[tokio::test]
+    async fn handle_export_report_propagates_scoring_config_when_emaps_configured() {
+        use crate::score::carbon::ScoringConfig;
+        use crate::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+
+        // Daemon path mirror: the daemon does not run scoring on the
+        // /api/export/report snapshot, but the Electricity Maps client
+        // configuration is known at startup. The handler must surface
+        // it on green_summary.scoring_config so an operator pulling
+        // the snapshot does not mistakenly conclude EM is off.
+        let scoring = ScoringConfig {
+            api_version: ApiVersion::V4,
+            emission_factor_type: EmissionFactorType::Direct,
+            temporal_granularity: TemporalGranularity::FifteenMinutes,
+        };
+
+        let mut state_owned = make_state().clone_for_test();
+        state_owned.scoring_config = Some(scoring.clone());
+        let state = Arc::new(state_owned);
+        state.metrics.events_processed_total.inc_by(1.0);
+        state.metrics.traces_analyzed_total.inc_by(1.0);
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+        assert_eq!(report.green_summary.scoring_config, Some(scoring));
+    }
+
+    #[tokio::test]
+    async fn handle_export_report_omits_scoring_config_when_emaps_not_configured() {
+        // Symmetric guard: when EM is not configured at daemon
+        // startup, the snapshot must not advertise a methodology.
+        let state = make_state();
+        state.metrics.events_processed_total.inc_by(1.0);
+        state.metrics.traces_analyzed_total.inc_by(1.0);
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+        assert!(report.green_summary.scoring_config.is_none());
+    }
+
+    impl QueryApiState {
+        /// Test-only shallow clone, mirrors every slot via Arc cloning.
+        /// `scoring_config` is the only field the new test mutates,
+        /// every other field is shared with the original Arc.
+        fn clone_for_test(&self) -> Self {
+            Self {
+                findings_store: Arc::clone(&self.findings_store),
+                window: Arc::clone(&self.window),
+                detect_config: self.detect_config.clone(),
+                start_time: self.start_time,
+                correlator: self.correlator.clone(),
+                metrics: Arc::clone(&self.metrics),
+                scoring_config: self.scoring_config.clone(),
+            }
+        }
     }
 }

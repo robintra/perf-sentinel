@@ -91,6 +91,12 @@
   .ps-sev-info { background: var(--color-background-info); color: var(--color-text-info); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
   .ps-badge-estimated { display: inline-block; background: var(--color-background-warning); color: var(--color-text-warning); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
   .ps-badge-measured { display: inline-block; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
+  .ps-scoring-bandeau { display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 8px; font-size: 12px; flex-wrap: wrap; }
+  .ps-scoring-label { color: var(--color-text-secondary); font-weight: 500; }
+  .ps-scoring-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .ps-scoring-chip-neutral { background: var(--color-background-secondary); color: var(--color-text-secondary); }
+  .ps-scoring-chip-warning { background: var(--color-background-warning); color: var(--color-text-warning); }
+  .ps-scoring-chip-accent { background: var(--color-background-secondary); color: var(--color-text-info); }
   .ps-fin-main { min-width: 0; }
   .ps-fin-type { font-weight: 500; font-size: 13px; margin-bottom: 2px; }
   .ps-fin-service { color: var(--color-text-tertiary); font-weight: 400; font-size: 11px; }
@@ -251,6 +257,7 @@
 
   <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" style="display: none;">
     <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
+    <div id="green-scoring-config" class="ps-scoring-bandeau" style="display: none;" aria-label="Carbon scoring configuration"></div>
     <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
     <table class="ps-table" id="green-regions-table" style="display: none;">
       <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th><th>Estimated</th></tr></thead>
@@ -1046,6 +1053,8 @@
       ratio + " of operational"
     ));
 
+    renderScoringConfigBandeau(greenSummary.scoring_config);
+
     var regions = greenSummary.regions || [];
     var header = document.getElementById("green-regions-header");
     header.textContent = "Regions (" + regions.length + ")";
@@ -1065,6 +1074,113 @@
       tr.appendChild(buildEstimatedCell(r));
       tbody.appendChild(tr);
     });
+  }
+
+  // Renders three chips above the green-regions table: API version,
+  // emission factor type, temporal granularity. Hidden when the
+  // payload carries no scoring_config (Electricity Maps not configured).
+  // The 3 fields are bounded enums on the Rust side, no escaping needed.
+  function renderScoringConfigBandeau(cfg) {
+    var bandeau = document.getElementById("green-scoring-config");
+    if (!bandeau) return;
+    if (!cfg) {
+      bandeau.style.display = "none";
+      return;
+    }
+    bandeau.replaceChildren(
+      el("span", "ps-scoring-label", "Carbon scoring:"),
+      buildApiVersionChip(cfg.api_version),
+      buildEmissionFactorChip(cfg.emission_factor_type),
+      buildTemporalGranularityChip(cfg.temporal_granularity)
+    );
+    bandeau.style.display = "";
+  }
+
+  function buildScoringChip(label, modifier, tooltip) {
+    var chip = el("span", "ps-scoring-chip ps-scoring-chip-" + modifier, label);
+    chip.setAttribute("title", tooltip);
+    return chip;
+  }
+
+  // The three chip builders below pattern-match on the known wire
+  // values and fall through to a verbatim-text neutral chip on
+  // anything else. This keeps a forward-rolled enum variant (a
+  // future EmissionFactorType added in a later perf-sentinel
+  // release) from silently masquerading as the default chip when an
+  // older dashboard renders a newer baseline. The bounded-input
+  // invariant on the Rust side (typed enum, no #[serde(other)])
+  // keeps the textContent path safe for in-version rendering.
+  function buildApiVersionChip(version) {
+    if (version === "v3") {
+      return buildScoringChip(
+        "Electricity Maps v3",
+        "warning",
+        "v3 is in legacy mode. Migrate to v4 to silence the deprecation warning."
+      );
+    }
+    if (version === "v4") {
+      return buildScoringChip(
+        "Electricity Maps v4",
+        "neutral",
+        "API v4 is the current default."
+      );
+    }
+    if (version === "custom") {
+      return buildScoringChip(
+        "Electricity Maps custom",
+        "neutral",
+        "Custom endpoint without /vN suffix (proxy or mock)."
+      );
+    }
+    return buildScoringChip(
+      "Electricity Maps " + String(version),
+      "neutral",
+      "Unrecognized API version, displayed verbatim."
+    );
+  }
+
+  function buildEmissionFactorChip(factor) {
+    if (factor === "direct") {
+      return buildScoringChip(
+        "direct",
+        "accent",
+        "Direct emissions only. Used by some Scope 2 frameworks."
+      );
+    }
+    if (factor === "lifecycle") {
+      return buildScoringChip(
+        "lifecycle",
+        "neutral",
+        "Default. Includes upstream emissions (manufacturing, transport)."
+      );
+    }
+    return buildScoringChip(
+      String(factor),
+      "neutral",
+      "Unrecognized emission factor type, displayed verbatim."
+    );
+  }
+
+  function buildTemporalGranularityChip(granularity) {
+    if (granularity === "5_minutes" || granularity === "15_minutes") {
+      return buildScoringChip(
+        granularity,
+        "accent",
+        "Sub-hour granularity. Requires a paid Electricity Maps plan."
+      );
+    }
+    if (granularity === "hourly") {
+      return buildScoringChip(
+        "hourly",
+        "neutral",
+        "Default. Hourly average carbon intensity."
+      );
+    }
+    return buildScoringChip(
+      String(granularity),
+      "neutral",
+      "Unrecognized temporal granularity, displayed verbatim."
+    );
   }
 
   function buildEstimatedCell(r) {

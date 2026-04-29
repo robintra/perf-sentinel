@@ -34,7 +34,7 @@ use crate::correlate::Trace;
 use crate::detect::Finding;
 use crate::detect::correlate_cross::CrossTraceCorrelation;
 use crate::report::interpret::InterpretationLevel;
-use crate::score::carbon::{CarbonReport, RegionBreakdown};
+use crate::score::carbon::{CarbonReport, RegionBreakdown, ScoringConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -103,6 +103,14 @@ pub struct GreenSummary {
     /// cross-region HTTP call had response size data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
+    /// Active Electricity Maps scoring configuration (API version,
+    /// emission factor type, temporal granularity). Surfaced for
+    /// Scope 2 audit trails so reporters can verify which carbon
+    /// model produced the numbers without reading the operator's
+    /// TOML config. `None` when Electricity Maps is not configured.
+    /// Additive on pre-0.5.12 baselines via `skip_serializing_if`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scoring_config: Option<ScoringConfig>,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
@@ -166,6 +174,7 @@ impl GreenSummary {
             co2: None,
             regions: vec![],
             transport_gco2: None,
+            scoring_config: None,
         }
     }
 }
@@ -208,4 +217,42 @@ pub trait ReportSink {
     ///
     /// Returns an error if the report cannot be written to the output sink.
     fn emit(&self, report: &Report) -> Result<(), Self::Error>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn green_summary_pre_0512_baseline_loads_without_scoring_config() {
+        // Hand-crafted JSON shaped like a pre-0.5.12 baseline (no
+        // scoring_config field). The Option must default to None,
+        // ensuring `report --before <old.json>` still works after the
+        // additive change.
+        let json = r#"{
+            "total_io_ops": 0,
+            "avoidable_io_ops": 0,
+            "io_waste_ratio": 0.0,
+            "io_waste_ratio_band": "healthy",
+            "top_offenders": []
+        }"#;
+        let summary: GreenSummary = serde_json::from_str(json).expect("backward-compat parse");
+        assert!(summary.scoring_config.is_none());
+    }
+
+    #[test]
+    fn green_summary_disabled_factory_has_no_scoring_config() {
+        let summary = GreenSummary::disabled(0);
+        assert!(summary.scoring_config.is_none());
+    }
+
+    #[test]
+    fn green_summary_skips_scoring_config_when_none() {
+        let summary = GreenSummary::disabled(42);
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(
+            !json.contains("scoring_config"),
+            "scoring_config should be skipped when None, got: {json}"
+        );
+    }
 }

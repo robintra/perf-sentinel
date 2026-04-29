@@ -574,6 +574,7 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
+                scoring_config: None,
             },
             quality_gate: QualityGate {
                 passed: true,

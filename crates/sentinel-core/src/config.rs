@@ -235,6 +235,10 @@ impl Config {
     /// batch pipeline uses it as-is (no scrapers in batch mode).
     #[must_use]
     pub fn carbon_context(&self) -> crate::score::carbon::CarbonContext {
+        let scoring_config = self
+            .green_electricity_maps
+            .as_ref()
+            .map(crate::score::carbon::ScoringConfig::from_electricity_maps);
         crate::score::carbon::CarbonContext {
             default_region: self.green_default_region.clone(),
             service_regions: self.green_service_regions.clone(),
@@ -247,6 +251,7 @@ impl Config {
             custom_hourly_profiles: self.green_custom_hourly_profiles.clone(),
             calibration: self.green_calibration.clone(),
             real_time_intensity: None, // set per-tick in daemon via build_tick_ctx
+            scoring_config,
         }
     }
 }

@@ -550,6 +550,7 @@ mod tests {
                 co2: None,
                 regions: vec![],
                 transport_gco2: None,
+                scoring_config: None,
             },
             quality_gate: QualityGate {
                 passed: true,
@@ -852,6 +853,85 @@ mod tests {
             "Wrote {} bytes to {out} for visual validation. Open in a browser.",
             html.len()
         );
+    }
+
+    /// Visual validation artifact for the 0.5.12 scoring config surface.
+    /// Loads the 3-state Region fixture (so the `GreenOps` tab renders
+    /// with populated `co2` + `regions`), injects 3 different
+    /// `scoring_config` shapes (V4 defaults, V3 legacy, all opt-ins),
+    /// and writes each to a stand-alone HTML file under
+    /// `/tmp/perf-sentinel-0.5.12-*.html`. Marked `#[ignore]` so it
+    /// does not run in CI: the goal is a manual visual check via the
+    /// user's browser. Run with
+    /// `cargo test --release validation_html_for_scoring_config -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "manual visual validation artifact, not run in CI"]
+    fn validation_html_for_scoring_config() {
+        use crate::score::carbon::ScoringConfig;
+        use crate::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+        let cases = [
+            ("v4-defaults", ScoringConfig::default()),
+            (
+                "v3-legacy",
+                ScoringConfig {
+                    api_version: ApiVersion::V3,
+                    ..ScoringConfig::default()
+                },
+            ),
+            (
+                "all-optins",
+                ScoringConfig {
+                    api_version: ApiVersion::V4,
+                    emission_factor_type: EmissionFactorType::Direct,
+                    temporal_granularity: TemporalGranularity::FifteenMinutes,
+                },
+            ),
+        ];
+        let fixture_path = format!(
+            "{}/../../tests/fixtures/report_three_estimation_states.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read_to_string(&fixture_path).expect("fixture readable");
+        let traces: Vec<Trace> = vec![];
+        for (slug, scoring) in cases {
+            let mut report: Report = serde_json::from_str(&raw).expect("fixture parses as Report");
+            report.green_summary.scoring_config = Some(scoring);
+            let (html, _) = render(
+                &report,
+                &traces,
+                &opts(&format!("scoring-config-{slug}"), None),
+            );
+            let out = format!("/tmp/perf-sentinel-0.5.12-{slug}.html");
+            std::fs::write(&out, &html).expect("/tmp writable");
+            eprintln!("Wrote {} bytes to {out}", html.len());
+        }
+    }
+
+    #[test]
+    fn template_carries_scoring_config_bandeau_and_helpers() {
+        // Locks in the 0.5.12 dashboard surface for the
+        // `green_summary.scoring_config` field. The chip rendering is
+        // exercised manually via the browser-validation helper above
+        // (no JSDOM in the test suite), this assertion guards against
+        // accidental removal of the bandeau plumbing.
+        for needle in [
+            "id=\"green-scoring-config\"",
+            "ps-scoring-bandeau",
+            "ps-scoring-chip-neutral",
+            "ps-scoring-chip-warning",
+            "ps-scoring-chip-accent",
+            "function renderScoringConfigBandeau",
+            "function buildApiVersionChip",
+            "function buildEmissionFactorChip",
+            "function buildTemporalGranularityChip",
+        ] {
+            assert!(
+                TEMPLATE.contains(needle),
+                "template missing scoring_config plumbing: `{needle}`"
+            );
+        }
     }
 
     #[test]

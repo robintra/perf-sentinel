@@ -144,6 +144,10 @@ fn build_http_router(
             start_time: std::time::Instant::now(),
             correlator,
             metrics,
+            scoring_config: config
+                .green_electricity_maps
+                .as_ref()
+                .map(crate::score::carbon::ScoringConfig::from_electricity_maps),
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {

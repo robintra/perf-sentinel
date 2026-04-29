@@ -157,6 +157,39 @@ fn format_estimation_suffix(
     }
 }
 
+/// Build the "Carbon scoring: Electricity Maps ..." header line printed
+/// before the per-region breakdown. Two borrowed arms cover the most
+/// common shapes (v4/v3 with both knobs at default), the fallback
+/// allocates for opt-in combinations. All three fields originate from
+/// typed enums with bounded variants, so no terminal-sanitization is
+/// needed at the print sink (unlike `intensity_estimation_method`,
+/// which carries a free-form `String` from `--input` JSON).
+fn format_scoring_config_line(
+    cfg: &sentinel_core::score::carbon::ScoringConfig,
+) -> Cow<'static, str> {
+    use sentinel_core::score::electricity_maps::config::ApiVersion;
+    use sentinel_core::score::electricity_maps::config::EmissionFactorType;
+    use sentinel_core::score::electricity_maps::config::TemporalGranularity;
+    match (
+        cfg.api_version,
+        cfg.emission_factor_type,
+        cfg.temporal_granularity,
+    ) {
+        (ApiVersion::V4, EmissionFactorType::Lifecycle, TemporalGranularity::Hourly) => {
+            Cow::Borrowed("  Carbon scoring: Electricity Maps v4, lifecycle, hourly")
+        }
+        (ApiVersion::V3, EmissionFactorType::Lifecycle, TemporalGranularity::Hourly) => {
+            Cow::Borrowed("  Carbon scoring: Electricity Maps v3, lifecycle, hourly")
+        }
+        (api, efm, tg) => Cow::Owned(format!(
+            "  Carbon scoring: Electricity Maps {}, {}, {}",
+            api.as_chip_label(),
+            efm.as_query_value(),
+            tg.as_query_value(),
+        )),
+    }
+}
+
 pub(crate) fn format_colored_report(report: &Report, title: &str, force_color: bool) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
@@ -407,6 +440,14 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         if let Some(transport) = carbon.transport_gco2 {
             println!("  Transport:         {transport:.6} g    (cross-region network bytes)");
         }
+    }
+
+    // Carbon scoring config header. Hidden when Electricity Maps is
+    // not configured. The 3 fields are typed enums with bounded
+    // variants, no terminal sanitization needed.
+    if let Some(scoring) = &summary.scoring_config {
+        println!();
+        println!("{}", format_scoring_config_line(scoring));
     }
 
     // Per-region breakdown whenever at least one region was resolved.
@@ -1373,6 +1414,108 @@ mod tests {
         eprintln!("--- print_green_summary on 3-state fixture ---");
         print_green_summary(&report.green_summary, false);
         eprintln!("--- end ---");
+    }
+
+    #[test]
+    fn format_scoring_config_line_borrows_for_default_v4() {
+        use sentinel_core::score::carbon::ScoringConfig;
+        let line = format_scoring_config_line(&ScoringConfig::default());
+        assert_eq!(
+            line.as_ref(),
+            "  Carbon scoring: Electricity Maps v4, lifecycle, hourly"
+        );
+        assert!(matches!(line, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn format_scoring_config_line_borrows_for_legacy_v3_defaults() {
+        use sentinel_core::score::carbon::ScoringConfig;
+        use sentinel_core::score::electricity_maps::config::ApiVersion;
+        let cfg = ScoringConfig {
+            api_version: ApiVersion::V3,
+            ..ScoringConfig::default()
+        };
+        let line = format_scoring_config_line(&cfg);
+        assert_eq!(
+            line.as_ref(),
+            "  Carbon scoring: Electricity Maps v3, lifecycle, hourly"
+        );
+        assert!(matches!(line, Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn format_scoring_config_line_owns_for_optins() {
+        use sentinel_core::score::carbon::ScoringConfig;
+        use sentinel_core::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+        let cfg = ScoringConfig {
+            api_version: ApiVersion::V4,
+            emission_factor_type: EmissionFactorType::Direct,
+            temporal_granularity: TemporalGranularity::FiveMinutes,
+        };
+        let line = format_scoring_config_line(&cfg);
+        assert_eq!(
+            line.as_ref(),
+            "  Carbon scoring: Electricity Maps v4, direct, 5_minutes"
+        );
+        assert!(matches!(line, Cow::Owned(_)));
+    }
+
+    #[test]
+    fn format_scoring_config_line_owns_for_custom_endpoint() {
+        use sentinel_core::score::carbon::ScoringConfig;
+        use sentinel_core::score::electricity_maps::config::ApiVersion;
+        let cfg = ScoringConfig {
+            api_version: ApiVersion::Custom,
+            ..ScoringConfig::default()
+        };
+        let line = format_scoring_config_line(&cfg);
+        assert_eq!(
+            line.as_ref(),
+            "  Carbon scoring: Electricity Maps custom, lifecycle, hourly"
+        );
+        assert!(matches!(line, Cow::Owned(_)));
+    }
+
+    /// Visual snapshot helper for the 0.5.12 terminal scoring config
+    /// header. Builds 3 in-memory `GreenSummary`s with different
+    /// `scoring_config` shapes and prints each through
+    /// `print_green_summary`. Run with
+    /// `cargo test --release validation_terminal_for_scoring_config -- --ignored --nocapture`
+    /// and paste the output into the release snapshot.
+    #[test]
+    #[ignore = "manual visual snapshot helper, not run in CI"]
+    fn validation_terminal_for_scoring_config() {
+        use sentinel_core::report::GreenSummary;
+        use sentinel_core::score::carbon::ScoringConfig;
+        use sentinel_core::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+        let cases = [
+            ("V4 defaults", ScoringConfig::default()),
+            (
+                "V3 legacy",
+                ScoringConfig {
+                    api_version: ApiVersion::V3,
+                    ..ScoringConfig::default()
+                },
+            ),
+            (
+                "All opt-ins",
+                ScoringConfig {
+                    api_version: ApiVersion::V4,
+                    emission_factor_type: EmissionFactorType::Direct,
+                    temporal_granularity: TemporalGranularity::FifteenMinutes,
+                },
+            ),
+        ];
+        for (label, cfg) in cases {
+            eprintln!("=== {label} ===");
+            let mut summary = GreenSummary::disabled(0);
+            summary.scoring_config = Some(cfg);
+            print_green_summary(&summary, false);
+        }
     }
 
     #[test]

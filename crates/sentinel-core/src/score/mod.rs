@@ -274,6 +274,7 @@ pub fn score_green(
         transport_gco2: co2.as_ref().and_then(|r| r.transport_gco2),
         co2,
         regions,
+        scoring_config: carbon.and_then(|ctx| ctx.scoring_config.clone()),
     };
 
     (enriched, green_summary, per_endpoint_io_ops)

@@ -520,7 +520,25 @@ perf-sentinel targets the `Electricity Maps` API v4 endpoint by default since 0.
 
 The response schema on the `carbon-intensity/latest` endpoint is byte-identical between v3 and v4, so the migration is transparent for downstream consumers (`green_summary.regions[]` rows are unchanged regardless of the configured API version, the parsing path is the same struct).
 
-Backward compatibility: existing `.perf-sentinel.toml` configs that pin `endpoint = "https://api.electricitymaps.com/v3"` keep working. The scraper detects the legacy path at startup via `is_legacy_v3_endpoint` (matches `.../v3` at end of URL or `.../v3/...` in path, with word-boundary guards against false positives like `/v30` or `/v300`) and emits a `tracing::warn!` message once per daemon start, pointing the operator to the v4 migration. The detection helper is a pure boolean function and is unit-tested without capturing the tracing output, the warning wrapper itself is production-only and uses the existing `tracing::warn!` macro pattern shared with `update_failure_counter`.
+Backward compatibility: existing `.perf-sentinel.toml` configs that pin `endpoint = "https://api.electricitymaps.com/v3"` keep working. The scraper detects the legacy path at startup via `ApiVersion::from_endpoint` (matches `.../v3` at end of URL or `.../v3/...` in path, with word-boundary guards against false positives like `/v30` or `/v300`) and emits a `tracing::warn!` message once per daemon start, pointing the operator to the v4 migration. Since 0.5.12 `ApiVersion::from_endpoint` is the single source of truth and is also consumed by the `green_summary.scoring_config.api_version` field. The endpoint string flows through `sanitize_for_terminal` before being logged so a hostile TOML cannot inject ANSI control bytes into the daemon log stream.
+
+### Scoring config transparency (0.5.12)
+
+The `green_summary.scoring_config` object exposes the runtime configuration of the Electricity Maps integration so auditors and Scope 2 reporters can see which carbon model produced the numbers without reading the operator's TOML. Three fields, each derived from `ElectricityMapsConfig` at config load time via `ScoringConfig::from_electricity_maps`:
+
+- `api_version`: detected from `api_endpoint` via `ApiVersion::from_endpoint`. One of `v3` (legacy), `v4` (default), `custom` (proxy or mock without `/vN` suffix).
+- `emission_factor_type`: mirrors the TOML knob, one of `lifecycle` (default) or `direct`.
+- `temporal_granularity`: mirrors the TOML knob, one of `hourly` (default), `5_minutes`, `15_minutes`.
+
+**Scope of the surface.** `scoring_config` captures the Electricity Maps **client configuration only**. It is a partial methodology footprint, not the full SCI input vector. A complete strict-replay of the carbon math from a saved baseline would also need `[green] embodied_carbon_per_request_gco2`, `[green] use_hourly_profiles`, `[green] per_operation_coefficients`, `[green] include_network_transport` and `[green] network_energy_per_byte_kwh` (none of which are in the JSON today), plus the per-region PUE drawn from the embedded provider table (recoverable only if the Provider classification is stable across runs). Surfacing the complete methodology footprint is tracked as future work, the 0.5.12 surface closes the audit gap on the Electricity Maps slice specifically because that is the slice the 0.5.10 + 0.5.11 work added knobs to without surfacing them.
+
+**Backward compat.** The field is `None` (and the dashboard bandeau / terminal line are hidden) when `[green.electricity_maps]` is not configured, so reports produced without Electricity Maps stay shape-identical to pre-0.5.12. The wire form is additive on the JSON `green_summary` via `#[serde(skip_serializing_if = "Option::is_none", default)]`, so pre-0.5.12 baselines fed back through `report --before` keep parsing.
+
+**Threading.** `Config::carbon_context()` populates `CarbonContext::scoring_config: Option<ScoringConfig>` from the loaded `green_electricity_maps`. `score_green` reads it from the context and copies it into the resulting `GreenSummary`. The daemon's per-tick `build_tick_ctx` inherits the field via the existing `Cow::Owned(ctx)` clone path, no per-tick rebuild. The CLI batch pipeline gets it directly from the once-built `CarbonContext`.
+
+**Daemon snapshot path.** The daemon's `/api/export/report` endpoint returns `GreenSummary::disabled(0)` (no live scoring on that path), but the handler patches `scoring_config` from the daemon's `Config` so the audit chip surfaces on the snapshot regardless. An operator pulling the snapshot while Electricity Maps is fully configured sees the chip, even though that endpoint does not recompute carbon numbers.
+
+**Defense against terminal injection:** the three fields are typed Rust enums with bounded variants, so the terminal renderer in `print_green_summary` does not need to wrap them in `sanitize_for_terminal` (unlike `intensity_estimation_method` which carries a free-form `String` from `--input` JSON). The HTML chip rendering uses `textContent` (not `innerHTML`) and `setAttribute("title", ...)`, both of which auto-escape.
 
 ## Per-operation energy coefficients
 

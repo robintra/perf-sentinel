@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::http_client;
 use crate::text_safety::sanitize_for_terminal;
 
-use super::config::{ElectricityMapsConfig, EmissionFactorType, TemporalGranularity};
+use super::config::{ApiVersion, ElectricityMapsConfig, EmissionFactorType, TemporalGranularity};
 use super::state::{ElectricityMapsState, IntensityReading, monotonic_ms};
 
 /// Maximum body size for API responses (1 MiB, smaller than the shared
@@ -96,21 +96,15 @@ pub fn spawn_electricity_maps_scraper(
     tokio::spawn(run_scraper_loop(config, state))
 }
 
-/// True when the URL path contains a legacy `/v3` segment. Matches both
-/// `.../v3` (end of URL) and `.../v3/...` (in path). The two-form check
-/// prevents false positives on `/v30` or `/v300`.
-fn is_legacy_v3_endpoint(endpoint: &str) -> bool {
-    endpoint.ends_with("/v3") || endpoint.contains("/v3/")
-}
-
 /// Emit a deprecation warning when the configured endpoint targets the
 /// legacy `Electricity Maps` v3 API. Called once per daemon startup
 /// from `spawn_electricity_maps_scraper`, not per scrape. The endpoint
 /// is sanitized through `sanitize_for_terminal` before logging because
 /// it originates from operator-supplied TOML and could otherwise carry
-/// ANSI / OSC 8 / control bytes into the log stream.
+/// ANSI / OSC 8 / control bytes into the log stream. Detection delegates
+/// to `ApiVersion::from_endpoint`, single source of truth.
 fn warn_if_legacy_v3_endpoint(endpoint: &str) {
-    if is_legacy_v3_endpoint(endpoint) {
+    if ApiVersion::from_endpoint(endpoint) == ApiVersion::V3 {
         let safe_endpoint = sanitize_for_terminal(endpoint);
         tracing::warn!(
             endpoint = %safe_endpoint,
@@ -392,18 +386,6 @@ mod tests {
     }
 
     #[test]
-    fn is_legacy_v3_endpoint_matches_v3_at_end_of_path() {
-        assert!(is_legacy_v3_endpoint("https://api.electricitymaps.com/v3"));
-    }
-
-    #[test]
-    fn is_legacy_v3_endpoint_matches_v3_in_path() {
-        assert!(is_legacy_v3_endpoint(
-            "https://corporate-proxy.acme.com/electricitymaps/v3/api"
-        ));
-    }
-
-    #[test]
     fn build_request_url_omits_query_params_when_defaults_used() {
         // Backward-compat: any user not setting the knobs sees the
         // exact same URL shape as pre-0.5.11.
@@ -459,36 +441,6 @@ mod tests {
             url,
             "https://api.electricitymaps.com/v4/carbon-intensity/latest?zone=DE&emissionFactorType=direct&temporalGranularity=15_minutes"
         );
-    }
-
-    #[test]
-    fn is_legacy_v3_endpoint_matches_v3_with_trailing_slash() {
-        // `endpoint = "https://api.electricitymaps.com/v3/"` is a
-        // common copy-paste shape. The config-load layer trims the
-        // trailing slash, but the helper itself must still match
-        // independently for defense-in-depth.
-        assert!(is_legacy_v3_endpoint("https://api.electricitymaps.com/v3/"));
-    }
-
-    #[test]
-    fn is_legacy_v3_endpoint_does_not_match_v4() {
-        assert!(!is_legacy_v3_endpoint("https://api.electricitymaps.com/v4"));
-    }
-
-    #[test]
-    fn is_legacy_v3_endpoint_does_not_match_versionless_url() {
-        assert!(!is_legacy_v3_endpoint("http://127.0.0.1:9999"));
-        assert!(!is_legacy_v3_endpoint("https://api.electricitymaps.com"));
-    }
-
-    #[test]
-    fn is_legacy_v3_endpoint_avoids_v30_and_v300_false_positives() {
-        assert!(!is_legacy_v3_endpoint(
-            "https://api.electricitymaps.com/v30"
-        ));
-        assert!(!is_legacy_v3_endpoint(
-            "https://api.electricitymaps.com/v300/foo"
-        ));
     }
 
     #[test]

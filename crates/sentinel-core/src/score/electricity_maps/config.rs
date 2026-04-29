@@ -3,6 +3,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+
 use crate::text_safety::sanitize_for_terminal;
 
 /// Default `Electricity Maps` API endpoint. v4 is the current latest
@@ -12,6 +14,46 @@ use crate::text_safety::sanitize_for_terminal;
 /// at daemon startup via `scraper::warn_if_legacy_v3_endpoint`.
 pub const DEFAULT_ELECTRICITY_MAPS_ENDPOINT: &str = "https://api.electricitymaps.com/v4";
 
+/// Detected API version of the configured Electricity Maps endpoint.
+/// Authoritative source of v3 detection, also used by
+/// `scraper::warn_if_legacy_v3_endpoint`. `Custom` covers proxies,
+/// mock servers and any URL without a `/vN` suffix.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiVersion {
+    V3,
+    #[default]
+    V4,
+    Custom,
+}
+
+impl ApiVersion {
+    /// Derive the API version from a configured endpoint URL. The two
+    /// `/vN` and `/vN/` shapes prevent false positives on `/v30` or
+    /// `/v300`.
+    #[must_use]
+    pub fn from_endpoint(endpoint: &str) -> Self {
+        if endpoint.ends_with("/v3") || endpoint.contains("/v3/") {
+            Self::V3
+        } else if endpoint.ends_with("/v4") || endpoint.contains("/v4/") {
+            Self::V4
+        } else {
+            Self::Custom
+        }
+    }
+
+    /// Stable string label used by the dashboard chips and the terminal
+    /// scoring config line. Returns `&'static str`, no allocation.
+    #[must_use]
+    pub const fn as_chip_label(self) -> &'static str {
+        match self {
+            Self::V3 => "v3",
+            Self::V4 => "v4",
+            Self::Custom => "custom",
+        }
+    }
+}
+
 /// Emission factor model used by the API to compute carbon intensity.
 /// `Lifecycle` (default) includes upstream emissions like manufacturing
 /// and transport of generation infrastructure. `Direct` includes only
@@ -19,7 +61,8 @@ pub const DEFAULT_ELECTRICITY_MAPS_ENDPOINT: &str = "https://api.electricitymaps
 /// (2015 amendment) treats as the reportable boundary for purchased
 /// electricity under the location-based method. See the parameter
 /// documentation at <https://app.electricitymaps.com/developer-hub/api/reference>.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
 pub enum EmissionFactorType {
     #[default]
     Lifecycle,
@@ -69,11 +112,14 @@ impl EmissionFactorType {
 /// sub-hour granularity, the API silently coarsens otherwise. See
 /// <https://app.electricitymaps.com/developer-hub/api/reference> for the
 /// per-endpoint accepted values.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub enum TemporalGranularity {
     #[default]
+    #[serde(rename = "hourly")]
     Hourly,
+    #[serde(rename = "5_minutes")]
     FiveMinutes,
+    #[serde(rename = "15_minutes")]
     FifteenMinutes,
 }
 
@@ -316,5 +362,126 @@ mod tests {
             TemporalGranularity::FifteenMinutes.as_query_value(),
             "15_minutes"
         );
+    }
+
+    #[test]
+    fn api_version_default_is_v4() {
+        assert_eq!(ApiVersion::default(), ApiVersion::V4);
+    }
+
+    #[test]
+    fn api_version_from_endpoint_matches_v3_at_path_end() {
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com/v3"),
+            ApiVersion::V3
+        );
+    }
+
+    #[test]
+    fn api_version_from_endpoint_matches_v3_in_path() {
+        assert_eq!(
+            ApiVersion::from_endpoint("https://corporate-proxy.acme.com/electricitymaps/v3/api"),
+            ApiVersion::V3
+        );
+    }
+
+    #[test]
+    fn api_version_from_endpoint_matches_v3_with_trailing_slash() {
+        // `endpoint = "https://api.electricitymaps.com/v3/"` is a
+        // common copy-paste shape. The config-load layer trims the
+        // trailing slash, but the helper itself must still match
+        // independently for defense-in-depth.
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com/v3/"),
+            ApiVersion::V3
+        );
+    }
+
+    #[test]
+    fn api_version_from_endpoint_matches_v4() {
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com/v4"),
+            ApiVersion::V4
+        );
+    }
+
+    #[test]
+    fn api_version_from_endpoint_returns_custom_for_versionless_url() {
+        assert_eq!(
+            ApiVersion::from_endpoint("http://127.0.0.1:9999"),
+            ApiVersion::Custom
+        );
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com"),
+            ApiVersion::Custom
+        );
+    }
+
+    #[test]
+    fn api_version_from_endpoint_avoids_v30_and_v300_false_positives() {
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com/v30"),
+            ApiVersion::Custom
+        );
+        assert_eq!(
+            ApiVersion::from_endpoint("https://api.electricitymaps.com/v300/foo"),
+            ApiVersion::Custom
+        );
+    }
+
+    #[test]
+    fn api_version_chip_labels_are_stable() {
+        assert_eq!(ApiVersion::V3.as_chip_label(), "v3");
+        assert_eq!(ApiVersion::V4.as_chip_label(), "v4");
+        assert_eq!(ApiVersion::Custom.as_chip_label(), "custom");
+    }
+
+    #[test]
+    fn api_version_serde_round_trip() {
+        for variant in [ApiVersion::V3, ApiVersion::V4, ApiVersion::Custom] {
+            let s = serde_json::to_string(&variant).unwrap();
+            let back: ApiVersion = serde_json::from_str(&s).unwrap();
+            assert_eq!(variant, back);
+        }
+        assert_eq!(serde_json::to_string(&ApiVersion::V4).unwrap(), "\"v4\"");
+        assert_eq!(serde_json::to_string(&ApiVersion::V3).unwrap(), "\"v3\"");
+        assert_eq!(
+            serde_json::to_string(&ApiVersion::Custom).unwrap(),
+            "\"custom\""
+        );
+    }
+
+    #[test]
+    fn emission_factor_type_serde_lowercase() {
+        assert_eq!(
+            serde_json::to_string(&EmissionFactorType::Lifecycle).unwrap(),
+            "\"lifecycle\""
+        );
+        assert_eq!(
+            serde_json::to_string(&EmissionFactorType::Direct).unwrap(),
+            "\"direct\""
+        );
+        let back: EmissionFactorType = serde_json::from_str("\"direct\"").unwrap();
+        assert_eq!(back, EmissionFactorType::Direct);
+    }
+
+    #[test]
+    fn temporal_granularity_serde_renames_digit_starting_variants() {
+        assert_eq!(
+            serde_json::to_string(&TemporalGranularity::Hourly).unwrap(),
+            "\"hourly\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TemporalGranularity::FiveMinutes).unwrap(),
+            "\"5_minutes\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TemporalGranularity::FifteenMinutes).unwrap(),
+            "\"15_minutes\""
+        );
+        let back: TemporalGranularity = serde_json::from_str("\"5_minutes\"").unwrap();
+        assert_eq!(back, TemporalGranularity::FiveMinutes);
+        let back: TemporalGranularity = serde_json::from_str("\"15_minutes\"").unwrap();
+        assert_eq!(back, TemporalGranularity::FifteenMinutes);
     }
 }
