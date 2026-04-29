@@ -147,7 +147,7 @@ fn build_http_router(
             scoring_config: config
                 .green_electricity_maps
                 .as_ref()
-                .map(crate::score::carbon::ScoringConfig::from_electricity_maps),
+                .map(score::carbon::ScoringConfig::from_electricity_maps),
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {
