@@ -457,14 +457,19 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
         println!();
         println!("  {bold}Per-region breakdown:{reset}");
         for region in &summary.regions {
+            // `region.region` originates from the OTLP `cloud.region`
+            // span attribute or a user-supplied `--input` JSON; sanitize
+            // at the print sink so a hostile producer cannot inject
+            // ANSI / OSC 8 / control bytes into the operator's terminal.
+            let region_label = sanitize_for_terminal(&region.region);
             // Unresolved regions carry placeholder zero intensity. Render
             // an explicit marker rather than `0 gCO2/kWh, source: annual`
             // so a reader does not mistake an unknown region for a clean
             // grid.
             if region.status == sentinel_core::score::carbon::REGION_STATUS_UNRESOLVED {
                 println!(
-                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} (intensity: unresolved, source: -)",
-                    region.region, region.io_ops, region.co2_gco2,
+                    "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} (intensity: unresolved, source: -)",
+                    region.io_ops, region.co2_gco2,
                 );
             } else {
                 let source_str = intensity_source_label(region.intensity_source);
@@ -477,8 +482,8 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
                 );
                 let estimation_suffix = sanitize_for_terminal(&raw_suffix);
                 println!(
-                    "    - {}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str}{estimation_suffix})",
-                    region.region, region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
+                    "    - {region_label}: {} I/O ops, {:.6} gCO\u{2082} ({:.0} gCO\u{2082}/kWh, source: {source_str}{estimation_suffix})",
+                    region.io_ops, region.co2_gco2, region.grid_intensity_gco2_kwh,
                 );
             }
         }
@@ -493,12 +498,16 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
             let co2_str = offender
                 .co2_grams
                 .map_or(String::new(), |co2| format!(", {co2:.6} gCO\u{2082}"));
+            // `endpoint` and `service` come from span attributes (OTLP
+            // sender controls them) or from a `--input` JSON baseline;
+            // sanitize before printing for the same reason as `region`
+            // above.
+            let endpoint = sanitize_for_terminal(&offender.endpoint);
+            let service = sanitize_for_terminal(&offender.service);
             println!(
-                "    - {}: IIS {:.1} {level_color}({}){reset} (service: {}){co2_str}",
-                offender.endpoint,
+                "    - {endpoint}: IIS {:.1} {level_color}({}){reset} (service: {service}){co2_str}",
                 offender.io_intensity_score,
                 level.short_label(),
-                offender.service,
             );
         }
     }

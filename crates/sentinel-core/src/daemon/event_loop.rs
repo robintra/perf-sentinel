@@ -463,8 +463,10 @@ async fn process_traces(
 
     // Publish the per-batch summary on the shared cell so live daemon
     // snapshots served by `/api/export/report` carry the latest CO2
-    // picture. `scoring_config` is patched on the read side from the
-    // daemon's startup config, the cell holds the version without it.
+    // picture. `scoring_config` is also propagated here via
+    // `score_green` (it travels through `CarbonContext`), but the
+    // handler unconditionally re-applies it from `state.scoring_config`
+    // so the audit-trail metadata cannot drift from the startup config.
     ctx.green_summary_cell
         .write()
         .await

@@ -1637,6 +1637,11 @@ impl Config {
     /// See design doc 07 > "Comfort-zone warnings" for the band table
     /// and the rationale.
     fn warn_unusual_daemon_limits(&self) {
+        // The 16 MiB ceiling intentionally matches the `max_payload_size`
+        // default value (see line 205). Default-at-ceiling is inclusive
+        // (`..=`), so the canonical config emits no warning. A future
+        // bump of the default must also raise this ceiling, otherwise
+        // every fresh daemon would log a startup warning.
         warn_outside_comfort_zone(
             "max_payload_size",
             &self.max_payload_size,

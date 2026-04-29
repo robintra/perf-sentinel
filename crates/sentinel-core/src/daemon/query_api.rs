@@ -205,12 +205,21 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 ///     | perf-sentinel report --input - --output report.html
 /// ```
 ///
-/// `green_summary` is refreshed by the event loop after each batch
-/// (regions, top offenders, avoidable I/O ratio, CO2 numbers), so the
-/// snapshot carries a live CO2 picture. The HTML dashboard's `GreenOps`
-/// tab renders only when `green_summary.co2` is non-null, daemons
-/// configured with Electricity Maps surface the chip banner naturally
-/// once at least one batch has been processed.
+/// `green_summary` is refreshed by the event loop after each completed
+/// batch (regions, top offenders, avoidable I/O ratio, CO2 numbers).
+/// **Per-batch view:** every numeric field under `green_summary`
+/// (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`,
+/// `regions`, `top_offenders`, `transport_gco2`) reflects the most
+/// recent batch only, not a daemon-lifetime aggregate. The
+/// `analysis.events_processed` and `analysis.traces_analyzed` fields
+/// are lifetime counters for context. Operators wanting cumulative
+/// `GreenOps` numbers should scrape `/metrics` (Prometheus counters
+/// `total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`).
+///
+/// The HTML dashboard's `GreenOps` tab renders only when
+/// `green_summary.co2` is non-null, daemons configured with Electricity
+/// Maps surface the chip banner naturally once at least one batch has
+/// been processed.
 ///
 /// `analysis.duration_ms` is `0`, not daemon uptime. The batch-pipeline
 /// value is the cost of a single analysis run, a daemon snapshot has
@@ -220,14 +229,21 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 /// `{"error": "daemon has not yet processed any events"}` to distinguish
 /// "no events yet" from "events exist, zero findings" (the latter
 /// returns `200` with an empty findings array, which is a valid
-/// Report). The `export_report_requests_total` counter is bumped
-/// before the cold-start check, so 503 responses are counted too
-/// (consistent with HTTP access-log conventions).
+/// Report). The guard checks both `events_processed_total > 0` AND
+/// `traces_analyzed_total > 0` so the snapshot is meaningful: events
+/// can be ingested seconds before the first eviction tick fires
+/// (`trace_ttl_ms / 2`, default 15s), gating only on
+/// `events_processed > 0` would expose a window where the cell is
+/// still `disabled(0)`. The `export_report_requests_total` counter is
+/// bumped before the cold-start check, so 503 responses are counted
+/// too (consistent with HTTP access-log conventions).
 ///
 /// Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT`
-/// (1000 + 1000 entries), worst-case body ~3 MB. Acceptable on a
-/// loopback bind (the documented posture), review the cap if the
-/// daemon is ever bound to a non-loopback interface.
+/// (1000 + 1000 entries) plus a bounded `green_summary` (`top_offenders`
+/// capped, `regions` limited by cloud-region cardinality), worst-case
+/// body ~3.5 MB. Acceptable on a loopback bind (the documented
+/// posture), review the cap if the daemon is ever bound to a
+/// non-loopback interface.
 ///
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
@@ -249,7 +265,12 @@ async fn handle_export_report(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let traces_analyzed = state.metrics.traces_analyzed_total.get() as u64;
 
-    if events_processed == 0 {
+    // Guard against the cold-start window: events can be ingested
+    // (counter bumped in `ingest_event_batch`) seconds before the first
+    // batch evicts and writes the green_summary cell. Gating on both
+    // counters keeps the snapshot self-consistent (the cell holds at
+    // least one real batch result by the time `traces_analyzed > 0`).
+    if events_processed == 0 || traces_analyzed == 0 {
         return Err((
             StatusCode::SERVICE_UNAVAILABLE,
             Json(serde_json::json!({
@@ -770,6 +791,25 @@ mod tests {
             .unwrap();
         let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
         assert_eq!(report.green_summary.scoring_config, Some(scoring));
+    }
+
+    #[tokio::test]
+    async fn handle_export_report_returns_503_when_events_in_but_no_batch_yet() {
+        // Cold-start tail: events have been ingested
+        // (`events_processed_total > 0`) but the first eviction tick
+        // has not fired, so `traces_analyzed_total == 0` and the
+        // green_summary cell is still `disabled(0)`. The handler must
+        // 503 to avoid serving a meaningless snapshot.
+        let state = make_state();
+        state.metrics.events_processed_total.inc_by(5.0);
+        // traces_analyzed_total left at 0
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[tokio::test]
