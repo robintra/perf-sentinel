@@ -200,11 +200,21 @@ function writeDemoEvents(source: string, dest: string) {
   writeFileSync(dest, JSON.stringify(events));
 }
 
-// Splice synthetic correlations into the dashboard's embedded JSON
-// payload. The script tag holds a JSON blob where every `</` is
-// escaped to `<\/` (inject() in html.rs does this to block the
-// script-tag-escape family of XSS defects); we unescape, mutate,
-// and re-escape with the same rule.
+// Splice synthetic correlations + Electricity Maps scoring_config
+// into the dashboard's embedded JSON payload. The batch pipeline
+// emits neither (correlations need the daemon's rolling window,
+// scoring_config needs a configured `[green.electricity_maps]`
+// block with an auth token), so the demo patches them in
+// post-render to surface the Correlations tab and the GreenOps
+// scoring config bandeau in one dashboard. The script tag holds a
+// JSON blob where every `</` is escaped to `<\/` (inject() in
+// html.rs does this to block the script-tag-escape family of XSS
+// defects), we unescape, mutate, and re-escape with the same rule.
+//
+// scoring_config is built with `direct` + `5_minutes` opt-ins
+// (Scope 2 audit-grade profile) so the bandeau renders one v4
+// neutral chip plus two accent chips, exercising every chip
+// modifier in a single still.
 function injectDemoCorrelations(htmlPath: string) {
   const START = '<script id="report-data" type="application/json">';
   const END = "</script>";
@@ -222,6 +232,12 @@ function injectDemoCorrelations(htmlPath: string) {
   const payload = JSON.parse(escaped.replace(/<\\\//g, "</"));
   payload.report = payload.report ?? {};
   payload.report.correlations = DEMO_CORRELATIONS;
+  payload.report.green_summary = payload.report.green_summary ?? {};
+  payload.report.green_summary.scoring_config = {
+    api_version: "v4",
+    emission_factor_type: "direct",
+    temporal_granularity: "5_minutes"
+  };
   const newEscaped = JSON.stringify(payload).replace(/<\//g, "<\\/");
   writeFileSync(htmlPath, html.slice(0, jsonStart) + newEscaped + html.slice(endIdx));
 }
