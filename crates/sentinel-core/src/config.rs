@@ -202,7 +202,7 @@ impl Default for Config {
             trace_ttl_ms: 30_000,
             sampling_rate: 1.0,
             max_events_per_trace: 1_000,
-            max_payload_size: 1_048_576, // 1 MB
+            max_payload_size: 16 * 1024 * 1024, // 16 MiB, comfort-zone ceiling (warn_unusual_daemon_limits)
             daemon_environment: DaemonEnvironment::Staging,
             tls_cert_path: None,
             tls_key_path: None,
@@ -1823,7 +1823,7 @@ mod tests {
     #[test]
     fn default_config_has_safe_defaults() {
         let config = Config::default();
-        assert_eq!(config.max_payload_size, 1_048_576);
+        assert_eq!(config.max_payload_size, 16 * 1024 * 1024);
         assert_eq!(config.listen_addr, "127.0.0.1");
         assert_eq!(config.n_plus_one_threshold, 5);
         assert_eq!(config.window_duration_ms, 500);
@@ -1835,14 +1835,14 @@ mod tests {
     #[test]
     fn parse_empty_toml_gives_defaults() {
         let config = load_from_str("").unwrap();
-        assert_eq!(config.max_payload_size, 1_048_576);
+        assert_eq!(config.max_payload_size, 16 * 1024 * 1024);
     }
 
     #[test]
     fn parse_partial_toml() {
         let config = load_from_str("n_plus_one_threshold = 10").unwrap();
         assert_eq!(config.n_plus_one_threshold, 10);
-        assert_eq!(config.max_payload_size, 1_048_576); // default preserved
+        assert_eq!(config.max_payload_size, 16 * 1024 * 1024); // default preserved
     }
 
     #[test]

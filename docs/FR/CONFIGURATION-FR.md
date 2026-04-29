@@ -301,7 +301,7 @@ Chemin vers un fichier TOML de calibration généré par `perf-sentinel calibrat
 calibration_file = ".perf-sentinel-calibration.toml"
 ```
 
-**Limites de taille d'entrée pour `perf-sentinel calibrate`.** Les deux entrées sont plafonnées pour éviter une consommation mémoire incontrôlée : le fichier `--traces` utilise `config.max_payload_size` (défaut 1 MiB, identique à `analyze`) et le CSV `--measured-energy` est plafonné à 64 MiB. Calibrate termine avec une erreur claire si l'un des fichiers dépasse sa limite. 64 MiB est généreux pour des milliers d'échantillons RAPL par minute ; si vous avez besoin de plus, augmentez `max_payload_size` et ouvrez une issue décrivant la charge de travail.
+**Limites de taille d'entrée pour `perf-sentinel calibrate`.** Les deux entrées sont plafonnées pour éviter une consommation mémoire incontrôlée : le fichier `--traces` utilise `config.max_payload_size` (défaut 16 MiB depuis 0.5.13, identique à `analyze`) et le CSV `--measured-energy` est plafonné à 64 MiB. Calibrate termine avec une erreur claire si l'un des fichiers dépasse sa limite. 64 MiB est généreux pour des milliers d'échantillons RAPL par minute, si vous avez besoin de plus, augmentez `max_payload_size` et ouvrez une issue décrivant la charge de travail.
 
 #### `[tempo]` (optionnel)
 
@@ -326,7 +326,7 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `trace_ttl_ms`          | entier   | `30000`                     | Durée de vie des traces en millisecondes. Les traces plus anciennes sont évincées et analysées. Plage : 100 à 3 600 000                                                                                                                                                                                                                                                      |
 | `sampling_rate`         | flottant | `1.0`                       | Fraction des traces à analyser (0.0 à 1.0). Réduire en dessous de 1.0 pour diminuer la charge dans les environnements à fort trafic                                                                                                                                                                                                                                          |
 | `max_events_per_trace`  | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire). Les événements les plus anciens sont supprimés en cas de dépassement. Plage : 1 à 100 000                                                                                                                                                                                                                 |
-| `max_payload_size`      | entier   | `1048576`                   | Taille maximale en octets d'un payload JSON unique (défaut : 1 Mo). Plage : 1 024 à 104 857 600 (100 Mo)                                                                                                                                                                                                                                                                     |
+| `max_payload_size`      | entier   | `16777216`                  | Taille maximale en octets d'un payload JSON unique (défaut : 16 Mio depuis 0.5.13, monté depuis 1 Mio parce qu'un snapshot daemon de `/api/export/report` dépasse déjà 1 Mio sur un cluster modeste). Plage : 1 024 à 104 857 600 (100 Mo). Le défaut sit à la borne supérieure inclusive de la zone de confort par design                                                  |
 | `environment`           | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs en aval (perf-lint planifié). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config                                 |
 | `tls_cert_path`         | chaîne   | *(absent)*                  | Chemin vers une chaîne de certificats TLS au format PEM pour les récepteurs OTLP. Quand renseigné avec `tls_key_path`, les listeners gRPC et HTTP utilisent TLS. Quand absent, les listeners utilisent TCP en clair. Chaque listener TLS borne à 128 les handshakes en vol simultanés (non configurable) et coupe les pairs qui ne terminent pas le handshake en 10 secondes |
 | `tls_key_path`          | chaîne   | *(absent)*                  | Chemin vers la clé privée TLS au format PEM. Doit être renseigné avec `tls_cert_path` (les deux ou aucun). Sous Unix, le daemon avertit si le fichier de clé est lisible par le groupe ou les autres                                                                                                                                                                         |
@@ -411,7 +411,7 @@ max_active_traces = 10000
 trace_ttl_ms = 30000
 sampling_rate = 1.0
 max_events_per_trace = 1000
-max_payload_size = 1048576
+max_payload_size = 16777216
 # Optionnel : activer le TLS sur les listeners gRPC et HTTP.
 # Les deux champs doivent être renseignés ensemble (ou les deux absents pour TCP en clair).
 # tls_cert_path = "/etc/tls/server-cert.pem"

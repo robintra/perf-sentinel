@@ -49,10 +49,17 @@ pub struct QueryApiState {
     pub metrics: Arc<MetricsState>,
     /// Active Electricity Maps scoring configuration, copied from the
     /// loaded `Config` at daemon startup. Surfaces on
-    /// `/api/export/report` even though that snapshot does not run a
-    /// live scoring pass, so the audit chip stays visible whenever
+    /// `/api/export/report` so the audit chip stays visible whenever
     /// Electricity Maps is configured. `None` otherwise.
     pub scoring_config: Option<crate::score::carbon::ScoringConfig>,
+    /// Live `GreenSummary` refreshed by the event loop after each
+    /// batch. `/api/export/report` clones this cell so the snapshot
+    /// reflects the latest CO2 picture (regions, top offenders,
+    /// avoidable I/O ratio) instead of `GreenSummary::disabled(0)`.
+    /// Initialized to `disabled(0)` at daemon startup. The cold-start
+    /// guard (`events_processed == 0 -> 503`) ensures clients never
+    /// observe the initial value.
+    pub green_summary: Arc<tokio::sync::RwLock<GreenSummary>>,
 }
 
 /// Build the query API router.
@@ -198,18 +205,16 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 ///     | perf-sentinel report --input - --output report.html
 /// ```
 ///
-/// Two fields have different semantics than the batch-pipeline output
-/// and are emitted as zero with a documented rationale, consumers
-/// that dashboard the export should be aware:
+/// `green_summary` is refreshed by the event loop after each batch
+/// (regions, top offenders, avoidable I/O ratio, CO2 numbers), so the
+/// snapshot carries a live CO2 picture. The HTML dashboard's `GreenOps`
+/// tab renders only when `green_summary.co2` is non-null, daemons
+/// configured with Electricity Maps surface the chip banner naturally
+/// once at least one batch has been processed.
 ///
-/// - `analysis.duration_ms` is `0`, not daemon uptime. The
-///   batch-pipeline value is the cost of a single analysis run, a
-///   daemon snapshot has no such single run to time.
-/// - `green_summary.total_io_ops` is `0`, not the cumulative event
-///   count. The batch-pipeline value counts only I/O spans (SQL +
-///   HTTP out), the daemon does not cache that breakdown on a
-///   queryable timeline. Callers who need scoring run `analyze` on
-///   the source trace file.
+/// `analysis.duration_ms` is `0`, not daemon uptime. The batch-pipeline
+/// value is the cost of a single analysis run, a daemon snapshot has
+/// no such single run to time.
 ///
 /// Cold start returns `503 Service Unavailable` with
 /// `{"error": "daemon has not yet processed any events"}` to distinguish
@@ -282,23 +287,12 @@ async fn handle_export_report(
         vec![]
     };
 
-    // The daemon does not maintain a live GreenSummary or per-endpoint
-    // I/O counter (those are computed per batch in the event loop and
-    // emitted as Prometheus metrics, not kept in a queryable snapshot).
-    // The export endpoint is a structural view, not a recomputed
-    // analysis, emit GreenSummary::disabled(0) and an empty quality
-    // gate here. `disabled(0)` leaves `total_io_ops = 0` rather than
-    // gluing the cumulative event count in, which would mix span-type
-    // buckets and mislead the HTML dashboard. Callers who want scoring
-    // run `analyze` on the trace file.
-    //
-    // `scoring_config` is the exception: even though scoring is not
-    // recomputed here, the Electricity Maps client config is known at
-    // daemon startup, so the audit chip surfaces on this snapshot too.
-    // Otherwise an operator pulling a live snapshot while EM is fully
-    // configured would see `scoring_config: null` and mistakenly
-    // conclude EM is not configured.
-    let mut green_summary = GreenSummary::disabled(0);
+    // Read the live `GreenSummary` populated by the event loop after
+    // each batch. `scoring_config` is re-applied on top: the event
+    // loop emits the per-batch summary without the audit-trail
+    // metadata, the handler stitches it back from the daemon's
+    // startup config (same pattern as 0.5.12 for the chip banner).
+    let mut green_summary = state.green_summary.read().await.clone();
     green_summary
         .scoring_config
         .clone_from(&state.scoring_config);
@@ -383,6 +377,7 @@ mod tests {
             correlator,
             metrics: Arc::new(MetricsState::new()),
             scoring_config: None,
+            green_summary: Arc::new(tokio::sync::RwLock::new(GreenSummary::disabled(0))),
         })
     }
 
@@ -728,8 +723,10 @@ mod tests {
         // handler doc), not the daemon uptime that an
         // `as_millis()` would produce.
         assert_eq!(report.analysis.duration_ms, 0);
-        // total_io_ops is 0 because the daemon does not maintain a
-        // live count of I/O-only spans (see handler doc).
+        // The shared green_summary cell is initialized to disabled(0)
+        // and this test does not seed it, so total_io_ops stays at 0.
+        // The live-write path is exercised by
+        // `handle_export_report_serves_live_green_summary_after_batch`.
         assert_eq!(report.green_summary.total_io_ops, 0);
         assert_eq!(report.findings.len(), 1);
         assert_eq!(report.correlations.len(), 1);
@@ -776,6 +773,39 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn handle_export_report_serves_live_green_summary_after_batch() {
+        // The cell is mutated by the event loop after each batch. The
+        // handler must clone that cell instead of emitting
+        // GreenSummary::disabled(0), so live daemon snapshots carry
+        // the latest CO2 picture.
+        let state = make_state();
+        state.metrics.events_processed_total.inc_by(10.0);
+        state.metrics.traces_analyzed_total.inc_by(1.0);
+
+        {
+            let mut guard = state.green_summary.write().await;
+            guard.total_io_ops = 42;
+            guard.avoidable_io_ops = 7;
+            guard.io_waste_ratio = 0.166;
+        }
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 8 * 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+        assert_eq!(report.green_summary.total_io_ops, 42);
+        assert_eq!(report.green_summary.avoidable_io_ops, 7);
+        assert!((report.green_summary.io_waste_ratio - 0.166).abs() < 1e-9);
+    }
+
+    #[tokio::test]
     async fn handle_export_report_omits_scoring_config_when_emaps_not_configured() {
         // Symmetric guard: when EM is not configured at daemon
         // startup, the snapshot must not advertise a methodology.
@@ -810,6 +840,7 @@ mod tests {
                 correlator: self.correlator.clone(),
                 metrics: Arc::clone(&self.metrics),
                 scoring_config: self.scoring_config.clone(),
+                green_summary: Arc::clone(&self.green_summary),
             }
         }
     }

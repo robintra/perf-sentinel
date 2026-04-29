@@ -17,12 +17,13 @@ mod tls;
 
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 
 use crate::config::Config;
 use crate::correlate::window::{TraceWindow, WindowConfig};
 use crate::detect::DetectConfig;
 use crate::event::SpanEvent;
+use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 
 use event_loop::{
@@ -121,6 +122,11 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         config.max_retained_findings,
     ));
     let correlator = setup_correlator(&config);
+    // Shared cell mutated by the event loop after each batch and read
+    // by the /api/export/report handler. Initialized to disabled(0):
+    // the cold-start guard (`events_processed == 0 -> 503`) ensures
+    // clients never observe the initial value.
+    let green_summary_cell = Arc::new(RwLock::new(GreenSummary::disabled(0)));
 
     let (grpc_handle, http_handle, json_socket_handle) = spawn_listeners(
         &config,
@@ -129,6 +135,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         findings_store.clone(),
         correlator.clone(),
         metrics.clone(),
+        green_summary_cell.clone(),
     )
     .await?;
 
@@ -175,6 +182,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             evict_ms: config.trace_ttl_ms / 2,
             confidence: config.confidence(),
         },
+        &green_summary_cell,
     )
     .await;
 

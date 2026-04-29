@@ -1937,7 +1937,7 @@ mod tests {
         // No .perf-sentinel.toml in the test working directory
         let config = load_config(None);
         assert_eq!(config.n_plus_one_threshold, 5);
-        assert_eq!(config.max_payload_size, 1_048_576);
+        assert_eq!(config.max_payload_size, 16 * 1024 * 1024);
     }
 
     #[test]

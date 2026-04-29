@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::Duration;
 
 use crate::config::Config;
@@ -14,6 +14,7 @@ use crate::correlate::window::TraceWindow;
 use crate::detect;
 use crate::detect::DetectConfig;
 use crate::event::SpanEvent;
+use crate::report::GreenSummary;
 use crate::report::metrics::MetricsState;
 use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
@@ -35,6 +36,7 @@ pub(super) async fn spawn_listeners(
     findings_store: Arc<findings_store::FindingsStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
+    green_summary: Arc<RwLock<GreenSummary>>,
 ) -> Result<
     (
         tokio::task::JoinHandle<()>,
@@ -71,6 +73,7 @@ pub(super) async fn spawn_listeners(
         findings_store,
         correlator,
         metrics,
+        green_summary,
     );
     let http_handle = spawn_http_listener(http_listener, http_addr, tls_acceptor, http_router);
     let json_socket_handle = spawn_json_socket_listener(config, tx);
@@ -120,6 +123,7 @@ fn spawn_grpc_listener(
 
 /// Assemble the OTLP HTTP + metrics + optional query API router, with the
 /// request-timeout layer.
+#[allow(clippy::too_many_arguments)]
 fn build_http_router(
     config: &Config,
     tx: mpsc::Sender<Vec<SpanEvent>>,
@@ -127,6 +131,7 @@ fn build_http_router(
     findings_store: Arc<findings_store::FindingsStore>,
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
+    green_summary: Arc<RwLock<GreenSummary>>,
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
     // Clone the Arc unconditionally so `metrics_route` and the query
@@ -148,6 +153,7 @@ fn build_http_router(
                 .green_electricity_maps
                 .as_ref()
                 .map(score::carbon::ScoringConfig::from_electricity_maps),
+            green_summary,
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {

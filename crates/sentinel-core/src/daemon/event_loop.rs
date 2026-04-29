@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::{Duration, interval};
 
 use crate::correlate::Trace;
@@ -76,6 +76,7 @@ struct ProcessTracesCtxParts<'a> {
     confidence: Confidence,
     findings_store: &'a findings_store::FindingsStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+    green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
@@ -91,6 +92,7 @@ pub(super) async fn run_event_loop(
     energy_sources: &EnergySources<'_>,
     shutdown: ShutdownTargets<'_>,
     loop_cfg: EventLoopConfig,
+    green_summary_cell: &Arc<RwLock<GreenSummary>>,
 ) {
     let mut ticker = interval(Duration::from_millis(loop_cfg.evict_ms.max(100)));
     // Prevent burst-catchup if process_traces takes longer than the tick
@@ -111,6 +113,7 @@ pub(super) async fn run_event_loop(
         confidence: loop_cfg.confidence,
         findings_store,
         correlator,
+        green_summary_cell,
     };
 
     loop {
@@ -252,6 +255,7 @@ async fn flush_evicted(
             confidence: parts.confidence,
             findings_store: parts.findings_store,
             correlator: parts.correlator,
+            green_summary_cell: parts.green_summary_cell,
         },
     )
     .await;
@@ -420,6 +424,7 @@ struct ProcessTracesCtx<'a> {
     confidence: Confidence,
     findings_store: &'a findings_store::FindingsStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+    green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
 }
 
 /// stamps `confidence` on every finding after detection. The
@@ -455,6 +460,15 @@ async fn process_traces(
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
         (findings, GreenSummary::disabled(total_io_ops), Vec::new())
     };
+
+    // Publish the per-batch summary on the shared cell so live daemon
+    // snapshots served by `/api/export/report` carry the latest CO2
+    // picture. `scoring_config` is patched on the read side from the
+    // daemon's startup config, the cell holds the version without it.
+    ctx.green_summary_cell
+        .write()
+        .await
+        .clone_from(&green_summary);
 
     // Stamp the daemon's confidence label. Same shared helper as
     // `pipeline::analyze`, so the two paths cannot drift on the loop.
@@ -548,6 +562,7 @@ mod tests {
         metrics: &'a MetricsState,
         findings_store: &'a findings_store::FindingsStore,
         green_enabled: bool,
+        green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
     ) -> ProcessTracesCtx<'a> {
         ProcessTracesCtx {
             detect_config,
@@ -557,7 +572,12 @@ mod tests {
             confidence: Confidence::DaemonStaging,
             findings_store,
             correlator: None,
+            green_summary_cell,
         }
+    }
+
+    fn fresh_green_cell() -> Arc<RwLock<GreenSummary>> {
+        Arc::new(RwLock::new(GreenSummary::disabled(0)))
     }
 
     #[tokio::test]
@@ -566,9 +586,10 @@ mod tests {
         let ctx = empty_carbon_ctx();
         let store = findings_store::FindingsStore::new(100);
         let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
         process_traces(
             vec![],
-            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
         )
         .await;
     }
@@ -588,9 +609,10 @@ mod tests {
         let ctx = empty_carbon_ctx();
         let store = findings_store::FindingsStore::new(100);
         let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
         process_traces(
             vec![("t1".to_string(), events)],
-            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
         )
         .await;
     }
@@ -606,9 +628,10 @@ mod tests {
         let ctx = empty_carbon_ctx();
         let store = findings_store::FindingsStore::new(100);
         let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
         process_traces(
             vec![("t1".to_string(), events)],
-            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
         )
         .await;
     }
@@ -681,9 +704,10 @@ mod tests {
         let ctx = empty_carbon_ctx();
         let store = findings_store::FindingsStore::new(100);
         let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
         process_traces(
             vec![("t1".to_string(), events)],
-            test_ctx(&detect_config, &ctx, &metrics, &store, true),
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
         )
         .await;
 
@@ -706,15 +730,43 @@ mod tests {
         let ctx = empty_carbon_ctx();
         let store = findings_store::FindingsStore::new(100);
         let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
         process_traces(
             vec![("t1".to_string(), events)],
-            test_ctx(&detect_config, &ctx, &metrics, &store, false),
+            test_ctx(&detect_config, &ctx, &metrics, &store, false, &cell),
         )
         .await;
         // avoidable_io_ops counter should stay at 0 when green is disabled
         assert!((metrics.avoidable_io_ops.get() - 0.0).abs() < f64::EPSILON);
         // but total_io_ops should still be counted
         assert!(metrics.total_io_ops.get() > 0.0);
+    }
+
+    #[tokio::test]
+    async fn process_traces_publishes_green_summary_to_cell() {
+        // Asserts the contract behind /api/export/report: each batch
+        // overwrites the shared cell so live snapshots pick up the
+        // latest CO2 picture.
+        let events: Vec<_> = (1..=6)
+            .map(|i| {
+                make_normalized(
+                    "t1",
+                    &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                )
+            })
+            .collect();
+        let metrics = MetricsState::new();
+        let ctx = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        process_traces(
+            vec![("t1".to_string(), events)],
+            test_ctx(&detect_config, &ctx, &metrics, &store, true, &cell),
+        )
+        .await;
+        let snapshot = cell.read().await.clone();
+        assert!(snapshot.total_io_ops > 0, "cell should reflect the batch");
     }
 
     #[test]

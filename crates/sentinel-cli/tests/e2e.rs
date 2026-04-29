@@ -137,13 +137,24 @@ fn cli_demo_piped_no_ansi() {
 #[test]
 fn cli_analyze_rejects_oversized_file() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let config_path = dir.path().join("perf-sentinel.toml");
+    // Pin a small payload limit via config so the test stays cheap.
+    // Default bumped to 16 MiB in 0.5.13, writing a 16 MiB file just
+    // to trip the guard would balloon the test fixture.
+    fs::write(&config_path, "[daemon]\nmax_payload_size = 1048576\n")
+        .expect("failed to write config");
     let file_path = dir.path().join("huge.json");
-    // Create a file slightly larger than the 1 MB default limit
     let data = vec![b'x'; 1_048_576 + 1];
     fs::write(&file_path, &data).expect("failed to write oversized file");
 
     let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .args(["analyze", "--input", file_path.to_str().unwrap()])
+        .args([
+            "analyze",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--input",
+            file_path.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute perf-sentinel");
 

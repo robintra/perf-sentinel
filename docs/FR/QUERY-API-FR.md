@@ -378,7 +378,7 @@ curl -sS "http://127.0.0.1:4318/api/correlations"
 
 Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec la même forme que `perf-sentinel analyze --format json`. Ferme la boucle entre le daemon live et le dashboard HTML `perf-sentinel report` post-mortem : le rapport HTML peut ingérer un snapshot daemon via HTTP par simple composition shell.
 
-La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le handler ne recalcule ni le green scoring ni la quality gate, il émet un snapshot structurel des findings et des corrélations cross-trace. Les clients qui veulent du scoring green relancent `analyze` sur le fichier de traces source.
+La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config), donc le snapshot porte une photo CO2 vivante. Le bandeau de chips et le tab GreenOps du dashboard HTML apparaissent naturellement sur les daemons configurés avec Electricity Maps. La quality gate n'est pas recalculée sur le chemin snapshot. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
 
 **Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `503 Service Unavailable` avec le corps `{"error": "daemon has not yet processed any events"}`. Ça distingue "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` avec un tableau `findings` vide, qui est un Report valide).
 
