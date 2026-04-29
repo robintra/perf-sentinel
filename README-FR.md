@@ -42,6 +42,172 @@ perf-sentinel analyze --input traces.json
 
 ![demo](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
+## Démarrage rapide
+
+### Installation depuis crates.io
+
+```bash
+cargo install perf-sentinel
+```
+
+### Télécharger un binaire précompilé
+
+Des binaires pour Linux (amd64, arm64), macOS (arm64) et Windows (amd64) sont disponibles sur la page [GitHub Releases](https://github.com/robintra/perf-sentinel/releases). Les binaires Linux sont compilés contre musl en liaison statique totale : ils tournent sur n'importe quelle distribution (Debian, Ubuntu, Alpine, RHEL, etc.) quelle que soit la version de glibc, et fonctionnent dans une image `FROM scratch`. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2.
+
+```bash
+# Exemple : Linux amd64
+curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
+chmod +x perf-sentinel-linux-amd64
+sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
+```
+
+### Lancer avec Docker
+
+```bash
+docker run --rm -p 4317:4317 -p 4318:4318 \
+  ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0
+```
+
+Par défaut, le daemon écoute sur `127.0.0.1` pour des raisons de sécurité. Dans un conteneur cette adresse est injoignable depuis l'hôte, donc le quickstart ci-dessus force le bind avec `--listen-address 0.0.0.0`. Le daemon affiche un avertissement non-loopback au démarrage, c'est attendu. Pour un vrai déploiement, placez un reverse proxy (ou une NetworkPolicy sur Kubernetes) devant, ou montez [`examples/perf-sentinel-docker.toml`](examples/perf-sentinel-docker.toml) pour la topologie compose complète.
+
+Pour Kubernetes, un chart Helm est disponible sous [`charts/perf-sentinel/`](charts/perf-sentinel/). Voir [`docs/FR/HELM-DEPLOYMENT-FR.md`](docs/FR/HELM-DEPLOYMENT-FR.md).
+
+### Démo rapide
+
+```bash
+perf-sentinel demo
+```
+
+### Analyse batch (CI)
+
+```bash
+perf-sentinel analyze --input traces.json --ci
+```
+
+### Expliquer une trace
+
+```bash
+perf-sentinel explain --input traces.json --trace-id abc123
+```
+
+### Export SARIF (GitHub/GitLab code scanning)
+
+```bash
+perf-sentinel analyze --input traces.json --format sarif
+```
+
+### Import depuis Jaeger ou Zipkin
+
+```bash
+# Export Jaeger JSON (auto-détecté)
+perf-sentinel analyze --input jaeger-export.json
+
+# Zipkin JSON v2 (auto-détecté)
+perf-sentinel analyze --input zipkin-traces.json
+```
+
+### Analyse pg_stat_statements
+
+```bash
+# Analyser un export pg_stat_statements pour détecter les requêtes coûteuses
+perf-sentinel pg-stat --input pg_stat.csv
+
+# Référence croisée avec les findings de traces
+perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
+
+# Scraper les métriques pg_stat_statements depuis un endpoint Prometheus postgres_exporter
+perf-sentinel pg-stat --prometheus http://prometheus:9090
+```
+
+### Inspection interactive (TUI)
+
+```bash
+perf-sentinel inspect --input traces.json
+```
+
+### Ingestion Tempo
+
+```bash
+# Analyser une trace depuis Grafana Tempo
+perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
+
+# Rechercher et analyser les traces par service
+perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
+```
+
+### Calibration des coefficients
+
+```bash
+# Ajuster les coefficients énergie avec des mesures réelles
+perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
+```
+
+### Dashboard HTML
+
+```bash
+# Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur
+perf-sentinel report --input traces.json --output report.html
+
+# Embarquer un onglet de ranking pg_stat_statements
+perf-sentinel report --input traces.json --pg-stat pg_stat.csv --output report.html
+
+# Ou scrape live depuis postgres_exporter Prometheus
+perf-sentinel report --input traces.json --pg-stat-prometheus http://prometheus:9090 --output report.html
+
+# Comparer à une baseline pour review de régression PR
+perf-sentinel report --input after.json --before baseline.json --output report.html
+
+# Piper un snapshot daemon live vers le dashboard
+curl -s http://daemon:4318/api/export/report | perf-sentinel report --input - --output report.html
+```
+
+Le dashboard fonctionne offline (`file://`), zéro ressource externe, embarque uniquement les traces avec findings pour rester sous ~5 Mo. Clavier : `j`/`k`/`enter`/`esc` sur la liste Findings, `/` pour la recherche par onglet, `?` pour la cheatsheet complète, `g f`/`g e`/`g p`/`g d`/`g c`/`g r` pour switcher d'onglet style vim. Bouton Export CSV sur les onglets Findings, pg_stat, Diff et Correlations. Le fragment d'URL encode l'onglet actif, la recherche et les puces de filtre pour qu'un lien partagé restaure exactement la même vue.
+
+### Diff de régression PR
+
+```bash
+# Comparer deux analyses, fait remonter nouveaux findings, résolutions et changements de sévérité
+perf-sentinel diff --before base.json --after head.json
+
+# Sortie machine pour CI
+perf-sentinel diff --before base.json --after head.json --format json
+perf-sentinel diff --before base.json --after head.json --format sarif
+```
+
+L'identité pour le matching est `(finding_type, service, source_endpoint, pattern.template)`. Buckets de sortie : `new_findings`, `resolved_findings`, `severity_changes`, `endpoint_metric_deltas`. À utiliser dans un job PR pour attraper les régressions avant qu'elles atterrissent sur la branche principale.
+
+### Interroger un daemon en cours d'exécution
+
+Toutes les sous-actions affichent une sortie colorée par défaut. Utilisez `--format json` pour le scripting.
+
+```bash
+# Lister les findings récents (sortie colorée par défaut)
+perf-sentinel query findings
+perf-sentinel query findings --service order-svc --severity critical
+
+# Expliquer un arbre de trace avec findings en ligne
+perf-sentinel query explain --trace-id abc123
+
+# TUI interactif avec les données live du daemon
+perf-sentinel query inspect
+
+# Afficher les corrélations cross-trace
+perf-sentinel query correlations
+
+# Vérifier l'état du daemon
+perf-sentinel query status
+
+# Sortie JSON pour le scripting
+perf-sentinel query findings --format json
+perf-sentinel query status --format json
+```
+
+### Mode streaming (daemon)
+
+```bash
+perf-sentinel watch
+```
+
 ## GreenOps : scoring éco-conception intégré
 
 Chaque finding inclut un **I/O Intensity Score (IIS)** : le nombre d'opérations I/O générées par requête utilisateur pour un endpoint donné. Réduire les I/O inutiles (N+1, appels redondants) améliore les temps de réponse *et* réduit la consommation énergétique : ce ne sont pas des objectifs concurrents.
@@ -310,172 +476,6 @@ La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côt�
 **Contrat de stabilité JSON :** les valeurs d'enum ci-dessus (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions. Les seuils numériques qui les déclenchent sont versionnés avec le binaire et peuvent évoluer. Les consommateurs qui veulent une classification indépendante de la version doivent lire les champs bruts `io_intensity_score` et `io_waste_ratio` et appliquer leurs propres bandes.
 
 Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type de détecteur), voir [`docs/FR/design/04-DETECTION-FR.md`](docs/FR/design/04-DETECTION-FR.md). Pour le rationale complet des bandes d'interprétation, voir [`docs/FR/LIMITATIONS-FR.md`](docs/FR/LIMITATIONS-FR.md#interprétation-des-scores).
-
-## Démarrage rapide
-
-### Installation depuis crates.io
-
-```bash
-cargo install perf-sentinel
-```
-
-### Télécharger un binaire précompilé
-
-Des binaires pour Linux (amd64, arm64), macOS (arm64) et Windows (amd64) sont disponibles sur la page [GitHub Releases](https://github.com/robintra/perf-sentinel/releases). Les binaires Linux sont compilés contre musl en liaison statique totale : ils tournent sur n'importe quelle distribution (Debian, Ubuntu, Alpine, RHEL, etc.) quelle que soit la version de glibc, et fonctionnent dans une image `FROM scratch`. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2.
-
-```bash
-# Exemple : Linux amd64
-curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
-chmod +x perf-sentinel-linux-amd64
-sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
-```
-
-### Lancer avec Docker
-
-```bash
-docker run --rm -p 4317:4317 -p 4318:4318 \
-  ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0
-```
-
-Par défaut, le daemon écoute sur `127.0.0.1` pour des raisons de sécurité. Dans un conteneur cette adresse est injoignable depuis l'hôte, donc le quickstart ci-dessus force le bind avec `--listen-address 0.0.0.0`. Le daemon affiche un avertissement non-loopback au démarrage, c'est attendu. Pour un vrai déploiement, placez un reverse proxy (ou une NetworkPolicy sur Kubernetes) devant, ou montez [`examples/perf-sentinel-docker.toml`](examples/perf-sentinel-docker.toml) pour la topologie compose complète.
-
-Pour Kubernetes, un chart Helm est disponible sous [`charts/perf-sentinel/`](charts/perf-sentinel/). Voir [`docs/FR/HELM-DEPLOYMENT-FR.md`](docs/FR/HELM-DEPLOYMENT-FR.md).
-
-### Démo rapide
-
-```bash
-perf-sentinel demo
-```
-
-### Analyse batch (CI)
-
-```bash
-perf-sentinel analyze --input traces.json --ci
-```
-
-### Expliquer une trace
-
-```bash
-perf-sentinel explain --input traces.json --trace-id abc123
-```
-
-### Export SARIF (GitHub/GitLab code scanning)
-
-```bash
-perf-sentinel analyze --input traces.json --format sarif
-```
-
-### Import depuis Jaeger ou Zipkin
-
-```bash
-# Export Jaeger JSON (auto-détecté)
-perf-sentinel analyze --input jaeger-export.json
-
-# Zipkin JSON v2 (auto-détecté)
-perf-sentinel analyze --input zipkin-traces.json
-```
-
-### Analyse pg_stat_statements
-
-```bash
-# Analyser un export pg_stat_statements pour détecter les requêtes coûteuses
-perf-sentinel pg-stat --input pg_stat.csv
-
-# Référence croisée avec les findings de traces
-perf-sentinel pg-stat --input pg_stat.csv --traces traces.json
-
-# Scraper les métriques pg_stat_statements depuis un endpoint Prometheus postgres_exporter
-perf-sentinel pg-stat --prometheus http://prometheus:9090
-```
-
-### Inspection interactive (TUI)
-
-```bash
-perf-sentinel inspect --input traces.json
-```
-
-### Ingestion Tempo
-
-```bash
-# Analyser une trace depuis Grafana Tempo
-perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
-
-# Rechercher et analyser les traces par service
-perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
-```
-
-### Calibration des coefficients
-
-```bash
-# Ajuster les coefficients énergie avec des mesures réelles
-perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv --output calibration.toml
-```
-
-### Dashboard HTML
-
-```bash
-# Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur
-perf-sentinel report --input traces.json --output report.html
-
-# Embarquer un onglet de ranking pg_stat_statements
-perf-sentinel report --input traces.json --pg-stat pg_stat.csv --output report.html
-
-# Ou scrape live depuis postgres_exporter Prometheus
-perf-sentinel report --input traces.json --pg-stat-prometheus http://prometheus:9090 --output report.html
-
-# Comparer à une baseline pour review de régression PR
-perf-sentinel report --input after.json --before baseline.json --output report.html
-
-# Piper un snapshot daemon live vers le dashboard
-curl -s http://daemon:4318/api/export/report | perf-sentinel report --input - --output report.html
-```
-
-Le dashboard fonctionne offline (`file://`), zéro ressource externe, embarque uniquement les traces avec findings pour rester sous ~5 Mo. Clavier : `j`/`k`/`enter`/`esc` sur la liste Findings, `/` pour la recherche par onglet, `?` pour la cheatsheet complète, `g f`/`g e`/`g p`/`g d`/`g c`/`g r` pour switcher d'onglet style vim. Bouton Export CSV sur les onglets Findings, pg_stat, Diff et Correlations. Le fragment d'URL encode l'onglet actif, la recherche et les puces de filtre pour qu'un lien partagé restaure exactement la même vue.
-
-### Diff de régression PR
-
-```bash
-# Comparer deux analyses, fait remonter nouveaux findings, résolutions et changements de sévérité
-perf-sentinel diff --before base.json --after head.json
-
-# Sortie machine pour CI
-perf-sentinel diff --before base.json --after head.json --format json
-perf-sentinel diff --before base.json --after head.json --format sarif
-```
-
-L'identité pour le matching est `(finding_type, service, source_endpoint, pattern.template)`. Buckets de sortie : `new_findings`, `resolved_findings`, `severity_changes`, `endpoint_metric_deltas`. À utiliser dans un job PR pour attraper les régressions avant qu'elles atterrissent sur la branche principale.
-
-### Interroger un daemon en cours d'exécution
-
-Toutes les sous-actions affichent une sortie colorée par défaut. Utilisez `--format json` pour le scripting.
-
-```bash
-# Lister les findings récents (sortie colorée par défaut)
-perf-sentinel query findings
-perf-sentinel query findings --service order-svc --severity critical
-
-# Expliquer un arbre de trace avec findings en ligne
-perf-sentinel query explain --trace-id abc123
-
-# TUI interactif avec les données live du daemon
-perf-sentinel query inspect
-
-# Afficher les corrélations cross-trace
-perf-sentinel query correlations
-
-# Vérifier l'état du daemon
-perf-sentinel query status
-
-# Sortie JSON pour le scripting
-perf-sentinel query findings --format json
-perf-sentinel query status --format json
-```
-
-### Mode streaming (daemon)
-
-```bash
-perf-sentinel watch
-```
 
 ## Architecture
 
