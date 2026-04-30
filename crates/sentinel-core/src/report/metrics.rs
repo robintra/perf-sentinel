@@ -405,11 +405,9 @@ impl MetricsState {
     /// on `perf_sentinel_findings_total` and `perf_sentinel_io_waste_ratio` lines
     /// and appends the `# EOF` end-of-exposition marker required by `OpenMetrics`
     /// 1.0.0. Without `# EOF`, a Prometheus server negotiating
-    /// `application/openmetrics-text; version=1.0.0` refuses the payload.
-    ///
-    /// # Panics
-    ///
-    /// Panics if encoding fails (should not happen with valid metrics).
+    /// `application/openmetrics-text; version=1.0.0` refuses the payload. On any
+    /// internal encoder failure the function returns the body
+    /// `"# error encoding metrics\n"` rather than panicking.
     #[must_use]
     pub fn render(&self) -> String {
         let encoder = TextEncoder::new();
@@ -423,15 +421,15 @@ impl MetricsState {
         };
 
         if self.has_exemplars() {
+            // `inject_exemplars` always pushes `'\n'` at the end of every line
+            // it copies, and `has_exemplars()` true implies it takes the loop
+            // branch (never the early-return at the empty-maps guard), so the
+            // result already ends with `'\n'`. Appending `# EOF\n` directly.
             let mut output = self.inject_exemplars(base_output);
-            if !output.ends_with('\n') {
-                output.push('\n');
-            }
             output.push_str("# EOF\n");
             output
         } else {
-            // Plain Prometheus text format. No `# EOF` marker, illegal in
-            // pre-OpenMetrics text/plain.
+            // Plain Prometheus 0.0.4 text format does not allow `# EOF`.
             base_output
         }
     }
@@ -1027,6 +1025,12 @@ mod tests {
             output.ends_with("# EOF\n"),
             "OpenMetrics output must terminate with `# EOF\\n`, got tail: {:?}",
             &output[output.len().saturating_sub(64)..]
+        );
+        // Catch a regression where someone appends content after the EOF
+        // marker. The spec requires EOF to be the last logical record.
+        assert!(
+            !output.contains("# EOF\n#") && !output.contains("# EOF\nperf_sentinel"),
+            "no content may follow the `# EOF` marker"
         );
     }
 
