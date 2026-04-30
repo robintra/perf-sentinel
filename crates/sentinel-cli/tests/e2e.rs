@@ -2332,3 +2332,195 @@ fn cli_report_help_mentions_new_flags() {
         "help mentions --pg-stat-prometheus when daemon feature is on"
     );
 }
+
+// Regression suite for the input format auto-detection contract of
+// `report --input`. Pre-0.5.14 the helper dispatched on first byte only,
+// so a Jaeger export (`{"data": [...]}`) was misrouted to the Report
+// parser and died on `missing field 'analysis'`. The fix makes the `{`
+// branch try Report first and fall back to JsonIngest (which handles
+// Jaeger via detect_format).
+
+#[test]
+fn cli_report_accepts_jaeger_input() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/jaeger_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("dashboard.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("spawn");
+
+    assert!(
+        output.status.success(),
+        "report should accept Jaeger input: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.contains("perf-sentinel"));
+    assert!(html.contains("\"findings\""));
+}
+
+#[test]
+fn cli_report_accepts_zipkin_input() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/zipkin_export.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("dashboard.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("spawn");
+
+    assert!(
+        output.status.success(),
+        "report should accept Zipkin input: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.contains("perf-sentinel"));
+    assert!(html.contains("\"findings\""));
+}
+
+#[test]
+fn cli_report_accepts_native_input() {
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("dashboard.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            &fixture_path,
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("spawn");
+
+    assert!(
+        output.status.success(),
+        "report should accept native event input: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.contains("perf-sentinel"));
+    assert!(html.contains("\"findings\""));
+}
+
+#[test]
+fn cli_report_accepts_report_snapshot_input() {
+    // The "try Report first" fast path: feed a daemon-shape Report JSON
+    // to `report --input -` and assert the helper short-circuits to the
+    // Report parser without any re-analysis. Keeps the 0.5.13 path
+    // intact under the new dispatch.
+    let snapshot = serde_json::json!({
+        "analysis": {
+            "duration_ms": 0,
+            "events_processed": 4,
+            "traces_analyzed": 1,
+        },
+        "findings": [],
+        "green_summary": {
+            "total_io_ops": 0,
+            "avoidable_io_ops": 0,
+            "io_waste_ratio": 0.0,
+            "io_waste_ratio_band": "healthy",
+            "top_offenders": [],
+        },
+        "quality_gate": { "passed": true, "rules": [] },
+    });
+    let raw = serde_json::to_vec(&snapshot).unwrap();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("dashboard.html");
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            "-",
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(&raw)
+        .expect("write stdin");
+    let output = child.wait_with_output().expect("wait");
+
+    assert!(
+        output.status.success(),
+        "report should accept Report JSON snapshot: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.contains("perf-sentinel"));
+}
+
+#[test]
+fn cli_report_rejects_invalid_input_with_clear_error() {
+    // Pre-0.5.14, a Jaeger payload produced "missing field 'analysis'",
+    // a low-level serde message that hid the real disambiguation. The
+    // fix surfaces a stderr that names both accepted top-level-object
+    // shapes (Report JSON and Jaeger export) when neither parses.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let bogus_path = dir.path().join("bogus.json");
+    fs::write(&bogus_path, r#"{"foo": "bar"}"#).expect("write bogus");
+    let out_path = dir.path().join("dashboard.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "report",
+            "--input",
+            bogus_path.to_str().unwrap(),
+            "--output",
+            out_path.to_str().unwrap(),
+        ])
+        .env("RUST_LOG", "error")
+        .output()
+        .expect("spawn");
+
+    assert!(!output.status.success(), "bogus input must fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("missing field 'analysis'"),
+        "0.5.14 must not surface the raw serde missing-field error: {stderr}"
+    );
+    assert!(
+        stderr.contains("Report JSON") && stderr.contains("Jaeger"),
+        "stderr must disambiguate accepted top-level object shapes: {stderr}"
+    );
+}

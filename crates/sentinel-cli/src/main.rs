@@ -302,7 +302,9 @@ enum Commands {
     Report {
         /// Path to a JSON trace file. Omit or pass `-` to read from stdin.
         /// Same format auto-detection as `analyze --input` (native JSON,
-        /// Jaeger, Zipkin v2).
+        /// Jaeger, Zipkin v2). A pre-computed Report JSON (e.g. a daemon
+        /// snapshot from `/api/export/report`) is also accepted and
+        /// rendered without re-analysis.
         #[arg(short, long)]
         input: Option<PathBuf>,
         /// Path to a .perf-sentinel.toml config file.
@@ -858,11 +860,15 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
 }
 
 /// Dispatch the `--input` payload based on its JSON shape. A top-level
-/// array is pipelined through normalize/correlate/detect/score. A
-/// top-level object is parsed as a pre-computed `Report` and returned
-/// as-is (with an empty `traces` vector because the CLI has no source
-/// traces to correlate in that case). Empty input and scalar roots
-/// exit 1 with distinct messages so users can tell the two apart.
+/// array is pipelined through normalize/correlate/detect/score (covers
+/// native event streams and Zipkin v2, auto-detected by `JsonIngest`).
+/// A top-level object is first tried as a pre-computed `Report` (daemon
+/// snapshot from `/api/export/report`, baseline file). On Report parse
+/// failure it falls back to `JsonIngest` which auto-detects Jaeger via
+/// `detect_format`. The fallback order keeps the daemon snapshot path
+/// on the fast path and avoids misrouting Reports whose payload happens
+/// to mention `"data"` and `"spans"` literals in the first 4 KB.
+/// Empty input and scalar roots exit 1 with distinct messages.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -872,10 +878,26 @@ fn load_report_from_input(
 ) {
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     match first_byte {
-        Some(b'{') => (parse_report_json_or_exit(raw, "--input"), Vec::new()),
         Some(b'[') => {
             let events = ingest_json_or_exit(raw, config.max_payload_size);
             pipeline::analyze_with_traces(events, config)
+        }
+        Some(b'{') => {
+            if !sentinel_core::ingest::json::exceeds_max_depth(raw)
+                && let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(raw)
+            {
+                return (report, Vec::new());
+            }
+            let ingest = JsonIngest::new(config.max_payload_size);
+            match ingest.ingest(raw) {
+                Ok(events) => pipeline::analyze_with_traces(events, config),
+                Err(e) => {
+                    eprintln!(
+                        "Error: --input top-level object is neither a pre-computed Report JSON nor a Jaeger export. Underlying error: {e}"
+                    );
+                    std::process::exit(1);
+                }
+            }
         }
         None => {
             eprintln!("Error: --input is empty or whitespace-only");
@@ -883,8 +905,9 @@ fn load_report_from_input(
         }
         Some(_) => {
             eprintln!(
-                "Error: --input must be a JSON array of events or a Report object \
-                 (got a scalar or unexpected token at the root)"
+                "Error: --input must be a JSON array of events, a Jaeger \
+                 export ({{\"data\": [...]}}) or a pre-computed Report \
+                 object (got a scalar or unexpected token at the root)"
             );
             std::process::exit(1);
         }
