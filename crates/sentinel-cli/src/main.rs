@@ -863,12 +863,17 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
 /// array is pipelined through normalize/correlate/detect/score (covers
 /// native event streams and Zipkin v2, auto-detected by `JsonIngest`).
 /// A top-level object is first tried as a pre-computed `Report` (daemon
-/// snapshot from `/api/export/report`, baseline file). On Report parse
+/// snapshot from `/api/export/report`, baseline file); on Report parse
 /// failure it falls back to `JsonIngest` which auto-detects Jaeger via
-/// `detect_format`. The fallback order keeps the daemon snapshot path
-/// on the fast path and avoids misrouting Reports whose payload happens
-/// to mention `"data"` and `"spans"` literals in the first 4 KB.
-/// Empty input and scalar roots exit 1 with distinct messages.
+/// `detect_format`. Trying Report first guarantees a daemon snapshot is
+/// never misrouted to the Jaeger ingest, even when its payload happens
+/// to contain a `"data"` field literal somewhere in the first 4 KB. The
+/// trade-off is one extra full Report parse on Jaeger inputs (rare
+/// through this CLI, the normal Jaeger path is `tempo` / `jaeger-query`
+/// / `analyze`). The depth cap is enforced explicitly before the Report
+/// parse so an over-deep Report does not silently fall through to the
+/// ingest fallback. Empty input and scalar roots exit 1 with distinct
+/// messages.
 fn load_report_from_input(
     raw: &[u8],
     config: &Config,
@@ -883,9 +888,14 @@ fn load_report_from_input(
             pipeline::analyze_with_traces(events, config)
         }
         Some(b'{') => {
-            if !sentinel_core::ingest::json::exceeds_max_depth(raw)
-                && let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(raw)
-            {
+            if sentinel_core::ingest::json::exceeds_max_depth(raw) {
+                eprintln!(
+                    "Error: --input JSON exceeds maximum nesting depth of {}",
+                    sentinel_core::ingest::json::MAX_JSON_DEPTH
+                );
+                std::process::exit(1);
+            }
+            if let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(raw) {
                 return (report, Vec::new());
             }
             let ingest = JsonIngest::new(config.max_payload_size);

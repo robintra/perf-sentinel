@@ -2437,21 +2437,41 @@ fn cli_report_accepts_native_input() {
 fn cli_report_accepts_report_snapshot_input() {
     // The "try Report first" fast path: feed a daemon-shape Report JSON
     // to `report --input -` and assert the helper short-circuits to the
-    // Report parser without any re-analysis. Keeps the 0.5.13 path
-    // intact under the new dispatch.
+    // Report parser without any re-analysis. The fixture carries a
+    // populated `green_summary` (top_offenders, regions, scoring_config)
+    // so the test also regression-guards verbatim flow-through of the
+    // GreenOps audit-trail fields on the snapshot path.
     let snapshot = serde_json::json!({
         "analysis": {
             "duration_ms": 0,
-            "events_processed": 4,
-            "traces_analyzed": 1,
+            "events_processed": 42,
+            "traces_analyzed": 7,
         },
         "findings": [],
         "green_summary": {
-            "total_io_ops": 0,
-            "avoidable_io_ops": 0,
-            "io_waste_ratio": 0.0,
-            "io_waste_ratio_band": "healthy",
-            "top_offenders": [],
+            "total_io_ops": 42,
+            "avoidable_io_ops": 9,
+            "io_waste_ratio": 0.214,
+            "io_waste_ratio_band": "moderate",
+            "top_offenders": [{
+                "endpoint": "POST /api/orders/checkout",
+                "service": "order-svc",
+                "io_intensity_score": 0.87,
+                "io_intensity_band": "high",
+            }],
+            "regions": [{
+                "status": "known",
+                "region": "eu-west-3",
+                "grid_intensity_gco2_kwh": 56.0,
+                "pue": 1.2,
+                "io_ops": 42,
+                "co2_gco2": 0.123,
+            }],
+            "scoring_config": {
+                "api_version": "v4",
+                "emission_factor_type": "lifecycle",
+                "temporal_granularity": "hourly",
+            },
         },
         "quality_gate": { "passed": true, "rules": [] },
     });
@@ -2488,6 +2508,22 @@ fn cli_report_accepts_report_snapshot_input() {
     );
     let html = fs::read_to_string(&out_path).expect("read html");
     assert!(html.contains("perf-sentinel"));
+
+    // Verbatim flow-through of the populated GreenSummary fields.
+    let payload = extract_payload_json_from_html(&html);
+    let green = &payload["report"]["green_summary"];
+    assert_eq!(green["total_io_ops"], 42);
+    assert_eq!(green["avoidable_io_ops"], 9);
+    let offenders = green["top_offenders"].as_array().expect("top_offenders");
+    assert_eq!(offenders.len(), 1);
+    assert_eq!(offenders[0]["service"].as_str().unwrap(), "order-svc");
+    let regions = green["regions"].as_array().expect("regions");
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0]["region"].as_str().unwrap(), "eu-west-3");
+    assert_eq!(
+        green["scoring_config"]["api_version"].as_str().unwrap(),
+        "v4"
+    );
 }
 
 #[test]
