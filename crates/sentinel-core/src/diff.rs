@@ -288,6 +288,7 @@ mod tests {
             },
             per_endpoint_io_ops: per_endpoint,
             correlations: vec![],
+            warnings: vec![],
         }
     }
 

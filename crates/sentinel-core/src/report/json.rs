@@ -44,6 +44,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            warnings: vec![],
         };
         assert!(sink.emit(&report).is_ok());
     }
@@ -93,6 +94,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            warnings: vec![],
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();

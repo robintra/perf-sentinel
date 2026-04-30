@@ -64,6 +64,14 @@ pub struct Report {
     /// `perf-sentinel report --input <daemon.json>`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub correlations: Vec<CrossTraceCorrelation>,
+    /// Snapshot- or analysis-level warnings surfaced to consumers. The
+    /// daemon's `/api/export/report` cold-start path populates this with
+    /// `"daemon has not yet processed any events"` so consumers can
+    /// distinguish "daemon is empty" from "daemon emitted zero findings"
+    /// without resorting to a 5xx HTTP status. Empty in CLI batch
+    /// output. Additive on pre-0.5.16 baselines via `skip_serializing_if`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 /// Analysis metadata.

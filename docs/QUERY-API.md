@@ -369,7 +369,7 @@ Snapshot the daemon's current in-memory state as a `Report` JSON, identical in s
 
 The `analysis` section reflects daemon-lifetime counters (cumulative since daemon start). The `green_summary` field is refreshed by the event loop after each batch (regions, top offenders, avoidable I/O ratio, CO2 numbers, scoring config), so the snapshot carries a live CO2 picture. The chip banner and the GreenOps tab in the HTML dashboard surface naturally on Electricity-Maps-configured daemons. The quality gate is not recomputed on the snapshot path. See `docs/design/05-GREENOPS-AND-CARBON.md` for the full audit-trail story.
 
-**Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `503 Service Unavailable` with body `{"error": "daemon has not yet processed any events"}`. This distinguishes "cold start" from "events seen, zero findings" (the latter returns `200` with an empty `findings` array, which is a valid Report).
+**Cold-start behavior.** When the daemon has not yet processed any event, the endpoint returns `200 OK` with an empty Report envelope: `findings: []`, `green_summary: GreenSummary::disabled(0)`, and `warnings: ["daemon has not yet processed any events"]`. Pre-0.5.16 this path returned `503 Service Unavailable`, which tripped Kubernetes probes and confused CI scripts that treated 5xx as a daemon health issue. The empty envelope lets clients distinguish "cold start" from "events seen, zero findings" (the latter returns `200` with no warning string and `analysis.events_processed > 0`) without a status code mismatch. The double-counter guard (`events_processed_total > 0` AND `traces_analyzed_total > 0`) is preserved internally so the snapshot stays self-consistent during the `trace_ttl_ms / 2` window between the first event ingest and the first eviction tick.
 
 **Prometheus metric.** Each request bumps `perf_sentinel_export_report_requests_total` so operators can dashboard or alert on Report snapshot frequency.
 
@@ -390,7 +390,7 @@ The `report` subcommand auto-detects the JSON shape: a top-level array is treate
 | Unknown `trace_id` on `/api/findings/{trace_id}` | 200    | `[]`                                                   |
 | Unknown `trace_id` on `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`        |
 | Correlations disabled or correlator idle         | 200    | `[]`                                                   |
-| `/api/export/report` on cold-start daemon        | 503    | `{"error": "daemon has not yet processed any events"}` |
+| `/api/export/report` on cold-start daemon        | 200    | empty Report envelope with `warnings: ["daemon has not yet processed any events"]` (pre-0.5.16: 503) |
 | Malformed query parameter (e.g. `limit=abc`)     | 400    | axum-generated plain-text error                        |
 | Unknown path (e.g. `/api/does-not-exist`)        | 404    | empty body                                      |
 | Method other than GET                            | 405    | axum-generated plain-text error                 |

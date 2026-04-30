@@ -434,6 +434,130 @@ mod tests {
         );
     }
 
+    // Boundary tests for the 32-frame depth cap. The cap rejects when
+    // peak nesting strictly exceeds 32 (`*depth > MAX_JSON_DEPTH`), so
+    // peak = 32 is OK and peak = 33 fails. The depth-31 / depth-33 pair
+    // skips the ambiguous boundary at peak = 32 to keep the assertions
+    // robust if the cap is ever adjusted by one frame.
+
+    #[test]
+    fn native_ingest_accepts_input_at_depth_31() {
+        // Native: array-of-arrays, peak depth = number of `[` brackets.
+        let mut payload = String::with_capacity(64);
+        for _ in 0..31 {
+            payload.push('[');
+        }
+        for _ in 0..31 {
+            payload.push(']');
+        }
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            !matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "depth 31 must not be rejected by the depth guard, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn native_ingest_rejects_input_at_depth_33() {
+        let mut payload = String::with_capacity(68);
+        for _ in 0..33 {
+            payload.push('[');
+        }
+        for _ in 0..33 {
+            payload.push(']');
+        }
+        let ingest = JsonIngest::new(1_048_576);
+        assert!(matches!(
+            ingest.ingest(payload.as_bytes()),
+            Err(JsonIngestError::PayloadTooDeep { .. })
+        ));
+    }
+
+    #[test]
+    fn jaeger_ingest_accepts_input_at_depth_31() {
+        // Jaeger wrapper `{"data":[{"spans":[{"tags":[ ... ]}]}]}` reaches
+        // peak 6 before the inner brackets. Inner depth 25 yields peak 31.
+        let inner = 25;
+        let mut payload = String::from(r#"{"data":[{"spans":[{"tags":["#);
+        for _ in 0..inner {
+            payload.push('[');
+        }
+        for _ in 0..inner {
+            payload.push(']');
+        }
+        payload.push_str("]}]}]}");
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            !matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "Jaeger depth 31 must not be rejected by the depth guard, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn jaeger_ingest_rejects_input_at_depth_33() {
+        // Inner depth 27 yields peak 33 (6 wrapper + 27 inner).
+        let inner = 27;
+        let mut payload = String::from(r#"{"data":[{"spans":[{"tags":["#);
+        for _ in 0..inner {
+            payload.push('[');
+        }
+        for _ in 0..inner {
+            payload.push(']');
+        }
+        payload.push_str("]}]}]}");
+        let ingest = JsonIngest::new(1_048_576);
+        assert!(matches!(
+            ingest.ingest(payload.as_bytes()),
+            Err(JsonIngestError::PayloadTooDeep { .. })
+        ));
+    }
+
+    #[test]
+    fn zipkin_ingest_accepts_input_at_depth_31() {
+        // Zipkin wrapper `[{"traceId":...,"localEndpoint":{...},"annotations":[...]}]`
+        // reaches peak 3 before the inner brackets. Inner depth 28 yields peak 31.
+        let inner = 28;
+        let mut payload = String::from(
+            r#"[{"traceId":"abc","localEndpoint":{"serviceName":"s"},"annotations":["#,
+        );
+        for _ in 0..inner {
+            payload.push('[');
+        }
+        for _ in 0..inner {
+            payload.push(']');
+        }
+        payload.push_str("]}]");
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            !matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "Zipkin depth 31 must not be rejected by the depth guard, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn zipkin_ingest_rejects_input_at_depth_33() {
+        // Inner depth 30 yields peak 33 (3 wrapper + 30 inner).
+        let inner = 30;
+        let mut payload = String::from(
+            r#"[{"traceId":"abc","localEndpoint":{"serviceName":"s"},"annotations":["#,
+        );
+        for _ in 0..inner {
+            payload.push('[');
+        }
+        for _ in 0..inner {
+            payload.push(']');
+        }
+        payload.push_str("]}]");
+        let ingest = JsonIngest::new(1_048_576);
+        assert!(matches!(
+            ingest.ingest(payload.as_bytes()),
+            Err(JsonIngestError::PayloadTooDeep { .. })
+        ));
+    }
+
     #[test]
     fn depth_scan_ignores_brackets_inside_strings() {
         // A valid native event whose `target` field contains `[[[...`.

@@ -399,39 +399,81 @@ impl MetricsState {
         waste_lock.is_some()
     }
 
-    /// Render all metrics in Prometheus text exposition format.
+    /// Render with HTTP content negotiation. Returns `(body, content_type)`.
     ///
-    /// When exemplar data is available, injects `OpenMetrics` exemplar annotations
-    /// on `perf_sentinel_findings_total` and `perf_sentinel_io_waste_ratio` lines
-    /// and appends the `# EOF` end-of-exposition marker required by `OpenMetrics`
-    /// 1.0.0. Without `# EOF`, a Prometheus server negotiating
-    /// `application/openmetrics-text; version=1.0.0` refuses the payload. On any
-    /// internal encoder failure the function returns the body
-    /// `"# error encoding metrics\n"` rather than panicking.
+    /// Three-mode dispatch keyed on the client's `Accept` header:
+    /// 1. Header contains `application/openmetrics-text` (Prometheus default,
+    ///    explicit `OpenMetrics` request): emit `OpenMetrics` 1.0 always,
+    ///    with the `# EOF` terminator and exemplar annotations when
+    ///    exemplars exist.
+    /// 2. Header absent, `*/*`, or `*/*` mixed in (vmagent-style
+    ///    `text/plain;*/*;q=0.1`): legacy 0.5.15 behavior, `OpenMetrics`
+    ///    when `has_exemplars()`, plain `Prometheus` otherwise. Preserves
+    ///    vmagent and curl by default.
+    /// 3. Header refuses the wildcard and accepts only `text/plain`: plain
+    ///    `Prometheus` 0.0.4, no `# EOF`, no exemplar injection.
+    ///
+    /// On any internal encoder failure returns
+    /// `"# error encoding metrics\n"` with `text/plain` rather than panicking.
     #[must_use]
-    pub fn render(&self) -> String {
+    pub fn negotiate(&self, accept: Option<&str>) -> (String, &'static str) {
+        let format = select_format(accept);
+
         let encoder = TextEncoder::new();
         let metric_families = self.registry.gather();
         let mut buffer = Vec::new();
         if encoder.encode(&metric_families, &mut buffer).is_err() {
-            return "# error encoding metrics\n".to_string();
+            return (
+                "# error encoding metrics\n".to_string(),
+                "text/plain; version=0.0.4; charset=utf-8",
+            );
         }
         let Ok(base_output) = String::from_utf8(buffer) else {
-            return "# error encoding metrics\n".to_string();
+            return (
+                "# error encoding metrics\n".to_string(),
+                "text/plain; version=0.0.4; charset=utf-8",
+            );
         };
 
-        if self.has_exemplars() {
-            // `inject_exemplars` always pushes `'\n'` at the end of every line
-            // it copies, and `has_exemplars()` true implies it takes the loop
-            // branch (never the early-return at the empty-maps guard), so the
-            // result already ends with `'\n'`. Appending `# EOF\n` directly.
-            let mut output = self.inject_exemplars(base_output);
-            output.push_str("# EOF\n");
-            output
-        } else {
-            // Plain Prometheus 0.0.4 text format does not allow `# EOF`.
-            base_output
+        match format {
+            NegotiatedFormat::OpenMetricsForced => {
+                let mut output = if self.has_exemplars() {
+                    self.inject_exemplars(base_output)
+                } else {
+                    base_output
+                };
+                if !output.ends_with('\n') {
+                    output.push('\n');
+                }
+                output.push_str("# EOF\n");
+                (
+                    output,
+                    "application/openmetrics-text; version=1.0.0; charset=utf-8",
+                )
+            }
+            NegotiatedFormat::Legacy => {
+                if self.has_exemplars() {
+                    let mut output = self.inject_exemplars(base_output);
+                    output.push_str("# EOF\n");
+                    (
+                        output,
+                        "application/openmetrics-text; version=1.0.0; charset=utf-8",
+                    )
+                } else {
+                    (base_output, "text/plain; version=0.0.4; charset=utf-8")
+                }
+            }
+            NegotiatedFormat::PlainStrict => {
+                (base_output, "text/plain; version=0.0.4; charset=utf-8")
+            }
         }
+    }
+
+    /// Render in the format that [`Self::negotiate`]`(None)` would choose.
+    /// Used by tests and non-HTTP callers that lack an Accept header.
+    #[must_use]
+    pub fn render(&self) -> String {
+        self.negotiate(None).0
     }
 
     /// Post-process rendered metrics text to inject exemplar annotations.
@@ -490,17 +532,44 @@ impl MetricsState {
         output
     }
 
-    /// Returns the appropriate `Content-Type` header value.
-    ///
-    /// Returns `OpenMetrics` content type when exemplars are present,
-    /// standard Prometheus text format otherwise.
+    /// Returns the `Content-Type` that [`Self::negotiate`]`(None)` would
+    /// produce. Used by tests and non-HTTP callers that lack an Accept header.
     #[must_use]
     pub fn content_type(&self) -> &'static str {
-        if self.has_exemplars() {
-            "application/openmetrics-text; version=1.0.0; charset=utf-8"
-        } else {
-            "text/plain; version=0.0.4; charset=utf-8"
-        }
+        self.negotiate(None).1
+    }
+}
+
+/// Output format selected from the client's HTTP `Accept` header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NegotiatedFormat {
+    /// Client explicitly requested `application/openmetrics-text`.
+    /// Emit `OpenMetrics` 1.0 always, with `# EOF` and exemplars when present.
+    OpenMetricsForced,
+    /// No Accept, `*/*`, or `*/*` mixed with other media types
+    /// (vmagent-style `text/plain;*/*;q=0.1`). Preserves the 0.5.15
+    /// behavior: `OpenMetrics` when `has_exemplars()`, plain otherwise.
+    Legacy,
+    /// Client explicitly accepts `text/plain` and refuses the wildcard.
+    /// Emit plain `Prometheus` 0.0.4, no `# EOF`, no exemplar injection.
+    PlainStrict,
+}
+
+/// Negotiation discriminator. `None` falls back to legacy behavior so
+/// non-HTTP callers (CLI batch path, tests calling `render()` without a
+/// header) keep the 0.5.15 contract. The `*/*` check is robust to common
+/// header shapes including comma-separated lists and q-values.
+fn select_format(accept: Option<&str>) -> NegotiatedFormat {
+    let Some(header) = accept else {
+        return NegotiatedFormat::Legacy;
+    };
+    let lower = header.to_ascii_lowercase();
+    if lower.contains("application/openmetrics-text") {
+        NegotiatedFormat::OpenMetricsForced
+    } else if lower.contains("*/*") {
+        NegotiatedFormat::Legacy
+    } else {
+        NegotiatedFormat::PlainStrict
     }
 }
 
@@ -549,12 +618,13 @@ impl Default for MetricsState {
 pub fn metrics_route(state: Arc<MetricsState>) -> Router {
     async fn handle_metrics(
         State(metrics): State<Arc<MetricsState>>,
+        headers: axum::http::HeaderMap,
     ) -> ([(axum::http::header::HeaderName, &'static str); 1], String) {
-        let content_type = metrics.content_type();
-        (
-            [(axum::http::header::CONTENT_TYPE, content_type)],
-            metrics.render(),
-        )
+        let accept = headers
+            .get(axum::http::header::ACCEPT)
+            .and_then(|v| v.to_str().ok());
+        let (body, content_type) = metrics.negotiate(accept);
+        ([(axum::http::header::CONTENT_TYPE, content_type)], body)
     }
 
     Router::new()
@@ -598,6 +668,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            warnings: vec![],
         }
     }
 
@@ -963,6 +1034,252 @@ mod tests {
             body_str.contains(r#"trace_id="trace-route-test""#),
             "should contain exemplar trace_id"
         );
+    }
+
+    // Three-mode Accept negotiation tests. Strict OM-forced when the client
+    // requests OpenMetrics, legacy 0.5.15 behavior when no preference, plain
+    // strict when the client refuses the wildcard.
+
+    #[test]
+    fn negotiate_returns_openmetrics_when_accept_header_explicitly_requests_it() {
+        // No exemplars but explicit OM request → OM 1.0 forced with `# EOF`.
+        let state = MetricsState::new();
+        state.traces_analyzed_total.inc();
+
+        let (body, content_type) =
+            state.negotiate(Some("application/openmetrics-text;version=1.0.0"));
+        assert_eq!(
+            content_type,
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        );
+        assert!(
+            body.ends_with("# EOF\n"),
+            "OM-forced body must terminate with `# EOF\\n`"
+        );
+    }
+
+    #[test]
+    fn negotiate_returns_openmetrics_with_exemplars_when_accept_explicit_and_exemplars_present() {
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-om-explicit",
+                5,
+            )],
+            0.4,
+        );
+        state.record_batch(&report);
+
+        let (body, content_type) = state.negotiate(Some("application/openmetrics-text"));
+        assert_eq!(
+            content_type,
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        );
+        assert!(body.ends_with("# EOF\n"));
+        assert!(
+            body.contains(r#"# {trace_id="trace-om-explicit"} 1.0"#),
+            "OM-forced body must include exemplar annotation: {body}"
+        );
+    }
+
+    #[test]
+    fn negotiate_falls_back_to_legacy_when_accept_absent() {
+        // No Accept header → legacy 0.5.15 behavior, OM-when-exemplars.
+        let state = MetricsState::new();
+        state.traces_analyzed_total.inc();
+
+        // No exemplars, legacy → plain Prometheus, no `# EOF`.
+        let (body_no_ex, ct_no_ex) = state.negotiate(None);
+        assert_eq!(ct_no_ex, "text/plain; version=0.0.4; charset=utf-8");
+        assert!(!body_no_ex.contains("# EOF"));
+
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-legacy",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+
+        // With exemplars, legacy → OpenMetrics with `# EOF`.
+        let (body_with_ex, ct_with_ex) = state.negotiate(None);
+        assert_eq!(
+            ct_with_ex,
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        );
+        assert!(body_with_ex.ends_with("# EOF\n"));
+    }
+
+    #[test]
+    fn negotiate_falls_back_to_legacy_when_accept_contains_wildcard() {
+        // vmagent-style Accept includes `*/*` as a low-q fallback. Treated
+        // as "no preference", legacy behavior preserved so vmagent keeps
+        // its exemplars on the Grafana click-through path.
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-vmagent",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+
+        let (body, content_type) = state.negotiate(Some("text/plain;version=0.0.4;*/*;q=0.1"));
+        assert_eq!(
+            content_type,
+            "application/openmetrics-text; version=1.0.0; charset=utf-8"
+        );
+        assert!(body.ends_with("# EOF\n"));
+        assert!(body.contains(r#"# {trace_id="trace-vmagent"} 1.0"#));
+    }
+
+    #[test]
+    fn negotiate_returns_plain_strict_when_accept_text_plain_only() {
+        // Strict refusal of OM and `*/*` → plain Prometheus, no exemplars
+        // even when present, no `# EOF`. Defends pre-OpenMetrics scrapers.
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-strict",
+                5,
+            )],
+            0.4,
+        );
+        state.record_batch(&report);
+
+        let (body, content_type) = state.negotiate(Some("text/plain;version=0.0.4"));
+        assert_eq!(content_type, "text/plain; version=0.0.4; charset=utf-8");
+        assert!(!body.contains("# EOF"));
+        assert!(
+            !body.contains("# {trace_id="),
+            "plain-strict body must not contain exemplar annotations: {body}"
+        );
+    }
+
+    #[test]
+    fn select_format_dispatches_correctly() {
+        // None → Legacy.
+        assert_eq!(select_format(None), NegotiatedFormat::Legacy);
+        // Plain strict.
+        assert_eq!(
+            select_format(Some("text/plain")),
+            NegotiatedFormat::PlainStrict
+        );
+        assert_eq!(
+            select_format(Some("text/plain;version=0.0.4")),
+            NegotiatedFormat::PlainStrict
+        );
+        // Legacy via wildcard.
+        assert_eq!(select_format(Some("*/*")), NegotiatedFormat::Legacy);
+        assert_eq!(
+            select_format(Some("text/plain;*/*;q=0.1")),
+            NegotiatedFormat::Legacy
+        );
+        // Forced via explicit OM.
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;version=1.0.0")),
+            NegotiatedFormat::OpenMetricsForced
+        );
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;q=0.9,text/plain;q=0.5")),
+            NegotiatedFormat::OpenMetricsForced
+        );
+        // Case-insensitive.
+        assert_eq!(
+            select_format(Some("Application/OpenMetrics-Text")),
+            NegotiatedFormat::OpenMetricsForced
+        );
+    }
+
+    #[tokio::test]
+    async fn metrics_route_honors_explicit_openmetrics_accept_header() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let state = Arc::new(MetricsState::new());
+        state.traces_analyzed_total.inc();
+
+        let router = metrics_route(state);
+        let request = Request::builder()
+            .uri("/metrics")
+            .header("accept", "application/openmetrics-text;version=1.0.0")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let ct = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            ct.starts_with("application/openmetrics-text"),
+            "expected OM CT, got: {ct}"
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(
+            String::from_utf8(body.to_vec())
+                .unwrap()
+                .ends_with("# EOF\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn metrics_route_preserves_legacy_behavior_for_vmagent_style_accept() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use http_body_util::BodyExt;
+        use tower::ServiceExt;
+
+        let state = Arc::new(MetricsState::new());
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-vmagent-route",
+                5,
+            )],
+            0.0,
+        );
+        state.record_batch(&report);
+
+        let router = metrics_route(state);
+        let request = Request::builder()
+            .uri("/metrics")
+            .header("accept", "text/plain;version=0.0.4;*/*;q=0.1")
+            .body(Body::empty())
+            .unwrap();
+        let response = router.oneshot(request).await.unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let ct = response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(
+            ct.starts_with("application/openmetrics-text"),
+            "vmagent-style Accept (`*/*`) must keep legacy OM-with-exemplars: {ct}"
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let body_str = String::from_utf8(body.to_vec()).unwrap();
+        assert!(body_str.ends_with("# EOF\n"));
+        assert!(body_str.contains(r#"trace_id="trace-vmagent-route""#));
     }
 
     #[test]

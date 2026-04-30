@@ -380,7 +380,7 @@ Snapshot de l'état interne courant du daemon sous forme de JSON `Report`, avec 
 
 La section `analysis` reflète les compteurs lifetime du daemon (cumulatifs depuis le démarrage). Le champ `green_summary` est rafraîchi par l'event loop après chaque batch (régions, top offenders, ratio d'I/O évitables, chiffres CO2, scoring config), donc le snapshot porte une photo CO2 vivante. Le bandeau de chips et le tab GreenOps du dashboard HTML apparaissent naturellement sur les daemons configurés avec Electricity Maps. La quality gate n'est pas recalculée sur le chemin snapshot. Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour le récit complet du chemin d'audit.
 
-**Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `503 Service Unavailable` avec le corps `{"error": "daemon has not yet processed any events"}`. Ça distingue "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` avec un tableau `findings` vide, qui est un Report valide).
+**Comportement cold-start.** Quand le daemon n'a encore traité aucun événement, l'endpoint retourne `200 OK` avec une enveloppe Report vide : `findings: []`, `green_summary: GreenSummary::disabled(0)`, et `warnings: ["daemon has not yet processed any events"]`. Avant 0.5.16 ce chemin retournait `503 Service Unavailable`, ce qui faisait basculer les probes Kubernetes et confondait les scripts CI qui traitent 5xx comme un problème de santé du daemon. L'enveloppe vide permet aux clients de distinguer "cold start" de "événements vus, zéro finding" (ce dernier retourne `200` sans warning et avec `analysis.events_processed > 0`) sans déclencher un code de statut trompeur. La double garde (`events_processed_total > 0` ET `traces_analyzed_total > 0`) reste préservée en interne pour que le snapshot reste cohérent durant la fenêtre `trace_ttl_ms / 2` entre le premier event ingéré et le premier eviction tick.
 
 **Métrique Prometheus.** Chaque requête incrémente `perf_sentinel_export_report_requests_total`, les opérateurs peuvent donc dashboarder ou alerter sur la fréquence des snapshots.
 
@@ -401,7 +401,7 @@ La sous-commande `report` auto-détecte la forme JSON : un tableau au top-level 
 | `trace_id` inconnu sur `/api/findings/{trace_id}` | 200    | `[]`                                                   |
 | `trace_id` inconnu sur `/api/explain/{trace_id}`  | 200    | `{"error": "trace not found in daemon memory"}`        |
 | Corrélations désactivées ou correlator inactif    | 200    | `[]`                                                   |
-| `/api/export/report` sur daemon cold-start        | 503    | `{"error": "daemon has not yet processed any events"}` |
+| `/api/export/report` sur daemon cold-start        | 200    | enveloppe Report vide avec `warnings: ["daemon has not yet processed any events"]` (avant 0.5.16 : 503) |
 | Paramètre de requête malformé (ex. `limit=abc`)   | 400    | erreur en texte brut générée par axum           |
 | Chemin inconnu (ex. `/api/does-not-exist`)        | 404    | corps vide                                      |
 | Méthode autre que GET                             | 405    | erreur en texte brut générée par axum           |

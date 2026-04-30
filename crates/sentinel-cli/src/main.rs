@@ -1779,6 +1779,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            warnings: vec![],
         }
     }
 
@@ -1961,6 +1962,7 @@ mod tests {
             },
             per_endpoint_io_ops: vec![],
             correlations: vec![],
+            warnings: vec![],
         };
         render::format_colored_report(&report, "report", false);
     }

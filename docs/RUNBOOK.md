@@ -528,6 +528,25 @@ perf-sentinel watch --config /path/to/candidate-config.toml
 
 Once it starts cleanly, roll it out to production.
 
+## Inspecting the daemon's HTTP endpoints
+
+The daemon image is distroless and does not include `curl`, `wget`, or a shell. `kubectl exec ... -- curl http://localhost:14318/...` fails with `executable file not found`. Use `kubectl port-forward` plus your local `curl` for ad-hoc HTTP inspection:
+
+```bash
+# In one terminal: forward the daemon's HTTP port locally.
+kubectl port-forward -n <namespace> deploy/perf-sentinel-daemon 14318:14318
+
+# In another terminal: inspect the endpoints from the host.
+curl -sH "Accept: application/openmetrics-text;version=1.0.0" \
+  http://localhost:14318/metrics | tail -5
+curl -s http://localhost:14318/api/status | jq
+curl -s http://localhost:14318/api/export/report | jq '.warnings, .green_summary'
+```
+
+The kubelet liveness probe uses a TCP check on the HTTP port, not a `curl` HTTP call, so the distroless image does not affect liveness or readiness.
+
+The `/metrics` endpoint negotiates content type from the client's `Accept` header. Sending `application/openmetrics-text` forces OpenMetrics 1.0 with the `# EOF` terminator and exemplar annotations. A missing or `*/*` Accept (curl default, vmagent default) falls back to the legacy 0.5.15 behavior (OpenMetrics when exemplars are present, plain Prometheus otherwise). A strict `Accept: text/plain` (no `*/*`) forces plain Prometheus 0.0.4 without exemplars, defending pre-OpenMetrics scrapers.
+
 ---
 
 ## See also

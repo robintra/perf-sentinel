@@ -20,7 +20,6 @@ use crate::detect::{self, DetectConfig};
 use crate::explain;
 use crate::report::metrics::MetricsState;
 use crate::report::{Analysis, GreenSummary, QualityGate, Report};
-use axum::http::StatusCode;
 
 /// Upper bound for `?limit=` on `/api/findings` to protect the daemon
 /// from expensive large-response requests.
@@ -225,18 +224,21 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 /// value is the cost of a single analysis run, a daemon snapshot has
 /// no such single run to time.
 ///
-/// Cold start returns `503 Service Unavailable` with
-/// `{"error": "daemon has not yet processed any events"}` to distinguish
-/// "no events yet" from "events exist, zero findings" (the latter
-/// returns `200` with an empty findings array, which is a valid
-/// Report). The guard checks both `events_processed_total > 0` AND
-/// `traces_analyzed_total > 0` so the snapshot is meaningful: events
-/// can be ingested seconds before the first eviction tick fires
-/// (`trace_ttl_ms / 2`, default 15s), gating only on
-/// `events_processed > 0` would expose a window where the cell is
-/// still `disabled(0)`. The `export_report_requests_total` counter is
-/// bumped before the cold-start check, so 503 responses are counted
-/// too (consistent with HTTP access-log conventions).
+/// Cold start returns `200 OK` with an empty `Report` envelope. Pre-0.5.16
+/// this path returned `503 Service Unavailable`, which tripped Kubernetes
+/// probes and confused CI scripts that treated 5xx as a daemon health
+/// problem. The empty envelope (`findings: []`,
+/// `green_summary: GreenSummary::disabled(0)`,
+/// `warnings: ["daemon has not yet processed any events"]`) lets clients
+/// detect cold-start without a status code mismatch, while preserving the
+/// double-counter check (`events_processed_total > 0` AND
+/// `traces_analyzed_total > 0`) so the snapshot is meaningful: events can
+/// be ingested seconds before the first eviction tick fires
+/// (`trace_ttl_ms / 2`, default 15s), gating only on `events_processed > 0`
+/// would expose a window where the cell is still `disabled(0)`. The
+/// `export_report_requests_total` counter is bumped before the cold-start
+/// check, so cold-start responses are counted too (consistent with HTTP
+/// access-log conventions).
 ///
 /// Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT`
 /// (1000 + 1000 entries) plus a bounded `green_summary` (`top_offenders`
@@ -248,9 +250,7 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
 /// `report::build_report(...)` and call it from both.
-async fn handle_export_report(
-    State(state): State<Arc<QueryApiState>>,
-) -> Result<Json<Report>, (StatusCode, Json<serde_json::Value>)> {
+async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<Report> {
     state.metrics.export_report_requests_total.inc();
 
     // Prometheus counters are f64 internally. Daemon-lifetime counts
@@ -265,18 +265,32 @@ async fn handle_export_report(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let traces_analyzed = state.metrics.traces_analyzed_total.get() as u64;
 
-    // Guard against the cold-start window: events can be ingested
-    // (counter bumped in `ingest_event_batch`) seconds before the first
-    // batch evicts and writes the green_summary cell. Gating on both
-    // counters keeps the snapshot self-consistent (the cell holds at
-    // least one real batch result by the time `traces_analyzed > 0`).
+    // Cold-start path: gating on both counters keeps the snapshot
+    // self-consistent (the cell holds at least one real batch result by
+    // the time `traces_analyzed > 0`). Return an empty envelope with a
+    // warning string so consumers can distinguish "no events yet" from
+    // "events exist, zero findings" without a 5xx HTTP status.
     if events_processed == 0 || traces_analyzed == 0 {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "error": "daemon has not yet processed any events"
-            })),
-        ));
+        let mut green_summary = GreenSummary::disabled(0);
+        green_summary
+            .scoring_config
+            .clone_from(&state.scoring_config);
+        return Json(Report {
+            analysis: Analysis {
+                duration_ms: 0,
+                events_processed: 0,
+                traces_analyzed: 0,
+            },
+            findings: Vec::new(),
+            green_summary,
+            quality_gate: QualityGate {
+                passed: true,
+                rules: Vec::new(),
+            },
+            per_endpoint_io_ops: Vec::new(),
+            correlations: Vec::new(),
+            warnings: vec!["daemon has not yet processed any events".to_string()],
+        });
     }
 
     // Snapshot findings. Cap at MAX_FINDINGS_LIMIT to mirror
@@ -357,9 +371,10 @@ async fn handle_export_report(
         quality_gate,
         per_endpoint_io_ops: vec![],
         correlations,
+        warnings: vec![],
     };
 
-    Ok(Json(report))
+    Json(report)
 }
 
 #[cfg(test)]
@@ -674,25 +689,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_export_report_returns_503_on_cold_start() {
+    async fn handle_export_report_returns_200_with_empty_envelope_on_cold_start() {
         // No events processed yet: the daemon has nothing meaningful
-        // to snapshot. Must respond 503 with the documented error
-        // body shape so callers can distinguish "cold start" from
-        // "ran and found nothing".
+        // to snapshot. Returns 200 with an empty Report envelope and a
+        // `warnings` entry. Pre-0.5.16 returned 503, which tripped
+        // Kubernetes probes. The empty shape lets clients distinguish
+        // "no events yet" from "ran and found nothing" without a 5xx.
         let app = query_api_router(make_state());
         let req = Request::builder()
             .uri("/api/export/report")
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
             .await
             .unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let report: Report =
+            serde_json::from_slice(&body).expect("cold-start body must parse as Report");
+        assert_eq!(report.analysis.events_processed, 0);
+        assert_eq!(report.analysis.traces_analyzed, 0);
+        assert_eq!(report.findings.len(), 0);
+        assert_eq!(report.green_summary.total_io_ops, 0);
         assert_eq!(
-            value["error"].as_str().unwrap(),
-            "daemon has not yet processed any events"
+            report.warnings,
+            vec!["daemon has not yet processed any events".to_string()]
         );
     }
 
@@ -794,12 +815,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handle_export_report_returns_503_when_events_in_but_no_batch_yet() {
+    async fn handle_export_report_returns_200_with_warnings_when_events_in_but_no_batch_yet() {
         // Cold-start tail: events have been ingested
         // (`events_processed_total > 0`) but the first eviction tick
         // has not fired, so `traces_analyzed_total == 0` and the
         // green_summary cell is still `disabled(0)`. The handler must
-        // 503 to avoid serving a meaningless snapshot.
+        // serve the empty envelope (not 503) to avoid tripping
+        // Kubernetes probes during this transient window.
         let state = make_state();
         state.metrics.events_processed_total.inc_by(5.0);
         // traces_analyzed_total left at 0
@@ -809,7 +831,20 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+        // The handler clamps `events_processed` to 0 on cold-start since
+        // the snapshot is meant to look "empty", regardless of the raw
+        // counter that may have already incremented.
+        assert_eq!(report.analysis.events_processed, 0);
+        assert_eq!(report.analysis.traces_analyzed, 0);
+        assert_eq!(
+            report.warnings,
+            vec!["daemon has not yet processed any events".to_string()]
+        );
     }
 
     #[tokio::test]
