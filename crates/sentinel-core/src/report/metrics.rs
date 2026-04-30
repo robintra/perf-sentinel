@@ -79,7 +79,8 @@ pub struct MetricsState {
     /// Total requests to `GET /api/export/report` since daemon start.
     /// Bumped by the handler so operators can dashboard or alert on
     /// the frequency of Report snapshots being pulled by clients.
-    /// Counts every request, including 503 cold-start responses,
+    /// Counts every request, including cold-start responses (which
+    /// return 200 with an empty envelope since 0.5.16, 503 before),
     /// consistent with HTTP access-log conventions.
     pub export_report_requests_total: Counter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
@@ -557,16 +558,48 @@ enum NegotiatedFormat {
 
 /// Negotiation discriminator. `None` falls back to legacy behavior so
 /// non-HTTP callers (CLI batch path, tests calling `render()` without a
-/// header) keep the 0.5.15 contract. The `*/*` check is robust to common
-/// header shapes including comma-separated lists and q-values.
+/// header) keep the 0.5.15 contract.
+///
+/// `OpenMetrics` detection is token-aware. The header is split on `,` per
+/// RFC 7231 §5.3.2, each token's media-type is compared case-insensitively
+/// to the literal `application/openmetrics-text`. A hostile or unrelated
+/// token such as `application/openmetrics-text-evil` therefore does NOT
+/// trigger the `OpenMetrics` path. Tokens explicitly refused via `q=0`
+/// (or `q=0.0`) are skipped per RFC 7231 §5.3.1.
+///
+/// The `*/*` wildcard detection uses a substring match on purpose, the
+/// wildcard is unique enough that no other media type contains it, and
+/// some real scrapers (vmagent in particular) emit a non-RFC variant
+/// where `*/*` appears as a parameter rather than a comma-separated
+/// token (e.g. `text/plain;*/*;q=0.1`). The substring match handles
+/// both the RFC form and the vmagent form.
 fn select_format(accept: Option<&str>) -> NegotiatedFormat {
     let Some(header) = accept else {
         return NegotiatedFormat::Legacy;
     };
-    let lower = header.to_ascii_lowercase();
-    if lower.contains("application/openmetrics-text") {
+
+    let mut accepts_openmetrics = false;
+
+    for token in header.split(',') {
+        let token = token.trim();
+        let mut parts = token.split(';');
+        let media = parts.next().unwrap_or("").trim();
+        let refused = parts.any(|p| {
+            let p = p.trim();
+            p.eq_ignore_ascii_case("q=0") || p.eq_ignore_ascii_case("q=0.0")
+        });
+        if refused {
+            continue;
+        }
+        if media.eq_ignore_ascii_case("application/openmetrics-text") {
+            accepts_openmetrics = true;
+            break;
+        }
+    }
+
+    if accepts_openmetrics {
         NegotiatedFormat::OpenMetricsForced
-    } else if lower.contains("*/*") {
+    } else if header.contains("*/*") {
         NegotiatedFormat::Legacy
     } else {
         NegotiatedFormat::PlainStrict
@@ -1179,10 +1212,15 @@ mod tests {
             select_format(Some("text/plain;version=0.0.4")),
             NegotiatedFormat::PlainStrict
         );
-        // Legacy via wildcard.
+        // Legacy via wildcard. The vmagent-style header uses semicolons
+        // instead of commas, the substring `*/*` check still fires.
         assert_eq!(select_format(Some("*/*")), NegotiatedFormat::Legacy);
         assert_eq!(
             select_format(Some("text/plain;*/*;q=0.1")),
+            NegotiatedFormat::Legacy
+        );
+        assert_eq!(
+            select_format(Some("text/plain;version=0.0.4,*/*;q=0.1")),
             NegotiatedFormat::Legacy
         );
         // Forced via explicit OM.
@@ -1194,10 +1232,30 @@ mod tests {
             select_format(Some("application/openmetrics-text;q=0.9,text/plain;q=0.5")),
             NegotiatedFormat::OpenMetricsForced
         );
-        // Case-insensitive.
+        // Case-insensitive media-type match.
         assert_eq!(
             select_format(Some("Application/OpenMetrics-Text")),
             NegotiatedFormat::OpenMetricsForced
+        );
+        // Substring attack: a hostile media type that contains the OM
+        // literal as a substring must NOT route to OM.
+        assert_eq!(
+            select_format(Some("application/openmetrics-text-foo")),
+            NegotiatedFormat::PlainStrict
+        );
+        assert_eq!(
+            select_format(Some("xapplication/openmetrics-text")),
+            NegotiatedFormat::PlainStrict
+        );
+        // Explicit refusal via `q=0` per RFC 7231 §5.3.1: the client
+        // rejects OM even though the literal is present.
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;q=0,*/*;q=1")),
+            NegotiatedFormat::Legacy
+        );
+        assert_eq!(
+            select_format(Some("application/openmetrics-text;q=0.0,text/plain")),
+            NegotiatedFormat::PlainStrict
         );
     }
 

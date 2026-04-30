@@ -56,8 +56,9 @@ pub struct QueryApiState {
     /// reflects the latest CO2 picture (regions, top offenders,
     /// avoidable I/O ratio) instead of `GreenSummary::disabled(0)`.
     /// Initialized to `disabled(0)` at daemon startup. The cold-start
-    /// guard (`events_processed == 0 -> 503`) ensures clients never
-    /// observe the initial value.
+    /// branch (`events_processed == 0 || traces_analyzed == 0`) returns
+    /// the empty envelope with `disabled(0)` instead of reading this
+    /// cell, so clients never observe a half-populated value.
     pub green_summary: Arc<tokio::sync::RwLock<GreenSummary>>,
 }
 
@@ -774,6 +775,44 @@ mod tests {
         assert_eq!(report.correlations.len(), 1);
         assert_eq!(report.correlations[0].source.service, "order-svc");
         assert_eq!(report.correlations[0].target.service, "payment-svc");
+    }
+
+    #[tokio::test]
+    async fn handle_export_report_propagates_scoring_config_on_cold_start() {
+        use crate::score::carbon::ScoringConfig;
+        use crate::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+
+        // Cold-start path mirror: even when no events have been ingested
+        // yet, an operator pulling /api/export/report must see the
+        // Electricity Maps audit chip if EM is configured at startup.
+        // Regression-guards the `green_summary.scoring_config.clone_from`
+        // call on the cold-start branch.
+        let scoring = ScoringConfig {
+            api_version: ApiVersion::V4,
+            emission_factor_type: EmissionFactorType::Lifecycle,
+            temporal_granularity: TemporalGranularity::Hourly,
+        };
+
+        let mut state_owned = make_state().clone_for_test();
+        state_owned.scoring_config = Some(scoring.clone());
+        let state = Arc::new(state_owned);
+        // Both counters left at 0, exercises the cold-start branch.
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
+        assert_eq!(report.green_summary.scoring_config, Some(scoring));
+        assert_eq!(report.warnings.len(), 1);
     }
 
     #[tokio::test]
