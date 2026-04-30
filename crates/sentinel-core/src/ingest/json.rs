@@ -117,6 +117,16 @@ impl IngestSource for JsonIngest {
             });
         }
 
+        // Apply the project-wide nesting cap before dispatching to a
+        // format-specific parser. Pre-0.5.15 only the Native arm enforced
+        // it, leaving Jaeger and Zipkin paths on serde_json's looser
+        // 128-frame default.
+        if exceeds_max_depth(raw) {
+            return Err(JsonIngestError::PayloadTooDeep {
+                max_depth: MAX_JSON_DEPTH,
+            });
+        }
+
         match detect_format(raw) {
             InputFormat::Jaeger => {
                 let ingest = crate::ingest::jaeger::JaegerIngest::new(self.max_size);
@@ -131,11 +141,6 @@ impl IngestSource for JsonIngest {
                     .map_err(|e| JsonIngestError::Format(e.to_string()))
             }
             InputFormat::Native => {
-                if exceeds_max_depth(raw) {
-                    return Err(JsonIngestError::PayloadTooDeep {
-                        max_depth: MAX_JSON_DEPTH,
-                    });
-                }
                 let mut events: Vec<SpanEvent> =
                     serde_json::from_slice(raw).map_err(JsonIngestError::Parse)?;
                 // Sanitize cloud.region at the JSON ingest boundary, symmetric
@@ -383,6 +388,50 @@ mod tests {
             result,
             Err(JsonIngestError::PayloadTooDeep { .. })
         ));
+    }
+
+    #[test]
+    fn deeply_nested_jaeger_payload_is_rejected() {
+        // Pre-0.5.15 only the Native arm enforced MAX_JSON_DEPTH. A Jaeger
+        // payload with 33+ frames of nesting would slip through to
+        // JaegerIngest and rely on serde_json's looser 128-frame default.
+        let depth = MAX_JSON_DEPTH + 4;
+        let mut payload = String::from(r#"{"data":[{"spans":[{"tags":["#);
+        for _ in 0..depth {
+            payload.push('[');
+        }
+        for _ in 0..depth {
+            payload.push(']');
+        }
+        payload.push_str("]}]}]}");
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "deeply-nested Jaeger input must be rejected: {result:?}"
+        );
+    }
+
+    #[test]
+    fn deeply_nested_zipkin_payload_is_rejected() {
+        // Symmetric guard for the Zipkin v2 path.
+        let depth = MAX_JSON_DEPTH + 4;
+        let mut payload = String::from(
+            r#"[{"traceId":"abc","localEndpoint":{"serviceName":"s"},"annotations":["#,
+        );
+        for _ in 0..depth {
+            payload.push('[');
+        }
+        for _ in 0..depth {
+            payload.push(']');
+        }
+        payload.push_str("]}]");
+        let ingest = JsonIngest::new(1_048_576);
+        let result = ingest.ingest(payload.as_bytes());
+        assert!(
+            matches!(result, Err(JsonIngestError::PayloadTooDeep { .. })),
+            "deeply-nested Zipkin input must be rejected: {result:?}"
+        );
     }
 
     #[test]

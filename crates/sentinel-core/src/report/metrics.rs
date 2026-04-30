@@ -402,7 +402,10 @@ impl MetricsState {
     /// Render all metrics in Prometheus text exposition format.
     ///
     /// When exemplar data is available, injects `OpenMetrics` exemplar annotations
-    /// on `perf_sentinel_findings_total` and `perf_sentinel_io_waste_ratio` lines.
+    /// on `perf_sentinel_findings_total` and `perf_sentinel_io_waste_ratio` lines
+    /// and appends the `# EOF` end-of-exposition marker required by `OpenMetrics`
+    /// 1.0.0. Without `# EOF`, a Prometheus server negotiating
+    /// `application/openmetrics-text; version=1.0.0` refuses the payload.
     ///
     /// # Panics
     ///
@@ -419,7 +422,18 @@ impl MetricsState {
             return "# error encoding metrics\n".to_string();
         };
 
-        self.inject_exemplars(base_output)
+        if self.has_exemplars() {
+            let mut output = self.inject_exemplars(base_output);
+            if !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str("# EOF\n");
+            output
+        } else {
+            // Plain Prometheus text format. No `# EOF` marker, illegal in
+            // pre-OpenMetrics text/plain.
+            base_output
+        }
     }
 
     /// Post-process rendered metrics text to inject exemplar annotations.
@@ -427,7 +441,11 @@ impl MetricsState {
     /// Note: This relies on the prometheus crate 0.14.0 output format for line-prefix
     /// matching. If the crate changes its label ordering or spacing, the matching
     /// will silently stop injecting exemplars. The exemplar format follows the
-    /// `OpenMetrics` specification: `metric{labels} value # {trace_id="..."}`
+    /// `OpenMetrics` 1.0.0 specification (section 5.1.10):
+    /// `metric{labels} value # {trace_id="..."} 1.0`. The trailing `1.0` is the
+    /// mandatory exemplar value, set to a constant dummy because Grafana and
+    /// other exemplar-aware tools read only the `trace_id` label for click-
+    /// through navigation.
     fn inject_exemplars(&self, base: String) -> String {
         use std::fmt::Write;
 
@@ -456,7 +474,7 @@ impl MetricsState {
                 .flatten()
             {
                 let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
-                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}}");
+                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}} 1.0");
             }
 
             // Inject exemplar on io_waste_ratio line
@@ -465,7 +483,7 @@ impl MetricsState {
                 .filter(|_| line.starts_with("perf_sentinel_io_waste_ratio "))
             {
                 let sanitized = sanitize_exemplar_value(&exemplar.trace_id);
-                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}}");
+                let _ = write!(output, " # {{trace_id=\"{sanitized}\"}} 1.0");
             }
 
             output.push('\n');
@@ -984,6 +1002,82 @@ mod tests {
         );
         // Should contain the sanitized version
         assert!(output.contains("evil999my_fake_metric"));
+    }
+
+    #[test]
+    fn render_appends_eof_marker_with_exemplars() {
+        // OpenMetrics 1.0.0 mandates `# EOF` as the end-of-exposition marker.
+        // Pre-0.5.15 the daemon advertised the OpenMetrics content type but
+        // omitted the marker, causing strict scrapers (Prometheus in
+        // openmetrics-text negotiation) to refuse the payload.
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-eof",
+                5,
+            )],
+            0.3,
+        );
+        state.record_batch(&report);
+        let output = state.render();
+
+        assert!(
+            output.ends_with("# EOF\n"),
+            "OpenMetrics output must terminate with `# EOF\\n`, got tail: {:?}",
+            &output[output.len().saturating_sub(64)..]
+        );
+    }
+
+    #[test]
+    fn render_omits_eof_marker_without_exemplars() {
+        // Plain Prometheus text format (text/plain; version=0.0.4) must NOT
+        // contain `# EOF`, which is illegal in pre-OpenMetrics scrapers.
+        let state = MetricsState::new();
+        state.traces_analyzed_total.inc();
+
+        let output = state.render();
+        assert!(
+            !output.contains("# EOF"),
+            "Prometheus text/plain output must not contain `# EOF`, got: {output}"
+        );
+    }
+
+    #[test]
+    fn exemplar_annotation_includes_numeric_value() {
+        // OpenMetrics 1.0.0 section 5.1.10 requires a numeric value after the
+        // exemplar labels block. Pre-0.5.15 the helper emitted only the labels.
+        let state = MetricsState::new();
+        let report = make_test_report(
+            vec![make_finding(
+                FindingType::NPlusOneSql,
+                Severity::Warning,
+                "trace-numeric",
+                5,
+            )],
+            0.5,
+        );
+        state.record_batch(&report);
+        let output = state.render();
+
+        let exemplar_line = output
+            .lines()
+            .find(|l| l.starts_with("perf_sentinel_findings_total{") && l.contains("trace_id="))
+            .expect("expected at least one findings exemplar line");
+        assert!(
+            exemplar_line.ends_with(r#" # {trace_id="trace-numeric"} 1.0"#),
+            "findings exemplar must follow OpenMetrics 1.0 format: {exemplar_line}"
+        );
+
+        let waste_line = output
+            .lines()
+            .find(|l| l.starts_with("perf_sentinel_io_waste_ratio ") && l.contains("trace_id="))
+            .expect("expected the io_waste_ratio exemplar line");
+        assert!(
+            waste_line.ends_with(r#" # {trace_id="trace-numeric"} 1.0"#),
+            "io_waste_ratio exemplar must follow OpenMetrics 1.0 format: {waste_line}"
+        );
     }
 
     #[test]
