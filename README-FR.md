@@ -42,6 +42,15 @@ perf-sentinel analyze --input traces.json
 
 ![demo](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
+## Comment ça s'insère dans votre infra
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration_dark.svg">
+  <img alt="Intégration globale de perf-sentinel à travers dev local, CI, staging et prod" src="https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg">
+</picture>
+
+Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes (daemon hybride vers batch HTML, batch sur Tempo, daemon OTLP direct, multi-format Jaeger/Zipkin, calibrate, sidecar, corrélation cross-trace, intégration `pg_stat_statements`). **Chaque scénario fournit un diagramme d'architecture Mermaid, les entrées et sorties exactes, la configuration requise et les pièges rencontrés lors de la validation.**
+
 ## Démarrage rapide
 
 ### Installation depuis crates.io
