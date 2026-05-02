@@ -439,14 +439,32 @@ pub fn report_to_sarif(report: &Report) -> SarifLog {
 
 fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> SarifResult {
     let mut result = finding_to_result(&ack.finding);
+    // The ack metadata is operator-controlled free text. SARIF consumers
+    // (GitHub Code Scanning, GitLab) escape JSON values for HTML, so XSS
+    // is closed at the consumer, but BiDi / invisible-format characters
+    // can still spoof the displayed identity (`alice<RLO>@evil.com`).
+    // Strip them defensively at emission, matching the existing
+    // `code.filepath` discipline in `sanitize_sarif_filepath`.
     result.properties = Some(SarifProperties {
         confidence: ack.finding.confidence.as_str(),
         acknowledged: Some(true),
-        acknowledgment_reason: Some(ack.acknowledgment.reason.clone()),
-        acknowledgment_by: Some(ack.acknowledgment.acknowledged_by.clone()),
-        acknowledgment_at: Some(ack.acknowledgment.acknowledged_at.clone()),
+        acknowledgment_reason: Some(strip_bidi_and_invisible(&ack.acknowledgment.reason)),
+        acknowledgment_by: Some(strip_bidi_and_invisible(
+            &ack.acknowledgment.acknowledged_by,
+        )),
+        acknowledgment_at: Some(strip_bidi_and_invisible(
+            &ack.acknowledgment.acknowledged_at,
+        )),
     });
     result
+}
+
+/// Drop Unicode BiDi-override and invisible-format characters from a
+/// free-text string before emitting it into SARIF. Reuses the same
+/// classifier as `sanitize_sarif_filepath` so the policy stays
+/// consistent across SARIF surfaces.
+fn strip_bidi_and_invisible(s: &str) -> String {
+    s.chars().filter(|c| !is_bidi_or_invisible(*c)).collect()
 }
 
 /// Convert a slice of findings to a SARIF log. Used by `report_to_sarif`

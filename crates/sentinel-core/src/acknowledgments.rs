@@ -9,7 +9,9 @@
 //! Out of scope here: daemon-side runtime ack (deferred to 0.5.18, if
 //! the architecture review confirms the need).
 
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::Read;
 use std::path::Path;
 
 use chrono::{DateTime, NaiveDate, Utc};
@@ -20,6 +22,12 @@ use crate::config::Config;
 use crate::detect::Finding;
 use crate::quality_gate;
 use crate::report::{AcknowledgedFinding, Report};
+
+/// Hard cap on the size of `.perf-sentinel-acknowledgments.toml`. Mirrors
+/// the trace-ingest payload-cap discipline so a stray
+/// `--acknowledgments /dev/zero` or a multi-GB malformed TOML cannot
+/// silently exhaust process memory.
+pub const MAX_ACKNOWLEDGMENTS_FILE_BYTES: u64 = 16 * 1024 * 1024;
 
 /// A single acknowledgment entry deserialized from the TOML file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,10 +60,13 @@ pub struct AcknowledgmentsFile {
 /// Compute the canonical signature of a finding.
 ///
 /// Format: `<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>`.
-/// The `sha256` prefix uses the first 4 bytes (8 hex characters) which
-/// gives ~32 bits of collision resistance, comfortably below the birthday
-/// bound for the realistic per-service template population (~1k templates
-/// or fewer).
+/// The `sha256` prefix uses the first 8 bytes (16 hex characters), giving
+/// ~64 bits of collision resistance. The triple
+/// `(finding_type, service, sanitized_endpoint)` is already part of the
+/// signature, so the hash only needs to disambiguate templates within the
+/// same triple, an extremely small population in practice. The 16-char
+/// prefix is defense in depth against accidental ack masking after a SQL
+/// refactor or a service rename.
 ///
 /// Sanitization replaces `/` and ` ` (space) inside `source_endpoint`
 /// with `_` so the resulting signature uses `:` as a single, unambiguous
@@ -65,18 +76,19 @@ pub fn compute_signature(finding: &Finding) -> String {
     let mut hasher = Sha256::new();
     hasher.update(finding.pattern.template.as_bytes());
     let digest = hasher.finalize();
-    let mut hex_prefix = String::with_capacity(8);
-    for byte in &digest[..4] {
-        use std::fmt::Write as _;
-        let _ = write!(hex_prefix, "{byte:02x}");
-    }
-
     format!(
-        "{}:{}:{}:{}",
+        "{}:{}:{}:{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         finding.finding_type.as_str(),
         finding.service,
         sanitize_endpoint(&finding.source_endpoint),
-        hex_prefix,
+        digest[0],
+        digest[1],
+        digest[2],
+        digest[3],
+        digest[4],
+        digest[5],
+        digest[6],
+        digest[7],
     )
 }
 
@@ -104,9 +116,14 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
 /// date so a typo in the ack file fails the run loud rather than
 /// silently widening the matched set.
 ///
+/// Reads with a hard cap of [`MAX_ACKNOWLEDGMENTS_FILE_BYTES`]. The TOML
+/// crate has no public depth limiter, but the size cap keeps the worst
+/// case bounded and rejects `/dev/zero` and the like.
+///
 /// # Errors
 ///
 /// - [`AcknowledgmentLoadError::Io`] when the file exists but cannot be read.
+/// - [`AcknowledgmentLoadError::TooLarge`] when the file exceeds the cap.
 /// - [`AcknowledgmentLoadError::Parse`] when the TOML cannot be parsed.
 /// - [`AcknowledgmentLoadError::InvalidDate`] when an `expires_at` value is
 ///   not a valid `YYYY-MM-DD` ISO 8601 date.
@@ -114,9 +131,21 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
     if !path.exists() {
         return Ok(AcknowledgmentsFile::default());
     }
-    let content = std::fs::read_to_string(path).map_err(AcknowledgmentLoadError::Io)?;
+    let file = std::fs::File::open(path).map_err(AcknowledgmentLoadError::Io)?;
+    // `take(cap + 1)` closes the TOCTOU window between metadata().len()
+    // and read(): we read at most cap+1 bytes, and reject if we hit the
+    // cap+1th byte. Same pattern as `read_file_capped` in the CLI.
+    let mut buf = String::new();
+    file.take(MAX_ACKNOWLEDGMENTS_FILE_BYTES + 1)
+        .read_to_string(&mut buf)
+        .map_err(AcknowledgmentLoadError::Io)?;
+    if buf.len() as u64 > MAX_ACKNOWLEDGMENTS_FILE_BYTES {
+        return Err(AcknowledgmentLoadError::TooLarge {
+            cap: MAX_ACKNOWLEDGMENTS_FILE_BYTES,
+        });
+    }
     let parsed: AcknowledgmentsFile =
-        toml::from_str(&content).map_err(AcknowledgmentLoadError::Parse)?;
+        toml::from_str(&buf).map_err(AcknowledgmentLoadError::Parse)?;
 
     for (idx, ack) in parsed.acknowledged.iter().enumerate() {
         if let Some(ref expires) = ack.expires_at {
@@ -136,11 +165,16 @@ pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, Acknowledgment
 
 /// Apply acknowledgments to a `Report` in place.
 ///
-/// 1. Filters `report.findings`, moving acked entries into
+/// 1. Clears any prior `report.acknowledged_findings` so a Report fed
+///    back through this function (e.g. a baseline JSON round-trip)
+///    cannot accumulate stale ack pairs across runs.
+/// 2. Filters `report.findings`, moving acked entries into
 ///    `report.acknowledged_findings`.
-/// 2. Re-evaluates the quality gate on the surviving set so an ack can
+/// 3. Re-evaluates the quality gate on the surviving set so an ack can
 ///    flip a previously failing gate to green (the entire point of
-///    "won't fix / accepted" semantics).
+///    "won't fix / accepted" semantics). Re-evaluation runs even when no
+///    ack matched, so the gate field is always self-consistent with the
+///    final `findings` slice.
 ///
 /// Acks with an `expires_at` strictly before `now` are treated as inactive
 /// and the corresponding finding is preserved in `report.findings`.
@@ -150,6 +184,12 @@ pub fn apply_to_report(
     config: &Config,
     now: DateTime<Utc>,
 ) {
+    // Drop any prior ack pairs from the source Report. The caller may
+    // have loaded a baseline that already carried `acknowledged_findings`
+    // from a previous `--show-acknowledged` run, which we do not want to
+    // double-count or treat as authoritative.
+    report.acknowledged_findings.clear();
+
     let active: HashMap<&str, &Acknowledgment> = acks
         .acknowledged
         .iter()
@@ -157,28 +197,26 @@ pub fn apply_to_report(
         .map(|a| (a.signature.as_str(), a))
         .collect();
 
-    if active.is_empty() {
-        return;
-    }
-
-    let original = std::mem::take(&mut report.findings);
-    let mut kept = Vec::with_capacity(original.len());
-    for finding in original {
-        let sig = if finding.signature.is_empty() {
-            compute_signature(&finding)
-        } else {
-            finding.signature.clone()
-        };
-        if let Some(ack) = active.get(sig.as_str()) {
-            report.acknowledged_findings.push(AcknowledgedFinding {
-                finding,
-                acknowledgment: (*ack).clone(),
-            });
-        } else {
-            kept.push(finding);
+    if !active.is_empty() {
+        let original = std::mem::take(&mut report.findings);
+        let mut kept = Vec::with_capacity(original.len());
+        for finding in original {
+            let sig: Cow<'_, str> = if finding.signature.is_empty() {
+                Cow::Owned(compute_signature(&finding))
+            } else {
+                Cow::Borrowed(finding.signature.as_str())
+            };
+            if let Some(ack) = active.get(sig.as_ref()) {
+                report.acknowledged_findings.push(AcknowledgedFinding {
+                    finding,
+                    acknowledgment: (*ack).clone(),
+                });
+            } else {
+                kept.push(finding);
+            }
         }
+        report.findings = kept;
     }
-    report.findings = kept;
 
     report.quality_gate = quality_gate::evaluate(&report.findings, &report.green_summary, config);
 }
@@ -205,6 +243,9 @@ fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
 pub enum AcknowledgmentLoadError {
     #[error("Failed to read acknowledgments file: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Acknowledgments file exceeds the {cap}-byte cap")]
+    TooLarge { cap: u64 },
 
     #[error("Failed to parse acknowledgments TOML: {0}")]
     Parse(toml::de::Error),
@@ -312,11 +353,55 @@ mod tests {
         assert_eq!(parts.next(), Some("order-service"));
         assert_eq!(parts.next(), Some("POST__api_orders"));
         let hex = parts.next().expect("hex prefix present");
-        assert_eq!(hex.len(), 8, "hex prefix is 8 characters");
+        assert_eq!(hex.len(), 16, "hex prefix is 16 characters (8 bytes)");
         assert!(
             hex.chars().all(|c| c.is_ascii_hexdigit()),
             "hex prefix is hex"
         );
+    }
+
+    #[test]
+    fn load_from_file_rejects_oversized_input() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("acks.toml");
+        let payload = vec![b'x'; (MAX_ACKNOWLEDGMENTS_FILE_BYTES + 1) as usize];
+        std::fs::write(&path, &payload).unwrap();
+        let err = load_from_file(&path).expect_err("oversized file must fail");
+        assert!(
+            matches!(err, AcknowledgmentLoadError::TooLarge { .. }),
+            "expected TooLarge, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn apply_to_report_clears_prior_acked_entries() {
+        // Simulate a Report fed back from a previous --show-acknowledged
+        // run: it carries one stale ack pair. Applying a fresh empty
+        // ack file must drop the stale pair, the gate is re-evaluated,
+        // and findings are unchanged.
+        let stale_finding = make_finding(FindingType::SlowSql, Severity::Warning);
+        let stale_ack = Acknowledgment {
+            signature: "stale".to_string(),
+            acknowledged_by: "stale@example.com".to_string(),
+            acknowledged_at: "2020-01-01".to_string(),
+            reason: "from a previous run".to_string(),
+            expires_at: None,
+        };
+        let mut findings = vec![make_finding(FindingType::NPlusOneSql, Severity::Warning)];
+        enrich_with_signatures(&mut findings);
+        let mut report = empty_report(findings);
+        report.acknowledged_findings.push(AcknowledgedFinding {
+            finding: stale_finding,
+            acknowledgment: stale_ack,
+        });
+        let acks = AcknowledgmentsFile::default();
+        let config = Config::default();
+        apply_to_report(&mut report, &acks, &config, now_2026_05_02());
+        assert!(
+            report.acknowledged_findings.is_empty(),
+            "stale ack pair must be cleared on entry"
+        );
+        assert_eq!(report.findings.len(), 1, "active findings preserved");
     }
 
     #[test]

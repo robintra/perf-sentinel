@@ -214,6 +214,16 @@ enum Commands {
         /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
         #[arg(long)]
         ci: bool,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
+        /// Include acknowledged findings in the output, alongside ack metadata.
+        #[arg(long)]
+        show_acknowledged: bool,
     },
 
     /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
@@ -252,6 +262,16 @@ enum Commands {
         /// Enable CI quality gate mode (exit 1 if gate fails, JSON output).
         #[arg(long)]
         ci: bool,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
+        /// Include acknowledged findings in the output, alongside ack metadata.
+        #[arg(long)]
+        show_acknowledged: bool,
     },
 
     /// Calibrate energy coefficients from real measurements.
@@ -546,6 +566,9 @@ async fn main() {
             config,
             format,
             ci,
+            acknowledgments,
+            no_acknowledgments,
+            show_acknowledged,
         } => {
             let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
                 Ok(v) => v,
@@ -564,6 +587,9 @@ async fn main() {
                 config.as_deref(),
                 format,
                 ci,
+                acknowledgments.as_deref(),
+                no_acknowledgments,
+                show_acknowledged,
             )
             .await;
         }
@@ -579,6 +605,9 @@ async fn main() {
             config,
             format,
             ci,
+            acknowledgments,
+            no_acknowledgments,
+            show_acknowledged,
         } => {
             let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
                 Ok(v) => v,
@@ -597,6 +626,9 @@ async fn main() {
                 config.as_deref(),
                 format,
                 ci,
+                acknowledgments.as_deref(),
+                no_acknowledgments,
+                show_acknowledged,
             )
             .await;
         }
@@ -893,7 +925,7 @@ fn cmd_analyze(
         acknowledgments_path,
         no_acknowledgments,
     );
-    emit_report_and_gate(&report, format, ci, "report", show_acknowledged);
+    emit_report_and_gate(&mut report, format, ci, "report", show_acknowledged);
 }
 
 fn cmd_diff(
@@ -1292,6 +1324,9 @@ async fn cmd_tempo(
     config_path: Option<&std::path::Path>,
     format: Option<OutputFormat>,
     ci: bool,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+    show_acknowledged: bool,
 ) {
     if trace_id.is_none() && service.is_none() {
         eprintln!("Error: either --trace-id or --service is required");
@@ -1334,8 +1369,14 @@ async fn cmd_tempo(
         "Ingested events from Tempo, running analysis"
     );
 
-    let report = pipeline::analyze(events, &config);
-    emit_report_and_gate(&report, format, ci, "tempo", false);
+    let mut report = pipeline::analyze(events, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    emit_report_and_gate(&mut report, format, ci, "tempo", show_acknowledged);
 }
 
 #[cfg(feature = "jaeger-query")]
@@ -1350,6 +1391,9 @@ async fn cmd_jaeger_query(
     config_path: Option<&std::path::Path>,
     format: Option<OutputFormat>,
     ci: bool,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+    show_acknowledged: bool,
 ) {
     if trace_id.is_none() && service.is_none() {
         eprintln!("Error: either --trace-id or --service is required");
@@ -1392,8 +1436,14 @@ async fn cmd_jaeger_query(
         "Ingested events from Jaeger query API, running analysis"
     );
 
-    let report = pipeline::analyze(events, &config);
-    emit_report_and_gate(&report, format, ci, "jaeger-query", false);
+    let mut report = pipeline::analyze(events, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    emit_report_and_gate(&mut report, format, ci, "jaeger-query", show_acknowledged);
 }
 
 fn cmd_calibrate(

@@ -21,8 +21,14 @@ use crate::OutputFormat;
 /// surface `acknowledged_findings`. The text sink always prints a one-line
 /// count when acks matched and prints per-ack details only when
 /// `show_acknowledged` is true.
+///
+/// Takes `&mut Report` so the JSON / SARIF emit paths can hide
+/// `acknowledged_findings` via a zero-copy `mem::take`+restore around the
+/// emit call. The previous `Report::clone()` strategy deep-cloned the
+/// entire `findings` vector and friends just to clear one field, which is
+/// wasteful on large baselines (perf-greenops 0.5.17 review).
 pub(crate) fn emit_report_and_gate(
-    report: &Report,
+    report: &mut Report,
     format: Option<OutputFormat>,
     ci: bool,
     label: &str,
@@ -34,37 +40,25 @@ pub(crate) fn emit_report_and_gate(
         OutputFormat::Text
     });
 
-    // For structured sinks, optionally hide `acknowledged_findings` from
-    // the wire payload. Cloning is cheap and only happens on the
-    // suppressed path; the alternative (mutable Report) would force every
-    // caller to thread a `&mut Report` through, which is awkward.
-    let owned: Report;
-    let view: &Report = if !show_acknowledged
-        && !report.acknowledged_findings.is_empty()
-        && matches!(effective_format, OutputFormat::Json | OutputFormat::Sarif)
-    {
-        owned = strip_acknowledged(report);
-        &owned
-    } else {
-        report
-    };
-
     match effective_format {
         OutputFormat::Text => {
+            // The text sink always sees the live report so the count
+            // footer can surface acked entries even when their full
+            // detail is suppressed.
             format_colored_report_with_acks(report, label, false, show_acknowledged);
         }
         OutputFormat::Json => {
-            let sink = JsonReportSink;
-            if let Err(e) = sink.emit(view) {
-                eprintln!("Error writing report: {e}");
-                std::process::exit(1);
-            }
+            with_optional_acks_hidden(report, show_acknowledged, |r| {
+                let sink = JsonReportSink;
+                sink.emit(r)
+                    .map_err(|e| format!("Error writing report: {e}"))
+            });
         }
         OutputFormat::Sarif => {
-            if let Err(e) = sentinel_core::report::sarif::emit_sarif(view) {
-                eprintln!("Error writing SARIF report: {e}");
-                std::process::exit(1);
-            }
+            with_optional_acks_hidden(report, show_acknowledged, |r| {
+                sentinel_core::report::sarif::emit_sarif(r)
+                    .map_err(|e| format!("Error writing SARIF report: {e}"))
+            });
         }
     }
 
@@ -74,10 +68,29 @@ pub(crate) fn emit_report_and_gate(
     }
 }
 
-fn strip_acknowledged(report: &Report) -> Report {
-    let mut clone = report.clone();
-    clone.acknowledged_findings.clear();
-    clone
+/// Hide `report.acknowledged_findings` for the duration of `emit`, then
+/// restore it. Avoids cloning the full Report when the operator chose
+/// not to surface the ack details. Exits 1 on emit failure with the
+/// caller-supplied error message, after restoring the field so the
+/// process exits with a consistent Report state (matters less on exit
+/// but keeps the helper pure).
+fn with_optional_acks_hidden<F>(report: &mut Report, show_acknowledged: bool, emit: F)
+where
+    F: FnOnce(&Report) -> Result<(), String>,
+{
+    let stash = if show_acknowledged || report.acknowledged_findings.is_empty() {
+        Vec::new()
+    } else {
+        std::mem::take(&mut report.acknowledged_findings)
+    };
+    let result = emit(report);
+    if !stash.is_empty() {
+        report.acknowledged_findings = stash;
+    }
+    if let Err(msg) = result {
+        eprintln!("{msg}");
+        std::process::exit(1);
+    }
 }
 
 pub(crate) fn print_colored_report(report: &Report, title: &str) {

@@ -457,7 +457,7 @@ Minimal entry:
 
 ```toml
 [[acknowledged]]
-signature = "redundant_sql:order-service:POST__api_orders:a3f8b2c1"
+signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabe"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Cache invalidation pattern, intentional. See ADR-0042."
