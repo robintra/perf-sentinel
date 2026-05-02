@@ -8,6 +8,7 @@
 #![allow(clippy::cast_precision_loss)] // usize -> f64 for ratios
 #![allow(clippy::similar_names)] // min_ts/min_ms, max_ts/max_ms are clear
 
+pub mod acknowledgments;
 pub mod calibrate;
 pub mod config;
 pub mod correlate;

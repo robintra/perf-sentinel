@@ -291,6 +291,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
             warnings: vec!["daemon has not yet processed any events".to_string()],
+            acknowledged_findings: Vec::new(),
         });
     }
 
@@ -373,6 +374,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         per_endpoint_io_ops: vec![],
         correlations,
         warnings: vec![],
+        acknowledged_findings: vec![],
     };
 
     Json(report)

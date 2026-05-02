@@ -72,6 +72,24 @@ pub struct Report {
     /// output. Additive on pre-0.5.16 baselines via `skip_serializing_if`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Findings filtered out by the user's acknowledgments file
+    /// (`.perf-sentinel-acknowledgments.toml`), paired with the matching
+    /// ack metadata. Cleared from the wire payload by default; the CLI
+    /// only retains it when `--show-acknowledged` is set so audit output
+    /// stays opt-in. Additive on pre-0.5.17 baselines via `serde(default)`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub acknowledged_findings: Vec<AcknowledgedFinding>,
+}
+
+/// A finding paired with the acknowledgment that suppressed it.
+///
+/// Surfaced under [`Report::acknowledged_findings`] when the operator
+/// asks for `--show-acknowledged`. The CLI clears this vector from the
+/// emitted payload otherwise so the default audit trail is opt-in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcknowledgedFinding {
+    pub finding: Finding,
+    pub acknowledgment: crate::acknowledgments::Acknowledgment,
 }
 
 /// Analysis metadata.

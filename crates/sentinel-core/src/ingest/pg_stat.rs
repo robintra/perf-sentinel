@@ -906,6 +906,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         }
     }
 

@@ -443,3 +443,30 @@ Lorsque les deux formats sont présents, les valeurs sectionnées ont priorité 
 ## Variables d'environnement
 
 Les fichiers de configuration ne doivent jamais contenir de secrets. Pour les valeurs sensibles (clés API, tokens), utilisez des variables d'environnement dans vos outils de déploiement. perf-sentinel ne lit pas lui-même de variables d'environnement pour la configuration.
+
+## Fichier d'acknowledgments
+
+`.perf-sentinel-acknowledgments.toml` est un fichier séparé de `.perf-sentinel.toml`. Il vit à la racine du repo applicatif et liste les findings que l'équipe a acceptés comme connus. Les findings acquittés sont retirés de la sortie CLI (`analyze`, `report`, `inspect`, `diff`) et exclus de la quality gate.
+
+Règles de chargement :
+
+- Le chemin par défaut est `./.perf-sentinel-acknowledgments.toml` dans le répertoire courant. Override avec `--acknowledgments <chemin>`.
+- Si le fichier n'existe pas, le run est un no-op (pas d'erreur, pas de bruit en sortie).
+- `--no-acknowledgments` ignore le fichier complètement (vue d'audit).
+- Une coquille dans `signature`, un champ requis manquant, ou un `expires_at` mal formé fait échouer le run de façon visible plutôt que d'élargir silencieusement le set acquitté.
+
+Entry minimale :
+
+```toml
+[[acknowledged]]
+signature = "redundant_sql:order-service:POST__api_orders:a3f8b2c1"
+acknowledged_by = "alice@example.com"
+acknowledged_at = "2026-05-02"
+reason = "Pattern d'invalidation de cache, intentionnel. Voir ADR-0042."
+```
+
+Le champ `expires_at = "YYYY-MM-DD"` est optionnel. L'omettre rend l'ack permanent. Le définir permet d'imposer une réévaluation périodique : quand la date passe, l'ack cesse de s'appliquer et le finding réapparaît au prochain run CI.
+
+Pas de support glob ou wildcard, chaque entry est matchée contre une signature exacte. Les signatures sont émises sur chaque finding dans la sortie JSON, copiez-les dans le fichier plutôt que de recalculer le préfixe SHA-256 à la main.
+
+Pour le workflow complet et la FAQ, voir [`ACKNOWLEDGMENTS-FR.md`](ACKNOWLEDGMENTS-FR.md).

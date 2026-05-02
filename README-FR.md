@@ -555,6 +555,21 @@ La CLI affiche un qualificatif `(healthy / moderate / high / critical)` à côt�
 
 Pour la sévérité par finding (`Critical` / `Warning` / `Info` sur chaque type de détecteur), voir [`docs/FR/design/04-DETECTION-FR.md`](docs/FR/design/04-DETECTION-FR.md). Pour le rationale complet des bandes d'interprétation, voir [`docs/FR/LIMITATIONS-FR.md`](docs/FR/LIMITATIONS-FR.md#interprétation-des-scores).
 
+### Acquitter les findings connus
+
+Posez `.perf-sentinel-acknowledgments.toml` à la racine du repo pour taire les findings que l'équipe a acceptés comme connus et intentionnels. Les findings acquittés sont retirés de la sortie CLI (`analyze`, `report`, `inspect`, `diff`) et ne pèsent plus sur la quality gate.
+
+```toml
+[[acknowledged]]
+signature = "redundant_sql:order-service:POST__api_orders:a3f8b2c1"
+acknowledged_by = "alice@example.com"
+acknowledged_at = "2026-05-02"
+reason = "Pattern d'invalidation de cache, intentionnel. Voir ADR-0042."
+expires_at = "2026-12-31"  # Optionnel, omettre pour rendre l'ack permanent.
+```
+
+Récupérez la signature d'un finding via `perf-sentinel analyze --format json | jq '.findings[].signature'`. Utilisez `--show-acknowledged` pour les faire réapparaître dans la sortie, ou `--no-acknowledgments` pour un audit complet. Référence détaillée dans [`docs/FR/ACKNOWLEDGMENTS-FR.md`](docs/FR/ACKNOWLEDGMENTS-FR.md).
+
 ## Architecture
 
 <picture>

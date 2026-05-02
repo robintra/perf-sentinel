@@ -117,6 +117,21 @@ pub struct SarifProperties {
     /// Source context of the finding: `"ci_batch"`, `"daemon_staging"`, or
     /// `"daemon_production"`. See [`Confidence`] for semantics.
     pub confidence: &'static str,
+    /// `true` when the result was emitted from an acknowledged finding
+    /// (the operator suppressed it via `.perf-sentinel-acknowledgments.toml`
+    /// and re-included it in the output via `--show-acknowledged`).
+    /// Skipped when the result is a normal active finding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged: Option<bool>,
+    /// Free-text reason recorded with the ack entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledgment_reason: Option<String>,
+    /// Author of the ack entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledgment_by: Option<String>,
+    /// ISO 8601 date when the ack was created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledgment_at: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -237,6 +252,10 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
         // expose the confidence for perf-lint interop.
         properties: Some(SarifProperties {
             confidence: finding.confidence.as_str(),
+            acknowledged: None,
+            acknowledgment_reason: None,
+            acknowledgment_by: None,
+            acknowledgment_at: None,
         }),
         rank: Some(finding.confidence.sarif_rank()),
         locations: finding
@@ -390,9 +409,44 @@ fn is_bidi_or_invisible(c: char) -> bool {
 const SARIF_SCHEMA: &str = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json";
 
 /// Convert a perf-sentinel Report to a SARIF log.
+///
+/// Active findings come first, then acknowledged findings (when the
+/// caller asked to keep them). SARIF consumers see one combined
+/// `results[]` array, with ack entries marked via the `properties.acknowledged`
+/// boolean so they can be filtered downstream.
 #[must_use]
 pub fn report_to_sarif(report: &Report) -> SarifLog {
-    findings_to_sarif(&report.findings)
+    let mut results: Vec<SarifResult> = report.findings.iter().map(finding_to_result).collect();
+    for ack in &report.acknowledged_findings {
+        results.push(acknowledged_finding_to_result(ack));
+    }
+    SarifLog {
+        schema: SARIF_SCHEMA.to_string(),
+        version: "2.1.0".to_string(),
+        runs: vec![SarifRun {
+            tool: SarifTool {
+                driver: SarifDriver {
+                    name: "perf-sentinel".to_string(),
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    information_uri: "https://github.com/robintra/perf-sentinel".to_string(),
+                    rules: build_rules(),
+                },
+            },
+            results,
+        }],
+    }
+}
+
+fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> SarifResult {
+    let mut result = finding_to_result(&ack.finding);
+    result.properties = Some(SarifProperties {
+        confidence: ack.finding.confidence.as_str(),
+        acknowledged: Some(true),
+        acknowledgment_reason: Some(ack.acknowledgment.reason.clone()),
+        acknowledgment_by: Some(ack.acknowledgment.acknowledged_by.clone()),
+        acknowledgment_at: Some(ack.acknowledgment.acknowledged_at.clone()),
+    });
+    result
 }
 
 /// Convert a slice of findings to a SARIF log. Used by `report_to_sarif`
@@ -465,6 +519,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         }
     }
 

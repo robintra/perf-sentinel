@@ -62,6 +62,10 @@ pub fn analyze_with_traces(
     // pipeline caller overrides it here via the shared helper.
     detect::apply_confidence(&mut findings, Confidence::CiBatch);
 
+    // Stamp the canonical signature so JSON consumers can copy-paste it
+    // into `.perf-sentinel-acknowledgments.toml` without having to recompute.
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
+
     let quality_gate = crate::quality_gate::evaluate(&findings, &green_summary, config);
 
     let report = Report {
@@ -78,6 +82,7 @@ pub fn analyze_with_traces(
         // rolling window only exists in the daemon. Always empty here.
         correlations: vec![],
         warnings: vec![],
+        acknowledged_findings: vec![],
     };
 
     (report, traces)

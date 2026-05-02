@@ -555,6 +555,21 @@ The CLI renders a `(healthy / moderate / high / critical)` qualifier next to I/O
 
 For per-finding severity (`Critical` / `Warning` / `Info` on each detector type), see [`docs/design/04-DETECTION.md`](docs/design/04-DETECTION.md). For the full rationale behind the interpretation bands, see [`docs/LIMITATIONS.md`](docs/LIMITATIONS.md#score-interpretation).
 
+### Acknowledging known findings
+
+Drop `.perf-sentinel-acknowledgments.toml` at your repo root to suppress findings the team has accepted as known and intentional. Acknowledged findings are filtered from the CLI output (`analyze`, `report`, `inspect`, `diff`) and do not count toward the quality gate.
+
+```toml
+[[acknowledged]]
+signature = "redundant_sql:order-service:POST__api_orders:a3f8b2c1"
+acknowledged_by = "alice@example.com"
+acknowledged_at = "2026-05-02"
+reason = "Cache invalidation pattern, intentional. See ADR-0042."
+expires_at = "2026-12-31"  # Optional, omit for permanent.
+```
+
+Get a finding's signature with `perf-sentinel analyze --format json | jq '.findings[].signature'`. Use `--show-acknowledged` to surface them in the output, or `--no-acknowledgments` for a full audit view. Full reference in [`docs/ACKNOWLEDGMENTS.md`](docs/ACKNOWLEDGMENTS.md).
+
 ## Architecture
 
 <picture>

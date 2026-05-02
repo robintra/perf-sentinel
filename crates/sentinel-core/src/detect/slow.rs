@@ -229,6 +229,7 @@ fn build_cross_trace_finding(
         code_location: worst_event.code_location(),
         instrumentation_scopes: worst_event.instrumentation_scopes.clone(),
         suggested_fix: None,
+        signature: String::new(),
     })
 }
 

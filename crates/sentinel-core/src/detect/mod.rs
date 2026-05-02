@@ -124,6 +124,14 @@ pub struct Finding {
     /// `(finding_type, framework)` pair has no mapping in the v1 table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_fix: Option<suggestions::SuggestedFix>,
+    /// Canonical signature for ack matching, e.g.
+    /// `n_plus_one_sql:order-svc:POST_/api/orders:a3f8b2c1`. Always
+    /// present in JSON output so users can copy-paste it into
+    /// `.perf-sentinel-acknowledgments.toml`. Filled by
+    /// [`crate::acknowledgments::enrich_with_signatures`] at end of
+    /// `pipeline::analyze` and after deserializing baselines.
+    #[serde(default)]
+    pub signature: String,
 }
 
 /// Types of performance anti-patterns.
@@ -422,6 +430,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         code_location: args.code_location,
         instrumentation_scopes: args.instrumentation_scopes,
         suggested_fix: None,
+        signature: String::new(),
     }
 }
 

@@ -337,6 +337,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let (findings, summary, _) = score_green(&[trace], vec![finding], None);
@@ -535,6 +536,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let (findings, _, _) = score_green(&[trace], vec![finding], None);
@@ -583,6 +585,7 @@ mod tests {
                 code_location: None,
                 instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
+                signature: String::new(),
             },
             Finding {
                 finding_type: FindingType::RedundantSql,
@@ -605,6 +608,7 @@ mod tests {
                 code_location: None,
                 instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
+                signature: String::new(),
             },
         ];
 
@@ -708,6 +712,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let ctx = ctx_with_region("eu-west-3");
@@ -856,6 +861,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let (findings, summary, _) = score_green(&[trace], vec![slow_finding], None);
@@ -916,6 +922,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
         let slow_finding = Finding {
             finding_type: FindingType::SlowSql,
@@ -938,6 +945,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let (findings, summary, _) = score_green(&[trace], vec![n1_finding, slow_finding], None);
@@ -1035,6 +1043,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
         // disable hourly profiles so avoidable ratio math
         // stays deterministic (the test compares to operational × 5/6).
@@ -1453,6 +1462,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         };
 
         let ctx = CarbonContext {

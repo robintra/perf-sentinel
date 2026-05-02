@@ -85,6 +85,7 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
             code_location: first.event.code_location(),
             instrumentation_scopes: first.event.instrumentation_scopes.clone(),
             suggested_fix: None,
+            signature: String::new(),
         });
     }
 

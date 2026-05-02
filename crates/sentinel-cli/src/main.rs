@@ -85,6 +85,16 @@ enum Commands {
         /// Output format: text (colored, default), json, sarif.
         #[arg(long, value_enum)]
         format: Option<OutputFormat>,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
+        /// Include acknowledged findings in the output, alongside ack metadata.
+        #[arg(long)]
+        show_acknowledged: bool,
     },
 
     /// Watch for traces in real-time (daemon mode).
@@ -159,6 +169,13 @@ enum Commands {
         /// Path to a `.perf-sentinel.toml` config file.
         #[arg(short, long)]
         config: Option<PathBuf>,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
     },
 
     /// Query Grafana Tempo for traces and analyze them.
@@ -350,6 +367,16 @@ enum Commands {
         /// with a message pointing at the required companion flag.
         #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..=10_000))]
         pg_stat_top: Option<u32>,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
+        /// Retain acknowledged findings in the embedded JSON payload.
+        #[arg(long)]
+        show_acknowledged: bool,
     },
 
     /// Compare two trace sets and emit a delta report (regressions and improvements).
@@ -370,6 +397,13 @@ enum Commands {
         /// Optional output file. Defaults to stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Path to `.perf-sentinel-acknowledgments.toml`. Defaults to that
+        /// filename in the current working directory. Applied to both runs.
+        #[arg(long, value_name = "PATH")]
+        acknowledgments: Option<PathBuf>,
+        /// Disable acknowledgment filtering on both runs (full audit view).
+        #[arg(long)]
+        no_acknowledgments: bool,
     },
 }
 
@@ -449,8 +483,19 @@ async fn main() {
             config,
             ci,
             format,
+            acknowledgments,
+            no_acknowledgments,
+            show_acknowledged,
         } => {
-            cmd_analyze(input.as_deref(), config.as_deref(), ci, format);
+            cmd_analyze(
+                input.as_deref(),
+                config.as_deref(),
+                ci,
+                format,
+                acknowledgments.as_deref(),
+                no_acknowledgments,
+                show_acknowledged,
+            );
         }
         Commands::Explain {
             input,
@@ -478,7 +523,17 @@ async fn main() {
         Commands::Demo { config } => cmd_demo(config.as_deref()),
         Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
         #[cfg(feature = "tui")]
-        Commands::Inspect { input, config } => cmd_inspect(&input, config.as_deref()),
+        Commands::Inspect {
+            input,
+            config,
+            acknowledgments,
+            no_acknowledgments,
+        } => cmd_inspect(
+            &input,
+            config.as_deref(),
+            acknowledgments.as_deref(),
+            no_acknowledgments,
+        ),
         #[cfg(feature = "tempo")]
         Commands::Tempo {
             endpoint,
@@ -613,12 +668,16 @@ async fn main() {
             config,
             format,
             output,
+            acknowledgments,
+            no_acknowledgments,
         } => cmd_diff(
             &before,
             &after,
             config.as_deref(),
             format,
             output.as_deref(),
+            acknowledgments.as_deref(),
+            no_acknowledgments,
         ),
         Commands::Report {
             input,
@@ -632,6 +691,9 @@ async fn main() {
             pg_stat_auth_header,
             before,
             pg_stat_top,
+            acknowledgments,
+            no_acknowledgments,
+            show_acknowledged,
         } => {
             cmd_report(
                 input.as_deref(),
@@ -649,6 +711,9 @@ async fn main() {
                 // build has `usize < 32` bits, so the only effect is
                 // to keep the cast honest.
                 pg_stat_top.and_then(|n| usize::try_from(n).ok()),
+                acknowledgments.as_deref(),
+                no_acknowledgments,
+                show_acknowledged,
             )
             .await;
         }
@@ -775,19 +840,60 @@ fn ingest_json_or_exit(raw: &[u8], max_size: usize) -> Vec<sentinel_core::event:
     }
 }
 
+/// Default location of the user's acknowledgments file.
+const DEFAULT_ACKNOWLEDGMENTS_PATH: &str = ".perf-sentinel-acknowledgments.toml";
+
+/// Resolve the acknowledgments path: explicit override wins, otherwise
+/// fall back to `./.perf-sentinel-acknowledgments.toml` in the cwd.
+fn resolve_acknowledgments_path(override_path: Option<&std::path::Path>) -> PathBuf {
+    override_path.map_or_else(
+        || PathBuf::from(DEFAULT_ACKNOWLEDGMENTS_PATH),
+        std::path::Path::to_path_buf,
+    )
+}
+
+/// Load the acknowledgments file and apply it to the report. No-op when
+/// `no_acknowledgments` is set or when the file is absent. Exits 1 with
+/// a clean stderr message on parse failure.
+fn apply_acknowledgments_or_exit(
+    report: &mut sentinel_core::report::Report,
+    config: &Config,
+    override_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+) {
+    if no_acknowledgments {
+        return;
+    }
+    let path = resolve_acknowledgments_path(override_path);
+    let acks = sentinel_core::acknowledgments::load_from_file(&path).unwrap_or_else(|e| {
+        eprintln!("Error loading acknowledgments {}: {e}", path.display());
+        std::process::exit(1);
+    });
+    sentinel_core::acknowledgments::apply_to_report(report, &acks, config, chrono::Utc::now());
+}
+
 fn cmd_analyze(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
     ci: bool,
     format: Option<OutputFormat>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+    show_acknowledged: bool,
 ) {
     let config = load_config(config_path);
     let raw = read_events(input, config.max_payload_size);
 
     let events = ingest_json_or_exit(&raw, config.max_payload_size);
 
-    let report = pipeline::analyze(events, &config);
-    emit_report_and_gate(&report, format, ci, "report");
+    let mut report = pipeline::analyze(events, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    emit_report_and_gate(&report, format, ci, "report", show_acknowledged);
 }
 
 fn cmd_diff(
@@ -796,17 +902,35 @@ fn cmd_diff(
     config_path: Option<&std::path::Path>,
     format: Option<OutputFormat>,
     output: Option<&std::path::Path>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
 ) {
     let config = load_config(config_path);
     // Run analyze on both trace files with the SAME config so per-endpoint
     // counts and severity assignments are comparable.
     let before_raw = read_events(Some(before), config.max_payload_size);
     let before_events = ingest_json_or_exit(&before_raw, config.max_payload_size);
-    let before_report = pipeline::analyze(before_events, &config);
+    let mut before_report = pipeline::analyze(before_events, &config);
 
     let after_raw = read_events(Some(after), config.max_payload_size);
     let after_events = ingest_json_or_exit(&after_raw, config.max_payload_size);
-    let after_report = pipeline::analyze(after_events, &config);
+    let mut after_report = pipeline::analyze(after_events, &config);
+
+    // Apply the same ack file to both runs so the diff stays meaningful:
+    // an ack present on both sides masks the finding from both, an ack
+    // landing between base and PR masks it from the after run only.
+    apply_acknowledgments_or_exit(
+        &mut before_report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    apply_acknowledgments_or_exit(
+        &mut after_report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
 
     let diff = sentinel_core::diff::diff_runs(&before_report, &after_report);
     if let Err(e) = render::emit_diff(&diff, format, output) {
@@ -853,10 +977,15 @@ fn parse_report_json_or_exit(raw: &[u8], source_label: &str) -> sentinel_core::r
         );
         std::process::exit(1);
     }
-    serde_json::from_slice::<sentinel_core::report::Report>(raw).unwrap_or_else(|e| {
-        eprintln!("Error parsing {source_label} as Report JSON: {e}");
-        std::process::exit(1);
-    })
+    let mut report =
+        serde_json::from_slice::<sentinel_core::report::Report>(raw).unwrap_or_else(|e| {
+            eprintln!("Error parsing {source_label} as Report JSON: {e}");
+            std::process::exit(1);
+        });
+    // Pre-0.5.17 baselines have no signature, fill them in so ack
+    // matching and copy-paste workflows behave the same as on a fresh run.
+    sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
+    report
 }
 
 /// Dispatch the `--input` payload based on its JSON shape. A top-level
@@ -895,7 +1024,8 @@ fn load_report_from_input(
                 );
                 std::process::exit(1);
             }
-            if let Ok(report) = serde_json::from_slice::<sentinel_core::report::Report>(raw) {
+            if let Ok(mut report) = serde_json::from_slice::<sentinel_core::report::Report>(raw) {
+                sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
                 return (report, Vec::new());
             }
             let ingest = JsonIngest::new(config.max_payload_size);
@@ -1012,11 +1142,16 @@ fn resolve_pg_stat_auth_header_with_env(
 
 /// Parse a saved baseline report and diff it against the current run.
 /// Applies the same BOM strip and depth cap as `--input` in Report
-/// mode. Exits 1 on failure.
+/// mode. Exits 1 on failure. The same acknowledgments file is applied to
+/// the baseline so a finding acked on both sides drops out of the diff
+/// entirely (the alternative would surface every ack as a fake "resolved
+/// in PR", a noisy false positive).
 fn load_diff_against_baseline(
     before_path: &std::path::Path,
     current: &sentinel_core::report::Report,
     config: &Config,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
 ) -> sentinel_core::diff::DiffReport {
     let raw_before = read_file_capped(
         before_path,
@@ -1024,7 +1159,13 @@ fn load_diff_against_baseline(
     );
     let slice = strip_bom(&raw_before);
     let source_label = format!("--before {}", before_path.display());
-    let baseline = parse_report_json_or_exit(slice, &source_label);
+    let mut baseline = parse_report_json_or_exit(slice, &source_label);
+    apply_acknowledgments_or_exit(
+        &mut baseline,
+        config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
     sentinel_core::diff::diff_runs(&baseline, current)
 }
 
@@ -1039,6 +1180,9 @@ async fn cmd_report(
     #[cfg(feature = "daemon")] pg_stat_auth_header: Option<String>,
     before_path: Option<&std::path::Path>,
     pg_stat_top: Option<usize>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+    show_acknowledged: bool,
 ) {
     let config = load_config(config_path);
 
@@ -1047,7 +1191,20 @@ async fn cmd_report(
     let raw_bytes = read_events(effective_input, config.max_payload_size);
     let raw = strip_bom(&raw_bytes);
 
-    let (report, traces) = load_report_from_input(raw, &config);
+    let (mut report, traces) = load_report_from_input(raw, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    // The HTML JS template does not yet visually distinguish ack rows, so
+    // keep `acknowledged_findings` in the embedded payload only when the
+    // operator opted in via --show-acknowledged. Downstream tooling that
+    // greps the embedded JSON for ack metadata stays gated on the flag.
+    if !show_acknowledged {
+        report.acknowledged_findings.clear();
+    }
     let input_label = input_label_for(input, stdin_mode);
 
     // Clap's `requires` does not express an OR-of-flags, so validate
@@ -1091,7 +1248,15 @@ async fn cmd_report(
         }
     };
 
-    let diff = before_path.map(|path| load_diff_against_baseline(path, &report, &config));
+    let diff = before_path.map(|path| {
+        load_diff_against_baseline(
+            path,
+            &report,
+            &config,
+            acknowledgments_path,
+            no_acknowledgments,
+        )
+    });
 
     let options = sentinel_core::report::html::RenderOptions {
         input_label,
@@ -1170,7 +1335,7 @@ async fn cmd_tempo(
     );
 
     let report = pipeline::analyze(events, &config);
-    emit_report_and_gate(&report, format, ci, "tempo");
+    emit_report_and_gate(&report, format, ci, "tempo", false);
 }
 
 #[cfg(feature = "jaeger-query")]
@@ -1228,7 +1393,7 @@ async fn cmd_jaeger_query(
     );
 
     let report = pipeline::analyze(events, &config);
-    emit_report_and_gate(&report, format, ci, "jaeger-query");
+    emit_report_and_gate(&report, format, ci, "jaeger-query", false);
 }
 
 fn cmd_calibrate(
@@ -1507,7 +1672,12 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
 }
 
 #[cfg(feature = "tui")]
-fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
+fn cmd_inspect(
+    input: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+) {
     let config = load_config(config_path);
     let raw = read_events(Some(input), config.max_payload_size);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
@@ -1517,7 +1687,13 @@ fn cmd_inspect(input: &std::path::Path, config_path: Option<&std::path::Path>) {
     // snapshot dumped via /api/export/report) lights up the Findings and
     // Correlations panels. The Detail panel falls back to a per-trace
     // stub with no spans because Reports don't carry raw spans.
-    let (report, mut traces) = load_report_from_input(&raw, &config);
+    let (mut report, mut traces) = load_report_from_input(&raw, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
     if traces.is_empty() && !report.findings.is_empty() {
         let trace_ids: std::collections::BTreeSet<String> =
             report.findings.iter().map(|f| f.trace_id.clone()).collect();
@@ -1780,6 +1956,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         }
     }
 
@@ -1809,6 +1986,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         }
     }
 
@@ -1963,6 +2141,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         };
         render::format_colored_report(&report, "report", false);
     }

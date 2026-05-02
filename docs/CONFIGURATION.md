@@ -441,3 +441,30 @@ When both formats are present, sectioned values take priority over flat values. 
 ## Environment variables
 
 Configuration files must never contain secrets. For sensitive values (API keys, tokens), use environment variables in your deployment tooling. perf-sentinel itself does not read environment variables for configuration.
+
+## Acknowledgments file
+
+`.perf-sentinel-acknowledgments.toml` is a separate file from `.perf-sentinel.toml`. It lives at the root of the application repo and lists findings the team has accepted as known. Acknowledged findings are filtered from the CLI output (`analyze`, `report`, `inspect`, `diff`) and excluded from the quality gate.
+
+Loading rules:
+
+- The default path is `./.perf-sentinel-acknowledgments.toml` in the current working directory. Override with `--acknowledgments <path>`.
+- If the file does not exist, the run is a no-op (no error, no output noise).
+- `--no-acknowledgments` skips the file entirely (audit view).
+- A typo in `signature`, a missing required field, or a malformed `expires_at` fails the run loud rather than silently widening the matched set.
+
+Minimal entry:
+
+```toml
+[[acknowledged]]
+signature = "redundant_sql:order-service:POST__api_orders:a3f8b2c1"
+acknowledged_by = "alice@example.com"
+acknowledged_at = "2026-05-02"
+reason = "Cache invalidation pattern, intentional. See ADR-0042."
+```
+
+The `expires_at = "YYYY-MM-DD"` field is optional. Omitting it makes the ack permanent. Setting it lets you require a periodic re-evaluation: when the date passes, the ack stops applying and the finding reappears in the next CI run.
+
+There is no glob or wildcard support, each entry is matched against an exact signature. Signatures are emitted on every finding in the JSON output, copy-paste them into the file rather than recomputing the SHA-256 prefix by hand.
+
+For the full workflow and FAQ, see [`ACKNOWLEDGMENTS.md`](ACKNOWLEDGMENTS.md).

@@ -102,6 +102,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         classification_method: None,
         code_location: None,
         instrumentation_scopes: Vec::new(),
+        signature: String::new(),
         suggested_fix: None,
     }]
 }

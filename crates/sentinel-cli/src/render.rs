@@ -16,11 +16,17 @@ use crate::OutputFormat;
 /// Emit the final report in the requested format and enforce the quality
 /// gate in CI mode. Exits with status 1 on any write failure or a failed
 /// gate when `ci` is true.
+///
+/// `show_acknowledged` controls whether the structured sinks (JSON, SARIF)
+/// surface `acknowledged_findings`. The text sink always prints a one-line
+/// count when acks matched and prints per-ack details only when
+/// `show_acknowledged` is true.
 pub(crate) fn emit_report_and_gate(
     report: &Report,
     format: Option<OutputFormat>,
     ci: bool,
     label: &str,
+    show_acknowledged: bool,
 ) {
     let effective_format = format.unwrap_or(if ci {
         OutputFormat::Json
@@ -28,19 +34,34 @@ pub(crate) fn emit_report_and_gate(
         OutputFormat::Text
     });
 
+    // For structured sinks, optionally hide `acknowledged_findings` from
+    // the wire payload. Cloning is cheap and only happens on the
+    // suppressed path; the alternative (mutable Report) would force every
+    // caller to thread a `&mut Report` through, which is awkward.
+    let owned: Report;
+    let view: &Report = if !show_acknowledged
+        && !report.acknowledged_findings.is_empty()
+        && matches!(effective_format, OutputFormat::Json | OutputFormat::Sarif)
+    {
+        owned = strip_acknowledged(report);
+        &owned
+    } else {
+        report
+    };
+
     match effective_format {
         OutputFormat::Text => {
-            print_colored_report(report, label);
+            format_colored_report_with_acks(report, label, false, show_acknowledged);
         }
         OutputFormat::Json => {
             let sink = JsonReportSink;
-            if let Err(e) = sink.emit(report) {
+            if let Err(e) = sink.emit(view) {
                 eprintln!("Error writing report: {e}");
                 std::process::exit(1);
             }
         }
         OutputFormat::Sarif => {
-            if let Err(e) = sentinel_core::report::sarif::emit_sarif(report) {
+            if let Err(e) = sentinel_core::report::sarif::emit_sarif(view) {
                 eprintln!("Error writing SARIF report: {e}");
                 std::process::exit(1);
             }
@@ -51,6 +72,12 @@ pub(crate) fn emit_report_and_gate(
         eprintln!("Quality gate FAILED");
         std::process::exit(1);
     }
+}
+
+fn strip_acknowledged(report: &Report) -> Report {
+    let mut clone = report.clone();
+    clone.acknowledged_findings.clear();
+    clone
 }
 
 pub(crate) fn print_colored_report(report: &Report, title: &str) {
@@ -191,6 +218,15 @@ fn format_scoring_config_line(
 }
 
 pub(crate) fn format_colored_report(report: &Report, title: &str, force_color: bool) {
+    format_colored_report_with_acks(report, title, force_color, false);
+}
+
+pub(crate) fn format_colored_report_with_acks(
+    report: &Report,
+    title: &str,
+    force_color: bool,
+    show_acknowledged: bool,
+) {
     let colors = ansi_colors(force_color);
     let AnsiColors {
         bold,
@@ -219,6 +255,45 @@ pub(crate) fn format_colored_report(report: &Report, title: &str, force_color: b
 
     print_green_summary(&report.green_summary, force_color);
     print_quality_gate(&report.quality_gate, force_color);
+    print_acknowledged_summary(report, force_color, show_acknowledged);
+}
+
+/// Surface acknowledged findings at the bottom of the terminal report.
+/// Always prints a count line when acks matched. Prints per-ack details
+/// only when `show_acknowledged` is true.
+fn print_acknowledged_summary(report: &Report, force_color: bool, show_acknowledged: bool) {
+    if report.acknowledged_findings.is_empty() {
+        return;
+    }
+    let colors = ansi_colors(force_color);
+    let AnsiColors {
+        bold, dim, reset, ..
+    } = colors;
+    let count = report.acknowledged_findings.len();
+    println!();
+    if show_acknowledged {
+        println!(
+            "{bold}{count} acknowledged finding{plural} suppressed.{reset}",
+            plural = if count == 1 { "" } else { "s" },
+        );
+        for ack_pair in &report.acknowledged_findings {
+            let f = &ack_pair.finding;
+            let a = &ack_pair.acknowledgment;
+            println!(
+                "  {dim}[ack]{reset} {sig} ({by}, {at}): {reason}",
+                sig = sanitize_for_terminal(&f.signature),
+                by = sanitize_for_terminal(&a.acknowledged_by),
+                at = sanitize_for_terminal(&a.acknowledged_at),
+                reason = sanitize_for_terminal(&a.reason),
+            );
+        }
+    } else {
+        println!(
+            "{dim}{count} additional finding{plural} acknowledged. \
+             Run with --show-acknowledged to see them.{reset}",
+            plural = if count == 1 { "" } else { "s" },
+        );
+    }
 }
 
 pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
@@ -959,6 +1034,7 @@ mod tests {
                 recommendation: "Use @BatchSize on the lazy collection".to_string(),
                 reference_url: Some("https://docs.example.com/batch".to_string()),
             }),
+            signature: String::new(),
         }
     }
 

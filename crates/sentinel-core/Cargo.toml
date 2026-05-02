@@ -45,6 +45,13 @@ axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout"] }
 prometheus = "0.14.0"
 lru = "0.18.0"
+# SHA-256 for the canonical signature of a Finding used by the
+# acknowledgments file (`.perf-sentinel-acknowledgments.toml`). Already
+# pulled in transitively (rustls), pinning at the 0.10 line keeps it
+# unified. chrono powers the `expires_at` ISO 8601 date parsing and the
+# "is this ack still active" check (`Utc::now()` comparison).
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }

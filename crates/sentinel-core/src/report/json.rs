@@ -45,6 +45,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         };
         assert!(sink.emit(&report).is_ok());
     }
@@ -86,6 +87,7 @@ mod tests {
                 code_location: None,
                 instrumentation_scopes: Vec::new(),
                 suggested_fix: None,
+                signature: String::new(),
             }],
             green_summary: crate::test_helpers::make_test_green_summary(10, 5, 0.5),
             quality_gate: QualityGate {
@@ -95,6 +97,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();

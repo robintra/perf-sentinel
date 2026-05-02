@@ -475,6 +475,9 @@ async fn process_traces(
     // Stamp the daemon's confidence label. Same shared helper as
     // `pipeline::analyze`, so the two paths cannot drift on the loop.
     detect::apply_confidence(&mut findings, ctx.confidence);
+    // Stamp the canonical signature so a daemon snapshot piped into
+    // `report --input` carries usable signatures for ack matching.
+    crate::acknowledgments::enrich_with_signatures(&mut findings);
     let findings = findings;
 
     let now_ms = current_time_ms();

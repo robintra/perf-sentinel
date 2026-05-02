@@ -2560,3 +2560,254 @@ fn cli_report_rejects_invalid_input_with_clear_error() {
         "stderr must disambiguate accepted top-level object shapes: {stderr}"
     );
 }
+
+// ── Acknowledgments (0.5.17) ─────────────────────────────────────────
+
+const ACK_FIXTURE: &str = "../../tests/fixtures/n_plus_one_sql.json";
+
+/// Fixture path expanded against `CARGO_MANIFEST_DIR` (the CLI crate dir).
+fn fixture_path(rel: &str) -> String {
+    format!("{}/{}", env!("CARGO_MANIFEST_DIR"), rel)
+}
+
+/// Run `analyze --format json` and parse the output, exiting the test
+/// (via panic) on failure with the captured stderr in the message.
+fn analyze_json(args: &[&str]) -> Value {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(args)
+        .output()
+        .expect("spawn perf-sentinel");
+    assert!(
+        output.status.success(),
+        "analyze failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|e| {
+        panic!(
+            "analyze stdout is not valid JSON: {e}\nstdout={}",
+            String::from_utf8_lossy(&output.stdout)
+        )
+    })
+}
+
+/// Run analyze on the fixture, JSON output, no acknowledgments file in
+/// play. Read the first finding's signature so each test can wire up
+/// matching ack entries without hard-coding the SHA-256 prefix.
+fn first_finding_signature() -> String {
+    let v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--no-acknowledgments",
+        "--format",
+        "json",
+    ]);
+    v["findings"][0]["signature"]
+        .as_str()
+        .expect("signature field present in JSON output")
+        .to_string()
+}
+
+#[test]
+fn cli_analyze_signature_emitted_in_json() {
+    let v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--no-acknowledgments",
+        "--format",
+        "json",
+    ]);
+    let findings = v["findings"].as_array().expect("findings array");
+    assert!(!findings.is_empty(), "fixture must produce findings");
+    for f in findings {
+        let sig = f["signature"].as_str().expect("signature field present");
+        assert!(!sig.is_empty(), "signature must be non-empty");
+        assert_eq!(
+            sig.matches(':').count(),
+            3,
+            "signature must have 4 colon-separated segments: {sig}"
+        );
+    }
+}
+
+fn write_ack_file(dir: &std::path::Path, signature: &str) -> std::path::PathBuf {
+    let path = dir.join(".perf-sentinel-acknowledgments.toml");
+    fs::write(
+        &path,
+        format!(
+            "[[acknowledged]]\n\
+             signature = \"{signature}\"\n\
+             acknowledged_by = \"test@example.com\"\n\
+             acknowledged_at = \"2026-05-02\"\n\
+             reason = \"smoke test\"\n",
+        ),
+    )
+    .expect("write ack file");
+    path
+}
+
+#[test]
+fn cli_analyze_with_acks_filters_output() {
+    let sig = first_finding_signature();
+    let dir = tempfile::tempdir().unwrap();
+    let ack_path = write_ack_file(dir.path(), &sig);
+
+    let v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--acknowledgments",
+        ack_path.to_str().unwrap(),
+        "--format",
+        "json",
+    ]);
+    let signatures: Vec<&str> = v["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .filter_map(|f| f["signature"].as_str())
+        .collect();
+    assert!(
+        !signatures.contains(&sig.as_str()),
+        "acked finding must be absent: signatures={signatures:?}"
+    );
+    // Without --show-acknowledged, the wire payload must omit the
+    // acknowledged_findings array entirely (skip_serializing_if).
+    assert!(
+        v.get("acknowledged_findings").is_none(),
+        "acknowledged_findings must be hidden by default: payload={v}"
+    );
+}
+
+#[test]
+fn cli_analyze_no_acknowledgments_flag_disables() {
+    let sig = first_finding_signature();
+    let dir = tempfile::tempdir().unwrap();
+    let ack_path = write_ack_file(dir.path(), &sig);
+
+    let v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--acknowledgments",
+        ack_path.to_str().unwrap(),
+        "--no-acknowledgments",
+        "--format",
+        "json",
+    ]);
+    let signatures: Vec<&str> = v["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .filter_map(|f| f["signature"].as_str())
+        .collect();
+    assert!(
+        signatures.contains(&sig.as_str()),
+        "--no-acknowledgments must surface the finding: signatures={signatures:?}"
+    );
+}
+
+#[test]
+fn cli_analyze_show_acknowledged_includes_in_output() {
+    let sig = first_finding_signature();
+    let dir = tempfile::tempdir().unwrap();
+    let ack_path = write_ack_file(dir.path(), &sig);
+
+    let v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--acknowledgments",
+        ack_path.to_str().unwrap(),
+        "--show-acknowledged",
+        "--format",
+        "json",
+    ]);
+    let acked = v["acknowledged_findings"]
+        .as_array()
+        .expect("acknowledged_findings present with --show-acknowledged");
+    assert_eq!(acked.len(), 1, "exactly one ack matched");
+    assert_eq!(
+        acked[0]["finding"]["signature"].as_str(),
+        Some(sig.as_str()),
+        "ack finding signature roundtrips"
+    );
+    assert_eq!(
+        acked[0]["acknowledgment"]["acknowledged_by"].as_str(),
+        Some("test@example.com"),
+        "ack metadata is preserved"
+    );
+}
+
+#[test]
+fn cli_analyze_acknowledgments_path_override() {
+    // Two distinct dirs: cwd-side has no ack file, override path holds the ack.
+    let sig = first_finding_signature();
+    let cwd_dir = tempfile::tempdir().unwrap();
+    let ack_dir = tempfile::tempdir().unwrap();
+    let ack_path = write_ack_file(ack_dir.path(), &sig);
+
+    // Run analyze from the cwd-side directory so the default lookup
+    // would find no ack file. The --acknowledgments override must still
+    // pick up the ack from `ack_dir`.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .current_dir(cwd_dir.path())
+        .args([
+            "analyze",
+            "--input",
+            &fixture_path(ACK_FIXTURE),
+            "--acknowledgments",
+            ack_path.to_str().unwrap(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("spawn perf-sentinel");
+    assert!(
+        output.status.success(),
+        "analyze failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let signatures: Vec<&str> = v["findings"]
+        .as_array()
+        .expect("findings array")
+        .iter()
+        .filter_map(|f| f["signature"].as_str())
+        .collect();
+    assert!(
+        !signatures.contains(&sig.as_str()),
+        "override path must apply the ack from outside cwd"
+    );
+}
+
+#[test]
+fn cli_analyze_no_ack_file_is_no_op() {
+    // The default behavior must be a no-op when no ack file exists in
+    // the cwd: zero error, all findings preserved.
+    let cwd_dir = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .current_dir(cwd_dir.path())
+        .args([
+            "analyze",
+            "--input",
+            &fixture_path(ACK_FIXTURE),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("spawn");
+    assert!(
+        output.status.success(),
+        "missing ack file must be a clean no-op, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let findings = v["findings"].as_array().expect("findings array");
+    assert!(!findings.is_empty(), "fixture must produce findings");
+    assert!(
+        v.get("acknowledged_findings").is_none(),
+        "no-op path must omit acknowledged_findings entirely"
+    );
+}

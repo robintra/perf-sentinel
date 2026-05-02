@@ -524,6 +524,7 @@ mod tests {
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         }
     }
 
@@ -559,6 +560,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            acknowledged_findings: vec![],
         }
     }
 

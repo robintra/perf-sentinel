@@ -81,6 +81,7 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
             code_location: None,
             instrumentation_scopes: Vec::new(),
             suggested_fix: None,
+            signature: String::new(),
         });
     }
 

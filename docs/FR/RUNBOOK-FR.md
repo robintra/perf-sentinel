@@ -14,6 +14,7 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 - [Spike de findings critiques](#spike-de-findings-critiques)
 - [Pression mémoire ou OOM du daemon](#pression-mémoire-ou-oom-du-daemon)
 - [Quality gate CI en échec inattendu](#quality-gate-ci-en-échec-inattendu)
+- [Investigation d'un acknowledgment inattendu](#investigation-dun-acknowledgment-inattendu)
 - [`perf-sentinel tempo` renvoie 404 ou timeout](#perf-sentinel-tempo-renvoie-404-ou-timeout)
 - [Exemplars absents dans Grafana](#exemplars-absents-dans-grafana)
 - [Scraper d'énergie bloqué](#scraper-dénergie-bloqué)
@@ -330,6 +331,40 @@ Exemple de sortie :
 **Correctif.** Ajustez soit le code, soit le seuil, pas les deux sous pression. Si le finding est réel, corrigez le code. Si le seuil est mal calibré, mettez à jour `.perf-sentinel.toml` et committez le changement pour qu'il soit relu.
 
 > **Note.** Il n'existe pas de seuils de détection par service à ce jour ; les valeurs `[detection]` s'appliquent globalement à tous les services du fichier de traces.
+
+---
+
+## Investigation d'un acknowledgment inattendu
+
+**Symptôme.** Un finding que vous attendiez en CI est absent, ou une quality gate qui aurait dû échouer passe. Vous suspectez une entry de `.perf-sentinel-acknowledgments.toml`.
+
+**Premiers checks.**
+
+```bash
+# 1. Lancez avec --no-acknowledgments pour comparer. Si le finding
+#    apparaît ici mais pas dans le run normal, un ack le matche.
+perf-sentinel analyze --no-acknowledgments --input traces.json --format json \
+  | jq '.findings[] | select(.signature == "<signature suspecte>")'
+
+# 2. Lancez avec --show-acknowledged pour voir quel ack a matché et
+#    pourquoi.
+perf-sentinel analyze --show-acknowledged --input traces.json --format json \
+  | jq '.acknowledged_findings[] | select(.finding.signature == "<signature suspecte>")'
+
+# 3. Inspectez le fichier d'acks directement.
+git log -p .perf-sentinel-acknowledgments.toml | head -80
+```
+
+**Causes probables.**
+
+1. **L'ack matche comme prévu.** La signature est dans le fichier. Lisez le `reason` et la PR qui l'a apporté. Si la rationale ne tient plus, ouvrez une PR pour retirer l'entry.
+2. **Mauvaise normalisation de template.** La signature dans le fichier ne correspond plus au template courant. Fréquent après un refacto SQL (changement d'ordre de paramètres, renommages d'alias). Réextrayez la signature actuelle via la sortie JSON et mettez à jour l'entry.
+3. **`expires_at` périmé.** Un ack avec `expires_at = "2025-12-31"` a cessé de s'appliquer le 2026-01-01. Le finding qui réapparaît est celui qui était supprimé. Décision : rafraîchir l'ack avec une nouvelle date, le rendre permanent, ou corriger le code sous-jacent.
+4. **Path d'override en fuite.** Un job CI passe `--acknowledgments /un/autre/chemin.toml` que vous n'attendiez pas. Greppez les workflows CI pour le flag.
+
+**Correctif.** Le fichier d'acks est versionné, donc le correctif est toujours une PR : éditer, retirer ou mettre à jour l'entry. Ne contournez jamais les acks en CI en ajoutant `--no-acknowledgments` à un job permanent, la trace d'audit est le git log du fichier.
+
+Pour le workflow d'ack complet, voir [`ACKNOWLEDGMENTS-FR.md`](ACKNOWLEDGMENTS-FR.md).
 
 ---
 
