@@ -46,12 +46,15 @@ tower = { version = "0.5.3", features = ["timeout"] }
 prometheus = "0.14.0"
 lru = "0.18.0"
 # SHA-256 for the canonical signature of a Finding used by the
-# acknowledgments file (`.perf-sentinel-acknowledgments.toml`). Already
-# pulled in transitively (rustls), pinning at the 0.10 line keeps it
-# unified. chrono powers the `expires_at` ISO 8601 date parsing and the
-# "is this ack still active" check (`Utc::now()` comparison).
-sha2 = "0.10"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+# acknowledgments file (`.perf-sentinel-acknowledgments.toml`). The 0.11
+# line moved from `generic-array` to `hybrid-array`, so it does not
+# unify with the 0.10 sha2 still pulled transitively by rustls and both
+# versions ship in the binary. Acceptable trade-off for tracking the
+# upstream RustCrypto release. chrono powers the `expires_at` ISO 8601
+# date parsing and the "is this ack still active" check
+# (`Utc::now()` comparison).
+sha2 = "0.11.0"
+chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }
