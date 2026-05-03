@@ -70,17 +70,24 @@ pub struct AcknowledgmentsFile {
 ///
 /// Sanitization replaces `/` and ` ` (space) inside `source_endpoint`
 /// with `_` so the resulting signature uses `:` as a single, unambiguous
-/// separator that operators can split on in shell pipelines.
+/// separator that operators can split on in shell pipelines. `BiDi`
+/// override and invisible-format characters (Trojan Source, CVE-2021-42574)
+/// are stripped from both `service` and `source_endpoint` so two visually
+/// identical signatures cannot map to distinct ack entries.
 #[must_use]
 pub fn compute_signature(finding: &Finding) -> String {
     let mut hasher = Sha256::new();
     hasher.update(finding.pattern.template.as_bytes());
     let digest = hasher.finalize();
+    let safe_service = crate::report::sarif::strip_bidi_and_invisible(&finding.service);
+    let safe_endpoint = crate::report::sarif::strip_bidi_and_invisible(&sanitize_endpoint(
+        &finding.source_endpoint,
+    ));
     format!(
         "{}:{}:{}:{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         finding.finding_type.as_str(),
-        finding.service,
-        sanitize_endpoint(&finding.source_endpoint),
+        safe_service,
+        safe_endpoint,
         digest[0],
         digest[1],
         digest[2],
@@ -336,6 +343,23 @@ mod tests {
         assert!(
             !parts[2].contains(' '),
             "endpoint segment must not contain ' '"
+        );
+    }
+
+    #[test]
+    fn compute_signature_strips_bidi_and_invisible_from_service_and_endpoint() {
+        // service "alice<RLO>@evil.com" should produce the same signature as
+        // "alice@evil.com" so a hostile span attribute cannot fork ack matching.
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let mut f2 = f1.clone();
+        f1.service = "alice\u{202E}@evil.com".to_string();
+        f1.source_endpoint = "GET /api/items\u{200B}".to_string();
+        f2.service = "alice@evil.com".to_string();
+        f2.source_endpoint = "GET /api/items".to_string();
+        assert_eq!(
+            compute_signature(&f1),
+            compute_signature(&f2),
+            "BiDi/invisible characters must be stripped before signature construction"
         );
     }
 

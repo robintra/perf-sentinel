@@ -93,7 +93,7 @@ pub struct SarifResult {
     /// Used by GitHub Code Scanning and GitLab SAST for deduplication.
     /// Skipped when the source finding has no signature.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fingerprints: Option<BTreeMap<String, String>>,
+    pub fingerprints: Option<BTreeMap<&'static str, String>>,
 }
 
 /// SARIF v2.1.0 `fix` object. perf-sentinel emits the description-only
@@ -251,7 +251,7 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
     let signature = (!finding.signature.is_empty()).then(|| finding.signature.clone());
     let fingerprints = signature.as_ref().map(|sig| {
         let mut map = BTreeMap::new();
-        map.insert("perfsentinel/v1".to_string(), sig.clone());
+        map.insert("perfsentinel/v1", sig.clone());
         map
     });
 
@@ -416,7 +416,7 @@ fn contains_percent_encoded_dot(fp: &str) -> bool {
 /// Return true for Unicode `BiDi` override and invisible format characters
 /// that can confuse text renderers (Trojan Source class of attack,
 /// CVE-2021-42574).
-fn is_bidi_or_invisible(c: char) -> bool {
+pub(crate) fn is_bidi_or_invisible(c: char) -> bool {
     matches!(
         c,
         '\u{061C}' // Arabic Letter Mark (BiDi formatting)
@@ -461,33 +461,32 @@ pub fn report_to_sarif(report: &Report) -> SarifLog {
 
 fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> SarifResult {
     let mut result = finding_to_result(&ack.finding);
+    // Mutate the SarifProperties built by finding_to_result so the signature
+    // and confidence already filled in are preserved without re-cloning.
     // The ack metadata is operator-controlled free text. SARIF consumers
     // (GitHub Code Scanning, GitLab) escape JSON values for HTML, so XSS
     // is closed at the consumer, but BiDi / invisible-format characters
     // can still spoof the displayed identity (`alice<RLO>@evil.com`).
     // Strip them defensively at emission, matching the existing
     // `code.filepath` discipline in `sanitize_sarif_filepath`.
-    let signature = (!ack.finding.signature.is_empty()).then(|| ack.finding.signature.clone());
-    result.properties = Some(SarifProperties {
-        confidence: ack.finding.confidence.as_str(),
-        acknowledged: Some(true),
-        acknowledgment_reason: Some(strip_bidi_and_invisible(&ack.acknowledgment.reason)),
-        acknowledgment_by: Some(strip_bidi_and_invisible(
+    if let Some(props) = result.properties.as_mut() {
+        props.acknowledged = Some(true);
+        props.acknowledgment_reason = Some(strip_bidi_and_invisible(&ack.acknowledgment.reason));
+        props.acknowledgment_by = Some(strip_bidi_and_invisible(
             &ack.acknowledgment.acknowledged_by,
-        )),
-        acknowledgment_at: Some(strip_bidi_and_invisible(
+        ));
+        props.acknowledgment_at = Some(strip_bidi_and_invisible(
             &ack.acknowledgment.acknowledged_at,
-        )),
-        signature,
-    });
+        ));
+    }
     result
 }
 
 /// Drop Unicode BiDi-override and invisible-format characters from a
-/// free-text string before emitting it into SARIF. Reuses the same
-/// classifier as `sanitize_sarif_filepath` so the policy stays
-/// consistent across SARIF surfaces.
-fn strip_bidi_and_invisible(s: &str) -> String {
+/// free-text string before emitting it. Reused at signature construction
+/// time (`acknowledgments::compute_signature`) so canonical signatures
+/// cannot carry trojan characters that would spoof ack matching.
+pub(crate) fn strip_bidi_and_invisible(s: &str) -> String {
     s.chars().filter(|c| !is_bidi_or_invisible(*c)).collect()
 }
 
@@ -952,6 +951,8 @@ mod tests {
             fp.get("perfsentinel/v1").map(String::as_str),
             Some(SAMPLE_SIGNATURE)
         );
+        let value = serde_json::to_value(&result).unwrap();
+        assert_eq!(value["fingerprints"]["perfsentinel/v1"], SAMPLE_SIGNATURE);
     }
 
     #[test]

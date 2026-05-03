@@ -2843,6 +2843,11 @@ fn cli_signature_consistent_across_json_and_sarif() {
         assert!(!sig.is_empty(), "signature must be non-empty");
         json_signatures.insert(key, sig);
     }
+    assert_eq!(
+        json_signatures.len(),
+        json_findings.len(),
+        "(type, service, endpoint) triplet collisions in fixture would invalidate the cross-format match key; use a richer key"
+    );
 
     let sarif_output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args([
