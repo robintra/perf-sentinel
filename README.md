@@ -44,10 +44,7 @@ perf-sentinel analyze --input traces.json
 
 ## How this fits into your infra
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration_dark.svg">
-  <img alt="Global perf-sentinel integration across local dev, CI, staging and prod" src="https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg">
-</picture>
+![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
 
 The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster (hybrid daemon to batch HTML, batch over Tempo, daemon OTLP direct, multi-format Jaeger/Zipkin, calibrate, sidecar, cross-trace correlation, `pg_stat_statements` integration). **Each scenario ships a Mermaid architecture diagram, the exact inputs and outputs, the required configuration, and the gotchas that bit us during validation.**
 
