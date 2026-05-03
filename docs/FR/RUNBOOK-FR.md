@@ -102,12 +102,12 @@ perf-sentinel analyze --input traces-dump.json
 
 **Ce qui ne marchera PAS.**
 
-| Tentative                                             | Pourquoi                                    |
-|-------------------------------------------------------|---------------------------------------------|
-| `curl /api/explain/<trace_id>` sur le daemon live     | Trace évincée après 30 s                    |
+| Tentative                                              | Pourquoi                                    |
+|--------------------------------------------------------|---------------------------------------------|
+| `curl /api/explain/<trace_id>` sur le daemon live      | Trace évincée après 30 s                    |
 | `curl /api/findings` pour reconstruire un explain tree | Le store garde les findings, pas les spans  |
-| Attendre que le daemon "refasse remonter" la trace   | Pas de persistance, pas d'endpoint de rejeu |
-| Redémarrer le daemon pour retrouver l'état            | Rien n'est persisté sur disque              |
+| Attendre que le daemon "refasse remonter" la trace     | Pas de persistance, pas d'endpoint de rejeu |
+| Redémarrer le daemon pour retrouver l'état             | Rien n'est persisté sur disque              |
 
 **Prérequis.**
 
@@ -584,10 +584,83 @@ La liveness probe kubelet utilise un check TCP sur le port HTTP, pas un appel `c
 
 L'endpoint `/metrics` négocie le content type depuis le header `Accept` du client. Envoyer `application/openmetrics-text` force OpenMetrics 1.0 avec le terminateur `# EOF` et les annotations exemplars. Un Accept absent ou `*/*` (curl par défaut, vmagent par défaut) retombe sur le comportement legacy 0.5.15 (OpenMetrics quand des exemplars sont présents, plain Prometheus sinon). Un `Accept: text/plain` strict (sans `*/*`) force plain Prometheus 0.0.4 sans exemplars, protégeant les scrapers pré-OpenMetrics.
 
+## Diagnostiquer les drops OTLP
+
+Symptôme : les spans envoyés par les clients ne sont pas visibles dans
+`/api/export/report` ni dans le dashboard, et le SDK client ne signale
+aucune erreur.
+
+1. Récupérer `perf_sentinel_otlp_rejected_total` depuis `/metrics` et
+   lire la valeur par `reason` :
+
+   ```bash
+   curl -s http://daemon:4318/metrics | grep '^perf_sentinel_otlp_rejected_total'
+   ```
+
+   - `channel_full` élevé : le daemon est CPU-bound ou en backpressure.
+     Vérifier `process_cpu_seconds_total` (rate) et
+     `process_resident_memory_bytes` contre les limites du pod.
+     Augmenter les limites CPU ou mémoire, ou scaler horizontalement.
+   - `parse_error` élevé : les clients envoient de l'OTLP malformé.
+     Vérifier la version du SDK client et la compatibilité protobuf
+     contre la spec OTLP.
+   - `unsupported_media_type` élevé : les clients utilisent la variante
+     OTLP encodée en JSON ou un mauvais `Content-Type`. perf-sentinel
+     n'accepte que `application/x-protobuf`.
+
+2. `Report.warning_details` surface une entrée `ingestion_drops` dès
+   que le compteur `channel_full` est positif. Un consumer qui lit
+   `/api/export/report` sans scraper Prometheus voit quand même le
+   signal :
+
+   ```bash
+   curl -s http://daemon:4318/api/export/report | jq '.warning_details'
+   ```
+
+3. Les réponses 413 (HTTP) et `RESOURCE_EXHAUSTED` (gRPC) pour les
+   payloads trop gros sont interceptées en amont par tower-http
+   (`RequestBodyLimitLayer`) et tonic (`max_decoding_message_size`)
+   avant que le handler applicatif ne tourne. Elles ne sont **pas**
+   comptabilisées par `perf_sentinel_otlp_rejected_total`. Vérifier
+   les access logs du proxy ou de la gateway.
+
+Voir [METRICS-FR.md](METRICS-FR.md) pour le catalogue complet des
+reasons et le reste de la surface metrics.
+
+## Lire les warnings du Report
+
+`Report.warning_details` (depuis 0.5.19) est un vecteur d'entrées
+`{kind, message}` exposées par le daemon dans le payload report côté
+opérateur. Chaque entrée a un `kind` stable (utile pour l'alerting et
+l'agrégation cross-run) et un `message` lisible qui peut inclure des
+valeurs dynamiques telles que des compteurs.
+
+Kinds courants :
+
+- `cold_start` : le daemon n'a pas encore traité d'événements. Renvoyé
+  par `GET /api/export/report` jusqu'au premier batch. Pré-0.5.16
+  ce signal était un statut 503, qui faisait échouer les probes
+  Kubernetes.
+- `ingestion_drops` : au moins une requête OTLP a été rejetée depuis le
+  démarrage à cause de la saturation du canal. Le message reporte le
+  count. Cross-checker avec
+  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` pour la
+  même valeur.
+
+Le champ legacy `Report.warnings: Vec<String>` (0.5.16+) reste émis
+pour la backward compat. Les renderers CLI et HTML préfèrent
+`warning_details` quand non vide, fallback sur `warnings` sinon.
+Le dashboard HTML expose `warning_details` dans le payload JSON
+embarqué (`payload.report.warning_details`), un banner dédié dans
+l'UI dashboard est dans la roadmap.
+
 ---
 
 ## Voir aussi
 
+- [METRICS-FR.md](METRICS-FR.md) : référence exhaustive de toutes les
+  metrics exposées sur `/metrics`, dont les nouvelles process metrics
+  et le compteur de rejet OTLP (depuis 0.5.19).
 - [LIMITATIONS-FR.md](LIMITATIONS-FR.md) : ce que le daemon ne persiste pas et ne garantit pas.
 - [QUERY-API-FR.md](QUERY-API-FR.md) : référence `/api/findings`, `/api/explain`, `/api/correlations`, `/api/status`.
 - [INTEGRATION-FR.md](INTEGRATION-FR.md) : mise en place de bout en bout, quatre topologies supportées, intégration Tempo et Jaeger. Voir [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) pour le câblage OTLP par langage et [CI-FR.md](CI-FR.md) pour les recettes d'intégration CI.

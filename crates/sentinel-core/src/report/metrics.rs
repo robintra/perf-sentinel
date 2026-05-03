@@ -11,10 +11,44 @@ use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
 use prometheus::{
-    Counter, CounterVec, Encoder, Gauge, HistogramOpts, HistogramVec, Opts, Registry, TextEncoder,
+    Counter, CounterVec, Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
+    Opts, Registry, TextEncoder,
 };
 
 use crate::report::Report;
+
+/// Reason an OTLP request was rejected by the daemon.
+///
+/// Used as the `reason` label of `perf_sentinel_otlp_rejected_total`.
+/// Variants are pre-warmed to 0 at startup so dashboards can plot
+/// zero-values before any rejection occurs.
+///
+/// `payload_too_large` is intentionally absent: tower-http's
+/// `RequestBodyLimitLayer` (HTTP) and tonic's `max_decoding_message_size`
+/// (gRPC) reject oversized payloads before the application handler
+/// runs. Operators concerned with payload size should monitor the
+/// upstream proxy or wire a tower-http rejection counter in their
+/// own stack.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OtlpRejectReason {
+    /// HTTP only: Content-Type is not `application/x-protobuf`.
+    UnsupportedMediaType,
+    /// HTTP only: protobuf decode failed.
+    ParseError,
+    /// HTTP and gRPC: the event channel is saturated or closed.
+    ChannelFull,
+}
+
+impl OtlpRejectReason {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::UnsupportedMediaType => "unsupported_media_type",
+            Self::ParseError => "parse_error",
+            Self::ChannelFull => "channel_full",
+        }
+    }
+}
 
 /// Data attached to a metric as an `OpenMetrics` exemplar.
 #[derive(Debug, Clone)]
@@ -83,6 +117,24 @@ pub struct MetricsState {
     /// return 200 with an empty envelope since 0.5.16, 503 before),
     /// consistent with HTTP access-log conventions.
     pub export_report_requests_total: Counter,
+    /// OTLP requests rejected by the daemon, labeled by `reason`.
+    /// Pre-warmed to 0 for the 3 reasons (`unsupported_media_type`,
+    /// `parse_error`, `channel_full`) at startup so dashboards plot
+    /// zero-values before the first rejection. The 3
+    /// `otlp_rejected_*` `IntCounter` fields below cache the labeled
+    /// children so the hot path (`record_otlp_reject`) avoids a label
+    /// hashmap lookup per rejection. Lookup the vec directly only for
+    /// scrape rendering and tests, not in the hot path.
+    pub otlp_rejected_total: IntCounterVec,
+    /// Cached child for `otlp_rejected_total{reason="unsupported_media_type"}`.
+    pub otlp_rejected_unsupported_media_type: IntCounter,
+    /// Cached child for `otlp_rejected_total{reason="parse_error"}`.
+    pub otlp_rejected_parse_error: IntCounter,
+    /// Cached child for `otlp_rejected_total{reason="channel_full"}`.
+    /// Read directly by `daemon::query_api::collect_warning_details` to
+    /// surface an `ingestion_drops` warning in the report payload when
+    /// the counter is positive.
+    pub otlp_rejected_channel_full: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -233,6 +285,40 @@ impl MetricsState {
             .register(Box::new(export_report_requests_total.clone()))
             .expect("registration should not fail");
 
+        let otlp_rejected_total = IntCounterVec::new(
+            Opts::new(
+                "perf_sentinel_otlp_rejected_total",
+                "Total OTLP requests rejected by the daemon, by reason",
+            ),
+            &["reason"],
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(otlp_rejected_total.clone()))
+            .expect("registration should not fail");
+        // Cache the 3 labeled children. `with_label_values` materializes
+        // the child in the parent vec on first call, so the children
+        // both serve as the hot-path increment handles (cf
+        // `record_otlp_reject`) and pre-warm the metric so `gather()`
+        // emits a 0 line for each reason before the first rejection.
+        let otlp_rejected_unsupported_media_type = otlp_rejected_total
+            .with_label_values(&[OtlpRejectReason::UnsupportedMediaType.as_str()]);
+        let otlp_rejected_parse_error =
+            otlp_rejected_total.with_label_values(&[OtlpRejectReason::ParseError.as_str()]);
+        let otlp_rejected_channel_full =
+            otlp_rejected_total.with_label_values(&[OtlpRejectReason::ChannelFull.as_str()]);
+
+        // Process metrics (RSS, FDs, start_time, CPU). procfs-backed,
+        // Linux-only. On macOS/Windows we skip registration so each
+        // scrape does not pay for failed reads under the hood.
+        #[cfg(target_os = "linux")]
+        {
+            use prometheus::process_collector::ProcessCollector;
+            registry
+                .register(Box::new(ProcessCollector::for_self()))
+                .expect("process collector registration should not fail");
+        }
+
         Self {
             registry,
             findings_total,
@@ -247,8 +333,27 @@ impl MetricsState {
             cloud_energy_last_scrape_age_seconds,
             slow_duration_seconds,
             export_report_requests_total,
+            otlp_rejected_total,
+            otlp_rejected_unsupported_media_type,
+            otlp_rejected_parse_error,
+            otlp_rejected_channel_full,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Increment `perf_sentinel_otlp_rejected_total` for the given
+    /// reason. Called by the OTLP HTTP and gRPC handlers at every
+    /// rejection site. Branchless `match` over the cached children, no
+    /// per-call label hashmap lookup, so a backpressure storm does not
+    /// amplify daemon slowdown via metric overhead.
+    pub fn record_otlp_reject(&self, reason: OtlpRejectReason) {
+        match reason {
+            OtlpRejectReason::UnsupportedMediaType => {
+                self.otlp_rejected_unsupported_media_type.inc();
+            }
+            OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
+            OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
         }
     }
 
@@ -702,6 +807,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            warning_details: vec![],
             acknowledged_findings: vec![],
         }
     }
@@ -1490,6 +1596,94 @@ mod tests {
         assert!(
             has_waste_prefix,
             "prometheus output must contain lines starting with 'perf_sentinel_io_waste_ratio ': {output}"
+        );
+    }
+
+    #[test]
+    fn registry_contains_otlp_rejected() {
+        let state = MetricsState::new();
+        let output = state.render();
+        assert!(
+            output.contains("perf_sentinel_otlp_rejected_total"),
+            "registry should expose perf_sentinel_otlp_rejected_total, got: {output}"
+        );
+    }
+
+    #[test]
+    fn otlp_rejected_starts_at_zero_for_all_three_reasons() {
+        let state = MetricsState::new();
+        for reason in [
+            OtlpRejectReason::UnsupportedMediaType,
+            OtlpRejectReason::ParseError,
+            OtlpRejectReason::ChannelFull,
+        ] {
+            let count = state
+                .otlp_rejected_total
+                .with_label_values(&[reason.as_str()])
+                .get();
+            assert_eq!(count, 0, "reason {} should start at 0", reason.as_str());
+        }
+        let output = state.render();
+        for reason in ["unsupported_media_type", "parse_error", "channel_full"] {
+            assert!(
+                output.contains(&format!(
+                    "perf_sentinel_otlp_rejected_total{{reason=\"{reason}\"}} 0"
+                )),
+                "pre-warmed line for reason {reason} should appear in /metrics, got: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn record_otlp_reject_increments_correct_label() {
+        let state = MetricsState::new();
+        state.record_otlp_reject(OtlpRejectReason::ChannelFull);
+        state.record_otlp_reject(OtlpRejectReason::ChannelFull);
+        state.record_otlp_reject(OtlpRejectReason::ChannelFull);
+        assert_eq!(
+            state
+                .otlp_rejected_total
+                .with_label_values(&["channel_full"])
+                .get(),
+            3
+        );
+        assert_eq!(
+            state
+                .otlp_rejected_total
+                .with_label_values(&["parse_error"])
+                .get(),
+            0
+        );
+        assert_eq!(
+            state
+                .otlp_rejected_total
+                .with_label_values(&["unsupported_media_type"])
+                .get(),
+            0
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn process_collector_registered_on_linux() {
+        let state = MetricsState::new();
+        let output = state.render();
+        assert!(
+            output
+                .lines()
+                .any(|l| l.starts_with("process_resident_memory_bytes")),
+            "process_resident_memory_bytes should be exposed on Linux, got: {output}"
+        );
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn process_collector_not_registered_on_non_linux() {
+        let state = MetricsState::new();
+        let output = state.render();
+        assert!(
+            !output.contains("process_resident_memory_bytes"),
+            "process_resident_memory_bytes must not be exposed off Linux, got: {output}"
         );
     }
 }

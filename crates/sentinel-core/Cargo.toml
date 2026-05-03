@@ -43,7 +43,7 @@ prost = "0.14.3"
 opentelemetry-proto = { version = "0.31.0", features = ["gen-tonic-messages", "trace"] }
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout"] }
-prometheus = "0.14.0"
+prometheus = { version = "0.14.0", features = ["process"] }
 lru = "0.18.0"
 # SHA-256 for the canonical signature of a Finding used by the
 # acknowledgments file (`.perf-sentinel-acknowledgments.toml`). The 0.11

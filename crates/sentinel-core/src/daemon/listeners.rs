@@ -65,6 +65,7 @@ pub(super) async fn spawn_listeners(
         tls_acceptor.clone(),
         tx.clone(),
         config.max_payload_size,
+        Arc::clone(&metrics),
     );
     let http_router = build_http_router(
         config,
@@ -98,8 +99,9 @@ fn spawn_grpc_listener(
     tls_acceptor: Option<tokio_rustls::TlsAcceptor>,
     tx: mpsc::Sender<Vec<SpanEvent>>,
     max_payload: usize,
+    metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx);
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics));
     tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         if tls_acceptor.is_some() {
@@ -133,7 +135,11 @@ fn build_http_router(
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
 ) -> axum::Router {
-    let otlp_router = crate::ingest::otlp::otlp_http_router(tx, config.max_payload_size);
+    let otlp_router = crate::ingest::otlp::otlp_http_router(
+        tx,
+        config.max_payload_size,
+        Some(Arc::clone(&metrics)),
+    );
     // Clone the Arc unconditionally so `metrics_route` and the query
     // API state can share it when the API is enabled. When disabled,
     // the extra `Arc::clone` is one atomic refcount increment, not

@@ -260,6 +260,8 @@ pub(crate) fn format_colored_report_with_acks(
     );
     println!();
 
+    print_warnings(report, force_color);
+
     if report.findings.is_empty() {
         println!("{green}No performance anti-patterns detected.{reset}");
     } else {
@@ -269,6 +271,37 @@ pub(crate) fn format_colored_report_with_acks(
     print_green_summary(&report.green_summary, force_color);
     print_quality_gate(&report.quality_gate, force_color);
     print_acknowledged_summary(report, force_color, show_acknowledged);
+}
+
+/// Surface snapshot warnings before the findings list. Prefers the
+/// structured `warning_details` (0.5.19+) when non-empty, falls back to
+/// the legacy `warnings: Vec<String>` field for pre-0.5.19 baselines.
+fn print_warnings(report: &Report, force_color: bool) {
+    let colors = ansi_colors(force_color);
+    let AnsiColors {
+        bold,
+        yellow,
+        reset,
+        ..
+    } = colors;
+
+    if !report.warning_details.is_empty() {
+        println!("{bold}{yellow}Warnings:{reset}");
+        for w in &report.warning_details {
+            println!(
+                "  [{}] {}",
+                sanitize_for_terminal(&w.kind),
+                sanitize_for_terminal(&w.message),
+            );
+        }
+        println!();
+    } else if !report.warnings.is_empty() {
+        println!("{bold}{yellow}Warnings:{reset}");
+        for w in &report.warnings {
+            println!("  {}", sanitize_for_terminal(w));
+        }
+        println!();
+    }
 }
 
 /// Surface acknowledged findings at the bottom of the terminal report.

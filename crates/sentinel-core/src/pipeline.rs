@@ -82,6 +82,7 @@ pub fn analyze_with_traces(
         // rolling window only exists in the daemon. Always empty here.
         correlations: vec![],
         warnings: vec![],
+        warning_details: vec![],
         acknowledged_findings: vec![],
     };
 

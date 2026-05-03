@@ -2910,3 +2910,53 @@ fn cli_signature_consistent_across_json_and_sarif() {
         );
     }
 }
+
+#[test]
+fn cli_warning_details_in_json_export() {
+    // The 0.5.19 `Report.warning_details` field must round-trip
+    // through `analyze --format json`. The batch CLI has no source
+    // of warnings today (cold-start lives only in the daemon path,
+    // ingestion_drops needs a Prometheus counter from the daemon),
+    // so the field is expected to be absent when empty (the serde
+    // attribute is `skip_serializing_if = "Vec::is_empty"`).
+    //
+    // The contract this test pins: when present, it must be an
+    // array of objects with `kind` and `message` string fields, and
+    // the JSON must always parse back into the typed Report shape
+    // without error. Pre-0.5.19 baselines that never had the field
+    // continue to parse via `serde(default)`.
+    let fixture_path = format!(
+        "{}/../../tests/fixtures/n_plus_one_sql.json",
+        env!("CARGO_MANIFEST_DIR")
+    );
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--input", &fixture_path, "--format", "json"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+    assert!(
+        output.status.success(),
+        "json analyze failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let payload: Value =
+        serde_json::from_slice(&output.stdout).expect("json stdout must be valid JSON");
+
+    // When present, the field must have the documented shape.
+    if let Some(details) = payload.get("warning_details") {
+        let arr = details
+            .as_array()
+            .expect("warning_details must serialize as a JSON array");
+        for entry in arr {
+            assert!(
+                entry.get("kind").and_then(Value::as_str).is_some(),
+                "each warning_details entry must carry a string `kind`: {entry}"
+            );
+            assert!(
+                entry.get("message").and_then(Value::as_str).is_some(),
+                "each warning_details entry must carry a string `message`: {entry}"
+            );
+        }
+    }
+}

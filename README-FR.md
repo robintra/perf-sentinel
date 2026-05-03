@@ -632,7 +632,7 @@ docker compose -f examples/docker-compose-collector.yml up -d
 #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
-perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/FR/INTEGRATION-FR.md) sur `/metrics` (port 4318). Un endpoint `GET /health` de liveness est exposé sur le même port pour les sondes Kubernetes ou load-balancer.
+perf-sentinel diffuse les findings en NDJSON sur stdout et expose des métriques Prometheus avec [Grafana Exemplars](docs/FR/INTEGRATION-FR.md) sur `/metrics` (port 4318). Un endpoint `GET /health` de liveness est exposé sur le même port pour les sondes Kubernetes ou load-balancer. Depuis 0.5.19, `/metrics` expose aussi les métriques standard du process collector (`process_resident_memory_bytes`, `process_open_fds`, ...) sur Linux et un compteur `perf_sentinel_otlp_rejected_total{reason}` pour diagnostiquer la backpressure d'ingestion. Le payload JSON du report porte un champ `warning_details` structuré (warnings côté opérateur tels que `cold_start` et `ingestion_drops`) à côté du champ legacy `warnings`. Voir [docs/FR/METRICS-FR.md](docs/FR/METRICS-FR.md) et la section "Lire les warnings du Report" de [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md).
 
 Voir [`examples/otel-collector-config.yaml`](examples/otel-collector-config.yaml) pour la config complète du collector avec les options de sampling et filtrage.
 

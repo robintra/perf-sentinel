@@ -29,6 +29,9 @@ pub mod interpret;
 pub mod json;
 pub mod metrics;
 pub mod sarif;
+pub mod warnings;
+
+pub use self::warnings::Warning;
 
 use crate::correlate::Trace;
 use crate::detect::Finding;
@@ -72,6 +75,14 @@ pub struct Report {
     /// output. Additive on pre-0.5.16 baselines via `skip_serializing_if`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
+    /// Structured snapshot warnings (0.5.19+). Coexists with the legacy
+    /// `warnings: Vec<String>` field. Each entry carries a stable
+    /// `kind` (suitable for alerting / aggregation) and a
+    /// human-readable `message`. Renderers prefer this field when
+    /// non-empty, fall back to `warnings` otherwise. Additive on
+    /// pre-0.5.19 baselines via `skip_serializing_if`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warning_details: Vec<Warning>,
     /// Findings filtered out by the user's acknowledgments file
     /// (`.perf-sentinel-acknowledgments.toml`), paired with the matching
     /// ack metadata. Cleared from the wire payload by default; the CLI
@@ -280,5 +291,69 @@ mod tests {
             !json.contains("scoring_config"),
             "scoring_config should be skipped when None, got: {json}"
         );
+    }
+
+    fn minimal_report_json_without_warning_details() -> String {
+        // Shaped like a 0.5.18 Report (no warning_details key). Used to
+        // verify that the new field defaults to empty when absent, so a
+        // pre-0.5.19 baseline replayed via `report --before <old.json>`
+        // still parses cleanly.
+        r#"{
+            "analysis": {"duration_ms": 0, "events_processed": 0, "traces_analyzed": 0},
+            "findings": [],
+            "green_summary": {
+                "total_io_ops": 0,
+                "avoidable_io_ops": 0,
+                "io_waste_ratio": 0.0,
+                "io_waste_ratio_band": "healthy",
+                "top_offenders": []
+            },
+            "quality_gate": {"passed": true, "rules": []},
+            "warnings": ["legacy warning text"]
+        }"#
+        .to_string()
+    }
+
+    #[test]
+    fn report_warning_details_default_empty_when_absent() {
+        let report: Report =
+            serde_json::from_str(&minimal_report_json_without_warning_details()).expect("parse");
+        assert!(report.warning_details.is_empty());
+    }
+
+    #[test]
+    fn report_legacy_warnings_field_still_parses() {
+        let report: Report =
+            serde_json::from_str(&minimal_report_json_without_warning_details()).expect("parse");
+        assert_eq!(report.warnings, vec!["legacy warning text".to_string()]);
+        assert!(report.warning_details.is_empty());
+    }
+
+    #[test]
+    fn report_warning_details_skipped_in_serialize_when_empty() {
+        let report = crate::test_helpers::empty_report();
+        let json = serde_json::to_string(&report).expect("serialize");
+        assert!(
+            !json.contains("warning_details"),
+            "warning_details should be skipped when empty, got: {json}"
+        );
+    }
+
+    #[test]
+    fn report_warning_details_serialized_when_present() {
+        let mut report = crate::test_helpers::empty_report();
+        report.warning_details = vec![
+            Warning::new("cold_start", "msg one"),
+            Warning::new("ingestion_drops", "msg two"),
+        ];
+        let json = serde_json::to_string(&report).expect("serialize");
+        let parsed: serde_json::Value = serde_json::from_str(&json).expect("parse");
+        let array = parsed
+            .get("warning_details")
+            .and_then(|v| v.as_array())
+            .expect("warning_details array");
+        assert_eq!(array.len(), 2);
+        assert_eq!(array[0]["kind"], "cold_start");
+        assert_eq!(array[1]["kind"], "ingestion_drops");
     }
 }

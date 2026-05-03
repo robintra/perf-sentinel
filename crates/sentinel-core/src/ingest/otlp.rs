@@ -4,6 +4,7 @@
 //! Uses the `opentelemetry-proto` crate for protobuf definitions.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use opentelemetry_proto::tonic::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
@@ -12,6 +13,7 @@ use opentelemetry_proto::tonic::common::v1::{KeyValue, any_value};
 use opentelemetry_proto::tonic::trace::v1::Span;
 
 use crate::event::{EventSource, EventType, SpanEvent};
+use crate::report::metrics::{MetricsState, OtlpRejectReason};
 
 // ── Conversion helpers ──────────────────────────────────────────────
 
@@ -514,12 +516,16 @@ fn convert_span(
 /// OTLP gRPC trace service that converts spans and sends them through a channel.
 pub struct OtlpGrpcService {
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    metrics: Option<Arc<MetricsState>>,
 }
 
 impl OtlpGrpcService {
     #[must_use]
-    pub const fn new(sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>) -> Self {
-        Self { sender }
+    pub fn new(
+        sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+        metrics: Option<Arc<MetricsState>>,
+    ) -> Self {
+        Self { sender, metrics }
     }
 }
 
@@ -532,11 +538,11 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         request: tonic::Request<ExportTraceServiceRequest>,
     ) -> Result<tonic::Response<ExportTraceServiceResponse>, tonic::Status> {
         let events = convert_otlp_request(request.get_ref());
-        if !events.is_empty() {
-            self.sender
-                .send(events)
-                .await
-                .map_err(|_| tonic::Status::internal("event channel closed"))?;
+        if !events.is_empty() && self.sender.send(events).await.is_err() {
+            if let Some(m) = self.metrics.as_ref() {
+                m.record_otlp_reject(OtlpRejectReason::ChannelFull);
+            }
+            return Err(tonic::Status::internal("event channel closed"));
         }
         Ok(tonic::Response::new(ExportTraceServiceResponse {
             partial_success: None,
@@ -546,12 +552,27 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 
 // ── HTTP handler (axum) ─────────────────────────────────────────────
 
+/// State shared by the OTLP HTTP handler.
+///
+/// Cloned on every request by axum's `State` extractor; the sender and
+/// metrics handle are both cheap to clone (mpsc Sender is an Arc, the
+/// metrics Option carries an Arc).
+#[derive(Clone)]
+struct OtlpHttpState {
+    sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
+    metrics: Option<Arc<MetricsState>>,
+}
+
 /// Build an axum router for OTLP HTTP ingestion.
 ///
 /// Accepts `POST /v1/traces` with protobuf-encoded `ExportTraceServiceRequest`.
+/// `metrics` is `Some` in daemon mode so the handler can increment
+/// `perf_sentinel_otlp_rejected_total` at every rejection site, and
+/// `None` in batch / test contexts where no Prometheus registry exists.
 pub fn otlp_http_router(
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
+    metrics: Option<Arc<MetricsState>>,
 ) -> axum::Router {
     use axum::{
         Router,
@@ -561,7 +582,7 @@ pub fn otlp_http_router(
     };
 
     async fn handle_traces(
-        State(sender): State<tokio::sync::mpsc::Sender<Vec<SpanEvent>>>,
+        State(state): State<OtlpHttpState>,
         headers: HeaderMap,
         body: axum::body::Bytes,
     ) -> StatusCode {
@@ -580,23 +601,33 @@ pub fn otlp_http_router(
                 base.eq_ignore_ascii_case("application/x-protobuf")
             });
         if !content_type_ok {
+            if let Some(m) = state.metrics.as_ref() {
+                m.record_otlp_reject(OtlpRejectReason::UnsupportedMediaType);
+            }
             return StatusCode::UNSUPPORTED_MEDIA_TYPE;
         }
-        let request: ExportTraceServiceRequest = match prost::Message::decode(body.as_ref()) {
-            Ok(req) => req,
-            Err(_) => return StatusCode::BAD_REQUEST,
+        let Ok(request) = <ExportTraceServiceRequest as prost::Message>::decode(body.as_ref())
+        else {
+            if let Some(m) = state.metrics.as_ref() {
+                m.record_otlp_reject(OtlpRejectReason::ParseError);
+            }
+            return StatusCode::BAD_REQUEST;
         };
         let events = convert_otlp_request(&request);
-        if !events.is_empty() && sender.send(events).await.is_err() {
+        if !events.is_empty() && state.sender.send(events).await.is_err() {
             tracing::warn!("OTLP HTTP: event channel full or closed, dropping events");
+            if let Some(m) = state.metrics.as_ref() {
+                m.record_otlp_reject(OtlpRejectReason::ChannelFull);
+            }
             return StatusCode::SERVICE_UNAVAILABLE;
         }
         StatusCode::OK
     }
 
+    let state = OtlpHttpState { sender, metrics };
     let router = Router::new()
         .route("/v1/traces", post(handle_traces))
-        .with_state(sender)
+        .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(max_payload_size));
 
     // Layer order, request flow on the way in: RequestBodyLimit (compressed
@@ -1538,10 +1569,23 @@ mod tests {
             encoder.finish().expect("gzip finish")
         }
 
+        /// Build a POST `/v1/traces` request with `Content-Type:
+        /// application/json` and an empty body, used to exercise the
+        /// 415 path in tests that focus on the rejection metric (the
+        /// body content does not matter, only the wrong content type).
+        fn unsupported_media_type_request() -> Request<Body> {
+            Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(Vec::<u8>::new()))
+                .expect("build request")
+        }
+
         #[tokio::test]
         async fn otlp_http_accepts_gzip_request() {
             let (tx, mut rx) = mpsc::channel(8);
-            let router = otlp_http_router(tx, 1_048_576);
+            let router = otlp_http_router(tx, 1_048_576, None);
 
             let body = build_minimal_request_bytes();
             let gzipped = gzip(&body);
@@ -1564,7 +1608,7 @@ mod tests {
         #[tokio::test]
         async fn otlp_http_accepts_uncompressed_request() {
             let (tx, mut rx) = mpsc::channel(8);
-            let router = otlp_http_router(tx, 1_048_576);
+            let router = otlp_http_router(tx, 1_048_576, None);
 
             let body = build_minimal_request_bytes();
             let req = Request::builder()
@@ -1585,7 +1629,7 @@ mod tests {
         async fn otlp_http_rejects_unsupported_encoding() {
             // Brotli is not enabled; tower-http surfaces this as 415.
             let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
-            let router = otlp_http_router(tx, 1_048_576);
+            let router = otlp_http_router(tx, 1_048_576, None);
 
             let body = build_minimal_request_bytes();
             let req = Request::builder()
@@ -1608,7 +1652,7 @@ mod tests {
             // Content-Length, so the layer rejects pre-decompression.
             let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
             let cap = 256_usize;
-            let router = otlp_http_router(tx, cap);
+            let router = otlp_http_router(tx, cap, None);
 
             let payload: Vec<u8> = vec![0u8; 4096];
             let req = Request::builder()
@@ -1628,7 +1672,7 @@ mod tests {
             // Gzip body but JSON Content-Type. The Content-Type guard runs
             // after decompression and must still reject this with 415.
             let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
-            let router = otlp_http_router(tx, 1_048_576);
+            let router = otlp_http_router(tx, 1_048_576, None);
 
             let body = build_minimal_request_bytes();
             let gzipped = gzip(&body);
@@ -1642,6 +1686,115 @@ mod tests {
 
             let response = router.oneshot(req).await.expect("router runs");
             assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        }
+
+        #[tokio::test]
+        async fn http_handler_records_unsupported_media_type() {
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+            let metrics = Arc::new(MetricsState::new());
+            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+
+            let response = router
+                .oneshot(unsupported_media_type_request())
+                .await
+                .expect("router runs");
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["unsupported_media_type"])
+                    .get(),
+                1
+            );
+        }
+
+        #[tokio::test]
+        async fn http_handler_records_parse_error() {
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+            let metrics = Arc::new(MetricsState::new());
+            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+
+            // Random bytes are extremely unlikely to be a valid OTLP
+            // ExportTraceServiceRequest protobuf. prost decode returns
+            // an error and the handler must reject with 400.
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .body(Body::from(vec![0xff_u8, 0xff, 0xff, 0xff, 0xff, 0xff]))
+                .expect("build request");
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["parse_error"])
+                    .get(),
+                1
+            );
+        }
+
+        #[tokio::test]
+        async fn http_handler_records_channel_full() {
+            // Drop the receiver so any send fails immediately. The
+            // handler must reject with 503 and bump the channel_full
+            // counter.
+            let (tx, rx) = mpsc::channel::<Vec<SpanEvent>>(1);
+            drop(rx);
+            let metrics = Arc::new(MetricsState::new());
+            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+
+            let body = build_minimal_request_bytes();
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .body(Body::from(body))
+                .expect("build request");
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["channel_full"])
+                    .get(),
+                1
+            );
+        }
+
+        #[tokio::test]
+        async fn http_handler_no_metrics_state_does_not_panic() {
+            // None metrics state must not panic at any rejection site.
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
+            let router = otlp_http_router(tx, 1_048_576, None);
+
+            let response = router
+                .oneshot(unsupported_media_type_request())
+                .await
+                .expect("router runs");
+            assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        }
+
+        #[tokio::test]
+        async fn grpc_handler_records_channel_full() {
+            use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+            let (tx, rx) = mpsc::channel::<Vec<SpanEvent>>(1);
+            drop(rx);
+            let metrics = Arc::new(MetricsState::new());
+            let svc = OtlpGrpcService::new(tx, Some(metrics.clone()));
+
+            let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+            let req = tonic::Request::new(make_request("svc", vec![span]));
+            let result = svc.export(req).await;
+            assert!(result.is_err());
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["channel_full"])
+                    .get(),
+                1
+            );
         }
     }
 }

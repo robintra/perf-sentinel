@@ -25,28 +25,13 @@ pub struct JsonReportError(String);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+    use crate::report::{Analysis, QualityGate, Report};
+    use crate::test_helpers::empty_report;
 
     #[test]
     fn emit_empty_report() {
         let sink = JsonReportSink;
-        let report = Report {
-            analysis: Analysis {
-                duration_ms: 0,
-                events_processed: 0,
-                traces_analyzed: 0,
-            },
-            findings: vec![],
-            green_summary: GreenSummary::disabled(0),
-            quality_gate: QualityGate {
-                passed: true,
-                rules: vec![],
-            },
-            per_endpoint_io_ops: vec![],
-            correlations: vec![],
-            warnings: vec![],
-            acknowledged_findings: vec![],
-        };
+        let report = empty_report();
         assert!(sink.emit(&report).is_ok());
     }
 
@@ -97,6 +82,7 @@ mod tests {
             per_endpoint_io_ops: vec![],
             correlations: vec![],
             warnings: vec![],
+            warning_details: vec![],
             acknowledged_findings: vec![],
         };
 

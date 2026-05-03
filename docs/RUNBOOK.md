@@ -581,10 +581,78 @@ The kubelet liveness probe uses a TCP check on the HTTP port, not a `curl` HTTP 
 
 The `/metrics` endpoint negotiates content type from the client's `Accept` header. Sending `application/openmetrics-text` forces OpenMetrics 1.0 with the `# EOF` terminator and exemplar annotations. A missing or `*/*` Accept (curl default, vmagent default) falls back to the legacy 0.5.15 behavior (OpenMetrics when exemplars are present, plain Prometheus otherwise). A strict `Accept: text/plain` (no `*/*`) forces plain Prometheus 0.0.4 without exemplars, defending pre-OpenMetrics scrapers.
 
+## Diagnosing OTLP drops
+
+Symptom: spans sent by clients are not visible in `/api/export/report` or in
+the dashboard, and the client SDK reports no errors.
+
+1. Pull `perf_sentinel_otlp_rejected_total` from `/metrics` and read it by
+   `reason`:
+
+   ```bash
+   curl -s http://daemon:4318/metrics | grep '^perf_sentinel_otlp_rejected_total'
+   ```
+
+   - High `channel_full`: the daemon is CPU-bound or backpressured. Check
+     `process_cpu_seconds_total` (rate) and `process_resident_memory_bytes`
+     against the pod limits. Increase CPU or memory limits, or scale
+     horizontally.
+   - High `parse_error`: clients send malformed OTLP. Check the client SDK
+     version and protobuf compatibility against the OTLP spec.
+   - High `unsupported_media_type`: clients use the JSON-encoded OTLP variant
+     or a wrong `Content-Type`. perf-sentinel only accepts
+     `application/x-protobuf`.
+
+2. `Report.warning_details` surfaces an `ingestion_drops` entry as soon as
+   the `channel_full` counter is positive. A consumer reading
+   `/api/export/report` without scraping Prometheus still sees the signal:
+
+   ```bash
+   curl -s http://daemon:4318/api/export/report | jq '.warning_details'
+   ```
+
+3. The 413 (HTTP) and `RESOURCE_EXHAUSTED` (gRPC) responses for oversized
+   payloads are intercepted upstream by tower-http
+   (`RequestBodyLimitLayer`) and tonic (`max_decoding_message_size`)
+   respectively, before the application handler runs. They are **not**
+   counted by `perf_sentinel_otlp_rejected_total`. Check the proxy or
+   gateway access logs for those.
+
+See [METRICS.md](METRICS.md) for the full reason catalog and the rest of
+the metrics surface.
+
+## Reading Report warnings
+
+`Report.warning_details` (since 0.5.19) is a vector of `{kind, message}`
+entries surfaced by the daemon to the operator-facing report payload.
+Each entry has a stable `kind` (suitable for alerting and aggregation
+across runs) and a human-readable `message` that may include dynamic
+values such as counts.
+
+Common kinds:
+
+- `cold_start`: the daemon has not yet processed any events. Returned by
+  `GET /api/export/report` until the first batch lands. Pre-0.5.16 this
+  surfaced as a 503 status, which tripped Kubernetes probes.
+- `ingestion_drops`: at least one OTLP request was rejected since start
+  due to channel saturation. The message reports the count.
+  Cross-check `perf_sentinel_otlp_rejected_total{reason="channel_full"}`
+  for the same value.
+
+The legacy `Report.warnings: Vec<String>` field (0.5.16+) still ships
+for backward compatibility. CLI and HTML renderers prefer
+`warning_details` when non-empty, fall back to `warnings` otherwise.
+The HTML dashboard exposes `warning_details` in the embedded JSON
+payload (`payload.report.warning_details`); a dedicated banner in the
+dashboard UI is on the roadmap.
+
 ---
 
 ## See also
 
+- [METRICS.md](METRICS.md): exhaustive reference for every metric exposed
+  on `/metrics`, including the new process metrics and OTLP rejection
+  counter (since 0.5.19).
 - [LIMITATIONS.md](LIMITATIONS.md): what the daemon does *not* persist or guarantee.
 - [QUERY-API.md](QUERY-API.md): reference for `/api/findings`, `/api/explain`, `/api/correlations`, `/api/status`.
 - [INTEGRATION.md](INTEGRATION.md): end-to-end setup, four supported topologies, Tempo and Jaeger integration. See [INSTRUMENTATION.md](INSTRUMENTATION.md) for per-language OTLP wiring and [CI.md](CI.md) for the CI integration recipes.

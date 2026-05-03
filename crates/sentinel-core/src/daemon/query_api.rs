@@ -291,6 +291,10 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
             per_endpoint_io_ops: Vec::new(),
             correlations: Vec::new(),
             warnings: vec!["daemon has not yet processed any events".to_string()],
+            warning_details: vec![crate::report::Warning::new(
+                crate::report::warnings::COLD_START,
+                "daemon has not yet processed any events",
+            )],
             acknowledged_findings: Vec::new(),
         });
     }
@@ -360,6 +364,8 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         usize::MAX
     });
 
+    let warning_details = collect_warning_details(&state.metrics);
+
     let report = Report {
         analysis: Analysis {
             // Explicitly zero rather than the daemon uptime, see the
@@ -374,10 +380,34 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         per_endpoint_io_ops: vec![],
         correlations,
         warnings: vec![],
+        warning_details,
         acknowledged_findings: vec![],
     };
 
     Json(report)
+}
+
+/// Surface aggregated soft conditions in `Report.warning_details`, on
+/// top of the /metrics counter. Operators reading `/api/export/report`
+/// do not always scrape Prometheus, so a count of dropped requests
+/// visible here gives a fast "is the daemon backpressured?" signal.
+///
+/// Note: the cold-start branch in `handle_export_report` returns before
+/// reaching this helper, so `cold_start` and `ingestion_drops` never
+/// appear together in a single response by design.
+fn collect_warning_details(metrics: &MetricsState) -> Vec<crate::report::Warning> {
+    let mut details = Vec::new();
+    let dropped = metrics.otlp_rejected_channel_full.get();
+    if dropped > 0 {
+        details.push(crate::report::Warning::new(
+            crate::report::warnings::INGESTION_DROPS,
+            format!(
+                "{dropped} OTLP requests rejected since daemon start \
+                 (channel saturation, see perf_sentinel_otlp_rejected_total)"
+            ),
+        ));
+    }
+    details
 }
 
 #[cfg(test)]
@@ -941,6 +971,74 @@ mod tests {
             .unwrap();
         let report: Report = serde_json::from_slice(&body).expect("body parses as Report");
         assert!(report.green_summary.scoring_config.is_none());
+    }
+
+    #[tokio::test]
+    async fn export_report_warning_details_includes_cold_start_kind() {
+        let app = query_api_router(make_state());
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("parses");
+        assert_eq!(report.warning_details.len(), 1);
+        assert_eq!(report.warning_details[0].kind, "cold_start");
+        assert_eq!(
+            report.warning_details[0].message,
+            "daemon has not yet processed any events"
+        );
+    }
+
+    #[tokio::test]
+    async fn export_report_warning_details_includes_ingestion_drops_when_counter_positive() {
+        let state = make_state();
+        // Make the cold-start guard pass so the normal path runs.
+        state.metrics.events_processed_total.inc_by(1.0);
+        state.metrics.traces_analyzed_total.inc_by(1.0);
+        // Pre-load the channel_full counter so the normal path picks
+        // it up and surfaces an `ingestion_drops` warning.
+        state
+            .metrics
+            .record_otlp_reject(crate::report::metrics::OtlpRejectReason::ChannelFull);
+        state
+            .metrics
+            .record_otlp_reject(crate::report::metrics::OtlpRejectReason::ChannelFull);
+        state
+            .metrics
+            .record_otlp_reject(crate::report::metrics::OtlpRejectReason::ChannelFull);
+        state
+            .metrics
+            .record_otlp_reject(crate::report::metrics::OtlpRejectReason::ChannelFull);
+        state
+            .metrics
+            .record_otlp_reject(crate::report::metrics::OtlpRejectReason::ChannelFull);
+
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/export/report")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let report: Report = serde_json::from_slice(&body).expect("parses");
+        let drops = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == "ingestion_drops")
+            .expect("ingestion_drops warning present");
+        assert!(
+            drops.message.contains("5 ") && drops.message.contains("OTLP"),
+            "message should reference the count and OTLP, got: {}",
+            drops.message
+        );
     }
 
     impl QueryApiState {

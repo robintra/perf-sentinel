@@ -3,8 +3,34 @@
 use crate::correlate::Trace;
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::normalize;
-use crate::report::GreenSummary;
 use crate::report::interpret::InterpretationLevel;
+use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+
+/// Build a `Report` with every field at its empty / default state.
+/// Used by tests that exercise serialization or carry-through logic
+/// without needing real findings or scoring data, so the long
+/// boilerplate of zero-initialized struct fields stays in one place.
+#[must_use]
+pub fn empty_report() -> Report {
+    Report {
+        analysis: Analysis {
+            duration_ms: 0,
+            events_processed: 0,
+            traces_analyzed: 0,
+        },
+        findings: vec![],
+        green_summary: GreenSummary::disabled(0),
+        quality_gate: QualityGate {
+            passed: true,
+            rules: vec![],
+        },
+        per_endpoint_io_ops: vec![],
+        correlations: vec![],
+        warnings: vec![],
+        warning_details: vec![],
+        acknowledged_findings: vec![],
+    }
+}
 
 /// Build a `GreenSummary` for tests that need a non-default
 /// `(total_io_ops, avoidable_io_ops, io_waste_ratio)` triple. Other
