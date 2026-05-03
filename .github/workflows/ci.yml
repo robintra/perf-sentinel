@@ -3,22 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
-    paths:
-      - 'crates/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/ci.yml'
-      - 'sonar-project.properties'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'logo/**'
+      - 'tapes/**'
+      - 'LICENSE'
+      - '.github/dependabot.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'crates/**'
-      - 'tests/**'
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - '.github/workflows/ci.yml'
-      - 'sonar-project.properties'
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'logo/**'
+      - 'tapes/**'
+      - 'LICENSE'
+      - '.github/dependabot.yml'
   # Manual trigger so CI can be rerun against an arbitrary ref (tag,
   # commit, branch). Useful for re-validating an old release after a
   # toolchain update or recovering an audit trace on a past tag.
