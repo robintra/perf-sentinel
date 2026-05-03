@@ -139,7 +139,7 @@ Depuis 0.5.18, l'emitter SARIF expose la signature du finding à deux endroits, 
 
 Les deux champs portent la même valeur, à choisir selon le modèle d'ingestion de l'outil. Les findings désérialisés à partir de baselines produites avant 0.5.17 ont une signature vide, et l'emitter SARIF omet les deux champs dans ce cas (graceful degradation).
 
-Voir [`SARIF.md`](../SARIF.md) pour la référence complète des fields émis par result (en anglais, doc technique).
+Voir [`SARIF-FR.md`](SARIF-FR.md) pour la référence complète des champs émis par result.
 
 ## Références croisées
 
