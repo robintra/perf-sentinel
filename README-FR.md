@@ -676,6 +676,10 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 - Mytton, Lunden & Malmodin, *Estimating electricity usage of data transmission networks*, Journal of Industrial Ecology 2024. Source du défaut 0,04 kWh/GB sur le terme optionnel `include_network_transport` ; la plage 0,03-0,06 kWh/GB du papier est à l'origine du champ configurable `network_energy_per_byte_kwh`.
 - [API Boavizta](https://www.boavizta.org/en/) / HotCarbon 2024 : modèle bottom-up du cycle de vie carbone embodied d'un serveur, référencé pour le calibrage par défaut de `embodied_per_request_gco2`.
 
+## Supply chain
+
+Les entrées CI sont pinnées pour la reproductibilité : chaque GitHub Action est référencée par un commit SHA de 40 caractères (avec le tag semver en commentaire trailing), l'image de production est `FROM scratch`, `Cargo.lock` est commité et audité quotidiennement par `cargo audit`, et les permissions `GITHUB_TOKEN` des workflows ont par défaut `contents: read` avec des scopes plus larges opt-in par job. Dependabot ouvre des PRs groupées hebdomadaires pour les bumps d'actions. La politique complète et les commandes de vérification sont dans [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
+
 ## Licence
 
 Ce projet est sous licence [GNU Affero General Public License v3.0](LICENSE).
