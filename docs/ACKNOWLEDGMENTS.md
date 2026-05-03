@@ -129,6 +129,17 @@ Yes, the same flags apply. The TUI does not yet have a dedicated panel to show s
 **Q: Does the HTML dashboard surface ack metadata?**
 With `--show-acknowledged`, the embedded JSON payload includes the `acknowledged_findings` array (visible in DevTools or with `jq` against the embedded data). The visual UI does not yet render a dedicated ack section, that is on the dashboard roadmap.
 
+## SARIF integration
+
+Starting in 0.5.18, the SARIF emitter exposes the finding signature in two places, so CI tools that consume SARIF (GitHub Code Scanning, GitLab SAST, Sonar) can match findings against `.perf-sentinel-acknowledgments.toml` without parsing the JSON output separately.
+
+- `runs[].results[].properties.signature` carries the canonical signature string, consistent with the other ack fields already in `properties` (`acknowledged`, `acknowledgmentReason`, ...).
+- `runs[].results[].fingerprints["perfsentinel/v1"]` exposes the same value through the SARIF v2.1.0 native `fingerprints` mechanism (section 3.27.17), used by GitHub Code Scanning and GitLab SAST for deduplication across runs.
+
+Both fields hold the same value, pick whichever one matches your tool's ingestion model. Findings deserialized from baselines produced before 0.5.17 have an empty signature and the SARIF emitter omits both fields for them (graceful degradation).
+
+See [`SARIF.md`](SARIF.md) for the full per-result field reference.
+
 ## Cross-references
 
 - [`README.md`](../README.md) section "Acknowledging known findings" for the quick pitch.

@@ -130,6 +130,17 @@ Oui, les mêmes flags s'appliquent. La TUI n'a pas encore de panneau dédié pou
 **Q : Le dashboard HTML surface-t-il la metadata d'ack ?**
 Avec `--show-acknowledged`, le payload JSON embarqué inclut le tableau `acknowledged_findings` (visible dans DevTools ou avec `jq` sur la donnée embarquée). L'UI visuelle n'a pas encore de section dédiée aux acks, c'est dans la roadmap dashboard.
 
+## Intégration SARIF
+
+Depuis 0.5.18, l'emitter SARIF expose la signature du finding à deux endroits, pour que les outils CI qui consomment du SARIF (GitHub Code Scanning, GitLab SAST, Sonar) puissent matcher les findings contre `.perf-sentinel-acknowledgments.toml` sans avoir à parser séparément le JSON.
+
+- `runs[].results[].properties.signature` porte la chaîne de signature canonique, cohérent avec les autres champs ack déjà présents dans `properties` (`acknowledged`, `acknowledgmentReason`, ...).
+- `runs[].results[].fingerprints["perfsentinel/v1"]` expose la même valeur via le mécanisme natif `fingerprints` de SARIF v2.1.0 (section 3.27.17), utilisé par GitHub Code Scanning et GitLab SAST pour la déduplication cross-run.
+
+Les deux champs portent la même valeur, à choisir selon le modèle d'ingestion de l'outil. Les findings désérialisés à partir de baselines produites avant 0.5.17 ont une signature vide, et l'emitter SARIF omet les deux champs dans ce cas (graceful degradation).
+
+Voir [`SARIF.md`](../SARIF.md) pour la référence complète des fields émis par result (en anglais, doc technique).
+
 ## Références croisées
 
 - [`README-FR.md`](../../README-FR.md) section "Acquitter les findings connus" pour le pitch rapide.

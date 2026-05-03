@@ -2811,3 +2811,97 @@ fn cli_analyze_no_ack_file_is_no_op() {
         "no-op path must omit acknowledged_findings entirely"
     );
 }
+
+#[test]
+fn cli_signature_consistent_across_json_and_sarif() {
+    let json_v = analyze_json(&[
+        "analyze",
+        "--input",
+        &fixture_path(ACK_FIXTURE),
+        "--no-acknowledgments",
+        "--format",
+        "json",
+    ]);
+    let json_findings = json_v["findings"].as_array().expect("findings array");
+    assert!(
+        !json_findings.is_empty(),
+        "fixture must produce at least one finding"
+    );
+
+    let mut json_signatures: std::collections::HashMap<(String, String, String), String> =
+        std::collections::HashMap::new();
+    for f in json_findings {
+        let key = (
+            f["type"].as_str().unwrap().to_string(),
+            f["service"].as_str().unwrap().to_string(),
+            f["source_endpoint"].as_str().unwrap().to_string(),
+        );
+        let sig = f["signature"]
+            .as_str()
+            .expect("signature in JSON output")
+            .to_string();
+        assert!(!sig.is_empty(), "signature must be non-empty");
+        json_signatures.insert(key, sig);
+    }
+
+    let sarif_output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--input",
+            &fixture_path(ACK_FIXTURE),
+            "--no-acknowledgments",
+            "--format",
+            "sarif",
+        ])
+        .output()
+        .expect("spawn perf-sentinel");
+    assert!(
+        sarif_output.status.success(),
+        "sarif analyze failed: {}",
+        String::from_utf8_lossy(&sarif_output.stderr)
+    );
+    let sarif: Value =
+        serde_json::from_slice(&sarif_output.stdout).expect("sarif stdout must be valid JSON");
+
+    let results = sarif["runs"][0]["results"]
+        .as_array()
+        .expect("sarif results array");
+    assert_eq!(
+        results.len(),
+        json_findings.len(),
+        "JSON and SARIF must emit the same number of results"
+    );
+
+    for r in results {
+        let key = (
+            r["ruleId"].as_str().unwrap().to_string(),
+            r["logicalLocations"][0]["name"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            r["logicalLocations"][1]["name"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
+        let expected_sig = json_signatures
+            .get(&key)
+            .unwrap_or_else(|| panic!("no JSON match for SARIF key {key:?}"));
+        let props_sig = r["properties"]["signature"]
+            .as_str()
+            .unwrap_or_else(|| panic!("SARIF result missing properties.signature for {key:?}"));
+        let fp_sig = r["fingerprints"]["perfsentinel/v1"]
+            .as_str()
+            .unwrap_or_else(|| {
+                panic!("SARIF result missing fingerprints[perfsentinel/v1] for {key:?}")
+            });
+        assert_eq!(
+            props_sig, expected_sig,
+            "properties.signature must match JSON signature for {key:?}"
+        );
+        assert_eq!(
+            fp_sig, expected_sig,
+            "fingerprints[perfsentinel/v1] must match JSON signature for {key:?}"
+        );
+    }
+}

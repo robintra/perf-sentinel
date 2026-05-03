@@ -4,6 +4,8 @@
 //! report from perf-sentinel findings. Uses logical locations (service + endpoint)
 //! since perf-sentinel analyzes traces, not source code.
 
+use std::collections::BTreeMap;
+
 use serde::Serialize;
 
 use crate::detect::{Finding, FindingType, Severity};
@@ -86,6 +88,12 @@ pub struct SarifResult {
     /// unaffected.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fixes: Vec<SarifFix>,
+    /// SARIF v2.1.0 section 3.27.17 `fingerprints`. Single-entry map keyed
+    /// by `"perfsentinel/v1"`, value is the canonical finding signature.
+    /// Used by GitHub Code Scanning and GitLab SAST for deduplication.
+    /// Skipped when the source finding has no signature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprints: Option<BTreeMap<String, String>>,
 }
 
 /// SARIF v2.1.0 `fix` object. perf-sentinel emits the description-only
@@ -132,6 +140,11 @@ pub struct SarifProperties {
     /// ISO 8601 date when the ack was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub acknowledgment_at: Option<String>,
+    /// Canonical perf-sentinel signature, also exposed at the result level
+    /// in `fingerprints["perfsentinel/v1"]` for SARIF-native deduplication.
+    /// Skipped when the source finding has no signature (legacy baselines).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -235,6 +248,13 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
         finding.suggestion
     );
 
+    let signature = (!finding.signature.is_empty()).then(|| finding.signature.clone());
+    let fingerprints = signature.as_ref().map(|sig| {
+        let mut map = BTreeMap::new();
+        map.insert("perfsentinel/v1".to_string(), sig.clone());
+        map
+    });
+
     SarifResult {
         rule_id: finding.finding_type.as_str().to_string(),
         level: severity_to_sarif_level(&finding.severity).to_string(),
@@ -256,6 +276,7 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
             acknowledgment_reason: None,
             acknowledgment_by: None,
             acknowledgment_at: None,
+            signature,
         }),
         rank: Some(finding.confidence.sarif_rank()),
         locations: finding
@@ -287,6 +308,7 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
                 }]
             })
             .unwrap_or_default(),
+        fingerprints,
     }
 }
 
@@ -445,6 +467,7 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
     // can still spoof the displayed identity (`alice<RLO>@evil.com`).
     // Strip them defensively at emission, matching the existing
     // `code.filepath` discipline in `sanitize_sarif_filepath`.
+    let signature = (!ack.finding.signature.is_empty()).then(|| ack.finding.signature.clone());
     result.properties = Some(SarifProperties {
         confidence: ack.finding.confidence.as_str(),
         acknowledged: Some(true),
@@ -455,6 +478,7 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
         acknowledgment_at: Some(strip_bidi_and_invisible(
             &ack.acknowledgment.acknowledged_at,
         )),
+        signature,
     });
     result
 }
@@ -901,6 +925,69 @@ mod tests {
         assert_eq!(
             result.locations[0].physical_location.artifact_location.uri,
             "src/Order.java"
+        );
+    }
+
+    // --- 0.5.18: signature exposed in properties + fingerprints ---
+
+    const SAMPLE_SIGNATURE: &str = "n_plus_one_sql:order-svc:POST_/api/orders:abc12345abc12345";
+
+    #[test]
+    fn sarif_emits_signature_in_properties() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.signature = SAMPLE_SIGNATURE.to_string();
+        let result = finding_to_result(&finding);
+        let props = result.properties.as_ref().unwrap();
+        assert_eq!(props.signature.as_deref(), Some(SAMPLE_SIGNATURE));
+    }
+
+    #[test]
+    fn sarif_emits_signature_in_fingerprints() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.signature = SAMPLE_SIGNATURE.to_string();
+        let result = finding_to_result(&finding);
+        let fp = result.fingerprints.as_ref().unwrap();
+        assert_eq!(fp.len(), 1);
+        assert_eq!(
+            fp.get("perfsentinel/v1").map(String::as_str),
+            Some(SAMPLE_SIGNATURE)
+        );
+    }
+
+    #[test]
+    fn sarif_omits_signature_when_empty() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.signature = String::new();
+        let result = finding_to_result(&finding);
+        assert!(result.properties.as_ref().unwrap().signature.is_none());
+        assert!(result.fingerprints.is_none());
+        let value = serde_json::to_value(&result).unwrap();
+        assert!(value.get("fingerprints").is_none());
+        assert!(value["properties"].get("signature").is_none());
+    }
+
+    #[test]
+    fn sarif_acknowledged_finding_carries_signature() {
+        let mut finding = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        finding.signature = SAMPLE_SIGNATURE.to_string();
+        let ack = crate::report::AcknowledgedFinding {
+            finding,
+            acknowledgment: crate::acknowledgments::Acknowledgment {
+                signature: SAMPLE_SIGNATURE.to_string(),
+                acknowledged_by: "alice@example.com".to_string(),
+                acknowledged_at: "2026-05-03".to_string(),
+                reason: "intentional cache invalidation".to_string(),
+                expires_at: None,
+            },
+        };
+        let result = acknowledged_finding_to_result(&ack);
+        let props = result.properties.as_ref().unwrap();
+        assert_eq!(props.acknowledged, Some(true));
+        assert_eq!(props.signature.as_deref(), Some(SAMPLE_SIGNATURE));
+        let fp = result.fingerprints.as_ref().unwrap();
+        assert_eq!(
+            fp.get("perfsentinel/v1").map(String::as_str),
+            Some(SAMPLE_SIGNATURE)
         );
     }
 }
