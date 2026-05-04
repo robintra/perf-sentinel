@@ -550,27 +550,40 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     Json(report)
 }
 
+/// Validate the two preconditions every ack endpoint shares: a valid
+/// `X-API-Key` when `[daemon.ack] api_key` is set, and an enabled
+/// store. Records the matching `AckFailureReason` before returning so
+/// every error path is observable in `/metrics`.
+fn check_ack_preconditions<'a>(
+    state: &'a Arc<QueryApiState>,
+    headers: &HeaderMap,
+    action: AckAction,
+) -> Result<&'a Arc<AckStore>, ErrorResponse> {
+    if let Err(e) = check_ack_auth(headers, state.ack_api_key.as_deref()) {
+        state
+            .metrics
+            .record_ack_failure(action, AckFailureReason::Unauthorized);
+        return Err(e);
+    }
+    let Some(store) = state.ack_store.as_ref() else {
+        state
+            .metrics
+            .record_ack_failure(action, AckFailureReason::NoStore);
+        return Err(ErrorResponse::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ack store disabled",
+        ));
+    };
+    Ok(store)
+}
+
 async fn handle_ack(
     State(state): State<Arc<QueryApiState>>,
     Path(signature): Path<String>,
     headers: HeaderMap,
     Json(body): Json<AckRequest>,
 ) -> Result<StatusCode, ErrorResponse> {
-    if let Err(e) = check_ack_auth(&headers, state.ack_api_key.as_deref()) {
-        state
-            .metrics
-            .record_ack_failure(AckAction::Ack, AckFailureReason::Unauthorized);
-        return Err(e);
-    }
-    let Some(store) = state.ack_store.as_ref() else {
-        state
-            .metrics
-            .record_ack_failure(AckAction::Ack, AckFailureReason::NoStore);
-        return Err(ErrorResponse::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ack store disabled",
-        ));
-    };
+    let store = check_ack_preconditions(&state, &headers, AckAction::Ack)?;
     // Refuse to write a daemon ack on a signature that already has an
     // active TOML baseline. Without this check the daemon line would
     // be appended to JSONL but `lookup_ack` would silently surface the
@@ -661,21 +674,7 @@ async fn handle_unack(
     Path(signature): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ErrorResponse> {
-    if let Err(e) = check_ack_auth(&headers, state.ack_api_key.as_deref()) {
-        state
-            .metrics
-            .record_ack_failure(AckAction::Unack, AckFailureReason::Unauthorized);
-        return Err(e);
-    }
-    let Some(store) = state.ack_store.as_ref() else {
-        state
-            .metrics
-            .record_ack_failure(AckAction::Unack, AckFailureReason::NoStore);
-        return Err(ErrorResponse::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "ack store disabled",
-        ));
-    };
+    let store = check_ack_preconditions(&state, &headers, AckAction::Unack)?;
     let by = resolve_by(&headers, None);
     match store.unack(&signature, &by).await {
         Ok(()) => {
@@ -1447,6 +1446,22 @@ mod tests {
         (dir, store)
     }
 
+    /// Test fixture: a TOML baseline ack with no expiry, attributed to
+    /// the canned `ci-bot` author. Reused across tests that exercise
+    /// the TOML-wins conflict path.
+    fn toml_baseline_fixture(sig: &str) -> ResolvedTomlAck {
+        ResolvedTomlAck {
+            inner: Acknowledgment {
+                signature: sig.to_string(),
+                acknowledged_by: "ci-bot".to_string(),
+                acknowledged_at: "2026-05-04".to_string(),
+                reason: "permanent baseline".to_string(),
+                expires_at: None,
+            },
+            expires_at_dt: None,
+        }
+    }
+
     /// Build a POST `/api/findings/{sig}/ack` request with an empty
     /// JSON body and no auth headers. Centralizes the boilerplate so
     /// the per-test focus is the assertion, not the HTTP setup.
@@ -1599,19 +1614,7 @@ mod tests {
         let state = make_state_with_correlator(None);
         let sig = seed_finding(&state, "order-svc").await;
         let mut toml = HashMap::new();
-        toml.insert(
-            sig.clone(),
-            ResolvedTomlAck {
-                inner: Acknowledgment {
-                    signature: sig.clone(),
-                    acknowledged_by: "ci-bot".to_string(),
-                    acknowledged_at: "2026-05-04".to_string(),
-                    reason: "permanent baseline".to_string(),
-                    expires_at: None,
-                },
-                expires_at_dt: None,
-            },
-        );
+        toml.insert(sig.clone(), toml_baseline_fixture(&sig));
         let state = make_state_with_acks(Some(store), toml, None).await;
         // Re-seed since make_state_with_acks rebuilt state.
         let sig2 = seed_finding(&state, "order-svc").await;
@@ -1733,19 +1736,7 @@ mod tests {
         let bootstrap = make_state_with_correlator(None);
         let sig = seed_finding(&bootstrap, "order-svc").await;
         let mut toml = HashMap::new();
-        toml.insert(
-            sig.clone(),
-            ResolvedTomlAck {
-                inner: Acknowledgment {
-                    signature: sig.clone(),
-                    acknowledged_by: "ci-bot".to_string(),
-                    acknowledged_at: "2026-05-04".to_string(),
-                    reason: "permanent baseline".to_string(),
-                    expires_at: None,
-                },
-                expires_at_dt: None,
-            },
-        );
+        toml.insert(sig.clone(), toml_baseline_fixture(&sig));
         let state = make_state_with_acks(Some(store), toml, None).await;
         let sig2 = seed_finding(&state, "order-svc").await;
         assert_eq!(sig, sig2);
