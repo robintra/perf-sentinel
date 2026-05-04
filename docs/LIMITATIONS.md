@@ -129,7 +129,7 @@ All ingestion boundaries (OTLP, JSON, Jaeger, Zipkin) truncate string fields to 
 
 ## Binary size
 
-The release binary targets < 10 MB with `lto = "thin"`, `strip = true` and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
+The release binary targets < 15 MB with `lto = "thin"`, `strip = true` and `panic = "abort"`. The embedded carbon intensity table and OTLP protobuf support contribute to binary size. If you need a smaller binary and do not use OTLP ingestion, building with feature flags (future work) could reduce size.
 
 ## HTML dashboard: CSV formula-injection guard
 

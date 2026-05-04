@@ -11,7 +11,7 @@ La normalisation est la deuxième étape du pipeline. Elle transforme les `SpanE
 
 Le crate [sqlparser](https://docs.rs/sqlparser/) est un parseur SQL complet qui construit un AST. Nous avons délibérément choisi un tokenizer maison à la place :
 
-- **Taille du binaire :** sqlparser ajoute ~300 Ko au binaire release. perf-sentinel cible < 10 Mo au total.
+- **Taille du binaire :** sqlparser ajoute ~300 Ko au binaire release. perf-sentinel cible < 15 Mo au total.
 - **Poids des dépendances :** sqlparser amène des crates supplémentaires et augmente le temps de compilation.
 - **Agnostique du dialecte :** sqlparser nécessite de spécifier un dialecte SQL (PostgreSQL, MySQL, etc.). Notre tokenizer fonctionne avec tous les dialectes car il ne remplace que les littéraux : il n'a jamais besoin de comprendre la structure de la requête.
 - **Performance :** un parseur complet construit un AST que nous jetterions immédiatement. Notre tokenizer en une seule passe traite l'entrée en O(n) sans structure de données intermédiaire.

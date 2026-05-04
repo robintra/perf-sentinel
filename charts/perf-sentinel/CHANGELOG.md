@@ -6,6 +6,20 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.24]
+
+### Changed
+
+- `appVersion` bumped to `0.5.21`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.21`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.21 daemon adds two Prometheus counters on `/metrics` for
+  observability of operator-driven activity on the ack endpoints
+  (`perf_sentinel_ack_operations_total` and
+  `perf_sentinel_ack_operations_failed_total`). No chart-level config
+  change, scrapers pick up the new series automatically. See
+  `docs/METRICS.md` for the label set and pre-warmed combinations.
+
 ## [0.2.23]
 
 ### Changed

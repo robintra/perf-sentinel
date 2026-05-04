@@ -11,7 +11,7 @@ Normalization is the second pipeline stage. It transforms raw `SpanEvent`s into 
 
 The [sqlparser](https://docs.rs/sqlparser/) crate is a full SQL parser that builds an AST. We deliberately chose a homemade tokenizer instead:
 
-- **Binary size:** sqlparser adds ~300KB to the release binary. perf-sentinel targets < 10 MB total.
+- **Binary size:** sqlparser adds ~300KB to the release binary. perf-sentinel targets < 15 MB total.
 - **Dependency weight:** sqlparser pulls in additional crates and increases compile time.
 - **Dialect-agnostic:** sqlparser requires specifying a SQL dialect (PostgreSQL, MySQL, etc.). Our tokenizer works across all dialects because it only replaces literals, it never needs to understand query structure.
 - **Performance:** a full parser builds an AST we would immediately discard. Our single-pass tokenizer processes input in O(n) with no intermediate data structure.
