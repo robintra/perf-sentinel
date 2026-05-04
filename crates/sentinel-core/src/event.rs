@@ -70,6 +70,10 @@ pub const MAX_SCOPE_NAME_LENGTH: usize = 256;
 pub const MAX_INSTRUMENTATION_SCOPES: usize = 8;
 
 /// Truncate a string to `max_len` bytes on a char boundary.
+///
+/// Shared between span-event sanitization and the daemon ack store
+/// (`crate::daemon::ack`). Keep behavior strictly bytes-and-char-boundary,
+/// do not add domain-specific normalization here.
 pub(crate) fn truncate_field(s: &mut String, max_len: usize) {
     if s.len() <= max_len {
         return;

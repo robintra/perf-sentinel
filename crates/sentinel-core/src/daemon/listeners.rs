@@ -133,6 +133,20 @@ fn spawn_grpc_listener(
 
 /// Load the CI ack TOML baseline and initialize the daemon JSONL ack
 /// store. Both are skipped when `[daemon.ack] enabled = false`.
+///
+/// Error policy is split by source:
+///
+/// - When the operator explicitly set `[daemon.ack] storage_path` or
+///   `[daemon.ack] toml_path` and that path fails to load, the daemon
+///   refuses to start with a typed `DaemonError`. The operator chose
+///   the path, a typo or permission issue should be loud at startup,
+///   not silently downgraded to a 503 hours later.
+/// - When the path was resolved from the default
+///   (`dirs::data_local_dir()` / `.perf-sentinel-acknowledgments.toml`
+///   in CWD), failures are logged at WARN and the daemon stays up.
+///   This keeps a quirky filesystem (parallel test isolation, missing
+///   `HOME`, denied write perms on `~/.local/share`) from taking the
+///   whole daemon down for an opt-in feature.
 async fn init_ack_resources(
     config: &Config,
 ) -> Result<
@@ -145,12 +159,51 @@ async fn init_ack_resources(
     if !config.ack_enabled {
         return Ok((Arc::new(HashMap::new()), None));
     }
+    let toml_acks = load_toml_acks(config)?;
+    let store = match init_store(config).await {
+        Ok(s) => Some(s),
+        Err((e, configured_path)) => {
+            if let Some(path) = configured_path {
+                return Err(DaemonError::AckStoreInit { path, source: e });
+            }
+            tracing::warn!(
+                error = %e,
+                "Failed to initialize daemon ack store at default path, \
+                 runtime ack endpoints will return 503. Set [daemon.ack] \
+                 storage_path explicitly to opt out of the default location."
+            );
+            None
+        }
+    };
+    Ok((Arc::new(toml_acks), store))
+}
+
+fn load_toml_acks(
+    config: &Config,
+) -> Result<HashMap<String, query_api::ResolvedTomlAck>, DaemonError> {
+    let configured = config.ack_toml_path.is_some();
     let toml_path = config.ack_toml_path.as_deref().map_or_else(
         || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
         |s| Path::new(s).to_path_buf(),
     );
     let path_existed = toml_path.exists();
-    let file = acknowledgments::load_from_file(&toml_path).map_err(DaemonError::AckTomlLoad)?;
+    let file = match acknowledgments::load_from_file(&toml_path) {
+        Ok(f) => f,
+        Err(e) if configured => {
+            return Err(DaemonError::AckTomlLoad {
+                path: toml_path.display().to_string(),
+                source: e,
+            });
+        }
+        Err(e) => {
+            tracing::warn!(
+                path = %toml_path.display(),
+                error = %e,
+                "Failed to load CI ack TOML at default path, baseline empty"
+            );
+            return Ok(HashMap::new());
+        }
+    };
     let now = Utc::now();
     let toml_acks: HashMap<_, _> = file
         .acknowledged
@@ -179,16 +232,31 @@ async fn init_ack_resources(
             "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
         );
     }
+    Ok(toml_acks)
+}
 
-    let storage_path = match &config.ack_storage_path {
-        Some(p) => PathBuf::from(p),
-        None => ack::default_storage_path().map_err(DaemonError::AckStoreInit)?,
+/// Resolve the storage path and open the JSONL store. Returns the
+/// configured path alongside the error so the caller can decide
+/// whether to escalate to a fatal `DaemonError` (operator-supplied
+/// path) or downgrade to a WARN log (default-resolved path).
+async fn init_store(config: &Config) -> Result<Arc<AckStore>, (ack::AckError, Option<String>)> {
+    let (storage_path, configured) = match &config.ack_storage_path {
+        Some(p) => (PathBuf::from(p), Some(p.clone())),
+        None => match ack::default_storage_path() {
+            Ok(p) => (p, None),
+            Err(e) => return Err((e, None)),
+        },
     };
-    let store = AckStore::new(storage_path)
-        .await
-        .map_err(DaemonError::AckStoreInit)?;
-    tracing::info!(path = %store.storage_path().display(), "Daemon ack store ready");
-    Ok((Arc::new(toml_acks), Some(store)))
+    match AckStore::new(storage_path).await {
+        Ok(store) => {
+            tracing::info!(
+                path = %store.storage_path().display(),
+                "Daemon ack store ready"
+            );
+            Ok(store)
+        }
+        Err(e) => Err((e, configured)),
+    }
 }
 
 fn parse_expires_at_end_of_day(value: Option<&str>) -> Option<chrono::DateTime<Utc>> {

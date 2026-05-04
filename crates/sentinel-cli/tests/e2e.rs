@@ -255,10 +255,16 @@ fn cli_watch_listen_address_override_starts_cleanly() {
     std::thread::sleep(Duration::from_millis(500));
     let still_running = child.try_wait().expect("try_wait failed").is_none();
     child.kill().expect("failed to kill watch process");
-    let _ = child.wait_with_output();
+    // Capture stdout / stderr so a failure surfaces the daemon's exit
+    // log rather than the bare "daemon should still be running" message.
+    let output = child.wait_with_output().expect("failed to wait");
     assert!(
         still_running,
-        "daemon should still be running after overrides; likely a CLI parse or validation error"
+        "daemon should still be running after overrides; \
+         exit status: {:?}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
     );
 }
 

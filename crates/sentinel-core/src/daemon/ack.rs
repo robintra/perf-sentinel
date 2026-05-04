@@ -38,7 +38,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, RwLock};
 
 /// Hard cap on the JSONL file size. A daemon that survives this much
@@ -56,10 +56,12 @@ pub const MAX_ACK_ENTRY_BYTES: usize = 4 * 1024;
 pub const MAX_ACTIVE_ACKS: usize = 10_000;
 
 /// Soft cap on signature byte length accepted by `ack` / `unack`.
-/// OTLP `service.name` is up to 255 bytes per the `OTel` spec, plus a
-/// finding type prefix and a sanitized endpoint, so 512 leaves
-/// comfortable margin while still rejecting obvious garbage.
-const MAX_SIGNATURE_LEN: usize = 512;
+/// Worst case in `compute_signature` is roughly
+/// `<finding_type>` (~30 B) + `:` + `service.name` (255 B per `OTel`
+/// spec) + `:` + sanitized endpoint (typically ~256 B but unbounded in
+/// the source) + `:` + 16 hex. 1024 covers any realistic combination
+/// while still rejecting obvious garbage like a multi-KB blob.
+const MAX_SIGNATURE_LEN: usize = 1024;
 
 /// Soft cap on `AckEntry::by` byte length. Bounds JSONL line size for a
 /// pathological caller and matches typical email / SSO identifier
@@ -197,10 +199,14 @@ impl AckStore {
 
         // The file mutex linearizes all writers. Readers (`snapshot_active`,
         // `list_active`) take only the `RwLock` to clone the current `Arc`,
-        // so the read-then-write split below is race-free against other
-        // ack/unack callers and never blocks readers.
+        // so the pattern below is race-free against other ack/unack
+        // callers and never blocks readers.
         let mut file = self.file.lock().await;
-        {
+        // Clone the current map outside the write lock. The file mutex
+        // we hold guarantees no other writer can mutate `active` while
+        // we work on `new_map`, so the slow O(N) HashMap clone runs
+        // without blocking concurrent `snapshot_active` readers.
+        let mut new_map = {
             let active = self.active.read().await;
             if active.contains_key(&entry.signature) {
                 return Err(AckError::AlreadyAcked);
@@ -208,12 +214,14 @@ impl AckStore {
             if active.len() >= MAX_ACTIVE_ACKS {
                 return Err(AckError::LimitReached);
             }
-        }
+            (**active).clone()
+        };
         append_line(&mut file, &entry).await?;
-        let mut active = self.active.write().await;
-        let mut new_map = (**active).clone();
         new_map.insert(entry.signature.clone(), entry);
-        *active = Arc::new(new_map);
+        {
+            let mut active = self.active.write().await;
+            *active = Arc::new(new_map);
+        }
         Ok(())
     }
 
@@ -227,12 +235,13 @@ impl AckStore {
     pub async fn unack(&self, signature: &str, by: &str) -> Result<(), AckError> {
         validate_signature(signature)?;
         let mut file = self.file.lock().await;
-        {
+        let mut new_map = {
             let active = self.active.read().await;
             if !active.contains_key(signature) {
                 return Err(AckError::NotAcked);
             }
-        }
+            (**active).clone()
+        };
         let mut by = strip_bidi(by);
         crate::event::truncate_field(&mut by, MAX_BY_LEN);
         let entry = AckEntry {
@@ -244,10 +253,11 @@ impl AckStore {
             expires_at: None,
         };
         append_line(&mut file, &entry).await?;
-        let mut active = self.active.write().await;
-        let mut new_map = (**active).clone();
         new_map.remove(signature);
-        *active = Arc::new(new_map);
+        {
+            let mut active = self.active.write().await;
+            *active = Arc::new(new_map);
+        }
         Ok(())
     }
 
@@ -388,30 +398,36 @@ async fn replay_and_compact(
     now: DateTime<Utc>,
 ) -> Result<HashMap<String, AckEntry>, AckError> {
     let metadata = tokio::fs::metadata(path).await?;
-    if metadata.len() > MAX_ACKS_FILE_BYTES {
+    let file_size = metadata.len();
+    if file_size > MAX_ACKS_FILE_BYTES {
         return Err(AckError::FileTooLarge);
     }
 
     // Open via the same hardened helper so an attacker cannot symlink
     // the path to leak file content during replay.
     let file = open_for_replay(path).await?;
-    let reader = BufReader::new(file);
-    // Cap each line at MAX_ACK_ENTRY_BYTES + 1 so a malformed file
-    // with one giant un-terminated line cannot allocate the entire
-    // file into a single `String` before the post-read length check.
-    let mut lines = reader.lines();
+    let mut reader = BufReader::new(file);
     let mut active: HashMap<String, AckEntry> = HashMap::new();
     let mut line_no = 0usize;
     let mut dropped_for_limit = 0usize;
-    while let Some(line) = read_capped_line(&mut lines).await? {
+    while let Some(line) = read_capped_line(&mut reader).await? {
         line_no += 1;
         if line.is_empty() {
             continue;
         }
-        let entry: AckEntry = serde_json::from_str(&line).map_err(|e| AckError::Parse {
+        let mut entry: AckEntry = serde_json::from_str(&line).map_err(|e| AckError::Parse {
             line: line_no,
             source: e,
         })?;
+        // Apply field caps to entries already on disk: a malformed
+        // line under MAX_ACK_ENTRY_BYTES total may still carry an
+        // oversized `by` or `reason` field. `sanitize_entry` enforces
+        // the per-field caps and re-strips BiDi defensively. We do
+        // NOT re-validate the signature here, an invalid one would
+        // simply never match a real finding (dead weight, not a
+        // correctness risk) and rejecting it would block the daemon
+        // on startup over a typo in an old JSONL line.
+        sanitize_entry(&mut entry);
         match entry.action {
             AckAction::Ack => {
                 if is_expired(&entry, now) {
@@ -436,6 +452,11 @@ async fn replay_and_compact(
         );
     }
 
+    // Always rewrite, even when the file was empty: this is the
+    // canonical "reset to mode 0600" point, dropping the rewrite to
+    // save three syscalls on a no-op startup would let a pre-existing
+    // weak-mode file slip past `open_append`'s post-open permission
+    // check.
     rewrite_compacted(path, &active).await?;
     Ok(active)
 }
@@ -477,21 +498,45 @@ async fn refuse_if_symlink(path: &Path) -> Result<(), AckError> {
     Ok(())
 }
 
-/// Read one JSONL line, capped at `MAX_ACK_ENTRY_BYTES + 1` bytes to
-/// bound allocation on a malformed input that lacks newlines.
-async fn read_capped_line<R>(lines: &mut tokio::io::Lines<R>) -> Result<Option<String>, AckError>
+/// Read one JSONL line with a hard byte cap on the in-memory buffer.
+///
+/// `tokio::io::Lines::next_line()` would normally append to an internal
+/// `String` until it sees a newline, with no allocation cap. With the
+/// upstream `MAX_ACKS_FILE_BYTES = 64 MiB` file cap, a malformed file
+/// with one giant un-terminated line could let the reader allocate
+/// up to 64 MiB before any per-line check fired. This function reads
+/// byte-by-byte and bails as soon as the buffer reaches
+/// `MAX_ACK_ENTRY_BYTES`, bounding the worst-case allocation at
+/// 4 KiB per call.
+async fn read_capped_line<R>(reader: &mut BufReader<R>) -> Result<Option<String>, AckError>
 where
-    R: tokio::io::AsyncBufRead + Unpin,
+    R: tokio::io::AsyncRead + Unpin,
 {
-    // `tokio::io::Lines::next_line()` reads until newline or EOF,
-    // appending to a String with no built-in cap. We pre-check by
-    // peeking the buffered reader length is bounded by the file-size
-    // cap upstream. Defense in depth: enforce per-line cap on the
-    // returned string.
-    match lines.next_line().await? {
-        Some(line) if line.len() > MAX_ACK_ENTRY_BYTES => Err(AckError::EntryTooLarge),
-        other => Ok(other),
+    use tokio::io::AsyncReadExt;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut byte = [0u8; 1];
+    loop {
+        let n = reader.read(&mut byte).await?;
+        if n == 0 {
+            if buf.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        if byte[0] == b'\n' {
+            break;
+        }
+        if buf.len() >= MAX_ACK_ENTRY_BYTES {
+            return Err(AckError::EntryTooLarge);
+        }
+        buf.push(byte[0]);
     }
+    String::from_utf8(buf)
+        .map(Some)
+        .map_err(|e| AckError::Parse {
+            line: 0,
+            source: serde::de::Error::custom(format!("invalid UTF-8: {e}")),
+        })
 }
 
 async fn rewrite_compacted(

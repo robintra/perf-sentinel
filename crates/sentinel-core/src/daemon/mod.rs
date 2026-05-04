@@ -57,12 +57,27 @@ pub enum DaemonError {
     /// TLS configuration or certificate loading failed.
     #[error("TLS configuration error: {0}")]
     TlsConfig(#[source] TlsConfigError),
-    /// Loading the CI ack TOML baseline failed at startup.
-    #[error("failed to load acknowledgments TOML: {0}")]
-    AckTomlLoad(#[source] crate::acknowledgments::AcknowledgmentLoadError),
-    /// Initializing the daemon ack JSONL store failed at startup.
-    #[error("failed to initialize ack store: {0}")]
-    AckStoreInit(#[source] ack::AckError),
+    /// Loading the CI ack TOML baseline failed at startup, and the
+    /// path was operator-configured (so the failure escalates rather
+    /// than silently downgrading to an empty baseline).
+    #[error("failed to load acknowledgments TOML at '{path}'")]
+    AckTomlLoad {
+        /// Operator-configured path that failed to load.
+        path: String,
+        /// Underlying load error.
+        #[source]
+        source: crate::acknowledgments::AcknowledgmentLoadError,
+    },
+    /// Initializing the daemon ack JSONL store failed at startup, and
+    /// the storage path was operator-configured.
+    #[error("failed to initialize ack store at '{path}'")]
+    AckStoreInit {
+        /// Operator-configured path that failed to initialize.
+        path: String,
+        /// Underlying init error.
+        #[source]
+        source: ack::AckError,
+    },
 }
 
 /// Typed sub-enum for TLS configuration failures.

@@ -137,6 +137,16 @@ pub struct ResolvedTomlAck {
     pub expires_at_dt: Option<DateTime<Utc>>,
 }
 
+impl ResolvedTomlAck {
+    /// Whether this TOML ack is still in force at `now`. Mirrors the
+    /// daemon-side [`ack::is_expired`] predicate but adapted to the
+    /// pre-parsed end-of-day datetime.
+    #[must_use]
+    pub fn is_active(&self, now: DateTime<Utc>) -> bool {
+        self.expires_at_dt.is_none_or(|e| e >= now)
+    }
+}
+
 /// Source of an ack annotation on a finding response. TOML acks come
 /// from the CI baseline file, daemon acks from the runtime JSONL store.
 #[derive(Debug, Clone, Serialize)]
@@ -243,7 +253,7 @@ fn lookup_ack(
     now: DateTime<Utc>,
 ) -> Option<AckSource> {
     if let Some(t) = toml.get(signature)
-        && t.expires_at_dt.is_none_or(|e| e >= now)
+        && t.is_active(now)
     {
         return Some(AckSource::Toml {
             acknowledged_by: t.inner.acknowledged_by.clone(),
@@ -557,7 +567,7 @@ async fn handle_ack(
     // TOML metadata in the response, leaving the operator confused
     // about which entry "took effect".
     if let Some(t) = state.toml_acks.get(&signature)
-        && t.expires_at_dt.is_none_or(|e| e >= Utc::now())
+        && t.is_active(Utc::now())
     {
         return Err(ErrorResponse::new(
             StatusCode::CONFLICT,
