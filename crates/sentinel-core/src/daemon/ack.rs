@@ -234,7 +234,7 @@ impl AckStore {
             }
         }
         let mut by = strip_bidi(by);
-        truncate_field(&mut by, MAX_BY_LEN);
+        crate::event::truncate_field(&mut by, MAX_BY_LEN);
         let entry = AckEntry {
             action: AckAction::Unack,
             signature: signature.to_string(),
@@ -322,24 +322,11 @@ fn validate_signature(sig: &str) -> Result<(), AckError> {
 
 fn sanitize_entry(entry: &mut AckEntry) {
     entry.by = strip_bidi(&entry.by);
-    truncate_field(&mut entry.by, MAX_BY_LEN);
+    crate::event::truncate_field(&mut entry.by, MAX_BY_LEN);
     if let Some(reason) = entry.reason.as_mut() {
         *reason = strip_bidi(reason);
-        truncate_field(reason, MAX_REASON_LEN);
+        crate::event::truncate_field(reason, MAX_REASON_LEN);
     }
-}
-
-fn truncate_field(s: &mut String, max_bytes: usize) {
-    if s.len() <= max_bytes {
-        return;
-    }
-    // Truncate at the last UTF-8 boundary at or below max_bytes so we
-    // never leave a half-encoded code point in the persisted JSONL.
-    let mut cut = max_bytes;
-    while cut > 0 && !s.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    s.truncate(cut);
 }
 
 fn strip_bidi(s: &str) -> String {
@@ -352,22 +339,7 @@ pub(crate) fn is_expired(entry: &AckEntry, now: DateTime<Utc>) -> bool {
 
 async fn open_append(path: &Path) -> Result<File, AckError> {
     #[cfg(unix)]
-    {
-        // Refuse to follow symlinks: a hostile local user could
-        // pre-create the storage path as a symlink to `~/.bashrc` or
-        // `~/.ssh/authorized_keys` and the daemon would happily append
-        // JSONL lines to it. `O_NOFOLLOW` makes `open` fail with ELOOP
-        // on the leaf if it is a symlink. The leaf is the only entry
-        // we control, deeper components like `~/.local/share` are
-        // operator-trusted.
-        if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
-            && metadata.file_type().is_symlink()
-        {
-            return Err(AckError::SymlinkRefused {
-                path: path.display().to_string(),
-            });
-        }
-    }
+    refuse_if_symlink(path).await?;
     let mut opts = OpenOptions::new();
     opts.create(true).append(true).read(true);
     #[cfg(unix)]
@@ -470,13 +442,7 @@ async fn replay_and_compact(
 
 #[cfg(unix)]
 async fn open_for_replay(path: &Path) -> Result<File, AckError> {
-    if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
-        && metadata.file_type().is_symlink()
-    {
-        return Err(AckError::SymlinkRefused {
-            path: path.display().to_string(),
-        });
-    }
+    refuse_if_symlink(path).await?;
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
@@ -489,6 +455,26 @@ async fn open_for_replay(path: &Path) -> Result<File, AckError> {
 async fn open_for_replay(path: &Path) -> Result<File, AckError> {
     let file = OpenOptions::new().read(true).open(path).await?;
     Ok(file)
+}
+
+/// Refuse to follow a symlinked storage path. A hostile local user
+/// could pre-create the leaf as a symlink to `~/.bashrc` or
+/// `~/.ssh/authorized_keys`, and the daemon would happily append JSONL
+/// lines to the target. `O_NOFOLLOW` covers the open path, this
+/// pre-check covers the upstream `symlink_metadata` audit so we can
+/// surface a typed error rather than the kernel's `ELOOP`. The leaf is
+/// the only path component we control, deeper components like
+/// `~/.local/share` are operator-trusted.
+#[cfg(unix)]
+async fn refuse_if_symlink(path: &Path) -> Result<(), AckError> {
+    if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
+        && metadata.file_type().is_symlink()
+    {
+        return Err(AckError::SymlinkRefused {
+            path: path.display().to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Read one JSONL line, capped at `MAX_ACK_ENTRY_BYTES + 1` bytes to

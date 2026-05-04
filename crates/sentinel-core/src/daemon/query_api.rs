@@ -1365,6 +1365,33 @@ mod tests {
         (dir, store)
     }
 
+    /// Build a POST `/api/findings/{sig}/ack` request with an empty
+    /// JSON body and no auth headers. Centralizes the boilerplate so
+    /// the per-test focus is the assertion, not the HTTP setup.
+    fn post_ack_request(sig: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/findings/{sig}/ack"))
+            .header("Content-Type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap()
+    }
+
+    /// Build a DELETE `/api/findings/{sig}/ack` request, no body, no
+    /// auth headers.
+    fn delete_ack_request(sig: &str) -> Request<Body> {
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/findings/{sig}/ack"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    /// Build a GET request to `path`, no body.
+    fn get_request(path: &str) -> Request<Body> {
+        Request::builder().uri(path).body(Body::empty()).unwrap()
+    }
+
     async fn seed_finding(state: &Arc<QueryApiState>, service: &str) -> String {
         let mut f = crate::test_helpers::make_finding(
             detect::FindingType::NPlusOneSql,
@@ -1411,17 +1438,9 @@ mod tests {
         let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
         let sig = seed_finding(&state, "order-svc").await;
         let app = query_api_router(state);
-        let make = || {
-            Request::builder()
-                .method("POST")
-                .uri(format!("/api/findings/{sig}/ack"))
-                .header("Content-Type", "application/json")
-                .body(Body::from("{}"))
-                .unwrap()
-        };
-        let resp = app.clone().oneshot(make()).await.unwrap();
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
-        let resp = app.oneshot(make()).await.unwrap();
+        let resp = app.oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
     }
 
@@ -1432,42 +1451,13 @@ mod tests {
         let sig = seed_finding(&state, "order-svc").await;
         let app = query_api_router(Arc::clone(&state));
 
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!("/api/findings/{sig}/ack"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
 
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("DELETE")
-                    .uri(format!("/api/findings/{sig}/ack"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = app.clone().oneshot(delete_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/findings")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = app.oneshot(get_request("/api/findings")).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
             .await
             .unwrap();
@@ -1498,12 +1488,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::CREATED);
 
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/findings?include_acked=true")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(get_request("/api/findings?include_acked=true"))
             .await
             .unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -1544,29 +1529,13 @@ mod tests {
         // POST on a TOML-acked signature returns 409 (the daemon will not
         // shadow the immutable baseline with a runtime line that has no
         // visible effect).
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!("/api/findings/{sig}/ack"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
 
         // The TOML ack is still surfaced on the read path with
         // `acknowledged_by.source == "toml"`.
         let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/findings?include_acked=true")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(get_request("/api/findings?include_acked=true"))
             .await
             .unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -1644,27 +1613,9 @@ mod tests {
         let sig = seed_finding(&state, "order-svc").await;
         let app = query_api_router(state);
 
-        app.clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri(format!("/api/findings/{sig}/ack"))
-                    .header("Content-Type", "application/json")
-                    .body(Body::from("{}"))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
 
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/acks")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
+        let resp = app.oneshot(get_request("/api/acks")).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
             .await
             .unwrap();
