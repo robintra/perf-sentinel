@@ -635,17 +635,26 @@ opérateur. Chaque entrée a un `kind` stable (utile pour l'alerting et
 l'agrégation cross-run) et un `message` lisible qui peut inclure des
 valeurs dynamiques telles que des compteurs.
 
-Kinds courants :
+### Kinds et cycle de vie
 
-- `cold_start` : le daemon n'a pas encore traité d'événements. Renvoyé
-  par `GET /api/export/report` jusqu'au premier batch. Pré-0.5.16
-  ce signal était un statut 503, qui faisait échouer les probes
-  Kubernetes.
-- `ingestion_drops` : au moins une requête OTLP a été rejetée depuis le
-  démarrage à cause de la saturation du canal. Le message reporte le
-  count. Cross-checker avec
+- `cold_start` (**transitoire**) : le daemon n'a pas encore traité
+  d'événements, renvoyé par `GET /api/export/report` jusqu'au premier
+  batch. Pré-0.5.16 ce signal était un statut 503, qui faisait échouer
+  les probes Kubernetes. Attendre le premier tick d'éviction (par
+  défaut 15s, moitié de `trace_ttl_ms`). Si le warning persiste au-delà
+  de 60-120 secondes en environnement déployé, vérifier que l'application
+  émet réellement des traces OTLP et que l'adresse de listen est
+  accessible. Le warning disparaît automatiquement au premier batch,
+  aucune action opérateur n'est requise.
+
+- `ingestion_drops` (**collant**) : au moins une requête OTLP a été
+  rejetée depuis le démarrage à cause de la saturation du canal. Le
+  message reporte le count. Cross-checker avec
   `perf_sentinel_otlp_rejected_total{reason="channel_full"}` pour la
-  même valeur.
+  même valeur, puis envisager d'augmenter l'allocation CPU du daemon
+  ou `[daemon] max_active_traces`. Le warning persiste jusqu'au
+  redémarrage du daemon même après que la backpressure soit retombée,
+  le compteur sous-jacent est cumulatif depuis le démarrage du process.
 
 Le champ legacy `Report.warnings: Vec<String>` (0.5.16+) reste émis
 pour la backward compat. Les renderers CLI et HTML préfèrent
@@ -653,6 +662,51 @@ pour la backward compat. Les renderers CLI et HTML préfèrent
 Le dashboard HTML expose `warning_details` dans le payload JSON
 embarqué (`payload.report.warning_details`), un banner dédié dans
 l'UI dashboard est dans la roadmap.
+
+Quand on acquitte des findings via l'API ack du daemon (depuis
+0.5.20), les warnings `cold_start` et `ingestion_drops` ne sont pas
+affectés par les acks, ils reflètent l'état du daemon, pas la sortie
+de détection.
+
+## Acquitter des findings au runtime
+
+Depuis 0.5.20 le daemon expose trois endpoints pour muter l'état des
+acks au runtime, en complément du workflow CI TOML documenté dans
+`ACKNOWLEDGMENTS-FR.md`. À utiliser quand un SRE de garde doit
+silencer un finding sans attendre un cycle PR sur le repo applicatif.
+
+```bash
+# Acquitter (différé au prochain trimestre)
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
+curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: alice@example.com" \
+  -d '{"reason":"différé sur TICKET-1234","expires_at":"2026-08-01T00:00:00Z"}'
+
+# Lister les acks runtime actifs
+curl -fsS "http://127.0.0.1:4318/api/acks" | jq .
+
+# Vérifier que le finding est filtré
+curl -fsS "http://127.0.0.1:4318/api/findings" | jq 'length'
+
+# Révoquer
+curl -fsS -X DELETE "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "X-User-Id: alice@example.com"
+```
+
+Quand le daemon est configuré avec une clé d'API
+(`[daemon.ack] api_key`), ajouter `-H "X-API-Key: <secret>"` aux
+appels `POST` et `DELETE`. `GET /api/acks` et `GET /api/findings`
+restent non authentifiés par design (lectures loopback).
+
+Le store runtime est un JSONL append-only à
+`~/.local/share/perf-sentinel/acks.jsonl` par défaut. Le tailer pour
+un audit trail temps réel (`tail -f`). Le fichier est rejoué et
+compacté à chaque redémarrage du daemon, donc le churn ne s'accumule
+pas. Les acks TOML CI chargés au startup
+(`.perf-sentinel-acknowledgments.toml` par défaut) restent immutables
+côté API, voir `QUERY-API-FR.md` > "Interop TOML et JSONL" pour les
+règles de résolution de conflit.
 
 ---
 

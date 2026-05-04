@@ -3,14 +3,20 @@
 //! Exposes findings, trace explanations, correlations, and status
 //! alongside the existing `/v1/traces` and `/metrics` endpoints.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::extract::{Path, Query, State};
-use axum::routing::get;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::ack::{self, AckAction, AckEntry, AckError, AckStore};
 use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding};
+use crate::acknowledgments::{Acknowledgment, compute_signature};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
 use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator};
@@ -31,6 +37,10 @@ const MAX_FINDINGS_LIMIT: usize = 1000;
 /// already bounds the correlator's memory, but serializing all pairs
 /// per poll is still an expensive operation we want to limit.
 const MAX_CORRELATIONS_LIMIT: usize = 1000;
+
+/// Upper bound for `GET /api/acks` response size. Same rationale as
+/// the other caps (loopback API, bounded JSON serialization).
+const MAX_ACKS_RESPONSE: usize = 1000;
 
 /// Shared state for query API route handlers.
 pub struct QueryApiState {
@@ -60,6 +70,19 @@ pub struct QueryApiState {
     /// the empty envelope with `disabled(0)` instead of reading this
     /// cell, so clients never observe a half-populated value.
     pub green_summary: Arc<tokio::sync::RwLock<GreenSummary>>,
+    /// Daemon-side ack store (JSONL persistence). `None` when
+    /// `[daemon.ack] enabled = false`, in which case the three ack
+    /// endpoints return 503 Service Unavailable.
+    pub ack_store: Option<Arc<AckStore>>,
+    /// CI-side TOML acks loaded at daemon startup. Read-only baseline,
+    /// unioned with `ack_store` at query time. TOML wins on conflict.
+    /// The `expires_at` string is pre-parsed at startup into a
+    /// [`ResolvedTomlAck`] so the hot query path does no chrono parse.
+    pub toml_acks: Arc<HashMap<String, ResolvedTomlAck>>,
+    /// Optional API key for ack `POST` / `DELETE`. `None` means no auth
+    /// (the documented loopback-only deployment), `Some(key)` enforces
+    /// constant-time `X-API-Key` comparison.
+    pub ack_api_key: Option<String>,
 }
 
 /// Build the query API router.
@@ -71,6 +94,11 @@ pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
         .route("/api/correlations", get(handle_correlations))
         .route("/api/status", get(handle_status))
         .route("/api/export/report", get(handle_export_report))
+        .route(
+            "/api/findings/{signature}/ack",
+            post(handle_ack).delete(handle_unack),
+        )
+        .route("/api/acks", get(handle_list_acks))
         .with_state(state)
 }
 
@@ -83,6 +111,76 @@ struct FindingsParams {
     finding_type: Option<String>,
     severity: Option<String>,
     limit: Option<usize>,
+    /// Default `false`: filter out findings that are acked (CI TOML
+    /// baseline + daemon JSONL store union). `true`: return all
+    /// findings, with `acknowledged_by` populated for acked ones.
+    #[serde(default)]
+    include_acked: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct AckRequest {
+    by: Option<String>,
+    reason: Option<String>,
+    expires_at: Option<DateTime<Utc>>,
+}
+
+/// CI TOML ack with its expiry pre-parsed at startup. Stored in
+/// [`QueryApiState::toml_acks`] so the per-request `lookup_ack` path
+/// avoids re-parsing the wire-format `expires_at: Option<String>` on
+/// every finding.
+#[derive(Debug, Clone)]
+pub struct ResolvedTomlAck {
+    pub inner: Acknowledgment,
+    /// Pre-parsed expiry, end-of-day in UTC for the `YYYY-MM-DD` value.
+    /// `None` means the ack never expires.
+    pub expires_at_dt: Option<DateTime<Utc>>,
+}
+
+impl ResolvedTomlAck {
+    /// Whether this TOML ack is still in force at `now`. Mirrors the
+    /// daemon-side [`ack::is_expired`] predicate but adapted to the
+    /// pre-parsed end-of-day datetime.
+    #[must_use]
+    pub fn is_active(&self, now: DateTime<Utc>) -> bool {
+        self.expires_at_dt.is_none_or(|e| e >= now)
+    }
+}
+
+/// Source of an ack annotation on a finding response. TOML acks come
+/// from the CI baseline file, daemon acks from the runtime JSONL store.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum AckSource {
+    Toml {
+        acknowledged_by: String,
+        acknowledged_at: String,
+        reason: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<String>,
+    },
+    Daemon {
+        by: String,
+        at: DateTime<Utc>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        expires_at: Option<DateTime<Utc>>,
+    },
+}
+
+/// Wrapper around [`StoredFinding`] adding an optional ack annotation.
+///
+/// `#[serde(flatten)]` keeps the JSON shape identical to
+/// `StoredFinding` (preserving backward compatibility) when
+/// `acknowledged_by` is `None`. The field appears only when the request
+/// passed `?include_acked=true` and the finding has an active ack.
+#[derive(Debug, Clone, Serialize)]
+pub struct FindingResponse {
+    #[serde(flatten)]
+    pub stored: StoredFinding,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub acknowledged_by: Option<AckSource>,
 }
 
 // ── Response types ────────────────────────────────────────────────
@@ -100,16 +198,81 @@ struct StatusResponse {
 async fn handle_findings(
     State(state): State<Arc<QueryApiState>>,
     Query(params): Query<FindingsParams>,
-) -> Json<Vec<StoredFinding>> {
+) -> Json<Vec<FindingResponse>> {
     // Cap the limit to protect the daemon from expensive responses
     // (large JSON serialization under an unauthenticated loopback API).
+    let include_acked = params.include_acked;
     let filter = FindingsFilter {
         service: params.service,
         finding_type: params.finding_type,
         severity: params.severity,
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
-    Json(state.findings_store.query(&filter).await)
+    let stored = state.findings_store.query(&filter).await;
+    let daemon_snapshot: Arc<HashMap<String, AckEntry>> = match &state.ack_store {
+        Some(s) => s.snapshot_active().await,
+        None => Arc::new(HashMap::new()),
+    };
+    let now = Utc::now();
+    let result: Vec<FindingResponse> = stored
+        .into_iter()
+        .filter_map(|s| {
+            // The event loop populates `Finding.signature` via
+            // `enrich_with_signatures` before the finding lands in the
+            // store, so the read path is allocation-free. Defensive
+            // fallback for findings replayed from a pre-0.5.17 baseline
+            // dump where the field could be empty.
+            let owned_sig: String;
+            let sig: &str = if s.finding.signature.is_empty() {
+                owned_sig = compute_signature(&s.finding);
+                &owned_sig
+            } else {
+                &s.finding.signature
+            };
+            let ack = lookup_ack(sig, &state.toml_acks, &daemon_snapshot, now);
+            match (include_acked, ack) {
+                (false, Some(_)) => None,
+                (false, None) => Some(FindingResponse {
+                    stored: s,
+                    acknowledged_by: None,
+                }),
+                (true, src) => Some(FindingResponse {
+                    stored: s,
+                    acknowledged_by: src,
+                }),
+            }
+        })
+        .collect();
+    Json(result)
+}
+
+fn lookup_ack(
+    signature: &str,
+    toml: &HashMap<String, ResolvedTomlAck>,
+    daemon: &HashMap<String, AckEntry>,
+    now: DateTime<Utc>,
+) -> Option<AckSource> {
+    if let Some(t) = toml.get(signature)
+        && t.is_active(now)
+    {
+        return Some(AckSource::Toml {
+            acknowledged_by: t.inner.acknowledged_by.clone(),
+            acknowledged_at: t.inner.acknowledged_at.clone(),
+            reason: t.inner.reason.clone(),
+            expires_at: t.inner.expires_at.clone(),
+        });
+    }
+    if let Some(d) = daemon.get(signature)
+        && !ack::is_expired(d, now)
+    {
+        return Some(AckSource::Daemon {
+            by: d.by.clone(),
+            at: d.at,
+            reason: d.reason.clone(),
+            expires_at: d.expires_at,
+        });
+    }
+    None
 }
 
 async fn handle_findings_by_trace(
@@ -387,6 +550,155 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     Json(report)
 }
 
+async fn handle_ack(
+    State(state): State<Arc<QueryApiState>>,
+    Path(signature): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<AckRequest>,
+) -> Result<StatusCode, ErrorResponse> {
+    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
+    let store = state
+        .ack_store
+        .as_ref()
+        .ok_or_else(|| ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "ack store disabled"))?;
+    // Refuse to write a daemon ack on a signature that already has an
+    // active TOML baseline. Without this check the daemon line would
+    // be appended to JSONL but `lookup_ack` would silently surface the
+    // TOML metadata in the response, leaving the operator confused
+    // about which entry "took effect".
+    if let Some(t) = state.toml_acks.get(&signature)
+        && t.is_active(Utc::now())
+    {
+        return Err(ErrorResponse::new(
+            StatusCode::CONFLICT,
+            "signature is acked by the CI TOML baseline, edit the file via PR review",
+        ));
+    }
+    let by = resolve_by(&headers, body.by.as_deref());
+    let entry = AckEntry {
+        action: AckAction::Ack,
+        signature,
+        by,
+        reason: body.reason,
+        at: Utc::now(),
+        expires_at: body.expires_at,
+    };
+    match store.ack(entry).await {
+        Ok(()) => Ok(StatusCode::CREATED),
+        Err(AckError::AlreadyAcked) => {
+            Err(ErrorResponse::new(StatusCode::CONFLICT, "already acked"))
+        }
+        Err(AckError::InvalidSignature) => Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "invalid signature format",
+        )),
+        Err(AckError::LimitReached) => Err(ErrorResponse::new(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "active ack limit reached",
+        )),
+        Err(AckError::FileTooLarge | AckError::EntryTooLarge) => Err(ErrorResponse::new(
+            StatusCode::INSUFFICIENT_STORAGE,
+            "ack file size cap reached",
+        )),
+        Err(e) => {
+            tracing::error!(error = %e, "ack store write failed");
+            Err(ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "ack store write failed",
+            ))
+        }
+    }
+}
+
+async fn handle_unack(
+    State(state): State<Arc<QueryApiState>>,
+    Path(signature): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, ErrorResponse> {
+    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
+    let store = state
+        .ack_store
+        .as_ref()
+        .ok_or_else(|| ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "ack store disabled"))?;
+    let by = resolve_by(&headers, None);
+    match store.unack(&signature, &by).await {
+        Ok(()) => Ok(StatusCode::NO_CONTENT),
+        Err(AckError::NotAcked) => Err(ErrorResponse::new(StatusCode::NOT_FOUND, "not acked")),
+        Err(AckError::InvalidSignature) => Err(ErrorResponse::new(
+            StatusCode::BAD_REQUEST,
+            "invalid signature format",
+        )),
+        Err(e) => {
+            tracing::error!(error = %e, "ack store unack failed");
+            Err(ErrorResponse::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "ack store write failed",
+            ))
+        }
+    }
+}
+
+async fn handle_list_acks(State(state): State<Arc<QueryApiState>>) -> Json<Vec<AckEntry>> {
+    let mut all = match &state.ack_store {
+        Some(s) => s.list_active().await,
+        None => Vec::new(),
+    };
+    all.truncate(MAX_ACKS_RESPONSE);
+    Json(all)
+}
+
+/// Resolve the audit `by` field: `X-User-Id` header (priority), JSON
+/// body, then `"anonymous"` fallback. Stripped of `BiDi` / invisible
+/// characters.
+fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
+    let raw = headers
+        .get("X-User-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .or_else(|| body_by.map(str::to_string))
+        .unwrap_or_else(|| "anonymous".to_string());
+    crate::report::sarif::strip_bidi_and_invisible(&raw)
+}
+
+/// Validate the optional `X-API-Key` header against the configured
+/// secret using a constant-time comparison.
+fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), ErrorResponse> {
+    use subtle::ConstantTimeEq;
+    let Some(expected_key) = expected else {
+        return Ok(());
+    };
+    let provided = headers
+        .get("X-API-Key")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided.as_bytes().ct_eq(expected_key.as_bytes()).into() {
+        Ok(())
+    } else {
+        Err(ErrorResponse::new(
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid X-API-Key",
+        ))
+    }
+}
+
+struct ErrorResponse {
+    status: StatusCode,
+    message: &'static str,
+}
+
+impl ErrorResponse {
+    const fn new(status: StatusCode, message: &'static str) -> Self {
+        Self { status, message }
+    }
+}
+
+impl IntoResponse for ErrorResponse {
+    fn into_response(self) -> Response {
+        let body = serde_json::json!({"error": self.message});
+        (self.status, Json(body)).into_response()
+    }
+}
+
 /// Surface aggregated soft conditions in `Report.warning_details`, on
 /// top of the /metrics counter. Operators reading `/api/export/report`
 /// do not always scrape Prometheus, so a count of dropped requests
@@ -447,6 +759,9 @@ mod tests {
             metrics: Arc::new(MetricsState::new()),
             scoring_config: None,
             green_summary: Arc::new(tokio::sync::RwLock::new(GreenSummary::disabled(0))),
+            ack_store: None,
+            toml_acks: Arc::new(HashMap::new()),
+            ack_api_key: None,
         })
     }
 
@@ -1041,6 +1356,321 @@ mod tests {
         );
     }
 
+    #[allow(clippy::unused_async)]
+    async fn make_state_with_acks(
+        ack_store: Option<Arc<AckStore>>,
+        toml_acks: HashMap<String, ResolvedTomlAck>,
+        ack_api_key: Option<String>,
+    ) -> Arc<QueryApiState> {
+        let mut state = (*make_state_with_correlator(None)).clone_for_test();
+        state.ack_store = ack_store;
+        state.toml_acks = Arc::new(toml_acks);
+        state.ack_api_key = ack_api_key;
+        Arc::new(state)
+    }
+
+    async fn fresh_ack_store() -> (tempfile::TempDir, Arc<AckStore>) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let store = AckStore::new(dir.path().join("acks.jsonl")).await.unwrap();
+        (dir, store)
+    }
+
+    /// Build a POST `/api/findings/{sig}/ack` request with an empty
+    /// JSON body and no auth headers. Centralizes the boilerplate so
+    /// the per-test focus is the assertion, not the HTTP setup.
+    fn post_ack_request(sig: &str) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri(format!("/api/findings/{sig}/ack"))
+            .header("Content-Type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap()
+    }
+
+    /// Build a DELETE `/api/findings/{sig}/ack` request, no body, no
+    /// auth headers.
+    fn delete_ack_request(sig: &str) -> Request<Body> {
+        Request::builder()
+            .method("DELETE")
+            .uri(format!("/api/findings/{sig}/ack"))
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    /// Build a GET request to `path`, no body.
+    fn get_request(path: &str) -> Request<Body> {
+        Request::builder().uri(path).body(Body::empty()).unwrap()
+    }
+
+    async fn seed_finding(state: &Arc<QueryApiState>, service: &str) -> String {
+        let mut f = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        f.service = service.to_string();
+        let sig = compute_signature(&f);
+        state.findings_store.push_batch(&[f], 1000).await;
+        sig
+    }
+
+    #[tokio::test]
+    async fn ack_endpoint_persists_and_filters_finding() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+
+        let app = query_api_router(Arc::clone(&state));
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/findings/{sig}/ack"))
+            .header("Content-Type", "application/json")
+            .header("X-User-Id", "alice@example.com")
+            .body(Body::from("{\"reason\":\"deferred\"}"))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let req = Request::builder()
+            .uri("/api/findings")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(list.is_empty(), "acked finding should not appear: {list:?}");
+    }
+
+    #[tokio::test]
+    async fn ack_endpoint_returns_409_when_already_acked() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(state);
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+        let resp = app.oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    #[tokio::test]
+    async fn unack_endpoint_makes_finding_reappear() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(Arc::clone(&state));
+
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let resp = app.clone().oneshot(delete_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let resp = app.oneshot(get_request("/api/findings")).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn findings_with_include_acked_annotates_daemon_source() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(Arc::clone(&state));
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/findings/{sig}/ack"))
+                    .header("Content-Type", "application/json")
+                    .header("X-User-Id", "alice")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let resp = app
+            .oneshot(get_request("/api/findings?include_acked=true"))
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.len(), 1);
+        let ack = &list[0]["acknowledged_by"];
+        assert_eq!(ack["source"], "daemon");
+        assert_eq!(ack["by"], "alice");
+    }
+
+    #[tokio::test]
+    async fn toml_acks_win_over_daemon_on_conflict() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_correlator(None);
+        let sig = seed_finding(&state, "order-svc").await;
+        let mut toml = HashMap::new();
+        toml.insert(
+            sig.clone(),
+            ResolvedTomlAck {
+                inner: Acknowledgment {
+                    signature: sig.clone(),
+                    acknowledged_by: "ci-bot".to_string(),
+                    acknowledged_at: "2026-05-04".to_string(),
+                    reason: "permanent baseline".to_string(),
+                    expires_at: None,
+                },
+                expires_at_dt: None,
+            },
+        );
+        let state = make_state_with_acks(Some(store), toml, None).await;
+        // Re-seed since make_state_with_acks rebuilt state.
+        let sig2 = seed_finding(&state, "order-svc").await;
+        assert_eq!(sig, sig2);
+
+        let app = query_api_router(Arc::clone(&state));
+        // POST on a TOML-acked signature returns 409 (the daemon will not
+        // shadow the immutable baseline with a runtime line that has no
+        // visible effect).
+        let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+
+        // The TOML ack is still surfaced on the read path with
+        // `acknowledged_by.source == "toml"`.
+        let resp = app
+            .oneshot(get_request("/api/findings?include_acked=true"))
+            .await
+            .unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["acknowledged_by"]["source"], "toml");
+        assert_eq!(list[0]["acknowledged_by"]["acknowledged_by"], "ci-bot");
+    }
+
+    #[tokio::test]
+    async fn ack_endpoint_requires_api_key_when_configured() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(
+            Some(store),
+            HashMap::new(),
+            Some("a-long-enough-secret".to_string()),
+        )
+        .await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(state);
+
+        // Missing key: 401
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/findings/{sig}/ack"))
+                    .header("Content-Type", "application/json")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // Wrong key: 401
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/findings/{sig}/ack"))
+                    .header("Content-Type", "application/json")
+                    .header("X-API-Key", "wrong-key-xxxxxxxxxx")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // Correct key: 201
+        let resp = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/findings/{sig}/ack"))
+                    .header("Content-Type", "application/json")
+                    .header("X-API-Key", "a-long-enough-secret")
+                    .body(Body::from("{}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+    }
+
+    #[tokio::test]
+    async fn list_acks_endpoint_returns_active() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(state);
+
+        app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
+
+        let resp = app.oneshot(get_request("/api/acks")).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["signature"], sig);
+    }
+
+    #[test]
+    fn finding_response_does_not_collide_with_stored_finding_fields() {
+        // Pin the JSON shape: `acknowledged_by` lives at the top level
+        // alongside the flattened StoredFinding fields, never nested
+        // under `finding`. A future refactor that adds an
+        // `acknowledged_by` to either StoredFinding or Finding would
+        // shadow this and break clients that parse the source field.
+        let finding = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        let resp = FindingResponse {
+            stored: StoredFinding {
+                finding,
+                stored_at_ms: 1234,
+            },
+            acknowledged_by: Some(AckSource::Daemon {
+                by: "alice".to_string(),
+                at: Utc::now(),
+                reason: None,
+                expires_at: None,
+            }),
+        };
+        let v = serde_json::to_value(&resp).unwrap();
+        let obj = v
+            .as_object()
+            .expect("FindingResponse serializes as an object");
+        assert!(obj.contains_key("stored_at_ms"));
+        assert!(obj.contains_key("finding"));
+        assert!(obj.contains_key("acknowledged_by"));
+        let inner = obj.get("finding").unwrap().as_object().unwrap();
+        assert!(
+            !inner.contains_key("acknowledged_by"),
+            "acknowledged_by must stay at the top level, not nest inside finding"
+        );
+    }
+
     impl QueryApiState {
         /// Test-only shallow clone, mirrors every slot via Arc cloning.
         /// `scoring_config` is the only field the new test mutates,
@@ -1055,6 +1685,9 @@ mod tests {
                 metrics: Arc::clone(&self.metrics),
                 scoring_config: self.scoring_config.clone(),
                 green_summary: Arc::clone(&self.green_summary),
+                ack_store: self.ack_store.clone(),
+                toml_acks: Arc::clone(&self.toml_acks),
+                ack_api_key: self.ack_api_key.clone(),
             }
         }
     }

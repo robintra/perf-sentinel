@@ -93,6 +93,30 @@ own stack.
 | `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (none)    | Seconds since the last successful Scaphandre scrape. Stays at 0 when Scaphandre is not configured. Useful for hung-scraper alerts. |
 | `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (none)    | Same pattern for the cloud SPECpower scraper.                                                                                      |
 
+## Warning kinds: transient vs sticky
+
+`Report.warning_details` (since 0.5.19) has two stable kinds today,
+each with a different lifecycle. The distinction matters for
+monitoring strategies: a transient warning self-resolves, a sticky one
+persists until the daemon restarts.
+
+| Kind              | Lifecycle | Emitted when                                                                            | Cleared by                                              |
+|-------------------|-----------|-----------------------------------------------------------------------------------------|---------------------------------------------------------|
+| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon            | First successful batch (both counters strictly positive) |
+| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start      | Daemon restart (counter reset)                          |
+
+`cold_start` is a state warning: "the snapshot is not meaningful right
+now". `ingestion_drops` is an audit warning: "at some point since
+daemon start the channel saturated, here is the count for the
+post-mortem". Acknowledging findings via the daemon ack API does not
+clear either kind, they reflect daemon state rather than detection
+output.
+
+Lab tooling that asserts on `warning_details[].kind == "cold_start"`
+should account for the transient nature: any background traffic, even
+synthetic seed traces or health probes, can close the cold-start
+window in well under 60 seconds.
+
 ## Cross-references
 
 - `Report.warning_details` field (operator-facing snapshot warnings):

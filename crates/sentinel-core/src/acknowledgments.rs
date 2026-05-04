@@ -6,8 +6,11 @@
 //! the surviving set so an ack can flip a previously failing gate to
 //! green.
 //!
-//! Out of scope here: daemon-side runtime ack (deferred to 0.5.18, if
-//! the architecture review confirms the need).
+//! This is the CI / batch-mode side of the ack workflow. The daemon
+//! runtime ack store lives at `crate::daemon::ack` and shares the
+//! signature format defined here. The two are unioned at query time
+//! with TOML winning on conflict (immutable baseline shipped via PR
+//! review).
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -228,7 +231,7 @@ pub fn apply_to_report(
     report.quality_gate = quality_gate::evaluate(&report.findings, &report.green_summary, config);
 }
 
-fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
+pub(crate) fn is_ack_active(ack: &Acknowledgment, now: DateTime<Utc>) -> bool {
     let Some(ref expires) = ack.expires_at else {
         return true;
     };

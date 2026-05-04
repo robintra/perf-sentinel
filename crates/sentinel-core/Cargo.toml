@@ -18,7 +18,7 @@ name = "sentinel_core"
 # Enable daemon mode: Scaphandre RAPL scraper, cloud SPECpower scraper,
 # and the `watch` command event loop. Without this feature, only batch
 # analysis (`analyze`, `explain`, `demo`, `bench`, `pg-stat`) is available.
-daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http"]
+daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc"]
 # Enable `perf-sentinel tempo` subcommand for querying Grafana Tempo API.
 tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
 # Enable `perf-sentinel jaeger-query` subcommand for querying any
@@ -33,7 +33,7 @@ tracing = "0.1.44"
 thiserror = "2.0.18"
 toml = "1.1.2"
 regex = "1.12.3"
-tokio = { version = "1.52.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util"] }
+tokio = { version = "1.52.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
 # /metrics router) uses axum+tower and ingest/otlp.rs uses opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
@@ -67,6 +67,15 @@ tokio-rustls = { version = "0.26.4", optional = true, default-features = false, 
 tokio-stream = { version = "0.1.18", optional = true }
 # Provides RequestDecompressionLayer for OTLP/HTTP gzip decompression on /v1/traces.
 tower-http = { version = "0.6.8", features = ["decompression-gzip", "limit"], optional = true }
+# Cross-platform locator for `~/.local/share/perf-sentinel/acks.jsonl`
+# (XDG on Linux, Library/Application Support on macOS, Roaming on Windows).
+# Daemon-only: only the ack store consumes it, batch builds skip the dep.
+dirs = { version = "6.0.0", optional = true }
+# Constant-time byte comparison for the optional `[daemon.ack] api_key`
+# header check. Daemon-only (loopback API).
+subtle = { version = "2.6.1", optional = true }
+# `libc::O_NOFOLLOW` for hardened ack-file open. Daemon-only.
+libc = { version = "0.2.186", optional = true }
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util", "timeout"] }

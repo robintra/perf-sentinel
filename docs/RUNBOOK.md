@@ -629,22 +629,76 @@ Each entry has a stable `kind` (suitable for alerting and aggregation
 across runs) and a human-readable `message` that may include dynamic
 values such as counts.
 
-Common kinds:
+### Kinds and their lifecycle
 
-- `cold_start`: the daemon has not yet processed any events. Returned by
-  `GET /api/export/report` until the first batch lands. Pre-0.5.16 this
-  surfaced as a 503 status, which tripped Kubernetes probes.
-- `ingestion_drops`: at least one OTLP request was rejected since start
-  due to channel saturation. The message reports the count.
-  Cross-check `perf_sentinel_otlp_rejected_total{reason="channel_full"}`
-  for the same value.
+- `cold_start` (**transient**): the daemon has not yet processed any
+  events, returned by `GET /api/export/report` until the first batch
+  lands. Pre-0.5.16 this surfaced as a 503 status, which tripped
+  Kubernetes probes. Wait for the first eviction tick (default 15s,
+  half of `trace_ttl_ms`); if the warning persists past 60-120 seconds
+  in a deployed environment, check that the application actually emits
+  OTLP traces and that the listen address is reachable. The warning
+  disappears automatically on the first batch, no operator action is
+  required.
+
+- `ingestion_drops` (**sticky**): at least one OTLP request was
+  rejected since daemon start due to channel saturation. The message
+  reports the count. Cross-check
+  `perf_sentinel_otlp_rejected_total{reason="channel_full"}` for the
+  same value, then consider increasing daemon CPU allocation or
+  `[daemon] max_active_traces`. The warning persists until daemon
+  restart even after backpressure subsides, the underlying counter is
+  cumulative since process start.
 
 The legacy `Report.warnings: Vec<String>` field (0.5.16+) still ships
 for backward compatibility. CLI and HTML renderers prefer
 `warning_details` when non-empty, fall back to `warnings` otherwise.
 The HTML dashboard exposes `warning_details` in the embedded JSON
-payload (`payload.report.warning_details`); a dedicated banner in the
+payload (`payload.report.warning_details`), a dedicated banner in the
 dashboard UI is on the roadmap.
+
+When acknowledging findings via the daemon ack API (since 0.5.20), the
+`cold_start` and `ingestion_drops` warnings are not affected by acks:
+they reflect daemon state, not detection output.
+
+## Acknowledging findings at runtime
+
+Since 0.5.20 the daemon exposes three endpoints to mutate ack state at
+runtime, complementing the CI TOML workflow documented in
+`ACKNOWLEDGMENTS.md`. Use them when an SRE on call needs to silence a
+finding without waiting for a PR cycle on the application repo.
+
+```bash
+# Acknowledge (deferred to next quarter)
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
+curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: alice@example.com" \
+  -d '{"reason":"deferred to TICKET-1234","expires_at":"2026-08-01T00:00:00Z"}'
+
+# List active runtime acks
+curl -fsS "http://127.0.0.1:4318/api/acks" | jq .
+
+# Verify the finding is now filtered out
+curl -fsS "http://127.0.0.1:4318/api/findings" | jq 'length'
+
+# Revoke
+curl -fsS -X DELETE "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "X-User-Id: alice@example.com"
+```
+
+When the daemon is configured with an API key
+(`[daemon.ack] api_key`), add `-H "X-API-Key: <secret>"` to `POST` and
+`DELETE` calls. `GET /api/acks` and `GET /api/findings` stay
+unauthenticated by design (loopback reads).
+
+The runtime store is JSONL append-only at
+`~/.local/share/perf-sentinel/acks.jsonl` by default. Tail it for a
+realtime audit trail (`tail -f`). The file is replayed and compacted
+on every daemon restart, so churn does not accumulate. CI TOML acks
+loaded at startup (`.perf-sentinel-acknowledgments.toml` by default)
+remain immutable from the API side, see `QUERY-API.md` > "TOML and
+JSONL interop" for the conflict resolution rules.
 
 ---
 

@@ -21,13 +21,17 @@ surface produit de premier plan, avec un contrat de stabilité.
 
 ## Vue d'ensemble des endpoints
 
-| Méthode | Chemin                     | Rôle                                                                           |
-|---------|----------------------------|--------------------------------------------------------------------------------|
-| GET     | `/api/status`              | Liveness du daemon, version, uptime, compteurs en cours                        |
-| GET     | `/api/findings`            | Findings récents depuis le ring buffer, avec filtres service, type et severity |
-| GET     | `/api/findings/{trace_id}` | Tous les findings d'une trace                                                  |
-| GET     | `/api/explain/{trace_id}`  | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne |
-| GET     | `/api/correlations`        | Corrélations temporelles cross-trace actives                                   |
+| Méthode | Chemin                            | Rôle                                                                           |
+|---------|-----------------------------------|--------------------------------------------------------------------------------|
+| GET     | `/api/status`                     | Liveness du daemon, version, uptime, compteurs en cours                        |
+| GET     | `/api/findings`                   | Findings récents depuis le ring buffer, avec filtres service, type et severity |
+| GET     | `/api/findings/{trace_id}`        | Tous les findings d'une trace                                                  |
+| GET     | `/api/explain/{trace_id}`         | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne |
+| GET     | `/api/correlations`               | Corrélations temporelles cross-trace actives                                   |
+| GET     | `/api/export/report`              | Snapshot de l'état live en JSON Report, pipe-compatible avec `report --input -` |
+| POST    | `/api/findings/{signature}/ack`   | Acquitter un finding au runtime (depuis 0.5.20)                                |
+| DELETE  | `/api/findings/{signature}/ack`   | Révoquer un ack runtime                                                        |
+| GET     | `/api/acks`                       | Lister les acks runtime actifs                                                 |
 
 Tous les endpoints retournent du `application/json`. Pas
 d'authentification. Le daemon écoute sur `127.0.0.1` par défaut (voir
@@ -393,6 +397,140 @@ curl -s http://daemon.internal:4318/api/export/report \
 ```
 
 La sous-commande `report` auto-détecte la forme JSON : un tableau au top-level est traité comme des événements de trace (passés dans normalize + detect + score), un objet au top-level est traité comme un Report pré-calculé (pris tel quel). L'onglet Correlations du dashboard HTML s'active automatiquement quand le Report produit par le daemon porte des `correlations` non vides.
+
+### POST /api/findings/{signature}/ack
+
+Acquitter un finding au runtime. La signature est le canonique
+`<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix>`
+produit par la même logique de hash que le workflow TOML CI (voir
+`docs/FR/ACKNOWLEDGMENTS-FR.md`). Disponible depuis 0.5.20.
+
+Le daemon maintient un store JSONL append-only à
+`~/.local/share/perf-sentinel/acks.jsonl` par défaut (configurable via
+`[daemon.ack] storage_path`). Le store est rejoué et compacté à chaque
+redémarrage du daemon, donc une boucle de churn ack/unack ne peut pas
+s'accumuler à l'infini.
+
+**Headers :**
+
+- `Content-Type: application/json` (requis, même avec un body vide).
+- `X-User-Id: <identifiant>` (optionnel, alimente le champ d'audit
+  `by` avec priorité sur le body JSON, fallback sur `"anonymous"`).
+- `X-API-Key: <secret>` (requis uniquement quand `[daemon.ack] api_key`
+  est défini dans la config daemon, comparaison constant-time).
+
+**Body (tous champs optionnels) :**
+
+```json
+{
+  "by": "alice@example.com",
+  "reason": "différé au prochain trimestre, voir TICKET-1234",
+  "expires_at": "2026-08-01T00:00:00Z"
+}
+```
+
+**Réponses :**
+
+| Statut | Condition                                                          |
+|--------|--------------------------------------------------------------------|
+| 201    | Ack créé                                                           |
+| 400    | La signature ne matche pas le format canonique                     |
+| 401    | `[daemon.ack] api_key` est défini, header manquant ou mauvais      |
+| 409    | La signature est déjà acquittée (utiliser `DELETE` d'abord)        |
+| 503    | `[daemon.ack] enabled = false`, le store ack runtime est offline   |
+
+**Exemple :**
+
+```bash
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
+curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: alice@example.com" \
+  -d '{"reason":"différé au prochain trimestre","expires_at":"2026-08-01T00:00:00Z"}'
+# 201 Created
+```
+
+Après un ack réussi, `GET /api/findings` filtre l'entrée par défaut.
+Passer `?include_acked=true` pour la voir réapparaître avec une
+annotation `acknowledged_by`.
+
+### DELETE /api/findings/{signature}/ack
+
+Révoquer un ack daemon précédemment créé. Mêmes headers d'auth que
+`POST`. Le finding correspondant réapparaît dans `GET /api/findings`
+immédiatement.
+
+**Réponses :**
+
+| Statut | Condition                                              |
+|--------|--------------------------------------------------------|
+| 204    | Ack révoqué                                            |
+| 400    | La signature ne matche pas le format canonique         |
+| 401    | API key requise et manquante ou mauvaise               |
+| 404    | La signature n'est pas actuellement acquittée daemon   |
+| 503    | Store ack runtime offline                              |
+
+Note : cet endpoint ne révoque que les acks daemon. Les acks TOML CI
+sont en lecture seule au runtime et nécessitent une PR contre le
+fichier `.perf-sentinel-acknowledgments.toml` pour être supprimés.
+
+### GET /api/acks
+
+Retourne le tableau des acks runtime actifs (post-replay, post-filtre
+d'expiration). Lecture seule, pas d'auth requise (les lectures sur une
+API loopback sont considérées sûres même quand le daemon impose une
+clé d'API en écriture).
+
+**Réponse :** tableau d'objets, un par ack actif :
+
+```json
+[
+  {
+    "action": "ack",
+    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa",
+    "by": "alice@example.com",
+    "reason": "différé au prochain trimestre",
+    "at": "2026-05-04T13:30:00Z",
+    "expires_at": "2026-08-01T00:00:00Z"
+  }
+]
+```
+
+Cet endpoint n'expose que les acks JSONL côté daemon. Les acks TOML CI
+chargés au startup ne sont pas inclus, requêter le fichier TOML
+directement pour cette vue, ou appeler
+`GET /api/findings?include_acked=true` et inspecter le champ
+`acknowledged_by.source` pour voir les deux sources unifiées.
+
+### Interop TOML et JSONL
+
+Le daemon lit `.perf-sentinel-acknowledgments.toml` (chemin
+configurable via `[daemon.ack] toml_path`) au startup et union ses
+entrées avec le store JSONL au query time. **TOML wins on conflict** :
+quand une signature est acquittée dans les deux, la réponse porte la
+métadonnée TOML (`source: "toml"`). Cela garde la baseline CI
+immutable côté daemon, un SRE ne peut pas accidentellement override ce
+que l'équipe a validé en review PR.
+
+| Source | Persistance            | Audit              | Mutable au runtime |
+|--------|------------------------|--------------------|--------------------|
+| TOML   | Fichier du repo        | `git log`          | Non (PR-only)      |
+| Daemon | `acks.jsonl` sur disque | JSONL append + compaction | Oui (POST/DELETE) |
+
+### Behavior change en 0.5.20 : filtre par défaut sur `/api/findings`
+
+`GET /api/findings` (et les filtres `?service=` / `?type=` /
+`?severity=`) omettent désormais les findings acquittés par défaut.
+Passer `?include_acked=true` pour restaurer le comportement
+pré-0.5.20. Le défaut opt-in mire la sémantique CLI 0.5.17
+`--acknowledgments` : un opérateur regardant "qu'est-ce qui est cassé
+maintenant" ne devrait pas être noyé par des entrées que l'équipe a
+déjà triées.
+
+Les endpoints `/api/findings/{trace_id}` et `/api/export/report`
+gardent intentionnellement leur shape précédent, les vues per-trace et
+report complet sont diagnostiques et peuvent avoir besoin de
+remonter les findings acquittés même dans le chemin par défaut.
 
 ## Réponses d'erreur
 
