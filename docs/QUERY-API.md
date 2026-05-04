@@ -19,13 +19,17 @@ first-class product surface with a stability contract.
 
 ## Endpoint overview
 
-| Method | Path                       | Purpose                                                                       |
-|--------|----------------------------|-------------------------------------------------------------------------------|
-| GET    | `/api/status`              | Daemon liveness, version, uptime, in-flight counts                            |
-| GET    | `/api/findings`            | Recent findings from the ring buffer, with service, type and severity filters |
-| GET    | `/api/findings/{trace_id}` | All findings for one trace                                                    |
-| GET    | `/api/explain/{trace_id}`  | Span tree for a trace still in daemon memory, findings annotated inline       |
-| GET    | `/api/correlations`        | Active cross-trace temporal correlations                                      |
+| Method | Path                              | Purpose                                                                       |
+|--------|-----------------------------------|-------------------------------------------------------------------------------|
+| GET    | `/api/status`                     | Daemon liveness, version, uptime, in-flight counts                            |
+| GET    | `/api/findings`                   | Recent findings from the ring buffer, with service, type and severity filters |
+| GET    | `/api/findings/{trace_id}`        | All findings for one trace                                                    |
+| GET    | `/api/explain/{trace_id}`         | Span tree for a trace still in daemon memory, findings annotated inline       |
+| GET    | `/api/correlations`               | Active cross-trace temporal correlations                                      |
+| GET    | `/api/export/report`              | Snapshot the live state as a Report JSON, pipe-compatible with `report --input -` |
+| POST   | `/api/findings/{signature}/ack`   | Acknowledge a finding at runtime (since 0.5.20)                               |
+| DELETE | `/api/findings/{signature}/ack`   | Revoke a runtime ack                                                          |
+| GET    | `/api/acks`                       | List active runtime acks                                                      |
 
 All endpoints return `application/json`. No authentication. The daemon
 listens on `127.0.0.1` by default (see `[daemon] listen_address` in
@@ -382,6 +386,136 @@ curl -s http://daemon.internal:4318/api/export/report \
 ```
 
 The `report` subcommand auto-detects the JSON shape: a top-level array is treated as trace events (pipelined through normalize + detect + score), a top-level object is treated as a pre-computed Report (taken as-is). The Correlations tab in the HTML dashboard lights up automatically when the daemon-produced Report carries non-empty `correlations`.
+
+### POST /api/findings/{signature}/ack
+
+Acknowledge a finding at runtime. The signature is the canonical
+`<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix>` produced
+by the same hashing logic as the CI TOML workflow (see
+`docs/ACKNOWLEDGMENTS.md`). Available since 0.5.20.
+
+The daemon maintains a JSONL append-only store at
+`~/.local/share/perf-sentinel/acks.jsonl` by default (configurable via
+`[daemon.ack] storage_path`). The store is replayed and compacted at
+every daemon restart, so an ack/unack churn loop cannot accumulate
+forever.
+
+**Headers:**
+
+- `Content-Type: application/json` (required, even with an empty body).
+- `X-User-Id: <identifier>` (optional, populates the audit `by` field
+  with priority over the JSON body, falling back to `"anonymous"`).
+- `X-API-Key: <secret>` (required only when `[daemon.ack] api_key` is
+  set in the daemon config, constant-time compared).
+
+**Body (all fields optional):**
+
+```json
+{
+  "by": "alice@example.com",
+  "reason": "deferred to next quarter, see TICKET-1234",
+  "expires_at": "2026-08-01T00:00:00Z"
+}
+```
+
+**Responses:**
+
+| Status | Condition                                                        |
+|--------|------------------------------------------------------------------|
+| 201    | Ack created                                                      |
+| 400    | Signature does not match the canonical format                    |
+| 401    | `[daemon.ack] api_key` is set, header is missing or wrong        |
+| 409    | The signature is already acked (use `DELETE` first to revoke)    |
+| 503    | `[daemon.ack] enabled = false`, the runtime ack store is offline |
+
+**Example:**
+
+```bash
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef"
+curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
+  -H "Content-Type: application/json" \
+  -H "X-User-Id: alice@example.com" \
+  -d '{"reason":"deferred to next quarter","expires_at":"2026-08-01T00:00:00Z"}'
+# 201 Created
+```
+
+After a successful ack, `GET /api/findings` filters the entry out by
+default. Pass `?include_acked=true` to see it back with an
+`acknowledged_by` annotation.
+
+### DELETE /api/findings/{signature}/ack
+
+Revoke a previously created daemon ack. Same auth headers as `POST`.
+The matching finding reappears on `GET /api/findings` immediately.
+
+**Responses:**
+
+| Status | Condition                                              |
+|--------|--------------------------------------------------------|
+| 204    | Ack revoked                                            |
+| 400    | Signature does not match the canonical format          |
+| 401    | API key required and missing or wrong                  |
+| 404    | The signature is not currently acked at the daemon     |
+| 503    | Runtime ack store offline                              |
+
+Note: this endpoint only revokes daemon-side acks. CI TOML acks are
+read-only at runtime and require a PR against the
+`.perf-sentinel-acknowledgments.toml` file to remove.
+
+### GET /api/acks
+
+Returns the array of active runtime acks (post-replay, post-expiry
+filter). Read-only, no auth required (reads on a loopback API are
+considered safe even when the daemon enforces an API key on writes).
+
+**Response:** array of objects, one per active ack:
+
+```json
+[
+  {
+    "action": "ack",
+    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef",
+    "by": "alice@example.com",
+    "reason": "deferred to next quarter",
+    "at": "2026-05-04T13:30:00Z",
+    "expires_at": "2026-08-01T00:00:00Z"
+  }
+]
+```
+
+This endpoint surfaces only the daemon-side JSONL acks. CI TOML acks
+loaded at startup are not included, query the TOML file directly for
+that view, or call `GET /api/findings?include_acked=true` and inspect
+the `acknowledged_by.source` field to see both sources unified.
+
+### TOML and JSONL interop
+
+The daemon reads `.perf-sentinel-acknowledgments.toml` (path
+configurable via `[daemon.ack] toml_path`) at startup and unions its
+entries with the JSONL store at query time. **TOML wins on conflict**:
+when a signature is acked in both, the response carries the TOML
+metadata (`source: "toml"`). This keeps the CI baseline immutable from
+the daemon side, an SRE cannot accidentally override what the team
+agreed to in PR review.
+
+| Source | Persistence            | Audit              | Mutable at runtime |
+|--------|------------------------|--------------------|--------------------|
+| TOML   | Repo file              | `git log`          | No (PR-only)       |
+| Daemon | `acks.jsonl` on disk   | JSONL append + compaction | Yes (POST/DELETE) |
+
+### Behavior change in 0.5.20: `/api/findings` default filter
+
+`GET /api/findings` (and the `?service=` / `?type=` / `?severity=`
+filters) now omits acked findings by default. Pass
+`?include_acked=true` to restore the pre-0.5.20 behavior. The opt-in
+default mirrors the CLI 0.5.17 `--acknowledgments` semantics: an
+operator looking at "what is currently broken" should not be drowned
+in entries the team has already triaged.
+
+The `/api/findings/{trace_id}` and `/api/export/report` endpoints
+intentionally keep their previous shape, the per-trace and full-report
+views are diagnostic and may need to surface acked findings even in
+the default path.
 
 ## Error responses
 

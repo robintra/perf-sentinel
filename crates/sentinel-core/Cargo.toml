@@ -33,7 +33,7 @@ tracing = "0.1.44"
 thiserror = "2.0.18"
 toml = "1.1.2"
 regex = "1.12.3"
-tokio = { version = "1.52.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util"] }
+tokio = { version = "1.52.1", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
 # /metrics router) uses axum+tower and ingest/otlp.rs uses opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
@@ -55,6 +55,16 @@ lru = "0.18.0"
 # (`Utc::now()` comparison).
 sha2 = "0.11.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
+# Cross-platform locator for `~/.local/share/perf-sentinel/acks.jsonl`
+# (XDG on Linux, Library/Application Support on macOS, Roaming on Windows).
+# The daemon ack store falls back to a hard error when this returns None,
+# so the operator must configure `[daemon.ack] storage_path` explicitly
+# rather than risk losing audit data to /tmp on a quirky environment.
+dirs = "6.0.0"
+# Constant-time byte comparison for the optional `[daemon.ack] api_key`
+# header check, so a wrong key does not leak its prefix length through
+# timing.
+subtle = "2.6.1"
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }

@@ -4,11 +4,15 @@
 //! listeners, assembles the HTTP router (OTLP + metrics + query API),
 //! and spawns the optional energy/intensity scrapers.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use chrono::Utc;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::time::Duration;
 
+use crate::acknowledgments;
 use crate::config::Config;
 use crate::correlate::window::TraceWindow;
 use crate::detect;
@@ -22,6 +26,7 @@ use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::DaemonError;
+use super::ack::{self, AckStore};
 use super::findings_store;
 use super::query_api;
 use super::tls::{build_tls_acceptor, load_tls_pem, serve_https, tls_tcp_incoming};
@@ -67,6 +72,7 @@ pub(super) async fn spawn_listeners(
         config.max_payload_size,
         Arc::clone(&metrics),
     );
+    let (toml_acks, ack_store) = init_ack_resources(config).await?;
     let http_router = build_http_router(
         config,
         tx.clone(),
@@ -75,6 +81,8 @@ pub(super) async fn spawn_listeners(
         correlator,
         metrics,
         green_summary,
+        toml_acks,
+        ack_store,
     );
     let http_handle = spawn_http_listener(http_listener, http_addr, tls_acceptor, http_router);
     let json_socket_handle = spawn_json_socket_listener(config, tx);
@@ -123,6 +131,44 @@ fn spawn_grpc_listener(
     })
 }
 
+/// Load the CI ack TOML baseline and initialize the daemon JSONL ack
+/// store. Both are skipped when `[daemon.ack] enabled = false`.
+async fn init_ack_resources(
+    config: &Config,
+) -> Result<
+    (
+        Arc<HashMap<String, acknowledgments::Acknowledgment>>,
+        Option<Arc<AckStore>>,
+    ),
+    DaemonError,
+> {
+    if !config.ack_enabled {
+        return Ok((Arc::new(HashMap::new()), None));
+    }
+    let toml_path = config.ack_toml_path.as_deref().map_or_else(
+        || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
+        |s| Path::new(s).to_path_buf(),
+    );
+    let file = acknowledgments::load_from_file(&toml_path).map_err(DaemonError::AckTomlLoad)?;
+    let now = Utc::now();
+    let toml_acks: HashMap<_, _> = file
+        .acknowledged
+        .into_iter()
+        .filter(|a| acknowledgments::is_ack_active(a, now))
+        .map(|a| (a.signature.clone(), a))
+        .collect();
+
+    let storage_path = match &config.ack_storage_path {
+        Some(p) => PathBuf::from(p),
+        None => ack::default_storage_path().map_err(DaemonError::AckStoreInit)?,
+    };
+    let store = AckStore::new(storage_path)
+        .await
+        .map_err(DaemonError::AckStoreInit)?;
+    tracing::info!(path = %store.storage_path().display(), "Daemon ack store ready");
+    Ok((Arc::new(toml_acks), Some(store)))
+}
+
 /// Assemble the OTLP HTTP + metrics + optional query API router, with the
 /// request-timeout layer.
 #[allow(clippy::too_many_arguments)]
@@ -134,6 +180,8 @@ fn build_http_router(
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
+    toml_acks: Arc<HashMap<String, acknowledgments::Acknowledgment>>,
+    ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(
         tx,
@@ -160,6 +208,9 @@ fn build_http_router(
                 .as_ref()
                 .map(score::carbon::ScoringConfig::from_electricity_maps),
             green_summary,
+            ack_store,
+            toml_acks,
+            ack_api_key: config.ack_api_key.clone(),
         });
         http_router = http_router.merge(query_api::query_api_router(query_state));
     } else {

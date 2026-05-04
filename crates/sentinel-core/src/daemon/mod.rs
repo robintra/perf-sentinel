@@ -4,6 +4,7 @@
 //! OTLP HTTP, JSON socket), accumulates them in a `TraceWindow`, and emits
 //! findings as NDJSON on stdout when traces expire.
 
+pub mod ack;
 pub mod findings_store;
 pub mod health;
 pub mod query_api;
@@ -56,6 +57,12 @@ pub enum DaemonError {
     /// TLS configuration or certificate loading failed.
     #[error("TLS configuration error: {0}")]
     TlsConfig(#[source] TlsConfigError),
+    /// Loading the CI ack TOML baseline failed at startup.
+    #[error("failed to load acknowledgments TOML: {0}")]
+    AckTomlLoad(#[source] crate::acknowledgments::AcknowledgmentLoadError),
+    /// Initializing the daemon ack JSONL store failed at startup.
+    #[error("failed to initialize ack store: {0}")]
+    AckStoreInit(#[source] ack::AckError),
 }
 
 /// Typed sub-enum for TLS configuration failures.

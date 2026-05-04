@@ -127,6 +127,23 @@ pub struct Config {
     pub correlation_enabled: bool,
     /// Cross-trace correlation config. Only used when `correlation_enabled` is true.
     pub correlation_config: crate::detect::correlate_cross::CorrelationConfig,
+    /// Whether the daemon-side ack store (JSONL persistence + HTTP API)
+    /// is enabled. Default `true`. Disabling skips both the TOML acks
+    /// load and the JSONL store init at startup, and the three ack
+    /// routes return 503 Service Unavailable.
+    pub ack_enabled: bool,
+    /// Optional override for the JSONL storage path. Default resolves
+    /// at runtime via `dirs::data_local_dir()` to
+    /// `<data_local>/perf-sentinel/acks.jsonl`.
+    pub ack_storage_path: Option<String>,
+    /// Optional opt-in API key. When set, `POST` and `DELETE` on
+    /// `/api/findings/<sig>/ack` require an `X-API-Key` header
+    /// matching this value (constant-time compared). Default `None`
+    /// means no auth, suitable for the loopback-only deployment.
+    pub ack_api_key: Option<String>,
+    /// Optional override for the CI ack TOML file path read at daemon
+    /// startup. Default `.perf-sentinel-acknowledgments.toml` in CWD.
+    pub ack_toml_path: Option<String>,
 }
 
 /// Deployment environment for the daemon's `watch` mode.
@@ -210,6 +227,10 @@ impl Default for Config {
             daemon_api_enabled: true,
             correlation_enabled: false,
             correlation_config: crate::detect::correlate_cross::CorrelationConfig::default(),
+            ack_enabled: true,
+            ack_storage_path: None,
+            ack_api_key: None,
+            ack_toml_path: None,
         }
     }
 }
@@ -413,6 +434,8 @@ struct DaemonSection {
     api_enabled: Option<bool>,
     /// Cross-trace correlation section.
     correlation: CorrelationSection,
+    /// Daemon-side ack store section.
+    ack: DaemonAckSection,
 }
 
 /// Raw deserialization target for `[daemon.correlation]`.
@@ -427,12 +450,24 @@ struct CorrelationSection {
     max_tracked_pairs: Option<usize>,
 }
 
+/// Raw deserialization target for `[daemon.ack]`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct DaemonAckSection {
+    enabled: Option<bool>,
+    storage_path: Option<String>,
+    api_key: Option<String>,
+    toml_path: Option<String>,
+}
+
 const TOML_PATH_STRING_KEYS: &[&str] = &[
     "hourly_profiles_file",
     "calibration_file",
     "json_socket",
     "tls_cert_path",
     "tls_key_path",
+    "storage_path",
+    "toml_path",
 ];
 
 /// Rewrite path-like config fields so Windows-style backslashes are treated
@@ -803,6 +838,10 @@ impl From<RawConfig> for Config {
                     max_tracked_pairs: c.max_tracked_pairs.unwrap_or(d.max_tracked_pairs),
                 }
             },
+            ack_enabled: raw.daemon.ack.enabled.unwrap_or(defaults.ack_enabled),
+            ack_storage_path: raw.daemon.ack.storage_path,
+            ack_api_key: raw.daemon.ack.api_key,
+            ack_toml_path: raw.daemon.ack.toml_path,
         }
     }
 }
@@ -1114,6 +1153,36 @@ impl Config {
         self.validate_listen_addr()?;
         self.validate_tls()?;
         self.validate_green()?;
+        self.validate_daemon_ack()?;
+        Ok(())
+    }
+
+    /// Validate `[daemon.ack]` settings.
+    fn validate_daemon_ack(&self) -> Result<(), String> {
+        if let Some(key) = &self.ack_api_key {
+            if key.is_empty() {
+                return Err("[daemon.ack] api_key must not be empty".to_string());
+            }
+            if has_control_char(key) {
+                return Err("[daemon.ack] api_key contains control characters".to_string());
+            }
+            if key.len() < 16 {
+                tracing::warn!(
+                    "[daemon.ack] api_key is shorter than 16 characters; \
+                     consider a longer secret to resist brute-force attempts."
+                );
+            }
+        }
+        if let Some(path) = &self.ack_storage_path
+            && has_control_char(path)
+        {
+            return Err("[daemon.ack] storage_path contains control characters".to_string());
+        }
+        if let Some(path) = &self.ack_toml_path
+            && has_control_char(path)
+        {
+            return Err("[daemon.ack] toml_path contains control characters".to_string());
+        }
         Ok(())
     }
 
@@ -3641,6 +3710,57 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
         cfg.tls_cert_path = Some("/tmp/cert.pem".to_string());
         cfg.tls_key_path = Some("/tmp/key\n.pem".to_string());
         let err = cfg.validate_tls().unwrap_err();
+        assert!(err.contains("control characters"), "{err}");
+    }
+
+    #[test]
+    fn default_daemon_ack_is_enabled_with_no_secrets() {
+        let cfg = Config::default();
+        assert!(cfg.ack_enabled);
+        assert!(cfg.ack_storage_path.is_none());
+        assert!(cfg.ack_api_key.is_none());
+        assert!(cfg.ack_toml_path.is_none());
+    }
+
+    #[test]
+    fn parse_daemon_ack_section_overrides() {
+        let toml = "
+[daemon.ack]
+enabled = false
+storage_path = \"/var/lib/perf-sentinel/acks.jsonl\"
+api_key = \"a-long-enough-secret-key\"
+toml_path = \"/etc/perf-sentinel/acknowledgments.toml\"
+";
+        let cfg = load_from_str(toml).unwrap();
+        assert!(!cfg.ack_enabled);
+        assert_eq!(
+            cfg.ack_storage_path.as_deref(),
+            Some("/var/lib/perf-sentinel/acks.jsonl")
+        );
+        assert_eq!(cfg.ack_api_key.as_deref(), Some("a-long-enough-secret-key"));
+        assert_eq!(
+            cfg.ack_toml_path.as_deref(),
+            Some("/etc/perf-sentinel/acknowledgments.toml")
+        );
+    }
+
+    #[test]
+    fn validate_daemon_ack_rejects_empty_api_key() {
+        let toml = "
+[daemon.ack]
+api_key = \"\"
+";
+        let err = load_from_str(toml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("must not be empty"), "{msg}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_ack_rejects_control_chars_in_storage_path() {
+        let mut cfg = Config::default();
+        cfg.ack_storage_path = Some("/var/lib/acks\x00.jsonl".to_string());
+        let err = cfg.validate_daemon_ack().unwrap_err();
         assert!(err.contains("control characters"), "{err}");
     }
 }

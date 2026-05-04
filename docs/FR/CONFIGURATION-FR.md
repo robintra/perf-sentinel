@@ -370,6 +370,33 @@ min_confidence = 0.5
 
 Les corrélations sont exposées via `GET /api/correlations` (quand `api_enabled = true`) et émises en NDJSON sur le flux stdout du daemon.
 
+#### `[daemon.ack]` (optionnel, depuis 0.5.20)
+
+Store d'acks runtime côté daemon. Complète les acks TOML CI (voir
+`ACKNOWLEDGMENTS-FR.md`) avec un fichier JSONL append-only muté via les
+endpoints HTTP `POST` / `DELETE` `/api/findings/{signature}/ack`.
+
+| Champ          | Type    | Défaut                                                  | Description                                                                                                                                                                          |
+|----------------|---------|----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`      | booléen | `true`                                                   | Active les endpoints ack du daemon. Quand `false`, `POST` / `DELETE` / `GET /api/acks` retournent 503 Service Unavailable, et `GET /api/findings` saute le filtre ack                |
+| `storage_path` | chaîne  | `<data_local_dir>/perf-sentinel/acks.jsonl`              | Override pour l'emplacement du fichier JSONL. Résolu au runtime via `dirs::data_local_dir()` (XDG sur Linux, Library/Application Support sur macOS) en absence d'override. Le daemon refuse de démarrer si le défaut ne peut pas être résolu et qu'aucun override n'est défini, on ne fallback pas sur `/tmp` car le fichier contient des données d'audit qui doivent survivre à un reboot |
+| `api_key`      | chaîne  | *(absent)*                                               | Secret optionnel. Quand défini, `POST` et `DELETE` sur `/api/findings/{signature}/ack` exigent que le header `X-API-Key` matche (comparaison constant-time via `subtle`). `GET /api/acks` et `GET /api/findings` restent non authentifiés par design (lectures loopback). Une chaîne vide est rejetée au load de config |
+| `toml_path`    | chaîne  | `".perf-sentinel-acknowledgments.toml"` (relatif à CWD)  | Override pour le fichier TOML d'acks CI que le daemon lit au startup. À régler en chemin absolu pour les déploiements systemd ou container où CWD n'est pas la racine du repo        |
+
+```toml
+[daemon.ack]
+enabled = true
+storage_path = "/var/lib/perf-sentinel/acks.jsonl"
+# api_key = "<à-rotater>"
+toml_path = "/etc/perf-sentinel/acknowledgments.toml"
+```
+
+Le fichier JSONL est rejoué et atomiquement réécrit (via tmp + rename)
+à chaque redémarrage du daemon, donc des cycles `ack` / `unack`
+répétés ne peuvent pas s'accumuler au-delà de leur état actif net. Sur
+Unix, le fichier est créé avec le mode `0600` (lecture-écriture
+propriétaire uniquement).
+
 ## Configuration minimale
 
 Un fichier vide ou l'absence de fichier utilise tous les défauts. Une configuration minimale pour la CI peut se limiter aux seuils :
