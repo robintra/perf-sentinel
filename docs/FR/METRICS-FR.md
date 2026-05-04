@@ -84,6 +84,77 @@ counter de rejet tower-http dans leur stack.
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Histogramme de durée pour les spans dépassant le seuil slow, par `type` (`sql` ou `http_out`). Buckets : 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 secondes. Utilisé par `histogram_quantile()` Grafana pour des percentiles précis sur des déploiements daemon shardés. |
 | `perf_sentinel_export_report_requests_total` | counter   | (aucun)            | Total des requêtes `GET /api/export/report`. Inclut les réponses cold-start (200 avec enveloppe vide).                                                                                                                                                                       |
 
+## Metrics d'ack (depuis 0.5.21)
+
+Activité des opérateurs sur l'API ack du daemon
+(`POST` / `DELETE /api/findings/{signature}/ack`). Les acks TOML
+chargés depuis `.perf-sentinel-acknowledgments.toml` au démarrage
+sont en lecture seule et ne sont pas comptés ici, aucune opération
+n'a lieu après le chargement initial.
+
+| Metric                                       | Type    | Labels             | Description                                                          |
+|----------------------------------------------|---------|--------------------|----------------------------------------------------------------------|
+| `perf_sentinel_ack_operations_total`         | counter | `action`           | Opérations ack et unack réussies.                                    |
+| `perf_sentinel_ack_operations_failed_total`  | counter | `action`, `reason` | Opérations ack et unack en échec, ventilées par raison.              |
+
+Valeurs du label `action` : `ack`, `unack`.
+
+Valeurs du label `reason` :
+
+- `already_acked` (HTTP 409, `action=ack` uniquement) : signature
+  déjà présente dans le JSONL daemon, ou couverte par une baseline
+  TOML CI encore active. Les deux cas sont comptés sur la même
+  série.
+- `not_acked` (HTTP 404, `action=unack` uniquement) : la signature
+  n'a pas d'ack daemon actif.
+- `unauthorized` (HTTP 401) : `[daemon.ack] api_key` est défini et
+  la requête est sans header `X-API-Key` ou avec un header invalide.
+  La série est pré-chauffée à zéro, donc une valeur non nulle
+  confirme que `api_key` est configurée (le counter n'incrémente
+  que quand l'auth est appliquée).
+- `no_store` (HTTP 503) : store ack daemon désactivé
+  (`[daemon.ack] enabled = false`, ou chemin par défaut non
+  résolvable au démarrage).
+- `invalid_signature` (HTTP 400) : le segment `{signature}` ne
+  passe pas la validation de format canonique.
+- `limit_reached` (HTTP 507, `action=ack` uniquement) :
+  `MAX_ACTIVE_ACKS` (10 000) atteint, refus du nouvel ack.
+- `file_too_large` (HTTP 507, `action=ack` uniquement) : l'append
+  ferait dépasser le JSONL au-dessus de 64 Mio. Saturation par
+  daemon, indique qu'une compaction est nécessaire au prochain
+  redémarrage ou que la limite doit être relevée. Côté `unack` ce
+  cas remonte sous `internal_error` (HTTP 500), les endpoints ack
+  ne différencient pas la limite sur l'écriture unack aujourd'hui.
+- `entry_too_large` (HTTP 507, `action=ack` uniquement) : un seul
+  record dépasse 4 Kio après sérialisation, typiquement parce que
+  le champ `by` ou `reason` fourni par le caller est trop gros.
+  Mauvais usage par requête, indique que la validation côté client
+  doit être resserrée. Même réserve `unack` que pour `file_too_large`.
+- `internal_error` (HTTP 500) : erreur d'IO, de sérialisation,
+  symlink refusé, permissions trop ouvertes, ou pas de chemin de
+  stockage par défaut au moment de l'écriture.
+
+**Pré-chauffe**. Les deux counters émettent zéro pour les
+combinaisons documentées atteignables avant la première requête, de
+sorte que les dashboards peuvent utiliser `rate()` sans clause
+`absent()`. Le set pré-chauffé compte 2 séries succès
+(`action=ack` et `action=unack`) plus 13 séries d'échec (8 raisons
+sur `action=ack`, 5 sur `action=unack`). Les combinaisons
+impossibles (par exemple `action=ack,reason=not_acked` ou
+`action=unack,reason=already_acked`) ne sont volontairement pas
+pré-chauffées pour éviter de fausses séries.
+
+**Exemples de requêtes**.
+
+- `rate(perf_sentinel_ack_operations_total[5m])` : opérations ack et
+  unack par seconde, utile pour les courbes de tendance.
+- `sum by (reason) (rate(perf_sentinel_ack_operations_failed_total{action="ack"}[5m]))` :
+  échecs ack par raison. Pic sur `unauthorized` qui indique une
+  mauvaise configuration auth, pic sur `entry_too_large` qui pointe
+  un client mal calibré (charges `by` / `reason` trop volumineuses),
+  pic sur `limit_reached` ou `file_too_large` qui signale une
+  saturation du store.
+
 ## Metrics GreenOps
 
 | Metric                                               | Type    | Labels    | Description                                                                                                                                      |

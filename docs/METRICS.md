@@ -82,6 +82,73 @@ own stack.
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Duration histogram for spans exceeding the slow threshold, by event `type` (`sql` or `http_out`). Buckets: 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 seconds. Used by Grafana `histogram_quantile()` for accurate percentiles across sharded daemon instances. |
 | `perf_sentinel_export_report_requests_total` | counter   | (none)             | Total `GET /api/export/report` requests. Includes cold-start responses (200 with empty envelope).                                                                                                                                                                  |
 
+## Ack metrics (since 0.5.21)
+
+Operator-driven activity on the daemon ack API
+(`POST` / `DELETE /api/findings/{signature}/ack`). Read-only TOML
+acks loaded from `.perf-sentinel-acknowledgments.toml` at daemon
+startup are not counted, no operations occur after the initial load.
+
+| Metric                                       | Type    | Labels             | Description                                                     |
+|----------------------------------------------|---------|--------------------|-----------------------------------------------------------------|
+| `perf_sentinel_ack_operations_total`         | counter | `action`           | Successful ack and unack operations.                            |
+| `perf_sentinel_ack_operations_failed_total`  | counter | `action`, `reason` | Failed ack and unack operations, broken down by failure reason. |
+
+`action` label values: `ack`, `unack`.
+
+`reason` label values:
+
+- `already_acked` (HTTP 409, `action=ack` only): signature already in
+  the daemon JSONL, or covered by a TOML CI baseline that is still
+  active. Both cases collapse on the same series.
+- `not_acked` (HTTP 404, `action=unack` only): signature has no
+  active daemon ack record.
+- `unauthorized` (HTTP 401): `[daemon.ack] api_key` is set and the
+  request is missing or has an invalid `X-API-Key` header. The
+  series is pre-warmed at zero, so a non-zero value confirms
+  `api_key` is configured (the counter only ever increments when
+  auth is enforced).
+- `no_store` (HTTP 503): daemon ack store is disabled
+  (`[daemon.ack] enabled = false`, or default storage path could not
+  be resolved at startup).
+- `invalid_signature` (HTTP 400): the `{signature}` path segment
+  fails canonical format validation.
+- `limit_reached` (HTTP 507, `action=ack` only): `MAX_ACTIVE_ACKS`
+  (10 000) reached, refusing to accept a new entry.
+- `file_too_large` (HTTP 507, `action=ack` only): append would push
+  the JSONL above 64 MiB. Per-daemon saturation, indicates compaction
+  is needed at next restart or the cap should be raised. The `unack`
+  path surfaces this under `internal_error` (HTTP 500) since the
+  ack endpoints do not currently differentiate the cap on the
+  unack write.
+- `entry_too_large` (HTTP 507, `action=ack` only): a single record
+  exceeds 4 KiB after serialization, typically because the
+  caller-supplied `by` or `reason` field is oversized. Per-request
+  misuse, indicates client-side validation should be tightened.
+  Same `unack`-path caveat as `file_too_large`.
+- `internal_error` (HTTP 500): IO failure, serialization error,
+  symlink refused, insecure permissions, or no default storage
+  location at write time.
+
+**Pre-warming**. Both counters emit zero for documented reachable
+combinations before the first request, so dashboards build with
+`rate()` queries without `absent()` guards. The pre-warmed set is 2
+success series (`action=ack` and `action=unack`) plus 13 failure
+series (8 reasons on `action=ack`, 5 reasons on `action=unack`).
+Impossible combinations (such as `action=ack,reason=not_acked` or
+`action=unack,reason=already_acked`) are intentionally not
+pre-warmed to avoid misleading series.
+
+**Sample queries**.
+
+- `rate(perf_sentinel_ack_operations_total[5m])`: ack and unack
+  operations per second, useful for trend lines.
+- `sum by (reason) (rate(perf_sentinel_ack_operations_failed_total{action="ack"}[5m]))`:
+  ack failures by reason. Spikes on `unauthorized` indicate auth
+  misconfiguration, spikes on `entry_too_large` indicate a
+  misbehaving client (oversized `by` / `reason` payloads), spikes on
+  `limit_reached` or `file_too_large` indicate store saturation.
+
 ## GreenOps metrics
 
 | Metric                                               | Type    | Labels    | Description                                                                                                                        |

@@ -94,6 +94,16 @@ pub enum AckAction {
     Unack,
 }
 
+impl AckAction {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ack => "ack",
+            Self::Unack => "unack",
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AckError {
     #[error("ack file IO error: {0}")]

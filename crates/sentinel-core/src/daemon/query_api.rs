@@ -24,7 +24,7 @@ use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator
 use crate::detect::sanitizer_aware::SanitizerAwareMode;
 use crate::detect::{self, DetectConfig};
 use crate::explain;
-use crate::report::metrics::MetricsState;
+use crate::report::metrics::{AckFailureReason, MetricsState};
 use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 
 /// Upper bound for `?limit=` on `/api/findings` to protect the daemon
@@ -556,11 +556,21 @@ async fn handle_ack(
     headers: HeaderMap,
     Json(body): Json<AckRequest>,
 ) -> Result<StatusCode, ErrorResponse> {
-    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
-    let store = state
-        .ack_store
-        .as_ref()
-        .ok_or_else(|| ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "ack store disabled"))?;
+    if let Err(e) = check_ack_auth(&headers, state.ack_api_key.as_deref()) {
+        state
+            .metrics
+            .record_ack_failure(AckAction::Ack, AckFailureReason::Unauthorized);
+        return Err(e);
+    }
+    let Some(store) = state.ack_store.as_ref() else {
+        state
+            .metrics
+            .record_ack_failure(AckAction::Ack, AckFailureReason::NoStore);
+        return Err(ErrorResponse::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ack store disabled",
+        ));
+    };
     // Refuse to write a daemon ack on a signature that already has an
     // active TOML baseline. Without this check the daemon line would
     // be appended to JSONL but `lookup_ack` would silently surface the
@@ -569,6 +579,9 @@ async fn handle_ack(
     if let Some(t) = state.toml_acks.get(&signature)
         && t.is_active(Utc::now())
     {
+        state
+            .metrics
+            .record_ack_failure(AckAction::Ack, AckFailureReason::AlreadyAcked);
         return Err(ErrorResponse::new(
             StatusCode::CONFLICT,
             "signature is acked by the CI TOML baseline, edit the file via PR review",
@@ -584,23 +597,56 @@ async fn handle_ack(
         expires_at: body.expires_at,
     };
     match store.ack(entry).await {
-        Ok(()) => Ok(StatusCode::CREATED),
+        Ok(()) => {
+            state.metrics.record_ack_success(AckAction::Ack);
+            Ok(StatusCode::CREATED)
+        }
         Err(AckError::AlreadyAcked) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::AlreadyAcked);
             Err(ErrorResponse::new(StatusCode::CONFLICT, "already acked"))
         }
-        Err(AckError::InvalidSignature) => Err(ErrorResponse::new(
-            StatusCode::BAD_REQUEST,
-            "invalid signature format",
-        )),
-        Err(AckError::LimitReached) => Err(ErrorResponse::new(
-            StatusCode::INSUFFICIENT_STORAGE,
-            "active ack limit reached",
-        )),
-        Err(AckError::FileTooLarge | AckError::EntryTooLarge) => Err(ErrorResponse::new(
-            StatusCode::INSUFFICIENT_STORAGE,
-            "ack file size cap reached",
-        )),
+        Err(AckError::InvalidSignature) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::InvalidSignature);
+            Err(ErrorResponse::new(
+                StatusCode::BAD_REQUEST,
+                "invalid signature format",
+            ))
+        }
+        Err(AckError::LimitReached) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::LimitReached);
+            Err(ErrorResponse::new(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "active ack limit reached",
+            ))
+        }
+        Err(AckError::FileTooLarge) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::FileTooLarge);
+            Err(ErrorResponse::new(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "ack file size cap reached",
+            ))
+        }
+        Err(AckError::EntryTooLarge) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::EntryTooLarge);
+            Err(ErrorResponse::new(
+                StatusCode::INSUFFICIENT_STORAGE,
+                "ack entry size cap reached",
+            ))
+        }
         Err(e) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Ack, AckFailureReason::InternalError);
             tracing::error!(error = %e, "ack store write failed");
             Err(ErrorResponse::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -615,20 +661,46 @@ async fn handle_unack(
     Path(signature): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, ErrorResponse> {
-    check_ack_auth(&headers, state.ack_api_key.as_deref())?;
-    let store = state
-        .ack_store
-        .as_ref()
-        .ok_or_else(|| ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "ack store disabled"))?;
+    if let Err(e) = check_ack_auth(&headers, state.ack_api_key.as_deref()) {
+        state
+            .metrics
+            .record_ack_failure(AckAction::Unack, AckFailureReason::Unauthorized);
+        return Err(e);
+    }
+    let Some(store) = state.ack_store.as_ref() else {
+        state
+            .metrics
+            .record_ack_failure(AckAction::Unack, AckFailureReason::NoStore);
+        return Err(ErrorResponse::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ack store disabled",
+        ));
+    };
     let by = resolve_by(&headers, None);
     match store.unack(&signature, &by).await {
-        Ok(()) => Ok(StatusCode::NO_CONTENT),
-        Err(AckError::NotAcked) => Err(ErrorResponse::new(StatusCode::NOT_FOUND, "not acked")),
-        Err(AckError::InvalidSignature) => Err(ErrorResponse::new(
-            StatusCode::BAD_REQUEST,
-            "invalid signature format",
-        )),
+        Ok(()) => {
+            state.metrics.record_ack_success(AckAction::Unack);
+            Ok(StatusCode::NO_CONTENT)
+        }
+        Err(AckError::NotAcked) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Unack, AckFailureReason::NotAcked);
+            Err(ErrorResponse::new(StatusCode::NOT_FOUND, "not acked"))
+        }
+        Err(AckError::InvalidSignature) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Unack, AckFailureReason::InvalidSignature);
+            Err(ErrorResponse::new(
+                StatusCode::BAD_REQUEST,
+                "invalid signature format",
+            ))
+        }
         Err(e) => {
+            state
+                .metrics
+                .record_ack_failure(AckAction::Unack, AckFailureReason::InternalError);
             tracing::error!(error = %e, "ack store unack failed");
             Err(ErrorResponse::new(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1429,6 +1501,7 @@ mod tests {
             .unwrap();
         let resp = app.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
+        assert_eq!(state.metrics.ack_operations_ack_success.get(), 1);
 
         let req = Request::builder()
             .uri("/api/findings")
@@ -1447,11 +1520,19 @@ mod tests {
         let (_dir, store) = fresh_ack_store().await;
         let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
         let sig = seed_finding(&state, "order-svc").await;
-        let app = query_api_router(state);
+        let app = query_api_router(Arc::clone(&state));
         let resp = app.clone().oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
         let resp = app.oneshot(post_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            state
+                .metrics
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "already_acked"])
+                .get(),
+            1
+        );
     }
 
     #[tokio::test]
@@ -1466,6 +1547,7 @@ mod tests {
 
         let resp = app.clone().oneshot(delete_ack_request(&sig)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(state.metrics.ack_operations_unack_success.get(), 1);
 
         let resp = app.oneshot(get_request("/api/findings")).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
@@ -1567,7 +1649,7 @@ mod tests {
         )
         .await;
         let sig = seed_finding(&state, "order-svc").await;
-        let app = query_api_router(state);
+        let app = query_api_router(Arc::clone(&state));
 
         // Missing key: 401
         let resp = app
@@ -1614,6 +1696,94 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED);
+
+        assert_eq!(
+            state
+                .metrics
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "unauthorized"])
+                .get(),
+            2,
+            "missing key + wrong key both bump unauthorized"
+        );
+        assert_eq!(state.metrics.ack_operations_ack_success.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn ack_failure_increments_no_store_when_disabled() {
+        let state = make_state_with_acks(None, HashMap::new(), None).await;
+        let sig = seed_finding(&state, "order-svc").await;
+        let app = query_api_router(Arc::clone(&state));
+
+        let resp = app.oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            state
+                .metrics
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "no_store"])
+                .get(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn toml_conflict_increments_already_acked() {
+        let (_dir, store) = fresh_ack_store().await;
+        let bootstrap = make_state_with_correlator(None);
+        let sig = seed_finding(&bootstrap, "order-svc").await;
+        let mut toml = HashMap::new();
+        toml.insert(
+            sig.clone(),
+            ResolvedTomlAck {
+                inner: Acknowledgment {
+                    signature: sig.clone(),
+                    acknowledged_by: "ci-bot".to_string(),
+                    acknowledged_at: "2026-05-04".to_string(),
+                    reason: "permanent baseline".to_string(),
+                    expires_at: None,
+                },
+                expires_at_dt: None,
+            },
+        );
+        let state = make_state_with_acks(Some(store), toml, None).await;
+        let sig2 = seed_finding(&state, "order-svc").await;
+        assert_eq!(sig, sig2);
+
+        let app = query_api_router(Arc::clone(&state));
+        let resp = app.oneshot(post_ack_request(&sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            state
+                .metrics
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "already_acked"])
+                .get(),
+            1,
+            "TOML conflict bumps the same series as AckError::AlreadyAcked"
+        );
+    }
+
+    #[tokio::test]
+    async fn ack_failure_increments_invalid_signature() {
+        let (_dir, store) = fresh_ack_store().await;
+        let state = make_state_with_acks(Some(store), HashMap::new(), None).await;
+        let app = query_api_router(Arc::clone(&state));
+
+        // Tail uppercase hex fails the canonical-format check in
+        // `daemon::ack::validate_signature` which requires lowercase
+        // hex on the trailing 16-char SHA prefix.
+        let bad_sig = "foo:bar:0123456789ABCDEF";
+        let resp = app.oneshot(post_ack_request(bad_sig)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            state
+                .metrics
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "invalid_signature"])
+                .get(),
+            1
+        );
     }
 
     #[tokio::test]

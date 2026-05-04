@@ -15,6 +15,8 @@ use prometheus::{
     Opts, Registry, TextEncoder,
 };
 
+#[cfg(feature = "daemon")]
+use crate::daemon::ack::AckAction;
 use crate::report::Report;
 
 /// Reason an OTLP request was rejected by the daemon.
@@ -48,6 +50,90 @@ impl OtlpRejectReason {
             Self::ChannelFull => "channel_full",
         }
     }
+}
+
+/// Reason a daemon ack or unack operation failed.
+///
+/// Used as the `reason` label of
+/// `perf_sentinel_ack_operations_failed_total`. Documented combinations
+/// with `AckAction` are pre-warmed to 0 at startup so dashboards can
+/// plot zero-values before the first failure occurs.
+#[cfg(feature = "daemon")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AckFailureReason {
+    /// HTTP 409, action=ack only: signature is already acked, either by
+    /// the daemon JSONL or by an active CI TOML baseline.
+    AlreadyAcked,
+    /// HTTP 404, action=unack only: signature has no active daemon ack.
+    NotAcked,
+    /// HTTP 401: `[daemon.ack] api_key` is set, request missing or
+    /// has an invalid `X-API-Key` header.
+    Unauthorized,
+    /// HTTP 503: ack store disabled (`enabled = false`, or default
+    /// storage path could not be resolved at startup).
+    NoStore,
+    /// HTTP 400: `{signature}` path segment fails canonical format
+    /// validation.
+    InvalidSignature,
+    /// HTTP 507, action=ack only: `MAX_ACTIVE_ACKS` reached.
+    LimitReached,
+    /// HTTP 507, action=ack only: append would push the JSONL above
+    /// `MAX_ACKS_FILE_BYTES` (per-daemon saturation, indicates
+    /// compaction is needed at next restart or the cap should be
+    /// raised).
+    FileTooLarge,
+    /// HTTP 507, action=ack only: a single record exceeds
+    /// `MAX_ACK_ENTRY_BYTES` after serialization, typically because
+    /// the caller-supplied `by` or `reason` field is oversized
+    /// (per-request misuse, indicates client-side validation should
+    /// be tightened).
+    EntryTooLarge,
+    /// HTTP 500: IO failure, serialization error, symlink refused,
+    /// insecure permissions, or no default storage location at write
+    /// time. Also absorbs `AckError::FileTooLarge` and
+    /// `AckError::EntryTooLarge` on the unack path: the unack flow
+    /// surfaces those two cases under `internal_error` with HTTP 500
+    /// rather than HTTP 507, since the ack endpoints do not
+    /// differentiate the cap on the unack write today.
+    InternalError,
+}
+
+#[cfg(feature = "daemon")]
+impl AckFailureReason {
+    /// Stable Prometheus label string for this variant.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::AlreadyAcked => "already_acked",
+            Self::NotAcked => "not_acked",
+            Self::Unauthorized => "unauthorized",
+            Self::NoStore => "no_store",
+            Self::InvalidSignature => "invalid_signature",
+            Self::LimitReached => "limit_reached",
+            Self::FileTooLarge => "file_too_large",
+            Self::EntryTooLarge => "entry_too_large",
+            Self::InternalError => "internal_error",
+        }
+    }
+}
+
+/// Build an `IntCounterVec` and register it on the given registry,
+/// failing the daemon at startup on metric creation or registration
+/// failure. Both branches are infallible in practice (label set is
+/// static and registered once), so `expect` is the documented choice
+/// across `MetricsState::new`.
+fn register_int_counter_vec(
+    registry: &Registry,
+    name: &str,
+    help: &str,
+    labels: &[&str],
+) -> IntCounterVec {
+    let counter =
+        IntCounterVec::new(Opts::new(name, help), labels).expect("metric creation should not fail");
+    registry
+        .register(Box::new(counter.clone()))
+        .expect("registration should not fail");
+    counter
 }
 
 /// Data attached to a metric as an `OpenMetrics` exemplar.
@@ -135,6 +221,27 @@ pub struct MetricsState {
     /// surface an `ingestion_drops` warning in the report payload when
     /// the counter is positive.
     pub otlp_rejected_channel_full: IntCounter,
+    /// Successful ack and unack operations on the daemon HTTP API,
+    /// labeled by `action` (`ack` or `unack`). Pre-warmed to 0 for
+    /// both actions at startup so dashboards plot zero-values before
+    /// the first operation. The 2 `ack_operations_*_success`
+    /// `IntCounter` fields below cache the labeled children for the
+    /// hot path.
+    #[cfg(feature = "daemon")]
+    pub ack_operations_total: IntCounterVec,
+    /// Failed ack and unack operations on the daemon HTTP API, labeled
+    /// by `action` and `reason`. Pre-warmed to 0 for the 13 documented
+    /// reachable combinations (8 reasons on action=ack, 5 reasons on
+    /// action=unack). Failures are by definition rare so no hot-path
+    /// child caching, `with_label_values` is called per call site.
+    #[cfg(feature = "daemon")]
+    pub ack_operations_failed_total: IntCounterVec,
+    /// Cached child for `ack_operations_total{action="ack"}`.
+    #[cfg(feature = "daemon")]
+    pub ack_operations_ack_success: IntCounter,
+    /// Cached child for `ack_operations_total{action="unack"}`.
+    #[cfg(feature = "daemon")]
+    pub ack_operations_unack_success: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -285,17 +392,12 @@ impl MetricsState {
             .register(Box::new(export_report_requests_total.clone()))
             .expect("registration should not fail");
 
-        let otlp_rejected_total = IntCounterVec::new(
-            Opts::new(
-                "perf_sentinel_otlp_rejected_total",
-                "Total OTLP requests rejected by the daemon, by reason",
-            ),
+        let otlp_rejected_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_otlp_rejected_total",
+            "Total OTLP requests rejected by the daemon, by reason",
             &["reason"],
-        )
-        .expect("metric creation should not fail");
-        registry
-            .register(Box::new(otlp_rejected_total.clone()))
-            .expect("registration should not fail");
+        );
         // Cache the 3 labeled children. `with_label_values` materializes
         // the child in the parent vec on first call, so the children
         // both serve as the hot-path increment handles (cf
@@ -307,6 +409,70 @@ impl MetricsState {
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ParseError.as_str()]);
         let otlp_rejected_channel_full =
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ChannelFull.as_str()]);
+
+        #[cfg(feature = "daemon")]
+        let ack_operations_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_ack_operations_total",
+            "Successful ack and unack operations on the daemon HTTP API, by action",
+            &["action"],
+        );
+        #[cfg(feature = "daemon")]
+        let ack_operations_failed_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_ack_operations_failed_total",
+            "Failed ack and unack operations on the daemon HTTP API, by action and reason",
+            &["action", "reason"],
+        );
+        // Cache success children, plus pre-warm documented failure
+        // combinations so dashboards build with `rate()` queries
+        // without `absent()` guards. We skip impossible combinations
+        // (action=ack with reason=not_acked, action=unack with reason
+        // already_acked / limit_reached / file_too_large /
+        // entry_too_large) to avoid misleading series. The `let _ =`
+        // on the failure pre-warm makes the materialization side
+        // effect explicit, the returned child is intentionally
+        // dropped, the parent vec retains it.
+        #[cfg(feature = "daemon")]
+        let ack_operations_ack_success =
+            ack_operations_total.with_label_values(&[AckAction::Ack.as_str()]);
+        #[cfg(feature = "daemon")]
+        let ack_operations_unack_success =
+            ack_operations_total.with_label_values(&[AckAction::Unack.as_str()]);
+        #[cfg(feature = "daemon")]
+        {
+            let prewarm_failure: &[(AckAction, &[AckFailureReason])] = &[
+                (
+                    AckAction::Ack,
+                    &[
+                        AckFailureReason::AlreadyAcked,
+                        AckFailureReason::Unauthorized,
+                        AckFailureReason::NoStore,
+                        AckFailureReason::InvalidSignature,
+                        AckFailureReason::LimitReached,
+                        AckFailureReason::FileTooLarge,
+                        AckFailureReason::EntryTooLarge,
+                        AckFailureReason::InternalError,
+                    ],
+                ),
+                (
+                    AckAction::Unack,
+                    &[
+                        AckFailureReason::NotAcked,
+                        AckFailureReason::Unauthorized,
+                        AckFailureReason::NoStore,
+                        AckFailureReason::InvalidSignature,
+                        AckFailureReason::InternalError,
+                    ],
+                ),
+            ];
+            for (action, reasons) in prewarm_failure {
+                for reason in *reasons {
+                    let _ = ack_operations_failed_total
+                        .with_label_values(&[action.as_str(), reason.as_str()]);
+                }
+            }
+        }
 
         // Process metrics (RSS, FDs, start_time, CPU). procfs-backed,
         // Linux-only. On macOS/Windows we skip registration so each
@@ -337,6 +503,14 @@ impl MetricsState {
             otlp_rejected_unsupported_media_type,
             otlp_rejected_parse_error,
             otlp_rejected_channel_full,
+            #[cfg(feature = "daemon")]
+            ack_operations_total,
+            #[cfg(feature = "daemon")]
+            ack_operations_failed_total,
+            #[cfg(feature = "daemon")]
+            ack_operations_ack_success,
+            #[cfg(feature = "daemon")]
+            ack_operations_unack_success,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }
@@ -347,6 +521,7 @@ impl MetricsState {
     /// rejection site. Branchless `match` over the cached children, no
     /// per-call label hashmap lookup, so a backpressure storm does not
     /// amplify daemon slowdown via metric overhead.
+    #[inline]
     pub fn record_otlp_reject(&self, reason: OtlpRejectReason) {
         match reason {
             OtlpRejectReason::UnsupportedMediaType => {
@@ -355,6 +530,32 @@ impl MetricsState {
             OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
             OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
         }
+    }
+
+    /// Increment `perf_sentinel_ack_operations_total` for the given
+    /// action. Called by the daemon ack endpoints on every successful
+    /// ack or unack write. Branchless `match` over the cached children,
+    /// no per-call label hashmap lookup.
+    #[cfg(feature = "daemon")]
+    #[inline]
+    pub fn record_ack_success(&self, action: AckAction) {
+        match action {
+            AckAction::Ack => self.ack_operations_ack_success.inc(),
+            AckAction::Unack => self.ack_operations_unack_success.inc(),
+        }
+    }
+
+    /// Increment `perf_sentinel_ack_operations_failed_total` for the
+    /// given action and reason. Called at every error exit path of the
+    /// daemon ack endpoints. Failures are by definition rare, so we
+    /// pay the label hashmap lookup per call instead of caching all
+    /// 13 documented children.
+    #[cfg(feature = "daemon")]
+    #[inline]
+    pub fn record_ack_failure(&self, action: AckAction, reason: AckFailureReason) {
+        self.ack_operations_failed_total
+            .with_label_values(&[action.as_str(), reason.as_str()])
+            .inc();
     }
 
     /// snapshot the per-service I/O op counter.
@@ -1660,6 +1861,154 @@ mod tests {
                 .with_label_values(&["unsupported_media_type"])
                 .get(),
             0
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_failure_reason_as_str_round_trips_all_variants() {
+        for (variant, label) in [
+            (AckFailureReason::AlreadyAcked, "already_acked"),
+            (AckFailureReason::NotAcked, "not_acked"),
+            (AckFailureReason::Unauthorized, "unauthorized"),
+            (AckFailureReason::NoStore, "no_store"),
+            (AckFailureReason::InvalidSignature, "invalid_signature"),
+            (AckFailureReason::LimitReached, "limit_reached"),
+            (AckFailureReason::FileTooLarge, "file_too_large"),
+            (AckFailureReason::EntryTooLarge, "entry_too_large"),
+            (AckFailureReason::InternalError, "internal_error"),
+        ] {
+            assert_eq!(variant.as_str(), label);
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn record_ack_success_increments_correct_label() {
+        let state = MetricsState::new();
+        state.record_ack_success(AckAction::Ack);
+        state.record_ack_success(AckAction::Ack);
+        state.record_ack_success(AckAction::Unack);
+        assert_eq!(state.ack_operations_ack_success.get(), 2);
+        assert_eq!(state.ack_operations_unack_success.get(), 1);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn record_ack_failure_increments_correct_combination() {
+        let state = MetricsState::new();
+        state.record_ack_failure(AckAction::Ack, AckFailureReason::Unauthorized);
+        state.record_ack_failure(AckAction::Unack, AckFailureReason::NotAcked);
+        assert_eq!(
+            state
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "unauthorized"])
+                .get(),
+            1
+        );
+        assert_eq!(
+            state
+                .ack_operations_failed_total
+                .with_label_values(&["unack", "not_acked"])
+                .get(),
+            1
+        );
+        assert_eq!(
+            state
+                .ack_operations_failed_total
+                .with_label_values(&["ack", "not_acked"])
+                .get(),
+            0
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_operations_total_starts_at_zero_for_both_actions() {
+        let state = MetricsState::new();
+        assert_eq!(state.ack_operations_ack_success.get(), 0);
+        assert_eq!(state.ack_operations_unack_success.get(), 0);
+        let output = state.render();
+        for action in ["ack", "unack"] {
+            assert!(
+                output.contains(&format!(
+                    "perf_sentinel_ack_operations_total{{action=\"{action}\"}} 0"
+                )),
+                "pre-warmed line for action={action} should appear, got: {output}"
+            );
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_operations_failed_total_starts_at_zero_for_documented_combinations() {
+        let state = MetricsState::new();
+        let output = state.render();
+        let documented: &[(&str, &[&str])] = &[
+            (
+                "ack",
+                &[
+                    "already_acked",
+                    "unauthorized",
+                    "no_store",
+                    "invalid_signature",
+                    "limit_reached",
+                    "file_too_large",
+                    "entry_too_large",
+                    "internal_error",
+                ],
+            ),
+            (
+                "unack",
+                &[
+                    "not_acked",
+                    "unauthorized",
+                    "no_store",
+                    "invalid_signature",
+                    "internal_error",
+                ],
+            ),
+        ];
+        for (action, reasons) in documented {
+            for reason in *reasons {
+                let line = format!(
+                    "perf_sentinel_ack_operations_failed_total{{action=\"{action}\",reason=\"{reason}\"}} 0"
+                );
+                assert!(
+                    output.contains(&line),
+                    "pre-warmed line {line} should appear in /metrics"
+                );
+            }
+        }
+        // Impossible combinations must not be pre-warmed: scraping for
+        // them would mislead operators into building queries on series
+        // that can never grow.
+        for forbidden in [
+            "perf_sentinel_ack_operations_failed_total{action=\"ack\",reason=\"not_acked\"}",
+            "perf_sentinel_ack_operations_failed_total{action=\"unack\",reason=\"already_acked\"}",
+            "perf_sentinel_ack_operations_failed_total{action=\"unack\",reason=\"limit_reached\"}",
+            "perf_sentinel_ack_operations_failed_total{action=\"unack\",reason=\"file_too_large\"}",
+            "perf_sentinel_ack_operations_failed_total{action=\"unack\",reason=\"entry_too_large\"}",
+        ] {
+            assert!(
+                !output.contains(forbidden),
+                "forbidden combination {forbidden} should not be pre-warmed"
+            );
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_operations_appear_in_render() {
+        let state = MetricsState::new();
+        let output = state.render();
+        assert!(
+            output.contains("perf_sentinel_ack_operations_total"),
+            "registry should expose perf_sentinel_ack_operations_total"
+        );
+        assert!(
+            output.contains("perf_sentinel_ack_operations_failed_total"),
+            "registry should expose perf_sentinel_ack_operations_failed_total"
         );
     }
 
