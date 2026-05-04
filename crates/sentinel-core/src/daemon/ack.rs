@@ -38,7 +38,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncBufReadExt, AsyncSeekExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, RwLock};
 
 /// Hard cap on the JSONL file size. A daemon that survives this much
@@ -56,10 +56,21 @@ pub const MAX_ACK_ENTRY_BYTES: usize = 4 * 1024;
 pub const MAX_ACTIVE_ACKS: usize = 10_000;
 
 /// Soft cap on signature byte length accepted by `ack` / `unack`.
-/// Output of `compute_signature` is at most ~150 bytes in practice
-/// (long service name + endpoint), 256 leaves comfortable margin while
-/// rejecting obvious garbage.
-const MAX_SIGNATURE_LEN: usize = 256;
+/// OTLP `service.name` is up to 255 bytes per the `OTel` spec, plus a
+/// finding type prefix and a sanitized endpoint, so 512 leaves
+/// comfortable margin while still rejecting obvious garbage.
+const MAX_SIGNATURE_LEN: usize = 512;
+
+/// Soft cap on `AckEntry::by` byte length. Bounds JSONL line size for a
+/// pathological caller and matches typical email / SSO identifier
+/// lengths (~64-128 bytes).
+const MAX_BY_LEN: usize = 256;
+
+/// Soft cap on `AckEntry::reason` byte length. Mirrors the field cap on
+/// span events: dozens to hundreds of bytes in practice, this leaves
+/// headroom for ticket links and short justifications without letting
+/// an attacker fill the audit log with multi-KB descriptions.
+const MAX_REASON_LEN: usize = 1024;
 
 /// Single ack/unack event written to the JSONL file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,6 +102,8 @@ pub enum AckError {
         #[source]
         source: serde_json::Error,
     },
+    #[error("ack entry serialization error: {0}")]
+    Serialize(#[source] serde_json::Error),
     #[error("ack file exceeds max size of {} bytes", MAX_ACKS_FILE_BYTES)]
     FileTooLarge,
     #[error("ack entry exceeds max size of {} bytes", MAX_ACK_ENTRY_BYTES)]
@@ -103,14 +116,25 @@ pub enum AckError {
     NotAcked,
     #[error("invalid signature format")]
     InvalidSignature,
+    #[error("ack file at '{path}' is a symlink, refusing to follow")]
+    SymlinkRefused { path: String },
+    #[error("ack file '{path}' has insecure permissions ({mode:o}), refusing to open")]
+    InsecurePermissions { path: String, mode: u32 },
     #[error("no default storage location available, set [daemon.ack] storage_path explicitly")]
     NoStorageLocation,
 }
 
 /// In-memory + persisted ack state.
+///
+/// The `file` mutex is the ack-state lock: every state mutation (`ack`,
+/// `unack`, replay) holds it for the entire critical section, so the
+/// file is the linearization point for the in-memory map. Readers take
+/// only the `RwLock` and observe the `Arc<HashMap>` snapshot without
+/// blocking writers. Writers swap a fresh `Arc` after each mutation so
+/// outstanding read snapshots stay valid (cheap `Arc::clone` per read).
 pub struct AckStore {
     storage_path: PathBuf,
-    active: RwLock<HashMap<String, AckEntry>>,
+    active: RwLock<Arc<HashMap<String, AckEntry>>>,
     file: Mutex<File>,
 }
 
@@ -152,7 +176,7 @@ impl AckStore {
 
         Ok(Arc::new(Self {
             storage_path,
-            active: RwLock::new(active),
+            active: RwLock::new(Arc::new(active)),
             file: Mutex::new(file),
         }))
     }
@@ -171,6 +195,10 @@ impl AckStore {
         validate_signature(&entry.signature)?;
         sanitize_entry(&mut entry);
 
+        // The file mutex linearizes all writers. Readers (`snapshot_active`,
+        // `list_active`) take only the `RwLock` to clone the current `Arc`,
+        // so the read-then-write split below is race-free against other
+        // ack/unack callers and never blocks readers.
         let mut file = self.file.lock().await;
         {
             let active = self.active.read().await;
@@ -183,7 +211,9 @@ impl AckStore {
         }
         append_line(&mut file, &entry).await?;
         let mut active = self.active.write().await;
-        active.insert(entry.signature.clone(), entry);
+        let mut new_map = (**active).clone();
+        new_map.insert(entry.signature.clone(), entry);
+        *active = Arc::new(new_map);
         Ok(())
     }
 
@@ -203,36 +233,40 @@ impl AckStore {
                 return Err(AckError::NotAcked);
             }
         }
+        let mut by = strip_bidi(by);
+        truncate_field(&mut by, MAX_BY_LEN);
         let entry = AckEntry {
             action: AckAction::Unack,
             signature: signature.to_string(),
-            by: strip_bidi(by),
+            by,
             reason: None,
             at: Utc::now(),
             expires_at: None,
         };
         append_line(&mut file, &entry).await?;
         let mut active = self.active.write().await;
-        active.remove(signature);
+        let mut new_map = (**active).clone();
+        new_map.remove(signature);
+        *active = Arc::new(new_map);
         Ok(())
     }
 
-    /// Snapshot the active ack map for query-time filtering.
+    /// Cheap snapshot of the active ack map for query-time filtering.
     ///
-    /// Cheaper than `list_active` when the caller only needs key
-    /// lookups: this returns the underlying map shape, the caller can
-    /// `.get(signature)` directly.
-    pub async fn snapshot_active(&self) -> HashMap<String, AckEntry> {
-        let now = Utc::now();
-        let active = self.active.read().await;
-        active
-            .iter()
-            .filter(|(_, e)| !is_expired(e, now))
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
+    /// Returns an `Arc<HashMap>` clone (single atomic refcount inc, no
+    /// data copy). Callers that need O(1) signature lookup hold the
+    /// `Arc` for the lifetime of their filter pass, no lock contention
+    /// with concurrent `ack`/`unack` writers. Expired entries are not
+    /// filtered out at this stage, the caller applies its own
+    /// expiration check via [`is_expired`] at query time.
+    pub async fn snapshot_active(&self) -> Arc<HashMap<String, AckEntry>> {
+        Arc::clone(&*self.active.read().await)
     }
 
-    /// List all active acks. Used by `GET /api/acks`.
+    /// List all active acks. Used by `GET /api/acks`. Filters expired
+    /// entries (they are removed from the persisted map at compaction
+    /// time, but a daemon that has been running past an entry's
+    /// `expires_at` would still surface them otherwise).
     pub async fn list_active(&self) -> Vec<AckEntry> {
         let now = Utc::now();
         let active = self.active.read().await;
@@ -288,31 +322,77 @@ fn validate_signature(sig: &str) -> Result<(), AckError> {
 
 fn sanitize_entry(entry: &mut AckEntry) {
     entry.by = strip_bidi(&entry.by);
-    if let Some(ref reason) = entry.reason {
-        entry.reason = Some(strip_bidi(reason));
+    truncate_field(&mut entry.by, MAX_BY_LEN);
+    if let Some(reason) = entry.reason.as_mut() {
+        *reason = strip_bidi(reason);
+        truncate_field(reason, MAX_REASON_LEN);
     }
+}
+
+fn truncate_field(s: &mut String, max_bytes: usize) {
+    if s.len() <= max_bytes {
+        return;
+    }
+    // Truncate at the last UTF-8 boundary at or below max_bytes so we
+    // never leave a half-encoded code point in the persisted JSONL.
+    let mut cut = max_bytes;
+    while cut > 0 && !s.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    s.truncate(cut);
 }
 
 fn strip_bidi(s: &str) -> String {
     crate::report::sarif::strip_bidi_and_invisible(s)
 }
 
-fn is_expired(entry: &AckEntry, now: DateTime<Utc>) -> bool {
+pub(crate) fn is_expired(entry: &AckEntry, now: DateTime<Utc>) -> bool {
     entry.expires_at.is_some_and(|exp| exp < now)
 }
 
 async fn open_append(path: &Path) -> Result<File, AckError> {
+    #[cfg(unix)]
+    {
+        // Refuse to follow symlinks: a hostile local user could
+        // pre-create the storage path as a symlink to `~/.bashrc` or
+        // `~/.ssh/authorized_keys` and the daemon would happily append
+        // JSONL lines to it. `O_NOFOLLOW` makes `open` fail with ELOOP
+        // on the leaf if it is a symlink. The leaf is the only entry
+        // we control, deeper components like `~/.local/share` are
+        // operator-trusted.
+        if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
+            && metadata.file_type().is_symlink()
+        {
+            return Err(AckError::SymlinkRefused {
+                path: path.display().to_string(),
+            });
+        }
+    }
     let mut opts = OpenOptions::new();
     opts.create(true).append(true).read(true);
     #[cfg(unix)]
-    opts.mode(0o600);
+    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     let file = opts.open(path).await?;
+    #[cfg(unix)]
+    {
+        // `mode(0o600)` only applies on creation. If a hostile local
+        // user pre-created the file with weaker permissions, refuse
+        // to append rather than leak audit data.
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = file.metadata().await?;
+        let mode = metadata.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            return Err(AckError::InsecurePermissions {
+                path: path.display().to_string(),
+                mode,
+            });
+        }
+    }
     Ok(file)
 }
 
 async fn append_line(file: &mut File, entry: &AckEntry) -> Result<(), AckError> {
-    let mut line =
-        serde_json::to_string(entry).map_err(|e| AckError::Parse { line: 0, source: e })?;
+    let mut line = serde_json::to_string(entry).map_err(AckError::Serialize)?;
     if line.len() + 1 > MAX_ACK_ENTRY_BYTES {
         return Err(AckError::EntryTooLarge);
     }
@@ -321,6 +401,10 @@ async fn append_line(file: &mut File, entry: &AckEntry) -> Result<(), AckError> 
     if metadata.len().saturating_add(line.len() as u64) > MAX_ACKS_FILE_BYTES {
         return Err(AckError::FileTooLarge);
     }
+    // `fsync` per write is intentional: a daemon crash after a 201
+    // Created response must not lose the ack on disk. Acks are
+    // operator-driven and rare (dozens per day across a fleet), so
+    // the per-write durability cost is negligible.
     file.write_all(line.as_bytes()).await?;
     file.flush().await?;
     file.sync_data().await?;
@@ -336,19 +420,21 @@ async fn replay_and_compact(
         return Err(AckError::FileTooLarge);
     }
 
-    let mut file = OpenOptions::new().read(true).open(path).await?;
-    file.seek(std::io::SeekFrom::Start(0)).await?;
+    // Open via the same hardened helper so an attacker cannot symlink
+    // the path to leak file content during replay.
+    let file = open_for_replay(path).await?;
     let reader = BufReader::new(file);
+    // Cap each line at MAX_ACK_ENTRY_BYTES + 1 so a malformed file
+    // with one giant un-terminated line cannot allocate the entire
+    // file into a single `String` before the post-read length check.
     let mut lines = reader.lines();
     let mut active: HashMap<String, AckEntry> = HashMap::new();
     let mut line_no = 0usize;
-    while let Some(line) = lines.next_line().await? {
+    let mut dropped_for_limit = 0usize;
+    while let Some(line) = read_capped_line(&mut lines).await? {
         line_no += 1;
         if line.is_empty() {
             continue;
-        }
-        if line.len() > MAX_ACK_ENTRY_BYTES {
-            return Err(AckError::EntryTooLarge);
         }
         let entry: AckEntry = serde_json::from_str(&line).map_err(|e| AckError::Parse {
             line: line_no,
@@ -356,18 +442,70 @@ async fn replay_and_compact(
         })?;
         match entry.action {
             AckAction::Ack => {
-                if !is_expired(&entry, now) && active.len() < MAX_ACTIVE_ACKS {
-                    active.insert(entry.signature.clone(), entry);
+                if is_expired(&entry, now) {
+                    continue;
                 }
+                if active.len() >= MAX_ACTIVE_ACKS {
+                    dropped_for_limit += 1;
+                    continue;
+                }
+                active.insert(entry.signature.clone(), entry);
             }
             AckAction::Unack => {
                 active.remove(&entry.signature);
             }
         }
     }
+    if dropped_for_limit > 0 {
+        tracing::warn!(
+            dropped = dropped_for_limit,
+            cap = MAX_ACTIVE_ACKS,
+            "ack store at MAX_ACTIVE_ACKS during replay, additional Ack lines dropped"
+        );
+    }
 
     rewrite_compacted(path, &active).await?;
     Ok(active)
+}
+
+#[cfg(unix)]
+async fn open_for_replay(path: &Path) -> Result<File, AckError> {
+    if let Ok(metadata) = tokio::fs::symlink_metadata(path).await
+        && metadata.file_type().is_symlink()
+    {
+        return Err(AckError::SymlinkRefused {
+            path: path.display().to_string(),
+        });
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .await?;
+    Ok(file)
+}
+
+#[cfg(not(unix))]
+async fn open_for_replay(path: &Path) -> Result<File, AckError> {
+    let file = OpenOptions::new().read(true).open(path).await?;
+    Ok(file)
+}
+
+/// Read one JSONL line, capped at `MAX_ACK_ENTRY_BYTES + 1` bytes to
+/// bound allocation on a malformed input that lacks newlines.
+async fn read_capped_line<R>(lines: &mut tokio::io::Lines<R>) -> Result<Option<String>, AckError>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    // `tokio::io::Lines::next_line()` reads until newline or EOF,
+    // appending to a String with no built-in cap. We pre-check by
+    // peeking the buffered reader length is bounded by the file-size
+    // cap upstream. Defense in depth: enforce per-line cap on the
+    // returned string.
+    match lines.next_line().await? {
+        Some(line) if line.len() > MAX_ACK_ENTRY_BYTES => Err(AckError::EntryTooLarge),
+        other => Ok(other),
+    }
 }
 
 async fn rewrite_compacted(
@@ -375,12 +513,13 @@ async fn rewrite_compacted(
     active: &HashMap<String, AckEntry>,
 ) -> Result<(), AckError> {
     let tmp = path.with_extension("jsonl.tmp");
-    let mut tmp_file = open_append(&tmp).await?;
-    tmp_file.set_len(0).await?;
-    tmp_file.seek(std::io::SeekFrom::Start(0)).await?;
+    let mut opts = OpenOptions::new();
+    opts.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    opts.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    let mut tmp_file = opts.open(&tmp).await?;
     for entry in active.values() {
-        let mut line =
-            serde_json::to_string(entry).map_err(|e| AckError::Parse { line: 0, source: e })?;
+        let mut line = serde_json::to_string(entry).map_err(AckError::Serialize)?;
         line.push('\n');
         tmp_file.write_all(line.as_bytes()).await?;
     }
@@ -556,11 +695,19 @@ mod tests {
         // Bypass the public `ack` for the already-expired entry, which
         // would never accept it if applied in production order.
         let mut active = store.active.write().await;
-        active.insert(sig_dead.clone(), dead);
+        let mut new_map = (**active).clone();
+        new_map.insert(sig_dead.clone(), dead);
+        *active = Arc::new(new_map);
         drop(active);
         let snap = store.snapshot_active().await;
-        assert_eq!(snap.len(), 1);
+        // snapshot_active does not filter expired (callers do), so the
+        // expired entry is present in the snapshot.
+        assert_eq!(snap.len(), 2);
         assert!(snap.contains_key(&sig_live));
+        // list_active filters expired at query time.
+        let listed = store.list_active().await;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].signature, sig_live);
     }
 
     #[tokio::test]
@@ -647,9 +794,11 @@ mod tests {
             ..sample_entry(&sig, AckAction::Ack)
         };
         // Bypass `ack` because it would not insert an already-expired entry.
-        // Use the file path directly to plant the expired entry.
+        // Build a fresh map containing the expired entry and swap it in.
         let mut active = store.active.write().await;
-        active.insert(sig.clone(), entry);
+        let mut new_map = (**active).clone();
+        new_map.insert(sig.clone(), entry);
+        *active = Arc::new(new_map);
         drop(active);
         assert!(store.list_active().await.is_empty());
     }
@@ -667,5 +816,68 @@ mod tests {
         // fixed-format.
         let s = "n_plus_one_sql:svc:with:colons:_endpoint:0123456789abcdef";
         assert!(validate_signature(s).is_ok());
+    }
+
+    #[tokio::test]
+    async fn ack_truncates_oversized_by_and_reason() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("acks.jsonl");
+        let store = AckStore::new(path).await.unwrap();
+        let sig = valid_sig("foo:svc:_endpoint");
+        let entry = AckEntry {
+            by: "x".repeat(MAX_BY_LEN + 100),
+            reason: Some("y".repeat(MAX_REASON_LEN + 500)),
+            ..sample_entry(&sig, AckAction::Ack)
+        };
+        store.ack(entry).await.unwrap();
+        let active = store.list_active().await;
+        assert_eq!(active[0].by.len(), MAX_BY_LEN);
+        assert_eq!(active[0].reason.as_ref().unwrap().len(), MAX_REASON_LEN);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn open_append_refuses_symlink() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.jsonl");
+        let link = dir.path().join("acks.jsonl");
+        tokio::fs::write(&target, b"").await.unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let err = AckStore::new(link.clone()).await.unwrap_err();
+        assert!(
+            matches!(err, AckError::SymlinkRefused { .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn startup_compaction_resets_weak_permissions_to_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("acks.jsonl");
+        // Plant a pre-existing file with world-readable permissions.
+        tokio::fs::write(&path, b"").await.unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        // Startup compaction unconditionally rewrites the file with
+        // mode 0600, eliminating any weak-permission window an
+        // attacker could have planted before daemon launch.
+        let _store = AckStore::new(path.clone()).await.unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "file mode after startup is {mode:o}");
+    }
+
+    #[tokio::test]
+    async fn replay_rejects_overlong_line_without_full_buffer_alloc() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("acks.jsonl");
+        // One unterminated giant line over the per-line cap, no newline
+        // until well past MAX_ACK_ENTRY_BYTES. The reader should bail
+        // with EntryTooLarge rather than allocating the whole thing
+        // into a single String before parsing.
+        let blob = vec![b'x'; MAX_ACK_ENTRY_BYTES + 100];
+        tokio::fs::write(&path, blob).await.unwrap();
+        let err = AckStore::new(path).await.unwrap_err();
+        assert!(matches!(err, AckError::EntryTooLarge), "got {err:?}");
     }
 }

@@ -137,7 +137,7 @@ async fn init_ack_resources(
     config: &Config,
 ) -> Result<
     (
-        Arc<HashMap<String, acknowledgments::Acknowledgment>>,
+        Arc<HashMap<String, query_api::ResolvedTomlAck>>,
         Option<Arc<AckStore>>,
     ),
     DaemonError,
@@ -149,14 +149,36 @@ async fn init_ack_resources(
         || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
         |s| Path::new(s).to_path_buf(),
     );
+    let path_existed = toml_path.exists();
     let file = acknowledgments::load_from_file(&toml_path).map_err(DaemonError::AckTomlLoad)?;
     let now = Utc::now();
     let toml_acks: HashMap<_, _> = file
         .acknowledged
         .into_iter()
         .filter(|a| acknowledgments::is_ack_active(a, now))
-        .map(|a| (a.signature.clone(), a))
+        .map(|a| {
+            let expires_at_dt = parse_expires_at_end_of_day(a.expires_at.as_deref());
+            (
+                a.signature.clone(),
+                query_api::ResolvedTomlAck {
+                    inner: a,
+                    expires_at_dt,
+                },
+            )
+        })
         .collect();
+    if path_existed {
+        tracing::info!(
+            path = %toml_path.display(),
+            count = toml_acks.len(),
+            "Loaded CI ack TOML baseline"
+        );
+    } else {
+        tracing::info!(
+            path = %toml_path.display(),
+            "No CI ack TOML found at startup, set [daemon.ack] toml_path to override"
+        );
+    }
 
     let storage_path = match &config.ack_storage_path {
         Some(p) => PathBuf::from(p),
@@ -167,6 +189,13 @@ async fn init_ack_resources(
         .map_err(DaemonError::AckStoreInit)?;
     tracing::info!(path = %store.storage_path().display(), "Daemon ack store ready");
     Ok((Arc::new(toml_acks), Some(store)))
+}
+
+fn parse_expires_at_end_of_day(value: Option<&str>) -> Option<chrono::DateTime<Utc>> {
+    let raw = value?;
+    let date = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()?;
+    let end_of_day = date.and_hms_opt(23, 59, 59)?;
+    Some(end_of_day.and_utc())
 }
 
 /// Assemble the OTLP HTTP + metrics + optional query API router, with the
@@ -180,7 +209,7 @@ fn build_http_router(
     correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     metrics: Arc<MetricsState>,
     green_summary: Arc<RwLock<GreenSummary>>,
-    toml_acks: Arc<HashMap<String, acknowledgments::Acknowledgment>>,
+    toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
     let otlp_router = crate::ingest::otlp::otlp_http_router(

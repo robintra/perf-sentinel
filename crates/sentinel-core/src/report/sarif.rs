@@ -419,9 +419,11 @@ fn contains_percent_encoded_dot(fp: &str) -> bool {
 pub(crate) fn is_bidi_or_invisible(c: char) -> bool {
     matches!(
         c,
-        '\u{061C}' // Arabic Letter Mark (BiDi formatting)
+        '\u{00AD}' // Soft hyphen (visually invisible mid-word)
+        | '\u{061C}' // Arabic Letter Mark (BiDi formatting)
         | '\u{180E}' // Mongolian Vowel Separator (deprecated invisible)
         | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
+        | '\u{2060}'..='\u{2064}' // Word Joiner + invisible operators
         | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
         | '\u{200B}'..='\u{200F}' // ZWSP, ZWNJ, ZWJ, LRM, RLM
         | '\u{FEFF}' // BOM / zero-width no-break space

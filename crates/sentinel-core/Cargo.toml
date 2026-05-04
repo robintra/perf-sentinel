@@ -18,7 +18,7 @@ name = "sentinel_core"
 # Enable daemon mode: Scaphandre RAPL scraper, cloud SPECpower scraper,
 # and the `watch` command event loop. Without this feature, only batch
 # analysis (`analyze`, `explain`, `demo`, `bench`, `pg-stat`) is available.
-daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http"]
+daemon = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:arc-swap", "dep:hyper-rustls", "dep:tokio-rustls", "dep:tokio-stream", "dep:tower-http", "dep:dirs", "dep:subtle", "dep:libc"]
 # Enable `perf-sentinel tempo` subcommand for querying Grafana Tempo API.
 tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
 # Enable `perf-sentinel jaeger-query` subcommand for querying any
@@ -55,16 +55,6 @@ lru = "0.18.0"
 # (`Utc::now()` comparison).
 sha2 = "0.11.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
-# Cross-platform locator for `~/.local/share/perf-sentinel/acks.jsonl`
-# (XDG on Linux, Library/Application Support on macOS, Roaming on Windows).
-# The daemon ack store falls back to a hard error when this returns None,
-# so the operator must configure `[daemon.ack] storage_path` explicitly
-# rather than risk losing audit data to /tmp on a quirky environment.
-dirs = "6.0.0"
-# Constant-time byte comparison for the optional `[daemon.ack] api_key`
-# header check, so a wrong key does not leak its prefix length through
-# timing.
-subtle = "2.6.1"
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }
@@ -77,6 +67,15 @@ tokio-rustls = { version = "0.26.4", optional = true, default-features = false, 
 tokio-stream = { version = "0.1.18", optional = true }
 # Provides RequestDecompressionLayer for OTLP/HTTP gzip decompression on /v1/traces.
 tower-http = { version = "0.6.8", features = ["decompression-gzip", "limit"], optional = true }
+# Cross-platform locator for `~/.local/share/perf-sentinel/acks.jsonl`
+# (XDG on Linux, Library/Application Support on macOS, Roaming on Windows).
+# Daemon-only: only the ack store consumes it, batch builds skip the dep.
+dirs = { version = "6.0.0", optional = true }
+# Constant-time byte comparison for the optional `[daemon.ack] api_key`
+# header check. Daemon-only (loopback API).
+subtle = { version = "2.6.1", optional = true }
+# `libc::O_NOFOLLOW` for hardened ack-file open. Daemon-only.
+libc = { version = "0.2.186", optional = true }
 
 [dev-dependencies]
 tower = { version = "0.5.3", features = ["util", "timeout"] }

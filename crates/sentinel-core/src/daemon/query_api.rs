@@ -14,9 +14,9 @@ use axum::{Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::ack::{AckAction, AckEntry, AckError, AckStore};
+use super::ack::{self, AckAction, AckEntry, AckError, AckStore};
 use super::findings_store::{FindingsFilter, FindingsStore, StoredFinding};
-use crate::acknowledgments::{self, Acknowledgment, compute_signature};
+use crate::acknowledgments::{Acknowledgment, compute_signature};
 use crate::correlate::Trace;
 use crate::correlate::window::TraceWindow;
 use crate::detect::correlate_cross::{CrossTraceCorrelation, CrossTraceCorrelator};
@@ -37,6 +37,10 @@ const MAX_FINDINGS_LIMIT: usize = 1000;
 /// already bounds the correlator's memory, but serializing all pairs
 /// per poll is still an expensive operation we want to limit.
 const MAX_CORRELATIONS_LIMIT: usize = 1000;
+
+/// Upper bound for `GET /api/acks` response size. Same rationale as
+/// the other caps (loopback API, bounded JSON serialization).
+const MAX_ACKS_RESPONSE: usize = 1000;
 
 /// Shared state for query API route handlers.
 pub struct QueryApiState {
@@ -72,7 +76,9 @@ pub struct QueryApiState {
     pub ack_store: Option<Arc<AckStore>>,
     /// CI-side TOML acks loaded at daemon startup. Read-only baseline,
     /// unioned with `ack_store` at query time. TOML wins on conflict.
-    pub toml_acks: Arc<HashMap<String, Acknowledgment>>,
+    /// The `expires_at` string is pre-parsed at startup into a
+    /// [`ResolvedTomlAck`] so the hot query path does no chrono parse.
+    pub toml_acks: Arc<HashMap<String, ResolvedTomlAck>>,
     /// Optional API key for ack `POST` / `DELETE`. `None` means no auth
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
@@ -117,6 +123,18 @@ struct AckRequest {
     by: Option<String>,
     reason: Option<String>,
     expires_at: Option<DateTime<Utc>>,
+}
+
+/// CI TOML ack with its expiry pre-parsed at startup. Stored in
+/// [`QueryApiState::toml_acks`] so the per-request `lookup_ack` path
+/// avoids re-parsing the wire-format `expires_at: Option<String>` on
+/// every finding.
+#[derive(Debug, Clone)]
+pub struct ResolvedTomlAck {
+    pub inner: Acknowledgment,
+    /// Pre-parsed expiry, end-of-day in UTC for the `YYYY-MM-DD` value.
+    /// `None` means the ack never expires.
+    pub expires_at_dt: Option<DateTime<Utc>>,
 }
 
 /// Source of an ack annotation on a finding response. TOML acks come
@@ -181,16 +199,27 @@ async fn handle_findings(
         limit: params.limit.unwrap_or(100).min(MAX_FINDINGS_LIMIT),
     };
     let stored = state.findings_store.query(&filter).await;
-    let daemon_snapshot = match &state.ack_store {
+    let daemon_snapshot: Arc<HashMap<String, AckEntry>> = match &state.ack_store {
         Some(s) => s.snapshot_active().await,
-        None => HashMap::new(),
+        None => Arc::new(HashMap::new()),
     };
     let now = Utc::now();
     let result: Vec<FindingResponse> = stored
         .into_iter()
         .filter_map(|s| {
-            let sig = compute_signature(&s.finding);
-            let ack = lookup_ack(&sig, &state.toml_acks, &daemon_snapshot, now);
+            // The event loop populates `Finding.signature` via
+            // `enrich_with_signatures` before the finding lands in the
+            // store, so the read path is allocation-free. Defensive
+            // fallback for findings replayed from a pre-0.5.17 baseline
+            // dump where the field could be empty.
+            let owned_sig: String;
+            let sig: &str = if s.finding.signature.is_empty() {
+                owned_sig = compute_signature(&s.finding);
+                &owned_sig
+            } else {
+                &s.finding.signature
+            };
+            let ack = lookup_ack(sig, &state.toml_acks, &daemon_snapshot, now);
             match (include_acked, ack) {
                 (false, Some(_)) => None,
                 (false, None) => Some(FindingResponse {
@@ -209,22 +238,22 @@ async fn handle_findings(
 
 fn lookup_ack(
     signature: &str,
-    toml: &HashMap<String, Acknowledgment>,
+    toml: &HashMap<String, ResolvedTomlAck>,
     daemon: &HashMap<String, AckEntry>,
     now: DateTime<Utc>,
 ) -> Option<AckSource> {
     if let Some(t) = toml.get(signature)
-        && acknowledgments::is_ack_active(t, now)
+        && t.expires_at_dt.is_none_or(|e| e >= now)
     {
         return Some(AckSource::Toml {
-            acknowledged_by: t.acknowledged_by.clone(),
-            acknowledged_at: t.acknowledged_at.clone(),
-            reason: t.reason.clone(),
-            expires_at: t.expires_at.clone(),
+            acknowledged_by: t.inner.acknowledged_by.clone(),
+            acknowledged_at: t.inner.acknowledged_at.clone(),
+            reason: t.inner.reason.clone(),
+            expires_at: t.inner.expires_at.clone(),
         });
     }
     if let Some(d) = daemon.get(signature)
-        && d.expires_at.is_none_or(|e| e >= now)
+        && !ack::is_expired(d, now)
     {
         return Some(AckSource::Daemon {
             by: d.by.clone(),
@@ -522,6 +551,19 @@ async fn handle_ack(
         .ack_store
         .as_ref()
         .ok_or_else(|| ErrorResponse::new(StatusCode::SERVICE_UNAVAILABLE, "ack store disabled"))?;
+    // Refuse to write a daemon ack on a signature that already has an
+    // active TOML baseline. Without this check the daemon line would
+    // be appended to JSONL but `lookup_ack` would silently surface the
+    // TOML metadata in the response, leaving the operator confused
+    // about which entry "took effect".
+    if let Some(t) = state.toml_acks.get(&signature)
+        && t.expires_at_dt.is_none_or(|e| e >= Utc::now())
+    {
+        return Err(ErrorResponse::new(
+            StatusCode::CONFLICT,
+            "signature is acked by the CI TOML baseline, edit the file via PR review",
+        ));
+    }
     let by = resolve_by(&headers, body.by.as_deref());
     let entry = AckEntry {
         action: AckAction::Ack,
@@ -591,7 +633,7 @@ async fn handle_list_acks(State(state): State<Arc<QueryApiState>>) -> Json<Vec<A
         Some(s) => s.list_active().await,
         None => Vec::new(),
     };
-    all.truncate(MAX_FINDINGS_LIMIT);
+    all.truncate(MAX_ACKS_RESPONSE);
     Json(all)
 }
 
@@ -1307,7 +1349,7 @@ mod tests {
     #[allow(clippy::unused_async)]
     async fn make_state_with_acks(
         ack_store: Option<Arc<AckStore>>,
-        toml_acks: HashMap<String, Acknowledgment>,
+        toml_acks: HashMap<String, ResolvedTomlAck>,
         ack_api_key: Option<String>,
     ) -> Arc<QueryApiState> {
         let mut state = (*make_state_with_correlator(None)).clone_for_test();
@@ -1482,12 +1524,15 @@ mod tests {
         let mut toml = HashMap::new();
         toml.insert(
             sig.clone(),
-            Acknowledgment {
-                signature: sig.clone(),
-                acknowledged_by: "ci-bot".to_string(),
-                acknowledged_at: "2026-05-04".to_string(),
-                reason: "permanent baseline".to_string(),
-                expires_at: None,
+            ResolvedTomlAck {
+                inner: Acknowledgment {
+                    signature: sig.clone(),
+                    acknowledged_by: "ci-bot".to_string(),
+                    acknowledged_at: "2026-05-04".to_string(),
+                    reason: "permanent baseline".to_string(),
+                    expires_at: None,
+                },
+                expires_at_dt: None,
             },
         );
         let state = make_state_with_acks(Some(store), toml, None).await;
@@ -1496,7 +1541,9 @@ mod tests {
         assert_eq!(sig, sig2);
 
         let app = query_api_router(Arc::clone(&state));
-        // Plant a daemon ack on the same signature.
+        // POST on a TOML-acked signature returns 409 (the daemon will not
+        // shadow the immutable baseline with a runtime line that has no
+        // visible effect).
         let resp = app
             .clone()
             .oneshot(
@@ -1509,8 +1556,10 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::CREATED);
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
 
+        // The TOML ack is still surfaced on the read path with
+        // `acknowledged_by.source == "toml"`.
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1622,6 +1671,43 @@ mod tests {
         let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(list[0]["signature"], sig);
+    }
+
+    #[test]
+    fn finding_response_does_not_collide_with_stored_finding_fields() {
+        // Pin the JSON shape: `acknowledged_by` lives at the top level
+        // alongside the flattened StoredFinding fields, never nested
+        // under `finding`. A future refactor that adds an
+        // `acknowledged_by` to either StoredFinding or Finding would
+        // shadow this and break clients that parse the source field.
+        let finding = crate::test_helpers::make_finding(
+            detect::FindingType::NPlusOneSql,
+            detect::Severity::Warning,
+        );
+        let resp = FindingResponse {
+            stored: StoredFinding {
+                finding,
+                stored_at_ms: 1234,
+            },
+            acknowledged_by: Some(AckSource::Daemon {
+                by: "alice".to_string(),
+                at: Utc::now(),
+                reason: None,
+                expires_at: None,
+            }),
+        };
+        let v = serde_json::to_value(&resp).unwrap();
+        let obj = v
+            .as_object()
+            .expect("FindingResponse serializes as an object");
+        assert!(obj.contains_key("stored_at_ms"));
+        assert!(obj.contains_key("finding"));
+        assert!(obj.contains_key("acknowledged_by"));
+        let inner = obj.get("finding").unwrap().as_object().unwrap();
+        assert!(
+            !inner.contains_key("acknowledged_by"),
+            "acknowledged_by must stay at the top level, not nest inside finding"
+        );
     }
 
     impl QueryApiState {

@@ -1166,10 +1166,21 @@ impl Config {
             if has_control_char(key) {
                 return Err("[daemon.ack] api_key contains control characters".to_string());
             }
+            // Hard reject obviously-broken keys. Below 8 chars an attacker
+            // brute-forces in milliseconds even on the loopback API, the
+            // operator almost certainly meant a longer secret.
+            if key.len() < 8 {
+                return Err(format!(
+                    "[daemon.ack] api_key is too short ({} chars), \
+                     use at least 8 characters (16 recommended)",
+                    key.len()
+                ));
+            }
             if key.len() < 16 {
                 tracing::warn!(
-                    "[daemon.ack] api_key is shorter than 16 characters; \
-                     consider a longer secret to resist brute-force attempts."
+                    len = key.len(),
+                    "[daemon.ack] api_key is shorter than 16 characters, \
+                     consider a longer secret to resist brute-force attempts"
                 );
             }
         }
@@ -3753,6 +3764,27 @@ api_key = \"\"
         let err = load_from_str(toml).unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("must not be empty"), "{msg}");
+    }
+
+    #[test]
+    fn validate_daemon_ack_rejects_short_api_key() {
+        let toml = "
+[daemon.ack]
+api_key = \"shrt\"
+";
+        let err = load_from_str(toml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("too short"), "{msg}");
+    }
+
+    #[test]
+    fn validate_daemon_ack_accepts_eight_char_api_key() {
+        let toml = "
+[daemon.ack]
+api_key = \"shortish\"
+";
+        let cfg = load_from_str(toml).unwrap();
+        assert_eq!(cfg.ack_api_key.as_deref(), Some("shortish"));
     }
 
     #[test]
