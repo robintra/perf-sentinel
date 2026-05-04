@@ -442,7 +442,7 @@ s'accumuler à l'infini.
 **Exemple :**
 
 ```bash
-SIG="n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef"
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
 curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: alice@example.com" \
@@ -487,7 +487,7 @@ clé d'API en écriture).
 [
   {
     "action": "ack",
-    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef",
+    "signature": "n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa",
     "by": "alice@example.com",
     "reason": "différé au prochain trimestre",
     "at": "2026-05-04T13:30:00Z",

@@ -677,7 +677,7 @@ silencer un finding sans attendre un cycle PR sur le repo applicatif.
 
 ```bash
 # Acquitter (différé au prochain trimestre)
-SIG="n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef"
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
 curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: alice@example.com" \

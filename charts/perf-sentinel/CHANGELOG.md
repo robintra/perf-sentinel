@@ -6,6 +6,21 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.23]
+
+### Changed
+
+- `appVersion` bumped to `0.5.20`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.20`. The
+  `artifacthub.io/images` annotation is updated in lockstep so the
+  Artifact Hub listing advertises the matching image. Pickup the new
+  binary with `helm upgrade` or override `image.tag` to stay on
+  `0.5.19` if you pin. The 0.5.20 daemon adds the runtime ack API
+  (`POST` / `DELETE` / `GET /api/findings/{sig}/ack` and
+  `GET /api/acks`); operators wiring the new endpoints from outside
+  the cluster should review the loopback-by-default posture and the
+  optional `[daemon.ack] api_key` setting (see `docs/QUERY-API.md`).
+
 ## [0.2.22]
 
 ### Changed

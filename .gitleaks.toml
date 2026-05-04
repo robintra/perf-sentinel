@@ -1,0 +1,28 @@
+# perf-sentinel gitleaks config
+#
+# Inherits the bundled default ruleset (AWS keys, GitHub tokens, JWT,
+# private keys, etc.) and adds a narrow allowlist for the documented
+# finding-signature format so generic-api-key does not flag the SHA-256
+# prefix tail in operator-facing examples.
+#
+# The signature is `<finding_type>:<service>:<sanitized_endpoint>:<16-hex>`
+# (see docs/ACKNOWLEDGMENTS.md). It is a deterministic SHA-256 prefix,
+# public by design (operators copy the value from `analyze --format json`
+# into PR-reviewed ack files), not a credential.
+
+title = "perf-sentinel"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented finding-signature examples are public, not secrets"
+# `regexTarget = "line"` so the pattern is matched against the full
+# source line, not just the extracted secret. The bare 16-hex tail in
+# isolation could plausibly be a real credential, but the line context
+# `<finding_type>:<service>:<endpoint>:<16-hex>` is uniquely a
+# perf-sentinel signature.
+regexTarget = "line"
+regexes = [
+  '''[a-z_]+:[A-Za-z0-9_./@-]+:[A-Za-z0-9_./@-]+:[0-9a-f]{16}''',
+]
