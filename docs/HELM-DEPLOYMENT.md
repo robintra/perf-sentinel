@@ -277,10 +277,14 @@ workload:
 
 ### `StatefulSet`
 
-Reserved for future on-disk persistence. The chart provisions the
-volumeClaimTemplate end-to-end so the toggle works today, but no daemon
-feature currently writes under `/var/lib/perf-sentinel`. Use this mode
-only if you are prototyping a persistence extension.
+Use this mode when you want runtime acks (`POST /api/findings/{sig}/ack`,
+since 0.5.20) to survive pod restarts. The daemon writes the JSONL ack
+store at `~/.local/share/perf-sentinel/acks.jsonl` by default, which
+resolves to a path inside the pod filesystem, lost on restart. Mount a
+PersistentVolume and point `[daemon.ack] storage_path` at it so the
+audit trail survives. CI TOML acks
+(`.perf-sentinel-acknowledgments.toml`) are read-only at runtime and do
+not need a PVC, only the daemon-side JSONL does.
 
 ```yaml
 workload:
@@ -291,7 +295,18 @@ workload:
       enabled: true
       size: 5Gi
       storageClass: gp3
+      mountPath: /var/lib/perf-sentinel
+
+config:
+  toml: |
+    [daemon.ack]
+    storage_path = "/var/lib/perf-sentinel/acks.jsonl"
 ```
+
+In `Deployment` mode (the default), the JSONL is created on first ack
+and lost on the next pod restart. That is acceptable for short-lived
+acks (deferred to next sprint) but not for permanent ones, those should
+go in the CI TOML baseline anyway.
 
 ## Config surface
 
@@ -363,6 +378,81 @@ config:
     tls_key_path = "/etc/tls/tls.key"
 ```
 
+### Daemon ack runtime store
+
+The 0.5.20 daemon adds three runtime ack endpoints
+(`POST` / `DELETE /api/findings/{signature}/ack` and `GET /api/acks`)
+on the existing query API port. They share the loopback-by-default
+posture of `/api/findings`, but they mutate state, so the deployment
+shape needs three operator decisions when the chart is rolled out on a
+non-loopback `listen_address`.
+
+**Authenticate writes when the daemon is bound to the pod network.**
+The chart's example `values.yaml` snippets above use
+`listen_address = "0.0.0.0"` for cluster-wide reachability. Without
+mTLS in front, set `[daemon.ack] api_key` to a 16+ character secret
+fed by a Kubernetes Secret so the new `POST` and `DELETE` verbs are
+not exposed:
+
+```yaml
+extraEnvFrom:
+  - secretRef:
+      name: perf-sentinel-secrets
+
+config:
+  toml: |
+    [daemon]
+    listen_address = "0.0.0.0"
+    [daemon.ack]
+    api_key = "env:PERF_SENTINEL_ACK_API_KEY"
+```
+
+The daemon hard-rejects keys shorter than 12 characters at config
+load. Reads (`GET /api/findings`, `GET /api/acks`) stay
+unauthenticated by design, the API key only protects writes.
+
+**Persist acks across pod restarts.** Default storage path is
+`~/.local/share/perf-sentinel/acks.jsonl`, inside the pod filesystem,
+lost on restart. Switch to `StatefulSet` mode (see above) and remap
+`[daemon.ack] storage_path` to a PVC mount.
+
+**Mind the `securityContext` floor.** The daemon opens the JSONL with
+`O_NOFOLLOW` and rejects pre-existing files whose mode permits
+group/other access (`mode & 0o077 != 0`). Setting `runAsUser` and
+`fsGroup` such that the daemon UID does not own the PVC mount, or
+adopting a default-restrictive `PodSecurityPolicy` that forces a wider
+umask on volume mounts, will surface as `InsecurePermissions` at
+startup and the ack store will be unavailable. The daemon stays up
+without it (the three ack endpoints return 503), so this is a soft
+failure, but check the WARN log line on first rollout.
+
+**Load the CI TOML baseline from a ConfigMap.** Mount
+`.perf-sentinel-acknowledgments.toml` via `extraVolumes` and point
+`[daemon.ack] toml_path` at it so the daemon has a unified view of
+permanent (TOML) and runtime (JSONL) acks. The runtime POST returns
+`409 Conflict` on signatures already covered by an active TOML ack,
+which prevents the daemon from silently shadowing the team-agreed
+baseline.
+
+```yaml
+extraVolumes:
+  - name: ack-toml
+    configMap:
+      name: perf-sentinel-acks
+extraVolumeMounts:
+  - name: ack-toml
+    mountPath: /etc/perf-sentinel/acks
+    readOnly: true
+
+config:
+  toml: |
+    [daemon.ack]
+    toml_path = "/etc/perf-sentinel/acks/.perf-sentinel-acknowledgments.toml"
+```
+
+See `docs/QUERY-API.md` and `docs/CONFIGURATION.md` for the full
+endpoint reference and the `[daemon.ack]` field catalog.
+
 ## Observability
 
 ### Prometheus ServiceMonitor
@@ -379,6 +469,26 @@ serviceMonitor:
     # Match whatever selector your Prometheus resource uses.
     release: prometheus
 ```
+
+#### Dashboards that scrape `/api/findings`
+
+Since 0.5.20, `GET /api/findings` filters out acked findings by
+default. Existing dashboards or alert rules that hit the endpoint and
+count results will silently miss critical findings if those findings
+have been acked at runtime or by the CI TOML baseline. Two options
+when wiring a Prometheus or Grafana panel against the endpoint:
+
+- Pass `?include_acked=true` and rely on the `acknowledged_by`
+  annotation in the response to filter or color the rows client-side.
+  Keeps the count visibly high when an ack landed but lets the
+  operator see what is currently silenced.
+- Stick to the default-filter shape and document the alert as "active
+  findings only", with a separate panel listing `GET /api/acks` so the
+  acked set is reviewable.
+
+`/metrics` counters (`perf_sentinel_findings_total`,
+`perf_sentinel_io_waste_ratio`) are unaffected, they record raw
+detection events without any ack filter.
 
 ### Exemplars
 
