@@ -10,12 +10,12 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::{Frame, Terminal};
 
 use sentinel_core::correlate::Trace;
 #[cfg(feature = "daemon")]
@@ -169,10 +169,7 @@ impl App {
     ///
     /// `pub(crate)` because the TUI module is internal to the
     /// `perf-sentinel` binary crate, not a published library API.
-    pub(crate) fn with_pre_rendered_trees(
-        mut self,
-        trees: std::collections::HashMap<String, String>,
-    ) -> Self {
+    pub(crate) fn with_pre_rendered_trees(mut self, trees: HashMap<String, String>) -> Self {
         self.pre_rendered_trees = trees;
         self
     }
@@ -500,40 +497,51 @@ impl AckModalState {
     }
 
     pub fn next_field(&mut self) {
-        // Unack mode only exposes Submit/Cancel, Ack mode cycles
-        // Reason -> Expires -> By -> Submit -> Cancel.
-        self.focus = if matches!(self.mode, AckModalMode::Unack { .. }) {
-            match self.focus {
-                AckFormField::Submit => AckFormField::Cancel,
-                _ => AckFormField::Submit,
-            }
-        } else {
-            match self.focus {
-                AckFormField::Reason => AckFormField::Expires,
-                AckFormField::Expires => AckFormField::By,
-                AckFormField::By => AckFormField::Submit,
-                AckFormField::Submit => AckFormField::Cancel,
-                AckFormField::Cancel => AckFormField::Reason,
-            }
-        };
+        self.focus = step_focus(self.focus_cycle(), self.focus, 1_isize);
     }
 
     pub fn prev_field(&mut self) {
-        self.focus = if matches!(self.mode, AckModalMode::Unack { .. }) {
-            match self.focus {
-                AckFormField::Cancel => AckFormField::Submit,
-                _ => AckFormField::Cancel,
-            }
-        } else {
-            match self.focus {
-                AckFormField::Reason => AckFormField::Cancel,
-                AckFormField::Expires => AckFormField::Reason,
-                AckFormField::By => AckFormField::Expires,
-                AckFormField::Submit => AckFormField::By,
-                AckFormField::Cancel => AckFormField::Submit,
-            }
-        };
+        self.focus = step_focus(self.focus_cycle(), self.focus, -1_isize);
     }
+
+    /// Tab-cycle for the current modal mode. Unack mode only exposes
+    /// Submit/Cancel buttons, Ack mode walks the full form.
+    fn focus_cycle(&self) -> &'static [AckFormField] {
+        match self.mode {
+            AckModalMode::Unack { .. } => &UNACK_FOCUS_CYCLE,
+            _ => &ACK_FOCUS_CYCLE,
+        }
+    }
+}
+
+#[cfg(feature = "daemon")]
+const ACK_FOCUS_CYCLE: [AckFormField; 5] = [
+    AckFormField::Reason,
+    AckFormField::Expires,
+    AckFormField::By,
+    AckFormField::Submit,
+    AckFormField::Cancel,
+];
+
+#[cfg(feature = "daemon")]
+const UNACK_FOCUS_CYCLE: [AckFormField; 2] = [AckFormField::Submit, AckFormField::Cancel];
+
+/// Move along a focus cycle by `step` positions (positive forward,
+/// negative backward), wrapping at both ends. Falls back to the first
+/// entry when `current` is not in the cycle (e.g. opening a Unack
+/// modal while the previous focus was on Reason).
+#[cfg(feature = "daemon")]
+fn step_focus(cycle: &[AckFormField], current: AckFormField, step: isize) -> AckFormField {
+    let len = i32::try_from(cycle.len()).unwrap_or(1).max(1);
+    let step = i32::try_from(step).unwrap_or(0);
+    let idx = cycle
+        .iter()
+        .position(|f| *f == current)
+        .and_then(|p| i32::try_from(p).ok())
+        .unwrap_or(0);
+    let next = (idx + step).rem_euclid(len);
+    let next_usize = usize::try_from(next).unwrap_or(0);
+    cycle[next_usize]
 }
 
 /// Outcome of a single key press inside the modal. The run loop reacts
@@ -725,7 +733,7 @@ fn run_loop(
     }
 }
 
-fn draw(f: &mut ratatui::Frame, app: &App) {
+fn draw(f: &mut Frame, app: &App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -759,7 +767,7 @@ fn panel_style(app: &App, panel: Panel) -> Style {
     }
 }
 
-fn draw_traces_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+fn draw_traces_panel(f: &mut Frame, app: &App, area: Rect) {
     let items: Vec<ListItem> = app
         .trace_ids
         .iter()
@@ -792,7 +800,7 @@ fn draw_traces_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::R
     f.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_findings_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
     let indices = app.current_finding_indices();
     let items: Vec<ListItem> = indices
         .iter()
@@ -856,7 +864,7 @@ fn draw_findings_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout:
     f.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_correlations_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Correlations ")
         .borders(Borders::ALL)
@@ -921,7 +929,7 @@ fn draw_correlations_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::lay
     f.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_detail_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::Rect) {
+fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
     let block = Block::default()
         .title(" Detail ")
         .borders(Borders::ALL)
@@ -1048,7 +1056,7 @@ fn draw_detail_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::R
 }
 
 #[cfg(feature = "daemon")]
-fn draw_ack_modal(f: &mut ratatui::Frame, app: &App) {
+fn draw_ack_modal(f: &mut Frame, app: &App) {
     let area = f.area();
     // 70 cols accommodate the footer hint and the unack confirmation
     // message at full width on a typical terminal. Clamped down on
@@ -1082,7 +1090,7 @@ fn draw_ack_modal(f: &mut ratatui::Frame, app: &App) {
 }
 
 #[cfg(feature = "daemon")]
-fn draw_ack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str) {
+fn draw_ack_form(f: &mut Frame, app: &App, area: Rect, signature: &str) {
     let constraints = [
         Constraint::Length(1), // signature
         Constraint::Length(1), // blank
@@ -1101,13 +1109,7 @@ fn draw_ack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str)
         .constraints(constraints)
         .split(area);
 
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(sanitize_for_terminal(signature)),
-        ])),
-        rows[0],
-    );
+    render_finding_signature_line(f, rows[0], signature);
     render_field_label(
         f,
         rows[2],
@@ -1146,7 +1148,7 @@ fn draw_ack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str)
 }
 
 #[cfg(feature = "daemon")]
-fn draw_unack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str) {
+fn draw_unack_form(f: &mut Frame, app: &App, area: Rect, signature: &str) {
     let constraints = [
         Constraint::Length(1), // signature
         Constraint::Length(1), // blank
@@ -1159,13 +1161,7 @@ fn draw_unack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &st
         .direction(Direction::Vertical)
         .constraints(constraints)
         .split(area);
-    f.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(sanitize_for_terminal(signature)),
-        ])),
-        rows[0],
-    );
+    render_finding_signature_line(f, rows[0], signature);
     f.render_widget(
         Paragraph::new("Revoke this acknowledgment? Press Enter to confirm, Esc to cancel.")
             .style(Style::default().fg(Color::Yellow)),
@@ -1176,8 +1172,19 @@ fn draw_unack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &st
 }
 
 #[cfg(feature = "daemon")]
+fn render_finding_signature_line(f: &mut Frame, area: Rect, signature: &str) {
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(sanitize_for_terminal(signature)),
+        ])),
+        area,
+    );
+}
+
+#[cfg(feature = "daemon")]
 fn render_field_label(
-    f: &mut ratatui::Frame,
+    f: &mut Frame,
     area: Rect,
     label: &str,
     focus: AckFormField,
@@ -1194,7 +1201,7 @@ fn render_field_label(
 }
 
 #[cfg(feature = "daemon")]
-fn render_field_input(f: &mut ratatui::Frame, area: Rect, value: &str, focused: bool) {
+fn render_field_input(f: &mut Frame, area: Rect, value: &str, focused: bool) {
     // Borrow when possible: the focused branch needs to append a
     // cursor char so it allocates, the empty placeholder is `'static`
     // and the unfocused branch just borrows `value`.
@@ -1214,32 +1221,22 @@ fn render_field_input(f: &mut ratatui::Frame, area: Rect, value: &str, focused: 
 }
 
 #[cfg(feature = "daemon")]
-fn render_modal_buttons(f: &mut ratatui::Frame, area: Rect, modal: &AckModalState) {
+fn render_modal_buttons(f: &mut Frame, area: Rect, modal: &AckModalState) {
     let submit_label = if modal.submitting {
         "[Submitting...]"
     } else {
         "[Submit]"
     };
-    let submit_style = if modal.focus == AckFormField::Submit {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Green)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
-    let cancel_style = if modal.focus == AckFormField::Cancel {
-        Style::default()
-            .fg(Color::Black)
-            .bg(Color::Red)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Red)
-    };
     let line = Line::from(vec![
-        Span::styled(submit_label, submit_style),
+        Span::styled(
+            submit_label,
+            button_style(Color::Green, modal.focus == AckFormField::Submit),
+        ),
         Span::raw("   "),
-        Span::styled("[Cancel]", cancel_style),
+        Span::styled(
+            "[Cancel]",
+            button_style(Color::Red, modal.focus == AckFormField::Cancel),
+        ),
         Span::raw("   "),
         Span::styled(
             "Tab/Shift-Tab to switch, Esc to cancel",
@@ -1249,8 +1246,23 @@ fn render_modal_buttons(f: &mut ratatui::Frame, area: Rect, modal: &AckModalStat
     f.render_widget(Paragraph::new(line), area);
 }
 
+/// Style a modal action button. Focused buttons reverse the color
+/// (black foreground on the action color background) and bold; the
+/// unfocused state uses the action color as foreground only.
 #[cfg(feature = "daemon")]
-fn render_modal_footer(f: &mut ratatui::Frame, area: Rect, error: Option<&str>) {
+fn button_style(action_color: Color, focused: bool) -> Style {
+    if focused {
+        Style::default()
+            .fg(Color::Black)
+            .bg(action_color)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(action_color)
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn render_modal_footer(f: &mut Frame, area: Rect, error: Option<&str>) {
     if let Some(msg) = error {
         f.render_widget(
             Paragraph::new(sanitize_for_terminal(msg))
@@ -1730,7 +1742,7 @@ mod tests {
         // over the local `detect + build_tree` path so users see real span
         // trees when the CLI has no raw spans.
         let mut app = make_test_app();
-        let mut trees = std::collections::HashMap::new();
+        let mut trees = HashMap::new();
         let trace_id = app.trace_ids[0].clone();
         trees.insert(trace_id, "pre-rendered tree from daemon".to_string());
         app.pre_rendered_trees = trees;
@@ -1751,7 +1763,7 @@ mod tests {
 
     #[test]
     fn with_pre_rendered_trees_builder_populates_field() {
-        let mut trees = std::collections::HashMap::new();
+        let mut trees = HashMap::new();
         trees.insert("trace-a".to_string(), "tree-a".to_string());
         let app = make_test_app().with_pre_rendered_trees(trees);
         assert_eq!(
@@ -1833,7 +1845,7 @@ mod tests {
     #[test]
     fn draw_renders_with_pre_rendered_tree() {
         let mut app = make_test_app();
-        let mut trees = std::collections::HashMap::new();
+        let mut trees = HashMap::new();
         let trace_id = app.trace_ids[0].clone();
         trees.insert(trace_id, "pre-rendered tree from daemon".to_string());
         app.pre_rendered_trees = trees;
@@ -1915,6 +1927,25 @@ mod tests {
             }
         }
         false
+    }
+
+    /// Flatten a `TestBackend` buffer into a newline-separated string so
+    /// `assert!(rendered.contains(...))` can search the whole frame.
+    /// Used by the modal/indicator render tests.
+    #[cfg(feature = "daemon")]
+    fn render_buffer_to_string(buf: &ratatui::buffer::Buffer) -> String {
+        let area = buf.area;
+        (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| {
+                        buf.cell((x, y))
+                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     #[test]
@@ -2164,6 +2195,28 @@ mod tests {
 
     #[cfg(feature = "daemon")]
     #[test]
+    fn step_focus_wraps_at_both_ends() {
+        let cycle = ACK_FOCUS_CYCLE;
+        assert_eq!(
+            step_focus(&cycle, AckFormField::Cancel, 1),
+            AckFormField::Reason,
+            "forward from last wraps to first"
+        );
+        assert_eq!(
+            step_focus(&cycle, AckFormField::Reason, -1),
+            AckFormField::Cancel,
+            "backward from first wraps to last"
+        );
+        let unack = UNACK_FOCUS_CYCLE;
+        assert_eq!(
+            step_focus(&unack, AckFormField::Reason, 1),
+            AckFormField::Cancel,
+            "unknown current is treated as index 0, +1 lands on Cancel"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
     fn ack_modal_unack_field_cycle_skips_text_inputs() {
         let mut modal = AckModalState::default();
         modal.open_unack("sig".to_string());
@@ -2338,18 +2391,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
-        let rendered: String = (0..buffer.area.height)
-            .map(|y| {
-                (0..buffer.area.width)
-                    .map(|x| {
-                        buffer
-                            .cell((x, y))
-                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let rendered = render_buffer_to_string(&buffer);
         assert!(
             rendered.contains("acked by alice"),
             "expected ack indicator in rendered TUI buffer, got:\n{rendered}"
@@ -2369,18 +2411,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
-        let rendered: String = (0..buffer.area.height)
-            .map(|y| {
-                (0..buffer.area.width)
-                    .map(|x| {
-                        buffer
-                            .cell((x, y))
-                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let rendered = render_buffer_to_string(&buffer);
         assert!(
             rendered.contains("Acknowledge finding"),
             "expected modal title, got:\n{rendered}"
@@ -2427,7 +2458,7 @@ mod tests {
         let app = App::new(
             Vec::new(),
             Vec::new(),
-            sentinel_core::detect::DetectConfig {
+            DetectConfig {
                 n_plus_one_threshold: 5,
                 window_ms: 500,
                 slow_threshold_ms: 500,
@@ -2482,18 +2513,7 @@ mod tests {
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| draw(f, &app)).unwrap();
         let buffer = terminal.backend().buffer().clone();
-        let rendered: String = (0..buffer.area.height)
-            .map(|y| {
-                (0..buffer.area.width)
-                    .map(|x| {
-                        buffer
-                            .cell((x, y))
-                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
+        let rendered = render_buffer_to_string(&buffer);
         assert!(
             rendered.contains("daemon ack store disabled"),
             "expected error message in modal footer, got:\n{rendered}"

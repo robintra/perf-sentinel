@@ -514,7 +514,7 @@ enum QueryAction {
         /// var. Required when the daemon is configured with
         /// `[daemon.ack] api_key`.
         #[arg(long, value_name = "PATH")]
-        api_key_file: Option<std::path::PathBuf>,
+        api_key_file: Option<PathBuf>,
     },
     /// Show active cross-trace correlations.
     Correlations {
