@@ -2723,8 +2723,7 @@
     var arr = Array.isArray(data) ? data : [];
     liveState.acks = arr;
     liveState.acksBySig = Object.create(null);
-    for (var i = 0; i < arr.length; i++) {
-      var a = arr[i];
+    for (var a of arr) {
       if (a && a.signature) liveState.acksBySig[a.signature] = a;
     }
   }
@@ -3085,9 +3084,10 @@
     // payload, so this is defense-in-depth against a corrupted
     // artifact, not the primary normalization path. Avoids the regex
     // engine's backtracking surface that SonarCloud flags as ReDoS-
-    // adjacent on `/\/+$/`.
+    // adjacent on `/\/+$/`. `codePointAt` is the Unicode-correct
+    // counterpart of `charCodeAt` (47 is U+002F SOLIDUS in both).
     var end = s.length;
-    while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+    while (end > 0 && s.codePointAt(end - 1) === 47) end--;
     return s.substring(0, end);
   }
 

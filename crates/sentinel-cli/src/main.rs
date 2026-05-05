@@ -620,13 +620,7 @@ async fn dispatch_command(command: Commands) {
             no_acknowledgments,
             show_acknowledged,
         } => {
-            let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
-                }
-            };
+            let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
             cmd_tempo(
                 &endpoint,
                 trace_id.as_deref(),
@@ -659,13 +653,7 @@ async fn dispatch_command(command: Commands) {
             no_acknowledgments,
             show_acknowledged,
         } => {
-            let resolved_auth = match resolve_auth_header(auth_header, auth_header_env) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("Error: {e}");
-                    std::process::exit(1);
-                }
-            };
+            let resolved_auth = resolve_auth_header_or_exit(auth_header, auth_header_env);
             cmd_jaeger_query(
                 &endpoint,
                 trace_id.as_deref(),
@@ -699,43 +687,18 @@ async fn dispatch_command(command: Commands) {
             config,
             format,
         } => {
-            #[cfg(feature = "daemon")]
-            if let Some(ref prom_endpoint) = prometheus {
-                // `main` is already async (`#[tokio::main]`), so `.await`
-                // the fetch directly. Creating a nested `Runtime::new()`
-                // here would panic at runtime with "Cannot start a runtime
-                // from within a runtime."
-                let resolved_auth = resolve_pg_stat_auth_header(auth_header);
-                let entries = sentinel_core::ingest::pg_stat::fetch_from_prometheus(
-                    prom_endpoint,
-                    top_n,
-                    resolved_auth.as_deref(),
-                )
-                .await
-                .unwrap_or_else(|e| {
-                    eprintln!("Prometheus fetch failed: {e}");
-                    std::process::exit(1);
-                });
-                cmd_pg_stat_from_entries(
-                    entries,
-                    top_n,
-                    traces.as_deref(),
-                    config.as_deref(),
-                    format,
-                );
-            } else if let Some(ref path) = input {
-                cmd_pg_stat(path, top_n, traces.as_deref(), config.as_deref(), format);
-            } else {
-                eprintln!("Either --input or --prometheus is required");
-                std::process::exit(1);
-            }
-            #[cfg(not(feature = "daemon"))]
-            if let Some(ref path) = input {
-                cmd_pg_stat(path, top_n, traces.as_deref(), config.as_deref(), format);
-            } else {
-                eprintln!("--input is required");
-                std::process::exit(1);
-            }
+            dispatch_pg_stat(
+                input.as_deref(),
+                #[cfg(feature = "daemon")]
+                prometheus.as_deref(),
+                #[cfg(feature = "daemon")]
+                auth_header,
+                top_n,
+                traces.as_deref(),
+                config.as_deref(),
+                format,
+            )
+            .await;
         }
         #[cfg(feature = "daemon")]
         Commands::Query { daemon, action } => {
@@ -785,16 +748,7 @@ async fn dispatch_command(command: Commands) {
             daemon_url,
         } => {
             #[cfg(feature = "daemon")]
-            let daemon_url = match daemon_url {
-                Some(raw) => match ack::validate_url(&raw) {
-                    Ok(normalized) => Some(normalized),
-                    Err(e) => {
-                        eprintln!("{e}");
-                        std::process::exit(1);
-                    }
-                },
-                None => None,
-            };
+            let daemon_url = validate_daemon_url_or_exit(daemon_url);
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
@@ -843,6 +797,69 @@ fn resolve_auth_header(
         };
     }
     Ok(None)
+}
+
+/// Run the `pg-stat` command with prometheus-or-input branching
+/// extracted out of the main dispatch so it does not inflate the
+/// match's cognitive complexity.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_pg_stat(
+    input: Option<&std::path::Path>,
+    #[cfg(feature = "daemon")] prometheus: Option<&str>,
+    #[cfg(feature = "daemon")] auth_header: Option<String>,
+    top_n: usize,
+    traces: Option<&std::path::Path>,
+    config: Option<&std::path::Path>,
+    format: PgStatOutputFormat,
+) {
+    #[cfg(feature = "daemon")]
+    if let Some(prom_endpoint) = prometheus {
+        let resolved_auth = resolve_pg_stat_auth_header(auth_header);
+        let entries = sentinel_core::ingest::pg_stat::fetch_from_prometheus(
+            prom_endpoint,
+            top_n,
+            resolved_auth.as_deref(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Prometheus fetch failed: {e}");
+            std::process::exit(1);
+        });
+        cmd_pg_stat_from_entries(entries, top_n, traces, config, format);
+        return;
+    }
+    let Some(path) = input else {
+        #[cfg(feature = "daemon")]
+        eprintln!("Either --input or --prometheus is required");
+        #[cfg(not(feature = "daemon"))]
+        eprintln!("--input is required");
+        std::process::exit(1);
+    };
+    cmd_pg_stat(path, top_n, traces, config, format);
+}
+
+/// Resolve the auth header or exit on error. Used by Tempo and
+/// Jaeger-Query dispatch arms which both share the same fail-fast
+/// shape (`Err(e)` -> `eprintln!("Error: {e}")` -> exit 1).
+fn resolve_auth_header_or_exit(direct: Option<String>, env_var: Option<String>) -> Option<String> {
+    resolve_auth_header(direct, env_var).unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    })
+}
+
+#[cfg(feature = "daemon")]
+fn validate_daemon_url_or_exit(raw: Option<String>) -> Option<String> {
+    match raw {
+        Some(s) => match ack::validate_url(&s) {
+            Ok(normalized) => Some(normalized),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        },
+        None => None,
+    }
 }
 
 fn load_config(path: Option<&std::path::Path>) -> Config {
