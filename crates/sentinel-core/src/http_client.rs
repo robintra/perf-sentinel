@@ -18,19 +18,32 @@ pub type HttpClient = hyper_util::client::legacy::Client<
     http_body_util::Empty<bytes::Bytes>,
 >;
 
+/// Sibling of [`HttpClient`] for requests carrying a body (POST, DELETE
+/// with payload). The request body type is pinned at the client builder,
+/// so a separate alias is needed when callers want to send `Full<Bytes>`
+/// rather than `Empty<Bytes>`.
+pub type HttpClientWithBody = hyper_util::client::legacy::Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    http_body_util::Full<bytes::Bytes>,
+>;
+
 /// Maximum response body size accepted from scrape endpoints.
 ///
 /// 8 MiB is generous: real scrape responses are typically <1 MiB.
 /// The cap prevents a misbehaving endpoint from exhausting RAM.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
 
-/// Build a fresh hyper-util client with TLS support. Called once per
-/// task at startup; the client is then reused for every fetch.
-///
-/// Uses rustls with Mozilla root certificates (webpki-roots) for
-/// HTTPS endpoints. Plain HTTP endpoints also work.
-#[must_use]
-pub fn build_client() -> HttpClient {
+/// Build a hyper-util client over the given request body type. Private
+/// generic so the TLS configuration lives in one place and cannot drift
+/// between [`build_client`] and [`build_client_with_body`].
+fn build_client_inner<B>() -> hyper_util::client::legacy::Client<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+    B,
+>
+where
+    B: hyper::body::Body + Send + 'static,
+    B::Data: Send,
+{
     use hyper_util::client::legacy::Client;
     use hyper_util::rt::TokioExecutor;
 
@@ -40,6 +53,23 @@ pub fn build_client() -> HttpClient {
         .enable_http1()
         .build();
     Client::builder(TokioExecutor::new()).build(https)
+}
+
+/// Build a fresh hyper-util client with TLS support. Called once per
+/// task at startup; the client is then reused for every fetch.
+///
+/// Uses rustls with Mozilla root certificates (webpki-roots) for
+/// HTTPS endpoints. Plain HTTP endpoints also work.
+#[must_use]
+pub fn build_client() -> HttpClient {
+    build_client_inner::<http_body_util::Empty<bytes::Bytes>>()
+}
+
+/// Sibling of [`build_client`] for [`HttpClientWithBody`]. Same TLS
+/// configuration, only the request body type differs.
+#[must_use]
+pub fn build_client_with_body() -> HttpClientWithBody {
+    build_client_inner::<http_body_util::Full<bytes::Bytes>>()
 }
 
 /// Strip userinfo (`http://user:pass@host/`) from a `Uri` before
@@ -125,6 +155,65 @@ pub async fn fetch_get(
         .await
         .map_err(|e| FetchError::BodyRead(format!("{e}")))?;
     Ok(collected.to_bytes())
+}
+
+/// Perform a request that carries a body (typically POST or DELETE)
+/// and returns both the status code and the raw response body, without
+/// failing on non-2xx. Used by the `perf-sentinel ack` CLI which needs
+/// to discriminate 401 / 409 / 503 to map them onto exit codes and
+/// hint messages.
+///
+/// `api_key`, when `Some`, is attached as the `X-API-Key` header (the
+/// daemon's auth scheme, cf `crates/sentinel-core/src/daemon/query_api.rs`
+/// `check_ack_auth`). `body` may be empty for DELETE.
+///
+/// # Errors
+///
+/// Returns [`FetchError`] on request build failure, transport error,
+/// timeout or body read failure. Non-2xx statuses are not errors here,
+/// they are returned to the caller as the first tuple element.
+pub async fn fetch_with_body(
+    client: &HttpClientWithBody,
+    method: hyper::Method,
+    uri: &Uri,
+    user_agent: &str,
+    timeout: std::time::Duration,
+    api_key: Option<&str>,
+    body: bytes::Bytes,
+) -> Result<(hyper::StatusCode, bytes::Bytes), FetchError> {
+    use http_body_util::{BodyExt, Full, Limited};
+
+    let mut builder = hyper::Request::builder()
+        .method(method)
+        .uri(uri.clone())
+        .header(hyper::header::USER_AGENT, user_agent)
+        .header(hyper::header::CONTENT_TYPE, "application/json");
+    if let Some(key) = api_key {
+        // Build the header value explicitly so we can flag it
+        // sensitive: hyper redacts sensitive values from Debug output
+        // and HPACK tables, mirroring the AuthHeader pattern used by
+        // [`fetch_get`].
+        let mut value = hyper::header::HeaderValue::from_str(key)
+            .map_err(|e| FetchError::RequestBuild(e.into()))?;
+        value.set_sensitive(true);
+        builder = builder.header("X-API-Key", value);
+    }
+    let req = builder
+        .body(Full::new(body))
+        .map_err(FetchError::RequestBuild)?;
+
+    let response = tokio::time::timeout(timeout, client.request(req))
+        .await
+        .map_err(|_| FetchError::Timeout)?
+        .map_err(FetchError::Transport)?;
+
+    let status = response.status();
+    let limited = Limited::new(response.into_body(), MAX_BODY_BYTES);
+    let collected = limited
+        .collect()
+        .await
+        .map_err(|e| FetchError::BodyRead(format!("{e}")))?;
+    Ok((status, collected.to_bytes()))
 }
 
 #[cfg(test)]
@@ -272,5 +361,137 @@ mod tests {
             "auth header missing from request, got:\n{text}"
         );
         server.await.expect("server join");
+    }
+
+    #[test]
+    fn build_client_with_body_constructs_without_panic() {
+        let _client: HttpClientWithBody = build_client_with_body();
+    }
+
+    #[tokio::test]
+    async fn fetch_with_body_returns_status_and_body_on_201() {
+        let response = crate::test_helpers::http_status(201, "Created");
+        let (endpoint, _rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let client = build_client_with_body();
+        let uri: Uri = format!("{endpoint}/api/findings/sig/ack").parse().unwrap();
+        let (status, body) = fetch_with_body(
+            &client,
+            hyper::Method::POST,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            None,
+            bytes::Bytes::from_static(b"{}"),
+        )
+        .await
+        .expect("call must succeed");
+        assert_eq!(status.as_u16(), 201);
+        assert!(body.is_empty());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_with_body_surfaces_409_without_erroring() {
+        let response = crate::test_helpers::http_status(409, "Conflict");
+        let (endpoint, _rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let client = build_client_with_body();
+        let uri: Uri = format!("{endpoint}/api/findings/sig/ack").parse().unwrap();
+        let (status, _) = fetch_with_body(
+            &client,
+            hyper::Method::POST,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            None,
+            bytes::Bytes::from_static(b"{}"),
+        )
+        .await
+        .expect("non-2xx must not produce an error");
+        assert_eq!(status.as_u16(), 409);
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_with_body_attaches_x_api_key_header() {
+        let response = crate::test_helpers::http_status(204, "No Content");
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let client = build_client_with_body();
+        let uri: Uri = format!("{endpoint}/api/findings/sig/ack").parse().unwrap();
+        let (status, _) = fetch_with_body(
+            &client,
+            hyper::Method::DELETE,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            Some("secret123"),
+            bytes::Bytes::new(),
+        )
+        .await
+        .expect("call must succeed");
+        assert_eq!(status.as_u16(), 204);
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).unwrap();
+        assert!(
+            text.contains("x-api-key: secret123") || text.contains("X-API-Key: secret123"),
+            "X-API-Key header missing, got:\n{text}"
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_with_body_sends_content_type_json() {
+        let response = crate::test_helpers::http_status(201, "Created");
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let client = build_client_with_body();
+        let uri: Uri = format!("{endpoint}/api/findings/sig/ack").parse().unwrap();
+        let _ = fetch_with_body(
+            &client,
+            hyper::Method::POST,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            None,
+            bytes::Bytes::from_static(br#"{"reason":"x"}"#),
+        )
+        .await
+        .expect("call must succeed");
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).unwrap();
+        assert!(
+            text.to_ascii_lowercase()
+                .contains("content-type: application/json"),
+            "Content-Type header missing, got:\n{text}"
+        );
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fetch_with_body_sends_request_body() {
+        let response = crate::test_helpers::http_status(201, "Created");
+        let (endpoint, mut rx, server) = crate::test_helpers::spawn_capture_server(response).await;
+        let client = build_client_with_body();
+        let uri: Uri = format!("{endpoint}/api/findings/sig/ack").parse().unwrap();
+        let payload = br#"{"by":"alice","reason":"deferred"}"#;
+        let _ = fetch_with_body(
+            &client,
+            hyper::Method::POST,
+            &uri,
+            "perf-sentinel-test",
+            std::time::Duration::from_secs(5),
+            None,
+            bytes::Bytes::from_static(payload),
+        )
+        .await
+        .expect("call must succeed");
+
+        let captured = rx.recv().await.expect("captured request");
+        let text = std::str::from_utf8(&captured).unwrap();
+        assert!(
+            text.contains(r#"{"by":"alice","reason":"deferred"}"#),
+            "request body missing, got:\n{text}"
+        );
+        server.await.unwrap();
     }
 }

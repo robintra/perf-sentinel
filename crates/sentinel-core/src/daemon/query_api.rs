@@ -40,7 +40,10 @@ const MAX_CORRELATIONS_LIMIT: usize = 1000;
 
 /// Upper bound for `GET /api/acks` response size. Same rationale as
 /// the other caps (loopback API, bounded JSON serialization).
-const MAX_ACKS_RESPONSE: usize = 1000;
+/// Upper bound on the entry count returned by `GET /api/acks`. Exposed
+/// to the CLI so the `perf-sentinel ack list` footer can quote the
+/// same number ("showing up to N") without drift.
+pub const MAX_ACKS_RESPONSE: usize = 1000;
 
 /// Shared state for query API route handlers.
 pub struct QueryApiState {

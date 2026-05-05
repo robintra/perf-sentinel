@@ -1,0 +1,130 @@
+# Workflow d'acquittement
+
+perf-sentinel supporte deux mécanismes d'acquittement complémentaires :
+TOML in-repo (CI ack, depuis 0.5.17) et JSONL via l'API HTTP du
+daemon (daemon ack, depuis 0.5.20). Ils couvrent des scénarios
+opérationnels différents et peuvent cohabiter. Cette page explique
+comment chacun fonctionne, quand choisir lequel, et comment le helper
+CLI introduit en 0.5.22 s'intègre côté daemon.
+
+## CI ack : TOML dans le repo
+
+Le fichier `.perf-sentinel-acknowledgments.toml` à la racine d'un
+repository applicatif, versionné dans git, modifié via revue de PR.
+À utiliser pour les décisions permanentes prises par l'équipe : faux
+positifs, findings à risque accepté connus, choix de design
+intentionnels.
+
+### Ajouter un ack TOML
+
+Éditer le fichier directement :
+
+```toml
+[[acknowledged]]
+signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+acknowledged_by = "team-architecture"
+acknowledged_at = "2026-05-04T13:30:00Z"
+reason = "Fan-out intentionnel pour endpoint de reporting batch"
+```
+
+Commit, ouvrir une pull request, faire reviewer, merger. Le prochain
+run CI honorera l'ack via `analyze --acknowledgments` et les
+[templates CI](../ci-templates) livrés avec le projet.
+
+### Retirer un ack TOML
+
+Supprimer l'entrée, commit, PR, revue, merge. Même cycle de vie que
+l'ajout.
+
+## Daemon ack : JSONL via API
+
+Pour les acks temporaires en runtime, faits par les SRE ou l'oncall :
+différer un finding pendant qu'un fix est livré, supprimer du bruit
+pendant un incident connu, etc. Le daemon persiste ces acks dans un
+fichier JSONL en append-only events, avec timestamps d'expiration
+optionnels.
+
+### Ajouter un ack daemon via curl (bas-niveau)
+
+```bash
+curl -X POST http://daemon:4318/api/findings/<sig>/ack \
+  -H "Content-Type: application/json" \
+  -d '{"by":"alice","reason":"reporté","expires_at":"2026-05-11T00:00:00Z"}'
+```
+
+Quand l'auth est activée côté serveur (`[daemon.ack] api_key`),
+ajouter `-H "X-API-Key: <CLÉ>"`.
+
+### Ajouter un ack daemon via le CLI (depuis 0.5.22, recommandé)
+
+```bash
+perf-sentinel ack create \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef" \
+  --reason "reporté au prochain sprint" \
+  --expires 7d
+```
+
+Le CLI gère la résolution de l'auth, le parsing de durée (relative
+ou ISO8601), la résolution de l'URL daemon, et produit des messages
+d'erreur lisibles. Voir [`CLI-FR.md`](./CLI-FR.md#ack) pour la
+référence complète.
+
+### Révoquer un ack daemon
+
+```bash
+perf-sentinel ack revoke \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+```
+
+Ou via curl :
+
+```bash
+curl -X DELETE http://daemon:4318/api/findings/<sig>/ack
+```
+
+## Lister les acks actifs
+
+```bash
+perf-sentinel ack list                  # acks daemon, format table
+perf-sentinel ack list --output json    # acks daemon, JSON
+```
+
+`perf-sentinel ack list` n'énumère que les acks côté daemon. Les
+acks TOML CI vivent dans le fichier lui-même, à consulter avec :
+
+```bash
+cat .perf-sentinel-acknowledgments.toml
+```
+
+## Interop : TOML gagne en cas de conflit
+
+Les deux sources sont fusionnées au moment du filtrage des findings.
+Si la même signature est ack dans TOML et dans le JSONL daemon, la
+version TOML l'emporte. Rationale : la baseline TOML est livrée via
+revue de PR et représente une décision immuable au niveau équipe, le
+JSONL daemon est un override mutable, runtime-only.
+
+Un `POST /api/findings/{sig}/ack` sur une signature déjà couverte par
+TOML retourne HTTP 409 pour éviter un shadowing silencieux. Le CLI
+`ack create` mappe ça à exit 2 avec un hint qui pointe vers
+`ack revoke`.
+
+## Choisir entre TOML et daemon
+
+| Scénario                                       | Utiliser                            |
+| ---------------------------------------------- | ----------------------------------- |
+| Décision permanente par l'équipe               | TOML (versionné, auditable git)     |
+| Report temporaire pendant un incident          | Daemon (CLI ou curl)                |
+| Faux positif partagé par tous les environments | TOML                                |
+| Suppression spécifique à un environment        | Daemon (un par environment)         |
+| Nettoyage onboarding sur findings préexistants | TOML (en bulk via éditeur)          |
+| Ack ponctuel à 3h du matin via PagerDuty       | CLI daemon                          |
+
+## Observabilité
+
+Le daemon expose des compteurs Prometheus sur `/metrics` pour chaque
+opération ack qu'il traite
+(`perf_sentinel_ack_operations_total{action}` et
+`perf_sentinel_ack_operations_failed_total{action,reason}`). Voir
+[`METRICS-FR.md`](./METRICS-FR.md) pour le schéma complet et des
+exemples PromQL.

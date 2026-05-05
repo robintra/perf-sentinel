@@ -11,6 +11,8 @@
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "daemon")]
+mod ack;
+#[cfg(feature = "daemon")]
 mod query;
 mod render;
 #[cfg(feature = "tui")]
@@ -327,6 +329,26 @@ enum Commands {
         daemon: String,
         #[command(subcommand)]
         action: QueryAction,
+    },
+
+    /// Acknowledge findings via the daemon API (since 0.5.20).
+    ///
+    /// Three subactions: `create`, `revoke`, `list`. Auth via the
+    /// `PERF_SENTINEL_DAEMON_API_KEY` environment variable,
+    /// `--api-key-file <path>`, or interactive prompt on 401 when stdin
+    /// is a TTY. TOML CI acks (`.perf-sentinel-acknowledgments.toml`)
+    /// are out of scope, edit the file and ship via PR review instead.
+    #[cfg(feature = "daemon")]
+    Ack {
+        /// Daemon HTTP endpoint.
+        #[arg(
+            long,
+            default_value = "http://localhost:4318",
+            env = "PERF_SENTINEL_DAEMON_URL"
+        )]
+        daemon: String,
+        #[command(subcommand)]
+        action: ack::AckAction,
     },
 
     /// Produce a single-file HTML dashboard for post-mortem exploration.
@@ -693,6 +715,11 @@ async fn main() {
             // directly. A nested `Runtime::new().block_on(...)` here
             // panics with "Cannot start a runtime from within a runtime."
             query::cmd_query(&daemon, action).await;
+        }
+        #[cfg(feature = "daemon")]
+        Commands::Ack { daemon, action } => {
+            let exit_code = ack::cmd_ack(&daemon, action).await;
+            std::process::exit(exit_code);
         }
         Commands::Diff {
             before,
