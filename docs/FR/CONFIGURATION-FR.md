@@ -397,6 +397,81 @@ répétés ne peuvent pas s'accumuler au-delà de leur état actif net. Sur
 Unix, le fichier est créé avec le mode `0600` (lecture-écriture
 propriétaire uniquement).
 
+#### `[daemon.cors]` (optionnel, depuis 0.5.23)
+
+Cross-origin resource sharing pour les endpoints `/api/*` du daemon.
+Désactivé par défaut (aucun en-tête `Access-Control-Allow-Origin`
+n'est émis, la posture loopback-only est préservée). À activer quand
+un client navigateur doit appeler le daemon, typiquement le rapport
+HTML en mode live (`perf-sentinel report --daemon-url <URL>`, voir
+`HTML-REPORT-FR.md`).
+
+**Scope** : le layer CORS est branché uniquement sur le sous-router
+`/api/*`. Le chemin d'ingestion OTLP (`/v1/traces`), l'exposition
+Prometheus (`/metrics`) et le liveness probe (`/health`) ne sont PAS
+exposés en cross-origin, même en mode wildcard. Les pages navigateur
+ne peuvent pas poster des traces, scraper `/metrics` ou frapper
+`/health` quel que soit `allowed_origins`. Ce confinement est
+intentionnel, les clients navigateur n'ont aucun usage légitime pour
+ces surfaces.
+
+**Exposition des read endpoints** : chaque GET `/api/*`
+(`/api/findings`, `/api/acks`, `/api/status`, `/api/correlations`,
+`/api/explain/*`, `/api/export/report`) est non authentifié par
+design, en cohérence avec la posture loopback-only pré-0.5.23. Une
+fois qu'une origine est whitelistée, tout onglet de navigateur sur
+cette origine peut lire chaque signature de finding, métadonnée d'ack
+et export de trace que le daemon retient. **Whiteliste seulement les
+origines auxquelles vous faites confiance pour voir l'ensemble des
+données du daemon.** Mélanger des origines non fiables avec le mode
+wildcard (`["*", "https://x"]`) est rejeté au load de la config.
+
+| Champ             | Type           | Défaut | Description                                                                                                                                                                                                                                                |
+|-------------------|----------------|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allowed_origins` | array<string>  | `[]`   | Liste des origines autorisées à appeler la surface `/api/*` du daemon. `["*"]` est le mode wildcard (développement uniquement, sans credentials). Une liste non-wildcard whiteliste les origines exactes. Chaque entrée doit être une origine complète (scheme + hôte + port optionnel), sans slash final |
+
+Exemple wildcard (développement) :
+
+```toml
+[daemon.cors]
+allowed_origins = ["*"]
+```
+
+Exemple production (whitelist) :
+
+```toml
+[daemon.cors]
+allowed_origins = [
+    "https://reports.example.com",
+    "https://gitlab.example.com",
+]
+```
+
+Méthodes autorisées : `GET`, `POST`, `DELETE`, `OPTIONS`.
+En-têtes autorisés : `Content-Type`, `X-API-Key`. (`X-User-Id` n'est
+pas annoncé parce que le daemon ne l'enforce pas côté serveur, le
+champ `by` sur le body d'un ack POST est attesté par l'opérateur
+uniquement.)
+Préflight `Access-Control-Max-Age` : 120 secondes. Assez long pour
+amortir l'aller-retour OPTIONS sur une interaction typique, assez
+court pour qu'un whitelist resserré prenne effet au prochain
+préflight navigateur sans refresh forcé.
+
+Le layer CORS ne positionne pas `Access-Control-Allow-Credentials: true`,
+incompatible avec `["*"]` et inutile car le daemon authentifie via
+l'en-tête `X-API-Key` et non via des cookies. Les navigateurs sur une
+origine non-whitelistée reçoivent une réponse sans en-tête
+`Access-Control-Allow-Origin` et la requête est bloquée côté client,
+sans rejet côté daemon.
+
+Les origines qui ne se parsent pas comme une valeur d'en-tête HTTP
+valide (typiquement un copier-coller avec des caractères de contrôle)
+sont écartées au démarrage avec un log `warn!` et le reste de la
+liste est honoré. Si toutes les entrées sont invalides, le layer est
+désactivé entièrement. Si `daemon_api_enabled = false`, le layer
+CORS est skippé (le sous-router `/api/*` n'est pas monté de toute
+façon) et un `warn!` signale la config inutilisée.
+
 ## Configuration minimale
 
 Un fichier vide ou l'absence de fichier utilise tous les défauts. Une configuration minimale pour la CI peut se limiter aux seuils :

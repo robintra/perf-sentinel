@@ -144,6 +144,14 @@ pub struct Config {
     /// Optional override for the CI ack TOML file path read at daemon
     /// startup. Default `.perf-sentinel-acknowledgments.toml` in CWD.
     pub ack_toml_path: Option<String>,
+    /// Allowed origins for the daemon HTTP API CORS layer. Empty (default)
+    /// means no CORS headers are emitted, which preserves the pre-CORS
+    /// behavior. `["*"]` is wildcard mode, intended for development. A
+    /// non-wildcard list is the production posture: each entry must be a
+    /// full origin (scheme + host + optional port), e.g.
+    /// `"https://reports.example.com"`. Configured via
+    /// `[daemon.cors] allowed_origins` in TOML.
+    pub cors_allowed_origins: Vec<String>,
 }
 
 /// Deployment environment for the daemon's `watch` mode.
@@ -231,6 +239,7 @@ impl Default for Config {
             ack_storage_path: None,
             ack_api_key: None,
             ack_toml_path: None,
+            cors_allowed_origins: Vec::new(),
         }
     }
 }
@@ -436,6 +445,8 @@ struct DaemonSection {
     correlation: CorrelationSection,
     /// Daemon-side ack store section.
     ack: DaemonAckSection,
+    /// CORS section for the daemon HTTP API.
+    cors: DaemonCorsSection,
 }
 
 /// Raw deserialization target for `[daemon.correlation]`.
@@ -458,6 +469,13 @@ struct DaemonAckSection {
     storage_path: Option<String>,
     api_key: Option<String>,
     toml_path: Option<String>,
+}
+
+/// Raw deserialization target for `[daemon.cors]`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct DaemonCorsSection {
+    allowed_origins: Vec<String>,
 }
 
 const TOML_PATH_STRING_KEYS: &[&str] = &[
@@ -842,6 +860,7 @@ impl From<RawConfig> for Config {
             ack_storage_path: raw.daemon.ack.storage_path,
             ack_api_key: raw.daemon.ack.api_key,
             ack_toml_path: raw.daemon.ack.toml_path,
+            cors_allowed_origins: raw.daemon.cors.allowed_origins,
         }
     }
 }
@@ -1154,6 +1173,69 @@ impl Config {
         self.validate_tls()?;
         self.validate_green()?;
         self.validate_daemon_ack()?;
+        self.validate_daemon_cors()?;
+        self.validate_cross_section_consistency()?;
+        Ok(())
+    }
+
+    /// Cross-section consistency checks that no individual section
+    /// can validate alone. Today this is small (CORS-vs-API), but
+    /// `validate` is intentionally extensible: any future "you set X
+    /// but Y is off" trap belongs here.
+    fn validate_cross_section_consistency(&self) -> Result<(), String> {
+        if !self.daemon_api_enabled && !self.cors_allowed_origins.is_empty() {
+            return Err(
+                "[daemon.cors] allowed_origins is set but [daemon] api_enabled = false. \
+                 The CORS layer would attach to a non-mounted /api/* sub-router and \
+                 silently do nothing, which is almost always a misconfiguration. \
+                 Either remove [daemon.cors] allowed_origins for this environment, or \
+                 enable the API with [daemon] api_enabled = true."
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn validate_daemon_cors(&self) -> Result<(), String> {
+        // Mixing the wildcard with explicit origins is ambiguous and
+        // silently degrades to wildcard mode in `build_cors_layer`.
+        // Reject the mix here so the operator gets a clear error
+        // instead of a whitelist that looks tighter than it actually
+        // is at runtime.
+        let has_wildcard = self.cors_allowed_origins.iter().any(|o| o == "*");
+        if has_wildcard && self.cors_allowed_origins.len() > 1 {
+            return Err(
+                "[daemon.cors] allowed_origins cannot mix \"*\" with explicit origins, \
+                 either use [\"*\"] for wildcard mode or list every origin explicitly"
+                    .to_string(),
+            );
+        }
+        for origin in &self.cors_allowed_origins {
+            if origin.is_empty() {
+                return Err(
+                    "[daemon.cors] allowed_origins entry is empty, drop it or set a value"
+                        .to_string(),
+                );
+            }
+            if has_control_char(origin) {
+                return Err(format!(
+                    "[daemon.cors] allowed_origins entry '{origin}' contains control characters"
+                ));
+            }
+            if origin == "*" {
+                continue;
+            }
+            if !(origin.starts_with("http://") || origin.starts_with("https://")) {
+                return Err(format!(
+                    "[daemon.cors] allowed_origins entry '{origin}' must start with http:// or https:// (or be \"*\" for wildcard mode)"
+                ));
+            }
+            if origin.ends_with('/') {
+                return Err(format!(
+                    "[daemon.cors] allowed_origins entry '{origin}' must not end with a trailing slash, an origin is scheme + host + optional port"
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -3797,5 +3879,135 @@ api_key = \"short-enough\"
         cfg.ack_storage_path = Some("/var/lib/acks\x00.jsonl".to_string());
         let err = cfg.validate_daemon_ack().unwrap_err();
         assert!(err.contains("control characters"), "{err}");
+    }
+
+    #[test]
+    fn validate_daemon_cors_accepts_empty_default() {
+        let cfg = Config::default();
+        assert!(cfg.validate_daemon_cors().is_ok());
+        assert!(cfg.cors_allowed_origins.is_empty());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_accepts_wildcard() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["*".to_string()];
+        assert!(cfg.validate_daemon_cors().is_ok());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_accepts_https_origin() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["https://reports.example.com".to_string()];
+        assert!(cfg.validate_daemon_cors().is_ok());
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_origin_without_scheme() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["reports.example.com".to_string()];
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(err.contains("must start with http://"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_trailing_slash() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["https://reports.example.com/".to_string()];
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(err.contains("trailing slash"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_empty_entry() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec![String::new()];
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(err.contains("is empty"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_control_chars() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["https://example.com\nattacker".to_string()];
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(err.contains("control characters"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_wildcard_mixed_with_explicit_origins() {
+        let mut cfg = Config::default();
+        cfg.cors_allowed_origins = vec!["*".to_string(), "https://example.com".to_string()];
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(err.contains("cannot mix"), "{err}");
+    }
+
+    #[test]
+    fn cors_section_round_trips_via_toml() {
+        let toml = r#"
+[daemon.cors]
+allowed_origins = ["https://reports.example.com", "https://gitlab.example.com"]
+"#;
+        let cfg = load_from_str(toml).expect("valid TOML");
+        assert_eq!(
+            cfg.cors_allowed_origins,
+            vec![
+                "https://reports.example.com".to_string(),
+                "https://gitlab.example.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn cors_with_api_disabled_is_rejected() {
+        // The CORS layer attaches to the `/api/*` sub-router only.
+        // When `[daemon] api_enabled = false`, the sub-router is not
+        // mounted, so a non-empty `allowed_origins` would silently do
+        // nothing post-deploy. Reject at config load.
+        let mut cfg = Config::default();
+        cfg.daemon_api_enabled = false;
+        cfg.cors_allowed_origins = vec!["https://reports.example.com".to_string()];
+        let err = cfg.validate().unwrap_err();
+        assert!(
+            err.contains("api_enabled = false"),
+            "expected mismatch error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn cors_disabled_with_api_disabled_is_accepted() {
+        let cfg = Config {
+            daemon_api_enabled: false,
+            ..Config::default()
+        };
+        // Empty CORS list = layer not wired = no inconsistency.
+        assert!(cfg.cors_allowed_origins.is_empty());
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn cors_section_rejects_mixed_wildcard_via_toml_load() {
+        // The mixed-wildcard rule is enforced at validation time, not
+        // at deserialization. Verify the full `load_from_str` path
+        // surfaces the validation error rather than silently dropping
+        // explicit origins on the way in.
+        let toml = r#"
+[daemon.cors]
+allowed_origins = ["*", "https://reports.example.com"]
+"#;
+        let err = load_from_str(toml).expect_err("mixed wildcard must be rejected");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("cannot mix"),
+            "expected validation error to mention mixing: {msg}"
+        );
     }
 }

@@ -394,6 +394,77 @@ at every daemon restart, so repeated `ack` / `unack` cycles cannot
 accumulate beyond their net active state. On Unix, the file is created
 with mode `0600` (owner read-write only).
 
+#### `[daemon.cors]` (optional, since 0.5.23)
+
+Cross-origin resource sharing for the daemon's `/api/*` query
+endpoints. Disabled by default (no `Access-Control-Allow-Origin`
+header is emitted, the loopback-only posture is preserved). Enable
+when a browser client needs to call the daemon, typically the HTML
+report in live mode (`perf-sentinel report --daemon-url <URL>`, see
+`HTML-REPORT.md`).
+
+**Scope**: the CORS layer is wired only on the `/api/*` query API
+sub-router. The OTLP ingest path (`/v1/traces`), Prometheus
+exposition (`/metrics`), and liveness probe (`/health`) are NOT
+exposed cross-origin even under wildcard mode. Browser pages cannot
+post traces, scrape `/metrics`, or hit `/health` regardless of
+`allowed_origins`. This containment is intentional, browser clients
+have no legitimate use for those surfaces.
+
+**Read-endpoint exposure**: every `/api/*` GET endpoint
+(`/api/findings`, `/api/acks`, `/api/status`, `/api/correlations`,
+`/api/explain/*`, `/api/export/report`) is unauthenticated by design,
+in line with the loopback-only posture pre-0.5.23. Once you whitelist
+an origin, any browser tab on that origin can read every finding
+signature, ack metadata, and trace export the daemon holds. **Only
+whitelist origins you trust to view all daemon-resident data.**
+Mixing untrusted origins with wildcard mode (`["*", "https://x"]`)
+is rejected at config load.
+
+| Field             | Type           | Default | Description                                                                                                                                                                                                                                              |
+|-------------------|----------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allowed_origins` | array<string>  | `[]`    | List of origins permitted to call the daemon's `/api/*` surface. `["*"]` is wildcard mode (development only, no credentials). A non-wildcard list whitelists exact origins. Each non-wildcard entry must be a full origin (scheme + host + optional port), no trailing slash |
+
+Wildcard example (development):
+
+```toml
+[daemon.cors]
+allowed_origins = ["*"]
+```
+
+Production example (whitelist):
+
+```toml
+[daemon.cors]
+allowed_origins = [
+    "https://reports.example.com",
+    "https://gitlab.example.com",
+]
+```
+
+Methods allowed: `GET`, `POST`, `DELETE`, `OPTIONS`.
+Headers allowed: `Content-Type`, `X-API-Key`. (`X-User-Id` is not
+advertised because the daemon does not enforce it server-side; the
+`by` field on an ack POST body is operator-attested only.)
+Preflight `Access-Control-Max-Age`: 120 seconds. Long enough to
+amortize the OPTIONS roundtrip across a typical interaction, short
+enough that a tightened whitelist takes effect on the next browser
+preflight without a forced refresh.
+
+The CORS layer does not set `Access-Control-Allow-Credentials: true`,
+which is incompatible with `["*"]` and unnecessary because the daemon
+auths via the `X-API-Key` header rather than cookies. Browsers running
+on a non-whitelisted origin receive responses without the
+`Access-Control-Allow-Origin` header and the request is blocked
+client-side without a daemon-side rejection.
+
+Origins that fail to parse as a valid HTTP header value (typically a
+copy-paste with embedded control characters) are dropped at startup
+with a `warn!` log and the rest of the list is honored. If every entry
+is invalid, the layer is disabled entirely. If `daemon_api_enabled =
+false`, the CORS layer is skipped (the `/api/*` sub-router is not
+mounted in the first place) and a `warn!` notes the unused config.
+
 ## Minimal configuration
 
 An empty file or no file at all uses all defaults. A minimal configuration for CI might only set thresholds:
