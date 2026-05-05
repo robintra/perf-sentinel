@@ -110,6 +110,22 @@ Le parseur calcule les millisecondes depuis l'epoch Unix en parsant les composan
 
 Les timestamps min/max sont trouvés via comparaison de chaînes : `if ts < min_ts { min_ts = ts; }`. Cela fonctionne car les timestamps ISO 8601 avec des champs de largeur fixe (`2025-07-10T14:32:01.123Z`) se trient chronologiquement lorsqu'ils sont comparés lexicographiquement. C'est garanti par le [standard ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html), Section 5.3.3.
 
+## Classification sanitizer-aware
+
+Les agents OpenTelemetry collapsent les littéraux SQL en `?` par défaut pour ne pas faire fuiter de PII vers les attributs de trace. La requête sanitizée (`SELECT ... WHERE id = ?`) arrive dans perf-sentinel avec le placeholder déjà en place, et `normalize_sql` la laisse telle quelle (il n'extrait que les littéraux numériques et chaînes, pas les `?` littéraux). Pour un N+1 induit par un ORM, chaque span se retrouve avec le même `template` et un vecteur `params` vide. Le check standard `distinct_params >= threshold` voit un seul slice de params vides et ne se déclenche jamais, le détecteur redundant regroupe alors tous les spans et les classe à tort en `redundant_sql`.
+
+L'heuristique dans `crates/sentinel-core/src/detect/sanitizer_aware.rs` rétablit la classification correcte via trois signaux, évalués dans l'ordre :
+
+1. `looks_sanitized` : chaque span a un placeholder `?` dans son template et un vecteur `params` vide. Requis pour activer l'heuristique.
+2. `has_orm_scope` : au moins un OpenTelemetry instrumentation scope sur les spans correspond à un marqueur ORM connu (Hibernate, Spring Data, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, etc.). Les marqueurs sont matchés avec un check de word-boundary (précédé et suivi d'un byte non-alphanumérique), donc `jpa` ne se déclenche que sur `spring-data-jpa` et apparentés, jamais sur `myappjpastats`. Une correspondance positive est traitée comme une preuve forte de N+1.
+3. `timing_variance_suggests_n_plus_one` : quand le signal scope est absent, fallback sur le coefficient de variation de `duration_us`. Un vrai N+1 frappe différentes lignes avec différents états de cache, donc l'écart est plus large, des appels redondants en cache se regroupent serré. Seuil `0.5` empirique.
+
+Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont documentés dans `docs/FR/CONFIGURATION-FR.md` § « `sanitizer_aware_classification` » avec leurs trade-offs précision/rappel.
+
+### Limite connue
+
+`looks_sanitized` ne peut pas distinguer un `?` littéral sanitizé d'un opérateur d'existence JSONB PostgreSQL (`data ? 'key'`) quand ce dernier apparaît dans une requête sans autre littéral. La direction du préjudice est asymétrique : un groupe JSONB mal classé bascule de `redundant_sql` vers `n_plus_one_sql`, les deux contribuant à parts égales aux `avoidable_io_ops` GreenOps, seul le texte de la suggestion diffère.
+
 ## Détection redondante
 
 ### Clés de slice empruntées

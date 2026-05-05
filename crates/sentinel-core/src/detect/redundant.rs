@@ -14,7 +14,7 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 ///
 /// `n_plus_one_findings` is the slice of N+1 findings already produced
 /// for this trace. Templates that already triggered an N+1 finding (via
-/// the standard distinct-params rule or via the 0.5.7 sanitizer-aware
+/// the standard distinct-params rule or via the sanitizer-aware
 /// heuristic) are skipped so the same template is not double-reported as
 /// both `n_plus_one_sql` and `redundant_sql`.
 #[must_use]

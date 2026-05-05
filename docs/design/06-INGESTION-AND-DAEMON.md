@@ -437,3 +437,38 @@ This ordering ensures that the `FindingsStore` always has the findings before th
 ### NDJSON output
 
 Active correlations are not emitted to NDJSON stdout alongside findings. They are exposed via the `/api/correlations` HTTP endpoint and the `perf-sentinel query correlations` CLI subcommand. This separation avoids mixing findings (per-trace, per-tick) with correlations (aggregated, cross-trace) in the same output stream.
+
+## Daemon ack store: JSONL + concurrency
+
+The daemon-side ack store (`crates/sentinel-core/src/daemon/ack.rs`) complements the CI-side TOML acknowledgments (`crate::acknowledgments`) with a runtime API for SRE-on-call use cases. The two sources are unioned at query time, with TOML winning on conflict (immutable baseline shipped via PR review).
+
+### File format
+
+Append-only JSONL at `~/.local/share/perf-sentinel/acks.jsonl` by default. Each line is one event:
+
+```jsonl
+{"action":"ack","signature":"<sig>","by":"alice","reason":"...","at":"2026-05-04T13:30:00Z","expires_at":null}
+{"action":"unack","signature":"<sig>","by":"alice","at":"2026-05-04T14:00:00Z"}
+```
+
+### Compaction at startup
+
+The daemon replays the JSONL into a `HashMap<Signature, AckEntry>` (apply on `Ack`, remove on `Unack`, drop on expiry), then atomically rewrites the file via tmp + rename with only the active entries. A runaway ack/unack loop therefore cannot accumulate forever, the file resets every restart.
+
+### Concurrency model
+
+The in-memory map sits behind an `RwLock` for cheap read snapshots. Disk writes go through a `Mutex<File>` so concurrent `ack`/`unack` calls produce one well-formed JSONL line each. The mutex is held for the entire write + map-update so a failed disk write never leaves the map ahead of the persisted state.
+
+## Authorization header parsing
+
+The auth-header helper lives in `crates/sentinel-core/src/ingest/auth_header.rs`. It parses a user-supplied `--auth-header "Name: Value"` line into a hyper-safe `(HeaderName, HeaderValue)` pair, shared between the Tempo and Jaeger-Query subcommands.
+
+The parsed value is marked `sensitive` so hyper omits it from its own debug output and from HTTP/2 HPACK compression tables. The struct also implements a manual `Debug` that never prints the value, so a logged `AuthHeader` never leaks the credential.
+
+### Validation rules
+
+Parsing is intentionally strict. Beyond the hyper-level checks (token-only name, VCHAR + SP + HTAB value, so internal tabs and spaces inside the value are preserved as-is and only CR/LF + non-visible ASCII are rejected) the parser also refuses:
+
+- Raw inputs longer than 8 KiB, to bound the per-task clone in the Tempo parallel fanout and stop a pathological `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` at the door. A typical JWT is 2 to 4 KiB, 8 KiB leaves headroom for long multi-claim tokens without opening the door to arbitrary blobs.
+- Values that are empty after trimming, which would send a pointless `Authorization:` to the backend and produce a confusing 401.
+- Header names that would enable request smuggling or authority override if user-supplied: `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Users wanting to tweak those should use a local proxy, not this flag.

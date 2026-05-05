@@ -393,12 +393,11 @@ async fn call_no_body_or_print_error(
     }
 }
 
-/// Validate and normalize a daemon URL. Used by the `ack` subcommand
-/// for `--daemon` and (since 0.5.23) by the `report` subcommand for
-/// `--daemon-url`. Rejects empty input, non-http(s) schemes, missing
-/// hosts, port-without-host, embedded userinfo, path components, and
-/// query strings. Trailing slashes on the authority are trimmed for
-/// uniformity, the rest is preserved verbatim.
+/// Validate and normalize a daemon URL. Rejects empty input,
+/// non-http(s) schemes, missing hosts, port-without-host, embedded
+/// userinfo, path components, and query strings. Trailing slashes on
+/// the authority are trimmed for uniformity, the rest is preserved
+/// verbatim.
 pub(crate) fn validate_url(daemon_url: &str) -> Result<String, String> {
     if daemon_url.is_empty() {
         return Err(format!("Invalid daemon URL `{daemon_url}`: empty"));

@@ -98,7 +98,7 @@ pub struct Finding {
     /// via the standard pipeline rules (`distinct_params >= threshold`
     /// for N+1, repeated identical `(template, params)` for redundant).
     /// `Some(SanitizerHeuristic)` means the type was inferred via the
-    /// 0.5.7 sanitizer-aware heuristic, because the OpenTelemetry agent
+    /// sanitizer-aware heuristic, because the OpenTelemetry agent
     /// collapsed every parameter to `?` and the standard distinct-params
     /// signal was unusable. Operators can filter on this field to spot
     /// where the heuristic is firing.
@@ -227,7 +227,7 @@ pub enum ClassificationMethod {
     /// redundant). Equivalent to the absence of the field; emitted
     /// explicitly only when a caller wants to be unambiguous.
     Direct,
-    /// Reclassified via the 0.5.7 sanitizer-aware heuristic, because the
+    /// Reclassified via the sanitizer-aware heuristic, because the
     /// OpenTelemetry agent's SQL sanitizer collapsed every parameter to
     /// `?`, making the standard distinct-params check unreliable.
     SanitizerHeuristic,

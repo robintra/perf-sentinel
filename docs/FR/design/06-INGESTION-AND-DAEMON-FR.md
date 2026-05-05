@@ -401,3 +401,38 @@ Le `CrossTraceCorrelator` (décrit dans [04 : Détection](04-DETECTION-FR.md)) e
 4. `GET /api/correlations` appelle `active_correlations()` pour retourner les paires au-dessus des seuils configurés.
 
 Le corrélateur est possédé par la boucle du daemon (pas dans un Arc/Mutex séparé), puisque seul le ticker y accède. Cela évite le coût de synchronisation.
+
+## Store ack daemon : JSONL + concurrence
+
+Le store ack côté daemon (`crates/sentinel-core/src/daemon/ack.rs`) complète les acknowledgments TOML côté CI (`crate::acknowledgments`) avec une API runtime pour les cas SRE-on-call. Les deux sources sont unionées au moment de la query, le TOML l'emportant en cas de conflit (baseline immuable livrée via revue de PR).
+
+### Format de fichier
+
+JSONL append-only à `~/.local/share/perf-sentinel/acks.jsonl` par défaut. Chaque ligne est un événement :
+
+```jsonl
+{"action":"ack","signature":"<sig>","by":"alice","reason":"...","at":"2026-05-04T13:30:00Z","expires_at":null}
+{"action":"unack","signature":"<sig>","by":"alice","at":"2026-05-04T14:00:00Z"}
+```
+
+### Compaction au démarrage
+
+Le daemon rejoue le JSONL dans une `HashMap<Signature, AckEntry>` (apply sur `Ack`, remove sur `Unack`, drop sur expiration), puis réécrit atomiquement le fichier via tmp + rename avec uniquement les entrées actives. Une boucle ack/unack qui s'emballe ne peut donc pas accumuler indéfiniment, le fichier se reset à chaque redémarrage.
+
+### Modèle de concurrence
+
+La map en mémoire est derrière un `RwLock` pour des lectures snapshot bon marché. Les écritures disque passent par un `Mutex<File>` pour que des appels `ack`/`unack` concurrents produisent chacun une ligne JSONL bien formée. Le mutex est tenu pour toute la durée write + map-update, donc une écriture disque qui échoue ne laisse jamais la map en avance sur l'état persisté.
+
+## Parsing du header d'autorisation
+
+Le helper auth-header vit dans `crates/sentinel-core/src/ingest/auth_header.rs`. Il parse une ligne `--auth-header "Name: Value"` user-supplied en une paire `(HeaderName, HeaderValue)` hyper-safe, partagée entre les sous-commandes Tempo et Jaeger-Query.
+
+La valeur parsée est marquée `sensitive` pour qu'hyper l'omette de son propre debug output et des tables de compression HPACK HTTP/2. La struct implémente aussi un `Debug` manuel qui n'imprime jamais la valeur, donc un `AuthHeader` loggé ne fuit jamais le credential.
+
+### Règles de validation
+
+Le parsing est volontairement strict. Au-delà des checks au niveau hyper (nom token-only, valeur VCHAR + SP + HTAB, donc les tabs et espaces internes dans la valeur sont préservés tels quels et seuls CR/LF + ASCII non-visible sont rejetés), le parseur refuse aussi :
+
+- Les inputs bruts plus longs que 8 KiB, pour borner le clone par tâche dans le fanout parallèle Tempo et stopper un `--auth-header "X: $(cat /dev/urandom | head -c 50M | base64)"` pathologique à la porte. Un JWT typique fait 2 à 4 KiB, 8 KiB laisse de la marge pour des tokens multi-claims longs sans ouvrir la porte à des blobs arbitraires.
+- Les valeurs vides après trim, qui enverraient un `Authorization:` inutile au backend et produiraient un 401 confus.
+- Les noms de header qui activeraient du request smuggling ou un override d'authority si user-supplied : `Host`, `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`, `Proxy-Connection`. Les utilisateurs voulant tweaker ceux-là devraient passer par un proxy local, pas par ce flag.

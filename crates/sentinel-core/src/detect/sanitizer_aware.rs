@@ -1,49 +1,8 @@
 //! Sanitizer-aware classification for SQL N+1 vs redundant.
 //!
-//! OpenTelemetry agents collapse SQL literals to `?` by default to keep
-//! PII out of trace attributes. The sanitized statement
-//! (`SELECT ... WHERE id = ?`) reaches perf-sentinel with the `?`
-//! already in place, and `normalize_sql` leaves it as-is (it only
-//! extracts numeric/string literals, not literal `?` placeholders). So
-//! for an ORM-induced N+1 every span ends up with the same `template`
-//! containing `?` and an empty `params` vector. The standard
-//! `distinct_params >= threshold` check in [`super::n_plus_one`] sees
-//! one distinct empty params slice and never fires, the redundant
-//! detector then groups all the spans together and misclassifies them
-//! as `redundant_sql`. This module provides the heuristic that recovers
-//! the correct classification.
-//!
-//! Three signals, evaluated in order:
-//! 1. [`looks_sanitized`]: every span has a `?` placeholder in its
-//!    template and an empty `params` vector. Required to activate the
-//!    heuristic at all.
-//! 2. [`has_orm_scope`]: at least one OpenTelemetry instrumentation scope
-//!    on the spans matches a known ORM marker (Hibernate, Spring Data,
-//!    EF Core, `SQLAlchemy`, `ActiveRecord`, GORM, Prisma, Diesel, etc.).
-//!    Markers are matched with a word-boundary check (preceded and
-//!    followed by a non-alphanumeric byte), so `jpa` only fires on
-//!    `spring-data-jpa` and friends, never on `myappjpastats`. A positive
-//!    match is treated as strong evidence of N+1.
-//! 3. [`timing_variance_suggests_n_plus_one`]: when the scope signal is
-//!    absent, fall back to the coefficient of variation of `duration_us`.
-//!    True N+1 hits different rows with different cache states, so the
-//!    spread is wider, cached redundant calls cluster tightly. Threshold
-//!    `0.5` is empirical.
-//!
-//! The configurable [`SanitizerAwareMode`] gates final emission:
-//! `Auto` (default) requires `LikelyNPlusOne` from the OR-logic
-//! classifier (either signal fires), `Strict` (0.5.8+) requires
-//! `LikelyNPlusOne` from the AND-logic classifier (both signals fire
-//! conjointly), `Always` always emits, `Never` keeps pre-0.5.7
-//! behavior.
-//!
-//! Known limit: `looks_sanitized` cannot tell a sanitized literal `?`
-//! apart from a `PostgreSQL` JSONB existence operator (`data ? 'key'`)
-//! when the latter happens to appear in a query with no other
-//! literals. The harm direction is asymmetric: a misclassified JSONB
-//! group flips from `redundant_sql` to `n_plus_one_sql`, both of which
-//! contribute equally to `GreenOps` `avoidable_io_ops`, only the
-//! suggestion text differs.
+//! See `docs/design/04-DETECTION.md` § "Sanitizer-aware classification"
+//! for the rationale, the three signals (`looks_sanitized`,
+//! `has_orm_scope`, `timing_variance`), and the JSONB known-limit.
 
 use crate::normalize::NormalizedEvent;
 
@@ -68,7 +27,8 @@ pub enum SanitizerAwareMode {
     /// Reclassify any sanitized group with `>= threshold` occurrences.
     /// Most aggressive: may flag a single-param redundancy as N+1.
     Always,
-    /// Disable the heuristic entirely. Reproduces pre-0.5.7 behavior.
+    /// Disable the heuristic entirely. Falls back to the strict
+    /// `distinct_params` check.
     Never,
     /// Reclassify only when **both** signals fire conjointly: ORM scope
     /// present **and** per-span timing variance high enough to indicate
@@ -267,7 +227,7 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
 /// N+1 silent for the redundant detector to pick up. Threshold tuned to
 /// favor false positives over silent misses.
 ///
-/// Under `Strict` (0.5.8+) this signal becomes load-bearing: it is the
+/// Under `Strict` mode this signal becomes load-bearing: it is the
 /// only gate that lets a sanitized group reach `LikelyNPlusOne` once
 /// the ORM scope check has passed. A real ORM-induced N+1 against a
 /// fully warm row cache (e.g. 100 lookups by primary key with all rows

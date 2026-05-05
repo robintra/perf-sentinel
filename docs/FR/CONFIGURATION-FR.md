@@ -90,8 +90,8 @@ restaure la classification correcte :
 - `"always"` : reclassifie tout groupe sanitisé qui atteint
   `n_plus_one_min_occurrences` spans en `n_plus_one_sql`. Plus agressif,
   peut requalifier une vraie redondance à un seul paramètre.
-- `"never"` : désactive complètement l'heuristique et reproduit le
-  comportement antérieur à la 0.5.7.
+- `"never"` : désactive complètement l'heuristique et retombe sur le
+  check strict `distinct_params`.
 
 Les findings reclassifiés par l'heuristique (sous `"auto"`, `"strict"`
 ou `"always"`) portent `classification_method = "sanitizer_heuristic"`

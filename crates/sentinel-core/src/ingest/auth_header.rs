@@ -1,30 +1,9 @@
 //! Parse a user-supplied `--auth-header "Name: Value"` line into a
-//! hyper-safe `(HeaderName, HeaderValue)` pair, shared between the
-//! `tempo` and `jaeger-query` subcommands.
+//! hyper-safe `(HeaderName, HeaderValue)` pair.
 //!
-//! The parsed value is marked `sensitive` so hyper omits it from its
-//! own debug output and from HTTP/2 HPACK compression tables. The
-//! struct also implements a manual `Debug` that never prints the
-//! value, so a logged `AuthHeader` never leaks the credential.
-//!
-//! # Validation rules
-//!
-//! Parsing is intentionally strict. Beyond the hyper-level checks
-//! (token-only name, VCHAR + SP + HTAB value, so internal tabs and
-//! spaces inside the value ARE preserved as-is, only CR/LF and
-//! non-visible ASCII are rejected) we reject:
-//!
-//! - Raw inputs longer than 8 KiB, to bound the per-task clone in the
-//!   Tempo parallel fanout and stop a pathological `--auth-header
-//!   "X: $(cat /dev/urandom | head -c 50M | base64)"` at the door.
-//! - Values that are empty after trimming, which would send a
-//!   pointless `Authorization:` to the backend and produce a confusing
-//!   401.
-//! - Header names that would enable request smuggling or authority
-//!   override if user-supplied: `Host`, `Content-Length`,
-//!   `Transfer-Encoding`, `Connection`, `Upgrade`, `TE`,
-//!   `Proxy-Connection`. Users wanting to tweak those should use a
-//!   local proxy, not this flag.
+//! See `docs/design/06-INGESTION-AND-DAEMON.md` § "Authorization
+//! header parsing" for the validation rules and the request-smuggling
+//! header denylist.
 
 use hyper::header::{HeaderName, HeaderValue};
 

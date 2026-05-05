@@ -87,8 +87,8 @@ recovers the correct classification:
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.
-- `"never"`: disable the heuristic entirely and reproduce pre-0.5.7
-  behavior.
+- `"never"`: disable the heuristic entirely and fall back to the strict
+  `distinct_params` check.
 
 Findings reclassified by the heuristic (whether under `"auto"`,
 `"strict"`, or `"always"`) carry `classification_method =

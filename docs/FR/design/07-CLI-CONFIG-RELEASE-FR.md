@@ -138,6 +138,14 @@ Seul `reference_url` du `SuggestedFix` devient un lien, et uniquement quand la v
 - **Persistance sessionStorage** : deux clés, `perf-sentinel:theme` (dark/light, lue avant le premier paint pour éviter le theme-flash) et `perf-sentinel:pgstat-ranking` (slug du dernier classement actif). Chaque accès est wrappé dans un `try/catch` parce que le mode privé Safari et certaines politiques d'entreprise throwent sur `sessionStorage.setItem`. Volontairement pas `localStorage` : en `file://` l'origine `null` est partagée entre tous les fichiers HTML locaux, donc localStorage entrerait en collision entre rapports sans rapport entre eux, alors que sessionStorage est scoped à l'onglet et sans collision. Le hash prime sur sessionStorage quand les deux portent une valeur.
 - **Modal cheatsheet** : un élément natif `<dialog>` déclenché par `?` (ouvert via `showModal()`, qui applique implicitement le rôle WAI-ARIA dialog et piège le focus) liste tous les raccourcis. La touche `?` est ignorée quand un input texte a le focus, pour que taper `?` dans le filtre marche toujours. Les raccourcis style vim préfixés `g` (`g f` / `g e` / `g p` / `g d` / `g c` / `g r`) switchent d'onglet avec un timeout de 1000ms sur le `g` en attente, les onglets masqués sont un no-op silencieux. `Esc` gagne deux tiers de priorité supplémentaires par-dessus l'échelle existante : fermer la cheatsheet (plus haute priorité) et effacer les puces de filtre actives (plus basse priorité). La pagination Findings remplace le cap dur de 500 lignes par un bouton `Show N more findings` qui révèle 500 lignes supplémentaires à la fois.
 
+### Invariant `STATIC_CSP` à la compilation
+
+La Content-Security-Policy en mode statique est la même chaîne que celle livrée avant l'ajout du mode live. Elle interdit toute sortie réseau et tout vecteur d'exécution inline sauf les blocs inline `<script>` et `<style>` dont le rapport dépend.
+
+Le pipeline de substitution de placeholders dans `inject` réécrit trois tokens (`{{REPORT_JSON}}`, `{{PAGE_TITLE}}`, `{{CONTENT_SECURITY_POLICY}}`) dans un ordre fixe. Toute séquence d'octets `{{` qui atterrirait dans `STATIC_CSP` shadowerait silencieusement ce pipeline et corromprait la substitution.
+
+Un bloc `const _: () = { ... while ... assert!(...) }` à la compilation vérifie que `STATIC_CSP.as_bytes()` ne contient jamais `{{`. Le `debug_assert!` runtime dans `inject` couvre la moitié daemon-URL (validée par `validate_url`), le bloc const couvre la moitié statique pour qu'une édition future qui introduirait un bracket de templating casse le build au lieu de corrompre silencieusement la sortie. `const _: () = ...` est le pattern canonique pour un check anonyme à la compilation qui ne warn pas sous `dead_code`.
+
 ### Feature flags
 
 Le workspace utilise des feature flags Cargo pour garder les dépendances daemon optionnelles :

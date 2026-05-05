@@ -199,9 +199,8 @@ pub struct MetricsState {
     /// Total requests to `GET /api/export/report` since daemon start.
     /// Bumped by the handler so operators can dashboard or alert on
     /// the frequency of Report snapshots being pulled by clients.
-    /// Counts every request, including cold-start responses (which
-    /// return 200 with an empty envelope since 0.5.16, 503 before),
-    /// consistent with HTTP access-log conventions.
+    /// Counts every request, including cold-start responses (200 with
+    /// an empty envelope), consistent with HTTP access-log conventions.
     pub export_report_requests_total: Counter,
     /// OTLP requests rejected by the daemon, labeled by `reason`.
     /// Pre-warmed to 0 for the 3 reasons (`unsupported_media_type`,

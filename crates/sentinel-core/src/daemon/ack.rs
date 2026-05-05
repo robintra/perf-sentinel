@@ -1,35 +1,8 @@
 //! Daemon-side ack store: JSONL append-only persistence + in-memory cache.
 //!
-//! Complements the CI-side TOML acknowledgments (`crate::acknowledgments`)
-//! with a runtime API for SRE-on-call use cases. The two sources are
-//! unioned at query time, with TOML winning on conflict (immutable
-//! baseline shipped via PR review).
-//!
-//! ## File format
-//!
-//! Append-only JSONL at `~/.local/share/perf-sentinel/acks.jsonl` by
-//! default. Each line is one event:
-//!
-//! ```jsonl
-//! {"action":"ack","signature":"<sig>","by":"alice","reason":"...","at":"2026-05-04T13:30:00Z","expires_at":null}
-//! {"action":"unack","signature":"<sig>","by":"alice","at":"2026-05-04T14:00:00Z"}
-//! ```
-//!
-//! ## Compaction
-//!
-//! At startup, the daemon replays the JSONL into a `HashMap<Signature, AckEntry>`
-//! (apply on `Ack`, remove on `Unack`, drop on expiry), then atomically
-//! rewrites the file via tmp + rename with only the active entries. A
-//! runaway ack/unack loop therefore cannot accumulate forever, the file
-//! resets every restart.
-//!
-//! ## Concurrency
-//!
-//! The in-memory map sits behind an `RwLock` (cheap read snapshots).
-//! Disk writes go through a `Mutex<File>` so concurrent `ack`/`unack`
-//! calls produce one well-formed JSONL line each. The mutex is held for
-//! the entire write+map-update so a failed disk write never leaves the
-//! map ahead of the persisted state.
+//! See `docs/design/06-INGESTION-AND-DAEMON.md` § "Daemon ack store:
+//! JSONL + concurrency" for the file format, compaction strategy and
+//! concurrency model rationale.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

@@ -110,6 +110,22 @@ The parser computes milliseconds since Unix epoch by parsing both the date (`YYY
 
 Min/max timestamps are found via string comparison: `if ts < min_ts { min_ts = ts; }`. This works because ISO 8601 timestamps with fixed-width fields (`2025-07-10T14:32:01.123Z`) sort chronologically when compared lexicographically. This is guaranteed by the [ISO 8601 standard](https://www.iso.org/iso-8601-date-and-time-format.html), Section 5.3.3.
 
+## Sanitizer-aware classification
+
+OpenTelemetry agents collapse SQL literals to `?` by default to keep PII out of trace attributes. The sanitized statement (`SELECT ... WHERE id = ?`) reaches perf-sentinel with the placeholder already in place, and `normalize_sql` leaves it as-is (it only extracts numeric and string literals, not literal `?`). For an ORM-induced N+1 every span ends up with the same `template` and an empty `params` vector. The standard `distinct_params >= threshold` check sees one distinct empty params slice and never fires, the redundant detector then groups all the spans together and misclassifies them as `redundant_sql`.
+
+The heuristic in `crates/sentinel-core/src/detect/sanitizer_aware.rs` recovers the correct classification via three signals, evaluated in order:
+
+1. `looks_sanitized`: every span has a `?` placeholder in its template and an empty `params` vector. Required to activate the heuristic at all.
+2. `has_orm_scope`: at least one OpenTelemetry instrumentation scope on the spans matches a known ORM marker (Hibernate, Spring Data, EF Core, SQLAlchemy, ActiveRecord, GORM, Prisma, Diesel, etc.). Markers are matched with a word-boundary check (preceded and followed by a non-alphanumeric byte), so `jpa` only fires on `spring-data-jpa` and friends, never on `myappjpastats`. A positive match is treated as strong evidence of N+1.
+3. `timing_variance_suggests_n_plus_one`: when the scope signal is absent, fall back to the coefficient of variation of `duration_us`. True N+1 hits different rows with different cache states, so the spread is wider, cached redundant calls cluster tightly. Threshold `0.5` is empirical.
+
+The four emission modes (`Auto`, `Strict`, `Always`, `Never`) are documented in `docs/CONFIGURATION.md` § "`sanitizer_aware_classification`" with their precision/recall trade-offs.
+
+### Known limit
+
+`looks_sanitized` cannot tell a sanitized literal `?` apart from a PostgreSQL JSONB existence operator (`data ? 'key'`) when the latter happens to appear in a query with no other literals. The harm direction is asymmetric: a misclassified JSONB group flips from `redundant_sql` to `n_plus_one_sql`, both of which contribute equally to GreenOps `avoidable_io_ops`, only the suggestion text differs.
+
 ## Redundant detection
 
 ### Borrowed slice keys

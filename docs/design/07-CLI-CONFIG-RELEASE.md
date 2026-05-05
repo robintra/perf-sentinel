@@ -142,6 +142,14 @@ Only `reference_url` from `SuggestedFix` becomes a hyperlink, and only when the 
 - **sessionStorage persistence**: two keys, `perf-sentinel:theme` (dark/light, read before first paint to avoid theme-flash) and `perf-sentinel:pgstat-ranking` (last-active ranking slug). Every access is wrapped in `try/catch` because Safari private mode and some enterprise policies throw on `sessionStorage.setItem`. Deliberately not `localStorage`: `file://` shares the `null` origin across all local HTML files, so localStorage would collide across unrelated reports; sessionStorage is tab-scoped and collision-free. Hash wins over sessionStorage when both carry a value.
 - **Cheatsheet modal**: a `?`-triggered native `<dialog>` element (opened via `showModal()`, which implicitly applies the WAI-ARIA dialog role and traps focus for us) lists every shortcut. The `?` key is ignored when a text input is focused so typing `?` in the filter still works. Vim-style `g`-prefixed shortcuts (`g f` / `g e` / `g p` / `g d` / `g c` / `g r`) switch tabs with a 1000ms timeout on the pending `g`, hidden tabs are a silent no-op. `Esc` gains two extra priority tiers on top of the existing ladder: close the cheatsheet (highest) and clear active filter chips (lowest). Findings pagination replaces the hard 500-row cap with a `Show N more findings` button that reveals another 500 rows at a time.
 
+### `STATIC_CSP` compile-time invariant
+
+The static-mode `Content-Security-Policy` is the same string the template shipped before the live mode was added. It forbids every network egress and inline-execution vector except the inline `<script>` and `<style>` blocks the report itself depends on.
+
+The placeholder substitution pipeline in `inject` rewrites three tokens (`{{REPORT_JSON}}`, `{{PAGE_TITLE}}`, `{{CONTENT_SECURITY_POLICY}}`) in a fixed order. Any byte sequence `{{` that lands in `STATIC_CSP` would shadow that pipeline and corrupt the substitution silently.
+
+A `const _: () = { ... while ... assert!(...) }` block at compile time checks that `STATIC_CSP.as_bytes()` never contains `{{`. The runtime `debug_assert!` in `inject` catches the daemon-URL half (validated by `validate_url`), the const block catches the static half so a future edit that introduces a templating bracket breaks the build instead of silently corrupting the output. `const _: () = ...` is the canonical pattern for an anonymous compile-time check that does not warn under `dead_code`.
+
 ### Feature flags
 
 The workspace uses Cargo feature flags to keep daemon-only dependencies optional:

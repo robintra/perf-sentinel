@@ -499,10 +499,9 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
     };
 
     // Read the live `GreenSummary` populated by the event loop after
-    // each batch. `scoring_config` is re-applied on top: the event
-    // loop emits the per-batch summary without the audit-trail
-    // metadata, the handler stitches it back from the daemon's
-    // startup config (same pattern as 0.5.12 for the chip banner).
+    // each batch. The event loop emits the per-batch summary without
+    // the audit-trail metadata, the handler stitches `scoring_config`
+    // back from the daemon's startup config.
     let mut green_summary = state.green_summary.read().await.clone();
     green_summary
         .scoring_config

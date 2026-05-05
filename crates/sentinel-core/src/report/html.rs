@@ -50,21 +50,13 @@ const TITLE_PLACEHOLDER: &str = "{{PAGE_TITLE}}";
 const CSP_PLACEHOLDER: &str = "{{CONTENT_SECURITY_POLICY}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
-/// Static-mode Content-Security-Policy: same string the template
-/// shipped with before 0.5.23. Forbids every network egress and
-/// inline-execution vector except the inline `<script>` and `<style>`
-/// blocks the report itself depends on.
+/// Static-mode Content-Security-Policy. See `docs/design/07-CLI-CONFIG-RELEASE.md`
+/// § "`STATIC_CSP` compile-time invariant" for the substitution-shadowing
+/// guarantee enforced by the const block below.
 const STATIC_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
                           style-src 'unsafe-inline'; img-src data:; \
                           base-uri 'none'; form-action 'none'";
 
-// Compile-time invariant: STATIC_CSP must never contain a `{{` byte
-// sequence. The runtime `debug_assert!` in `inject` catches the
-// daemon-URL half (validated by `validate_url`); this catches the
-// static half so a future edit that introduces a templating bracket
-// breaks the build instead of silently corrupting the substitution
-// pipeline. `const _: () = ...` is the canonical pattern for an
-// anonymous compile-time check that does not warn under `dead_code`.
 const _: () = {
     let bytes = STATIC_CSP.as_bytes();
     let mut i = 0;
@@ -108,8 +100,8 @@ pub struct RenderOptions {
     /// allowed.
     ///
     /// When `None`, the HTML is purely static: no badge, no
-    /// ack/revoke buttons, no acknowledgments panel, identical CSP and
-    /// behavior to the pre-0.5.23 output.
+    /// ack/revoke buttons, no acknowledgments panel, strict CSP with
+    /// no `connect-src` directive.
     ///
     /// The URL is expected to have been validated by the caller. The
     /// renderer trusts it as-is and concatenates it into the

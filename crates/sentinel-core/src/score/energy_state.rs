@@ -1,23 +1,8 @@
 //! Shared `ArcSwap`-backed storage for per-service energy coefficients.
 //!
-//! Both the Scaphandre scraper and the cloud `SPECpower` scraper publish
-//! per-service `energy_per_op_kwh` readings to the scoring path on
-//! every tick. The two states previously duplicated the entire
-//! `ArcSwap<HashMap<String, ServiceEnergy>>` pattern, same fields,
-//! same `snapshot` / `publish` / `current_owned` / `insert_for_test`
-//! implementation. This module centralizes the storage; the two
-//! public types ([`crate::score::scaphandre::ScaphandreState`] and
-//! [`crate::score::cloud_energy::CloudEnergyState`]) are thin newtype
-//! wrappers that delegate to [`AgedEnergyMap`] and keep their nominal
-//! identity for type-safe plumbing through the daemon.
-//!
-//! The design is deliberately read-heavy / write-rare:
-//! - **Writes**: once per scrape interval (default 5 s for Scaphandre,
-//!   15 s for cloud energy), by a single task.
-//! - **Reads**: once per `process_traces` tick (typically multiple per
-//!   second under real OTLP load).
-//! - **Consistency**: readers get the `Arc` that was current when they
-//!   called `load_full`, writers don't block anyone.
+//! See `docs/design/05-GREENOPS-AND-CARBON.md` § "Energy state cache
+//! coherency" for the read-heavy / write-rare design rationale and the
+//! ArcSwap-vs-RwLock tradeoff.
 
 use std::collections::HashMap;
 use std::sync::Arc;

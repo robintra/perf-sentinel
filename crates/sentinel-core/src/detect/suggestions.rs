@@ -27,8 +27,8 @@ use super::{Finding, FindingType};
 
 /// A framework-specific actionable fix attached to a [`Finding`].
 ///
-/// Stable JSON shape from v0.4.2 onward. Field names will not be renamed
-/// or removed in a minor release. New optional fields may be added.
+/// Stable JSON shape: field names will not be renamed or removed in a
+/// minor release. New optional fields may be added.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SuggestedFix {
     /// Mirrors the parent finding's `type` in `snake_case` (e.g.

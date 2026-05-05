@@ -152,8 +152,8 @@ pub struct GreenSummary {
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
 ///
-/// Stable JSON shape from v0.4.2 onward. Field names will not be renamed
-/// or removed in a minor release. The `(service, endpoint)` pair is the
+/// Stable JSON shape: field names will not be renamed or removed in a
+/// minor release. The `(service, endpoint)` pair is the
 /// primary key so the same endpoint path served by two different
 /// services produces two distinct entries (microservices commonly share
 /// generic paths like `/health`, `/metrics`, `/api/users`).

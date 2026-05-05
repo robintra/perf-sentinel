@@ -331,7 +331,7 @@ enum Commands {
         action: QueryAction,
     },
 
-    /// Acknowledge findings via the daemon API (since 0.5.20).
+    /// Acknowledge findings via the daemon API.
     ///
     /// Three subactions: `create`, `revoke`, `list`. Auth via the
     /// `PERF_SENTINEL_DAEMON_API_KEY` environment variable,
@@ -506,7 +506,7 @@ enum QueryAction {
     },
     /// Interactive TUI with live daemon data. Press `a` on a finding
     /// to acknowledge it via the daemon API, `u` to revoke. The daemon
-    /// must have `[daemon.ack] enabled = true` (default since 0.5.20).
+    /// must have `[daemon.ack] enabled = true` (the default).
     #[cfg(feature = "tui")]
     Inspect {
         /// Path to a file containing the daemon API key (X-API-Key

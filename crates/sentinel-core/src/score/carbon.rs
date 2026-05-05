@@ -1,25 +1,10 @@
-//! `GreenOps` gCO₂eq conversion: static region-based carbon intensity table.
+//! `GreenOps` gCO₂eq conversion: static region-based carbon intensity
+//! table embedded at compile time, no network egress.
 //!
-//! Embeds carbon intensity values per region (gCO₂eq/kWh), cloud provider PUE,
-//! per-operation energy coefficients, and network transport energy constants.
-//! No network calls: all data is embedded at compile time.
-//!
-//! Sources:
-//! - Cloud Carbon Footprint (CCF): annual grid intensities, PUE values, I/O
-//!   energy methodology (<https://ccf.climatiq.io>)
-//! - Electricity Maps: annual average gCO₂eq/kWh per region (2023-2024)
-//! - ENTSO-E Transparency Platform: hourly carbon profiles for EU regions
-//! - Mytton, Lunden & Malmodin (J. Industrial Ecology, 2024): network
-//!   transport energy model (0.03-0.06 kWh/GB, power model critique)
-//! - Xu et al. (VLDB 2010), Tsirogiannis et al. (SIGMOD 2010): foundational
-//!   DBMS energy benchmarks for per-operation SQL verb weighting
-//! - Siddik et al., `DBJoules` (2023): per-operation energy measurement
-//!   confirming 7-38% inter-operation variance across DBMS
-//! - Guo et al. (ACM Computing Surveys 2022): systematic survey of
-//!   energy-efficient database systems
-//! - IDEAS 2025: real-time energy estimation framework for DBMS queries
-//! - Boavizta API / `HotCarbon` 2024: server lifecycle embodied carbon
-//!   bottom-up model
+//! See `docs/design/05-GREENOPS-AND-CARBON.md` for the SCI methodology,
+//! the per-region intensity sources (Cloud Carbon Footprint, Electricity
+//! Maps, ENTSO-E), the per-operation energy coefficients (Xu, Tsirogiannis,
+//! `DBJoules`) and the network transport model (Mytton et al. 2024).
 
 use std::collections::HashMap;
 use std::sync::Arc;

@@ -620,6 +620,18 @@ The carbon intensity and PUE of the **source** region (where the data originates
 
 **Limitations.** See `docs/LIMITATIONS.md` "Network transport energy" for the full discussion: wide estimate range, no CDN effects, no compression modeling, config-based region detection only, no last-mile modeling.
 
+## Energy state cache coherency
+
+Both the Scaphandre scraper and the cloud SPECpower scraper publish per-service `energy_per_op_kwh` readings to the scoring path on every tick. The two states share an `ArcSwap`-backed storage in `crates/sentinel-core/src/score/energy_state.rs`. The two public types (`ScaphandreState` and `CloudEnergyState`) are thin newtype wrappers that delegate to `AgedEnergyMap` and keep their nominal identity for type-safe plumbing through the daemon.
+
+The design is deliberately read-heavy and write-rare:
+
+- **Writes**: once per scrape interval (default 5s for Scaphandre, 15s for cloud energy) by a single task.
+- **Reads**: once per `process_traces` tick (typically multiple per second under real OTLP load).
+- **Consistency**: readers get the `Arc` that was current when they called `load_full`, writers do not block anyone.
+
+`ArcSwap` was picked over `RwLock<HashMap>` because the `process_traces` reader path is on the hot loop, and the swap pointer-exchange is wait-free vs an `RwLock` that briefly blocks on `read()` when a writer holds the lock.
+
 ## Confidence field on findings (planned perf-lint interop)
 
 A `confidence` field is stamped on every `Finding` in the JSON and SARIF report, indicating the source context of the detection. The value is set by the pipeline caller (`pipeline::analyze_with_traces` for batch mode → always `CiBatch`; `daemon::process_traces` for streaming mode → derived from `config.daemon_environment`). Detectors themselves never reason about confidence. They emit `Confidence::default()` and the caller overrides it.
