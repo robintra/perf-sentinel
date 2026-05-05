@@ -227,12 +227,12 @@
 <body>
 <div class="ps-container">
   <div class="ps-header-ctrl">
-    <span class="ps-daemon-status" id="ps-daemon-status" role="status" aria-live="polite">
+    <output class="ps-daemon-status" id="ps-daemon-status" aria-live="polite">
       <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
       <span id="ps-daemon-status-text">Connecting...</span>
-    </span>
+    </output>
     <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
-    <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget the daemon API key for this tab" hidden>Forget key</button>
+    <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
     <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
   </div>
 
@@ -2684,7 +2684,7 @@
     setAttr(t, "role", kind === "error" ? "alert" : "status");
     document.body.appendChild(t);
     setTimeout(function () {
-      if (t.parentNode) t.parentNode.removeChild(t);
+      t.remove();
     }, 5000);
   }
 
@@ -2714,28 +2714,34 @@
     });
   }
 
-  function fetchAcks() {
-    return fetchWithAuth("/api/acks").then(function (r) {
-      if (!r.ok) {
-        if (r.status === 401) {
-          setDaemonStatus("unauthorized", "Authentication required");
-        }
-        liveState.acks = [];
-        liveState.acksBySig = Object.create(null);
-        return;
+  function clearAcksState() {
+    liveState.acks = [];
+    liveState.acksBySig = Object.create(null);
+  }
+
+  function applyAcksPayload(data) {
+    var arr = Array.isArray(data) ? data : [];
+    liveState.acks = arr;
+    liveState.acksBySig = Object.create(null);
+    for (var i = 0; i < arr.length; i++) {
+      var a = arr[i];
+      if (a && a.signature) liveState.acksBySig[a.signature] = a;
+    }
+  }
+
+  function handleAcksResponse(r) {
+    if (!r.ok) {
+      if (r.status === 401) {
+        setDaemonStatus("unauthorized", "Authentication required");
       }
-      return r.json().then(function (data) {
-        var arr = Array.isArray(data) ? data : [];
-        liveState.acks = arr;
-        liveState.acksBySig = Object.create(null);
-        arr.forEach(function (a) {
-          if (a && a.signature) liveState.acksBySig[a.signature] = a;
-        });
-      });
-    }).catch(function () {
-      liveState.acks = [];
-      liveState.acksBySig = Object.create(null);
-    });
+      clearAcksState();
+      return null;
+    }
+    return r.json().then(applyAcksPayload);
+  }
+
+  function fetchAcks() {
+    return fetchWithAuth("/api/acks").then(handleAcksResponse).catch(clearAcksState);
   }
 
   function renderAcksPanel() {
@@ -2793,7 +2799,7 @@
     if (!isLiveEnabled()) return;
     var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
     rows.forEach(function (row) {
-      var sig = row.getAttribute("data-sig") || "";
+      var sig = row.dataset.sig || "";
       if (!sig) return;
       var btn = row.querySelector(".ps-fin-action-btn");
       if (!btn) return;
@@ -3035,7 +3041,7 @@
     var hideAcked = !input.checked;
     var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
     rows.forEach(function (row) {
-      var sig = row.getAttribute("data-sig") || "";
+      var sig = row.dataset.sig || "";
       var isAcked = !!liveState.acksBySig[sig];
       if (hideAcked && isAcked) row.style.display = "none";
       else row.style.display = "";

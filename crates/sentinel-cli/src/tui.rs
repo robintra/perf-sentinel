@@ -678,6 +678,14 @@ pub fn run(app: &mut App) -> io::Result<()> {
     result
 }
 
+/// Outcome of a single keystroke at the run-loop level. The loop
+/// returns `Quit` to break out, `Continue` to repaint and wait for the
+/// next event.
+enum KeyOutcome {
+    Continue,
+    Quit,
+}
+
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
@@ -687,49 +695,66 @@ fn run_loop(
         app.detail_tree_text();
         terminal.draw(|f| draw(f, app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                continue;
-            }
-
-            // Modal takes precedence on input. While visible, all keys
-            // route to the form handler, none of the panel navigation
-            // keys (q, j/k, Tab, Enter, Esc) reach the main dispatch.
-            #[cfg(feature = "daemon")]
-            if app.ack_modal.is_visible() {
-                match handle_modal_key(&mut app.ack_modal, key.code) {
-                    ModalAction::None => {}
-                    ModalAction::Cancel => app.ack_modal.close(),
-                    ModalAction::Submit => submit_ack_modal(app),
-                }
-                continue;
-            }
-
-            match key.code {
-                KeyCode::Char('q') => return Ok(()),
-                KeyCode::Up | KeyCode::Char('k') => app.move_up(),
-                KeyCode::Down | KeyCode::Char('j') => app.move_down(),
-                KeyCode::Right | KeyCode::Tab => app.next_panel(),
-                KeyCode::Left | KeyCode::BackTab => app.prev_panel(),
-                KeyCode::Enter => app.enter(),
-                KeyCode::Esc => app.escape(),
-                #[cfg(feature = "daemon")]
-                KeyCode::Char('a') if app.daemon_url.is_some() => {
-                    if let Some(finding) = app.current_finding() {
-                        let sig = finding.signature.clone();
-                        app.ack_modal.open_ack(sig);
-                    }
-                }
-                #[cfg(feature = "daemon")]
-                KeyCode::Char('u') if app.daemon_url.is_some() => {
-                    if let Some(finding) = app.current_finding() {
-                        let sig = finding.signature.clone();
-                        app.ack_modal.open_unack(sig);
-                    }
-                }
-                _ => {}
-            }
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+            && matches!(handle_keystroke(app, key.code), KeyOutcome::Quit)
+        {
+            return Ok(());
         }
+    }
+}
+
+/// Dispatch a single keystroke. Modal-visible keys route to the form
+/// handler, otherwise the standard panel-navigation keys + the
+/// `a`/`u` ack shortcuts apply.
+fn handle_keystroke(app: &mut App, code: KeyCode) -> KeyOutcome {
+    #[cfg(feature = "daemon")]
+    if app.ack_modal.is_visible() {
+        dispatch_modal_key(app, code);
+        return KeyOutcome::Continue;
+    }
+    dispatch_panel_key(app, code)
+}
+
+#[cfg(feature = "daemon")]
+fn dispatch_modal_key(app: &mut App, code: KeyCode) {
+    match handle_modal_key(&mut app.ack_modal, code) {
+        ModalAction::None => {}
+        ModalAction::Cancel => app.ack_modal.close(),
+        ModalAction::Submit => submit_ack_modal(app),
+    }
+}
+
+fn dispatch_panel_key(app: &mut App, code: KeyCode) -> KeyOutcome {
+    match code {
+        KeyCode::Char('q') => return KeyOutcome::Quit,
+        KeyCode::Up | KeyCode::Char('k') => app.move_up(),
+        KeyCode::Down | KeyCode::Char('j') => app.move_down(),
+        KeyCode::Right | KeyCode::Tab => app.next_panel(),
+        KeyCode::Left | KeyCode::BackTab => app.prev_panel(),
+        KeyCode::Enter => app.enter(),
+        KeyCode::Esc => app.escape(),
+        #[cfg(feature = "daemon")]
+        KeyCode::Char('a') => open_ack_modal_for_current(app, false),
+        #[cfg(feature = "daemon")]
+        KeyCode::Char('u') => open_ack_modal_for_current(app, true),
+        _ => {}
+    }
+    KeyOutcome::Continue
+}
+
+#[cfg(feature = "daemon")]
+fn open_ack_modal_for_current(app: &mut App, revoke: bool) {
+    if app.daemon_url.is_none() {
+        return;
+    }
+    let Some(sig) = app.current_finding().map(|f| f.signature.clone()) else {
+        return;
+    };
+    if revoke {
+        app.ack_modal.open_unack(sig);
+    } else {
+        app.ack_modal.open_ack(sig);
     }
 }
 

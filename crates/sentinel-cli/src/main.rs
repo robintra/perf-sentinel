@@ -540,9 +540,14 @@ async fn main() {
         )
         .init();
 
-    let cli = Cli::parse();
+    dispatch_command(Cli::parse().command).await;
+}
 
-    match cli.command {
+/// Dispatch a parsed CLI command to its handler. Lifted out of
+/// `main()` so the binary entry point stays focused on tracing init
+/// and parsing while the per-subcommand wiring lives here.
+async fn dispatch_command(command: Commands) {
+    match command {
         Commands::Analyze {
             input,
             config,
