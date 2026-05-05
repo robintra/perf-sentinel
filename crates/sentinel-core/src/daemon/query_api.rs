@@ -27,9 +27,12 @@ use crate::explain;
 use crate::report::metrics::{AckFailureReason, MetricsState};
 use crate::report::{Analysis, GreenSummary, QualityGate, Report};
 
-/// Upper bound for `?limit=` on `/api/findings` to protect the daemon
-/// from expensive large-response requests.
-const MAX_FINDINGS_LIMIT: usize = 1000;
+/// Upper bound for `?limit=` on `/api/findings`, caps response size
+/// under the loopback API. Exposed `pub` so the CLI can reuse it for
+/// its boot fetch cap and stay in lockstep, internal API not part of
+/// the published surface.
+#[doc(hidden)]
+pub const MAX_FINDINGS_LIMIT: usize = 1000;
 
 /// Upper bound for `/api/correlations` response size. Same rationale as
 /// [`MAX_FINDINGS_LIMIT`]: cap response size under an unauthenticated
@@ -38,11 +41,12 @@ const MAX_FINDINGS_LIMIT: usize = 1000;
 /// per poll is still an expensive operation we want to limit.
 const MAX_CORRELATIONS_LIMIT: usize = 1000;
 
-/// Upper bound for `GET /api/acks` response size. Same rationale as
-/// the other caps (loopback API, bounded JSON serialization).
-/// Upper bound on the entry count returned by `GET /api/acks`. Exposed
-/// to the CLI so the `perf-sentinel ack list` footer can quote the
-/// same number ("showing up to N") without drift.
+/// Upper bound on the entry count returned by `GET /api/acks`. Same
+/// rationale as the other caps (loopback API, bounded JSON
+/// serialization). Exposed to the CLI so the `perf-sentinel ack list`
+/// footer can quote the same number ("showing up to N") without drift,
+/// internal API not part of the published surface.
+#[doc(hidden)]
 pub const MAX_ACKS_RESPONSE: usize = 1000;
 
 /// Shared state for query API route handlers.
@@ -152,7 +156,7 @@ impl ResolvedTomlAck {
 
 /// Source of an ack annotation on a finding response. TOML acks come
 /// from the CI baseline file, daemon acks from the runtime JSONL store.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(tag = "source", rename_all = "snake_case")]
 pub enum AckSource {
     Toml {
@@ -178,11 +182,11 @@ pub enum AckSource {
 /// `StoredFinding` (preserving backward compatibility) when
 /// `acknowledged_by` is `None`. The field appears only when the request
 /// passed `?include_acked=true` and the finding has an active ack.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 pub struct FindingResponse {
     #[serde(flatten)]
     pub stored: StoredFinding,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acknowledged_by: Option<AckSource>,
 }
 

@@ -504,9 +504,18 @@ enum QueryAction {
         #[arg(long, value_enum, default_value = "text")]
         format: QueryOutputFormat,
     },
-    /// Interactive TUI with live daemon data.
+    /// Interactive TUI with live daemon data. Press `a` on a finding
+    /// to acknowledge it via the daemon API, `u` to revoke. The daemon
+    /// must have `[daemon.ack] enabled = true` (default since 0.5.20).
     #[cfg(feature = "tui")]
-    Inspect,
+    Inspect {
+        /// Path to a file containing the daemon API key (X-API-Key
+        /// header). Falls back to `PERF_SENTINEL_DAEMON_API_KEY` env
+        /// var. Required when the daemon is configured with
+        /// `[daemon.ack] api_key`.
+        #[arg(long, value_name = "PATH")]
+        api_key_file: Option<std::path::PathBuf>,
+    },
     /// Show active cross-trace correlations.
     Correlations {
         /// Output format: text (colored, default) or json.

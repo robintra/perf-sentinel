@@ -29,6 +29,9 @@ use crate::render::{AnsiColors, ansi_colors, no_colors};
 const ENV_DAEMON_API_KEY: &str = "PERF_SENTINEL_DAEMON_API_KEY";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const USER_AGENT: &str = "perf-sentinel-ack";
+/// Per-page cap for `query inspect` boot fetch and post-submit
+/// refetch. Re-exports the daemon's cap so the two sides cannot drift.
+pub(crate) const FINDINGS_FETCH_LIMIT: usize = sentinel_core::daemon::query_api::MAX_FINDINGS_LIMIT;
 /// Re-export of the daemon-side cap so the `list` footer cannot drift.
 /// Same name as the upstream constant in
 /// [`sentinel_core::daemon::query_api`] so a `grep` finds both sides.
@@ -188,7 +191,8 @@ async fn run_create(
     };
 
     let client = sentinel_core::http_client::build_client_with_body();
-    let url = format!("{base}/api/findings/{signature}/ack");
+    let encoded_sig = percent_encode_signature_segment(&signature);
+    let url = format!("{base}/api/findings/{encoded_sig}/ack");
     let (status, _body) = match call_with_tty_retry(
         &client,
         hyper::Method::POST,
@@ -242,7 +246,8 @@ async fn run_revoke(base: &str, signature: Option<String>, api_key_file: Option<
     };
 
     let client = sentinel_core::http_client::build_client_with_body();
-    let url = format!("{base}/api/findings/{signature}/ack");
+    let encoded_sig = percent_encode_signature_segment(&signature);
+    let url = format!("{base}/api/findings/{encoded_sig}/ack");
     let Some((status, _body)) = call_no_body_or_print_error(
         &client,
         hyper::Method::DELETE,
@@ -314,7 +319,12 @@ async fn run_list(base: &str, format: QueryOutputFormat, api_key_file: Option<&P
     0
 }
 
-async fn http_call(
+/// Issue a single HTTP request to the daemon and return the status +
+/// body. Shared between `cmd_ack` (CLI subcommand) and the TUI
+/// `submit_ack_modal` / `refetch_acks_from_daemon` write paths so the
+/// two consumers see the same timeout, user agent, and X-API-Key
+/// handling.
+pub(crate) async fn http_call(
     client: &sentinel_core::http_client::HttpClientWithBody,
     method: hyper::Method,
     url: &str,
@@ -479,7 +489,7 @@ fn resolve_signature(arg: Option<String>) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
-fn resolve_api_key(file: Option<&Path>) -> Result<Option<String>, String> {
+pub(crate) fn resolve_api_key(file: Option<&Path>) -> Result<Option<String>, String> {
     if let Ok(v) = std::env::var(ENV_DAEMON_API_KEY) {
         let trimmed = v.trim();
         if !trimmed.is_empty() {
@@ -492,7 +502,7 @@ fn resolve_api_key(file: Option<&Path>) -> Result<Option<String>, String> {
     Ok(None)
 }
 
-fn read_api_key_file(path: &Path) -> Result<String, String> {
+pub(crate) fn read_api_key_file(path: &Path) -> Result<String, String> {
     use std::fs::OpenOptions;
     use std::io::Read as _;
 
@@ -571,7 +581,7 @@ fn prompt_api_key() -> Option<String> {
 
 /// Parse an `--expires` argument: ISO8601 datetime first, fall back to
 /// a relative duration parsed by humantime ("7d", "24h", "30m").
-fn parse_expires(s: &str) -> Result<DateTime<Utc>, String> {
+pub(crate) fn parse_expires(s: &str) -> Result<DateTime<Utc>, String> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
         return Err("empty value".to_string());
@@ -837,9 +847,220 @@ fn format_relative(delta: chrono::Duration) -> String {
     }
 }
 
+/// Error type returned by [`post_ack_via_daemon`] and
+/// [`delete_ack_via_daemon`]. The TUI maps these into modal error
+/// messages (no `eprintln!` from a raw-mode terminal).
+///
+/// **Sanitization contract**: the `String` payloads on `Conflict`,
+/// `Validation`, `Http` and `Transport` are NOT pre-sanitized for
+/// terminal control sequences. Consumers that render the `Display`
+/// output to a terminal MUST pipe it through
+/// [`sentinel_core::text_safety::sanitize_for_terminal`] first. The
+/// modal footer at `tui::render_modal_footer` does this. Any future
+/// `tracing::error!` or stdout writer reusing this error must do the
+/// same. The bidi/control filter on the modal input bounds what the
+/// `Validation` payload can contain (the parser echoes user input),
+/// but daemon-supplied bodies (`Conflict`, `Http`) are untrusted.
+///
+/// `Display` produces a human-readable message that NEVER includes the
+/// API key, defensive against accidental leak from a future logging
+/// path that might `format!` the error.
+#[derive(Debug)]
+pub(crate) enum AckSubmitError {
+    Unauthorized,
+    Conflict(String),
+    NotFound,
+    StoreFull,
+    Disabled,
+    Validation(String),
+    Http(hyper::StatusCode, String),
+    Transport(String),
+}
+
+impl std::fmt::Display for AckSubmitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unauthorized => write!(f, "daemon requires authentication (HTTP 401)"),
+            Self::Conflict(msg) => write!(f, "conflict: {msg}"),
+            Self::NotFound => write!(f, "no active acknowledgment for this signature"),
+            Self::StoreFull => write!(
+                f,
+                "daemon ack store is full (HTTP 507), revoke expired acks or raise [daemon.ack] limits"
+            ),
+            Self::Disabled => write!(f, "daemon ack store is disabled"),
+            Self::Validation(msg) => write!(f, "{msg}"),
+            Self::Http(status, msg) => write!(f, "HTTP {} {msg}", status.as_u16()),
+            Self::Transport(msg) => write!(f, "network error: {msg}"),
+        }
+    }
+}
+
+/// POST `/api/findings/{signature}/ack` and map status codes into
+/// [`AckSubmitError`] variants. Used by the TUI submit flow, mirrors
+/// the body shape of `run_create`. The signature must be the
+/// already-resolved finding signature (no stdin fallback).
+pub(crate) async fn post_ack_via_daemon(
+    daemon_url: &str,
+    signature: &str,
+    by: &str,
+    reason: &str,
+    expires_at: Option<DateTime<Utc>>,
+    api_key: Option<&str>,
+) -> Result<(), AckSubmitError> {
+    let body = AckRequestBody {
+        by: Some(by.to_string()),
+        reason: reason.to_string(),
+        expires_at,
+    };
+    // Encode failure is unreachable on the current AckRequestBody
+    // shape, kept as Validation defense-in-depth in case a future
+    // schema change adds a fallible field.
+    let payload = serde_json::to_vec(&body)
+        .map(bytes::Bytes::from)
+        .map_err(|e| AckSubmitError::Validation(format!("encode body: {e}")))?;
+    let client = sentinel_core::http_client::build_client_with_body();
+    let encoded_sig = percent_encode_signature_segment(signature);
+    let url = format!("{daemon_url}/api/findings/{encoded_sig}/ack");
+    let (status, body) = http_call(&client, hyper::Method::POST, &url, api_key, payload)
+        .await
+        .map_err(|e| AckSubmitError::Transport(e.to_string()))?;
+    // POST never produces 404 from the route table, so the `NotFound`
+    // variant is reserved for DELETE. 400 surfaces an
+    // invalid-signature body from the daemon, mirror the CLI's
+    // dedicated 400 hint via `Validation`. 507 signals the ack store
+    // cap is reached.
+    match status.as_u16() {
+        201 => Ok(()),
+        400 => Err(AckSubmitError::Validation(format!(
+            "daemon rejected request: {}",
+            decode_body_message(&body)
+        ))),
+        401 => Err(AckSubmitError::Unauthorized),
+        409 => Err(AckSubmitError::Conflict(decode_body_message(&body))),
+        503 => Err(AckSubmitError::Disabled),
+        507 => Err(AckSubmitError::StoreFull),
+        _ => Err(AckSubmitError::Http(status, decode_body_message(&body))),
+    }
+}
+
+/// DELETE `/api/findings/{signature}/ack` and map status codes into
+/// [`AckSubmitError`] variants. The empty body is sent through the
+/// same `http_call` helper that the create path uses, no separate
+/// no-body client.
+pub(crate) async fn delete_ack_via_daemon(
+    daemon_url: &str,
+    signature: &str,
+    api_key: Option<&str>,
+) -> Result<(), AckSubmitError> {
+    let client = sentinel_core::http_client::build_client_with_body();
+    let encoded_sig = percent_encode_signature_segment(signature);
+    let url = format!("{daemon_url}/api/findings/{encoded_sig}/ack");
+    let (status, body) = http_call(
+        &client,
+        hyper::Method::DELETE,
+        &url,
+        api_key,
+        bytes::Bytes::new(),
+    )
+    .await
+    .map_err(|e| AckSubmitError::Transport(e.to_string()))?;
+    match status.as_u16() {
+        204 => Ok(()),
+        // Same 400 mapping as the POST path: daemon-rejected
+        // signature lands in `Validation` so the modal footer shows
+        // the daemon's hint rather than the generic `HTTP 400 ...`.
+        400 => Err(AckSubmitError::Validation(format!(
+            "daemon rejected request: {}",
+            decode_body_message(&body)
+        ))),
+        401 => Err(AckSubmitError::Unauthorized),
+        404 => Err(AckSubmitError::NotFound),
+        503 => Err(AckSubmitError::Disabled),
+        _ => Err(AckSubmitError::Http(status, decode_body_message(&body))),
+    }
+}
+
+fn decode_body_message(body: &bytes::Bytes) -> String {
+    let text = String::from_utf8_lossy(body);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let max = 200;
+    if trimmed.chars().count() > max {
+        let truncated: String = trimmed.chars().take(max).collect();
+        format!("{truncated}…")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// Percent-encode a signature for safe interpolation into the daemon
+/// URL path. The daemon validates the signature shape on its side and
+/// rejects malformed ones with HTTP 400, so this is defense-in-depth
+/// against a future daemon shipping a less strict regex or against a
+/// malicious daemon returning an exotic signature in `FindingResponse`.
+///
+/// Encodes everything that is not in the unreserved set (RFC 3986)
+/// or `:`, which is allowed in path segments. Real sentinel signatures
+/// are `[A-Za-z0-9_:.-]+`, the common case probes the input and
+/// returns `Cow::Borrowed` zero-allocation.
+fn percent_encode_signature_segment(s: &str) -> std::borrow::Cow<'_, str> {
+    use std::borrow::Cow;
+    use std::fmt::Write as _;
+    if s.bytes().all(is_signature_segment_safe) {
+        return Cow::Borrowed(s);
+    }
+    // Each unsafe byte expands to 3 chars. `+ s.len() / 4` is a soft
+    // upper bound for typical input where most bytes are safe and only
+    // a few escape, prevents the realloc dance on heavy-escape inputs
+    // without overcommitting memory on signatures with one stray byte.
+    let mut out = String::with_capacity(s.len() + s.len() / 4);
+    for byte in s.bytes() {
+        if is_signature_segment_safe(byte) {
+            out.push(byte as char);
+        } else {
+            let _ = write!(out, "%{byte:02X}");
+        }
+    }
+    Cow::Owned(out)
+}
+
+#[inline]
+fn is_signature_segment_safe(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b':')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn percent_encode_signature_passes_through_safe_chars() {
+        let s = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef";
+        assert_eq!(percent_encode_signature_segment(s), s);
+    }
+
+    #[test]
+    fn percent_encode_signature_escapes_path_meta_chars() {
+        // `?`, `#`, `/` and space must encode so they cannot break out
+        // of the segment and steer the request elsewhere.
+        let s = "evil/foo?bar#baz qux";
+        let encoded = percent_encode_signature_segment(s);
+        assert_eq!(encoded, "evil%2Ffoo%3Fbar%23baz%20qux");
+        assert!(!encoded.contains('/'));
+        assert!(!encoded.contains('?'));
+        assert!(!encoded.contains('#'));
+        assert!(!encoded.contains(' '));
+    }
+
+    #[test]
+    fn percent_encode_signature_handles_utf8() {
+        // Non-ASCII bytes encode as the UTF-8 byte sequence, RFC 3986.
+        let s = "café";
+        let encoded = percent_encode_signature_segment(s);
+        assert_eq!(encoded, "caf%C3%A9");
+    }
 
     #[test]
     fn parse_expires_iso8601_returns_absolute() {

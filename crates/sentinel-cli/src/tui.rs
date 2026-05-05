@@ -3,6 +3,7 @@
 //! Provides a 3-panel layout: traces list, findings for selected trace,
 //! and finding detail with span tree.
 
+use std::collections::HashMap;
 use std::io;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -11,12 +12,14 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 
 use sentinel_core::correlate::Trace;
+#[cfg(feature = "daemon")]
+use sentinel_core::daemon::query_api::AckSource;
 use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
 use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
 use sentinel_core::explain;
@@ -39,7 +42,7 @@ pub struct App {
     /// Per-trace finding indices into `all_findings`.
     findings_by_trace: Vec<Vec<usize>>,
     trace_ids: Vec<String>,
-    trace_index: std::collections::HashMap<String, usize>,
+    trace_index: HashMap<String, usize>,
 
     pub selected_trace: usize,
     pub selected_finding: usize,
@@ -52,12 +55,31 @@ pub struct App {
     /// fetches trees from the daemon's `/api/explain/{trace_id}` endpoint).
     /// When `Some(text)`, takes precedence over the `detect + build_tree`
     /// path that requires `traces[i].spans` to be populated.
-    pre_rendered_trees: std::collections::HashMap<String, String>,
+    pre_rendered_trees: HashMap<String, String>,
     /// Cross-trace correlations to display in the Correlations panel.
     /// Empty in batch mode (correlator is daemon-only). Populated by
     /// `query inspect` from `/api/correlations`.
     correlations: Vec<CrossTraceCorrelation>,
     pub selected_correlation: usize,
+
+    /// Daemon URL when running under `query inspect`. `None` in batch
+    /// mode (`inspect --input`), which disables `a`/`u` keys.
+    #[cfg(feature = "daemon")]
+    pub daemon_url: Option<String>,
+    /// Resolved API key (env var or `--api-key-file`). `None` is a
+    /// legitimate value when the daemon has no `[daemon.ack] api_key`.
+    /// Used as the `X-API-Key` header on POST/DELETE ack writes.
+    #[cfg(feature = "daemon")]
+    pub api_key: Option<String>,
+    /// Per-finding ack annotations keyed by signature. Populated at
+    /// boot from `FindingResponse.acknowledged_by` and refreshed after
+    /// every successful submit by `refetch_acks`.
+    #[cfg(feature = "daemon")]
+    pub acks_by_signature: HashMap<String, AckSource>,
+    /// Modal overlay state for the ack/revoke flow. Hidden when not
+    /// active. Drives `draw_ack_modal` and `handle_modal_key`.
+    #[cfg(feature = "daemon")]
+    pub ack_modal: AckModalState,
 }
 
 impl App {
@@ -85,7 +107,7 @@ impl App {
         traces.sort_unstable_by(|a, b| a.trace_id.cmp(&b.trace_id));
 
         let trace_ids: Vec<String> = traces.iter().map(|t| t.trace_id.clone()).collect();
-        let trace_index: std::collections::HashMap<String, usize> = traces
+        let trace_index: HashMap<String, usize> = traces
             .iter()
             .enumerate()
             .map(|(i, t)| (t.trace_id.clone(), i))
@@ -111,10 +133,34 @@ impl App {
             active_panel: Panel::Traces,
             scroll_offset: 0,
             cached_detail: None,
-            pre_rendered_trees: std::collections::HashMap::new(),
+            pre_rendered_trees: HashMap::new(),
             correlations: Vec::new(),
             selected_correlation: 0,
+            #[cfg(feature = "daemon")]
+            daemon_url: None,
+            #[cfg(feature = "daemon")]
+            api_key: None,
+            #[cfg(feature = "daemon")]
+            acks_by_signature: HashMap::new(),
+            #[cfg(feature = "daemon")]
+            ack_modal: AckModalState::default(),
         }
+    }
+
+    /// Attach a daemon handle so `a`/`u` keys are active. Used by
+    /// `query inspect` to wire the TUI into the live daemon ack flow.
+    /// Without this, the TUI is read-only and the keys are no-op.
+    #[cfg(feature = "daemon")]
+    pub(crate) fn with_daemon_handle(
+        mut self,
+        daemon_url: String,
+        api_key: Option<String>,
+        acks_by_signature: HashMap<String, AckSource>,
+    ) -> Self {
+        self.daemon_url = Some(daemon_url);
+        self.api_key = api_key;
+        self.acks_by_signature = acks_by_signature;
+        self
     }
 
     /// Attach pre-rendered span trees keyed by `trace_id`. Used by
@@ -164,7 +210,7 @@ impl App {
     }
 
     /// Currently selected finding, if any.
-    fn current_finding(&self) -> Option<&Finding> {
+    pub(crate) fn current_finding(&self) -> Option<&Finding> {
         let indices = self.current_finding_indices();
         indices
             .get(self.selected_finding)
@@ -363,12 +409,252 @@ impl App {
     }
 }
 
+/// State for the ack/revoke modal overlay. Lives on `App.ack_modal`.
+/// `Default` is the hidden state, the modal is opened by `open_ack` /
+/// `open_unack` from the `a` and `u` key handlers in `run_loop`.
+#[cfg(feature = "daemon")]
+#[derive(Debug, Default)]
+pub struct AckModalState {
+    pub mode: AckModalMode,
+    /// Reason input buffer (max 256 chars, single-line).
+    pub reason_buf: String,
+    /// Expires input buffer (free text, parsed at submit time).
+    pub expires_buf: String,
+    /// Acknowledger identity buffer (max 128 chars). Pre-filled from $USER.
+    pub by_buf: String,
+    pub focus: AckFormField,
+    /// Error message displayed at the bottom of the modal.
+    pub error_message: Option<String>,
+    /// Whether a request is currently in flight.
+    pub submitting: bool,
+}
+
+#[cfg(feature = "daemon")]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub enum AckModalMode {
+    #[default]
+    Hidden,
+    /// Creating an ack for the given signature.
+    Ack { signature: String },
+    /// Revoking an existing ack for the given signature.
+    Unack { signature: String },
+}
+
+#[cfg(feature = "daemon")]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AckFormField {
+    #[default]
+    Reason,
+    Expires,
+    By,
+    Submit,
+    Cancel,
+}
+
+// Modal text-buffer character caps. Capping in chars (not bytes) so
+// multi-byte UTF-8 input fills the buffer at the same rate the user
+// sees typed characters. The daemon enforces server-side limits on
+// reason / by anyway, these caps just keep the modal layout stable.
+#[cfg(feature = "daemon")]
+const REASON_MAX: usize = 256;
+#[cfg(feature = "daemon")]
+const EXPIRES_MAX: usize = 64;
+#[cfg(feature = "daemon")]
+const BY_MAX: usize = 128;
+
+#[cfg(feature = "daemon")]
+impl AckModalState {
+    #[must_use]
+    pub fn is_visible(&self) -> bool {
+        !matches!(self.mode, AckModalMode::Hidden)
+    }
+
+    /// Open the modal in Ack mode with empty buffers and focus on
+    /// Reason. `by_buf` is pre-filled from `$USER` (empty if unset).
+    pub fn open_ack(&mut self, signature: String) {
+        self.mode = AckModalMode::Ack { signature };
+        self.reason_buf.clear();
+        self.expires_buf.clear();
+        self.by_buf = std::env::var("USER").unwrap_or_default();
+        self.focus = AckFormField::Reason;
+        self.error_message = None;
+        self.submitting = false;
+    }
+
+    /// Open the modal in Unack mode (confirmation only, no form).
+    /// Focus starts on Submit so a single Enter confirms the revoke.
+    pub fn open_unack(&mut self, signature: String) {
+        self.mode = AckModalMode::Unack { signature };
+        self.reason_buf.clear();
+        self.expires_buf.clear();
+        self.by_buf.clear();
+        self.focus = AckFormField::Submit;
+        self.error_message = None;
+        self.submitting = false;
+    }
+
+    pub fn close(&mut self) {
+        self.mode = AckModalMode::Hidden;
+        self.error_message = None;
+        self.submitting = false;
+    }
+
+    pub fn next_field(&mut self) {
+        // Unack mode only exposes Submit/Cancel, Ack mode cycles
+        // Reason -> Expires -> By -> Submit -> Cancel.
+        self.focus = if matches!(self.mode, AckModalMode::Unack { .. }) {
+            match self.focus {
+                AckFormField::Submit => AckFormField::Cancel,
+                _ => AckFormField::Submit,
+            }
+        } else {
+            match self.focus {
+                AckFormField::Reason => AckFormField::Expires,
+                AckFormField::Expires => AckFormField::By,
+                AckFormField::By => AckFormField::Submit,
+                AckFormField::Submit => AckFormField::Cancel,
+                AckFormField::Cancel => AckFormField::Reason,
+            }
+        };
+    }
+
+    pub fn prev_field(&mut self) {
+        self.focus = if matches!(self.mode, AckModalMode::Unack { .. }) {
+            match self.focus {
+                AckFormField::Cancel => AckFormField::Submit,
+                _ => AckFormField::Cancel,
+            }
+        } else {
+            match self.focus {
+                AckFormField::Reason => AckFormField::Cancel,
+                AckFormField::Expires => AckFormField::Reason,
+                AckFormField::By => AckFormField::Expires,
+                AckFormField::Submit => AckFormField::By,
+                AckFormField::Cancel => AckFormField::Submit,
+            }
+        };
+    }
+}
+
+/// Outcome of a single key press inside the modal. The run loop reacts
+/// by closing, submitting, or doing nothing.
+#[cfg(feature = "daemon")]
+#[derive(Debug, PartialEq, Eq)]
+pub enum ModalAction {
+    None,
+    Cancel,
+    Submit,
+}
+
+/// Pure function that maps a `KeyCode` to a `ModalAction` while mutating
+/// the form buffers. Tested without spinning up a real terminal.
+#[cfg(feature = "daemon")]
+pub fn handle_modal_key(modal: &mut AckModalState, code: KeyCode) -> ModalAction {
+    match code {
+        KeyCode::Esc => ModalAction::Cancel,
+        KeyCode::Tab => {
+            modal.next_field();
+            ModalAction::None
+        }
+        KeyCode::BackTab => {
+            modal.prev_field();
+            ModalAction::None
+        }
+        KeyCode::Enter => match modal.focus {
+            AckFormField::Submit => ModalAction::Submit,
+            AckFormField::Cancel => ModalAction::Cancel,
+            _ => {
+                modal.next_field();
+                ModalAction::None
+            }
+        },
+        KeyCode::Char(c) => {
+            push_char_into_focused_buffer(modal, c);
+            ModalAction::None
+        }
+        KeyCode::Backspace => {
+            match modal.focus {
+                AckFormField::Reason => {
+                    modal.reason_buf.pop();
+                }
+                AckFormField::Expires => {
+                    modal.expires_buf.pop();
+                }
+                AckFormField::By => {
+                    modal.by_buf.pop();
+                }
+                AckFormField::Submit | AckFormField::Cancel => {}
+            }
+            ModalAction::None
+        }
+        _ => ModalAction::None,
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn push_char_into_focused_buffer(modal: &mut AckModalState, c: char) {
+    // Defense-in-depth: refuse C0/C1 controls and bidi overrides on
+    // typed input. The daemon strips them server-side too, but a
+    // bracketed paste of an attacker-crafted signature could otherwise
+    // skew the modal layout for the operator who is approving it.
+    if !is_modal_input_char_acceptable(c) {
+        return;
+    }
+    match modal.focus {
+        AckFormField::Reason if modal.reason_buf.chars().count() < REASON_MAX => {
+            modal.reason_buf.push(c);
+        }
+        AckFormField::Expires if modal.expires_buf.chars().count() < EXPIRES_MAX => {
+            modal.expires_buf.push(c);
+        }
+        AckFormField::By if modal.by_buf.chars().count() < BY_MAX => {
+            modal.by_buf.push(c);
+        }
+        _ => {}
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn is_modal_input_char_acceptable(c: char) -> bool {
+    // C0 / C1 / DEL controls would corrupt the rendered modal.
+    if c.is_control() {
+        return false;
+    }
+    // Bidi overrides and isolates can flip the visible order of the
+    // surrounding text, including the modal labels and buttons.
+    !matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069)
+}
+
+/// Install a panic hook that restores the terminal before the
+/// standard hook prints the panic message. Without this, a panic
+/// inside `run_loop` (e.g. from a future ratatui upgrade or from a
+/// `block_on` in `submit_ack_modal`) leaves the operator with raw
+/// mode + alternate screen still active, forcing a `reset` in their
+/// shell.
+///
+/// Wrapped in `Once` so that calling `run` twice in the same process
+/// (test re-entry, future embedding) does not stack hooks. The chain
+/// to the previous hook is captured at first install and persists for
+/// the process lifetime.
+fn install_terminal_restore_panic_hook() {
+    static INSTALL: std::sync::Once = std::sync::Once::new();
+    INSTALL.call_once(|| {
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = disable_raw_mode();
+            let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+            prev_hook(info);
+        }));
+    });
+}
+
 /// Run the TUI event loop.
 ///
 /// # Errors
 ///
 /// Returns an error if terminal setup or event reading fails.
 pub fn run(app: &mut App) -> io::Result<()> {
+    install_terminal_restore_panic_hook();
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)?;
@@ -397,6 +683,20 @@ fn run_loop(
             if key.kind != KeyEventKind::Press {
                 continue;
             }
+
+            // Modal takes precedence on input. While visible, all keys
+            // route to the form handler, none of the panel navigation
+            // keys (q, j/k, Tab, Enter, Esc) reach the main dispatch.
+            #[cfg(feature = "daemon")]
+            if app.ack_modal.is_visible() {
+                match handle_modal_key(&mut app.ack_modal, key.code) {
+                    ModalAction::None => {}
+                    ModalAction::Cancel => app.ack_modal.close(),
+                    ModalAction::Submit => submit_ack_modal(app),
+                }
+                continue;
+            }
+
             match key.code {
                 KeyCode::Char('q') => return Ok(()),
                 KeyCode::Up | KeyCode::Char('k') => app.move_up(),
@@ -405,6 +705,20 @@ fn run_loop(
                 KeyCode::Left | KeyCode::BackTab => app.prev_panel(),
                 KeyCode::Enter => app.enter(),
                 KeyCode::Esc => app.escape(),
+                #[cfg(feature = "daemon")]
+                KeyCode::Char('a') if app.daemon_url.is_some() => {
+                    if let Some(finding) = app.current_finding() {
+                        let sig = finding.signature.clone();
+                        app.ack_modal.open_ack(sig);
+                    }
+                }
+                #[cfg(feature = "daemon")]
+                KeyCode::Char('u') if app.daemon_url.is_some() => {
+                    if let Some(finding) = app.current_finding() {
+                        let sig = finding.signature.clone();
+                        app.ack_modal.open_unack(sig);
+                    }
+                }
                 _ => {}
             }
         }
@@ -430,6 +744,11 @@ fn draw(f: &mut ratatui::Frame, app: &App) {
     draw_findings_panel(f, app, top[1]);
     draw_correlations_panel(f, app, top[2]);
     draw_detail_panel(f, app, chunks[1]);
+
+    #[cfg(feature = "daemon")]
+    if app.ack_modal.is_visible() {
+        draw_ack_modal(f, app);
+    }
 }
 
 fn panel_style(app: &App, panel: Panel) -> Style {
@@ -482,7 +801,7 @@ fn draw_findings_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout:
             let finding = &app.all_findings[idx];
             let severity_color = severity_color(&finding.severity);
             let type_label = finding_type_label(&finding.finding_type);
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::styled(
                     format!("[{}] ", i + 1),
                     Style::default().fg(Color::DarkGray),
@@ -497,8 +816,24 @@ fn draw_findings_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout:
                     severity_label(&finding.severity),
                     Style::default().fg(severity_color),
                 ),
-            ]);
-            ListItem::new(line)
+            ];
+            #[cfg(feature = "daemon")]
+            if let Some(ack) = app.acks_by_signature.get(&finding.signature) {
+                let by = match ack {
+                    AckSource::Toml {
+                        acknowledged_by, ..
+                    } => acknowledged_by.as_str(),
+                    AckSource::Daemon { by, .. } => by.as_str(),
+                };
+                spans.push(Span::raw(" "));
+                spans.push(Span::styled(
+                    format!("[acked by {}]", sanitize_for_terminal(by)),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ));
+            }
+            ListItem::new(Line::from(spans))
         })
         .collect();
 
@@ -712,6 +1047,232 @@ fn draw_detail_panel(f: &mut ratatui::Frame, app: &App, area: ratatui::layout::R
     f.render_widget(paragraph, area);
 }
 
+#[cfg(feature = "daemon")]
+fn draw_ack_modal(f: &mut ratatui::Frame, app: &App) {
+    let area = f.area();
+    // 70 cols accommodate the footer hint and the unack confirmation
+    // message at full width on a typical terminal. Clamped down on
+    // narrow terminals to keep the modal inside the screen.
+    let modal_w = 70.min(area.width.saturating_sub(4));
+    let modal_h: u16 = match app.ack_modal.mode {
+        AckModalMode::Ack { .. } => 16,
+        AckModalMode::Unack { .. } => 8,
+        AckModalMode::Hidden => return,
+    };
+    let modal_area = centered_rect(modal_w, modal_h, area);
+    f.render_widget(Clear, modal_area);
+
+    let title = match app.ack_modal.mode {
+        AckModalMode::Ack { .. } => " Acknowledge finding ",
+        AckModalMode::Unack { .. } => " Revoke acknowledgment ",
+        AckModalMode::Hidden => return,
+    };
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = block.inner(modal_area);
+    f.render_widget(block, modal_area);
+
+    match app.ack_modal.mode {
+        AckModalMode::Ack { ref signature } => draw_ack_form(f, app, inner, signature),
+        AckModalMode::Unack { ref signature } => draw_unack_form(f, app, inner, signature),
+        AckModalMode::Hidden => {}
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn draw_ack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str) {
+    let constraints = [
+        Constraint::Length(1), // signature
+        Constraint::Length(1), // blank
+        Constraint::Length(1), // reason label
+        Constraint::Length(1), // reason input
+        Constraint::Length(1), // expires label
+        Constraint::Length(1), // expires input
+        Constraint::Length(1), // by label
+        Constraint::Length(1), // by input
+        Constraint::Length(1), // blank
+        Constraint::Length(1), // buttons
+        Constraint::Min(1),    // error / hint
+    ];
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(sanitize_for_terminal(signature)),
+        ])),
+        rows[0],
+    );
+    render_field_label(
+        f,
+        rows[2],
+        "Reason (required)",
+        app.ack_modal.focus,
+        AckFormField::Reason,
+    );
+    render_field_input(
+        f,
+        rows[3],
+        &app.ack_modal.reason_buf,
+        app.ack_modal.focus == AckFormField::Reason,
+    );
+    render_field_label(
+        f,
+        rows[4],
+        "Expires (e.g. 24h, 7d, ISO8601)",
+        app.ack_modal.focus,
+        AckFormField::Expires,
+    );
+    render_field_input(
+        f,
+        rows[5],
+        &app.ack_modal.expires_buf,
+        app.ack_modal.focus == AckFormField::Expires,
+    );
+    render_field_label(f, rows[6], "By", app.ack_modal.focus, AckFormField::By);
+    render_field_input(
+        f,
+        rows[7],
+        &app.ack_modal.by_buf,
+        app.ack_modal.focus == AckFormField::By,
+    );
+    render_modal_buttons(f, rows[9], &app.ack_modal);
+    render_modal_footer(f, rows[10], app.ack_modal.error_message.as_deref());
+}
+
+#[cfg(feature = "daemon")]
+fn draw_unack_form(f: &mut ratatui::Frame, app: &App, area: Rect, signature: &str) {
+    let constraints = [
+        Constraint::Length(1), // signature
+        Constraint::Length(1), // blank
+        Constraint::Length(1), // confirm message
+        Constraint::Length(1), // blank
+        Constraint::Length(1), // buttons
+        Constraint::Min(1),    // error
+    ];
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
+            Span::raw(sanitize_for_terminal(signature)),
+        ])),
+        rows[0],
+    );
+    f.render_widget(
+        Paragraph::new("Revoke this acknowledgment? Press Enter to confirm, Esc to cancel.")
+            .style(Style::default().fg(Color::Yellow)),
+        rows[2],
+    );
+    render_modal_buttons(f, rows[4], &app.ack_modal);
+    render_modal_footer(f, rows[5], app.ack_modal.error_message.as_deref());
+}
+
+#[cfg(feature = "daemon")]
+fn render_field_label(
+    f: &mut ratatui::Frame,
+    area: Rect,
+    label: &str,
+    focus: AckFormField,
+    field: AckFormField,
+) {
+    let style = if focus == field {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+    f.render_widget(Paragraph::new(label).style(style), area);
+}
+
+#[cfg(feature = "daemon")]
+fn render_field_input(f: &mut ratatui::Frame, area: Rect, value: &str, focused: bool) {
+    // Borrow when possible: the focused branch needs to append a
+    // cursor char so it allocates, the empty placeholder is `'static`
+    // and the unfocused branch just borrows `value`.
+    let display: std::borrow::Cow<'_, str> = if value.is_empty() && !focused {
+        std::borrow::Cow::Borrowed("(empty)")
+    } else if focused {
+        std::borrow::Cow::Owned(format!("{value}_"))
+    } else {
+        std::borrow::Cow::Borrowed(value)
+    };
+    let style = if focused {
+        Style::default().fg(Color::White).bg(Color::DarkGray)
+    } else {
+        Style::default().fg(Color::White)
+    };
+    f.render_widget(Paragraph::new(display).style(style), area);
+}
+
+#[cfg(feature = "daemon")]
+fn render_modal_buttons(f: &mut ratatui::Frame, area: Rect, modal: &AckModalState) {
+    let submit_label = if modal.submitting {
+        "[Submitting...]"
+    } else {
+        "[Submit]"
+    };
+    let submit_style = if modal.focus == AckFormField::Submit {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Green)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Green)
+    };
+    let cancel_style = if modal.focus == AckFormField::Cancel {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Red)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Red)
+    };
+    let line = Line::from(vec![
+        Span::styled(submit_label, submit_style),
+        Span::raw("   "),
+        Span::styled("[Cancel]", cancel_style),
+        Span::raw("   "),
+        Span::styled(
+            "Tab/Shift-Tab to switch, Esc to cancel",
+            Style::default().fg(Color::DarkGray),
+        ),
+    ]);
+    f.render_widget(Paragraph::new(line), area);
+}
+
+#[cfg(feature = "daemon")]
+fn render_modal_footer(f: &mut ratatui::Frame, area: Rect, error: Option<&str>) {
+    if let Some(msg) = error {
+        f.render_widget(
+            Paragraph::new(sanitize_for_terminal(msg))
+                .style(Style::default().fg(Color::Red))
+                .wrap(Wrap { trim: true }),
+            area,
+        );
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let x = area.x + area.width.saturating_sub(width) / 2;
+    let y = area.y + area.height.saturating_sub(height) / 2;
+    Rect {
+        x,
+        y,
+        width: width.min(area.width),
+        height: height.min(area.height),
+    }
+}
+
 fn severity_color(severity: &Severity) -> Color {
     match severity {
         Severity::Critical => Color::Red,
@@ -730,6 +1291,165 @@ fn severity_label(severity: &Severity) -> &'static str {
 
 fn finding_type_label(ft: &FindingType) -> &'static str {
     ft.display_label()
+}
+
+/// Bridge from the synchronous `run_loop` into the async daemon HTTP
+/// helpers in `crate::ack`. Relies on `tokio::task::block_in_place`
+/// being active around `run`, which `query.rs::run_inspect_action`
+/// arranges before calling into the TUI.
+///
+/// Submits the ack/unack request, refreshes `acks_by_signature` on
+/// success, and maps errors into `error_message` so the user can see
+/// what went wrong without leaving the TUI.
+#[cfg(feature = "daemon")]
+fn submit_ack_modal(app: &mut App) {
+    let Some(daemon_url) = app.daemon_url.clone() else {
+        app.ack_modal.error_message = Some("daemon not configured".to_string());
+        return;
+    };
+
+    let Some(signature) = signature_for_modal_mode(&app.ack_modal.mode).map(str::to_string) else {
+        // Logic-bug guard: submit reached run_loop's modal-visible
+        // dispatch, which `is_visible` already filtered Hidden out of,
+        // so this arm is unreachable in current control flow. Log via
+        // tracing so a future refactor that bypasses the guard does
+        // not silently drop the click.
+        tracing::error!("submit_ack_modal called with Hidden mode, dropped");
+        return;
+    };
+
+    app.ack_modal.submitting = true;
+
+    // The mode is non-Hidden here (signature_for_modal_mode would have
+    // returned None otherwise). Match on the discriminant so a future
+    // enum variant gets a compile error rather than a runtime panic.
+    let is_ack = matches!(app.ack_modal.mode, AckModalMode::Ack { .. });
+    let result = if is_ack {
+        submit_ack_create(app, &daemon_url, &signature)
+    } else {
+        submit_ack_revoke(app, &daemon_url, &signature)
+    };
+
+    match result {
+        Ok(()) => {
+            let api_key = app.api_key.clone();
+            match tokio::runtime::Handle::current()
+                .block_on(refetch_acks_from_daemon(&daemon_url, api_key.as_deref()))
+            {
+                Ok(refreshed) => app.acks_by_signature = refreshed,
+                Err(e) => tracing::warn!(
+                    "ack submit succeeded but refetch failed, indicator may be stale: {e}"
+                ),
+            }
+            app.ack_modal.close();
+        }
+        Err(crate::ack::AckSubmitError::Unauthorized) => {
+            app.ack_modal.error_message = Some(
+                "API key required: set PERF_SENTINEL_DAEMON_API_KEY or pass \
+                 --api-key-file when launching `query inspect`."
+                    .to_string(),
+            );
+            app.ack_modal.submitting = false;
+        }
+        Err(e) => {
+            app.ack_modal.error_message = Some(e.to_string());
+            app.ack_modal.submitting = false;
+        }
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn signature_for_modal_mode(mode: &AckModalMode) -> Option<&str> {
+    match mode {
+        AckModalMode::Ack { signature } | AckModalMode::Unack { signature } => {
+            Some(signature.as_str())
+        }
+        AckModalMode::Hidden => None,
+    }
+}
+
+#[cfg(feature = "daemon")]
+fn submit_ack_create(
+    app: &mut App,
+    daemon_url: &str,
+    signature: &str,
+) -> Result<(), crate::ack::AckSubmitError> {
+    let expires = if app.ack_modal.expires_buf.trim().is_empty() {
+        None
+    } else {
+        match crate::ack::parse_expires(&app.ack_modal.expires_buf) {
+            Ok(dt) => Some(dt),
+            // Surface the parser's `expected ISO8601 datetime ...`
+            // message via `Validation` so the outer match in
+            // `submit_ack_modal` does not clobber it with a generic
+            // network-error wrapper.
+            Err(e) => {
+                return Err(crate::ack::AckSubmitError::Validation(format!(
+                    "expires: {e}"
+                )));
+            }
+        }
+    };
+    let by = app.ack_modal.by_buf.clone();
+    let reason = app.ack_modal.reason_buf.clone();
+    let api_key = app.api_key.clone();
+    tokio::runtime::Handle::current().block_on(crate::ack::post_ack_via_daemon(
+        daemon_url,
+        signature,
+        &by,
+        &reason,
+        expires,
+        api_key.as_deref(),
+    ))
+}
+
+#[cfg(feature = "daemon")]
+fn submit_ack_revoke(
+    app: &mut App,
+    daemon_url: &str,
+    signature: &str,
+) -> Result<(), crate::ack::AckSubmitError> {
+    let api_key = app.api_key.clone();
+    tokio::runtime::Handle::current().block_on(crate::ack::delete_ack_via_daemon(
+        daemon_url,
+        signature,
+        api_key.as_deref(),
+    ))
+}
+
+/// Fetch `/api/findings?include_acked=true&limit={FINDINGS_FETCH_LIMIT}`
+/// and rebuild the `acks_by_signature` map. Called after every
+/// successful submit so the Findings panel indicator and modal
+/// gating stay in sync.
+#[cfg(feature = "daemon")]
+async fn refetch_acks_from_daemon(
+    daemon_url: &str,
+    api_key: Option<&str>,
+) -> Result<HashMap<String, AckSource>, String> {
+    let client = sentinel_core::http_client::build_client_with_body();
+    let limit = crate::ack::FINDINGS_FETCH_LIMIT;
+    let url = format!("{daemon_url}/api/findings?include_acked=true&limit={limit}");
+    let (status, body) = crate::ack::http_call(
+        &client,
+        hyper::Method::GET,
+        &url,
+        api_key,
+        bytes::Bytes::new(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if status.as_u16() != 200 {
+        return Err(format!("HTTP {} on findings refetch", status.as_u16()));
+    }
+    let responses: Vec<sentinel_core::daemon::query_api::FindingResponse> =
+        serde_json::from_slice(&body).map_err(|e| e.to_string())?;
+    Ok(responses
+        .into_iter()
+        .filter_map(|r| {
+            r.acknowledged_by
+                .map(|src| (r.stored.finding.signature, src))
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -1343,6 +2063,440 @@ mod tests {
         assert_eq!(
             app.selected_correlation, 2,
             "selection must clamp at last index"
+        );
+    }
+
+    // ── Ack modal tests (gated behind the daemon feature) ───────────
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_default_is_hidden() {
+        let modal = AckModalState::default();
+        assert!(!modal.is_visible());
+        assert_eq!(modal.mode, AckModalMode::Hidden);
+        assert_eq!(modal.focus, AckFormField::Reason);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_open_ack_focuses_reason_and_clears_buffers() {
+        let mut modal = AckModalState {
+            reason_buf: "old".to_string(),
+            expires_buf: "old".to_string(),
+            error_message: Some("stale".to_string()),
+            ..AckModalState::default()
+        };
+        modal.open_ack("sig-123".to_string());
+        assert!(modal.is_visible());
+        assert_eq!(
+            modal.mode,
+            AckModalMode::Ack {
+                signature: "sig-123".to_string()
+            }
+        );
+        assert_eq!(modal.focus, AckFormField::Reason);
+        assert!(modal.reason_buf.is_empty());
+        assert!(modal.expires_buf.is_empty());
+        assert!(modal.error_message.is_none());
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_open_unack_focuses_submit_directly() {
+        let mut modal = AckModalState::default();
+        modal.open_unack("sig-456".to_string());
+        assert_eq!(
+            modal.mode,
+            AckModalMode::Unack {
+                signature: "sig-456".to_string()
+            }
+        );
+        assert_eq!(modal.focus, AckFormField::Submit);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_close_resets_state() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.error_message = Some("err".to_string());
+        modal.submitting = true;
+        modal.close();
+        assert!(!modal.is_visible());
+        assert!(modal.error_message.is_none());
+        assert!(!modal.submitting);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_next_field_cycles_5_steps_then_loops() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        assert_eq!(modal.focus, AckFormField::Reason);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Expires);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::By);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Submit);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Cancel);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Reason);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_prev_field_cycles_backwards() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::Cancel);
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::Submit);
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::By);
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::Expires);
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::Reason);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_unack_field_cycle_skips_text_inputs() {
+        let mut modal = AckModalState::default();
+        modal.open_unack("sig".to_string());
+        assert_eq!(modal.focus, AckFormField::Submit);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Cancel);
+        modal.next_field();
+        assert_eq!(modal.focus, AckFormField::Submit);
+        modal.prev_field();
+        assert_eq!(modal.focus, AckFormField::Cancel);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_typing_appends_to_focused_buffer() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.reason_buf.clear();
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('h'));
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('i'));
+        assert_eq!(modal.reason_buf, "hi");
+
+        modal.focus = AckFormField::Expires;
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('2'));
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('4'));
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('h'));
+        assert_eq!(modal.expires_buf, "24h");
+
+        modal.focus = AckFormField::By;
+        modal.by_buf.clear(); // open_ack pre-filled it from $USER
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('a'));
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('b'));
+        assert_eq!(modal.by_buf, "ab");
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_backspace_pops_focused_buffer() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.reason_buf = "hello".to_string();
+        let _ = handle_modal_key(&mut modal, KeyCode::Backspace);
+        assert_eq!(modal.reason_buf, "hell");
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_tab_advances_focus() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        let action = handle_modal_key(&mut modal, KeyCode::Tab);
+        assert_eq!(action, ModalAction::None);
+        assert_eq!(modal.focus, AckFormField::Expires);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_esc_returns_cancel() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        let action = handle_modal_key(&mut modal, KeyCode::Esc);
+        assert_eq!(action, ModalAction::Cancel);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_enter_on_submit_returns_submit() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.focus = AckFormField::Submit;
+        let action = handle_modal_key(&mut modal, KeyCode::Enter);
+        assert_eq!(action, ModalAction::Submit);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_enter_on_cancel_returns_cancel() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.focus = AckFormField::Cancel;
+        let action = handle_modal_key(&mut modal, KeyCode::Enter);
+        assert_eq!(action, ModalAction::Cancel);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_enter_on_text_field_advances_focus() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        let action = handle_modal_key(&mut modal, KeyCode::Enter);
+        assert_eq!(action, ModalAction::None);
+        assert_eq!(modal.focus, AckFormField::Expires);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn handle_modal_key_enforces_max_lengths() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.focus = AckFormField::Reason;
+        for _ in 0..(REASON_MAX + 5) {
+            let _ = handle_modal_key(&mut modal, KeyCode::Char('x'));
+        }
+        assert_eq!(modal.reason_buf.chars().count(), REASON_MAX);
+
+        modal.focus = AckFormField::Expires;
+        for _ in 0..(EXPIRES_MAX + 5) {
+            let _ = handle_modal_key(&mut modal, KeyCode::Char('y'));
+        }
+        assert_eq!(modal.expires_buf.chars().count(), EXPIRES_MAX);
+
+        modal.focus = AckFormField::By;
+        modal.by_buf.clear();
+        for _ in 0..(BY_MAX + 5) {
+            let _ = handle_modal_key(&mut modal, KeyCode::Char('z'));
+        }
+        assert_eq!(modal.by_buf.chars().count(), BY_MAX);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn app_default_has_no_daemon_handle() {
+        let app = make_test_app();
+        assert!(app.daemon_url.is_none());
+        assert!(app.api_key.is_none());
+        assert!(app.acks_by_signature.is_empty());
+        assert!(!app.ack_modal.is_visible());
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn app_with_daemon_handle_populates_acks_by_signature() {
+        let mut acks = HashMap::new();
+        acks.insert(
+            "sig-1".to_string(),
+            AckSource::Daemon {
+                by: "alice".to_string(),
+                at: chrono::Utc::now(),
+                reason: Some("investigating".to_string()),
+                expires_at: None,
+            },
+        );
+        let app = make_test_app().with_daemon_handle(
+            "http://localhost:14318".to_string(),
+            Some("secret".to_string()),
+            acks,
+        );
+        assert_eq!(app.daemon_url.as_deref(), Some("http://localhost:14318"));
+        assert_eq!(app.api_key.as_deref(), Some("secret"));
+        assert!(app.acks_by_signature.contains_key("sig-1"));
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn findings_panel_renders_acked_indicator_when_signature_in_map() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = make_test_app();
+        app.all_findings[0].signature = "sig-acked".to_string();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.acks_by_signature.insert(
+            "sig-acked".to_string(),
+            AckSource::Daemon {
+                by: "alice".to_string(),
+                at: chrono::Utc::now(),
+                reason: Some("test".to_string()),
+                expires_at: None,
+            },
+        );
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("acked by alice"),
+            "expected ack indicator in rendered TUI buffer, got:\n{rendered}"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_renders_centered_overlay() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig-123".to_string());
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("Acknowledge finding"),
+            "expected modal title, got:\n{rendered}"
+        );
+        assert!(rendered.contains("Reason"), "expected reason field label");
+        assert!(rendered.contains("[Submit]"), "expected submit button");
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn submit_ack_create_validation_error_uses_validation_variant() {
+        // Drive submit_ack_create directly with an unparseable expires
+        // input. The function must return AckSubmitError::Validation
+        // (not Transport) so submit_ack_modal does not clobber the
+        // message with a "network error:" prefix when it Display's it.
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.expires_buf = "not a date".to_string();
+        let result = submit_ack_create(&mut app, "http://localhost:14318", "sig");
+        let err = result.expect_err("invalid expires must surface an error");
+        match err {
+            crate::ack::AckSubmitError::Validation(msg) => {
+                assert!(
+                    msg.starts_with("expires:"),
+                    "expected `expires:` prefix, got: {msg}"
+                );
+                assert!(
+                    !msg.contains("network error"),
+                    "validation must not be wrapped as network error: {msg}"
+                );
+            }
+            other => panic!("expected Validation, got {other:?}"),
+        }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn opening_ack_modal_with_no_finding_is_silent() {
+        // Build an app with no findings: pressing `a` would call
+        // `current_finding()` which returns None, the modal stays
+        // hidden. Mirror that path here by reading current_finding and
+        // confirming we cannot dispatch an open with an empty signature.
+        let app = App::new(
+            Vec::new(),
+            Vec::new(),
+            sentinel_core::detect::DetectConfig {
+                n_plus_one_threshold: 5,
+                window_ms: 500,
+                slow_threshold_ms: 500,
+                slow_min_occurrences: 3,
+                max_fanout: 20,
+                chatty_service_min_calls: 15,
+                pool_saturation_concurrent_threshold: 10,
+                serialized_min_sequential: 3,
+                sanitizer_aware_classification:
+                    sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
+            },
+        );
+        assert!(app.current_finding().is_none());
+        // The dispatch in run_loop is `if let Some(finding) = ...`, so
+        // no current_finding means no `open_ack` call.
+        assert!(!app.ack_modal.is_visible());
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn modal_input_rejects_control_and_bidi_chars() {
+        let mut modal = AckModalState::default();
+        modal.open_ack("sig".to_string());
+        modal.reason_buf.clear();
+        // C0 controls (Tab/Esc/etc are KeyCode variants in real input,
+        // but a paste stream could land them via Char). Bidi overrides
+        // U+202A..U+202E and isolates U+2066..U+2069.
+        for c in ['\u{0007}', '\u{001B}', '\u{202E}', '\u{2068}', '\u{007F}'] {
+            let _ = handle_modal_key(&mut modal, KeyCode::Char(c));
+        }
+        assert!(
+            modal.reason_buf.is_empty(),
+            "control/bidi chars should not be appended, got: {:?}",
+            modal.reason_buf
+        );
+        // Plain ASCII still works.
+        let _ = handle_modal_key(&mut modal, KeyCode::Char('a'));
+        assert_eq!(modal.reason_buf, "a");
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_modal_error_message_is_rendered() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.error_message = Some("HTTP 503 daemon ack store disabled".to_string());
+        let backend = TestBackend::new(120, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| draw(f, &app)).unwrap();
+        let buffer = terminal.backend().buffer().clone();
+        let rendered: String = (0..buffer.area.height)
+            .map(|y| {
+                (0..buffer.area.width)
+                    .map(|x| {
+                        buffer
+                            .cell((x, y))
+                            .map_or(' ', |c| c.symbol().chars().next().unwrap_or(' '))
+                    })
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("daemon ack store disabled"),
+            "expected error message in modal footer, got:\n{rendered}"
         );
     }
 }

@@ -119,6 +119,25 @@ perf-sentinel report --input traces.json --output report.html \
 open report.html
 ```
 
+### Adding a daemon ack from the TUI (since 0.5.24, terminal)
+
+`perf-sentinel query inspect` opens an interactive TUI that exposes
+the daemon findings list, span trees, and cross-trace correlations.
+With 0.5.24, pressing `a` on the selected finding opens an
+acknowledgment modal (reason / expires / by) that posts to the same
+daemon endpoint, and `u` opens a revoke confirmation. The Findings
+panel renders an `[acked by <user>]` italic gray indicator next to
+already-acknowledged findings. See [`INSPECT.md`](./INSPECT.md) for
+the keybinding map and the auth flow.
+
+```bash
+perf-sentinel query --daemon http://localhost:4318 inspect
+# Press 'a' on a finding → modal → fill reason → Tab to Submit → Enter
+```
+
+`a` and `u` are no-op in batch mode (`inspect --input`) since
+acknowledgment requires a running daemon to persist.
+
 ## Choosing between TOML and daemon
 
 | Scenario                                  | Use                                  |
@@ -130,6 +149,7 @@ open report.html
 | Onboarding cleanup of pre-existing        | TOML (bulk via editor)               |
 | Single ack at 3am from PagerDuty          | Daemon CLI                           |
 | Click Ack from MR review on the CI report | Daemon (HTML live mode, since 0.5.23)|
+| Audit findings in a terminal session      | Daemon (TUI, since 0.5.24)           |
 
 ## Observability
 

@@ -78,9 +78,22 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
             render_explain_response(&body, format);
         }
         #[cfg(feature = "tui")]
-        QueryAction::Inspect => {
-            let body = fetch("/api/findings?limit=10000").await;
-            run_inspect_action(&body, &client, &trimmed, timeout).await;
+        QueryAction::Inspect { api_key_file } => {
+            let api_key = match crate::ack::resolve_api_key(api_key_file.as_deref()) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            // include_acked=true so FindingResponse carries
+            // `acknowledged_by` per finding, which the TUI uses to
+            // render the `[acked by ...]` indicator and to populate
+            // `acks_by_signature` for the modal write path.
+            let limit = crate::ack::FINDINGS_FETCH_LIMIT;
+            let path = format!("/api/findings?limit={limit}&include_acked=true");
+            let body = fetch(&path).await;
+            run_inspect_action(&body, &client, &trimmed, timeout, api_key).await;
         }
         QueryAction::Correlations { format } => {
             let body = fetch("/api/correlations").await;
@@ -388,11 +401,23 @@ async fn run_inspect_action(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
     timeout: std::time::Duration,
+    api_key: Option<String>,
 ) {
-    let stored: Vec<sentinel_core::daemon::findings_store::StoredFinding> =
+    let responses: Vec<sentinel_core::daemon::query_api::FindingResponse> =
         serde_json::from_slice(body).unwrap_or_default();
+    let acks_by_signature: std::collections::HashMap<
+        String,
+        sentinel_core::daemon::query_api::AckSource,
+    > = responses
+        .iter()
+        .filter_map(|r| {
+            r.acknowledged_by
+                .clone()
+                .map(|src| (r.stored.finding.signature.clone(), src))
+        })
+        .collect();
     let findings: Vec<sentinel_core::detect::Finding> =
-        stored.into_iter().map(|sf| sf.finding).collect();
+        responses.into_iter().map(|r| r.stored.finding).collect();
     if findings.is_empty() {
         let AnsiColors { green, reset, .. } = ansi_colors(false);
         println!("{green}No findings from daemon. Nothing to inspect.{reset}");
@@ -432,8 +457,16 @@ async fn run_inspect_action(
     };
     let mut app = crate::tui::App::new(findings, traces, detect_config)
         .with_pre_rendered_trees(pre_rendered_trees)
-        .with_correlations(correlations);
-    if let Err(e) = crate::tui::run(&mut app) {
+        .with_correlations(correlations)
+        .with_daemon_handle(base_url.to_string(), api_key, acks_by_signature);
+    // `block_in_place` lets the synchronous `run_loop` (crossterm's
+    // `event::read` is blocking) call `Handle::current().block_on(...)`
+    // from inside `submit_ack_modal` without panicking the multi-thread
+    // tokio runtime. The UI freezes for the ~100-300ms duration of the
+    // ack write. Acceptable scope-minimal tradeoff, an async event loop
+    // is a candidate followup.
+    let result = tokio::task::block_in_place(|| crate::tui::run(&mut app));
+    if let Err(e) = result {
         eprintln!("TUI error: {e}");
         std::process::exit(1);
     }
