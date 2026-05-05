@@ -3079,10 +3079,22 @@
     if (close) close.addEventListener("click", closeAckModal);
   }
 
+  function stripTrailingSlashes(s) {
+    // Linear scan from the end. The Rust CLI already trims trailing
+    // slashes via `validate_url` before embedding the URL in the
+    // payload, so this is defense-in-depth against a corrupted
+    // artifact, not the primary normalization path. Avoids the regex
+    // engine's backtracking surface that SonarCloud flags as ReDoS-
+    // adjacent on `/\/+$/`.
+    var end = s.length;
+    while (end > 0 && s.charCodeAt(end - 1) === 47) end--;
+    return s.substring(0, end);
+  }
+
   function bootLiveMode() {
     if (!payload.daemon || !payload.daemon.url) return;
     liveState.enabled = true;
-    liveState.daemonUrl = String(payload.daemon.url).replace(/\/+$/, "");
+    liveState.daemonUrl = stripTrailingSlashes(String(payload.daemon.url));
     var stored = sessionGet(DAEMON_API_KEY_STORAGE);
     if (stored) liveState.apiKey = stored;
     document.body.classList.add("ps-live");
