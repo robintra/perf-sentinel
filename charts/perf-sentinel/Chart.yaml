@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.24
-appVersion: "0.5.21"
+version: 0.2.25
+appVersion: "0.5.22"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -38,7 +38,7 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.5.21
+      image: ghcr.io/robintra/perf-sentinel:0.5.22
       platforms:
         - linux/amd64
         - linux/arm64
