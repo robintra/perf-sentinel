@@ -150,7 +150,17 @@
   .ps-correlation-clickable:hover { background: var(--color-background-tertiary); }
   .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
   .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
-  dialog.ps-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: 520px; width: calc(100% - 40px); background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  /* Centered via the modern `inset: 0 + margin: auto` pattern. The
+     previous `top/left + transform: translate(-50%, -50%)` recipe
+     interacted badly with the user-agent's `dialog:modal` defaults
+     (`inset: 0` stays on the unset edges, fighting the explicit
+     top/left), drifting the box right of center on wider viewports. */
+  /* `max-height` + `overflow-y: auto` keep the Cancel/Submit row in
+     view when an operator pastes a tall reason into the ack textarea
+     (which is `resize: vertical`). Without the cap, the dialog would
+     extend past the viewport and the bottom buttons would land
+     off-screen with no internal scroll. */
+  dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 520px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
   dialog.ps-modal::backdrop { background: rgba(0,0,0,0.6); }
   dialog.ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
   .ps-modal-close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--color-text-secondary); font-family: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 8px; }
@@ -169,9 +179,14 @@
   .ps-daemon-dot.connected { background: #2ea043; }
   .ps-daemon-dot.disconnected { background: #cf222e; }
   .ps-daemon-dot.unauthorized { background: #d4a72c; }
-  /* Header refresh button: hidden by default, revealed in live mode. */
+  /* Header refresh button: hidden by default, revealed in live mode.
+     `[hidden]` adds attribute specificity over the live-mode class
+     reveal, so the HTML `hidden` attribute set by
+     `syncLogoutButtonVisibility` for the Forget-key button wins
+     regardless of source order. */
   .ps-refresh-btn { display: none; padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; margin-right: 8px; }
   body.ps-live .ps-refresh-btn { display: inline-block; }
+  body.ps-live .ps-refresh-btn[hidden] { display: none; }
   .ps-refresh-btn:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); color: var(--color-text-primary); }
   .ps-refresh-btn:disabled { cursor: not-allowed; opacity: 0.6; }
   /* Per-row Ack/Revoke action button: hidden by default. */
@@ -182,8 +197,14 @@
   .ps-fin-action-btn.revoke { border-color: var(--color-border-tertiary); color: var(--color-text-secondary); }
   .ps-fin-action-btn.revoke:hover { background: var(--color-background-secondary); }
   .ps-fin-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
-  /* Findings filter toggle: hidden by default. */
-  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-left: 8px; }
+  /* Findings filter toggle: hidden by default. The toolbar uses
+     `justify-content: flex-end`, so push the toggle further from the
+     adjacent Export CSV button via `margin-right` (the toggle sits to
+     the LEFT of Export CSV in document order, so the right margin is
+     what creates breathing room between them). `cursor: pointer` on
+     the wrapping `<label>` extends the click affordance to the text
+     gap between the checkbox and its label, not just the input itself. */
+  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-left: 8px; margin-right: 14px; cursor: pointer; }
   body.ps-live .ps-include-acked-wrap { display: inline-flex; }
   /* Acknowledgments panel toolbar (table layout reused from .ps-table). */
   .ps-acks-footer { margin-top: 10px; font-size: 11px; color: var(--color-text-tertiary); }
@@ -346,7 +367,7 @@
 <dialog id="auth-modal" class="ps-modal" aria-labelledby="auth-modal-title">
   <button type="button" class="ps-modal-close" id="auth-modal-close" aria-label="Close">x</button>
   <h2 id="auth-modal-title">Daemon authentication required</h2>
-  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--color-text-secondary);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
+  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--color-text-warning);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
   <form id="auth-modal-form">
     <label for="auth-modal-key">API key</label>
     <input type="password" id="auth-modal-key" autocomplete="off" />
@@ -2790,6 +2811,11 @@
         else openAckModal(sig);
       };
     });
+    // Re-honor the `Show acknowledged` toggle once the action buttons
+    // (and therefore the latest `acksBySig` mapping) are settled. The
+    // boot path otherwise renders acked findings visible until the
+    // user toggles the checkbox.
+    applyAckedFilter();
   }
 
   function openAckModal(sig) {
@@ -2832,7 +2858,7 @@
     var err = document.getElementById("ack-modal-error");
     if (!sig) return;
     if (!reason) {
-      if (err) { err.textContent = "Reason is required."; err.style.display = ""; }
+      if (err) { err.textContent = "Reason is required."; err.style.display = "block"; }
       return;
     }
     var body = { reason: reason };
@@ -2856,7 +2882,7 @@
       }
       return handleAuthRetry(r, function () { postAck(sig, body, errEl); }, errEl, "create");
     }).catch(function () {
-      if (errEl) { errEl.textContent = "Network error reaching the daemon."; errEl.style.display = ""; }
+      if (errEl) { errEl.textContent = "Network error reaching the daemon."; errEl.style.display = "block"; }
     });
   }
 
@@ -2878,21 +2904,38 @@
   function handleAuthRetry(response, retry, errEl, opLabel) {
     if (response.status === 401) {
       liveState.pendingAuthRetry = retry;
-      openAuthModal();
+      // Tell apart the first 401 (no key cached) from a retry-after-
+      // wrong-key 401 so the user gets feedback on the second attempt.
+      // Drop the bad key on the way so the next request goes out
+      // unauthenticated and the auth flow restarts cleanly.
+      var hadKey = liveState.apiKey !== null && liveState.apiKey !== "";
+      if (hadKey) {
+        clearApiKey();
+        syncLogoutButtonVisibility();
+      }
+      openAuthModal(hadKey ? "Invalid API key, please try again." : null);
       return;
     }
     var msg = "HTTP " + response.status + " on " + opLabel;
-    if (errEl) { errEl.textContent = msg; errEl.style.display = ""; }
+    if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; }
     else showToast("error", msg);
   }
 
-  function openAuthModal() {
+  function openAuthModal(errorMessage) {
     var dlg = document.getElementById("auth-modal");
     var keyInput = document.getElementById("auth-modal-key");
     var err = document.getElementById("auth-modal-error");
     if (!dlg) return;
     if (keyInput) keyInput.value = "";
-    if (err) { err.style.display = "none"; err.textContent = ""; }
+    if (err) {
+      if (errorMessage) {
+        err.textContent = errorMessage;
+        err.style.display = "block";
+      } else {
+        err.style.display = "none";
+        err.textContent = "";
+      }
+    }
     if (typeof dlg.showModal === "function") dlg.showModal();
     if (keyInput) {
       // Defer focus until after the dialog has actually opened.
@@ -2911,7 +2954,7 @@
     var err = document.getElementById("auth-modal-error");
     var k = ((keyInput || {}).value || "").trim();
     if (!k) {
-      if (err) { err.textContent = "API key is required."; err.style.display = ""; }
+      if (err) { err.textContent = "API key is required."; err.style.display = "block"; }
       return;
     }
     setApiKey(k);
@@ -2927,7 +2970,31 @@
     return Promise.all([pingStatus(), fetchAcks()]).then(function () {
       renderAcksPanel();
       syncFindingActionButtons();
+      syncAcksTabBadge();
     });
+  }
+
+  function syncAcksTabBadge() {
+    // The tab badge is rendered once at boot via `renderTabs` from the
+    // `countFn` we registered for "acknowledgments". After an
+    // ack/revoke that changed `liveState.acks.length`, the badge is
+    // stale until the user switches tabs (which would re-trigger
+    // nothing since `renderTabs` is not re-run). Patch the DOM
+    // directly: the cheapest correct refresh path. Recreate the
+    // badge span when missing so a deferred-fetch boot path (badge
+    // not created because countFn returned null) still surfaces the
+    // count once acks load.
+    var btn = document.getElementById("tab-acknowledgments");
+    if (!btn) return;
+    var count = liveAcksCount();
+    if (count === null || count === undefined) return;
+    var badge = btn.querySelector(".ps-badge");
+    if (badge) {
+      badge.textContent = String(count);
+    } else {
+      btn.appendChild(document.createTextNode(" "));
+      btn.appendChild(el("span", "ps-badge", String(count)));
+    }
   }
 
   function wireRefreshButton() {
@@ -2957,25 +3024,28 @@
     });
   }
 
+  function applyAckedFilter() {
+    // Hide acked findings when the toggle is unchecked. Idempotent
+    // and called both from the change handler AND from
+    // `syncFindingActionButtons` so the initial state is honored at
+    // boot (otherwise the user sees acked findings until they click
+    // the toggle, even though "Show acknowledged" is unchecked).
+    var input = document.getElementById("findings-include-acked");
+    if (!input) return;
+    var hideAcked = !input.checked;
+    var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
+    rows.forEach(function (row) {
+      var sig = row.getAttribute("data-sig") || "";
+      var isAcked = !!liveState.acksBySig[sig];
+      if (hideAcked && isAcked) row.style.display = "none";
+      else row.style.display = "";
+    });
+  }
+
   function wireIncludeAckedToggle() {
     var input = document.getElementById("findings-include-acked");
     if (!input) return;
-    input.addEventListener("change", function () {
-      // Re-render with the new toggle state. The current findings list
-      // is the static payload; the toggle just hides or shows rows
-      // whose signature has been ack'd. (A round 2 follow-up will
-      // call /api/findings?include_acked=... when we want to surface
-      // findings the daemon side has retained beyond the static
-      // snapshot.)
-      var hideAcked = !input.checked;
-      var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
-      rows.forEach(function (row) {
-        var sig = row.getAttribute("data-sig") || "";
-        var isAcked = !!liveState.acksBySig[sig];
-        if (hideAcked && isAcked) row.style.display = "none";
-        else row.style.display = "";
-      });
-    });
+    input.addEventListener("change", applyAckedFilter);
   }
 
   function wireAuthModal() {
