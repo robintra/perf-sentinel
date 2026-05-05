@@ -1,0 +1,14 @@
+# Per-finding exclusions for gitleaks. Each line is a fingerprint
+# `<commit>:<file>:<rule>:<line>`. Used to silence false positives
+# already in the immutable git history without forcing a rewrite.
+#
+# The HTML-REPORT smoke-test heredoc shipped a literal placeholder
+# `api_key = "0123456789abcdef"` in 0.5.23 docs (commit 99bab44).
+# Gitleaks treats any 16-char hex string under `api_key` as a leaked
+# credential. The value is documentation-only, never deployed, but
+# the historical commits cannot be rewritten without force-push to
+# main. Subsequent commits replace the literal with a runtime-
+# generated `$(openssl rand -hex 16)` placeholder so future scans of
+# the working tree stay clean.
+99bab44070b3593a3bae24521f8ea7817ca665f8:docs/HTML-REPORT.md:generic-api-key:207
+99bab44070b3593a3bae24521f8ea7817ca665f8:docs/FR/HTML-REPORT-FR.md:generic-api-key:214

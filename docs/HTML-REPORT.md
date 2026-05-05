@@ -201,16 +201,18 @@ open /tmp/live.html
 
 # 5. Click Revoke, confirm. The badge swaps back to Ack.
 
-# 6. Restart the daemon with [daemon.ack] api_key set:
+# 6. Restart the daemon with [daemon.ack] api_key set. Generate a
+# fresh secret per run, never paste a literal in production:
 kill $DAEMON_PID
+SMOKE_KEY=$(openssl rand -hex 16)
 cat >> /tmp/daemon.toml <<EOF
-api_key = "0123456789abcdef"
+api_key = "${SMOKE_KEY}"
 EOF
 perf-sentinel watch --config /tmp/daemon.toml &
 DAEMON_PID=$!
 sleep 1
 # Reload /tmp/live.html, click Ack: an authentication modal opens,
-# enter the key, submit. The ack request retries automatically.
+# enter $SMOKE_KEY, submit. The ack request retries automatically.
 
 # 7. Reload the tab again. The key persists in sessionStorage, no
 # re-prompt until you close the tab.
