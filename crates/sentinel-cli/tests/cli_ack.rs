@@ -100,65 +100,97 @@ fn spawn_mock(script: Vec<ScriptedResponse>) -> (u16, Arc<Mutex<Vec<CapturedRequ
     (port, log)
 }
 
+/// Parsed shape of the HTTP/1.1 request as the mock cares about it.
+struct ParsedRequest {
+    method: String,
+    body: String,
+    api_key: Option<String>,
+}
+
+/// Read the request line, headers and body from `stream`. Returns
+/// `None` on any IO error so the caller can drop the connection.
+///
+/// Hyper sends `Content-Length` whenever it serializes a `Full<Bytes>`
+/// body, so this parser does not need a chunked-encoding path.
+fn parse_request(stream: &TcpStream) -> Option<ParsedRequest> {
+    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
+
+    let mut request_line = String::new();
+    reader.read_line(&mut request_line).ok()?;
+    let method = request_line
+        .trim_end()
+        .split(' ')
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    let (content_length, api_key) = read_headers(&mut reader)?;
+
+    let mut body_buf = vec![0u8; content_length];
+    if content_length > 0 {
+        reader.read_exact(&mut body_buf).ok()?;
+    }
+    let body = String::from_utf8_lossy(&body_buf).to_string();
+    Some(ParsedRequest {
+        method,
+        body,
+        api_key,
+    })
+}
+
+/// Drain headers from `reader` until the blank line. Returns
+/// `(content_length, x_api_key_value)`.
+fn read_headers(reader: &mut BufReader<TcpStream>) -> Option<(usize, Option<String>)> {
+    let mut content_length: usize = 0;
+    let mut api_key: Option<String> = None;
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).ok()?;
+        if line == "\r\n" || line == "\n" || line.is_empty() {
+            return Some((content_length, api_key));
+        }
+        let lower = line.to_ascii_lowercase();
+        if let Some(rest) = lower.strip_prefix("content-length:") {
+            content_length = rest.trim().parse().unwrap_or(0);
+        } else if let Some(rest) = lower.strip_prefix("x-api-key:") {
+            api_key = Some(rest.trim().to_string());
+        }
+    }
+}
+
+/// Pick the (status, reason, body) triple to respond with based on
+/// the scripted response and whether the request supplied the
+/// required X-API-Key (when one is configured).
+fn resolve_response(
+    response: &ScriptedResponse,
+    api_key: Option<&str>,
+) -> (u16, &'static str, &'static str) {
+    match response.require_api_key {
+        Some(expected) if api_key != Some(expected) => (401, "Unauthorized", ""),
+        _ => (response.status, response.reason, response.body),
+    }
+}
+
 fn handle_one_request(
     mut stream: TcpStream,
     response: ScriptedResponse,
     log: &Arc<Mutex<Vec<CapturedRequest>>>,
 ) {
-    // Hyper sends `Content-Length` whenever it serializes a `Full<Bytes>`
-    // body, so this hand-rolled parser does not need a chunked-encoding
-    // path. A 5s read timeout shields the test from a misbehaving
-    // request that never sends the blank line.
+    // 5s read timeout shields the test from a misbehaving request
+    // that never sends the blank line.
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut reader = BufReader::new(stream.try_clone().expect("clone"));
 
-    let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() {
+    let Some(parsed) = parse_request(&stream) else {
         return;
-    }
-    let parts: Vec<&str> = request_line.trim_end().split(' ').collect();
-    let method = parts.first().copied().unwrap_or("").to_string();
-
-    let mut content_length: usize = 0;
-    let mut api_key: Option<String> = None;
-    loop {
-        let mut line = String::new();
-        if reader.read_line(&mut line).is_err() {
-            return;
-        }
-        if line == "\r\n" || line == "\n" || line.is_empty() {
-            break;
-        }
-        let lower = line.to_ascii_lowercase();
-        if let Some(rest) = lower.strip_prefix("content-length:") {
-            content_length = rest.trim().parse().unwrap_or(0);
-        }
-        if let Some(rest) = lower.strip_prefix("x-api-key:") {
-            api_key = Some(rest.trim().to_string());
-        }
-    }
-
-    let mut body_buf = vec![0u8; content_length];
-    if content_length > 0 {
-        let _ = reader.read_exact(&mut body_buf);
-    }
-    let body = String::from_utf8_lossy(&body_buf).to_string();
+    };
 
     log.lock().expect("log lock").push(CapturedRequest {
-        method: method.clone(),
-        body: body.clone(),
-        api_key: api_key.clone(),
+        method: parsed.method.clone(),
+        body: parsed.body.clone(),
+        api_key: parsed.api_key.clone(),
     });
 
-    let (status, reason, response_body) = if let Some(expected_key) = response.require_api_key {
-        if api_key.as_deref() == Some(expected_key) {
-            (response.status, response.reason, response.body)
-        } else {
-            (401, "Unauthorized", "")
-        }
-    } else {
-        (response.status, response.reason, response.body)
-    };
+    let (status, reason, response_body) = resolve_response(&response, parsed.api_key.as_deref());
 
     let response_text = format!(
         "HTTP/1.1 {status} {reason}\r\n\
