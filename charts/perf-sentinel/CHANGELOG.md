@@ -6,6 +6,23 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.27]
+
+### Changed
+
+- `appVersion` bumped to `0.5.24`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.24`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.24 binary adds interactive ack/revoke from the TUI
+  (`perf-sentinel query inspect`, with `a` and `u` keybindings on
+  the selected finding) and a new `--api-key-file` flag on
+  `query inspect`. The daemon HTTP surface is unchanged, the TUI
+  consumes the existing ack endpoints. No chart-level config
+  change. This release closes the three-axis UX marathon over the
+  daemon ack API (CLI 0.5.22, HTML 0.5.23, TUI 0.5.24). See
+  `docs/INSPECT.md` and `docs/ACK-WORKFLOW.md` for the user-facing
+  reference.
+
 ## [0.2.26]
 
 ### Changed
