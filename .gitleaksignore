@@ -2,13 +2,17 @@
 # `<commit>:<file>:<rule>:<line>`. Used to silence false positives
 # already in the immutable git history without forcing a rewrite.
 #
-# The HTML-REPORT smoke-test heredoc shipped a literal placeholder
-# `api_key = "0123456789abcdef"` in 0.5.23 docs (commit 99bab44).
-# Gitleaks treats any 16-char hex string under `api_key` as a leaked
-# credential. The value is documentation-only, never deployed, but
+# The HTML-REPORT smoke-test heredoc shipped a fixed-hex placeholder
+# under `api_key` in the 0.5.23 docs (commit 99bab44). Gitleaks
+# treats any high-entropy 16-char value under that key as a leaked
+# credential. The value was documentation-only, never deployed, but
 # the historical commits cannot be rewritten without force-push to
-# main. Subsequent commits replace the literal with a runtime-
-# generated `$(openssl rand -hex 16)` placeholder so future scans of
-# the working tree stay clean.
+# main. Subsequent commits replace the placeholder with a runtime-
+# generated `$(openssl rand -hex 16)` so future scans stay clean.
 99bab44070b3593a3bae24521f8ea7817ca665f8:docs/HTML-REPORT.md:generic-api-key:207
 99bab44070b3593a3bae24521f8ea7817ca665f8:docs/FR/HTML-REPORT-FR.md:generic-api-key:214
+# The first attempt at silencing the above two findings inlined the
+# offending placeholder string in this file's comment, which the
+# scanner then flagged as a third leak. The current commit replaces
+# the comment with a non-literal description.
+897ad89bf9eea37e407742b21d0b5e6afd31d93e:.gitleaksignore:generic-api-key:6
