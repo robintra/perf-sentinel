@@ -6,6 +6,22 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.26]
+
+### Changed
+
+- `appVersion` bumped to `0.5.23`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.23`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.23 binary adds an opt-in HTML report live mode (the new
+  `perf-sentinel report --daemon-url <URL>` flag) and an opt-in
+  daemon CORS layer (`[daemon.cors] allowed_origins`). The daemon
+  HTTP surface is otherwise unchanged. The static HTML report
+  generated without `--daemon-url` is fully byte-equivalent to the
+  0.5.22 output. No chart-level config change. See `docs/HTML-REPORT.md`
+  and the `[daemon.cors]` section in `docs/CONFIGURATION.md` for the
+  user-facing reference.
+
 ## [0.2.25]
 
 ### Changed
