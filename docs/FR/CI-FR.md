@@ -1,6 +1,6 @@
 # Guide CI perf-sentinel
 
-Ce guide couvre le côté CI de l'intégration : comment exécuter perf-sentinel en mode batch contre un fixture de traces produit par votre stage de tests d'intégration, et comment faire remonter les findings sur chaque pull request. Pour une vue d'ensemble de bout en bout et les quatre topologies supportées, voir [INTEGRATION-FR.md](./INTEGRATION-FR.md). Pour l'instrumentation côté application (guides par langage, configuration OTel Collector, manifests Kubernetes), voir [INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md).
+Côté CI : comment exécuter perf-sentinel en mode batch contre un fixture de traces produit par votre stage de tests d'intégration, et faire remonter les findings sur chaque pull request. Pour les topologies, voir [`INTEGRATION-FR.md`](./INTEGRATION-FR.md). Pour l'instrumentation côté application, voir [`INSTRUMENTATION-FR.md`](./INSTRUMENTATION-FR.md).
 
 ## Sommaire
 

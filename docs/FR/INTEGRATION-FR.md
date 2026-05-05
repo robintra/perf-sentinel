@@ -1,6 +1,6 @@
 # Guide d'intégration
 
-perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur le port 4317, HTTP sur le port 4318). Ce guide vous accompagne de zéro jusqu'à votre premier finding pour chaque topologie de déploiement.
+perf-sentinel accepte les traces OpenTelemetry via OTLP (gRPC sur 4317, HTTP sur 4318). Ce guide vous accompagne de zéro jusqu'à votre premier finding pour chaque topologie de déploiement.
 
 ## Sommaire
 

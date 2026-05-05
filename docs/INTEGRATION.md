@@ -1,6 +1,6 @@
 # Integration guide
 
-perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on port 4318). This guide walks you from zero to your first finding for each deployment topology.
+perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318). This guide walks you from zero to your first finding for each deployment topology.
 
 ## Contents
 
@@ -33,9 +33,9 @@ perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on port 4317, HTTP on 
 
 ## Quick start: CI batch analysis
 
-**Use case:** run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker, just a binary that reads a trace file and exits with code 1 if the quality gate fails.
+Run perf-sentinel in your CI pipeline to catch N+1 queries before they reach production. No daemon, no Docker, just a binary that reads a trace file and exits with code 1 when the quality gate fails.
 
-### Step 1: Install
+### Install
 
 ```bash
 curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
@@ -43,9 +43,9 @@ chmod +x perf-sentinel-linux-amd64
 sudo mv perf-sentinel-linux-amd64 /usr/local/bin/perf-sentinel
 ```
 
-### Step 2: Configure thresholds
+### Configure thresholds
 
-Create `.perf-sentinel.toml` at your project root:
+Create `.perf-sentinel.toml` at the project root:
 
 ```toml
 [thresholds]
@@ -65,19 +65,19 @@ default_region = "eu-west-3"       # optional: enables gCO2eq estimates
 # "api-asia" = "ap-southeast-1"
 ```
 
-> CO₂ output is structured: `green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, with a 2× multiplicative uncertainty interval (`low = mid/2`, `high = mid×2`). Multi-region scoring is automatic when OTel spans carry the `cloud.region` attribute. See `docs/CONFIGURATION.md` and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for details.
+CO₂ output is structured (`green_summary.co2.total.{low,mid,high}` plus an SCI v1.0 methodology tag, 2× multiplicative uncertainty), multi-region scoring activates automatically when spans carry the `cloud.region` attribute. See `CONFIGURATION.md` and `LIMITATIONS.md#carbon-estimates-accuracy`.
 
-### Step 3: Collect traces
+### Collect traces
 
-Export traces from your integration tests. If your tests run with OTel instrumentation, save the output to a JSON file. You can also export from Jaeger UI or Zipkin UI, perf-sentinel auto-detects the format.
+Export traces from your integration tests. perf-sentinel auto-detects native JSON, Jaeger, and Zipkin v2 formats.
 
-### Step 4: Analyze
+### Analyze
 
 ```bash
 perf-sentinel analyze --ci --input traces.json --config .perf-sentinel.toml
 ```
 
-The process prints a JSON report to stdout and exits with code 0 (pass) or 1 (fail). Add this to your CI job:
+Prints a JSON report to stdout and exits 0 (pass) or 1 (fail). Wire it into the CI job:
 
 ```yaml
 # GitLab CI example
@@ -91,7 +91,7 @@ perf:sentinel:
   allow_failure: true   # start with warning-only, remove once thresholds are calibrated
 ```
 
-### Step 5: Investigate findings
+### Investigate findings
 
 ```bash
 # Colored terminal report
@@ -110,97 +110,30 @@ perf-sentinel analyze --input traces.json --format sarif > results.sarif
 perf-sentinel report --input traces.json --output report.html
 ```
 
----
-
-### HTML dashboard report
-
-`perf-sentinel report --input traces.json --output report.html` produces a single-file HTML dashboard. Double-click to open in any browser, works offline, no external resources. Target audience: developers exploring a CI artifact who prefer clicking over typing. The dashboard shows findings, trace trees and `GreenOps` metrics with cross-navigation between them (click a finding to see its trace tree, with the offending span highlighted in the tree view).
-
-Flags:
-- `--input <FILE>` or `--input -`: trace file or stdin (same format auto-detection as `analyze`: native JSON, Jaeger, Zipkin v2).
-- `--output <FILE>`: required, overwritten if it already exists.
-- `--config <PATH>`: optional `.perf-sentinel.toml`, same semantics as `analyze --config`.
-- `--max-traces-embedded <N>`: cap on embedded Explain traces. When unset, the sink trims lowest-IIS traces to target a ~5 MB HTML file size. A banner in the Findings tab surfaces the trim ratio when it kicks in, and the CLI logs an `info!` line on stderr (`Embedded N of M traces ... trimmed for file size`) so CI build logs carry the same signal.
-- `--pg-stat <FILE>`: cross-reference a `pg_stat_statements` CSV or JSON export. Enables a pg_stat tab and the Explain-to-pg_stat cross-navigation for SQL spans whose normalized template matches a pg_stat row.
-- `--pg-stat-prometheus <URL>`: one-shot HTTP GET against a `postgres_exporter` instance, same effect as `--pg-stat` without the intermediate file. Mutually exclusive with `--pg-stat`.
-- `--pg-stat-auth-header "Name: Value"`: optional auth header attached to the `--pg-stat-prometheus` request (same `"Name: Value"` format as `--auth-header` on the `tempo` and `jaeger-query` subcommands). The environment variable `PERF_SENTINEL_PGSTAT_AUTH_HEADER` takes precedence over the flag. Prefer the env var in production to avoid exposing the credential through the process argument list or shell history. When the value is supplied via the flag and the env var is not, a startup warning nudges you toward the env var. Required for Grafana Cloud, Grafana Mimir or any Prometheus ingress enforcing bearer/basic auth. The value is marked `sensitive` so hyper redacts it from debug output and HPACK tables. Sending it over plain `http://` emits a `tracing::warn!`, prefer `https://` in production.
-- `--before <FILE>`: baseline report JSON (the output of `analyze --format json`). Enables a Diff tab showing new findings, resolved findings, severity changes, and per-endpoint I/O deltas relative to the baseline.
-
-Exit codes differ from `analyze --ci`: `report` always exits 0, even when the quality gate fails. The gate status is rendered as a badge in the HTML top bar. Use `analyze --ci` when you need the CI exit-code signal.
-
-Example invocations:
-
-```bash
-# Basic post-mortem report
-perf-sentinel report --input traces.json --output report.html
-
-# With SQL hotspot cross-reference
-perf-sentinel report --input traces.json \
-    --pg-stat pg_stat_statements.csv \
-    --output report.html
-
-# With scraped Prometheus hotspots instead of a file
-perf-sentinel report --input traces.json \
-    --pg-stat-prometheus http://prometheus:9090 \
-    --output report.html
-
-# PR regression view: diff against a baseline run
-perf-sentinel report --input after.json \
-    --before before.json \
-    --output report.html
-
-# Everything at once
-perf-sentinel report --input traces.json \
-    --pg-stat pg_stat_statements.csv \
-    --before baseline.json \
-    --output report.html
-```
-
-Keyboard inside the dashboard: `j`/`k` move the Findings selection, `enter` opens the current finding in Explain, `esc` walks back a four-tier priority ladder (close the cheatsheet, close the search bar, leave the Explain tab, clear active filter chips). `/` opens a substring filter on the active tab, scoped to Findings, pg_stat, Diff or Correlations. Press `?` for the full cheatsheet with every shortcut listed, including vim-style `g f` / `g e` / `g p` / `g d` / `g c` / `g r` to jump between tabs.
-
-Large result sets: the Findings list renders the first 500 matching rows initially and exposes a `Show N more findings (remaining M)` button below the list to reveal the next chunk. Filter chip clicks, search edits and deep-link hash applies reset the visible count so the user never ends up paginated into rows that no longer match.
-
-Sharing and export: every listable tab (Findings, pg_stat, Diff, Correlations) has an **Export CSV** button that downloads the currently filtered view as a standards-compliant CSV (RFC 4180 escaping, so templates with commas or quotes round-trip safely, plus an OWASP formula-injection guard that prefixes an apostrophe on cells starting with `=`, `+`, `-`, `@`, or a tab). The URL fragment reflects the active tab plus search and filter chips, so sending a teammate a link like `report.html#pgstat&ranking=mean_time&search=payment` restores the exact same view. Theme and last-active pg_stat ranking persist in `sessionStorage`, scoped to the current browser tab.
-
-This is a post-mortem view over a completed trace set. For live inspection of a running daemon, use `perf-sentinel query inspect` (TUI) or the `/api/*` endpoints directly. Tempo-backed workflows compose via the shell: `perf-sentinel tempo --endpoint http://tempo:3200 --search "..." --output traces.json && perf-sentinel report --input traces.json --output report.html`.
-
-#### Live daemon snapshot
-
-When a daemon is running, `GET /api/export/report` emits its current state as a `Report` JSON, shape-identical to `analyze --format json`. Pipe it straight into the dashboard for a live-ish snapshot (still post-mortem semantically, just short-lived):
-
-```bash
-curl -s http://daemon.internal:4318/api/export/report \
-    | perf-sentinel report --input - --output report.html
-```
-
-`report --input` auto-detects the JSON shape: an array at the top level is treated as trace events and pipelined through normalize/detect/score, an object is treated as a pre-computed Report and embedded as-is. Only daemon-produced Reports carry `correlations`, so the Correlations tab lights up automatically on the dashboard when this path is used. Cold-start daemons return `503` with `{"error": "daemon has not yet processed any events"}` until the first OTLP batch lands.
+The HTML dashboard is documented in [`HTML-REPORT.md`](./HTML-REPORT.md), including the full flag list, keyboard shortcuts, CSV export and the live-daemon `/api/export/report` snapshot pipeline.
 
 ---
 
 ## Quick start: central collector
 
-**Use case:** production deployment where services already send traces to an OpenTelemetry Collector (or you want to add one). Zero code changes, just YAML configuration.
+Production deployment where services send traces to an OpenTelemetry Collector. Zero code changes, YAML configuration only.
 
-### Step 1: Start perf-sentinel + collector
+### Start perf-sentinel + collector
 
 ```bash
 docker compose -f examples/docker-compose-collector.yml up -d
 ```
 
-This starts:
-- An **OTel Collector** listening on ports 4317 (gRPC) and 4318 (HTTP)
-- **perf-sentinel** in watch mode, receiving traces from the collector
+Starts an OTel Collector on 4317 (gRPC) + 4318 (HTTP) and perf-sentinel in watch mode behind it.
 
-### Step 2: Point your services at the collector
-
-Set these environment variables in your application containers:
+### Point services at the collector
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
-If your services already export to a collector, add perf-sentinel as an additional exporter in your existing `otel-collector-config.yaml`:
+If services already export to an existing collector, add perf-sentinel as a second exporter:
 
 ```yaml
 exporters:
@@ -215,23 +148,17 @@ service:
       exporters: [otlp/perf-sentinel, otlp/your-existing-backend]
 ```
 
-### Step 3: Generate traffic
-
-Use your application normally. After the trace TTL expires (default 30 seconds), perf-sentinel emits findings as NDJSON to stdout:
+### Generate traffic and view findings
 
 ```bash
 docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
 ```
 
-### Step 4: Monitor with Prometheus + Grafana
+Findings emit as NDJSON to stdout once the trace TTL expires (default 30s).
 
-perf-sentinel exposes Prometheus metrics at `http://localhost:14318/metrics` with OpenMetrics exemplars (click-through from Grafana to your trace backend):
+### Monitor with Prometheus + Grafana
 
-```bash
-curl -s http://localhost:14318/metrics | grep perf_sentinel
-```
-
-Add it as a Prometheus scrape target:
+Metrics are at `http://localhost:14318/metrics` with OpenMetrics exemplars (click-through to your trace backend):
 
 ```yaml
 # prometheus.yml
@@ -241,90 +168,61 @@ scrape_configs:
       - targets: ['perf-sentinel:4318']
 ```
 
-Key metrics:
-- `perf_sentinel_findings_total{type, severity}`: findings with exemplar `trace_id` for click-through
-- `perf_sentinel_io_waste_ratio`: current I/O waste ratio with exemplar `trace_id`
-- `perf_sentinel_events_processed_total`: total spans ingested
-- `perf_sentinel_traces_analyzed_total`: total traces completed
-- `perf_sentinel_slow_duration_seconds{type}`: histogram of slow span durations (use `histogram_quantile()` for global percentiles across sharded instances)
-
-See [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the full config with sampling and filtering options.
+Key metrics: `perf_sentinel_findings_total{type, severity}`, `perf_sentinel_io_waste_ratio`, `perf_sentinel_events_processed_total`, `perf_sentinel_traces_analyzed_total`, `perf_sentinel_slow_duration_seconds{type}`. See [`METRICS.md`](./METRICS.md) for the full schema and [`examples/otel-collector-config.yaml`](../examples/otel-collector-config.yaml) for the collector config.
 
 ---
 
 ## Quick start: sidecar
 
-**Use case:** debug a single service in dev/staging. perf-sentinel runs alongside the service, sharing its network namespace.
-
-### Step 1: Start the sidecar
+Debug a single service in dev/staging. perf-sentinel runs alongside the service, sharing its network namespace.
 
 ```bash
 docker compose -f examples/docker-compose-sidecar.yml up -d
 ```
 
-### Step 2: Configure your app
-
-Your app sends traces to `localhost:4318` (HTTP), no network hop since perf-sentinel shares the same network namespace:
+App config (no network hop, same namespace):
 
 ```bash
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
-### Step 3: View findings
-
 ```bash
 docker compose -f examples/docker-compose-sidecar.yml logs -f perf-sentinel
 ```
 
-See [`examples/docker-compose-sidecar.yml`](../examples/docker-compose-sidecar.yml) for the full configuration.
+See [`examples/docker-compose-sidecar.yml`](../examples/docker-compose-sidecar.yml).
 
 ---
 
 ## Quick start: direct daemon
 
-**Use case:** local development. Run perf-sentinel on your host machine and point services at it.
-
-### Step 1: Start the daemon
+Local development on your host machine.
 
 ```bash
 perf-sentinel watch
 ```
 
-By default, it listens on `127.0.0.1:4317` (gRPC) and `127.0.0.1:4318` (HTTP). For Docker containers to reach the host, use:
+Default bind is `127.0.0.1` on 4317 (gRPC) and 4318 (HTTP). For Docker containers to reach the host, set `[daemon] listen_address = "0.0.0.0"` in `.perf-sentinel.toml`.
 
-```toml
-# .perf-sentinel.toml
-[daemon]
-listen_address = "0.0.0.0"
-```
-
-### Step 2: Instrument your service
-
-Set the OTLP endpoint in your service (see [per-language guides](./INSTRUMENTATION.md#devstaging-per-language-instrumentation) below):
+App config:
 
 ```bash
-# For services running on the host
+# Host-resident services
 OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4317
 
-# For services running in Docker
+# Containerized services on Docker Desktop
 OTEL_EXPORTER_OTLP_ENDPOINT=http://host.docker.internal:4317
 ```
 
-### Step 3: View findings
-
-Findings stream to stdout as NDJSON. Prometheus metrics are available at `http://localhost:4318/metrics`.
+Findings stream to stdout as NDJSON, metrics at `http://localhost:4318/metrics`.
 
 ---
 
 ## Going further
 
-The four quick starts above land you on a working setup. Two companion guides cover the next steps:
-
-- **[INSTRUMENTATION.md](./INSTRUMENTATION.md)**: how to send data to perf-sentinel. Per-language instrumentation (Java, Quarkus, .NET, Rust), the OTel Collector production path with sampling guidance, cloud provider integrations, Kubernetes manifests.
-- **[CI.md](./CI.md)**: how to wire perf-sentinel into CI. Batch-mode invocation, copy-pasteable recipes for GitHub Actions / GitLab CI / Jenkins, the quality-gate philosophy, the interactive HTML report deployment path per provider, and the `diff` subcommand for PR regression detection.
-
-The reference sections below stay in this document because they apply across all topologies (input/output formats, the daemon HTTP API, advanced carbon scoring, Tempo and Jaeger ingestion, troubleshooting).
+- [`INSTRUMENTATION.md`](./INSTRUMENTATION.md) for per-language setup (Java, Quarkus, .NET, Rust) and the OTel Collector production path.
+- [`CI.md`](./CI.md) for CI wiring (GitHub Actions, GitLab CI, Jenkins), the quality-gate philosophy, and the `diff` subcommand for PR regressions.
 
 ## Ingestion formats
 

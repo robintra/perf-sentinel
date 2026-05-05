@@ -32,29 +32,25 @@
 
 ## OTLP capture reliability
 
-perf-sentinel is a **passive listener**: it receives traces forwarded by OpenTelemetry SDKs or collectors. Unlike an in-process agent (e.g., Hypersistence Utils), it cannot guarantee that every span is captured. Spans may be lost due to:
+perf-sentinel is a passive listener: it receives traces forwarded by OpenTelemetry SDKs or collectors and cannot guarantee that every span is captured. Spans may be lost to network issues, SDK or collector sampling, or application crashes before flush.
 
-- Network issues between the application and perf-sentinel
-- Sampling configured at the SDK or collector level
-- Application crashes before spans are flushed
-
-**Mitigation:** For critical CI pipelines, use batch mode (`perf-sentinel analyze`) with pre-collected trace files instead of relying on live capture.
+For critical CI pipelines, use batch mode (`perf-sentinel analyze`) on pre-collected trace files rather than live capture.
 
 ## SQL tokenizer
 
-The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL parser. This is intentional: it keeps the binary small, avoids heavy dependencies and works across SQL dialects. However, it has limitations:
+The SQL normalizer uses a homemade regex-based tokenizer rather than a full SQL parser. Intentional trade-off: small binary, no heavy deps, works across dialects.
 
-- **No semantic parsing:** the tokenizer replaces literals and UUIDs positionally. It does not build an AST and cannot reason about query structure.
-- **Query length limit:** SQL queries exceeding 64 KB are truncated at a character boundary before normalization. This prevents unbounded memory allocation from adversarial or pathological inputs.
-- **CTEs:** Common Table Expressions (`WITH ... AS (...)`) are supported, the tokenizer normalizes literals inside CTEs correctly, including nested CTEs.
-- **Double-quoted identifiers:** SQL-standard double-quoted identifiers (`"MyTable"`, `"Column"`) are preserved as-is. Digits inside double quotes are not mistaken for numeric literals.
-- **Dollar-quoted strings:** PostgreSQL dollar-quoted strings (`$$body$$`, `$tag$body$tag$`) are replaced with `?` placeholders, including in function bodies.
-- **`CALL` statements:** literal parameters in `CALL` are normalized (`CALL process(42, 'rush')` becomes `CALL process(?, ?)`). SQL expressions like `NOW()`, `INTERVAL '...'` are handled (the string inside `INTERVAL` is replaced, the function call is preserved).
-- **Backtick identifiers:** MySQL-style backtick identifiers (`` `table` ``) are not specifically handled. They pass through as-is without causing errors, but the backtick characters remain in the template.
+- No semantic parsing: literals and UUIDs are replaced positionally, no AST.
+- Query length: 64 KB cap, truncated at a character boundary before normalization to bound adversarial input memory.
+- CTEs (`WITH ... AS (...)`) supported including nested.
+- Double-quoted identifiers (`"MyTable"`) preserved, digits inside quotes are not mistaken for literals.
+- Dollar-quoted strings (`$$body$$`, `$tag$body$tag$`) collapse to `?`, including in function bodies.
+- `CALL` statements normalize literal params, SQL expressions like `NOW()` and `INTERVAL '...'` are handled.
+- Backtick identifiers (MySQL `` `table` ``) pass through unchanged.
 
-If you encounter a query that normalizes incorrectly, please open an issue with the raw SQL (anonymized).
+If a query normalizes incorrectly, open an issue with the raw SQL anonymized.
 
-**Complementarity with pg_stat_statements:** perf-sentinel detects per-trace patterns (N+1, redundant calls) that pg_stat_statements cannot see. Conversely, pg_stat_statements provides aggregate server-side statistics (total calls, mean time) that perf-sentinel does not track. They complement each other, use both for full visibility.
+**Complementarity with pg_stat_statements.** perf-sentinel sees per-trace patterns (N+1, redundant) that pg_stat_statements cannot. pg_stat_statements provides aggregate server-side stats (total calls, mean time) that perf-sentinel does not track. Use both for full coverage.
 
 ## ORM bind parameters and N+1 vs redundant classification
 
@@ -76,23 +72,21 @@ The CLI renders a `(healthy / moderate / high / critical)` qualifier next to `io
 
 ### Why these thresholds
 
-- **IIS_MODERATE (2.0)** is a rule of thumb, not empirical. It reflects the intuition that a typical CRUD endpoint makes 1-2 I/O ops per request. Aggregators, dashboards and report generators will show many "moderate" endpoints that are legitimate designs, not defects.
-- **IIS_HIGH (5.0)** is anchored on `Config::default().n_plus_one_threshold = 5`. An endpoint whose IIS reaches 5.0 is arithmetically at the point where `detect_n_plus_one` starts emitting findings, hence "high, worth investigating".
-- **IIS_CRITICAL (10.0)** is anchored on the hard-coded `indices.len() >= 10` severity escalation in `crate::detect::n_plus_one`. Same number, same semantics: if a finding hits that count, it's tagged `Severity::Critical` by the detector and the endpoint-level IIS band tells you the aggregate footprint also crossed the same line.
-- **WASTE_RATIO_HIGH (0.30)** matches the **default** `io_waste_ratio_max`. If you override the quality gate in your `.perf-sentinel.toml`, the CLI/JSON interpretation does NOT follow. The gate is a user policy, the interpretation is a fixed heuristic. These are two independent dimensions by design: a user who relaxes the gate to accept a noisy legacy service should not see the interpretation silently shift and miss the signal.
-- **WASTE_RATIO_CRITICAL (0.50)** flags runs where at least half of the analyzed I/O is avoidable waste.
+| Band              | Anchor |
+|-------------------|--------|
+| IIS_MODERATE 2.0  | Rule of thumb, typical CRUD endpoint does 1-2 I/O ops |
+| IIS_HIGH 5.0      | Default `n_plus_one_threshold`, the point where `detect_n_plus_one` starts emitting findings |
+| IIS_CRITICAL 10.0 | The `indices.len() >= 10` severity escalation in `detect::n_plus_one`, same number tags `Severity::Critical` |
+| WASTE_HIGH 0.30   | Matches the default `io_waste_ratio_max`. The gate is user policy, the interpretation is a fixed heuristic, they stay independent on purpose so a relaxed gate does not silently mute the signal |
+| WASTE_CRITICAL 0.50 | At least half of analyzed I/O is avoidable waste |
 
-### JSON stability contract
+### Stability contract
 
-The enum values (`healthy`, `moderate`, `high`, `critical`) are **stable across versions**. Downstream consumers (SARIF, Grafana, planned IDE integrations such as perf-lint, etc.) can safely branch on these labels.
+Enum values (`healthy`, `moderate`, `high`, `critical`) are stable across versions, downstream consumers can branch on them. Numeric thresholds are versioned with the binary and may evolve. Consumers needing version-independent classification (e.g. a Grafana alert) should read the raw `io_intensity_score` / `io_waste_ratio` fields and apply their own bands.
 
-The **numeric thresholds** behind the labels are **versioned with the binary**. They may evolve as we gather real usage data. This mirrors the existing pattern where `co2.model` evolves across `io_proxy_v1 → v2 → v3` without breaking consumers who just want to know which model was used.
+### Per-detector severity
 
-If a consumer needs a version-independent classification (for example, a Grafana alert that must behave identically across perf-sentinel upgrades), it should read the raw `io_intensity_score` and `io_waste_ratio` fields and apply its own bands.
-
-### Per-finding severity is documented elsewhere
-
-For per-detector severity rules (`Critical` / `Warning` / `Info` on N+1, Fanout, Slow, Chatty, Pool, Serialized), see [`docs/design/04-DETECTION.md`](design/04-DETECTION.md). Those rules depend on per-detector thresholds that are partly config-tunable (e.g. `max_fanout × 3`, `chatty_service_min_calls × 3`) and are documented alongside the detectors themselves.
+`Critical` / `Warning` / `Info` rules per detector live in [`docs/design/04-DETECTION.md`](design/04-DETECTION.md), with the per-detector thresholds (some config-tunable: `max_fanout × 3`, `chatty_service_min_calls × 3`).
 
 ## Fanout detection requires `parent_span_id`
 
