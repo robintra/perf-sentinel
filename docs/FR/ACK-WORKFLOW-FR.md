@@ -109,16 +109,31 @@ TOML retourne HTTP 409 pour éviter un shadowing silencieux. Le CLI
 `ack create` mappe ça à exit 2 avec un hint qui pointe vers
 `ack revoke`.
 
+### Ajouter un ack daemon depuis le rapport HTML (depuis 0.5.23, navigateur)
+
+Le rapport HTML peut tourner en mode live et piloter les mêmes
+endpoints daemon depuis le navigateur. Générez le rapport avec
+`--daemon-url`, ouvrez-le, cliquez sur le bouton `Ack` à côté de
+chaque finding. Voir [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md) pour
+la configuration, les prérequis CORS et la gestion de la clé X-API-Key.
+
+```bash
+perf-sentinel report --input traces.json --output report.html \
+  --daemon-url http://localhost:4318
+open report.html
+```
+
 ## Choisir entre TOML et daemon
 
-| Scénario                                       | Utiliser                            |
-| ---------------------------------------------- | ----------------------------------- |
-| Décision permanente par l'équipe               | TOML (versionné, auditable git)     |
-| Report temporaire pendant un incident          | Daemon (CLI ou curl)                |
-| Faux positif partagé par tous les environments | TOML                                |
-| Suppression spécifique à un environment        | Daemon (un par environment)         |
-| Nettoyage onboarding sur findings préexistants | TOML (en bulk via éditeur)          |
-| Ack ponctuel à 3h du matin via PagerDuty       | CLI daemon                          |
+| Scénario                                          | Utiliser                                |
+| ------------------------------------------------- | --------------------------------------- |
+| Décision permanente par l'équipe                  | TOML (versionné, auditable git)         |
+| Report temporaire pendant un incident             | Daemon (CLI ou curl)                    |
+| Faux positif partagé par tous les environments    | TOML                                    |
+| Suppression spécifique à un environment           | Daemon (un par environment)             |
+| Nettoyage onboarding sur findings préexistants    | TOML (en bulk via éditeur)              |
+| Ack ponctuel à 3h du matin via PagerDuty          | CLI daemon                              |
+| Clic Ack depuis le rapport CI en revue de MR      | Daemon (mode live HTML, depuis 0.5.23)  |
 
 ## Observabilité
 

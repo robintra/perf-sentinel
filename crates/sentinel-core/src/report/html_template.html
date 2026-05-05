@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" />
+<meta http-equiv="Content-Security-Policy" content="{{CONTENT_SECURITY_POLICY}}" />
 <title>{{PAGE_TITLE}}</title>
 <style>
   :root[data-theme="dark"] {
@@ -160,11 +160,58 @@
   dialog.ps-modal th:first-child { width: 90px; }
   dialog.ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
   dialog.ps-modal td:first-child { width: 90px; white-space: nowrap; }
+
+  /* -------- live mode (since 0.5.23) -------- */
+  /* Header status badge: hidden by default, revealed in live mode. */
+  .ps-daemon-status { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-right: 12px; }
+  body.ps-live .ps-daemon-status { display: inline-flex; }
+  .ps-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-tertiary); display: inline-block; }
+  .ps-daemon-dot.connected { background: #2ea043; }
+  .ps-daemon-dot.disconnected { background: #cf222e; }
+  .ps-daemon-dot.unauthorized { background: #d4a72c; }
+  /* Header refresh button: hidden by default, revealed in live mode. */
+  .ps-refresh-btn { display: none; padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; margin-right: 8px; }
+  body.ps-live .ps-refresh-btn { display: inline-block; }
+  .ps-refresh-btn:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); color: var(--color-text-primary); }
+  .ps-refresh-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+  /* Per-row Ack/Revoke action button: hidden by default. */
+  .ps-fin-actions { display: none; margin-left: 8px; }
+  body.ps-live .ps-fin-actions { display: inline-flex; gap: 6px; }
+  .ps-fin-action-btn { padding: 3px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; color: var(--color-text-info); cursor: pointer; font-family: inherit; }
+  .ps-fin-action-btn:hover { background: var(--color-background-info); }
+  .ps-fin-action-btn.revoke { border-color: var(--color-border-tertiary); color: var(--color-text-secondary); }
+  .ps-fin-action-btn.revoke:hover { background: var(--color-background-secondary); }
+  .ps-fin-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+  /* Findings filter toggle: hidden by default. */
+  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-left: 8px; }
+  body.ps-live .ps-include-acked-wrap { display: inline-flex; }
+  /* Acknowledgments panel toolbar (table layout reused from .ps-table). */
+  .ps-acks-footer { margin-top: 10px; font-size: 11px; color: var(--color-text-tertiary); }
+  /* Modal form layout (auth + ack). */
+  dialog.ps-modal label { display: block; font-size: 11px; color: var(--color-text-secondary); margin: 10px 0 4px 0; }
+  dialog.ps-modal input[type="password"], dialog.ps-modal input[type="text"], dialog.ps-modal textarea, dialog.ps-modal select { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 12px; font-family: inherit; background: var(--color-background-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
+  dialog.ps-modal textarea { min-height: 60px; resize: vertical; }
+  dialog.ps-modal .ps-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  dialog.ps-modal .ps-modal-btn { padding: 5px 14px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
+  dialog.ps-modal .ps-modal-btn:hover { background: var(--color-background-tertiary); color: var(--color-text-primary); }
+  dialog.ps-modal .ps-modal-btn.primary { border-color: var(--color-border-info); color: var(--color-text-info); }
+  dialog.ps-modal .ps-modal-btn.primary:hover { background: var(--color-background-info); }
+  dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--color-background-danger); color: var(--color-text-danger); border-radius: var(--border-radius-md); }
+  /* Toast bar for transient feedback. */
+  .ps-toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; font-size: 12px; background: var(--color-background-secondary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 9999; max-width: 380px; }
+  .ps-toast.error { border-color: var(--color-border-tertiary); background: var(--color-background-danger); color: var(--color-text-danger); }
+  .ps-toast.success { border-color: var(--color-border-tertiary); background: var(--color-background-tertiary); color: var(--color-text-primary); }
 </style>
 </head>
 <body>
 <div class="ps-container">
   <div class="ps-header-ctrl">
+    <span class="ps-daemon-status" id="ps-daemon-status" role="status" aria-live="polite">
+      <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
+      <span id="ps-daemon-status-text">Connecting...</span>
+    </span>
+    <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
+    <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget the daemon API key for this tab" hidden>Forget key</button>
     <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
   </div>
 
@@ -179,6 +226,10 @@
     <div class="ps-quality-gate" id="quality-gate-rules" style="display: none;"></div>
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
+      <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
+        <input type="checkbox" id="findings-include-acked" />
+        <span>Show acknowledged</span>
+      </label>
       <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
     </div>
@@ -266,6 +317,15 @@
     <div class="ps-empty" id="green-regions-empty" style="display: none;">No region breakdown available.</div>
   </div>
 
+  <div id="panel-acknowledgments" role="tabpanel" aria-labelledby="tab-acknowledgments" style="display: none;">
+    <table class="ps-table" id="acks-table">
+      <thead><tr><th>Signature</th><th style="width: 140px;">By</th><th>Reason</th><th style="width: 120px;">Expires</th><th style="width: 90px;"></th></tr></thead>
+      <tbody id="acks-body"></tbody>
+    </table>
+    <div class="ps-empty" id="acks-empty" style="display: none;">No daemon acknowledgments active.</div>
+    <div class="ps-acks-footer" id="acks-footer"></div>
+  </div>
+
   <div class="ps-footer">
     <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back . <span class="ps-kbd">?</span> shortcuts
   </div>
@@ -281,6 +341,46 @@
     <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
     <tbody id="cheatsheet-body"></tbody>
   </table>
+</dialog>
+
+<dialog id="auth-modal" class="ps-modal" aria-labelledby="auth-modal-title">
+  <button type="button" class="ps-modal-close" id="auth-modal-close" aria-label="Close">x</button>
+  <h2 id="auth-modal-title">Daemon authentication required</h2>
+  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--color-text-secondary);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
+  <form id="auth-modal-form">
+    <label for="auth-modal-key">API key</label>
+    <input type="password" id="auth-modal-key" autocomplete="off" />
+    <div class="ps-modal-error" id="auth-modal-error" role="alert"></div>
+    <div class="ps-modal-actions">
+      <button type="button" class="ps-modal-btn" id="auth-modal-cancel">Cancel</button>
+      <button type="submit" class="ps-modal-btn primary" id="auth-modal-submit">Submit</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ack-modal" class="ps-modal" aria-labelledby="ack-modal-title">
+  <button type="button" class="ps-modal-close" id="ack-modal-close" aria-label="Close">x</button>
+  <h2 id="ack-modal-title">Acknowledge finding</h2>
+  <form id="ack-modal-form">
+    <label for="ack-modal-sig">Signature</label>
+    <input type="text" id="ack-modal-sig" readonly />
+    <label for="ack-modal-reason">Reason</label>
+    <textarea id="ack-modal-reason" required></textarea>
+    <label for="ack-modal-expires">Expires</label>
+    <select id="ack-modal-expires">
+      <option value="">Never (permanent)</option>
+      <option value="24h">24 hours</option>
+      <option value="7d" selected>7 days</option>
+      <option value="30d">30 days</option>
+    </select>
+    <label for="ack-modal-by">Acknowledged by</label>
+    <input type="text" id="ack-modal-by" placeholder="optional" />
+    <div class="ps-modal-error" id="ack-modal-error" role="alert"></div>
+    <div class="ps-modal-actions">
+      <button type="button" class="ps-modal-btn" id="ack-modal-cancel">Cancel</button>
+      <button type="submit" class="ps-modal-btn primary" id="ack-modal-submit">Acknowledge</button>
+    </div>
+  </form>
 </dialog>
 
 <script id="report-data" type="application/json">
@@ -826,6 +926,10 @@
   function buildFindingRow(f, idx) {
     var row = el("div", "ps-row");
     setAttr(row, "data-idx", idx);
+    // Exposed for the live-mode JS so click handlers on the per-row
+    // Ack/Revoke buttons can resolve the signature via DOM lookup. The
+    // attribute is harmless in static mode (the buttons stay hidden).
+    if (f.signature) setAttr(row, "data-sig", f.signature);
 
     var sev = el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO");
     row.appendChild(sev);
@@ -848,7 +952,24 @@
     right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
     row.appendChild(right);
 
-    row.addEventListener("click", function () {
+    // Live-mode action container. Always rendered, hidden by CSS in
+    // static mode (`.ps-fin-actions { display: none }`). The
+    // `body.ps-live` class flipped at boot reveals it.
+    var actions = el("div", "ps-fin-actions");
+    var btn = el("button", "ps-fin-action-btn", "Ack");
+    btn.type = "button";
+    setAttr(btn, "data-action", "ack");
+    setAttr(btn, "aria-label", "Acknowledge this finding");
+    actions.appendChild(btn);
+    row.appendChild(actions);
+
+    row.addEventListener("click", function (event) {
+      var t = event.target;
+      // Bail when the click landed on the live-mode action button so
+      // its own handler runs without ALSO opening the Explain tab.
+      if (t && (t.classList.contains("ps-fin-action-btn") || t.closest && t.closest(".ps-fin-actions"))) {
+        return;
+      }
       selectedIndex = idx;
       syncSelection();
       openExplain(f);
@@ -2244,6 +2365,11 @@
       });
     }
     if (hasGreen) registerTab("green", "GreenOps", null);
+    if (payload.daemon && payload.daemon.url) {
+      registerTab("acknowledgments", "Acks", function () {
+        return liveAcksCount();
+      });
+    }
     renderTabs();
   }
 
@@ -2409,6 +2535,493 @@
     });
   }
 
+  // -------- live mode (since 0.5.23) --------
+  // The whole live-mode block stays inside the existing IIFE so it
+  // shares scope with `payload`, `findings`, `renderTabs`,
+  // `renderFindingsList` and the `el`/`setAttr` helpers. Running
+  // outside would re-parse the `<script id="report-data">` block, a
+  // pure overhead.
+  //
+  // Activation: only when the embedded payload carries
+  // `payload.daemon.url`. Static reports (the 0.5.22 default) never
+  // touch this code path.
+  //
+  // Security:
+  // - The X-API-Key sits in `liveState.apiKey` and `sessionStorage`.
+  //   It is never copied into the DOM as text, never logged, never
+  //   shipped in a `data-*` attribute.
+  // - All user-facing rendering is `textContent`, never `innerHTML`.
+  // - `connect-src` in the CSP whitelists only the daemon URL the
+  //   operator passed to `--daemon-url`, validated by the CLI.
+  var DAEMON_API_KEY_STORAGE = "perf-sentinel.daemon.api-key";
+  var DAEMON_ACKS_CAP = 1000;
+  var DAEMON_FETCH_TIMEOUT_MS = 10000;
+
+  var liveState = {
+    enabled: false,
+    daemonUrl: null,
+    apiKey: null,
+    acks: [],
+    acksBySig: Object.create(null),
+    pendingAuthRetry: null,
+    activeFindingsAbort: null
+  };
+
+  function liveAcksCount() {
+    return liveState.acks.length;
+  }
+
+  function isLiveEnabled() {
+    return liveState.enabled;
+  }
+
+  function setApiKey(value) {
+    // Guard against an empty / whitespace-only value reaching live
+    // state. `submitAuthModal` already trims and rejects empty
+    // before getting here, but keep this helper safe to call from
+    // anywhere; an accidental empty write would put liveState and
+    // sessionStorage into an asymmetric state where one side reads
+    // truthy and the other falsy.
+    if (typeof value !== "string" || value.trim() === "") {
+      clearApiKey();
+      return;
+    }
+    liveState.apiKey = value;
+    sessionSet(DAEMON_API_KEY_STORAGE, value);
+  }
+
+  function clearApiKey() {
+    liveState.apiKey = null;
+    // Use removeItem rather than `sessionSet(KEY, "")` so a debugger
+    // inspecting sessionStorage does not see a stale empty entry that
+    // could mistake for "key was set, then someone null'd it".
+    try {
+      globalThis.sessionStorage.removeItem(DAEMON_API_KEY_STORAGE);
+    } catch {
+      // sessionStorage can throw on some hardened browsers (Safari
+      // Private Browsing pre-15, embedded WebViews). Fall back to the
+      // sessionSet pattern so the in-memory state stays consistent.
+      sessionSet(DAEMON_API_KEY_STORAGE, "");
+    }
+  }
+
+  function liveDaemonBase() {
+    return liveState.daemonUrl || "";
+  }
+
+  function fetchWithAuth(path, opts) {
+    var options = opts || {};
+    var headers = {};
+    if (options.headers) {
+      Object.keys(options.headers).forEach(function (k) {
+        headers[k] = options.headers[k];
+      });
+    }
+    headers["Accept"] = "application/json";
+    if (liveState.apiKey) {
+      headers["X-API-Key"] = liveState.apiKey;
+    }
+    // Bound every request with an AbortController so a hung daemon
+    // does not leave a request pending until the browser's default
+    // network timeout (which is multi-minute in Chrome).
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    var init = {
+      method: options.method || "GET",
+      headers: headers,
+      credentials: "omit",
+      mode: "cors"
+    };
+    if (options.body !== undefined && options.body !== null) {
+      init.body = options.body;
+    }
+    if (ctrl) {
+      init.signal = ctrl.signal;
+    } else if (options.signal) {
+      init.signal = options.signal;
+    }
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, DAEMON_FETCH_TIMEOUT_MS) : null;
+    return fetch(liveDaemonBase() + path, init).finally(function () {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  function setDaemonStatus(state, label) {
+    var dot = document.getElementById("ps-daemon-dot");
+    var text = document.getElementById("ps-daemon-status-text");
+    if (dot) {
+      dot.classList.remove("connected", "disconnected", "unauthorized");
+      dot.classList.add(state);
+    }
+    if (text) text.textContent = label;
+  }
+
+  function showToast(kind, message) {
+    var existing = document.getElementById("ps-toast");
+    if (existing) existing.remove();
+    var t = el("div", "ps-toast " + (kind || ""), message);
+    setAttr(t, "id", "ps-toast");
+    setAttr(t, "role", kind === "error" ? "alert" : "status");
+    document.body.appendChild(t);
+    setTimeout(function () {
+      if (t.parentNode) t.parentNode.removeChild(t);
+    }, 5000);
+  }
+
+  function pingStatus() {
+    return fetchWithAuth("/api/status").then(function (r) {
+      if (r.status === 200) {
+        setDaemonStatus("connected", "Connected");
+        return true;
+      }
+      if (r.status === 401) {
+        // Stale key: a daemon-side rotation invalidated whatever we
+        // stored. Drop the cached value so the next write call opens
+        // the auth modal cleanly instead of retrying with the bad
+        // key.
+        if (liveState.apiKey) {
+          clearApiKey();
+          syncLogoutButtonVisibility();
+        }
+        setDaemonStatus("unauthorized", "Authentication required");
+        return false;
+      }
+      setDaemonStatus("disconnected", "HTTP " + r.status);
+      return false;
+    }).catch(function () {
+      setDaemonStatus("disconnected", "Unreachable");
+      return false;
+    });
+  }
+
+  function fetchAcks() {
+    return fetchWithAuth("/api/acks").then(function (r) {
+      if (!r.ok) {
+        if (r.status === 401) {
+          setDaemonStatus("unauthorized", "Authentication required");
+        }
+        liveState.acks = [];
+        liveState.acksBySig = Object.create(null);
+        return;
+      }
+      return r.json().then(function (data) {
+        var arr = Array.isArray(data) ? data : [];
+        liveState.acks = arr;
+        liveState.acksBySig = Object.create(null);
+        arr.forEach(function (a) {
+          if (a && a.signature) liveState.acksBySig[a.signature] = a;
+        });
+      });
+    }).catch(function () {
+      liveState.acks = [];
+      liveState.acksBySig = Object.create(null);
+    });
+  }
+
+  function renderAcksPanel() {
+    var body = document.getElementById("acks-body");
+    var empty = document.getElementById("acks-empty");
+    var footer = document.getElementById("acks-footer");
+    if (!body) return;
+    body.textContent = "";
+    if (liveState.acks.length === 0) {
+      if (empty) empty.style.display = "";
+      if (footer) footer.textContent = "";
+      return;
+    }
+    if (empty) empty.style.display = "none";
+    liveState.acks.forEach(function (a) {
+      body.appendChild(buildAckRow(a));
+    });
+    if (footer) {
+      var note = liveState.acks.length + " active";
+      if (liveState.acks.length >= DAEMON_ACKS_CAP) {
+        note += " (showing up to " + DAEMON_ACKS_CAP + ", consult the daemon for the full list)";
+      }
+      note += ". TOML CI acks are not listed here, see .perf-sentinel-acknowledgments.toml.";
+      footer.textContent = note;
+    }
+  }
+
+  function buildAckRow(ack) {
+    var tr = document.createElement("tr");
+    var sig = document.createElement("td");
+    sig.textContent = ack.signature || "-";
+    tr.appendChild(sig);
+    var by = document.createElement("td");
+    by.textContent = ack.by || "-";
+    tr.appendChild(by);
+    var reason = document.createElement("td");
+    reason.textContent = ack.reason || "";
+    tr.appendChild(reason);
+    var expires = document.createElement("td");
+    expires.textContent = ack.expires_at ? ack.expires_at : "never";
+    tr.appendChild(expires);
+    var act = document.createElement("td");
+    var btn = el("button", "ps-fin-action-btn revoke", "Revoke");
+    btn.type = "button";
+    setAttr(btn, "data-sig", ack.signature || "");
+    btn.addEventListener("click", function () {
+      revokeAck(ack.signature);
+    });
+    act.appendChild(btn);
+    tr.appendChild(act);
+    return tr;
+  }
+
+  function syncFindingActionButtons() {
+    if (!isLiveEnabled()) return;
+    var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
+    rows.forEach(function (row) {
+      var sig = row.getAttribute("data-sig") || "";
+      if (!sig) return;
+      var btn = row.querySelector(".ps-fin-action-btn");
+      if (!btn) return;
+      var isAcked = !!liveState.acksBySig[sig];
+      btn.textContent = isAcked ? "Revoke" : "Ack";
+      setAttr(btn, "data-action", isAcked ? "revoke" : "ack");
+      btn.classList.toggle("revoke", isAcked);
+      // Replace the listener on each render. Cheaper than a single
+      // event-delegation handler that has to walk back up to find the
+      // signature, given we only have at most a few hundred rows in
+      // the visible window.
+      btn.onclick = function (event) {
+        event.stopPropagation();
+        if (isAcked) revokeAck(sig);
+        else openAckModal(sig);
+      };
+    });
+  }
+
+  function openAckModal(sig) {
+    var dlg = document.getElementById("ack-modal");
+    var sigInput = document.getElementById("ack-modal-sig");
+    var reasonInput = document.getElementById("ack-modal-reason");
+    var byInput = document.getElementById("ack-modal-by");
+    var err = document.getElementById("ack-modal-error");
+    if (!dlg || !sigInput || !reasonInput) return;
+    sigInput.value = sig;
+    reasonInput.value = "";
+    if (byInput) byInput.value = "";
+    if (err) { err.style.display = "none"; err.textContent = ""; }
+    if (typeof dlg.showModal === "function") dlg.showModal();
+  }
+
+  function closeAckModal() {
+    var dlg = document.getElementById("ack-modal");
+    if (dlg && typeof dlg.close === "function") dlg.close();
+  }
+
+  function expiresIsoFromShortcut(value) {
+    if (!value) return null;
+    var now = new Date();
+    var hours = 0;
+    if (value === "24h") hours = 24;
+    else if (value === "7d") hours = 24 * 7;
+    else if (value === "30d") hours = 24 * 30;
+    else return null;
+    var dt = new Date(now.getTime() + hours * 3600 * 1000);
+    return dt.toISOString();
+  }
+
+  function submitAckModal(event) {
+    event.preventDefault();
+    var sig = (document.getElementById("ack-modal-sig") || {}).value || "";
+    var reason = ((document.getElementById("ack-modal-reason") || {}).value || "").trim();
+    var expiresValue = (document.getElementById("ack-modal-expires") || {}).value || "";
+    var by = ((document.getElementById("ack-modal-by") || {}).value || "").trim();
+    var err = document.getElementById("ack-modal-error");
+    if (!sig) return;
+    if (!reason) {
+      if (err) { err.textContent = "Reason is required."; err.style.display = ""; }
+      return;
+    }
+    var body = { reason: reason };
+    if (by) body.by = by;
+    var expiresIso = expiresIsoFromShortcut(expiresValue);
+    if (expiresIso) body.expires_at = expiresIso;
+    postAck(sig, body, err);
+  }
+
+  function postAck(sig, body, errEl) {
+    var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
+    fetchWithAuth(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (r.status === 201) {
+        closeAckModal();
+        showToast("success", "Acknowledged.");
+        return refreshLiveState();
+      }
+      return handleAuthRetry(r, function () { postAck(sig, body, errEl); }, errEl, "create");
+    }).catch(function () {
+      if (errEl) { errEl.textContent = "Network error reaching the daemon."; errEl.style.display = ""; }
+    });
+  }
+
+  function revokeAck(sig) {
+    if (!sig) return;
+    if (!globalThis.confirm || !globalThis.confirm("Revoke acknowledgment for " + sig + "?")) return;
+    var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
+    fetchWithAuth(path, { method: "DELETE" }).then(function (r) {
+      if (r.status === 204) {
+        showToast("success", "Acknowledgment revoked.");
+        return refreshLiveState();
+      }
+      return handleAuthRetry(r, function () { revokeAck(sig); }, null, "revoke");
+    }).catch(function () {
+      showToast("error", "Network error reaching the daemon.");
+    });
+  }
+
+  function handleAuthRetry(response, retry, errEl, opLabel) {
+    if (response.status === 401) {
+      liveState.pendingAuthRetry = retry;
+      openAuthModal();
+      return;
+    }
+    var msg = "HTTP " + response.status + " on " + opLabel;
+    if (errEl) { errEl.textContent = msg; errEl.style.display = ""; }
+    else showToast("error", msg);
+  }
+
+  function openAuthModal() {
+    var dlg = document.getElementById("auth-modal");
+    var keyInput = document.getElementById("auth-modal-key");
+    var err = document.getElementById("auth-modal-error");
+    if (!dlg) return;
+    if (keyInput) keyInput.value = "";
+    if (err) { err.style.display = "none"; err.textContent = ""; }
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    if (keyInput) {
+      // Defer focus until after the dialog has actually opened.
+      setTimeout(function () { keyInput.focus(); }, 0);
+    }
+  }
+
+  function closeAuthModal() {
+    var dlg = document.getElementById("auth-modal");
+    if (dlg && typeof dlg.close === "function") dlg.close();
+  }
+
+  function submitAuthModal(event) {
+    event.preventDefault();
+    var keyInput = document.getElementById("auth-modal-key");
+    var err = document.getElementById("auth-modal-error");
+    var k = ((keyInput || {}).value || "").trim();
+    if (!k) {
+      if (err) { err.textContent = "API key is required."; err.style.display = ""; }
+      return;
+    }
+    setApiKey(k);
+    syncLogoutButtonVisibility();
+    closeAuthModal();
+    var retry = liveState.pendingAuthRetry;
+    liveState.pendingAuthRetry = null;
+    pingStatus();
+    if (typeof retry === "function") retry();
+  }
+
+  function refreshLiveState() {
+    return Promise.all([pingStatus(), fetchAcks()]).then(function () {
+      renderAcksPanel();
+      syncFindingActionButtons();
+    });
+  }
+
+  function wireRefreshButton() {
+    var btn = document.getElementById("ps-refresh-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      refreshLiveState().then(function () { btn.disabled = false; });
+    });
+  }
+
+  function syncLogoutButtonVisibility() {
+    var btn = document.getElementById("ps-logout-btn");
+    if (!btn) return;
+    if (liveState.apiKey) btn.hidden = false;
+    else btn.hidden = true;
+  }
+
+  function wireLogoutButton() {
+    var btn = document.getElementById("ps-logout-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      clearApiKey();
+      syncLogoutButtonVisibility();
+      showToast("success", "API key cleared from this tab.");
+      pingStatus();
+    });
+  }
+
+  function wireIncludeAckedToggle() {
+    var input = document.getElementById("findings-include-acked");
+    if (!input) return;
+    input.addEventListener("change", function () {
+      // Re-render with the new toggle state. The current findings list
+      // is the static payload; the toggle just hides or shows rows
+      // whose signature has been ack'd. (A round 2 follow-up will
+      // call /api/findings?include_acked=... when we want to surface
+      // findings the daemon side has retained beyond the static
+      // snapshot.)
+      var hideAcked = !input.checked;
+      var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
+      rows.forEach(function (row) {
+        var sig = row.getAttribute("data-sig") || "";
+        var isAcked = !!liveState.acksBySig[sig];
+        if (hideAcked && isAcked) row.style.display = "none";
+        else row.style.display = "";
+      });
+    });
+  }
+
+  function wireAuthModal() {
+    var form = document.getElementById("auth-modal-form");
+    var cancel = document.getElementById("auth-modal-cancel");
+    var close = document.getElementById("auth-modal-close");
+    if (form) form.addEventListener("submit", submitAuthModal);
+    if (cancel) cancel.addEventListener("click", function () {
+      closeAuthModal();
+      liveState.pendingAuthRetry = null;
+      setDaemonStatus("unauthorized", "Authentication required");
+    });
+    if (close) close.addEventListener("click", function () {
+      closeAuthModal();
+      liveState.pendingAuthRetry = null;
+    });
+  }
+
+  function wireAckModal() {
+    var form = document.getElementById("ack-modal-form");
+    var cancel = document.getElementById("ack-modal-cancel");
+    var close = document.getElementById("ack-modal-close");
+    if (form) form.addEventListener("submit", submitAckModal);
+    if (cancel) cancel.addEventListener("click", closeAckModal);
+    if (close) close.addEventListener("click", closeAckModal);
+  }
+
+  function bootLiveMode() {
+    if (!payload.daemon || !payload.daemon.url) return;
+    liveState.enabled = true;
+    liveState.daemonUrl = String(payload.daemon.url).replace(/\/+$/, "");
+    var stored = sessionGet(DAEMON_API_KEY_STORAGE);
+    if (stored) liveState.apiKey = stored;
+    document.body.classList.add("ps-live");
+
+    wireRefreshButton();
+    wireLogoutButton();
+    wireIncludeAckedToggle();
+    wireAuthModal();
+    wireAckModal();
+    syncLogoutButtonVisibility();
+
+    setDaemonStatus("disconnected", "Connecting...");
+    refreshLiveState();
+  }
+
   // -------- boot --------
   renderTopbar();
   registerAllTabs();
@@ -2421,6 +3034,7 @@
   wireCopyLinkButtons();
   applyInitialHashOrWrite();
   wireHashChangeListener();
+  bootLiveMode();
 })();
 </script>
 </body>

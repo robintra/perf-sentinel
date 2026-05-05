@@ -47,8 +47,35 @@ use std::path::Path;
 const TEMPLATE: &str = include_str!("html_template.html");
 const JSON_PLACEHOLDER: &str = "{{REPORT_JSON}}";
 const TITLE_PLACEHOLDER: &str = "{{PAGE_TITLE}}";
+const CSP_PLACEHOLDER: &str = "{{CONTENT_SECURITY_POLICY}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
+/// Static-mode Content-Security-Policy: same string the template
+/// shipped with before 0.5.23. Forbids every network egress and
+/// inline-execution vector except the inline `<script>` and `<style>`
+/// blocks the report itself depends on.
+const STATIC_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
+                          style-src 'unsafe-inline'; img-src data:; \
+                          base-uri 'none'; form-action 'none'";
+
+// Compile-time invariant: STATIC_CSP must never contain a `{{` byte
+// sequence. The runtime `debug_assert!` in `inject` catches the
+// daemon-URL half (validated by `validate_url`); this catches the
+// static half so a future edit that introduces a templating bracket
+// breaks the build instead of silently corrupting the substitution
+// pipeline. `const _: () = ...` is the canonical pattern for an
+// anonymous compile-time check that does not warn under `dead_code`.
+const _: () = {
+    let bytes = STATIC_CSP.as_bytes();
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        assert!(
+            !(bytes[i] == b'{' && bytes[i + 1] == b'{'),
+            "STATIC_CSP must not contain `{{{{`, it would shadow placeholder substitution"
+        );
+        i += 1;
+    }
+};
 /// Embedded in every payload as the `version` field. Extracted from the
 /// environment at compile time via `env!`, kept as a single constant so
 /// the size-trim pass and the final build path cannot drift.
@@ -72,6 +99,27 @@ pub struct RenderOptions {
     /// with new/resolved findings, severity changes, and per-endpoint
     /// deltas.
     pub diff: Option<DiffReport>,
+    /// When `Some`, the generated HTML enables live mode: the in-page
+    /// JavaScript connects to the daemon at this URL for ack/revoke
+    /// interactions, fetches the daemon-side acks listing, and shows a
+    /// connection-status indicator. Reveals the auth-key prompt modal
+    /// on a 401 response. The daemon must have CORS configured (see
+    /// `[daemon.cors]` in CONFIGURATION.md) and the document origin
+    /// allowed.
+    ///
+    /// When `None`, the HTML is purely static: no badge, no
+    /// ack/revoke buttons, no acknowledgments panel, identical CSP and
+    /// behavior to the pre-0.5.23 output.
+    ///
+    /// The URL is expected to have been validated by the caller. The
+    /// renderer trusts it as-is and concatenates it into the
+    /// Content-Security-Policy `connect-src` directive. Validation
+    /// rejects userinfo, paths, query strings and ASCII control
+    /// characters via `crates/sentinel-cli/src/ack.rs::validate_url`.
+    /// The browser-side handlers (auth-key prompt, ack/revoke modal,
+    /// fetch retry) live in the live-mode IIFE block at the bottom
+    /// of `crates/sentinel-core/src/report/html_template.html`.
+    pub daemon_url: Option<String>,
 }
 
 /// Counters describing how many candidate traces ended up embedded in
@@ -110,6 +158,7 @@ pub struct RenderStats {
 ///     max_traces_embedded: None,
 ///     pg_stat: None,
 ///     diff: None,
+///     daemon_url: None,
 /// });
 /// assert!(html.starts_with("<!DOCTYPE html>"));
 /// ```
@@ -127,7 +176,8 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
     // payload's map keys `&'static str` or `String` only.
     let json = serde_json::to_string(&payload).expect("payload always serializes");
     let title = derive_page_title(&sanitized_label);
-    let html = inject(&json, &title);
+    let csp = build_csp(options.daemon_url.as_deref());
+    let html = inject(&json, &title, &csp);
     (html, RenderStats { kept, total })
 }
 
@@ -165,6 +215,17 @@ struct Payload<'a> {
     pg_stat: Option<&'a PgStatReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     diff: Option<&'a DiffReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    daemon: Option<DaemonHandle<'a>>,
+}
+
+/// Live-mode handle embedded in the JSON payload. Presence flips the JS
+/// boot path from "static" to "live": fetch ack data, reveal the
+/// daemon-status badge, attach Ack/Revoke handlers. Field naming kept
+/// short on purpose, the JSON is read at boot every time.
+#[derive(Debug, Serialize)]
+struct DaemonHandle<'a> {
+    url: &'a str,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,18 +256,67 @@ struct TrimSummary {
     total: usize,
 }
 
-/// Inject a JSON payload and page title into the template.
+/// Inject the CSP, page title and JSON payload into the template.
 ///
 /// Escapes `</` to `<\/` in the JSON payload so a user-controlled
 /// string cannot close the `<script>` block early. `\/` is a permitted
 /// JSON string escape, so round-tripping through `JSON.parse` recovers
 /// the original value. The title is already HTML-escaped by
-/// [`derive_page_title`].
-fn inject(json: &str, title: &str) -> String {
+/// [`derive_page_title`]. The CSP string is built by [`build_csp`] from
+/// a static prefix and the validated daemon URL, no untrusted bytes
+/// reach the meta tag.
+///
+/// Substitution order is critical and verified by
+/// `hostile_input_label_with_json_placeholder_does_not_double_substitute`
+/// and friends: the JSON payload is substituted first because no
+/// user-controlled data has been laid down yet, so the only
+/// `{{REPORT_JSON}}` occurrence is the static template marker. The CSP
+/// and title placeholders are substituted afterwards. By that point the
+/// only `{{CONTENT_SECURITY_POLICY}}` and `{{PAGE_TITLE}}` matches
+/// `replacen(..., 1)` can find are the static template ones (which
+/// appear early in the document, before the JSON block), so a hostile
+/// title or JSON payload cannot shadow them.
+fn inject(json: &str, title: &str, csp: &str) -> String {
+    // Defense-in-depth invariant: the CSP value must not introduce a
+    // `{{` sequence that could shadow a static placeholder during the
+    // subsequent title substitution. `validate_url` rejects any byte
+    // `hyper::Uri` does not accept in a host, and `{` is forbidden
+    // there per RFC 3986, so the assertion holds today. This catches
+    // a future relaxation of the validator (e.g. swapping `hyper::Uri`
+    // for `url::Url` plus a feature accepting curly braces) before
+    // the substitution gets confused. CSP-breaking bytes other than
+    // `{` (single quote, semicolon, whitespace) cannot appear in a
+    // valid origin authority either, so the same posture holds for
+    // the rest of the directive value.
+    debug_assert!(
+        !csp.contains("{{"),
+        "CSP must not contain `{{{{` placeholder bytes, got: {csp}"
+    );
     let safe = json.replace("</", "<\\/");
     TEMPLATE
         .replacen(JSON_PLACEHOLDER, &safe, 1)
+        .replacen(CSP_PLACEHOLDER, csp, 1)
         .replacen(TITLE_PLACEHOLDER, title, 1)
+}
+
+/// Build the Content-Security-Policy string for a render call. In
+/// static mode, returns the historical strict policy verbatim. In live
+/// mode, appends `connect-src 'self' <daemon_url>` so the in-page
+/// JavaScript can `fetch()` the daemon AND any same-origin asset (a
+/// future template change adding a same-origin fetch will not silently
+/// break under the strict CSP). The caller validates the URL upstream
+/// (the CLI runs it through `validate_url` and rejects userinfo, paths,
+/// query strings, ASCII control characters), so no CSP-breaking byte
+/// (single quote, semicolon, whitespace, curly braces) can land in the
+/// directive value. The `inject` `debug_assert!(!csp.contains("{{"))`
+/// is the load-bearing fallback in case `validate_url` is ever
+/// relaxed.
+#[must_use]
+fn build_csp(daemon_url: Option<&str>) -> String {
+    match daemon_url {
+        Some(url) => format!("{STATIC_CSP}; connect-src 'self' {url}"),
+        None => STATIC_CSP.to_string(),
+    }
 }
 
 /// Derive the `<title>` text from the user-supplied `input_label`.
@@ -308,6 +418,10 @@ fn build_payload_with_label<'a>(
         trimmed_traces: trimmed,
         pg_stat: options.pg_stat.as_ref(),
         diff: options.diff.as_ref(),
+        daemon: options
+            .daemon_url
+            .as_deref()
+            .map(|url| DaemonHandle { url }),
     }
 }
 
@@ -392,6 +506,10 @@ fn trim_to_size_target<'a>(
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
         pg_stat: options.pg_stat.as_ref(),
         diff: options.diff.as_ref(),
+        daemon: options
+            .daemon_url
+            .as_deref()
+            .map(|url| DaemonHandle { url }),
     };
     let envelope_len = serde_json::to_string(&envelope).map_or(usize::MAX, |s| s.len());
 
@@ -571,6 +689,7 @@ mod tests {
             max_traces_embedded: cap,
             pg_stat: None,
             diff: None,
+            daemon_url: None,
         }
     }
 
@@ -1413,16 +1532,19 @@ mod tests {
             "panel-diff",
             "panel-correlations",
             "panel-green",
+            "panel-acknowledgments",
         ] {
             let needle = format!("id=\"{panel}\"");
             assert!(TEMPLATE.contains(&needle), "{panel} id missing");
         }
         // Each tabpanel carries `role="tabpanel"` and
         // `aria-labelledby="tab-<name>"` with its matching tab id.
+        // The acknowledgments panel was added in 0.5.23 (live mode),
+        // bumping the count from 6 to 7.
         let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
         assert_eq!(
-            tabpanel_count, 6,
-            "expected 6 tabpanels, found {tabpanel_count}"
+            tabpanel_count, 7,
+            "expected 7 tabpanels, found {tabpanel_count}"
         );
         for tab in [
             "findings",
@@ -1431,6 +1553,7 @@ mod tests {
             "diff",
             "correlations",
             "green",
+            "acknowledgments",
         ] {
             let needle = format!("aria-labelledby=\"tab-{tab}\"");
             assert!(
@@ -1518,29 +1641,223 @@ mod tests {
         // a CSP that forbids every non-inline origin plus external
         // requests blocks accidental regressions (e.g. a future edit
         // that introduces an <img src="https://..."> via the JSON
-        // payload).
+        // payload). Since 0.5.23 the CSP value is built per render
+        // (static vs live mode), so the assertion targets the
+        // <meta http-equiv="Content-Security-Policy" content="..."/>
+        // tag specifically rather than the whole HTML, since the JS
+        // body legitimately mentions "connect-src" inside live-mode
+        // helper comments and string literals.
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let (html, _) = render(&report, &[], &opts("normal.json", None));
+        let meta_marker = r#"<meta http-equiv="Content-Security-Policy" content=""#;
+        let start = html
+            .find(meta_marker)
+            .expect("CSP meta tag missing in rendered HTML");
+        let after_marker = &html[start + meta_marker.len()..];
+        let close = after_marker
+            .find('"')
+            .expect("CSP meta tag content attribute is unclosed");
+        let csp_value = &after_marker[..close];
+        assert!(csp_value.contains("default-src 'none'"));
+        assert!(csp_value.contains("base-uri 'none'"));
+        assert!(csp_value.contains("form-action 'none'"));
         assert!(
-            TEMPLATE.contains("Content-Security-Policy"),
-            "CSP meta tag missing"
+            !csp_value.contains("connect-src"),
+            "static mode must not advertise connect-src in the CSP, got: {csp_value}"
         );
-        assert!(TEMPLATE.contains("default-src 'none'"));
-        assert!(TEMPLATE.contains("base-uri 'none'"));
-        assert!(TEMPLATE.contains("form-action 'none'"));
     }
 
     #[test]
-    fn title_placeholder_precedes_json_placeholder_in_template() {
-        // Substitution order inside `inject()` depends on the title
-        // placeholder appearing before the JSON placeholder in the
-        // static template: `replacen(..., 1)` replaces the first
-        // match. A future template edit that reverses the order
-        // would let a user-controlled JSON payload shadow the title
-        // placeholder.
-        let t = TEMPLATE.find(TITLE_PLACEHOLDER).expect("title placeholder");
-        let j = TEMPLATE.find(JSON_PLACEHOLDER).expect("json placeholder");
+    fn template_carries_csp_placeholder() {
+        let csp_pos = TEMPLATE
+            .find(CSP_PLACEHOLDER)
+            .expect("CSP placeholder missing");
+        let title_pos = TEMPLATE.find(TITLE_PLACEHOLDER).expect("title placeholder");
+        let json_pos = TEMPLATE.find(JSON_PLACEHOLDER).expect("JSON placeholder");
         assert!(
-            t < j,
-            "title placeholder must appear before the JSON placeholder so replacen order stays stable"
+            csp_pos < title_pos,
+            "CSP placeholder must precede title placeholder so replacen order stays stable"
+        );
+        assert!(
+            csp_pos < json_pos,
+            "CSP placeholder must precede JSON placeholder so replacen order stays stable"
+        );
+    }
+
+    #[test]
+    fn build_csp_static_mode_returns_strict_policy() {
+        let csp = build_csp(None);
+        assert!(csp.contains("default-src 'none'"));
+        assert!(csp.contains("base-uri 'none'"));
+        assert!(
+            !csp.contains("connect-src"),
+            "static mode must not include connect-src"
+        );
+    }
+
+    #[test]
+    fn build_csp_live_mode_appends_connect_src() {
+        let csp = build_csp(Some("http://localhost:4318"));
+        assert!(csp.contains("default-src 'none'"));
+        assert!(
+            csp.contains("connect-src 'self' http://localhost:4318"),
+            "live mode must whitelist 'self' plus the daemon URL: {csp}"
+        );
+    }
+
+    #[test]
+    fn build_csp_live_mode_only_whitelists_provided_url() {
+        let csp = build_csp(Some("https://daemon.example.com"));
+        // Wildcard `connect-src *` would defeat the purpose; the
+        // directive must only allow same-origin and the daemon.
+        assert!(!csp.contains("connect-src *"));
+        assert!(csp.contains("connect-src 'self' https://daemon.example.com"));
+    }
+
+    #[test]
+    fn rendered_html_in_static_mode_does_not_carry_daemon_field() {
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let (html, _) = render(&report, &[], &opts("normal.json", None));
+        assert!(
+            !html.contains(r#""daemon":"#),
+            "static mode payload must omit the daemon field"
+        );
+    }
+
+    #[test]
+    fn rendered_html_in_live_mode_with_ipv6_literal_preserves_brackets() {
+        // IPv6 authorities embed `[`/`]` brackets per RFC 3986. Verify
+        // they survive both the JSON payload (where they are not
+        // escape-meaningful) and the CSP directive (where the brackets
+        // are valid host-literal syntax). `validate_url` upstream
+        // accepts the form, the renderer must not corrupt it.
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let mut options = opts("normal.json", None);
+        options.daemon_url = Some("http://[::1]:4318".to_string());
+        let (html, _) = render(&report, &[], &options);
+        assert!(
+            html.contains(r#""daemon":{"url":"http://[::1]:4318"}"#),
+            "JSON payload must round-trip the IPv6 literal verbatim"
+        );
+        assert!(
+            html.contains("connect-src 'self' http://[::1]:4318"),
+            "CSP must whitelist the IPv6 literal verbatim"
+        );
+    }
+
+    #[test]
+    fn rendered_html_in_live_mode_carries_daemon_field_and_connect_src() {
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let mut options = opts("normal.json", None);
+        options.daemon_url = Some("http://localhost:4318".to_string());
+        let (html, _) = render(&report, &[], &options);
+        assert!(
+            html.contains(r#""daemon":{"url":"http://localhost:4318"}"#),
+            "live-mode payload must serialize the DaemonHandle"
+        );
+        assert!(
+            html.contains("connect-src 'self' http://localhost:4318"),
+            "live-mode CSP must whitelist 'self' plus the daemon URL"
+        );
+    }
+
+    #[test]
+    fn template_carries_daemon_status_badge_id() {
+        assert!(TEMPLATE.contains("id=\"ps-daemon-status\""));
+        assert!(TEMPLATE.contains("id=\"ps-daemon-dot\""));
+        assert!(TEMPLATE.contains("id=\"ps-daemon-status-text\""));
+    }
+
+    #[test]
+    fn template_carries_refresh_button_id() {
+        assert!(TEMPLATE.contains("id=\"ps-refresh-btn\""));
+    }
+
+    #[test]
+    fn template_carries_acknowledgments_panel_id() {
+        assert!(TEMPLATE.contains("id=\"panel-acknowledgments\""));
+        assert!(TEMPLATE.contains("id=\"acks-table\""));
+        assert!(TEMPLATE.contains("id=\"acks-body\""));
+    }
+
+    #[test]
+    fn template_carries_include_acked_toggle_id() {
+        assert!(TEMPLATE.contains("id=\"findings-include-acked\""));
+    }
+
+    #[test]
+    fn template_carries_auth_modal() {
+        assert!(TEMPLATE.contains("id=\"auth-modal\""));
+        assert!(TEMPLATE.contains("id=\"auth-modal-form\""));
+        assert!(TEMPLATE.contains("id=\"auth-modal-key\""));
+    }
+
+    #[test]
+    fn template_carries_ack_modal() {
+        assert!(TEMPLATE.contains("id=\"ack-modal\""));
+        assert!(TEMPLATE.contains("id=\"ack-modal-form\""));
+        assert!(TEMPLATE.contains("id=\"ack-modal-sig\""));
+        assert!(TEMPLATE.contains("id=\"ack-modal-reason\""));
+    }
+
+    #[test]
+    fn template_carries_fetch_with_auth_helper() {
+        // Defense-in-depth that the live-mode auth path stays present
+        // and is the only place where the X-API-Key gets attached.
+        assert!(
+            TEMPLATE.contains("function fetchWithAuth"),
+            "fetchWithAuth helper must be defined in the template"
+        );
+        assert!(
+            TEMPLATE.contains("X-API-Key"),
+            "live-mode JS must propagate X-API-Key on authenticated requests"
+        );
+    }
+
+    #[test]
+    fn template_carries_session_api_key_storage_constant() {
+        assert!(TEMPLATE.contains("perf-sentinel.daemon.api-key"));
+    }
+
+    #[test]
+    fn template_carries_boot_live_mode_function() {
+        assert!(TEMPLATE.contains("function bootLiveMode"));
+        assert!(TEMPLATE.contains("bootLiveMode()"));
+    }
+
+    #[test]
+    fn live_mode_acks_cap_matches_daemon_constant() {
+        // The HTML footer message says "showing up to 1000". The daemon
+        // caps `/api/acks` at the same number via `MAX_ACKS_RESPONSE`.
+        // Catch any drift between the two.
+        assert!(TEMPLATE.contains("DAEMON_ACKS_CAP = 1000"));
+    }
+
+    #[test]
+    fn template_finding_action_button_default_label_is_ack() {
+        // The per-row action container is always rendered. In static
+        // mode CSS keeps it hidden. In live mode, the JS swaps the
+        // label to "Revoke" for already-acked signatures.
+        assert!(TEMPLATE.contains("ps-fin-action-btn"));
+        assert!(TEMPLATE.contains("\"Ack\""));
+    }
+
+    #[test]
+    fn template_does_not_leak_session_storage_to_local_storage() {
+        // The X-API-Key is sessionStorage-scoped: `localStorage.setItem`
+        // would persist it across tab restarts and across browser
+        // restarts, which is not the threat model we accept.
+        assert!(
+            !TEMPLATE.contains("localStorage.setItem"),
+            "do not persist the X-API-Key beyond the tab session"
+        );
+        assert!(
+            !TEMPLATE.contains("localStorage.set"),
+            "do not persist the X-API-Key beyond the tab session"
         );
     }
 

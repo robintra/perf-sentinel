@@ -18,16 +18,14 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
     let timeout = std::time::Duration::from_secs(10);
 
     // Validate the daemon URL upfront so misconfigurations fail with a
-    // clear error before the first request goes out.
-    let trimmed = daemon_url.trim_end_matches('/');
-    let base_uri: sentinel_core::http_client::Uri = trimmed.parse().unwrap_or_else(|e| {
-        eprintln!("Invalid daemon URL `{daemon_url}`: {e}");
+    // clear error before the first request goes out. Shared with
+    // `perf-sentinel ack` and `perf-sentinel report --daemon-url` for
+    // identical rejection of userinfo, paths, query strings and
+    // trailing slashes.
+    let trimmed = crate::ack::validate_url(daemon_url).unwrap_or_else(|e| {
+        eprintln!("{e}");
         std::process::exit(1);
     });
-    if !matches!(base_uri.scheme_str(), Some("http" | "https")) {
-        eprintln!("Invalid daemon URL `{daemon_url}`: scheme must be http or https");
-        std::process::exit(1);
-    }
 
     let fetch = |path: &str| {
         let uri: sentinel_core::http_client::Uri =
@@ -82,7 +80,7 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
         #[cfg(feature = "tui")]
         QueryAction::Inspect => {
             let body = fetch("/api/findings?limit=10000").await;
-            run_inspect_action(&body, &client, trimmed, timeout).await;
+            run_inspect_action(&body, &client, &trimmed, timeout).await;
         }
         QueryAction::Correlations { format } => {
             let body = fetch("/api/correlations").await;

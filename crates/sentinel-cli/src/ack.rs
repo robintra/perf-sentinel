@@ -243,20 +243,16 @@ async fn run_revoke(base: &str, signature: Option<String>, api_key_file: Option<
 
     let client = sentinel_core::http_client::build_client_with_body();
     let url = format!("{base}/api/findings/{signature}/ack");
-    let (status, _body) = match call_with_tty_retry(
+    let Some((status, _body)) = call_no_body_or_print_error(
         &client,
         hyper::Method::DELETE,
         &url,
         api_key.as_deref(),
-        bytes::Bytes::new(),
+        base,
     )
     .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            eprint_network_error(base, &e);
-            return 1;
-        }
+    else {
+        return 1;
     };
     finish_revoke(status, &signature, base)
 }
@@ -282,20 +278,11 @@ async fn run_list(base: &str, format: QueryOutputFormat, api_key_file: Option<&P
     let client = sentinel_core::http_client::build_client_with_body();
     let url = format!("{base}/api/acks");
 
-    let (status, body) = match call_with_tty_retry(
-        &client,
-        hyper::Method::GET,
-        &url,
-        api_key.as_deref(),
-        bytes::Bytes::new(),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            eprint_network_error(base, &e);
-            return 1;
-        }
+    let Some((status, body)) =
+        call_no_body_or_print_error(&client, hyper::Method::GET, &url, api_key.as_deref(), base)
+            .await
+    else {
+        return 1;
     };
 
     if status.as_u16() != 200 {
@@ -375,7 +362,34 @@ async fn call_with_tty_retry(
     Ok((status, response_body))
 }
 
-fn validate_url(daemon_url: &str) -> Result<String, String> {
+/// Invoke `call_with_tty_retry` with an empty body and convert a
+/// `FetchError` into a printed network-error message. Returns `None`
+/// on failure so the caller can `let-else` the success path. Used by
+/// `run_revoke` (DELETE) and `run_list` (GET), which share the same
+/// error-handling shape.
+async fn call_no_body_or_print_error(
+    client: &sentinel_core::http_client::HttpClientWithBody,
+    method: hyper::Method,
+    url: &str,
+    api_key: Option<&str>,
+    daemon_url: &str,
+) -> Option<(hyper::StatusCode, bytes::Bytes)> {
+    match call_with_tty_retry(client, method, url, api_key, bytes::Bytes::new()).await {
+        Ok(v) => Some(v),
+        Err(e) => {
+            eprint_network_error(daemon_url, &e);
+            None
+        }
+    }
+}
+
+/// Validate and normalize a daemon URL. Used by the `ack` subcommand
+/// for `--daemon` and (since 0.5.23) by the `report` subcommand for
+/// `--daemon-url`. Rejects empty input, non-http(s) schemes, missing
+/// hosts, port-without-host, embedded userinfo, path components, and
+/// query strings. Trailing slashes on the authority are trimmed for
+/// uniformity, the rest is preserved verbatim.
+pub(crate) fn validate_url(daemon_url: &str) -> Result<String, String> {
     if daemon_url.is_empty() {
         return Err(format!("Invalid daemon URL `{daemon_url}`: empty"));
     }
@@ -427,9 +441,11 @@ fn validate_url(daemon_url: &str) -> Result<String, String> {
             "Invalid daemon URL `{daemon_url}`: path component is not allowed, drop the suffix after the host"
         ));
     }
-    // Reject query strings and fragments for the same reason: the CLI
-    // appends `/api/...` to the base, so any `?key=val` or `#frag` the
-    // user added would land in the wrong slot of the resulting URL.
+    // Reject query strings: the CLI appends `/api/...` to the base, so
+    // any `?key=val` the user added would land in the wrong slot of the
+    // resulting URL. Fragments (`#frag`) are not part of an absolute URI
+    // per RFC 3986 and `hyper::Uri::parse` either fails or strips them
+    // depending on the input shape, both safe outcomes.
     if parsed.query().is_some() {
         return Err(format!(
             "Invalid daemon URL `{daemon_url}`: query string is not allowed, drop the `?...` suffix"

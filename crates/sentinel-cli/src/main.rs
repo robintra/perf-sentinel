@@ -419,6 +419,20 @@ enum Commands {
         /// Retain acknowledged findings in the embedded JSON payload.
         #[arg(long)]
         show_acknowledged: bool,
+        /// Daemon URL for the HTML live mode. When set, the generated
+        /// HTML connects to the daemon at runtime: per-finding
+        /// Ack/Revoke buttons, an Acknowledgments panel, a connection
+        /// status indicator, and a manual refresh button. The
+        /// document origin must be in the daemon's
+        /// `[daemon.cors] allowed_origins` whitelist. Without this
+        /// flag, the report is purely static (default).
+        ///
+        /// Example: `--daemon-url http://localhost:4318`. Path,
+        /// query string, userinfo (`user@host`) and trailing slashes
+        /// are rejected at parse time.
+        #[cfg(feature = "daemon")]
+        #[arg(long, value_name = "URL")]
+        daemon_url: Option<String>,
     },
 
     /// Compare two trace sets and emit a delta report (regressions and improvements).
@@ -753,7 +767,20 @@ async fn main() {
             acknowledgments,
             no_acknowledgments,
             show_acknowledged,
+            #[cfg(feature = "daemon")]
+            daemon_url,
         } => {
+            #[cfg(feature = "daemon")]
+            let daemon_url = match daemon_url {
+                Some(raw) => match ack::validate_url(&raw) {
+                    Ok(normalized) => Some(normalized),
+                    Err(e) => {
+                        eprintln!("{e}");
+                        std::process::exit(1);
+                    }
+                },
+                None => None,
+            };
             cmd_report(
                 input.as_deref(),
                 config.as_deref(),
@@ -773,6 +800,8 @@ async fn main() {
                 acknowledgments.as_deref(),
                 no_acknowledgments,
                 show_acknowledged,
+                #[cfg(feature = "daemon")]
+                daemon_url,
             )
             .await;
         }
@@ -1242,6 +1271,7 @@ async fn cmd_report(
     acknowledgments_path: Option<&std::path::Path>,
     no_acknowledgments: bool,
     show_acknowledged: bool,
+    #[cfg(feature = "daemon")] daemon_url: Option<String>,
 ) {
     let config = load_config(config_path);
 
@@ -1322,6 +1352,10 @@ async fn cmd_report(
         max_traces_embedded,
         pg_stat,
         diff,
+        #[cfg(feature = "daemon")]
+        daemon_url,
+        #[cfg(not(feature = "daemon"))]
+        daemon_url: None,
     };
 
     let (html, stats) = sentinel_core::report::html::render(&report, &traces, &options);

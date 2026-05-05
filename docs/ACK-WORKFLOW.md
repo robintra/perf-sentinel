@@ -105,6 +105,20 @@ A `POST /api/findings/{sig}/ack` for a signature already covered by
 TOML returns HTTP 409 to avoid silent shadowing. The `ack create` CLI
 maps this to exit 2 with a hint pointing at `ack revoke`.
 
+### Adding a daemon ack from the HTML report (since 0.5.23, browser)
+
+The HTML report can run in live mode and drive the same daemon
+endpoints from the browser. Generate the report with `--daemon-url`,
+open it, click the per-finding `Ack` button. See
+[`HTML-REPORT.md`](./HTML-REPORT.md) for the setup, the CORS
+prerequisites, and the X-API-Key handling.
+
+```bash
+perf-sentinel report --input traces.json --output report.html \
+  --daemon-url http://localhost:4318
+open report.html
+```
+
 ## Choosing between TOML and daemon
 
 | Scenario                                  | Use                                  |
@@ -115,6 +129,7 @@ maps this to exit 2 with a hint pointing at `ack revoke`.
 | Environment-specific suppression          | Daemon (one per environment)         |
 | Onboarding cleanup of pre-existing        | TOML (bulk via editor)               |
 | Single ack at 3am from PagerDuty          | Daemon CLI                           |
+| Click Ack from MR review on the CI report | Daemon (HTML live mode, since 0.5.23)|
 
 ## Observability
 
