@@ -31,7 +31,7 @@ jaeger-query = ["perf-sentinel-core/jaeger-query"]
 [dependencies]
 perf-sentinel-core = { version = "0.5.13", path = "../sentinel-core" }
 clap = { version = "4.6.1", features = ["derive", "env"] }
-tokio = { version = "1.52.0", features = ["full"] }
+tokio = { version = "1.52.2", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.228", features = ["derive"] }
