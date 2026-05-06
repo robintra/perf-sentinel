@@ -117,6 +117,53 @@ impl AckFailureReason {
     }
 }
 
+/// `reason` label of `perf_sentinel_scaphandre_scrape_failed_total`.
+/// Pre-warmed to 0 at startup. No dedicated `invalid_uri` variant:
+/// `ScraperError::InvalidUri` folds into `RequestError` since
+/// production aborts before reaching the counter path.
+#[cfg(feature = "daemon")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ScaphandreScrapeReason {
+    /// `FetchError::Transport`: endpoint unreachable from the daemon.
+    Unreachable,
+    /// `FetchError::Timeout`: 3-second deadline on `fetch_metrics_once` elapsed.
+    Timeout,
+    /// `FetchError::HttpStatus`: endpoint replied with non-2xx.
+    HttpError,
+    /// `FetchError::BodyRead`: transport error while streaming the body.
+    BodyReadError,
+    /// `FetchError::RequestBuild` or `ScraperError::InvalidUri`: configuration edge case.
+    RequestError,
+    /// `ScraperError::Utf8`: body was not valid UTF-8 (likely not a Scaphandre endpoint).
+    InvalidUtf8,
+}
+
+#[cfg(feature = "daemon")]
+impl ScaphandreScrapeReason {
+    /// Every variant in declaration order. Fixed-size array so adding a
+    /// variant without bumping the count is a compile-time error.
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Unreachable,
+        Self::Timeout,
+        Self::HttpError,
+        Self::BodyReadError,
+        Self::RequestError,
+        Self::InvalidUtf8,
+    ];
+
+    /// Stable Prometheus label string for this variant.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Unreachable => "unreachable",
+            Self::Timeout => "timeout",
+            Self::HttpError => "http_error",
+            Self::BodyReadError => "body_read_error",
+            Self::RequestError => "request_error",
+            Self::InvalidUtf8 => "invalid_utf8",
+        }
+    }
+}
+
 /// Build an `IntCounterVec` and register it on the given registry,
 /// failing the daemon at startup on metric creation or registration
 /// failure. Both branches are infallible in practice (label set is
@@ -241,6 +288,28 @@ pub struct MetricsState {
     /// Cached child for `ack_operations_total{action="unack"}`.
     #[cfg(feature = "daemon")]
     pub ack_operations_unack_success: IntCounter,
+    /// Scaphandre scrape attempts on the daemon-side scraper, labeled
+    /// by `status` (`success` or `failed`). Pre-warmed to 0 for both
+    /// values so dashboards plot zero-rates before the first scrape.
+    /// The two `scaphandre_scrape_*` `IntCounter` fields below cache
+    /// the labeled children for the hot path, both `status` values
+    /// fire at every interval tick (one per tick).
+    #[cfg(feature = "daemon")]
+    pub scaphandre_scrape_total: IntCounterVec,
+    /// Failed Scaphandre scrapes, labeled by failure `reason`.
+    /// Pre-warmed to 0 for the 6 reachable variants of
+    /// [`ScaphandreScrapeReason`] so alert rules can filter without
+    /// `absent()` guards. Failures are by definition rare so no
+    /// hot-path child caching, `with_label_values` is called per
+    /// scrape error.
+    #[cfg(feature = "daemon")]
+    pub scaphandre_scrape_failed_total: IntCounterVec,
+    /// Cached child for `scaphandre_scrape_total{status="success"}`.
+    #[cfg(feature = "daemon")]
+    pub scaphandre_scrape_success: IntCounter,
+    /// Cached child for `scaphandre_scrape_total{status="failed"}`.
+    #[cfg(feature = "daemon")]
+    pub scaphandre_scrape_failed: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -473,6 +542,32 @@ impl MetricsState {
             }
         }
 
+        #[cfg(feature = "daemon")]
+        let scaphandre_scrape_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_scaphandre_scrape_total",
+            "Total Scaphandre scrape attempts on the daemon scraper, by outcome",
+            &["status"],
+        );
+        #[cfg(feature = "daemon")]
+        let scaphandre_scrape_failed_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_scaphandre_scrape_failed_total",
+            "Failed Scaphandre scrapes on the daemon scraper, by failure reason",
+            &["reason"],
+        );
+        #[cfg(feature = "daemon")]
+        let scaphandre_scrape_success = scaphandre_scrape_total.with_label_values(&["success"]);
+        #[cfg(feature = "daemon")]
+        let scaphandre_scrape_failed = scaphandre_scrape_total.with_label_values(&["failed"]);
+        // Pre-warm 6 reason children to 0 so `rate()` queries don't
+        // need `absent()` guards. Returned `IntCounter` is discarded:
+        // failure path is cold, see scraper.rs.
+        #[cfg(feature = "daemon")]
+        for reason in &ScaphandreScrapeReason::ALL {
+            let _ = scaphandre_scrape_failed_total.with_label_values(&[reason.as_str()]);
+        }
+
         // Process metrics (RSS, FDs, start_time, CPU). procfs-backed,
         // Linux-only. On macOS/Windows we skip registration so each
         // scrape does not pay for failed reads under the hood.
@@ -510,6 +605,14 @@ impl MetricsState {
             ack_operations_ack_success,
             #[cfg(feature = "daemon")]
             ack_operations_unack_success,
+            #[cfg(feature = "daemon")]
+            scaphandre_scrape_total,
+            #[cfg(feature = "daemon")]
+            scaphandre_scrape_failed_total,
+            #[cfg(feature = "daemon")]
+            scaphandre_scrape_success,
+            #[cfg(feature = "daemon")]
+            scaphandre_scrape_failed,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }

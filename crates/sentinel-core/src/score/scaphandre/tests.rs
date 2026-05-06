@@ -12,7 +12,7 @@ use crate::http_client::build_client as build_scraper_client;
 use super::config::ScaphandreConfig;
 use super::ops::{OpsSnapshotDiff, apply_scrape, compute_energy_per_op_kwh};
 use super::parser::{ProcessPower, parse_scaphandre_metrics};
-use super::scraper::{ScraperError, fetch_metrics_once, spawn_scraper};
+use super::scraper::{ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper};
 use super::state::ScaphandreState;
 
 #[test]
@@ -782,4 +782,145 @@ async fn scaphandre_scraper_sends_auth_header_on_wire() {
         "auth header missing from request, got:\n{text}"
     );
     server.await.expect("server join");
+}
+
+// ── Scaphandre scrape counter mapping ───────────────────────────────
+
+#[test]
+fn scraper_error_reason_maps_invalid_utf8() {
+    use crate::report::metrics::ScaphandreScrapeReason;
+
+    let utf8_err = String::from_utf8(vec![0xFF, 0xFE]).expect_err("invalid utf-8");
+    let err = ScraperError::Utf8(utf8_err);
+    assert_eq!(
+        scraper_error_reason(&err),
+        ScaphandreScrapeReason::InvalidUtf8
+    );
+}
+
+#[test]
+fn scraper_error_reason_maps_fetch_timeout() {
+    use crate::http_client::FetchError;
+    use crate::report::metrics::ScaphandreScrapeReason;
+
+    let err = ScraperError::Fetch(FetchError::Timeout);
+    assert_eq!(scraper_error_reason(&err), ScaphandreScrapeReason::Timeout);
+}
+
+#[test]
+fn scraper_error_reason_maps_fetch_http_status() {
+    use crate::http_client::FetchError;
+    use crate::report::metrics::ScaphandreScrapeReason;
+
+    let err = ScraperError::Fetch(FetchError::HttpStatus(503));
+    assert_eq!(
+        scraper_error_reason(&err),
+        ScaphandreScrapeReason::HttpError
+    );
+}
+
+#[test]
+fn scraper_error_reason_maps_fetch_body_read() {
+    use crate::http_client::FetchError;
+    use crate::report::metrics::ScaphandreScrapeReason;
+
+    let err = ScraperError::Fetch(FetchError::BodyRead("connection reset".to_string()));
+    assert_eq!(
+        scraper_error_reason(&err),
+        ScaphandreScrapeReason::BodyReadError
+    );
+}
+
+#[test]
+fn scraper_error_reason_maps_invalid_uri_to_request_error() {
+    use crate::report::metrics::ScaphandreScrapeReason;
+
+    let invalid_uri =
+        <hyper::Uri as std::str::FromStr>::from_str("not a uri").expect_err("uri parse must fail");
+    let err = ScraperError::InvalidUri {
+        endpoint: "not a uri".to_string(),
+        source: invalid_uri,
+    };
+    assert_eq!(
+        scraper_error_reason(&err),
+        ScaphandreScrapeReason::RequestError
+    );
+}
+
+#[test]
+fn metrics_state_pre_warms_scaphandre_scrape_status_labels() {
+    use crate::report::metrics::MetricsState;
+
+    let state = MetricsState::new();
+    let output = state.render();
+    for status in ["success", "failed"] {
+        assert!(
+            output.contains(&format!(
+                "perf_sentinel_scaphandre_scrape_total{{status=\"{status}\"}} 0"
+            )),
+            "pre-warmed line for status={status} should appear in /metrics, got: {output}"
+        );
+    }
+}
+
+#[test]
+fn metrics_state_pre_warms_scaphandre_scrape_failed_reasons() {
+    use crate::report::metrics::{MetricsState, ScaphandreScrapeReason};
+
+    let state = MetricsState::new();
+    let output = state.render();
+    for reason in &ScaphandreScrapeReason::ALL {
+        let label = reason.as_str();
+        assert!(
+            output.contains(&format!(
+                "perf_sentinel_scaphandre_scrape_failed_total{{reason=\"{label}\"}} 0"
+            )),
+            "pre-warmed line for reason={label} should appear in /metrics, got: {output}"
+        );
+    }
+}
+
+#[test]
+fn metrics_state_scrape_success_counter_increments() {
+    use crate::report::metrics::MetricsState;
+
+    let state = MetricsState::new();
+    state.scaphandre_scrape_success.inc();
+    state.scaphandre_scrape_success.inc();
+    let output = state.render();
+    // Trailing newline anchors the assertion to the exact value, so a
+    // future change emitting `... 20` would not silently match the `2` test.
+    assert!(
+        output.contains("perf_sentinel_scaphandre_scrape_total{status=\"success\"} 2\n"),
+        "success counter must report 2 after two inc() calls, got: {output}"
+    );
+    assert!(
+        output.contains("perf_sentinel_scaphandre_scrape_total{status=\"failed\"} 0\n"),
+        "failed counter must remain 0, got: {output}"
+    );
+}
+
+#[test]
+fn metrics_state_scrape_failed_reason_counter_increments() {
+    use crate::report::metrics::{MetricsState, ScaphandreScrapeReason};
+
+    let state = MetricsState::new();
+    state.scaphandre_scrape_failed.inc();
+    state
+        .scaphandre_scrape_failed_total
+        .with_label_values(&[ScaphandreScrapeReason::Timeout.as_str()])
+        .inc();
+    let output = state.render();
+    assert!(
+        output.contains("perf_sentinel_scaphandre_scrape_total{status=\"failed\"} 1\n"),
+        "failed status counter must report 1, got: {output}"
+    );
+    assert!(
+        output.contains("perf_sentinel_scaphandre_scrape_failed_total{reason=\"timeout\"} 1\n"),
+        "timeout reason counter must report 1, got: {output}"
+    );
+    assert!(
+        output.contains("perf_sentinel_scaphandre_scrape_failed_total{reason=\"unreachable\"} 0\n"),
+        "other reason counters must remain 0, got: {output}"
+    );
 }

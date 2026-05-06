@@ -12,9 +12,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::http_client::{self, HttpClient};
+use crate::http_client::{self, FetchError, HttpClient};
 use crate::ingest::auth_header::{AuthHeader, parse_scraper_auth_header};
-use crate::report::metrics::MetricsState;
+use crate::report::metrics::{MetricsState, ScaphandreScrapeReason};
 
 use super::config::ScaphandreConfig;
 use super::ops::{OpsSnapshotDiff, apply_scrape};
@@ -74,11 +74,42 @@ pub(super) enum ScraperError {
     },
     /// HTTP fetch failed (request build, transport, timeout, body
     /// read or non-2xx status). Delegates to the shared
-    /// [`http_client::FetchError`].
+    /// [`FetchError`].
     #[error("Scaphandre fetch failed")]
-    Fetch(#[source] http_client::FetchError),
+    Fetch(#[source] FetchError),
     #[error("Scaphandre response was not valid UTF-8")]
     Utf8(#[source] std::string::FromUtf8Error),
+}
+
+/// Map a [`ScraperError`] from a single scrape attempt to the
+/// `reason` label used by `perf_sentinel_scaphandre_scrape_failed_total`.
+///
+/// `InvalidUri` cannot reach this path: `run_scraper_loop` aborts at
+/// startup if URI parsing fails, before the first tick. We still
+/// match it explicitly so a future refactor that surfaces the error
+/// elsewhere does not silently lose its accounting.
+pub(super) fn scraper_error_reason(err: &ScraperError) -> ScaphandreScrapeReason {
+    match err {
+        ScraperError::Fetch(fe) => fetch_error_reason(fe),
+        ScraperError::Utf8(_) => ScaphandreScrapeReason::InvalidUtf8,
+        ScraperError::InvalidUri { .. } => ScaphandreScrapeReason::RequestError,
+    }
+}
+
+/// Map a [`FetchError`] to the corresponding scrape failure reason.
+///
+/// Kept private to this module: there is currently a single call
+/// site (the Scaphandre scraper). If Tempo or Electricity Maps
+/// scrapers grow the same instrumentation, lift this helper to
+/// `http_client.rs` and parameterize on the per-scraper enum.
+fn fetch_error_reason(err: &FetchError) -> ScaphandreScrapeReason {
+    match err {
+        FetchError::Transport(_) => ScaphandreScrapeReason::Unreachable,
+        FetchError::Timeout => ScaphandreScrapeReason::Timeout,
+        FetchError::HttpStatus(_) => ScaphandreScrapeReason::HttpError,
+        FetchError::BodyRead(_) => ScaphandreScrapeReason::BodyReadError,
+        FetchError::RequestBuild(_) => ScaphandreScrapeReason::RequestError,
+    }
 }
 
 /// Spawn the periodic Scaphandre scraper task.
@@ -195,6 +226,7 @@ async fn run_scraper_loop(
                 // Grafana rate() / alerting rules catch hung scrapers
                 // by watching the gauge climb.
                 metrics.scaphandre_last_scrape_age_seconds.set(0.0);
+                metrics.scaphandre_scrape_success.inc();
                 tracing::debug!(
                     readings = readings.len(),
                     services_updated = deltas.len(),
@@ -203,6 +235,15 @@ async fn run_scraper_loop(
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
+                let reason = scraper_error_reason(&e);
+                // Two counters per failure: status rate (cached) and
+                // reason breakdown (cold lookup). PromQL invariant:
+                // sum(failed_total) == total{status="failed"}.
+                metrics.scaphandre_scrape_failed.inc();
+                metrics
+                    .scaphandre_scrape_failed_total
+                    .with_label_values(&[reason.as_str()])
+                    .inc();
                 if first_failure_warned {
                     tracing::debug!(error = %e, "Scaphandre scrape failed again");
                 } else {

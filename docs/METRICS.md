@@ -149,6 +149,59 @@ pre-warmed to avoid misleading series.
   misbehaving client (oversized `by` / `reason` payloads), spikes on
   `limit_reached` or `file_too_large` indicate store saturation.
 
+## Scaphandre scrape counters (since 0.5.25)
+
+Per-tick outcome of the daemon-side Scaphandre scraper (the task that
+fetches `scaph_process_power_consumption_microwatts` from the
+configured `[green.scaphandre] endpoint` every `scrape_interval_secs`).
+Only registered when the daemon is built with the `daemon` feature.
+
+| Metric                                          | Type    | Labels    | Description                                                                                  |
+|-------------------------------------------------|---------|-----------|----------------------------------------------------------------------------------------------|
+| `perf_sentinel_scaphandre_scrape_total`         | counter | `status`  | Total Scaphandre scrape attempts since daemon start, partitioned by outcome.                 |
+| `perf_sentinel_scaphandre_scrape_failed_total`  | counter | `reason`  | Total failed Scaphandre scrapes since daemon start, partitioned by failure reason.           |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge | (none)    | Seconds since the last successful scrape (resets to 0 on success). Hung-scraper canary.      |
+
+`status` label values: `success`, `failed`. Pre-warmed at zero so
+dashboards plot rate-zero before the first scrape.
+
+`reason` label values:
+
+- `unreachable`: low-level transport failure (connection refused, DNS
+  failure, TLS handshake error, host down). The endpoint is not
+  reachable from the daemon pod.
+- `timeout`: the 3-second hard deadline on the per-scrape HTTP call
+  elapsed before a response landed.
+- `http_error`: the endpoint replied with a non-2xx status code.
+- `body_read_error`: transport error while streaming the response body
+  after a successful status read.
+- `request_error`: hyper failed to build the HTTP request from the
+  (post-validation) URI. Rare, indicates a configuration edge case
+  the URI parser missed.
+- `invalid_utf8`: the response body was not valid UTF-8. Scaphandre
+  always emits ASCII-safe Prometheus text, so this almost always
+  means the endpoint is not Scaphandre.
+
+**Pre-warming**. Both counters emit zero for every documented label
+value before the first scrape, so `rate()` queries do not need
+`absent()` guards. The pre-warmed set is 2 status series plus 6
+reason series. Configuration parsing failures (invalid endpoint URI)
+abort the scraper task at startup before the counter is touched, they
+are visible only in daemon logs at `error` level.
+
+**Sample queries**.
+
+- `rate(perf_sentinel_scaphandre_scrape_total{status="success"}[5m])`
+  divided by `rate(perf_sentinel_scaphandre_scrape_total[5m])`:
+  scrape success ratio over 5 minutes. Useful for an SLO panel or
+  alert (`< 0.95` over 15 minutes flags a degraded scraper).
+- `topk(1, increase(perf_sentinel_scaphandre_scrape_failed_total[1h]))`:
+  dominant failure reason over the past hour. Persistent
+  `unreachable` typically points at a missing Scaphandre exporter on
+  the host, persistent `http_error` at an exporter behind a
+  reverse proxy returning the wrong status, persistent `invalid_utf8`
+  at an endpoint that is not Scaphandre at all.
+
 ## GreenOps metrics
 
 | Metric                                               | Type    | Labels    | Description                                                                                                                        |
