@@ -2396,4 +2396,25 @@ mod tests {
             "flag value is used when the env var is unset"
         );
     }
+
+    #[test]
+    fn completions_subcommand_accepts_known_shells() {
+        for shell_arg in ["bash", "zsh", "fish", "powershell", "elvish"] {
+            let cli = Cli::try_parse_from(["perf-sentinel", "completions", shell_arg])
+                .unwrap_or_else(|e| panic!("failed to parse 'completions {shell_arg}': {e}"));
+            match cli.command {
+                Commands::Completions { .. } => {}
+                _ => panic!("expected Commands::Completions for '{shell_arg}'"),
+            }
+        }
+    }
+
+    #[test]
+    fn completions_subcommand_rejects_unknown_shell() {
+        let result = Cli::try_parse_from(["perf-sentinel", "completions", "tcsh"]);
+        assert!(
+            result.is_err(),
+            "tcsh is not a clap_complete::Shell variant"
+        );
+    }
 }
