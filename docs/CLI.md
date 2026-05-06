@@ -139,3 +139,24 @@ option lists of `analyze`, `watch`, `query`, `report`, `diff`,
 `explain`, `inspect`, `pg-stat`, `tempo`, `jaeger-query`, `demo`,
 `bench` and `calibrate`. The commands themselves are stable; their
 prose documentation is being filled in incrementally.
+
+## Shell completions
+
+`perf-sentinel completions <shell>` writes a completion script to
+stdout. Supported shells: `bash`, `zsh`, `fish`, `powershell`,
+`elvish`. Pipe the output to the shell-specific completion path:
+
+```bash
+# Zsh (oh-my-zsh, prezto, manual fpath)
+perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel
+
+# Bash
+perf-sentinel completions bash > /usr/local/etc/bash_completion.d/perf-sentinel
+
+# Fish
+perf-sentinel completions fish > ~/.config/fish/completions/perf-sentinel.fish
+```
+
+Reload your shell, or `source` the file, after install. Re-run the
+generator after upgrading `perf-sentinel` so completions stay in sync
+with new flags and subcommands.

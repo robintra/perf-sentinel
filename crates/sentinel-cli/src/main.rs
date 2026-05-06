@@ -18,7 +18,8 @@ mod render;
 #[cfg(feature = "tui")]
 mod tui;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use render::{emit_report_and_gate, print_colored_report};
 use sentinel_core::config::Config;
 use sentinel_core::ingest::IngestSource;
@@ -461,6 +462,15 @@ enum Commands {
         #[arg(long)]
         no_acknowledgments: bool,
     },
+    /// Generate a shell completion script for the requested shell.
+    ///
+    /// Pipe the output to the shell-specific completion path, e.g.
+    /// `perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel`.
+    Completions {
+        /// Target shell: bash, zsh, fish, powershell, elvish.
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 /// Output format for query sub-actions.
@@ -772,6 +782,10 @@ async fn dispatch_command(command: Commands) {
                 daemon_url,
             )
             .await;
+        }
+        Commands::Completions { shell } => {
+            let mut cmd = Cli::command();
+            clap_complete::generate(shell, &mut cmd, "perf-sentinel", &mut std::io::stdout());
         }
     }
 }
