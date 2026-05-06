@@ -30,13 +30,13 @@ cargo fmt --all -- --check
 
 ### Git hooks
 
-A pre-commit hook scans staged changes for secrets via [gitleaks](https://github.com/gitleaks/gitleaks). Install once after cloning:
+A pre-commit hook scans staged changes for secrets via [gitleaks](https://github.com/gitleaks/gitleaks) (version 8.16 or newer, for the `git --staged` subcommand). Install once after cloning:
 
 ```bash
 bash scripts/install-hooks.sh
 ```
 
-The hook skips silently if `gitleaks` is not on PATH and surfaces an install hint, so missing the tool never blocks a commit. To bypass on a specific commit (use sparingly):
+The hook skips silently if `gitleaks` is not on PATH or is older than 8.16, surfacing a one-line install or upgrade hint. Missing or stale tooling never blocks a commit. To bypass on a specific commit (use sparingly):
 
 ```bash
 git commit --no-verify

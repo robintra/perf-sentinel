@@ -17,8 +17,18 @@ if ! command -v gitleaks > /dev/null 2>&1; then
   exit 0
 fi
 
+# `gitleaks git` was added in 8.16 and replaced the legacy
+# `gitleaks protect --staged`. Probe the subcommand instead of parsing
+# the version string so the check stays robust across `vX.Y.Z` and
+# `X.Y.Z` formats.
+if ! gitleaks git --help > /dev/null 2>&1; then
+  installed_version="$(gitleaks version 2>/dev/null | head -n1 || echo unknown)"
+  echo "warning: gitleaks ${installed_version} is too old (need 8.16+ for 'git --staged');"
+  echo "         skipping pre-commit secret scan. Upgrade with 'brew upgrade gitleaks'."
+  exit 0
+fi
+
 # `git --staged` scans only the changes about to be committed, using
 # the project-level `.gitleaks.toml` config (allowlist for the
-# documented finding-signature format). Replaces the legacy
-# `protect --staged` which was deprecated in gitleaks 8.16.
+# documented finding-signature format).
 gitleaks git --staged --redact --no-banner --verbose
