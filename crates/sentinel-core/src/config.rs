@@ -647,6 +647,26 @@ fn backslash_emit_len(run_start: usize, run_len: usize, next_byte: Option<u8>) -
     }
 }
 
+/// Resolve a config value with priority `section > flat`, emitting a
+/// deprecation warning when only the legacy flat form is set.
+#[must_use]
+fn resolve_with_deprecation_warning<T>(
+    section_value: Option<T>,
+    flat_value: Option<T>,
+    flat_name: &'static str,
+    section_path: &'static str,
+) -> Option<T> {
+    if let (None, Some(_)) = (&section_value, &flat_value) {
+        tracing::warn!(
+            legacy_key = flat_name,
+            replacement = section_path,
+            "config: top-level '{flat_name}' is deprecated, use '{section_path}' instead. \
+             Will be removed in a future release."
+        );
+    }
+    section_value.or(flat_value)
+}
+
 impl From<RawConfig> for Config {
     #[allow(clippy::too_many_lines)] // Flat config-to-typed mapping: splitting would scatter field assignments
     fn from(raw: RawConfig) -> Self {
@@ -669,16 +689,20 @@ impl From<RawConfig> for Config {
                 .unwrap_or(defaults.io_waste_ratio_max),
 
             // Detection: section > flat > default
-            n_plus_one_threshold: raw
-                .detection
-                .n_plus_one_min_occurrences
-                .or(raw.n_plus_one_threshold)
-                .unwrap_or(defaults.n_plus_one_threshold),
-            window_duration_ms: raw
-                .detection
-                .window_duration_ms
-                .or(raw.window_duration_ms)
-                .unwrap_or(defaults.window_duration_ms),
+            n_plus_one_threshold: resolve_with_deprecation_warning(
+                raw.detection.n_plus_one_min_occurrences,
+                raw.n_plus_one_threshold,
+                "n_plus_one_threshold",
+                "[detection] n_plus_one_min_occurrences",
+            )
+            .unwrap_or(defaults.n_plus_one_threshold),
+            window_duration_ms: resolve_with_deprecation_warning(
+                raw.detection.window_duration_ms,
+                raw.window_duration_ms,
+                "window_duration_ms",
+                "[detection] window_duration_ms",
+            )
+            .unwrap_or(defaults.window_duration_ms),
             slow_query_threshold_ms: raw
                 .detection
                 .slow_query_threshold_ms
@@ -783,42 +807,54 @@ impl From<RawConfig> for Config {
             green_electricity_maps: convert_electricity_maps_section(&raw.green.electricity_maps),
 
             // Daemon: section > flat > default
-            listen_addr: raw
-                .daemon
-                .listen_address
-                .or(raw.listen_addr)
-                .unwrap_or(defaults.listen_addr),
-            listen_port: raw
-                .daemon
-                .listen_port_http
-                .or(raw.listen_port)
-                .unwrap_or(defaults.listen_port),
+            listen_addr: resolve_with_deprecation_warning(
+                raw.daemon.listen_address,
+                raw.listen_addr,
+                "listen_addr",
+                "[daemon] listen_address",
+            )
+            .unwrap_or(defaults.listen_addr),
+            listen_port: resolve_with_deprecation_warning(
+                raw.daemon.listen_port_http,
+                raw.listen_port,
+                "listen_port",
+                "[daemon] listen_port_http",
+            )
+            .unwrap_or(defaults.listen_port),
             listen_port_grpc: raw
                 .daemon
                 .listen_port_grpc
                 .unwrap_or(defaults.listen_port_grpc),
             json_socket: raw.daemon.json_socket.unwrap_or(defaults.json_socket),
-            max_active_traces: raw
-                .daemon
-                .max_active_traces
-                .or(raw.max_active_traces)
-                .unwrap_or(defaults.max_active_traces),
-            trace_ttl_ms: raw
-                .daemon
-                .trace_ttl_ms
-                .or(raw.trace_ttl_ms)
-                .unwrap_or(defaults.trace_ttl_ms),
+            max_active_traces: resolve_with_deprecation_warning(
+                raw.daemon.max_active_traces,
+                raw.max_active_traces,
+                "max_active_traces",
+                "[daemon] max_active_traces",
+            )
+            .unwrap_or(defaults.max_active_traces),
+            trace_ttl_ms: resolve_with_deprecation_warning(
+                raw.daemon.trace_ttl_ms,
+                raw.trace_ttl_ms,
+                "trace_ttl_ms",
+                "[daemon] trace_ttl_ms",
+            )
+            .unwrap_or(defaults.trace_ttl_ms),
             sampling_rate: raw.daemon.sampling_rate.unwrap_or(defaults.sampling_rate),
-            max_events_per_trace: raw
-                .daemon
-                .max_events_per_trace
-                .or(raw.max_events_per_trace)
-                .unwrap_or(defaults.max_events_per_trace),
-            max_payload_size: raw
-                .daemon
-                .max_payload_size
-                .or(raw.max_payload_size)
-                .unwrap_or(defaults.max_payload_size),
+            max_events_per_trace: resolve_with_deprecation_warning(
+                raw.daemon.max_events_per_trace,
+                raw.max_events_per_trace,
+                "max_events_per_trace",
+                "[daemon] max_events_per_trace",
+            )
+            .unwrap_or(defaults.max_events_per_trace),
+            max_payload_size: resolve_with_deprecation_warning(
+                raw.daemon.max_payload_size,
+                raw.max_payload_size,
+                "max_payload_size",
+                "[daemon] max_payload_size",
+            )
+            .unwrap_or(defaults.max_payload_size),
             // parse environment into the typed enum. Invalid
             // strings are rejected later in Config::validate so parse
             // Fallback to Staging is safe: load_from_str() pre-validates
@@ -2068,6 +2104,157 @@ max_payload_size = 2097152
         assert!((config.sampling_rate - 0.5).abs() < f64::EPSILON);
         assert_eq!(config.max_events_per_trace, 500);
         assert_eq!(config.max_payload_size, 2_097_152);
+    }
+
+    // Legacy flat field deprecation: the `resolve_with_deprecation_warning`
+    // helper logs a warn-level message when the flat form is used without a
+    // section override. Tests below assert resolution priority
+    // (section > flat > default), the warning itself is not captured because
+    // the crate ships no tracing-subscriber test layer.
+
+    #[test]
+    fn legacy_flat_n_plus_one_threshold_resolves_to_value() {
+        let config = load_from_str("n_plus_one_threshold = 7\n").unwrap();
+        assert_eq!(config.n_plus_one_threshold, 7);
+    }
+
+    #[test]
+    fn legacy_flat_n_plus_one_threshold_yields_to_section_when_both_present() {
+        let toml = "n_plus_one_threshold = 7\n[detection]\nn_plus_one_min_occurrences = 11\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.n_plus_one_threshold, 11);
+    }
+
+    #[test]
+    fn legacy_flat_window_duration_ms_resolves_to_value() {
+        let config = load_from_str("window_duration_ms = 1500\n").unwrap();
+        assert_eq!(config.window_duration_ms, 1500);
+    }
+
+    #[test]
+    fn legacy_flat_window_duration_ms_yields_to_section_when_both_present() {
+        let toml = "window_duration_ms = 1500\n[detection]\nwindow_duration_ms = 2500\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.window_duration_ms, 2500);
+    }
+
+    #[test]
+    fn legacy_flat_listen_addr_resolves_to_value() {
+        let config = load_from_str("listen_addr = \"0.0.0.0\"\n").unwrap();
+        assert_eq!(config.listen_addr, "0.0.0.0");
+    }
+
+    #[test]
+    fn legacy_flat_listen_addr_yields_to_section_when_both_present() {
+        let toml = "listen_addr = \"0.0.0.0\"\n[daemon]\nlisten_address = \"127.0.0.1\"\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.listen_addr, "127.0.0.1");
+    }
+
+    #[test]
+    fn legacy_flat_listen_port_resolves_to_value() {
+        let config = load_from_str("listen_port = 9418\n").unwrap();
+        assert_eq!(config.listen_port, 9418);
+    }
+
+    #[test]
+    fn legacy_flat_listen_port_yields_to_section_when_both_present() {
+        let toml = "listen_port = 9418\n[daemon]\nlisten_port_http = 4318\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.listen_port, 4318);
+    }
+
+    #[test]
+    fn legacy_flat_max_active_traces_resolves_to_value() {
+        let config = load_from_str("max_active_traces = 5000\n").unwrap();
+        assert_eq!(config.max_active_traces, 5000);
+    }
+
+    #[test]
+    fn legacy_flat_max_active_traces_yields_to_section_when_both_present() {
+        let toml = "max_active_traces = 5000\n[daemon]\nmax_active_traces = 8000\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.max_active_traces, 8000);
+    }
+
+    #[test]
+    fn legacy_flat_trace_ttl_ms_resolves_to_value() {
+        let config = load_from_str("trace_ttl_ms = 60000\n").unwrap();
+        assert_eq!(config.trace_ttl_ms, 60_000);
+    }
+
+    #[test]
+    fn legacy_flat_trace_ttl_ms_yields_to_section_when_both_present() {
+        let toml = "trace_ttl_ms = 60000\n[daemon]\ntrace_ttl_ms = 90000\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.trace_ttl_ms, 90_000);
+    }
+
+    #[test]
+    fn legacy_flat_max_events_per_trace_resolves_to_value() {
+        let config = load_from_str("max_events_per_trace = 250\n").unwrap();
+        assert_eq!(config.max_events_per_trace, 250);
+    }
+
+    #[test]
+    fn legacy_flat_max_events_per_trace_yields_to_section_when_both_present() {
+        let toml = "max_events_per_trace = 250\n[daemon]\nmax_events_per_trace = 750\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.max_events_per_trace, 750);
+    }
+
+    #[test]
+    fn legacy_flat_max_payload_size_resolves_to_value() {
+        let config = load_from_str("max_payload_size = 1048576\n").unwrap();
+        assert_eq!(config.max_payload_size, 1_048_576);
+    }
+
+    #[test]
+    fn legacy_flat_max_payload_size_yields_to_section_when_both_present() {
+        let toml = "max_payload_size = 1048576\n[daemon]\nmax_payload_size = 4194304\n";
+        let config = load_from_str(toml).unwrap();
+        assert_eq!(config.max_payload_size, 4_194_304);
+    }
+
+    #[test]
+    fn legacy_flats_silent_when_unset_yield_defaults() {
+        // Empty config: neither flat nor section set for the 8 deprecated
+        // keys. No warning may fire, defaults must apply. Locks the
+        // "no-noise" contract of `resolve_with_deprecation_warning`.
+        let config = load_from_str("").unwrap();
+        let defaults = Config::default();
+        assert_eq!(config.n_plus_one_threshold, defaults.n_plus_one_threshold);
+        assert_eq!(config.window_duration_ms, defaults.window_duration_ms);
+        assert_eq!(config.listen_addr, defaults.listen_addr);
+        assert_eq!(config.listen_port, defaults.listen_port);
+        assert_eq!(config.max_active_traces, defaults.max_active_traces);
+        assert_eq!(config.trace_ttl_ms, defaults.trace_ttl_ms);
+        assert_eq!(config.max_events_per_trace, defaults.max_events_per_trace);
+        assert_eq!(config.max_payload_size, defaults.max_payload_size);
+    }
+
+    // The two tests below capture `tracing` events with `tracing_test` to
+    // lock the warning emission contract: legacy flat alone fires exactly
+    // once with the expected fields, section override stays silent.
+    #[tracing_test::traced_test]
+    #[test]
+    fn legacy_flat_emits_warning_when_section_absent() {
+        let _ = load_from_str("n_plus_one_threshold = 7\n").unwrap();
+        assert!(logs_contain(
+            "config: top-level 'n_plus_one_threshold' is deprecated"
+        ));
+        assert!(logs_contain("legacy_key=\"n_plus_one_threshold\""));
+        assert!(logs_contain(
+            "replacement=\"[detection] n_plus_one_min_occurrences\""
+        ));
+    }
+
+    #[tracing_test::traced_test]
+    #[test]
+    fn legacy_flat_silent_when_section_overrides() {
+        let toml = "listen_addr = \"0.0.0.0\"\n[daemon]\nlisten_address = \"127.0.0.1\"\n";
+        let _ = load_from_str(toml).unwrap();
+        assert!(!logs_contain("'listen_addr' is deprecated"));
     }
 
     #[test]

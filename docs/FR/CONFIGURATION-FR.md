@@ -542,6 +542,42 @@ io_waste_ratio_max = 0.30
 
 Lorsque les deux formats sont présents, les valeurs sectionnées ont priorité sur les valeurs plates. Le format sectionné est recommandé pour les nouvelles configurations.
 
+### Clés dépréciées
+
+Les clés top-level (plates) suivantes sont dépréciées. Elles résolvent toujours correctement pour la rétrocompatibilité, mais émettent un message de dépréciation niveau `WARN` au chargement de la configuration quand aucune valeur sectionnée ne les supplante. Elles seront retirées dans une future version. Migrez vers la forme sectionnée ci-dessous.
+
+| Dépréciée (plate) | Utiliser à la place | Section |
+|---|---|---|
+| `n_plus_one_threshold` | `n_plus_one_min_occurrences` | `[detection]` |
+| `window_duration_ms` | `window_duration_ms` | `[detection]` |
+| `listen_addr` | `listen_address` | `[daemon]` |
+| `listen_port` | `listen_port_http` | `[daemon]` |
+| `max_active_traces` | `max_active_traces` | `[daemon]` |
+| `trace_ttl_ms` | `trace_ttl_ms` | `[daemon]` |
+| `max_events_per_trace` | `max_events_per_trace` | `[daemon]` |
+| `max_payload_size` | `max_payload_size` | `[daemon]` |
+
+Exemple de migration. Avant (déprécié) :
+
+```toml
+n_plus_one_threshold = 5
+listen_port = 4318
+max_payload_size = 2097152
+```
+
+Après (recommandé) :
+
+```toml
+[detection]
+n_plus_one_min_occurrences = 5
+
+[daemon]
+listen_port_http = 4318
+max_payload_size = 2097152
+```
+
+Quand les deux formes coexistent pour le même paramètre, la forme sectionnée gagne et aucun warning de dépréciation n'est émis pour cette clé.
+
 ## Variables d'environnement
 
 Les fichiers de configuration ne doivent jamais contenir de secrets. Pour les valeurs sensibles (clés API, tokens), utilisez des variables d'environnement dans vos outils de déploiement. perf-sentinel ne lit pas lui-même de variables d'environnement pour la configuration.

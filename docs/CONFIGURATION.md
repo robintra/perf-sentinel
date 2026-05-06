@@ -535,6 +535,42 @@ io_waste_ratio_max = 0.30
 
 When both formats are present, sectioned values take priority over flat values. The sectioned format is recommended for new configurations.
 
+### Deprecated keys
+
+The following top-level (flat) keys are deprecated. They still resolve correctly for backward compatibility, but emit a `WARN`-level deprecation message at config load when no section override is set. They will be removed in a future release. Migrate to the sectioned form below.
+
+| Deprecated (flat) | Use instead | Section |
+|---|---|---|
+| `n_plus_one_threshold` | `n_plus_one_min_occurrences` | `[detection]` |
+| `window_duration_ms` | `window_duration_ms` | `[detection]` |
+| `listen_addr` | `listen_address` | `[daemon]` |
+| `listen_port` | `listen_port_http` | `[daemon]` |
+| `max_active_traces` | `max_active_traces` | `[daemon]` |
+| `trace_ttl_ms` | `trace_ttl_ms` | `[daemon]` |
+| `max_events_per_trace` | `max_events_per_trace` | `[daemon]` |
+| `max_payload_size` | `max_payload_size` | `[daemon]` |
+
+Migration example. Before (deprecated):
+
+```toml
+n_plus_one_threshold = 5
+listen_port = 4318
+max_payload_size = 2097152
+```
+
+After (recommended):
+
+```toml
+[detection]
+n_plus_one_min_occurrences = 5
+
+[daemon]
+listen_port_http = 4318
+max_payload_size = 2097152
+```
+
+When both forms are present for the same setting, the sectioned form takes precedence and no deprecation warning is emitted for that key.
+
 ## Environment variables
 
 Configuration files must never contain secrets. For sensitive values (API keys, tokens), use environment variables in your deployment tooling. perf-sentinel itself does not read environment variables for configuration.
