@@ -112,6 +112,49 @@ for CRATE_TOML in "${CRATE_TOMLS[@]}"; do
   fi
 done
 
+# Verify intra-workspace dependency pins also match the target version.
+# A crate that publishes to crates.io must pin its sibling workspace
+# crate via `version = "X.Y.Z"` next to `path = "..."` so cargo publish
+# can resolve the dependency from the registry. If [workspace.package].version
+# is bumped without bumping these pins, cargo publish either fails (registry
+# not yet propagated) or silently publishes a binary linked to the previous
+# core version.
+INTRA_WORKSPACE_CRATES=()
+for CRATE_TOML in "${CRATE_TOMLS[@]}"; do
+  NAME=$(awk -F\" '
+    /^\[package\]/ { in_section = 1; next }
+    /^\[/          { in_section = 0 }
+    in_section && /^name[[:space:]]*=[[:space:]]*"/ { print $2; exit }
+  ' "${CRATE_TOML}")
+  if [ -n "${NAME}" ]; then
+    INTRA_WORKSPACE_CRATES+=("${NAME}")
+  fi
+done
+
+for CRATE_TOML in "${CRATE_TOMLS[@]}"; do
+  for DEP_NAME in "${INTRA_WORKSPACE_CRATES[@]}"; do
+    DEP_VERSION=$(awk -v dep="${DEP_NAME}" '
+      $0 ~ "^"dep"[[:space:]]*=[[:space:]]*\\{" {
+        if (match($0, /version[[:space:]]*=[[:space:]]*"=?[^"]+"/)) {
+          v = substr($0, RSTART, RLENGTH)
+          sub(/^version[[:space:]]*=[[:space:]]*"/, "", v)
+          sub(/"$/, "", v)
+          sub(/^=/, "", v)
+          print v
+          exit
+        }
+      }
+    ' "${CRATE_TOML}")
+
+    if [ -n "${DEP_VERSION}" ] && [ "${DEP_VERSION}" != "${TARGET_VERSION}" ]; then
+      emit_error "${CRATE_TOML} dependency ${DEP_NAME} pinned to ${DEP_VERSION}, expected ${TARGET_VERSION}"
+      FAIL=1
+    elif [ -n "${DEP_VERSION}" ]; then
+      emit_notice "${CRATE_TOML} dep ${DEP_NAME} -> ${DEP_VERSION} (matches tag)"
+    fi
+  done
+done
+
 if [ "${FAIL}" -ne 0 ]; then
   exit 1
 fi

@@ -166,6 +166,11 @@ Bump targets beyond `Cargo.toml`:
 - `PERF_SENTINEL_VERSION` in the three CI templates under `docs/ci-templates/` and their referenced examples in `docs/CI.md` and `docs/FR/CI-FR.md`.
 - `CHANGELOG.md`: move the `[Unreleased]` section content under a new `[x.y.z]` header.
 - `CLAUDE.md`: update the "Version" status line after the tag is pushed.
+- Intra-workspace dependency pins: any `[dependencies]` block that pins a sibling workspace crate by literal version (e.g. `perf-sentinel-core = { version = "0.5.24", path = "../sentinel-core" }` in `crates/sentinel-cli/Cargo.toml`) must be bumped in lockstep. `scripts/check-tag-version.sh` validates these pins and aborts the release on mismatch. List them with:
+
+  ```bash
+  grep -rn 'perf-sentinel-core[[:space:]]*=[[:space:]]*{' crates/*/Cargo.toml
+  ```
 
 ## License
 
