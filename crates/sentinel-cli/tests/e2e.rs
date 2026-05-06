@@ -234,18 +234,19 @@ fn cli_watch_help_documents_listen_address_override() {
 fn cli_watch_listen_address_override_starts_cleanly() {
     use std::time::Duration;
 
-    // Use non-default ports to avoid collisions with a local daemon and
-    // verify the override path is wired end-to-end (invalid ports or a
-    // parse failure would exit before the sleep expires).
+    // Use ports clearly outside both the default range (4318 / 4317)
+    // and the +10000 dogfooding pattern (14318 / 14317) to avoid
+    // colliding with a local daemon on a dev machine. The +20000 offset
+    // is arbitrary but well outside production deployment territory.
     let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
         .args([
             "watch",
             "--listen-address",
             "127.0.0.1",
             "--listen-port-http",
-            "14318",
+            "24318",
             "--listen-port-grpc",
-            "14317",
+            "24317",
         ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
