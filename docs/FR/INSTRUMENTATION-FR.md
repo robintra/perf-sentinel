@@ -337,6 +337,16 @@ perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span 
 
 Les spans qui n'ont ni attribut SQL ni attribut HTTP sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
 
+> **`http.route` est porteur pour la stabilité des acks.** La
+> signature d'acknowledgment clé sur le template de route, pas sur
+> l'URL instanciée. Les services qui émettent `http.route` (Spring
+> Boot, ASP.NET Core, Express, toute auto-instrumentation moderne)
+> conservent des acks qui survivent aux redémarrages et aux ids de
+> requête tournants. Les services qui retombent sur `http.url` ou
+> `url.full` perdent cette stabilité. Voir
+> [`ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md#stabilité-de-signature-et-redémarrages-de-service)
+> pour la recette de vérification.
+
 ---
 
 ## Dev/staging : instrumentation par langage

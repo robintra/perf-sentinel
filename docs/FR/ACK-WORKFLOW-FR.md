@@ -164,3 +164,81 @@ opération ack qu'il traite
 `perf_sentinel_ack_operations_failed_total{action,reason}`). Voir
 [`METRICS-FR.md`](./METRICS-FR.md) pour le schéma complet et des
 exemples PromQL.
+
+## Stabilité de signature et redémarrages de service
+
+Les acks matchent les findings via une signature canonique :
+
+```
+<finding_type>:<service>:<endpoint_sanitisé>:<préfixe-sha256-du-template>
+```
+
+La signature exclut volontairement `trace_id` et `span_id`, donc un
+ack unique survit aux redémarrages de service et au trafic normal
+porteur d'identifiants de requête variables. Le contrat est verrouillé
+par les tests unitaires dans
+`crates/sentinel-core/src/acknowledgments.rs`.
+
+### Dépendance critique à `http.route`
+
+Le composant `endpoint` est dérivé de l'attribut OpenTelemetry
+`http.route` sur le span HTTP parent, qui porte le template de route
+(par exemple `/api/orders/{id}`) plutôt que l'URL instanciée
+(`/api/orders/42`).
+
+Quand les services tracés émettent `http.route` :
+
+- Le même finding sur le même endpoint logique produit la même
+  signature.
+- Les acks survivent aux redémarrages de service.
+- Les acks survivent au trafic normal avec des identifiants de
+  requête tournants.
+
+Quand `http.route` est absent, perf-sentinel se rabat sur `http.url`,
+puis sur `url.full` (convention OTel stable v1.21+). Chaque URL
+unique produit une signature différente, le churn d'acks devient
+proportionnel à la cardinalité des URL, et les findings différés
+réapparaissent à chaque nouvel id de requête. Le fallback existe pour
+fournir une chaîne d'endpoint exploitable, pas comme posture
+recommandée.
+
+Les agents OpenTelemetry standard émettent `http.route`
+automatiquement :
+
+- Spring Boot 3+ avec l'agent Java OpenTelemetry.
+- ASP.NET Core avec le SDK .NET OpenTelemetry.
+- Express.js, Fastify, Koa avec `@opentelemetry/instrumentation-*`.
+- La plupart des auto-instrumentations de frameworks HTTP modernes.
+
+Pour vérifier qu'un service instrumenté émet bien des templates de
+route, inspecter le `source_endpoint` d'un finding récent contre un
+daemon qui tourne :
+
+```bash
+curl -s http://localhost:4318/api/findings | jq -r '.[].source_endpoint' | sort -u
+```
+
+Des templates avec placeholders (`/api/orders/{id}`) signalent une
+instrumentation saine. Des URL instanciées avec des id en dur
+(`/api/orders/42`) signalent que `http.route` est absent et que les
+acks vont churner.
+
+### Périmètre du carbon scoring
+
+Le champ `green_impact` sur chaque finding est calculé par détection
+au sein d'une seule trace. Les valeurs reportées par
+`perf-sentinel analyze` ou dans le rapport JSON décrivent une
+occurrence et n'agrègent pas cross-traces.
+
+Le daemon agrège bien sur la durée de vie de son process via les
+compteurs Prometheus `perf_sentinel_findings_total` et
+`perf_sentinel_avoidable_io_ops_total`. Ces compteurs clé sur
+`(trace_id, template, source_endpoint)` plutôt que sur la signature
+canonique, donc un redémarrage de service qui produit des `trace_id`
+nouveaux pour le même finding logique le compte de nouveau. Les
+opérateurs qui s'appuient sur les valeurs absolues des compteurs
+pour des dashboards de tendance doivent s'attendre à une inflation
+proportionnelle au churn de redémarrage sur la fenêtre. Préférer
+`rate(...)` sur des fenêtres courtes ou des deltas par rapport à une
+baseline récente plutôt que de lire la valeur monotone brute. Une
+release de suivi reverra la clé de dédup.

@@ -158,3 +158,74 @@ operation it processes (`perf_sentinel_ack_operations_total{action}`
 and `perf_sentinel_ack_operations_failed_total{action,reason}`). See
 [`METRICS.md`](./METRICS.md) for the full schema and example
 PromQL queries.
+
+## Signature stability and service restarts
+
+Acknowledgments match findings by a canonical signature:
+
+```
+<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>
+```
+
+The signature deliberately excludes `trace_id` and `span_id`, so a
+single ack survives service restarts and routine traffic with varying
+request identifiers. The contract is locked by unit tests in
+`crates/sentinel-core/src/acknowledgments.rs`.
+
+### Critical dependency on `http.route`
+
+The `endpoint` component is derived from the OpenTelemetry `http.route`
+attribute on the parent HTTP span, which carries the route template
+(e.g. `/api/orders/{id}`) rather than the instantiated URL
+(`/api/orders/42`).
+
+When traced services emit `http.route`:
+
+- Same finding on the same logical endpoint produces the same signature.
+- Acknowledgments survive service restarts.
+- Acknowledgments survive normal traffic with rotating request IDs.
+
+When `http.route` is missing, perf-sentinel falls back to `http.url`,
+then to `url.full` (OTel v1.21+ stable convention). Each unique URL
+yields a different signature, ack churn becomes proportional to URL
+cardinality, and deferred findings reappear at every new request id.
+The fallback exists so the operator still sees a usable endpoint
+string, not as a recommended posture.
+
+Standard OpenTelemetry agents emit `http.route` automatically:
+
+- Spring Boot 3+ with the OpenTelemetry Java agent.
+- ASP.NET Core with the OpenTelemetry .NET SDK.
+- Express.js, Fastify, Koa with `@opentelemetry/instrumentation-*`.
+- Most modern HTTP framework auto-instrumentations.
+
+To confirm an instrumented service emits route templates, inspect a
+recent finding's `source_endpoint` against a running daemon:
+
+```bash
+curl -s http://localhost:4318/api/findings | jq -r '.[].source_endpoint' | sort -u
+```
+
+Templates with placeholders (`/api/orders/{id}`) indicate healthy
+instrumentation. Instantiated URLs with hardcoded ids
+(`/api/orders/42`) indicate `http.route` is missing and acks will
+churn.
+
+### Carbon scoring scope
+
+The `green_impact` field on each finding is computed per detection
+inside a single trace. The values reported by `perf-sentinel analyze`
+or in the JSON report describe one occurrence and do not aggregate
+across traces.
+
+The daemon does aggregate over its lifetime via the Prometheus
+counters `perf_sentinel_findings_total` and
+`perf_sentinel_avoidable_io_ops_total`. These counters key on
+`(trace_id, template, source_endpoint)` rather than on the canonical
+signature, so a service restart that produces fresh `trace_id` values
+for the same logical finding will be counted again. Operators
+relying on the absolute counter values for trend dashboards should
+expect inflation proportional to service-restart churn over a window.
+Use `rate(...)` over short windows or compute deltas relative to a
+recent baseline rather than reading the raw monotonic value. A
+follow-up release will revisit the dedup key.
