@@ -189,8 +189,20 @@ fn cli_analyze_rejects_invalid_json() {
 fn cli_watch_starts_and_responds_to_sigterm() {
     use std::time::Duration;
 
+    // Override the default 4318 / 4317 to a clearly non-default pair
+    // distinct from `cli_watch_listen_address_override_starts_cleanly`
+    // (24318 / 24317) so the two e2e watch tests can run in parallel
+    // without colliding.
     let mut child = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
-        .arg("watch")
+        .args([
+            "watch",
+            "--listen-address",
+            "127.0.0.1",
+            "--listen-port-http",
+            "24320",
+            "--listen-port-grpc",
+            "24319",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -199,11 +211,23 @@ fn cli_watch_starts_and_responds_to_sigterm() {
     // Give it a moment to start the listeners
     std::thread::sleep(Duration::from_millis(500));
 
+    // Assert the daemon was alive before we send the kill, otherwise a
+    // silent bind failure on this side (exit 1) would still satisfy the
+    // `!status.success()` check below and pass for the wrong reason.
+    let still_running = child.try_wait().expect("try_wait failed").is_none();
+
     // Kill the process (SIGTERM equivalent on Windows)
     child.kill().expect("failed to kill watch process");
     let output = child.wait_with_output().expect("failed to wait");
 
-    // The process should have exited (killed)
+    assert!(
+        still_running,
+        "daemon should have been running before SIGTERM; \
+         exit status: {:?}\n--- stdout ---\n{}\n--- stderr ---\n{}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
     assert!(!output.status.success());
 }
 
