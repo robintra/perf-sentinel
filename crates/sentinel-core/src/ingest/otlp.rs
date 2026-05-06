@@ -848,6 +848,95 @@ mod tests {
     }
 
     #[test]
+    fn parent_span_http_route_takes_precedence_over_http_url() {
+        // Critical for ack stability: when the parent emits both
+        // http.route (template) and http.url (instantiated), the route
+        // must win. Otherwise every distinct request id forks the ack
+        // signature.
+        let parent = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![10; 8],
+            parent_span_id: vec![],
+            name: "HandleRequest".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000_000,
+            attributes: vec![
+                make_kv("http.route", "POST /api/orders/{id}/submit"),
+                make_kv("http.url", "http://order-svc/api/orders/42/submit"),
+                make_kv("code.function", "OrderService::create_order"),
+            ],
+            ..Default::default()
+        };
+        let child = make_sql_span(
+            &[1; 16],
+            &[20; 8],
+            &[10; 8],
+            "SELECT * FROM order_item WHERE order_id = 42",
+            1_720_621_921_000_000_000,
+            1_720_621_921_001_200_000,
+        );
+        let req = make_request("order-svc", vec![parent, child]);
+        let events = convert_otlp_request(&req);
+
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql child event present");
+        assert_eq!(sql.source.endpoint, "POST /api/orders/{id}/submit");
+    }
+
+    #[test]
+    fn parent_span_http_url_used_only_when_route_absent() {
+        // Documented fallback: instrumentation that omits http.route
+        // (legacy SDK, manual instrumentation) loses signature stability
+        // but still produces a usable endpoint string.
+        let parent = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![10; 8],
+            parent_span_id: vec![],
+            name: "HandleRequest".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000_000,
+            attributes: vec![make_kv("http.url", "http://order-svc/api/orders/42/submit")],
+            ..Default::default()
+        };
+        let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+        let req = make_request("order-svc", vec![parent, child]);
+        let events = convert_otlp_request(&req);
+
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql child event present");
+        assert_eq!(sql.source.endpoint, "http://order-svc/api/orders/42/submit");
+    }
+
+    #[test]
+    fn parent_span_url_full_used_when_neither_route_nor_url_present() {
+        // OTel stable v1.21+ replaces http.url with url.full. Last-resort
+        // fallback once http.route and http.url are both absent.
+        let parent = Span {
+            trace_id: vec![1; 16],
+            span_id: vec![10; 8],
+            parent_span_id: vec![],
+            name: "HandleRequest".to_string(),
+            start_time_unix_nano: 0,
+            end_time_unix_nano: 1_000_000_000,
+            attributes: vec![make_kv("url.full", "http://order-svc/api/orders/42")],
+            ..Default::default()
+        };
+        let child = make_sql_span(&[1; 16], &[20; 8], &[10; 8], "SELECT 1", 0, 1_000_000);
+        let req = make_request("order-svc", vec![parent, child]);
+        let events = convert_otlp_request(&req);
+
+        let sql = events
+            .iter()
+            .find(|e| e.event_type == EventType::Sql)
+            .expect("sql child event present");
+        assert_eq!(sql.source.endpoint, "http://order-svc/api/orders/42");
+    }
+
+    #[test]
     fn missing_parent_falls_back() {
         let child = make_sql_span(
             &[1; 16],

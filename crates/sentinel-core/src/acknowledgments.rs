@@ -389,6 +389,49 @@ mod tests {
     }
 
     #[test]
+    fn signature_stable_across_trace_id_changes() {
+        // Core ack contract: a service restart produces new trace_id and
+        // span_id values, but the same finding type on the same service /
+        // endpoint / template must yield the same signature. Without this
+        // invariant, ack entries silently stop matching after a restart.
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let mut f2 = f1.clone();
+        f1.trace_id = "aaaaaaaaaaaaaaaa0000000000000000".to_string();
+        f2.trace_id = "ffffffffffffffff1111111111111111".to_string();
+        assert_ne!(f1.trace_id, f2.trace_id);
+        assert_eq!(
+            compute_signature(&f1),
+            compute_signature(&f2),
+            "signature must not depend on trace_id (acks survive service restarts)"
+        );
+    }
+
+    #[test]
+    fn compute_signature_differs_with_endpoint() {
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let mut f2 = f1.clone();
+        f1.source_endpoint = "POST /api/orders".to_string();
+        f2.source_endpoint = "POST /api/users".to_string();
+        assert_ne!(compute_signature(&f1), compute_signature(&f2));
+    }
+
+    #[test]
+    fn compute_signature_differs_with_service() {
+        let mut f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let mut f2 = f1.clone();
+        f1.service = "order-svc".to_string();
+        f2.service = "user-svc".to_string();
+        assert_ne!(compute_signature(&f1), compute_signature(&f2));
+    }
+
+    #[test]
+    fn compute_signature_differs_with_finding_type() {
+        let f1 = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        let f2 = make_finding(FindingType::RedundantSql, Severity::Warning);
+        assert_ne!(compute_signature(&f1), compute_signature(&f2));
+    }
+
+    #[test]
     fn load_from_file_rejects_oversized_input() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("acks.toml");
