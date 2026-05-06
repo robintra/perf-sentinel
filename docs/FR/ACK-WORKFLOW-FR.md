@@ -230,15 +230,17 @@ au sein d'une seule trace. Les valeurs reportées par
 `perf-sentinel analyze` ou dans le rapport JSON décrivent une
 occurrence et n'agrègent pas cross-traces.
 
-Le daemon agrège bien sur la durée de vie de son process via les
-compteurs Prometheus `perf_sentinel_findings_total` et
-`perf_sentinel_avoidable_io_ops_total`. Ces compteurs clé sur
-`(trace_id, template, source_endpoint)` plutôt que sur la signature
-canonique, donc un redémarrage de service qui produit des `trace_id`
-nouveaux pour le même finding logique le compte de nouveau. Les
-opérateurs qui s'appuient sur les valeurs absolues des compteurs
-pour des dashboards de tendance doivent s'attendre à une inflation
-proportionnelle au churn de redémarrage sur la fenêtre. Préférer
-`rate(...)` sur des fenêtres courtes ou des deltas par rapport à une
-baseline récente plutôt que de lire la valeur monotone brute. Une
-release de suivi reverra la clé de dédup.
+Le daemon expose des compteurs Prometheus
+(`perf_sentinel_findings_total`,
+`perf_sentinel_avoidable_io_ops_total`) qui accumulent de manière
+monotone sur la durée de vie du daemon. Chaque batch contribue avec
+sa propre dédup intra-batch, clé sur
+`(trace_id, template, source_endpoint)`, ce qui empêche de compter
+deux fois le même pattern dans un seul batch. Les traces distinctes,
+y compris celles produites après un redémarrage de service,
+contribuent séparément parce qu'elles représentent des exécutions de
+requête distinctes. Les compteurs ne se réinitialisent qu'au
+redémarrage du process daemon, conformément à la sémantique standard
+des counters Prometheus. Préférer `rate(...)` sur des fenêtres
+courtes pour les dashboards de tendance plutôt que de lire la valeur
+absolue brute.

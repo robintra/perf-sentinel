@@ -218,14 +218,15 @@ inside a single trace. The values reported by `perf-sentinel analyze`
 or in the JSON report describe one occurrence and do not aggregate
 across traces.
 
-The daemon does aggregate over its lifetime via the Prometheus
-counters `perf_sentinel_findings_total` and
-`perf_sentinel_avoidable_io_ops_total`. These counters key on
-`(trace_id, template, source_endpoint)` rather than on the canonical
-signature, so a service restart that produces fresh `trace_id` values
-for the same logical finding will be counted again. Operators
-relying on the absolute counter values for trend dashboards should
-expect inflation proportional to service-restart churn over a window.
-Use `rate(...)` over short windows or compute deltas relative to a
-recent baseline rather than reading the raw monotonic value. A
-follow-up release will revisit the dedup key.
+The daemon exposes Prometheus counters
+(`perf_sentinel_findings_total`,
+`perf_sentinel_avoidable_io_ops_total`) that accumulate
+monotonically over the daemon's lifetime. Each batch contributes its
+own per-batch dedup, keyed on `(trace_id, template, source_endpoint)`,
+which prevents counting the same pattern twice within one batch.
+Distinct traces, including those produced after a service restart,
+contribute separately because they represent distinct request
+executions. The counters reset only when the daemon process restarts,
+matching the standard Prometheus counter semantics. Use `rate(...)`
+over short windows for trend dashboards rather than reading the raw
+absolute value.
