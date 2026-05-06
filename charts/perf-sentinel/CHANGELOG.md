@@ -6,6 +6,21 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.28]
+
+### Changed
+
+- `appVersion` bumped to `0.5.25`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.25`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.25 binary adds two Prometheus counters on the daemon
+  Scaphandre scraper (`perf_sentinel_scaphandre_scrape_total{status}`
+  and `perf_sentinel_scaphandre_scrape_failed_total{reason}`)
+  pre-warmed at startup so dashboards build with `rate()` queries
+  without `absent()` guards. No chart-level template change. See
+  `docs/METRICS.md` Scaphandre scrape counters section for the label
+  values and sample PromQL queries.
+
 ## [0.2.27]
 
 ### Changed
