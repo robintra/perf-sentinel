@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#
+# perf-sentinel pre-commit hook: scan staged changes for secrets.
+#
+# Installed by `scripts/install-hooks.sh`. Skips itself gracefully if
+# `gitleaks` is not on PATH so a fresh checkout does not fail
+# `git commit` with a confusing error before the contributor has
+# installed the tool. Surfaces a one-line install hint on first miss.
+#
+# Bypass: `git commit --no-verify` (use sparingly).
+
+set -euo pipefail
+
+if ! command -v gitleaks > /dev/null 2>&1; then
+  echo "warning: gitleaks not on PATH; skipping pre-commit secret scan."
+  echo "         install with 'brew install gitleaks' or see https://github.com/gitleaks/gitleaks"
+  exit 0
+fi
+
+# `git --staged` scans only the changes about to be committed, using
+# the project-level `.gitleaks.toml` config (allowlist for the
+# documented finding-signature format). Replaces the legacy
+# `protect --staged` which was deprecated in gitleaks 8.16.
+gitleaks git --staged --redact --no-banner --verbose

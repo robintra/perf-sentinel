@@ -28,6 +28,24 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 ```
 
+### Git hooks
+
+A pre-commit hook scans staged changes for secrets via [gitleaks](https://github.com/gitleaks/gitleaks). Install once after cloning:
+
+```bash
+bash scripts/install-hooks.sh
+```
+
+The hook skips silently if `gitleaks` is not on PATH and surfaces an install hint, so missing the tool never blocks a commit. To bypass on a specific commit (use sparingly):
+
+```bash
+git commit --no-verify
+```
+
+If you have set `core.hooksPath` globally to a custom directory (some `dotfiles` setups do), `install-hooks.sh` aborts with instructions. Either unset it for this repo (`git config --local --unset core.hooksPath`) or chain the gitleaks invocation from `scripts/hooks/pre-commit` into your existing global hook.
+
+CI also runs gitleaks on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier.
+
 ## Code coverage
 
 ```bash
