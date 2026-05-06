@@ -6,6 +6,23 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.29]
+
+### Changed
+
+- `appVersion` bumped to `0.5.26`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.26`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.26 binary adds soft-deprecation warnings for 8 legacy top-level
+  config keys (`n_plus_one_threshold`, `window_duration_ms`,
+  `listen_addr`, `listen_port`, `max_active_traces`, `trace_ttl_ms`,
+  `max_events_per_trace`, `max_payload_size`). Operators see a
+  `WARN`-level event with structured fields `legacy_key` and
+  `replacement` at daemon startup if the mounted `.perf-sentinel.toml`
+  still uses the flat form. Behavior is preserved bit-for-bit, the
+  sectioned form takes precedence when both are set. No chart-level
+  template change. Migration table in `docs/CONFIGURATION.md`.
+
 ## [0.2.28]
 
 ### Changed
