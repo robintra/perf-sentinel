@@ -390,6 +390,67 @@ mod tests {
     }
 
     #[test]
+    fn parent_span_http_route_takes_precedence_over_http_target() {
+        // Jaeger reads endpoint tags from the current span (not the parent
+        // like OTLP). When both http.route and http.target are present,
+        // route must win so the ack signature stays stable.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "db.statement", "value": "SELECT 1" },
+                        { "key": "db.system", "value": "postgresql" },
+                        { "key": "http.route", "value": "POST /api/orders/{id}" },
+                        { "key": "http.target", "value": "/api/orders/42" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "POST /api/orders/{id}");
+    }
+
+    #[test]
+    fn http_target_used_only_when_route_absent() {
+        // Documented Jaeger fallback: instrumentation that omits
+        // http.route falls back to http.target. The endpoint string is
+        // less stable but still useful.
+        let json = r#"{
+            "data": [{
+                "traceID": "t1",
+                "spans": [{
+                    "spanID": "s1",
+                    "operationName": "query",
+                    "references": [],
+                    "startTime": 1720621921123000,
+                    "duration": 500,
+                    "processID": "p1",
+                    "tags": [
+                        { "key": "db.statement", "value": "SELECT 1" },
+                        { "key": "db.system", "value": "postgresql" },
+                        { "key": "http.target", "value": "/api/orders/42" }
+                    ]
+                }],
+                "processes": { "p1": { "serviceName": "svc" } }
+            }]
+        }"#;
+        let ingest = JaegerIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/orders/42");
+    }
+
+    #[test]
     fn stable_semconv_tags() {
         let json = r#"{
             "data": [{

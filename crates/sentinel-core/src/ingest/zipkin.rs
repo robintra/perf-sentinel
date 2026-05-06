@@ -336,6 +336,58 @@ mod tests {
     }
 
     #[test]
+    fn parent_span_http_route_takes_precedence_over_http_target() {
+        // Zipkin reads endpoint tags from the current span. When both
+        // http.route and http.target are present, route must win so the
+        // ack signature stays stable.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "query",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql",
+                    "http.route": "POST /api/orders/{id}",
+                    "http.target": "/api/orders/42"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "POST /api/orders/{id}");
+    }
+
+    #[test]
+    fn http_target_used_only_when_route_absent() {
+        // Documented Zipkin fallback: instrumentation that omits
+        // http.route falls back to http.target.
+        let json = r#"[
+            {
+                "traceId": "t1",
+                "id": "s1",
+                "name": "query",
+                "timestamp": 1720621921123000,
+                "duration": 500,
+                "localEndpoint": { "serviceName": "svc" },
+                "tags": {
+                    "db.statement": "SELECT 1",
+                    "db.system": "postgresql",
+                    "http.target": "/api/orders/42"
+                }
+            }
+        ]"#;
+        let ingest = ZipkinIngest::new(1_048_576);
+        let events = ingest.ingest(json.as_bytes()).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].source.endpoint, "/api/orders/42");
+    }
+
+    #[test]
     fn stable_semconv_tags() {
         let json = r#"[
             {
