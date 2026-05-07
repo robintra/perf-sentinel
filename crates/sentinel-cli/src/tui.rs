@@ -67,6 +67,9 @@ pub struct App {
     /// `query inspect` from `/api/correlations`.
     correlations: Vec<CrossTraceCorrelation>,
     pub selected_correlation: usize,
+    /// Panel that brought the user into Detail. Read by `escape` to
+    /// return to the source panel (Findings or Correlations).
+    detail_origin: Panel,
 
     /// Daemon URL when running under `query inspect`. `None` in batch
     /// mode (`inspect --input`), which disables `a`/`u` keys.
@@ -142,6 +145,7 @@ impl App {
             pre_rendered_trees: HashMap::new(),
             correlations: Vec::new(),
             selected_correlation: 0,
+            detail_origin: Panel::Findings,
             #[cfg(feature = "daemon")]
             daemon_url: None,
             #[cfg(feature = "daemon")]
@@ -383,9 +387,12 @@ impl App {
         };
     }
 
-    /// Handle Enter key: drill into next panel.
-    // TODO: in a follow-up, jump to `correlation.sample_trace_id` from
-    // the Correlations panel into the Detail panel for that trace.
+    /// Handle Enter key: drill into the next panel.
+    ///
+    /// - Traces -> Findings (when there are findings)
+    /// - Findings -> Detail
+    /// - Correlations -> Detail (jumps to `sample_trace_id` if known locally)
+    /// - Detail -> no-op
     pub fn enter(&mut self) {
         match self.active_panel {
             Panel::Traces => {
@@ -396,18 +403,46 @@ impl App {
             }
             Panel::Findings => {
                 self.active_panel = Panel::Detail;
+                self.detail_origin = Panel::Findings;
                 self.scroll_offset = 0;
             }
-            Panel::Detail | Panel::Correlations => {}
+            Panel::Correlations => {
+                self.jump_to_correlation_sample_trace();
+            }
+            Panel::Detail => {}
         }
     }
 
-    /// Handle Escape: go back to previous panel.
+    /// Jump from Correlations to Detail for the selected correlation's
+    /// `sample_trace_id`. No-op if the trace is unknown locally.
+    fn jump_to_correlation_sample_trace(&mut self) {
+        let Some(correlation) = self.correlations.get(self.selected_correlation) else {
+            return;
+        };
+        let Some(sample_trace_id) = correlation.sample_trace_id.as_deref() else {
+            return;
+        };
+        let Some(&position) = self.trace_index.get(sample_trace_id) else {
+            return;
+        };
+        if position != self.selected_trace {
+            self.selected_trace = position;
+            self.cached_detail = None;
+        }
+        self.selected_finding = 0;
+        self.scroll_offset = 0;
+        self.detail_origin = Panel::Correlations;
+        self.active_panel = Panel::Detail;
+    }
+
+    /// Handle Escape: go back to previous panel. Detail returns to
+    /// `detail_origin` (Findings or Correlations) so the operator lands
+    /// back where the drill-down started.
     pub fn escape(&mut self) {
         match self.active_panel {
             Panel::Traces | Panel::Correlations => {}
             Panel::Findings => self.active_panel = Panel::Traces,
-            Panel::Detail => self.active_panel = Panel::Findings,
+            Panel::Detail => self.active_panel = self.detail_origin,
         }
     }
 }
@@ -2864,6 +2899,173 @@ mod tests {
         assert!(
             rendered.contains("daemon ack store disabled"),
             "expected error message in modal footer, got:\n{rendered}"
+        );
+    }
+
+    #[test]
+    fn enter_in_correlations_jumps_to_sample_trace_detail() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-2".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        app.selected_correlation = 0;
+
+        app.enter();
+
+        assert_eq!(app.active_panel, Panel::Detail);
+        assert_eq!(
+            app.traces[app.selected_trace].trace_id, "trace-2",
+            "selected_trace must point to trace-2"
+        );
+        assert_eq!(app.selected_finding, 0);
+        assert_eq!(app.scroll_offset, 0);
+    }
+
+    #[test]
+    fn enter_in_correlations_with_no_sample_trace_id_is_silent() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = None;
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        let panel_before = app.active_panel;
+        let trace_before = app.selected_trace;
+
+        app.enter();
+
+        assert_eq!(
+            app.active_panel, panel_before,
+            "no jump must happen when sample_trace_id is None"
+        );
+        assert_eq!(app.selected_trace, trace_before);
+    }
+
+    #[test]
+    fn enter_in_correlations_with_unknown_trace_id_is_silent() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-from-yesterday".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        let panel_before = app.active_panel;
+        let trace_before = app.selected_trace;
+
+        app.enter();
+
+        assert_eq!(
+            app.active_panel, panel_before,
+            "no jump when sample_trace_id is not in trace_index"
+        );
+        assert_eq!(app.selected_trace, trace_before);
+    }
+
+    #[test]
+    fn enter_in_correlations_resets_finding_and_scroll() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-2".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        app.selected_correlation = 0;
+        app.selected_finding = 3;
+        app.scroll_offset = 5;
+        app.cached_detail = Some((0, "stale tree from trace-1".to_string()));
+
+        app.enter();
+
+        assert_eq!(app.selected_finding, 0, "selected_finding must reset to 0");
+        assert_eq!(app.scroll_offset, 0, "scroll_offset must reset to 0");
+        assert!(
+            app.cached_detail.is_none(),
+            "cached_detail must invalidate so the new trace's tree is recomputed"
+        );
+    }
+
+    #[test]
+    fn enter_in_correlations_with_empty_correlations_is_silent() {
+        let mut app = make_test_app();
+        app.active_panel = Panel::Correlations;
+
+        app.enter();
+
+        assert_eq!(app.active_panel, Panel::Correlations);
+    }
+
+    #[test]
+    fn enter_in_correlations_with_out_of_bounds_cursor_is_silent() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-2".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        app.selected_correlation = 99;
+
+        app.enter();
+
+        assert_eq!(app.active_panel, Panel::Correlations);
+        assert_eq!(app.selected_trace, 0);
+    }
+
+    #[test]
+    fn escape_from_correlations_drilled_detail_returns_to_correlations() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-2".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        app.selected_correlation = 0;
+        app.enter();
+        assert_eq!(app.active_panel, Panel::Detail);
+
+        app.escape();
+
+        assert_eq!(
+            app.active_panel,
+            Panel::Correlations,
+            "Detail entered from Correlations must escape back to Correlations"
+        );
+    }
+
+    #[test]
+    fn escape_from_findings_drilled_detail_still_returns_to_findings() {
+        let mut app = make_test_app();
+        app.active_panel = Panel::Findings;
+        app.enter();
+        assert_eq!(app.active_panel, Panel::Detail);
+
+        app.escape();
+
+        assert_eq!(
+            app.active_panel,
+            Panel::Findings,
+            "Detail entered from Findings must keep escaping back to Findings"
+        );
+    }
+
+    #[test]
+    fn jump_to_same_trace_preserves_cached_detail() {
+        let mut app = make_test_app().with_correlations(vec![{
+            let mut c = make_correlation("a", "b");
+            c.sample_trace_id = Some("trace-1".to_string());
+            c
+        }]);
+        app.active_panel = Panel::Correlations;
+        app.selected_correlation = 0;
+        app.cached_detail = Some((0, "rendered tree for trace-1".to_string()));
+
+        app.enter();
+
+        assert_eq!(app.active_panel, Panel::Detail);
+        assert!(
+            app.cached_detail.is_some(),
+            "cached_detail must be preserved when jumping to the already-selected trace"
         );
     }
 }
