@@ -605,7 +605,7 @@ Entry minimale :
 
 ```toml
 [[acknowledged]]
-signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabe"
+signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabecafebabecafebabe"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Pattern d'invalidation de cache, intentionnel. Voir ADR-0042."

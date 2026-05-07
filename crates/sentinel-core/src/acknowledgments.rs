@@ -64,11 +64,11 @@ pub struct AcknowledgmentsFile {
 /// Compute the canonical signature of a finding.
 ///
 /// Format: `<finding_type>:<service>:<sanitized_endpoint>:<sha256-prefix-of-template>`.
-/// The `sha256` prefix uses the first 8 bytes (16 hex characters), giving
-/// ~64 bits of collision resistance. The triple
+/// The `sha256` prefix uses the first 16 bytes (32 hex characters), giving
+/// ~128 bits of collision resistance. The triple
 /// `(finding_type, service, sanitized_endpoint)` is already part of the
 /// signature, so the hash only needs to disambiguate templates within the
-/// same triple, an extremely small population in practice. The 16-char
+/// same triple, an extremely small population in practice. The 32-char
 /// prefix is defense in depth against accidental ack masking after a SQL
 /// refactor or a service rename.
 ///
@@ -87,15 +87,15 @@ pub fn compute_signature(finding: &Finding) -> String {
     let sanitized_endpoint = sanitize_endpoint(&finding.source_endpoint);
     let safe_endpoint = crate::report::sarif::strip_bidi_and_invisible(&sanitized_endpoint);
     let kind = finding.finding_type.as_str();
-    // Pre-size: type + 2 separators + service + endpoint + ':' + 16 hex.
-    let mut out = String::with_capacity(kind.len() + safe_service.len() + safe_endpoint.len() + 19);
+    // Pre-size: type + 2 separators + service + endpoint + ':' + 32 hex.
+    let mut out = String::with_capacity(kind.len() + safe_service.len() + safe_endpoint.len() + 35);
     out.push_str(kind);
     out.push(':');
     out.push_str(safe_service.as_ref());
     out.push(':');
     out.push_str(safe_endpoint.as_ref());
     out.push(':');
-    for byte in &digest[..8] {
+    for byte in &digest[..16] {
         let _ = write!(out, "{byte:02x}");
     }
     out
@@ -384,7 +384,7 @@ mod tests {
         assert_eq!(parts.next(), Some("order-service"));
         assert_eq!(parts.next(), Some("POST__api_orders"));
         let hex = parts.next().expect("hex prefix present");
-        assert_eq!(hex.len(), 16, "hex prefix is 16 characters (8 bytes)");
+        assert_eq!(hex.len(), 32, "hex prefix is 32 characters (16 bytes)");
         assert!(
             hex.chars().all(|c| c.is_ascii_hexdigit()),
             "hex prefix is hex"
@@ -493,13 +493,13 @@ mod tests {
             &path,
             r#"
 [[acknowledged]]
-signature = "n_plus_one_sql:svc:GET_/a:abcd1234"
+signature = "n_plus_one_sql:svc:GET_/a:abcd1234abcd1234abcd1234abcd1234"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-04-15"
 reason = "documented"
 
 [[acknowledged]]
-signature = "redundant_sql:svc:POST_/b:11223344"
+signature = "redundant_sql:svc:POST_/b:11223344112233441122334411223344"
 acknowledged_by = "bob@example.com"
 acknowledged_at = "2026-04-20"
 reason = "won't fix"
@@ -542,7 +542,7 @@ reason = "missing signature"
             &path,
             r#"
 [[acknowledged]]
-signature = "redundant_sql:svc:POST_/b:11223344"
+signature = "redundant_sql:svc:POST_/b:11223344112233441122334411223344"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-04-15"
 reason = "bad date"
@@ -593,7 +593,10 @@ expires_at = "not-a-date"
         enrich_with_signatures(&mut findings);
         let mut report = empty_report(findings);
         let acks = AcknowledgmentsFile {
-            acknowledged: vec![ack("n_plus_one_sql:nope:nope:00000000", None)],
+            acknowledged: vec![ack(
+                "n_plus_one_sql:nope:nope:00000000000000000000000000000000",
+                None,
+            )],
         };
         let config = Config::default();
         apply_to_report(&mut report, &acks, &config, now_2026_05_02());

@@ -20,7 +20,7 @@ Edit the file directly:
 
 ```toml
 [[acknowledged]]
-signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 acknowledged_by = "team-architecture"
 acknowledged_at = "2026-05-04T13:30:00Z"
 reason = "Intentional fan-out for batch reporting endpoint"
@@ -57,7 +57,7 @@ When auth is enabled server-side (`[daemon.ack] api_key`), add
 
 ```bash
 perf-sentinel ack create \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef" \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
   --reason "deferred to next sprint" \
   --expires 7d
 ```
@@ -72,7 +72,7 @@ interactive API-key prompt.
 
 ```bash
 perf-sentinel ack revoke \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 ```
 
 Or via curl:

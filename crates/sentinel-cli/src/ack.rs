@@ -1075,7 +1075,7 @@ mod tests {
 
     #[test]
     fn percent_encode_signature_passes_through_safe_chars() {
-        let s = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef";
+        let s = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef";
         assert_eq!(percent_encode_signature_segment(s), s);
     }
 
@@ -1270,7 +1270,7 @@ mod tests {
     fn format_ack_table_renders_columns_and_count() {
         let entries = vec![
             AckListEntry {
-                signature: "n_plus_one_sql:svc:_api:0123456789abcdef".to_string(),
+                signature: "n_plus_one_sql:svc:_api:0123456789abcdef0123456789abcdef".to_string(),
                 by: "alice".to_string(),
                 reason: Some("deferred".to_string()),
                 at: DateTime::parse_from_rfc3339("2026-05-05T12:00:00Z")
@@ -1283,7 +1283,7 @@ mod tests {
                 ),
             },
             AckListEntry {
-                signature: "slow_http:other:_api:fedcba9876543210".to_string(),
+                signature: "slow_http:other:_api:fedcba9876543210fedcba9876543210".to_string(),
                 by: "bob".to_string(),
                 reason: None,
                 at: DateTime::parse_from_rfc3339("2026-05-04T09:15:00Z")

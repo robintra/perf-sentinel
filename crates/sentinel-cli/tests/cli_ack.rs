@@ -232,7 +232,7 @@ fn url_for(port: u16) -> String {
     format!("http://127.0.0.1:{port}")
 }
 
-const TEST_SIG: &str = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef";
+const TEST_SIG: &str = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef";
 
 #[test]
 fn ack_create_success_returns_0() {
@@ -474,8 +474,8 @@ fn ack_revoke_404_returns_2() {
 #[test]
 fn ack_list_text_format_renders_table() {
     let body = r#"[
-        {"action":"ack","signature":"n_plus_one_sql:svc:_api:0123456789abcdef","by":"alice","reason":"deferred","at":"2026-05-05T12:00:00Z","expires_at":"2026-05-12T13:30:00Z"},
-        {"action":"ack","signature":"slow_http:other:_api:fedcba9876543210","by":"bob","reason":null,"at":"2026-05-04T09:15:00Z","expires_at":null}
+        {"action":"ack","signature":"n_plus_one_sql:svc:_api:0123456789abcdef0123456789abcdef","by":"alice","reason":"deferred","at":"2026-05-05T12:00:00Z","expires_at":"2026-05-12T13:30:00Z"},
+        {"action":"ack","signature":"slow_http:other:_api:fedcba9876543210fedcba9876543210","by":"bob","reason":null,"at":"2026-05-04T09:15:00Z","expires_at":null}
     ]"#;
     let (port, _log) = spawn_mock(vec![ScriptedResponse::ok_200(body)]);
     let output = run_cli(&["ack", "--daemon", &url_for(port), "list"]);

@@ -938,7 +938,8 @@ mod tests {
 
     // --- 0.5.18: signature exposed in properties + fingerprints ---
 
-    const SAMPLE_SIGNATURE: &str = "n_plus_one_sql:order-svc:POST_/api/orders:abc12345abc12345";
+    const SAMPLE_SIGNATURE: &str =
+        "n_plus_one_sql:order-svc:POST_/api/orders:abc12345abc12345abc12345abc12345";
 
     #[test]
     fn sarif_emits_signature_in_properties() {

@@ -49,7 +49,7 @@ Créer un nouvel acquittement.
 
 ```bash
 perf-sentinel ack create \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef" \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
   --reason "reporté au prochain sprint" \
   --expires 7d
 ```
@@ -76,7 +76,7 @@ Retirer un acquittement existant.
 
 ```bash
 perf-sentinel ack revoke \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 ```
 
 ### `ack list`

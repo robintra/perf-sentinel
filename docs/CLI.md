@@ -48,7 +48,7 @@ Create a new acknowledgment.
 
 ```bash
 perf-sentinel ack create \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef" \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
   --reason "deferred to next sprint" \
   --expires 7d
 ```
@@ -74,7 +74,7 @@ Remove an existing acknowledgment.
 
 ```bash
 perf-sentinel ack revoke \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 ```
 
 ### `ack list`

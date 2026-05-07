@@ -670,7 +670,7 @@ finding without waiting for a PR cycle on the application repo.
 
 ```bash
 # Acknowledge (deferred to next quarter)
-SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaa"
+SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 curl -fsS -X POST "http://127.0.0.1:4318/api/findings/${SIG}/ack" \
   -H "Content-Type: application/json" \
   -H "X-User-Id: alice@example.com" \

@@ -33,7 +33,7 @@ pub const MAX_ACTIVE_ACKS: usize = 10_000;
 /// Worst case in `compute_signature` is roughly
 /// `<finding_type>` (~30 B) + `:` + `service.name` (255 B per `OTel`
 /// spec) + `:` + sanitized endpoint (typically ~256 B but unbounded in
-/// the source) + `:` + 16 hex. 1024 covers any realistic combination
+/// the source) + `:` + 32 hex. 1024 covers any realistic combination
 /// while still rejecting obvious garbage like a multi-KB blob.
 #[doc(hidden)]
 pub const MAX_SIGNATURE_LEN: usize = 1024;
@@ -318,14 +318,16 @@ fn validate_signature(sig: &str) -> Result<(), AckError> {
     if sig.is_empty() || sig.len() > MAX_SIGNATURE_LEN {
         return Err(AckError::InvalidSignature);
     }
-    // Tail must be `:` followed by exactly 16 lowercase hex chars.
-    // Service names can contain `:` legitimately so we cannot split on
-    // it, but the SHA-256 prefix tail is fixed-format.
+    // Tail must be `:` followed by exactly 32 lowercase hex chars,
+    // with at least one byte before that colon (the kind/service/
+    // endpoint prefix is non-empty in any real `compute_signature`
+    // output). Service names can contain `:` legitimately so we cannot
+    // split on it, but the SHA-256 prefix tail is fixed-format.
     let bytes = sig.as_bytes();
-    if bytes.len() < 17 || bytes[bytes.len() - 17] != b':' {
+    if bytes.len() < 34 || bytes[bytes.len() - 33] != b':' {
         return Err(AckError::InvalidSignature);
     }
-    let tail = &sig[sig.len() - 16..];
+    let tail = &sig[sig.len() - 32..];
     if !tail
         .bytes()
         .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
@@ -415,6 +417,7 @@ async fn replay_and_compact(
     let mut active: HashMap<String, AckEntry> = HashMap::new();
     let mut line_no = 0usize;
     let mut dropped_for_limit = 0usize;
+    let mut dropped_for_invalid_signature = 0usize;
     while let Some(line) = read_capped_line(&mut reader).await? {
         line_no += 1;
         if line.is_empty() {
@@ -427,12 +430,20 @@ async fn replay_and_compact(
         // Apply field caps to entries already on disk: a malformed
         // line under MAX_ACK_ENTRY_BYTES total may still carry an
         // oversized `by` or `reason` field. `sanitize_entry` enforces
-        // the per-field caps and re-strips BiDi defensively. We do
-        // NOT re-validate the signature here, an invalid one would
-        // simply never match a real finding (dead weight, not a
-        // correctness risk) and rejecting it would block the daemon
-        // on startup over a typo in an old JSONL line.
+        // the per-field caps and re-strips BiDi defensively.
         sanitize_entry(&mut entry);
+        // Skip-with-warn on a signature that does not parse against the
+        // current format. After the 0.5.28 16-hex to 32-hex bump, every
+        // legacy entry trips this branch. Inserting it would surface as
+        // an active ack in /api/acks that matches no finding, eating
+        // slots against MAX_ACTIVE_ACKS and silently masking the reset.
+        // Bypassing the check would also mask a typo in a new JSONL
+        // line. We do NOT abort the daemon on this path, the operator
+        // sees one warn per line plus an end-of-replay summary.
+        if validate_signature(&entry.signature).is_err() {
+            dropped_for_invalid_signature += 1;
+            continue;
+        }
         match entry.action {
             AckAction::Ack => {
                 if is_expired(&entry, now) {
@@ -454,6 +465,15 @@ async fn replay_and_compact(
             dropped = dropped_for_limit,
             cap = MAX_ACTIVE_ACKS,
             "ack store at MAX_ACTIVE_ACKS during replay, additional Ack lines dropped"
+        );
+    }
+    if dropped_for_invalid_signature > 0 {
+        tracing::warn!(
+            dropped = dropped_for_invalid_signature,
+            "ack store dropped lines with invalid signature format on replay, \
+             likely a leftover from a pre-0.5.28 install. Findings previously \
+             acked under the 16-hex format will reappear, re-ack them under \
+             the new 32-hex format."
         );
     }
 
@@ -588,7 +608,7 @@ mod tests {
     }
 
     fn valid_sig(prefix: &str) -> String {
-        format!("{prefix}:0123456789abcdef")
+        format!("{prefix}:0123456789abcdef0123456789abcdef")
     }
 
     #[tokio::test]
@@ -778,6 +798,19 @@ mod tests {
             "no-tail",
             "foo:bar:zzzzzzzzzzzzzzzz",
             "foo:bar:0123456789ABCDEF",
+            // Length-too-short branch: 16-hex tail with a short prefix
+            // fails the `len < 34` guard.
+            "foo:bar:0123456789abcdef",
+            // Realistic legacy 16-hex shape (pre-0.5.28). Long enough
+            // to clear the length guard, fails the colon-position
+            // check at `bytes[len - 33]`. Locks in the rejection of
+            // every previously-valid 16-hex signature.
+            "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef",
+            // 33-byte signature shaped `:<32 hex>` with empty prefix.
+            // Was accepted by the pre-amend `len < 33` check, now
+            // rejected by `len < 34` since the kind segment must be
+            // non-empty.
+            ":0123456789abcdef0123456789abcdef",
         ] {
             let err = store
                 .ack(sample_entry(bad, AckAction::Ack))
@@ -846,15 +879,15 @@ mod tests {
     #[test]
     fn validate_signature_accepts_compute_signature_format() {
         // Mirror the format used by `acknowledgments::compute_signature`.
-        let s = "n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef";
+        let s = "n_plus_one_sql:order-svc:_api_v1_orders:0123456789abcdef0123456789abcdef";
         assert!(validate_signature(s).is_ok());
     }
 
     #[test]
     fn validate_signature_accepts_service_with_colon() {
-        // Service names from OTLP can contain colons; only the tail is
+        // Service names from OTLP can contain colons, only the tail is
         // fixed-format.
-        let s = "n_plus_one_sql:svc:with:colons:_endpoint:0123456789abcdef";
+        let s = "n_plus_one_sql:svc:with:colons:_endpoint:0123456789abcdef0123456789abcdef";
         assert!(validate_signature(s).is_ok());
     }
 

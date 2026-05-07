@@ -21,7 +21,7 @@ intentionnels.
 
 ```toml
 [[acknowledged]]
-signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 acknowledged_by = "team-architecture"
 acknowledged_at = "2026-05-04T13:30:00Z"
 reason = "Fan-out intentionnel pour endpoint de reporting batch"
@@ -59,7 +59,7 @@ ajouter `-H "X-API-Key: <CLÉ>"`.
 
 ```bash
 perf-sentinel ack create \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef" \
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef" \
   --reason "reporté au prochain sprint" \
   --expires 7d
 ```
@@ -74,7 +74,7 @@ signatures lues sur stdin et au prompt API-key interactif.
 
 ```bash
 perf-sentinel ack revoke \
-  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef"
+  --signature "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 ```
 
 Ou via curl :

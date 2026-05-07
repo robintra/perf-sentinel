@@ -559,7 +559,7 @@ Drop `.perf-sentinel-acknowledgments.toml` at your repo root to suppress finding
 
 ```toml
 [[acknowledged]]
-signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabe"
+signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabecafebabecafebabe"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Cache invalidation pattern, intentional. See ADR-0042."

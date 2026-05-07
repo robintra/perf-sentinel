@@ -32,14 +32,14 @@ Chemin : `./.perf-sentinel-acknowledgments.toml` à la racine du repo où vous l
 #   perf-sentinel analyze --input traces.json --format json | jq '.findings[].signature'
 
 [[acknowledged]]
-signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabe"
+signature = "redundant_sql:order-service:POST__api_orders:cafebabecafebabecafebabecafebabe"
 acknowledged_by = "alice@example.com"
 acknowledged_at = "2026-05-02"
 reason = "Pattern d'invalidation de cache, intentionnel. Voir ADR-0042."
 expires_at = "2026-12-31"  # Optionnel, omettre pour rendre l'ack permanent.
 
 [[acknowledged]]
-signature = "slow_sql:report-service:GET__api_reports:deadbeefdeadbeef"
+signature = "slow_sql:report-service:GET__api_reports:deadbeefdeadbeefdeadbeefdeadbeef"
 acknowledged_by = "bob@example.com"
 acknowledged_at = "2026-04-15"
 reason = "Agrégation longue, accepté par le produit."
@@ -67,7 +67,7 @@ Un champ requis manquant fait échouer le run avec une erreur claire, donc une c
 - `finding_type` est l'enum snake_case : `n_plus_one_sql`, `redundant_sql`, `slow_http`, `chatty_service`, etc.
 - `service` est le nom de service OpenTelemetry tel que capturé dans la trace (e.g. `order-service`).
 - `sanitized_endpoint` est `source_endpoint` avec `/` et espaces remplacés par `_` pour que le résultat se split proprement sur `:`.
-- `sha256-prefix-of-template` correspond aux 16 premiers chars hex (8 octets) de `sha256(pattern.template)`. ~64 bits de résistance aux collisions. Comme le triplet `(finding_type, service, sanitized_endpoint)` fait déjà partie de la signature, le hash n'a besoin de désambiguer que les templates au sein du même triplet, ce qui est une population très réduite en pratique. Le préfixe 16-char est une défense en profondeur contre le masquage accidentel d'un ack après un refacto SQL ou un renommage de service.
+- `sha256-prefix-of-template` correspond aux 32 premiers chars hex (16 octets) de `sha256(pattern.template)`. ~128 bits de résistance aux collisions. Comme le triplet `(finding_type, service, sanitized_endpoint)` fait déjà partie de la signature, le hash n'a besoin de désambiguer que les templates au sein du même triplet, ce qui est une population très réduite en pratique. Le préfixe 32-char est une défense en profondeur contre le masquage accidentel d'un ack après un refacto SQL ou un renommage de service. Passé de 16 à 32 chars en 0.5.28, voir le CHANGELOG pour la migration (les acks 16-hex existants ne matchent plus).
 
 Trois findings produisent trois signatures différentes. Deux findings produits par le même template sur le même couple `(service, source_endpoint)` collapsent à la même signature, ce qui est la bonne sémantique : on ack une fois, on supprime chaque récurrence.
 
