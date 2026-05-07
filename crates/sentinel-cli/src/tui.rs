@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::io;
+use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
@@ -24,6 +25,11 @@ use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
 use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
 use sentinel_core::explain;
 use sentinel_core::text_safety::sanitize_for_terminal;
+
+#[cfg(feature = "daemon")]
+use chrono::{DateTime, Utc};
+#[cfg(feature = "daemon")]
+use tokio::sync::mpsc;
 /// Panel that currently has focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Panel {
@@ -554,6 +560,105 @@ pub enum ModalAction {
     Submit,
 }
 
+/// Result of an ack/revoke roundtrip executed off the run loop.
+/// The async task sends one of these through the outcome channel,
+/// `apply_ack_outcome` applies it the next time the loop tick drains.
+/// `Success.refreshed_acks` is `None` when the post-write refetch failed
+/// (keep the previous snapshot), `Some(map)` otherwise even if empty
+/// (legitimate "all acks expired" state).
+#[cfg(feature = "daemon")]
+#[derive(Debug)]
+pub(crate) enum AckOutcome {
+    Success {
+        refreshed_acks: Option<HashMap<String, AckSource>>,
+    },
+    Failure {
+        message: String,
+    },
+}
+
+/// Snapshot of every modal/app field the spawned task needs.
+/// Owned and `'static` so the future can outlive the run loop borrow.
+/// Manual `Debug` so a future `tracing!("{payload:?}")` cannot leak the
+/// API key, mirroring the discipline in `AuthHeader::Debug` and
+/// `redact_endpoint`.
+#[cfg(feature = "daemon")]
+pub(crate) struct AckSubmitPayload {
+    daemon_url: String,
+    signature: String,
+    api_key: Option<String>,
+    op: AckSubmitOp,
+}
+
+#[cfg(feature = "daemon")]
+impl std::fmt::Debug for AckSubmitPayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AckSubmitPayload")
+            .field("daemon_url", &self.daemon_url)
+            .field("signature", &self.signature)
+            .field("api_key", &self.api_key.as_ref().map(|_| "<redacted>"))
+            .field("op", &self.op)
+            .finish()
+    }
+}
+
+#[cfg(feature = "daemon")]
+#[derive(Debug)]
+pub(crate) enum AckSubmitOp {
+    Create {
+        by: String,
+        reason: String,
+        expires_at: Option<DateTime<Utc>>,
+    },
+    Revoke,
+}
+
+#[cfg(feature = "daemon")]
+impl AckSubmitPayload {
+    /// Capture the modal state and validate `expires_buf` synchronously.
+    /// A parse error short-circuits before any spawn happens, so the
+    /// `Validation` variant lands in `error_message` without a network
+    /// round-trip.
+    pub(crate) fn from_modal(app: &App) -> Result<Self, crate::ack::AckSubmitError> {
+        let daemon_url = app.daemon_url.clone().ok_or_else(|| {
+            crate::ack::AckSubmitError::Validation("daemon not configured".into())
+        })?;
+        let signature = signature_for_modal_mode(&app.ack_modal.mode)
+            .map(str::to_string)
+            .ok_or_else(|| crate::ack::AckSubmitError::Validation("modal not visible".into()))?;
+        let api_key = app.api_key.clone();
+        let op = match app.ack_modal.mode {
+            AckModalMode::Ack { .. } => {
+                let expires_at = if app.ack_modal.expires_buf.trim().is_empty() {
+                    None
+                } else {
+                    match crate::ack::parse_expires(&app.ack_modal.expires_buf) {
+                        Ok(dt) => Some(dt),
+                        Err(e) => {
+                            return Err(crate::ack::AckSubmitError::Validation(format!(
+                                "expires: {e}"
+                            )));
+                        }
+                    }
+                };
+                AckSubmitOp::Create {
+                    by: app.ack_modal.by_buf.clone(),
+                    reason: app.ack_modal.reason_buf.clone(),
+                    expires_at,
+                }
+            }
+            AckModalMode::Unack { .. } => AckSubmitOp::Revoke,
+            AckModalMode::Hidden => unreachable!("guarded by signature_for_modal_mode above"),
+        };
+        Ok(Self {
+            daemon_url,
+            signature,
+            api_key,
+            op,
+        })
+    }
+}
+
 /// Pure function that maps a `KeyCode` to a `ModalAction` while mutating
 /// the form buffers. Tested without spinning up a real terminal.
 #[cfg(feature = "daemon")]
@@ -690,16 +795,41 @@ fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> io::Result<()> {
+    // Channel: spawned ack/revoke tasks send their outcome here, the
+    // loop drains it before each redraw so the modal closes (or shows
+    // the error) without blocking on the HTTP roundtrip.
+    #[cfg(feature = "daemon")]
+    let (tx_outcome, mut rx_outcome) = mpsc::unbounded_channel::<AckOutcome>();
     loop {
+        #[cfg(feature = "daemon")]
+        while let Ok(outcome) = rx_outcome.try_recv() {
+            apply_ack_outcome(app, outcome);
+        }
         // Pre-compute detail tree text (requires &mut self) before immutable draw
         app.detail_tree_text();
         terminal.draw(|f| draw(f, app))?;
 
+        // Block on `event::read` when no ack is in flight (0fps idle,
+        // matches the pre-refactor power profile). Poll with a short
+        // timeout only when a spawned task may push an outcome we need
+        // to apply quickly.
+        #[cfg(feature = "daemon")]
+        let submitting = app.ack_modal.submitting;
+        #[cfg(not(feature = "daemon"))]
+        let submitting = false;
+        if submitting && !event::poll(Duration::from_millis(50))? {
+            continue;
+        }
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
-            && matches!(handle_keystroke(app, key.code), KeyOutcome::Quit)
         {
-            return Ok(());
+            #[cfg(feature = "daemon")]
+            let outcome = handle_keystroke(app, key.code, &tx_outcome);
+            #[cfg(not(feature = "daemon"))]
+            let outcome = handle_keystroke(app, key.code);
+            if matches!(outcome, KeyOutcome::Quit) {
+                return Ok(());
+            }
         }
     }
 }
@@ -707,21 +837,29 @@ fn run_loop(
 /// Dispatch a single keystroke. Modal-visible keys route to the form
 /// handler, otherwise the standard panel-navigation keys + the
 /// `a`/`u` ack shortcuts apply.
-fn handle_keystroke(app: &mut App, code: KeyCode) -> KeyOutcome {
+fn handle_keystroke(
+    app: &mut App,
+    code: KeyCode,
+    #[cfg(feature = "daemon")] tx_outcome: &mpsc::UnboundedSender<AckOutcome>,
+) -> KeyOutcome {
     #[cfg(feature = "daemon")]
     if app.ack_modal.is_visible() {
-        dispatch_modal_key(app, code);
+        dispatch_modal_key(app, code, tx_outcome);
         return KeyOutcome::Continue;
     }
     dispatch_panel_key(app, code)
 }
 
 #[cfg(feature = "daemon")]
-fn dispatch_modal_key(app: &mut App, code: KeyCode) {
+fn dispatch_modal_key(
+    app: &mut App,
+    code: KeyCode,
+    tx_outcome: &mpsc::UnboundedSender<AckOutcome>,
+) {
     match handle_modal_key(&mut app.ack_modal, code) {
         ModalAction::None => {}
         ModalAction::Cancel => app.ack_modal.close(),
-        ModalAction::Submit => submit_ack_modal(app),
+        ModalAction::Submit => submit_ack_modal(app, tx_outcome),
     }
 }
 
@@ -1330,67 +1468,128 @@ fn finding_type_label(ft: &FindingType) -> &'static str {
     ft.display_label()
 }
 
-/// Bridge from the synchronous `run_loop` into the async daemon HTTP
-/// helpers in `crate::ack`. Relies on `tokio::task::block_in_place`
-/// being active around `run`, which `query.rs::run_inspect_action`
-/// arranges before calling into the TUI.
-///
-/// Submits the ack/unack request, refreshes `acks_by_signature` on
-/// success, and maps errors into `error_message` so the user can see
-/// what went wrong without leaving the TUI.
+/// Validate the modal state and spawn the async ack/revoke roundtrip on
+/// the tokio runtime. Returns immediately so the run loop keeps redrawing
+/// while the request is in flight. The result lands later through
+/// `tx_outcome`, which `apply_ack_outcome` consumes the next time the
+/// loop tick drains.
 #[cfg(feature = "daemon")]
-fn submit_ack_modal(app: &mut App) {
-    let Some(daemon_url) = app.daemon_url.clone() else {
-        app.ack_modal.error_message = Some("daemon not configured".to_string());
+fn submit_ack_modal(app: &mut App, tx_outcome: &mpsc::UnboundedSender<AckOutcome>) {
+    // Gate concurrent submits: a held Enter (autorepeat) or a double tap
+    // would otherwise spawn two roundtrips and the second hits HTTP 409.
+    if app.ack_modal.submitting {
         return;
-    };
-
-    let Some(signature) = signature_for_modal_mode(&app.ack_modal.mode).map(str::to_string) else {
-        // Logic-bug guard: submit reached run_loop's modal-visible
-        // dispatch, which `is_visible` already filtered Hidden out of,
-        // so this arm is unreachable in current control flow. Log via
-        // tracing so a future refactor that bypasses the guard does
-        // not silently drop the click.
-        tracing::error!("submit_ack_modal called with Hidden mode, dropped");
+    }
+    if !app.ack_modal.is_visible() {
+        tracing::error!(target: "tui::ack", "submit called on hidden modal, dropped");
         return;
-    };
-
-    app.ack_modal.submitting = true;
-
-    // The mode is non-Hidden here (signature_for_modal_mode would have
-    // returned None otherwise). Match on the discriminant so a future
-    // enum variant gets a compile error rather than a runtime panic.
-    let is_ack = matches!(app.ack_modal.mode, AckModalMode::Ack { .. });
-    let result = if is_ack {
-        submit_ack_create(app, &daemon_url, &signature)
-    } else {
-        submit_ack_revoke(app, &daemon_url, &signature)
-    };
-
-    match result {
-        Ok(()) => {
-            let api_key = app.api_key.clone();
-            match tokio::runtime::Handle::current()
-                .block_on(refetch_acks_from_daemon(&daemon_url, api_key.as_deref()))
-            {
-                Ok(refreshed) => app.acks_by_signature = refreshed,
-                Err(e) => tracing::warn!(
-                    "ack submit succeeded but refetch failed, indicator may be stale: {e}"
-                ),
-            }
-            app.ack_modal.close();
-        }
-        Err(crate::ack::AckSubmitError::Unauthorized) => {
-            app.ack_modal.error_message = Some(
-                "API key required: set PERF_SENTINEL_DAEMON_API_KEY or pass \
-                 --api-key-file when launching `query inspect`."
-                    .to_string(),
-            );
-            app.ack_modal.submitting = false;
-        }
+    }
+    let payload = match AckSubmitPayload::from_modal(app) {
+        Ok(p) => p,
         Err(e) => {
             app.ack_modal.error_message = Some(e.to_string());
-            app.ack_modal.submitting = false;
+            return;
+        }
+    };
+    app.ack_modal.submitting = true;
+    let tx = tx_outcome.clone();
+    tokio::runtime::Handle::current().spawn(execute_ack_submit(payload, tx));
+}
+
+/// Execute the POST/DELETE roundtrip and the post-success refetch, then
+/// push a single `AckOutcome` through the channel. Refetch failure on a
+/// successful write keeps the previous `acks_by_signature` snapshot, the
+/// indicator may briefly look stale but the write itself succeeded.
+#[cfg(feature = "daemon")]
+async fn execute_ack_submit(payload: AckSubmitPayload, tx: mpsc::UnboundedSender<AckOutcome>) {
+    let write_result = match &payload.op {
+        AckSubmitOp::Create {
+            by,
+            reason,
+            expires_at,
+        } => {
+            crate::ack::post_ack_via_daemon(
+                &payload.daemon_url,
+                &payload.signature,
+                by,
+                reason,
+                *expires_at,
+                payload.api_key.as_deref(),
+            )
+            .await
+        }
+        AckSubmitOp::Revoke => {
+            crate::ack::delete_ack_via_daemon(
+                &payload.daemon_url,
+                &payload.signature,
+                payload.api_key.as_deref(),
+            )
+            .await
+        }
+    };
+    let outcome = match write_result {
+        Ok(()) => {
+            match refetch_acks_from_daemon(&payload.daemon_url, payload.api_key.as_deref()).await {
+                Ok(refreshed_acks) => AckOutcome::Success {
+                    refreshed_acks: Some(refreshed_acks),
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        error = %sanitize_for_terminal(&e),
+                        "ack submit succeeded but refetch failed, indicator may be stale"
+                    );
+                    AckOutcome::Success {
+                        refreshed_acks: None,
+                    }
+                }
+            }
+        }
+        Err(crate::ack::AckSubmitError::Unauthorized) => AckOutcome::Failure {
+            message: "API key required: set PERF_SENTINEL_DAEMON_API_KEY or pass \
+                 --api-key-file when launching `query inspect`."
+                .to_string(),
+        },
+        Err(e) => AckOutcome::Failure {
+            message: e.to_string(),
+        },
+    };
+    if let Err(e) = tx.send(outcome) {
+        // Receiver dropped because the run loop has already exited
+        // (operator pressed `q` mid-flight). Trace it so a future
+        // regression on shutdown ordering is observable.
+        tracing::trace!(error = %e, "ack outcome dropped, run loop has exited");
+    }
+}
+
+/// Apply an `AckOutcome` to the app state. Idempotent against an
+/// already-closed modal (Esc-while-submitting): Success still refreshes
+/// the global ack map when present so the Findings indicator updates,
+/// Failure logs at WARN before being dropped so a misconfigured
+/// `[daemon.ack] api_key` does not stay hidden in the operator's logs.
+#[cfg(feature = "daemon")]
+fn apply_ack_outcome(app: &mut App, outcome: AckOutcome) {
+    match outcome {
+        AckOutcome::Success { refreshed_acks } => {
+            // None signals refetch failed, keep the previous snapshot.
+            // Some(map), even empty, replaces it (legitimate "no acks").
+            if let Some(refreshed) = refreshed_acks {
+                app.acks_by_signature = refreshed;
+            }
+            if app.ack_modal.is_visible() {
+                app.ack_modal.close();
+            }
+        }
+        AckOutcome::Failure { message } => {
+            if app.ack_modal.is_visible() {
+                app.ack_modal.error_message = Some(message);
+                app.ack_modal.submitting = false;
+            } else {
+                tracing::warn!(
+                    target: "tui::ack",
+                    error = %sanitize_for_terminal(&message),
+                    "ack outcome dropped after modal cancelled, may mask 401/403"
+                );
+            }
         }
     }
 }
@@ -1403,55 +1602,6 @@ fn signature_for_modal_mode(mode: &AckModalMode) -> Option<&str> {
         }
         AckModalMode::Hidden => None,
     }
-}
-
-#[cfg(feature = "daemon")]
-fn submit_ack_create(
-    app: &mut App,
-    daemon_url: &str,
-    signature: &str,
-) -> Result<(), crate::ack::AckSubmitError> {
-    let expires = if app.ack_modal.expires_buf.trim().is_empty() {
-        None
-    } else {
-        match crate::ack::parse_expires(&app.ack_modal.expires_buf) {
-            Ok(dt) => Some(dt),
-            // Surface the parser's `expected ISO8601 datetime ...`
-            // message via `Validation` so the outer match in
-            // `submit_ack_modal` does not clobber it with a generic
-            // network-error wrapper.
-            Err(e) => {
-                return Err(crate::ack::AckSubmitError::Validation(format!(
-                    "expires: {e}"
-                )));
-            }
-        }
-    };
-    let by = app.ack_modal.by_buf.clone();
-    let reason = app.ack_modal.reason_buf.clone();
-    let api_key = app.api_key.clone();
-    tokio::runtime::Handle::current().block_on(crate::ack::post_ack_via_daemon(
-        daemon_url,
-        signature,
-        &by,
-        &reason,
-        expires,
-        api_key.as_deref(),
-    ))
-}
-
-#[cfg(feature = "daemon")]
-fn submit_ack_revoke(
-    app: &mut App,
-    daemon_url: &str,
-    signature: &str,
-) -> Result<(), crate::ack::AckSubmitError> {
-    let api_key = app.api_key.clone();
-    tokio::runtime::Handle::current().block_on(crate::ack::delete_ack_via_daemon(
-        daemon_url,
-        signature,
-        api_key.as_deref(),
-    ))
 }
 
 /// Fetch `/api/findings?include_acked=true&limit={FINDINGS_FETCH_LIMIT}`
@@ -2379,7 +2529,7 @@ mod tests {
             "sig-1".to_string(),
             AckSource::Daemon {
                 by: "alice".to_string(),
-                at: chrono::Utc::now(),
+                at: Utc::now(),
                 reason: Some("investigating".to_string()),
                 expires_at: None,
             },
@@ -2407,7 +2557,7 @@ mod tests {
             "sig-acked".to_string(),
             AckSource::Daemon {
                 by: "alice".to_string(),
-                at: chrono::Utc::now(),
+                at: Utc::now(),
                 reason: Some("test".to_string()),
                 expires_at: None,
             },
@@ -2447,17 +2597,17 @@ mod tests {
 
     #[cfg(feature = "daemon")]
     #[test]
-    fn submit_ack_create_validation_error_uses_validation_variant() {
-        // Drive submit_ack_create directly with an unparseable expires
-        // input. The function must return AckSubmitError::Validation
-        // (not Transport) so submit_ack_modal does not clobber the
-        // message with a "network error:" prefix when it Display's it.
+    fn ack_submit_payload_validation_error_uses_validation_variant() {
+        // Drive AckSubmitPayload::from_modal with an unparseable expires
+        // input. It must return AckSubmitError::Validation (not Transport)
+        // so apply_ack_outcome does not clobber the message with a
+        // "network error:" prefix when it Displays it.
         let mut app = make_test_app();
         app.daemon_url = Some("http://localhost:14318".to_string());
         app.ack_modal.open_ack("sig".to_string());
         app.ack_modal.expires_buf = "not a date".to_string();
-        let result = submit_ack_create(&mut app, "http://localhost:14318", "sig");
-        let err = result.expect_err("invalid expires must surface an error");
+        let err =
+            AckSubmitPayload::from_modal(&app).expect_err("invalid expires must surface an error");
         match err {
             crate::ack::AckSubmitError::Validation(msg) => {
                 assert!(
@@ -2471,6 +2621,178 @@ mod tests {
             }
             other => panic!("expected Validation, got {other:?}"),
         }
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn apply_ack_outcome_success_closes_modal_and_updates_map() {
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.submitting = true;
+        let mut refreshed = HashMap::new();
+        refreshed.insert(
+            "sig".to_string(),
+            AckSource::Daemon {
+                by: "alice".to_string(),
+                at: Utc::now(),
+                reason: Some("test".to_string()),
+                expires_at: None,
+            },
+        );
+        refreshed.insert(
+            "sig2".to_string(),
+            AckSource::Daemon {
+                by: "bob".to_string(),
+                at: Utc::now(),
+                reason: None,
+                expires_at: None,
+            },
+        );
+        apply_ack_outcome(
+            &mut app,
+            AckOutcome::Success {
+                refreshed_acks: Some(refreshed),
+            },
+        );
+        assert!(!app.ack_modal.is_visible(), "modal must close on success");
+        assert_eq!(app.acks_by_signature.len(), 2);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn apply_ack_outcome_success_with_none_keeps_existing_map() {
+        // Refetch failed but write succeeded: the previous snapshot must
+        // stay intact so the indicator reflects the most recent known
+        // truth instead of dropping to empty.
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.acks_by_signature.insert(
+            "sig-prior".to_string(),
+            AckSource::Daemon {
+                by: "alice".to_string(),
+                at: Utc::now(),
+                reason: None,
+                expires_at: None,
+            },
+        );
+        app.ack_modal.open_ack("sig-prior".to_string());
+        app.ack_modal.submitting = true;
+        apply_ack_outcome(
+            &mut app,
+            AckOutcome::Success {
+                refreshed_acks: None,
+            },
+        );
+        assert!(!app.ack_modal.is_visible(), "modal must close on success");
+        assert_eq!(
+            app.acks_by_signature.len(),
+            1,
+            "previous snapshot preserved"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn apply_ack_outcome_success_with_some_empty_clears_map() {
+        // Legitimate "all acks expired" refetch: an empty Some(map)
+        // overrides a prior non-empty snapshot.
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.acks_by_signature.insert(
+            "sig-prior".to_string(),
+            AckSource::Daemon {
+                by: "alice".to_string(),
+                at: Utc::now(),
+                reason: None,
+                expires_at: None,
+            },
+        );
+        apply_ack_outcome(
+            &mut app,
+            AckOutcome::Success {
+                refreshed_acks: Some(HashMap::new()),
+            },
+        );
+        assert!(app.acks_by_signature.is_empty());
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn apply_ack_outcome_failure_keeps_modal_with_error_message() {
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.submitting = true;
+        apply_ack_outcome(
+            &mut app,
+            AckOutcome::Failure {
+                message: "HTTP 503 daemon ack store disabled".to_string(),
+            },
+        );
+        assert!(app.ack_modal.is_visible(), "modal stays open on failure");
+        assert_eq!(
+            app.ack_modal.error_message.as_deref(),
+            Some("HTTP 503 daemon ack store disabled"),
+        );
+        assert!(
+            !app.ack_modal.submitting,
+            "submitting flag clears on failure"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn apply_ack_outcome_after_user_cancel_drops_failure_silently() {
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        // Open then close to simulate Esc-while-submitting.
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.close();
+        apply_ack_outcome(
+            &mut app,
+            AckOutcome::Failure {
+                message: "transport error".to_string(),
+            },
+        );
+        assert!(!app.ack_modal.is_visible());
+        assert!(app.ack_modal.error_message.is_none());
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn submit_ack_modal_is_no_op_when_already_submitting() {
+        // Held Enter or double tap: the second submit must not spawn a
+        // duplicate roundtrip. The submitting flag stays true and no
+        // outcome is sent through the channel.
+        let mut app = make_test_app();
+        app.daemon_url = Some("http://localhost:14318".to_string());
+        app.ack_modal.open_ack("sig".to_string());
+        app.ack_modal.submitting = true;
+        let (tx, mut rx) = mpsc::unbounded_channel::<AckOutcome>();
+        submit_ack_modal(&mut app, &tx);
+        assert!(app.ack_modal.submitting, "submitting flag stays true");
+        assert!(
+            matches!(rx.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+            "no spawn happened, channel must be empty"
+        );
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn ack_submit_payload_debug_redacts_api_key() {
+        let payload = AckSubmitPayload {
+            daemon_url: "http://localhost:14318".to_string(),
+            signature: "sig".to_string(),
+            api_key: Some("topsecret".to_string()),
+            op: AckSubmitOp::Revoke,
+        };
+        let dbg = format!("{payload:?}");
+        assert!(dbg.contains("<redacted>"), "expected redaction marker");
+        assert!(
+            !dbg.contains("topsecret"),
+            "api key must not appear in Debug"
+        );
     }
 
     #[cfg(feature = "daemon")]
