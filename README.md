@@ -44,7 +44,30 @@ perf-sentinel analyze --input traces.json
 
 ## How this fits into your infra
 
+One tool, 2 modes, 4 deployment topologies:
+
+**Local dev**
+
+![Local dev zoom-in: batch on captured trace, local daemon at 127.0.0.1, inspect TUI, report HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
+
+**CI/CD**
+
+![CI zoom-in: perf integration tests + analyze --ci quality gate, SARIF for code scanning, optional Tempo / jaeger-query nightly](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
+
+**Staging**
+
+![Staging zoom-in: focus-service pod with sidecar daemon, /api/findings polled by QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
+
+**Production**
+
+![Production zoom-in: centralized daemon ingesting via OTel Collector and direct OTLP, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
+
+<details>
+<summary>End-to-end view: how the four environments fit together</summary>
+
 ![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+
+</details>
 
 The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster (hybrid daemon to batch HTML, batch over Tempo, daemon OTLP direct, multi-format Jaeger/Zipkin, calibrate, sidecar, cross-trace correlation, `pg_stat_statements` integration). **Each scenario ships a Mermaid architecture diagram, the exact inputs and outputs, the required configuration, and the gotchas that bit us during validation.**
 
