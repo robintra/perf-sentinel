@@ -57,6 +57,8 @@ Options:
 
 - `--signature <SIG>` (or `-s`): finding signature to acknowledge. If
   omitted, the CLI reads it from stdin (only when stdin is not a TTY).
+  The stdin read is capped at 1 KiB so a `cat /dev/urandom` pipe cannot
+  exhaust memory before the daemon-side validator rejects the input.
 - `--reason <TEXT>` (or `-r`): required, free-form description of why
   the finding is being acked.
 - `--expires <ISO8601_OR_DURATION>`: ack expiration. Accepts ISO8601
@@ -97,7 +99,7 @@ daemon config), the CLI resolves it in priority order:
 2. `--api-key-file <PATH>`. The file's content is read and any
    trailing newline is stripped.
 3. Interactive `rpassword` prompt (no echo) if the daemon returns 401
-   and stdin is a TTY.
+   and stdin is a TTY. The pasted value is capped at 1 KiB.
 
 There is no `--api-key <SECRET>` flag, by design: passing secrets on
 the command line leaks them via the process list and shell history.

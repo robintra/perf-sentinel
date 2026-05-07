@@ -58,7 +58,9 @@ Options :
 
 - `--signature <SIG>` (ou `-s`) : signature du finding à acquitter. Si
   omis, le CLI lit la signature depuis stdin (uniquement quand stdin
-  n'est pas un TTY).
+  n'est pas un TTY). La lecture stdin est plafonnée à 1 KiB, un pipe
+  `cat /dev/urandom` ne peut donc pas saturer la mémoire avant que le
+  validateur côté daemon rejette l'entrée.
 - `--reason <TEXTE>` (ou `-r`) : requis, description libre de la
   raison de l'acquittement.
 - `--expires <ISO8601_OR_DURATION>` : expiration de l'ack. Accepte un
@@ -100,7 +102,7 @@ config), le CLI la résout dans cet ordre :
 2. `--api-key-file <CHEMIN>`. Le contenu du fichier est lu et tout
    newline final est strippé.
 3. Prompt interactif `rpassword` (sans écho) si le daemon retourne
-   401 et stdin est un TTY.
+   401 et stdin est un TTY. La valeur collée est plafonnée à 1 KiB.
 
 Il n'y a pas de flag `--api-key <SECRET>` direct, par design : passer
 des secrets en ligne de commande les expose via la liste des

@@ -85,6 +85,19 @@ Le CLI rejette :
 Un slash final sur l'authority est silencieusement trimmé pour
 l'uniformité avec le flag existant `perf-sentinel ack --daemon`.
 
+### Avertissement mixed-content
+
+Depuis la passe de durcissement post-0.5.26, appeler `perf-sentinel
+report --daemon-url http://...` avec un hôte non-loopback émet un
+événement de niveau `WARN` au moment du render. Héberger ensuite le
+HTML sur une origine HTTPS (GitLab Pages, GitHub Pages, un reverse
+proxy interne en HTTPS) fait bloquer par le navigateur chaque appel
+ack/revoke en mixed content, transformant silencieusement le panneau
+Acks en cul-de-sac. L'avertissement attrape l'incohérence avant que
+l'opérateur n'ouvre le rapport. Les URL loopback (`localhost`,
+`127.0.0.1`, `[::1]`) sont exemptées car les setups de dev font
+tourner le daemon en HTTP en clair de manière intentionnelle.
+
 ### Flow d'authentification
 
 1. Boot : GET `/api/status` pour déterminer la connectivité.

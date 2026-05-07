@@ -472,6 +472,14 @@ désactivé entièrement. Si `daemon_api_enabled = false`, le layer
 CORS est skippé (le sous-router `/api/*` n'est pas monté de toute
 façon) et un `warn!` signale la config inutilisée.
 
+Depuis la passe de durcissement post-0.5.26, combiner
+`allowed_origins = ["*"]` avec `[daemon.ack] api_key` émet aussi un
+`warn!` au démarrage. Le mode CORS wildcard combiné à une auth
+`X-API-Key` autorise n'importe quelle origine navigateur à rejouer
+une clé capturée à travers le daemon, même sans cookie ni mode
+`Allow-Credentials`. Whitelistez des origines explicites pour les
+déploiements de production qui configurent la clé API.
+
 ## Configuration minimale
 
 Un fichier vide ou l'absence de fichier utilise tous les défauts. Une configuration minimale pour la CI peut se limiter aux seuils :

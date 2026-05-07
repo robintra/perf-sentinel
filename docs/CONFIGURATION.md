@@ -465,6 +465,13 @@ is invalid, the layer is disabled entirely. If `daemon_api_enabled =
 false`, the CORS layer is skipped (the `/api/*` sub-router is not
 mounted in the first place) and a `warn!` notes the unused config.
 
+Since the post-0.5.26 hardening pass, combining
+`allowed_origins = ["*"]` with `[daemon.ack] api_key` also emits a
+startup `warn!`. Wildcard CORS plus an `X-API-Key` auth lets any
+browser origin replay a captured key through the daemon, even though
+no cookie or `Allow-Credentials` mode is in play. Whitelist explicit
+origins for production deployments where the API key is set.
+
 ## Minimal configuration
 
 An empty file or no file at all uses all defaults. A minimal configuration for CI might only set thresholds:

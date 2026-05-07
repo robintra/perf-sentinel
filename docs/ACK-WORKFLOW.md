@@ -64,7 +64,9 @@ perf-sentinel ack create \
 
 The CLI handles auth resolution, duration parsing (relative or
 ISO8601), daemon URL resolution and produces readable error
-messages. See [`CLI.md`](./CLI.md#ack) for the full reference.
+messages. See [`CLI.md`](./CLI.md#ack) for the full reference,
+including the 1 KiB caps applied to stdin signatures and the
+interactive API-key prompt.
 
 ### Revoking a daemon ack
 
