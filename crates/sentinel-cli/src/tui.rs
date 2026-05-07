@@ -402,15 +402,22 @@ impl App {
                 }
             }
             Panel::Findings => {
-                self.active_panel = Panel::Detail;
-                self.detail_origin = Panel::Findings;
-                self.scroll_offset = 0;
+                self.enter_detail(Panel::Findings);
             }
             Panel::Correlations => {
                 self.jump_to_correlation_sample_trace();
             }
             Panel::Detail => {}
         }
+    }
+
+    /// Single entry point for any drill-down to `Panel::Detail`. Pairs
+    /// `active_panel` with `detail_origin` so `escape` returns to the
+    /// source panel. New drill-downs MUST route through this helper.
+    fn enter_detail(&mut self, origin: Panel) {
+        self.active_panel = Panel::Detail;
+        self.detail_origin = origin;
+        self.scroll_offset = 0;
     }
 
     /// Jump from Correlations to Detail for the selected correlation's
@@ -430,9 +437,7 @@ impl App {
             self.cached_detail = None;
         }
         self.selected_finding = 0;
-        self.scroll_offset = 0;
-        self.detail_origin = Panel::Correlations;
-        self.active_panel = Panel::Detail;
+        self.enter_detail(Panel::Correlations);
     }
 
     /// Handle Escape: go back to previous panel. Detail returns to
