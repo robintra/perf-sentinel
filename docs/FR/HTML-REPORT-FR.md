@@ -87,7 +87,7 @@ l'uniformité avec le flag existant `perf-sentinel ack --daemon`.
 
 ### Avertissement mixed-content
 
-Depuis la passe de durcissement post-0.5.26, appeler `perf-sentinel
+Depuis 0.5.27, appeler `perf-sentinel
 report --daemon-url http://...` avec un hôte non-loopback émet un
 événement de niveau `WARN` au moment du render. Héberger ensuite le
 HTML sur une origine HTTPS (GitLab Pages, GitHub Pages, un reverse

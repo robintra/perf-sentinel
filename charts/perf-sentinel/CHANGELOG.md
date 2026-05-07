@@ -6,6 +6,27 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.30]
+
+### Changed
+
+- `appVersion` bumped to `0.5.27`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.27`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.5.27 binary lands a hardening pass on the CLI output paths and
+  the daemon ack flow, plus a TUI refactor that eliminates the UI
+  freeze during ack/revoke (`a` / `u` keys in `query inspect`).
+  Operator-visible new behaviors include a startup `WARN` when
+  `[daemon.cors] allowed_origins = ["*"]` is combined with
+  `[daemon.ack] api_key`, a render-time `WARN` for
+  `--daemon-url http://...` on a non-loopback host, a
+  `ps`-visibility `WARN` for `--auth-header` on the `tempo` and
+  `jaeger-query` subcommands, and 1 KiB caps on the `ack create`
+  stdin signature read and the interactive API-key prompt. CLI
+  write paths (HTML report, calibration TOML, diff `--output`) now
+  use `O_NOFOLLOW` on Unix. No chart-level template change. See
+  `docs/HTML-REPORT.md`, `docs/CONFIGURATION.md` and `docs/CLI.md`.
+
 ## [0.2.29]
 
 ### Changed

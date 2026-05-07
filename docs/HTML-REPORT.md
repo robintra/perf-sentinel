@@ -85,7 +85,7 @@ with the existing `perf-sentinel ack --daemon` flag.
 
 ### Mixed-content nudge
 
-Since the post-0.5.26 hardening pass, calling `perf-sentinel report
+Since 0.5.27, calling `perf-sentinel report
 --daemon-url http://...` with a non-loopback host emits a `WARN`-level
 event at render time. Hosting the resulting HTML on an HTTPS origin
 later (GitLab Pages, GitHub Pages, an internal HTTPS reverse proxy)
