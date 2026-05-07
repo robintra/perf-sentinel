@@ -21,12 +21,16 @@ pub struct WindowConfig {
     pub max_active_traces: NonZeroUsize,
 }
 
+/// Default LRU cap for the streaming correlator (compile-time non-zero).
+const DEFAULT_MAX_ACTIVE_TRACES: NonZeroUsize =
+    NonZeroUsize::new(10_000).expect("non-zero literal");
+
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             max_events_per_trace: 1000,
             trace_ttl_ms: 30_000,
-            max_active_traces: NonZeroUsize::new(10_000).expect("10000 > 0"),
+            max_active_traces: DEFAULT_MAX_ACTIVE_TRACES,
         }
     }
 }

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::http_client::{self, FetchError, HttpClient};
-use crate::ingest::auth_header::{AuthHeader, parse_scraper_auth_header};
+use crate::ingest::auth_header::{AuthHeader, ScraperAuthOutcome, parse_scraper_auth_header};
 use crate::report::metrics::{MetricsState, ScaphandreScrapeReason};
 
 use super::config::ScaphandreConfig;
@@ -97,11 +97,8 @@ pub(super) fn scraper_error_reason(err: &ScraperError) -> ScaphandreScrapeReason
 }
 
 /// Map a [`FetchError`] to the corresponding scrape failure reason.
-///
-/// Kept private to this module: there is currently a single call
-/// site (the Scaphandre scraper). If Tempo or Electricity Maps
-/// scrapers grow the same instrumentation, lift this helper to
-/// `http_client.rs` and parameterize on the per-scraper enum.
+/// Cloud-energy keeps a parallel mapping with its own reason enum;
+/// merging would require a trait or a wider enum, kept separate today.
 fn fetch_error_reason(err: &FetchError) -> ScaphandreScrapeReason {
     match err {
         FetchError::Transport(_) => ScaphandreScrapeReason::Unreachable,
@@ -170,13 +167,15 @@ async fn run_scraper_loop(
     };
     let redacted = http_client::redact_endpoint(&uri);
 
-    let Ok(parsed_auth) = parse_scraper_auth_header(
+    let parsed_auth: Option<AuthHeader> = match parse_scraper_auth_header(
         cfg.auth_header.as_deref(),
         &cfg.endpoint,
         &redacted,
         "scaphandre",
-    ) else {
-        return;
+    ) {
+        ScraperAuthOutcome::Invalid => return,
+        ScraperAuthOutcome::None => None,
+        ScraperAuthOutcome::Some(h) => Some(h),
     };
 
     let client = http_client::build_client();

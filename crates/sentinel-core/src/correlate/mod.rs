@@ -15,7 +15,7 @@ pub struct Trace {
 /// Group normalized events into traces by `trace_id`.
 #[must_use]
 pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
-    let estimated_traces = (events.len() / 10).max(1).min(events.len());
+    let estimated_traces = (events.len() / 10).max(events.len().min(1));
     let mut map: HashMap<String, Vec<NormalizedEvent>> = HashMap::with_capacity(estimated_traces);
     for event in events {
         if let Some(vec) = map.get_mut(event.event.trace_id.as_str()) {

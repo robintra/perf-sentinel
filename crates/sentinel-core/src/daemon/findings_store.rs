@@ -33,6 +33,7 @@ pub struct FindingsFilter {
 ///
 /// Shared between `process_traces` (writer, exclusive lock) and the
 /// query API handlers (readers, shared lock).
+#[derive(Debug)]
 pub struct FindingsStore {
     inner: RwLock<VecDeque<StoredFinding>>,
     max_size: usize,

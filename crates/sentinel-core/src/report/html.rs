@@ -156,6 +156,21 @@ pub struct RenderStats {
 /// ```
 #[must_use]
 pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (String, RenderStats) {
+    // Mixed-content guard: an http:// daemon URL on a non-loopback host
+    // breaks ack/revoke fetches if the report is later served over https.
+    if let Some(url) = options.daemon_url.as_deref()
+        && let Some(rest) = url.strip_prefix("http://")
+    {
+        let host_only = rest.split(['/', ':']).next().unwrap_or("");
+        let is_loopback =
+            host_only == "localhost" || host_only == "127.0.0.1" || host_only == "[::1]";
+        if !is_loopback {
+            tracing::warn!(
+                daemon_url = url,
+                "http:// daemon URL on a non-loopback host: ack/revoke fetches will be blocked when the report is served over https://"
+            );
+        }
+    }
     let sanitized_label = sanitize_input_label(&options.input_label);
     let payload = build_payload_with_label(report, traces, options, &sanitized_label);
     let kept = payload.embedded_traces.len();
@@ -269,18 +284,11 @@ struct TrimSummary {
 /// appear early in the document, before the JSON block), so a hostile
 /// title or JSON payload cannot shadow them.
 fn inject(json: &str, title: &str, csp: &str) -> String {
-    // Defense-in-depth invariant: the CSP value must not introduce a
-    // `{{` sequence that could shadow a static placeholder during the
-    // subsequent title substitution. `validate_url` rejects any byte
-    // `hyper::Uri` does not accept in a host, and `{` is forbidden
-    // there per RFC 3986, so the assertion holds today. This catches
-    // a future relaxation of the validator (e.g. swapping `hyper::Uri`
-    // for `url::Url` plus a feature accepting curly braces) before
-    // the substitution gets confused. CSP-breaking bytes other than
-    // `{` (single quote, semicolon, whitespace) cannot appear in a
-    // valid origin authority either, so the same posture holds for
-    // the rest of the directive value.
-    debug_assert!(
+    // Defense-in-depth: a `{{` byte sequence in the CSP would shadow a
+    // template placeholder during the title substitution. `validate_url`
+    // rejects bytes `hyper::Uri` does not accept in a host so the check
+    // holds today; plain `assert!` keeps the safety net in release.
+    assert!(
         !csp.contains("{{"),
         "CSP must not contain `{{{{` placeholder bytes, got: {csp}"
     );
@@ -467,7 +475,7 @@ fn trim_to_size_target<'a>(
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
 
-    // Two-phase approach. The previous implementation re-serialized the
+    // Two-step approach. The previous implementation re-serialized the
     // entire payload once per trace we shed, giving O(N^2) total work
     // in the number of traces. This one serializes each embedded trace
     // once and the non-trace envelope once, then uses a prefix-sum
@@ -475,7 +483,7 @@ fn trim_to_size_target<'a>(
     // target. Total serialization volume is O(N * avg_trace_size),
     // linear in the payload.
 
-    // Phase 1: per-trace JSON sizes. We account for the surrounding
+    // Step 1: per-trace JSON sizes. We account for the surrounding
     // comma and the 2 literal bracket bytes of the JSON array via
     // `separator_overhead` below.
     let per_trace_lens: Vec<usize> = ordered
@@ -484,7 +492,7 @@ fn trim_to_size_target<'a>(
         .map(|t| serde_json::to_string(&embed_trace(t)).map_or(usize::MAX, |s| s.len()))
         .collect();
 
-    // Phase 2: envelope size. Build a payload whose `embedded_traces`
+    // Step 2: envelope size. Build a payload whose `embedded_traces`
     // is empty, serialize it once, and use its length as the fixed
     // overhead that every kept-trace count shares. `trimmed_traces`
     // is set to a placeholder with realistic digits so its JSON

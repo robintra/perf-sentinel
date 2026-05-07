@@ -473,13 +473,12 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
     // `code.filepath` discipline in `sanitize_sarif_filepath`.
     if let Some(props) = result.properties.as_mut() {
         props.acknowledged = Some(true);
-        props.acknowledgment_reason = Some(strip_bidi_and_invisible(&ack.acknowledgment.reason));
-        props.acknowledgment_by = Some(strip_bidi_and_invisible(
-            &ack.acknowledgment.acknowledged_by,
-        ));
-        props.acknowledgment_at = Some(strip_bidi_and_invisible(
-            &ack.acknowledgment.acknowledged_at,
-        ));
+        props.acknowledgment_reason =
+            Some(strip_bidi_and_invisible(&ack.acknowledgment.reason).into_owned());
+        props.acknowledgment_by =
+            Some(strip_bidi_and_invisible(&ack.acknowledgment.acknowledged_by).into_owned());
+        props.acknowledgment_at =
+            Some(strip_bidi_and_invisible(&ack.acknowledgment.acknowledged_at).into_owned());
     }
     result
 }
@@ -488,8 +487,15 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
 /// free-text string before emitting it. Reused at signature construction
 /// time (`acknowledgments::compute_signature`) so canonical signatures
 /// cannot carry trojan characters that would spoof ack matching.
-pub(crate) fn strip_bidi_and_invisible(s: &str) -> String {
-    s.chars().filter(|c| !is_bidi_or_invisible(*c)).collect()
+///
+/// Probe-before-allocate: real-world inputs (service names, endpoints)
+/// are clean, so the common case returns `Cow::Borrowed` zero-copy.
+pub(crate) fn strip_bidi_and_invisible(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().any(is_bidi_or_invisible) {
+        std::borrow::Cow::Owned(s.chars().filter(|c| !is_bidi_or_invisible(*c)).collect())
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
 }
 
 /// Convert a slice of findings to a SARIF log. Used by `report_to_sarif`

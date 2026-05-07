@@ -9,10 +9,13 @@ impl ReportSink for JsonReportSink {
     type Error = JsonReportError;
 
     fn emit(&self, report: &Report) -> Result<(), Self::Error> {
+        use std::io::Write as _;
         let stdout = std::io::stdout();
-        let lock = stdout.lock();
-        serde_json::to_writer_pretty(lock, report).map_err(|e| JsonReportError(e.to_string()))?;
-        println!();
+        let mut lock = stdout.lock();
+        serde_json::to_writer_pretty(&mut lock, report)
+            .map_err(|e| JsonReportError(e.to_string()))?;
+        lock.write_all(b"\n")
+            .map_err(|e| JsonReportError(e.to_string()))?;
         Ok(())
     }
 }

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::http_client::{self, HttpClient};
-use crate::ingest::auth_header::{AuthHeader, parse_scraper_auth_header};
+use crate::ingest::auth_header::{AuthHeader, ScraperAuthOutcome, parse_scraper_auth_header};
 use crate::report::metrics::MetricsState;
 use crate::score::scaphandre::ops::OpsSnapshotDiff;
 
@@ -226,15 +226,16 @@ async fn run_cloud_scraper_loop(
     // logs and aborts the task, silent retries would just spam warn logs.
     // Option<Arc<_>> so the no-auth path pays zero refcount cost in the
     // per-tick JoinSet fanout below.
-    let Ok(raw_auth) = parse_scraper_auth_header(
+    let parsed_auth: Option<Arc<AuthHeader>> = match parse_scraper_auth_header(
         cfg.auth_header.as_deref(),
         &cfg.prometheus_endpoint,
         &redacted,
         "cloud_energy",
-    ) else {
-        return;
+    ) {
+        ScraperAuthOutcome::Invalid => return,
+        ScraperAuthOutcome::None => None,
+        ScraperAuthOutcome::Some(h) => Some(Arc::new(h)),
     };
-    let parsed_auth: Option<Arc<AuthHeader>> = raw_auth.map(Arc::new);
 
     let client = http_client::build_client();
 

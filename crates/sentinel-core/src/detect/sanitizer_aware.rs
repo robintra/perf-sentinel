@@ -58,19 +58,23 @@ impl SanitizerAwareMode {
     pub fn from_config(value: Option<&str>) -> Self {
         match value.map(str::trim) {
             None | Some("") => Self::Auto,
-            Some(raw) => match raw.to_ascii_lowercase().as_str() {
-                "auto" => Self::Auto,
-                "always" => Self::Always,
-                "never" => Self::Never,
-                "strict" => Self::Strict,
-                _ => {
+            Some(raw) => {
+                if raw.eq_ignore_ascii_case("auto") {
+                    Self::Auto
+                } else if raw.eq_ignore_ascii_case("always") {
+                    Self::Always
+                } else if raw.eq_ignore_ascii_case("never") {
+                    Self::Never
+                } else if raw.eq_ignore_ascii_case("strict") {
+                    Self::Strict
+                } else {
                     tracing::warn!(
                         value = sanitize_for_log(raw).as_ref(),
                         "unknown sanitizer_aware_classification value, defaulting to 'auto'"
                     );
                     Self::Auto
                 }
-            },
+            }
         }
     }
 

@@ -43,6 +43,11 @@ pub(crate) fn validate_http_endpoint(endpoint: &str) -> Result<(), &'static str>
     if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
         return Err("endpoint must start with http:// or https://");
     }
+    // Control bytes can survive `hyper::Uri` on some path shapes and
+    // land verbatim in tracing output via the redacted endpoint.
+    if endpoint.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err("endpoint must not contain ASCII control characters");
+    }
     let after_scheme = endpoint
         .strip_prefix("https://")
         .or_else(|| endpoint.strip_prefix("http://"))
@@ -86,5 +91,11 @@ mod tests {
     #[test]
     fn validate_http_endpoint_accepts_at_in_query_string() {
         assert!(validate_http_endpoint("http://host/api?owner=foo%40example.com").is_ok());
+    }
+
+    #[test]
+    fn validate_http_endpoint_rejects_control_chars() {
+        assert!(validate_http_endpoint("http://host\nfoo").is_err());
+        assert!(validate_http_endpoint("http://host\u{7f}foo").is_err());
     }
 }

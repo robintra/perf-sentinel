@@ -509,6 +509,11 @@ pub async fn fetch_from_prometheus(
 ///   since credentials must flow via env vars or a `.pgpass`-style file
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 fn validate_prometheus_endpoint(endpoint: &str) -> Result<(), PgStatError> {
+    if endpoint.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err(PgStatError::PrometheusRequest(
+            "endpoint must not contain ASCII control characters".to_string(),
+        ));
+    }
     let uri: crate::http_client::Uri = endpoint
         .parse()
         .map_err(|e| PgStatError::PrometheusRequest(format!("invalid endpoint URL: {e}")))?;

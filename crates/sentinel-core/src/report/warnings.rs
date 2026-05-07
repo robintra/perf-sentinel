@@ -61,8 +61,8 @@ impl Warning {
     #[must_use]
     pub fn from_untrusted(kind: &str, message: &str) -> Self {
         Self {
-            kind: crate::report::sarif::strip_bidi_and_invisible(kind),
-            message: crate::report::sarif::strip_bidi_and_invisible(message),
+            kind: crate::report::sarif::strip_bidi_and_invisible(kind).into_owned(),
+            message: crate::report::sarif::strip_bidi_and_invisible(message).into_owned(),
         }
     }
 }

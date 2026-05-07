@@ -563,7 +563,7 @@ mod tests {
         assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.300Z");
     }
 
-    // --- Sanitizer-aware reclassification (0.5.7+) ---
+    // --- Sanitizer-aware reclassification ---
 
     #[test]
     fn reclassifies_n_plus_one_when_sanitizer_on_with_orm_scope() {

@@ -224,13 +224,15 @@ async fn handle_findings(
     let result: Vec<FindingResponse> = stored
         .into_iter()
         .filter_map(|s| {
-            // The event loop populates `Finding.signature` via
-            // `enrich_with_signatures` before the finding lands in the
-            // store, so the read path is allocation-free. Defensive
-            // fallback for findings replayed from a pre-0.5.17 baseline
-            // dump where the field could be empty.
+            // event_loop calls `enrich_with_signatures` before storing.
+            // Empty-sig is the pre-0.5.17 replay path; surfacing it
+            // helps operators notice a bypassed enrich step.
             let owned_sig: String;
             let sig: &str = if s.finding.signature.is_empty() {
+                tracing::warn!(
+                    finding_type = s.finding.finding_type.as_str(),
+                    "stored finding had empty signature, recomputing on the read path"
+                );
                 owned_sig = compute_signature(&s.finding);
                 &owned_sig
             } else {
@@ -734,7 +736,7 @@ fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
         .map(str::to_string)
         .or_else(|| body_by.map(str::to_string))
         .unwrap_or_else(|| "anonymous".to_string());
-    crate::report::sarif::strip_bidi_and_invisible(&raw)
+    crate::report::sarif::strip_bidi_and_invisible(&raw).into_owned()
 }
 
 /// Validate the optional `X-API-Key` header against the configured

@@ -701,7 +701,19 @@ pub(crate) fn emit_diff(
     use std::io::Write;
 
     let mut writer: Box<dyn Write> = match output {
-        Some(path) => Box::new(std::fs::File::create(path)?),
+        Some(path) => {
+            // O_NOFOLLOW so a pre-planted symlink at the diff output
+            // path cannot redirect writes outside the operator's tree.
+            use std::fs::OpenOptions;
+            let mut opts = OpenOptions::new();
+            opts.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                opts.custom_flags(libc::O_NOFOLLOW);
+            }
+            Box::new(opts.open(path)?)
+        }
         None => Box::new(std::io::stdout().lock()),
     };
     // Force colors off when writing to a file. `ansi_colors` gates on

@@ -3,7 +3,7 @@
 //! Detects exact duplicate operations within a single trace:
 //! same normalized template AND same parameters.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
@@ -34,16 +34,20 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
 
     let mut findings = Vec::new();
 
+    // Index N+1 templates once to avoid O(G*F) per-group scans. Keyed
+    // by (type, template) so SQL N+1 does not mask HTTP redundant hits.
+    let n_plus_one_index: HashSet<(&FindingType, &str)> = n_plus_one_findings
+        .iter()
+        .map(|f| (&f.finding_type, f.pattern.template.as_str()))
+        .collect();
+
     for ((event_type, template, _params), indices) in &groups {
         if indices.len() < 2 {
             continue;
         }
 
         let n_plus_one_type = FindingType::from_event_type_n_plus_one(event_type);
-        let already_n_plus_one = n_plus_one_findings
-            .iter()
-            .any(|f| f.pattern.template == **template && f.finding_type == n_plus_one_type);
-        if already_n_plus_one {
+        if n_plus_one_index.contains(&(&n_plus_one_type, *template)) {
             continue;
         }
 

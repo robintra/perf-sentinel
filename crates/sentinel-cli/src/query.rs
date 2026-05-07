@@ -112,15 +112,18 @@ fn build_findings_path(
     finding_type: Option<&str>,
     severity: Option<&str>,
 ) -> String {
+    use crate::ack::percent_encode_signature_segment as enc;
+    // Percent-encode each value so a `--service "foo&limit=99999"` cannot
+    // break out of its parameter slot. Defense-in-depth on a loopback API.
     let mut params = vec![format!("limit={limit}")];
     if let Some(s) = service {
-        params.push(format!("service={s}"));
+        params.push(format!("service={}", enc(s)));
     }
     if let Some(t) = finding_type {
-        params.push(format!("type={t}"));
+        params.push(format!("type={}", enc(t)));
     }
     if let Some(s) = severity {
-        params.push(format!("severity={s}"));
+        params.push(format!("severity={}", enc(s)));
     }
     format!("/api/findings?{}", params.join("&"))
 }

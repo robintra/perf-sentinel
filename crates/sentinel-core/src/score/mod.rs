@@ -17,7 +17,6 @@ pub mod scaphandre;
 mod carbon_compute;
 mod region_breakdown;
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use crate::correlate::Trace;
@@ -89,20 +88,20 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointS
 fn endpoint_stats_to_per_endpoint_io_ops(
     endpoint_stats: &HashMap<EndpointKey<'_>, EndpointStats>,
 ) -> Vec<PerEndpointIoOps> {
-    let mut entries: Vec<PerEndpointIoOps> = endpoint_stats
+    // Sort over borrowed pairs so the comparator does not walk fresh
+    // heap-allocated `String`s; owned strings are materialized after.
+    let mut refs: Vec<(&str, &str, usize)> = endpoint_stats
         .iter()
-        .map(|((service, endpoint), stats)| PerEndpointIoOps {
-            service: (*service).to_string(),
-            endpoint: (*endpoint).to_string(),
-            io_ops: stats.total_io_ops,
-        })
+        .map(|((service, endpoint), stats)| (*service, *endpoint, stats.total_io_ops))
         .collect();
-    entries.sort_by(|a, b| {
-        a.service
-            .cmp(&b.service)
-            .then_with(|| a.endpoint.cmp(&b.endpoint))
-    });
-    entries
+    refs.sort_by(|a, b| a.0.cmp(b.0).then_with(|| a.1.cmp(b.1)));
+    refs.into_iter()
+        .map(|(service, endpoint, io_ops)| PerEndpointIoOps {
+            service: service.to_string(),
+            endpoint: endpoint.to_string(),
+            io_ops,
+        })
+        .collect()
 }
 
 /// Compute `GreenOps` scores: enrich findings with `green_impact` and produce a `GreenSummary`.
@@ -249,8 +248,7 @@ pub fn score_green(
         .collect();
     top_offenders.sort_by(|a, b| {
         b.io_intensity_score
-            .partial_cmp(&a.io_intensity_score)
-            .unwrap_or(Ordering::Equal)
+            .total_cmp(&a.io_intensity_score)
             .then_with(|| a.service.cmp(&b.service))
             .then_with(|| a.endpoint.cmp(&b.endpoint))
     });

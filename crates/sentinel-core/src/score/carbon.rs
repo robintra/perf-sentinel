@@ -460,7 +460,10 @@ impl Provider {
 ///
 /// Region keys are lowercase for case-insensitive matching.
 /// Data from Cloud Carbon Footprint (CCF) and Electricity Maps
-/// (2023-2024 annual averages). PUE values from CCF per provider.
+/// (2023-2024 annual averages, consumption-based with imports). PUE
+/// values from CCF per provider. The Paris value (~56 g) tracks
+/// Electricity Maps consumption-based-with-imports, not RTE's lower
+/// production-based figure, so the table stays internally consistent.
 static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),

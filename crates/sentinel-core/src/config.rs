@@ -907,10 +907,13 @@ impl From<RawConfig> for Config {
 /// Called from [`Config::from`] (which falls back to default on error,
 /// deferring the real rejection to [`Config::validate`]).
 fn parse_daemon_environment(value: &str) -> Option<DaemonEnvironment> {
-    match value.trim().to_ascii_lowercase().as_str() {
-        "staging" => Some(DaemonEnvironment::Staging),
-        "production" => Some(DaemonEnvironment::Production),
-        _ => None,
+    let trimmed = value.trim();
+    if trimmed.eq_ignore_ascii_case("staging") {
+        Some(DaemonEnvironment::Staging)
+    } else if trimmed.eq_ignore_ascii_case("production") {
+        Some(DaemonEnvironment::Production)
+    } else {
+        None
     }
 }
 

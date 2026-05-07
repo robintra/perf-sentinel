@@ -31,6 +31,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const USER_AGENT: &str = "perf-sentinel-ack";
 /// Per-page cap for `query inspect` boot fetch and post-submit
 /// refetch. Re-exports the daemon's cap so the two sides cannot drift.
+#[cfg(feature = "tui")]
 pub(crate) const FINDINGS_FETCH_LIMIT: usize = sentinel_core::daemon::query_api::MAX_FINDINGS_LIMIT;
 /// Re-export of the daemon-side cap so the `list` footer cannot drift.
 /// Same name as the upstream constant in
@@ -113,7 +114,9 @@ pub(crate) async fn cmd_ack(daemon_url: &str, action: AckAction) -> i32 {
     let base = match validate_url(daemon_url) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("{e}");
+            // Sanitize: the string echoes the env-var URL verbatim and
+            // could otherwise replay terminal escapes from a hostile env.
+            eprintln!("{}", sentinel_core::text_safety::sanitize_for_terminal(&e));
             return 1;
         }
     };
@@ -477,13 +480,25 @@ fn resolve_signature(arg: Option<String>) -> Result<String, String> {
                 .to_string(),
         );
     }
+    // Cap stdin at MAX_SIGNATURE_LEN+1 so a `cat /dev/urandom` pipe
+    // cannot exhaust memory; oversize input is rejected post-trim.
+    let cap = sentinel_core::daemon::ack::MAX_SIGNATURE_LEN + 1;
     let mut buf = String::new();
-    std::io::stdin()
+    let stdin = std::io::stdin();
+    stdin
+        .lock()
+        .take(cap as u64)
         .read_to_string(&mut buf)
         .map_err(|e| format!("Error: cannot read signature from stdin, {e}"))?;
     let trimmed = buf.trim();
     if trimmed.is_empty() {
         return Err("Error: stdin contained no signature".to_string());
+    }
+    if trimmed.len() > sentinel_core::daemon::ack::MAX_SIGNATURE_LEN {
+        return Err(format!(
+            "Error: signature on stdin exceeds {}-byte cap",
+            sentinel_core::daemon::ack::MAX_SIGNATURE_LEN
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -567,15 +582,25 @@ pub(crate) fn read_api_key_file(path: &Path) -> Result<String, String> {
     Ok(stripped)
 }
 
+/// 1 KiB matches the daemon-side `MAX_AUTH_HEADER_INPUT_BYTES`-style
+/// caps and any realistic API key width.
+const MAX_PROMPT_API_KEY_LEN: usize = 1024;
+
 fn prompt_api_key() -> Option<String> {
     if !std::io::stdin().is_terminal() {
         return None;
     }
     eprintln!("Daemon requires authentication.");
-    rpassword::prompt_password("API key (will not echo): ")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    let raw = rpassword::prompt_password("API key (will not echo): ").ok()?;
+    let trimmed = raw.trim().to_string();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.len() > MAX_PROMPT_API_KEY_LEN {
+        eprintln!("Error: API key exceeds {MAX_PROMPT_API_KEY_LEN}-byte cap");
+        return None;
+    }
+    Some(trimmed)
 }
 
 /// Parse an `--expires` argument: ISO8601 datetime first, fall back to
@@ -782,7 +807,12 @@ fn exit_code_for_status(status: hyper::StatusCode) -> i32 {
 }
 
 fn eprint_status_error(status: hyper::StatusCode, op: &str, signature: &str, daemon_url: &str) {
+    use sentinel_core::text_safety::sanitize_for_terminal;
     let code = status.as_u16();
+    // Signatures and daemon URLs may have been read from stdin/env; pipe
+    // through the terminal sanitizer to avoid escape-sequence injection.
+    let safe_sig = sanitize_for_terminal(signature);
+    let safe_url = sanitize_for_terminal(daemon_url);
     match (code, op) {
         (401, _) => {
             eprintln!("Error: daemon requires authentication (HTTP 401)");
@@ -791,10 +821,10 @@ fn eprint_status_error(status: hyper::StatusCode, op: &str, signature: &str, dae
         }
         (409, "create") => {
             eprintln!("Error: signature already acknowledged (HTTP 409)");
-            if signature.is_empty() {
+            if safe_sig.is_empty() {
                 eprintln!("hint: use 'perf-sentinel ack revoke --signature <SIG>' first");
             } else {
-                eprintln!("hint: use 'perf-sentinel ack revoke --signature {signature}' first");
+                eprintln!("hint: use 'perf-sentinel ack revoke --signature {safe_sig}' first");
             }
         }
         (404, "revoke") => {
@@ -812,7 +842,7 @@ fn eprint_status_error(status: hyper::StatusCode, op: &str, signature: &str, dae
             eprintln!("hint: set [daemon.ack] enabled = true in the daemon config");
         }
         _ => {
-            eprintln!("Error: daemon returned HTTP {code} on {op} (daemon at {daemon_url})");
+            eprintln!("Error: daemon returned HTTP {code} on {op} (daemon at {safe_url})");
         }
     }
 }
@@ -864,6 +894,7 @@ fn format_relative(delta: chrono::Duration) -> String {
 /// `Display` produces a human-readable message that NEVER includes the
 /// API key, defensive against accidental leak from a future logging
 /// path that might `format!` the error.
+#[cfg(feature = "tui")]
 #[derive(Debug)]
 pub(crate) enum AckSubmitError {
     Unauthorized,
@@ -876,6 +907,7 @@ pub(crate) enum AckSubmitError {
     Transport(String),
 }
 
+#[cfg(feature = "tui")]
 impl std::fmt::Display for AckSubmitError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -898,6 +930,7 @@ impl std::fmt::Display for AckSubmitError {
 /// [`AckSubmitError`] variants. Used by the TUI submit flow, mirrors
 /// the body shape of `run_create`. The signature must be the
 /// already-resolved finding signature (no stdin fallback).
+#[cfg(feature = "tui")]
 pub(crate) async fn post_ack_via_daemon(
     daemon_url: &str,
     signature: &str,
@@ -946,6 +979,7 @@ pub(crate) async fn post_ack_via_daemon(
 /// [`AckSubmitError`] variants. The empty body is sent through the
 /// same `http_call` helper that the create path uses, no separate
 /// no-body client.
+#[cfg(feature = "tui")]
 pub(crate) async fn delete_ack_via_daemon(
     daemon_url: &str,
     signature: &str,
@@ -979,19 +1013,24 @@ pub(crate) async fn delete_ack_via_daemon(
     }
 }
 
+#[cfg(feature = "tui")]
 fn decode_body_message(body: &bytes::Bytes) -> String {
+    use sentinel_core::text_safety::sanitize_for_terminal;
     let text = String::from_utf8_lossy(body);
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return String::new();
     }
     let max = 200;
-    if trimmed.chars().count() > max {
-        let truncated: String = trimmed.chars().take(max).collect();
-        format!("{truncated}…")
+    let truncated = if trimmed.chars().count() > max {
+        let prefix: String = trimmed.chars().take(max).collect();
+        format!("{prefix}…")
     } else {
         trimmed.to_string()
-    }
+    };
+    // Eager sanitize: per the AckSubmitError contract, every consumer
+    // must scrub before display; do it once at the source.
+    sanitize_for_terminal(&truncated).into_owned()
 }
 
 /// Percent-encode a signature for safe interpolation into the daemon
@@ -1004,7 +1043,7 @@ fn decode_body_message(body: &bytes::Bytes) -> String {
 /// or `:`, which is allowed in path segments. Real sentinel signatures
 /// are `[A-Za-z0-9_:.-]+`, the common case probes the input and
 /// returns `Cow::Borrowed` zero-allocation.
-fn percent_encode_signature_segment(s: &str) -> std::borrow::Cow<'_, str> {
+pub(crate) fn percent_encode_signature_segment(s: &str) -> std::borrow::Cow<'_, str> {
     use std::borrow::Cow;
     use std::fmt::Write as _;
     if s.bytes().all(is_signature_segment_safe) {

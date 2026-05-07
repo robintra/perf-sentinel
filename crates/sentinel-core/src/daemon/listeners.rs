@@ -312,6 +312,13 @@ fn build_http_router(
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.
         let mut query_router = query_api::query_api_router(query_state);
+        // CORS `*` plus an X-API-Key auth lets any browser origin
+        // replay a captured key; whitelist explicit origins in prod.
+        if config.ack_api_key.is_some() && config.cors_allowed_origins.iter().any(|o| o == "*") {
+            tracing::warn!(
+                "[daemon.cors] wildcard `*` with [daemon.ack] api_key: any browser origin can replay a captured X-API-Key"
+            );
+        }
         if let Some(cors) = build_cors_layer(&config.cors_allowed_origins) {
             query_router = query_router.layer(cors);
         }

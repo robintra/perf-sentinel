@@ -14,6 +14,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::Path;
 
@@ -83,27 +84,29 @@ pub fn compute_signature(finding: &Finding) -> String {
     hasher.update(finding.pattern.template.as_bytes());
     let digest = hasher.finalize();
     let safe_service = crate::report::sarif::strip_bidi_and_invisible(&finding.service);
-    let safe_endpoint = crate::report::sarif::strip_bidi_and_invisible(&sanitize_endpoint(
-        &finding.source_endpoint,
-    ));
-    format!(
-        "{}:{}:{}:{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        finding.finding_type.as_str(),
-        safe_service,
-        safe_endpoint,
-        digest[0],
-        digest[1],
-        digest[2],
-        digest[3],
-        digest[4],
-        digest[5],
-        digest[6],
-        digest[7],
-    )
+    let sanitized_endpoint = sanitize_endpoint(&finding.source_endpoint);
+    let safe_endpoint = crate::report::sarif::strip_bidi_and_invisible(&sanitized_endpoint);
+    let kind = finding.finding_type.as_str();
+    // Pre-size: type + 2 separators + service + endpoint + ':' + 16 hex.
+    let mut out = String::with_capacity(kind.len() + safe_service.len() + safe_endpoint.len() + 19);
+    out.push_str(kind);
+    out.push(':');
+    out.push_str(safe_service.as_ref());
+    out.push(':');
+    out.push_str(safe_endpoint.as_ref());
+    out.push(':');
+    for byte in &digest[..8] {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
-fn sanitize_endpoint(endpoint: &str) -> String {
-    endpoint.replace(['/', ' '], "_")
+fn sanitize_endpoint(endpoint: &str) -> Cow<'_, str> {
+    if endpoint.bytes().any(|b| matches!(b, b'/' | b' ')) {
+        Cow::Owned(endpoint.replace(['/', ' '], "_"))
+    } else {
+        Cow::Borrowed(endpoint)
+    }
 }
 
 /// Fill in the `signature` field of every finding in place.

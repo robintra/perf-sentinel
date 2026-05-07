@@ -81,27 +81,31 @@ impl AuthHeader {
     }
 }
 
-/// Parse an optional auth header for a daemon scraper, applying the
-/// shared operator UX: a parse failure emits a `tracing::error!` with
-/// the pre-redacted endpoint (credentials in URL userinfo cannot leak
-/// through this path) and returns `Err(())` to signal that the caller
-/// must disable the subsystem. A successfully parsed header over
-/// cleartext `http://` emits a `tracing::warn!`.
-///
-/// Shared between the `cloud_energy` and `scaphandre` scrapers so the
-/// three-branch parse/warn/disable logic lives in one place.
-///
-/// # Errors
-///
-/// Returns `Err(())` when `raw` is `Some` and fails `AuthHeader::parse`.
-/// The caller should immediately abort the scraper task.
+/// Three-state outcome of `parse_scraper_auth_header`. Encodes "parse
+/// failed, abort" without smuggling a `Result<_, ()>` (clippy hates the
+/// unit error) or an `Option<Option<_>>` (clippy hates that too).
+#[cfg(feature = "daemon")]
+#[derive(Debug)]
+pub(crate) enum ScraperAuthOutcome {
+    /// No header configured.
+    None,
+    /// Header configured and parsed cleanly.
+    Some(AuthHeader),
+    /// Header configured but malformed; caller aborts the scraper task.
+    Invalid,
+}
+
+/// Parse an optional auth header for a daemon scraper. Failures log a
+/// `tracing::error!` with the redacted endpoint and yield `Invalid`;
+/// successful parses over cleartext `http://` emit a `tracing::warn!`.
+/// Shared by the `cloud_energy` and `scaphandre` scrapers.
 #[cfg(feature = "daemon")]
 pub(crate) fn parse_scraper_auth_header(
     raw: Option<&str>,
     endpoint: &str,
     redacted_endpoint: &str,
     subsystem: &'static str,
-) -> Result<Option<AuthHeader>, ()> {
+) -> ScraperAuthOutcome {
     let parsed = match raw.map(AuthHeader::parse).transpose() {
         Ok(v) => v,
         Err(msg) => {
@@ -111,15 +115,20 @@ pub(crate) fn parse_scraper_auth_header(
                 reason = msg,
                 "Scraper disabled, invalid auth_header"
             );
-            return Err(());
+            return ScraperAuthOutcome::Invalid;
         }
     };
-    if parsed.is_some() && endpoint.starts_with("http://") {
-        tracing::warn!(
-            "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
-        );
+    match parsed {
+        Some(header) => {
+            if endpoint.starts_with("http://") {
+                tracing::warn!(
+                    "Sending auth header over cleartext HTTP, prefer https:// to avoid credential leak"
+                );
+            }
+            ScraperAuthOutcome::Some(header)
+        }
+        None => ScraperAuthOutcome::None,
     }
-    Ok(parsed)
 }
 
 // Manual Debug guarantees the value is never printed, even if a

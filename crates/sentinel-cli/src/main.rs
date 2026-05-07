@@ -800,6 +800,12 @@ fn resolve_auth_header(
     env_var: Option<String>,
 ) -> Result<Option<String>, String> {
     if let Some(value) = direct {
+        // `--auth-header` is `ps`-visible; nudge operators toward
+        // `--auth-header-env` to match the pg-stat helper UX.
+        tracing::warn!(
+            "auth header supplied via --auth-header is visible in `ps` and shell history; \
+             prefer --auth-header-env <NAME> to read it from an environment variable"
+        );
         return Ok(Some(value));
     }
     if let Some(name) = env_var {
@@ -855,6 +861,7 @@ async fn dispatch_pg_stat(
 /// Resolve the auth header or exit on error. Used by Tempo and
 /// Jaeger-Query dispatch arms which both share the same fail-fast
 /// shape (`Err(e)` -> `eprintln!("Error: {e}")` -> exit 1).
+#[cfg(any(feature = "tempo", feature = "jaeger-query"))]
 fn resolve_auth_header_or_exit(direct: Option<String>, env_var: Option<String>) -> Option<String> {
     resolve_auth_header(direct, env_var).unwrap_or_else(|e| {
         eprintln!("Error: {e}");
@@ -1197,6 +1204,7 @@ const DEFAULT_PG_STAT_TOP: usize = 10;
 /// (the upstream `topk` metric) biases the three non-time rankings.
 /// Always scrape at least this many rows so the secondary rankings see
 /// the full hot-spot distribution.
+#[cfg(feature = "daemon")]
 const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
 
 /// Ingest a `pg_stat_statements` CSV or JSON file and produce the
@@ -1404,7 +1412,7 @@ async fn cmd_report(
     };
 
     let (html, stats) = sentinel_core::report::html::render(&report, &traces, &options);
-    if let Err(e) = std::fs::write(output, &html) {
+    if let Err(e) = write_file_no_follow(output, html.as_bytes()) {
         eprintln!("Error writing HTML report to {}: {e}", output.display());
         std::process::exit(1);
     }
@@ -1636,7 +1644,7 @@ fn cmd_calibrate(
         &traces_path.display().to_string(),
         &energy_path.display().to_string(),
     );
-    match std::fs::write(output_path, &toml_content) {
+    match write_file_no_follow(output_path, toml_content.as_bytes()) {
         Ok(()) => {
             eprintln!("\nWritten to {}", output_path.display());
         }
@@ -1999,7 +2007,7 @@ fn compute_latency_percentiles(durations_ns: &[u64], event_count: usize) -> (f64
         .iter()
         .map(|&d| d as f64 / event_count as f64)
         .collect();
-    per_event_ns.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    per_event_ns.sort_by(f64::total_cmp);
 
     let len = per_event_ns.len();
     let last = len - 1;
@@ -2058,7 +2066,7 @@ fn current_rss_bytes() -> Option<usize> {
         let mut usage: libc::rusage = unsafe { mem::zeroed() };
         // SAFETY: getrusage is a POSIX syscall that writes into the provided rusage pointer.
         // The pointer is valid (stack-allocated) and the return value is checked below.
-        let ret = unsafe { libc::getrusage(libc::RUSAGE_SELF, std::ptr::addr_of_mut!(usage)) };
+        let ret = unsafe { libc::getrusage(libc::RUSAGE_SELF, &raw mut usage) };
         if ret == 0 {
             // On macOS, ru_maxrss is in bytes
             Some(usage.ru_maxrss as usize)
@@ -2070,6 +2078,25 @@ fn current_rss_bytes() -> Option<usize> {
     {
         None
     }
+}
+
+/// Write `contents` to `path`, refusing to follow a symlink at the
+/// target on Unix. Mirrors the daemon ack store hardening so a hostile
+/// pre-planted symlink cannot redirect the write outside its tree.
+fn write_file_no_follow(path: &std::path::Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::fs::OpenOptions;
+    use std::io::Write as _;
+
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = opts.open(path)?;
+    file.write_all(contents)?;
+    Ok(())
 }
 
 #[cfg(test)]

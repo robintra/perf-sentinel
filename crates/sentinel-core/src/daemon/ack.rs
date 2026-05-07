@@ -4,6 +4,7 @@
 //! JSONL + concurrency" for the file format, compaction strategy and
 //! concurrency model rationale.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -34,7 +35,8 @@ pub const MAX_ACTIVE_ACKS: usize = 10_000;
 /// spec) + `:` + sanitized endpoint (typically ~256 B but unbounded in
 /// the source) + `:` + 16 hex. 1024 covers any realistic combination
 /// while still rejecting obvious garbage like a multi-KB blob.
-const MAX_SIGNATURE_LEN: usize = 1024;
+#[doc(hidden)]
+pub const MAX_SIGNATURE_LEN: usize = 1024;
 
 /// Soft cap on `AckEntry::by` byte length. Bounds JSONL line size for a
 /// pathological caller and matches typical email / SSO identifier
@@ -149,6 +151,26 @@ impl AckStore {
     pub async fn new(storage_path: PathBuf) -> Result<Arc<Self>, AckError> {
         if let Some(parent) = storage_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
+            // Tighten `<base>/perf-sentinel/` to 0700 on Unix; the leaf
+            // is already 0600+O_NOFOLLOW so chmod failure is non-fatal.
+            #[cfg(unix)]
+            if !parent.as_os_str().is_empty() {
+                use std::os::unix::fs::PermissionsExt;
+                if let Ok(metadata) = tokio::fs::metadata(parent).await {
+                    let mut perms = metadata.permissions();
+                    let current = perms.mode() & 0o777;
+                    if current & 0o077 != 0 {
+                        perms.set_mode(0o700);
+                        if let Err(e) = tokio::fs::set_permissions(parent, perms).await {
+                            tracing::warn!(
+                                path = %parent.display(),
+                                error = %e,
+                                "could not tighten ack store parent directory to 0700"
+                            );
+                        }
+                    }
+                }
+            }
         }
 
         let active = if storage_path.exists() {
@@ -225,7 +247,7 @@ impl AckStore {
             }
             (**active).clone()
         };
-        let mut by = strip_bidi(by);
+        let mut by = crate::report::sarif::strip_bidi_and_invisible(by).into_owned();
         crate::event::truncate_field(&mut by, MAX_BY_LEN);
         let entry = AckEntry {
             action: AckAction::Unack,
@@ -314,16 +336,16 @@ fn validate_signature(sig: &str) -> Result<(), AckError> {
 }
 
 fn sanitize_entry(entry: &mut AckEntry) {
-    entry.by = strip_bidi(&entry.by);
+    if let Cow::Owned(stripped) = crate::report::sarif::strip_bidi_and_invisible(&entry.by) {
+        entry.by = stripped;
+    }
     crate::event::truncate_field(&mut entry.by, MAX_BY_LEN);
     if let Some(reason) = entry.reason.as_mut() {
-        *reason = strip_bidi(reason);
+        if let Cow::Owned(stripped) = crate::report::sarif::strip_bidi_and_invisible(reason) {
+            *reason = stripped;
+        }
         crate::event::truncate_field(reason, MAX_REASON_LEN);
     }
-}
-
-fn strip_bidi(s: &str) -> String {
-    crate::report::sarif::strip_bidi_and_invisible(s)
 }
 
 pub(crate) fn is_expired(entry: &AckEntry, now: DateTime<Utc>) -> bool {
@@ -540,6 +562,10 @@ async fn rewrite_compacted(
     tmp_file.flush().await?;
     tmp_file.sync_data().await?;
     drop(tmp_file);
+    // Re-check just before swap: rename follows target symlinks and the
+    // startup-time check does not cover the long compaction window.
+    #[cfg(unix)]
+    refuse_if_symlink(path).await?;
     tokio::fs::rename(&tmp, path).await?;
     Ok(())
 }

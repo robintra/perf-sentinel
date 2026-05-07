@@ -26,5 +26,9 @@ description = "Documented finding-signature examples are public, not secrets"
 # bare `[a-z_]+:` prefix.
 regexTarget = "line"
 regexes = [
-  '''(?:n_plus_one_sql|n_plus_one_http|redundant_sql|redundant_http|slow_sql|slow_http|excessive_fanout|chatty_service|pool_saturation|serialized_calls):[A-Za-z0-9_./@-]+:[A-Za-z0-9_./@-]+:[0-9a-f]{16}''',
+  # Service and sanitized-endpoint segments only contain bytes
+  # `compute_signature` lets through after `sanitize_endpoint` strips
+  # `/` and ` `: alnum, `_`, `-`, `.`. Tighter than `@/` would allow,
+  # so a real credential cannot hide as a fake signature.
+  '''(?:n_plus_one_sql|n_plus_one_http|redundant_sql|redundant_http|slow_sql|slow_http|excessive_fanout|chatty_service|pool_saturation|serialized_calls):[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+:[0-9a-f]{16}''',
 ]
