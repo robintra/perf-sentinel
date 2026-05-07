@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.30
-appVersion: "0.5.27"
+version: 0.2.31
+appVersion: "0.5.28"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -36,9 +36,12 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/tree/main/docs
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
+  artifacthub.io/changes: |
+    - kind: changed
+      description: "appVersion 0.5.28: signature format bumped from 16-hex to 32-hex prefix (~64 to ~128 bits collision resistance). Breaking, existing TOML acks no longer match findings, daemon JSONL store legacy entries are dropped on replay with a startup WARN. Re-ack required."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.5.27
+      image: ghcr.io/robintra/perf-sentinel:0.5.28
       platforms:
         - linux/amd64
         - linux/arm64

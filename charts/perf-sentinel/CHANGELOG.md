@@ -6,6 +6,23 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.31]
+
+### Changed
+
+- `appVersion` bumped to `0.5.28`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.5.28`. The
+  `artifacthub.io/images` annotation is updated in lockstep.
+- **Breaking change in 0.5.28**: the finding signature format moves
+  from a 16-hex SHA-256 prefix (~64 bits) to a 32-hex prefix (~128
+  bits). Existing `.perf-sentinel-acknowledgments.toml` files with
+  16-hex signatures stop matching after upgrade, the daemon JSONL
+  ack store contains entries that no longer match either. Operators
+  should flush the JSONL store at upgrade time and re-ack the
+  surviving findings under the new format. See the upstream
+  CHANGELOG for the full migration note. No chart-level template
+  change beyond the image tag.
+
 ## [0.2.30]
 
 ### Changed
