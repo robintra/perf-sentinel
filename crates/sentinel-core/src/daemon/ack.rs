@@ -151,26 +151,7 @@ impl AckStore {
     pub async fn new(storage_path: PathBuf) -> Result<Arc<Self>, AckError> {
         if let Some(parent) = storage_path.parent() {
             tokio::fs::create_dir_all(parent).await?;
-            // Tighten `<base>/perf-sentinel/` to 0700 on Unix; the leaf
-            // is already 0600+O_NOFOLLOW so chmod failure is non-fatal.
-            #[cfg(unix)]
-            if !parent.as_os_str().is_empty() {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(metadata) = tokio::fs::metadata(parent).await {
-                    let mut perms = metadata.permissions();
-                    let current = perms.mode() & 0o777;
-                    if current & 0o077 != 0 {
-                        perms.set_mode(0o700);
-                        if let Err(e) = tokio::fs::set_permissions(parent, perms).await {
-                            tracing::warn!(
-                                path = %parent.display(),
-                                error = %e,
-                                "could not tighten ack store parent directory to 0700"
-                            );
-                        }
-                    }
-                }
-            }
+            tighten_parent_dir_perms(parent).await;
         }
 
         let active = if storage_path.exists() {
@@ -444,20 +425,8 @@ async fn replay_and_compact(
             dropped_for_invalid_signature += 1;
             continue;
         }
-        match entry.action {
-            AckAction::Ack => {
-                if is_expired(&entry, now) {
-                    continue;
-                }
-                if active.len() >= MAX_ACTIVE_ACKS {
-                    dropped_for_limit += 1;
-                    continue;
-                }
-                active.insert(entry.signature.clone(), entry);
-            }
-            AckAction::Unack => {
-                active.remove(&entry.signature);
-            }
+        if apply_replay_entry(entry, now, &mut active) {
+            dropped_for_limit += 1;
         }
     }
     if dropped_for_limit > 0 {
@@ -485,6 +454,63 @@ async fn replay_and_compact(
     rewrite_compacted(path, &active).await?;
     Ok(active)
 }
+
+/// Apply one replayed entry to the in-progress `active` map.
+/// Returns `true` if the entry was an `Ack` dropped because the active
+/// cap was reached. `false` for all other outcomes (inserted, removed,
+/// expired, unack of unknown signature).
+fn apply_replay_entry(
+    entry: AckEntry,
+    now: DateTime<Utc>,
+    active: &mut HashMap<String, AckEntry>,
+) -> bool {
+    match entry.action {
+        AckAction::Ack => {
+            if is_expired(&entry, now) {
+                return false;
+            }
+            if active.len() >= MAX_ACTIVE_ACKS {
+                return true;
+            }
+            active.insert(entry.signature.clone(), entry);
+            false
+        }
+        AckAction::Unack => {
+            active.remove(&entry.signature);
+            false
+        }
+    }
+}
+
+/// Tighten the ack-store parent directory to 0700 on Unix. The leaf is
+/// already 0600 + `O_NOFOLLOW` so chmod failure here is non-fatal. Skips
+/// silently on non-Unix or when the path is empty / unreadable / already
+/// tight enough.
+#[cfg(unix)]
+async fn tighten_parent_dir_perms(parent: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    if parent.as_os_str().is_empty() {
+        return;
+    }
+    let Ok(metadata) = tokio::fs::metadata(parent).await else {
+        return;
+    };
+    let mut perms = metadata.permissions();
+    let current = perms.mode() & 0o777;
+    if current & 0o077 != 0 {
+        perms.set_mode(0o700);
+        if let Err(e) = tokio::fs::set_permissions(parent, perms).await {
+            tracing::warn!(
+                path = %parent.display(),
+                error = %e,
+                "could not tighten ack store parent directory to 0700"
+            );
+        }
+    }
+}
+
+#[cfg(not(unix))]
+async fn tighten_parent_dir_perms(_parent: &Path) {}
 
 #[cfg(unix)]
 async fn open_for_replay(path: &Path) -> Result<File, AckError> {

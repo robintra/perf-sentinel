@@ -1,4 +1,4 @@
-import { test } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
 // Scripted tour of the HTML dashboard. Pacing is deliberate: each
 // pause is tuned so the final GIF reads as a calm demo rather than a
@@ -105,6 +105,10 @@ test("dashboard tour", async ({ page }, testInfo) => {
   // event carries key === "?", which is what the handler checks.
   await page.keyboard.press("?");
   await page.waitForSelector("#cheatsheet[open]", { timeout: 2000 });
+  // Final assertion: the tour reached the cheatsheet, signalling the
+  // full keyboard-shortcut path is wired. Earlier waitForSelector calls
+  // are runtime checks only, this expect is what the reporter counts.
+  await expect(page.locator("#cheatsheet")).toBeVisible();
   await pause(page, 2500);
   await page.keyboard.press("Escape");
   await pause(page, 600);

@@ -1,5 +1,13 @@
-import {test} from "@playwright/test";
+import {test, expect} from "@playwright/test";
 import {resolve} from "node:path";
+import {statSync} from "node:fs";
+
+// Verify the captured PNG was actually written and has plausible
+// content. 1 KiB floor catches a write that produced a header-only
+// file (corrupt or zero-byte) without coupling to pixel-level content.
+function expectScreenshotWritten(path: string) {
+  expect(statSync(path).size).toBeGreaterThan(1024);
+}
 
 // Captures one clean screenshot per tab for the docs. Runs twice
 // (once per dashboard-stills-* project) to produce light + dark
@@ -78,7 +86,9 @@ test("01 findings with severity + service filters", async ({ page }, info) => {
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("findings", theme));
+  const path = outPath("findings", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("02 explain trace tree", async ({ page }, info) => {
@@ -86,35 +96,45 @@ test("02 explain trace tree", async ({ page }, info) => {
   await openDashboard(page, theme);
   await page.locator("#findings-list .ps-row").first().click();
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("explain", theme));
+  const path = outPath("explain", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("03 pg_stat Calls ranking", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#pgstat&ranking=calls");
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("pg-stat", theme));
+  const path = outPath("pg-stat", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("04 diff regression", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#diff");
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("diff", theme));
+  const path = outPath("diff", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("05 correlations cross-trace", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#correlations");
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("correlations", theme));
+  const path = outPath("correlations", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("06 greenops regions breakdown", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
   await openDashboard(page, theme, "#green");
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("greenops", theme));
+  const path = outPath("greenops", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
 
 test("07 cheatsheet modal", async ({ page }, info) => {
@@ -123,5 +143,7 @@ test("07 cheatsheet modal", async ({ page }, info) => {
   await page.keyboard.press("?");
   await page.waitForSelector("#cheatsheet[open]");
   await page.waitForTimeout(150);
-  await clipScreenshot(page, outPath("cheatsheet", theme));
+  const path = outPath("cheatsheet", theme);
+  await clipScreenshot(page, path);
+  expectScreenshotWritten(path);
 });
