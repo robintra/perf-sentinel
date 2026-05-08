@@ -274,7 +274,9 @@ mod tests {
     /// change should get human attention.
     #[test]
     fn iis_high_matches_n_plus_one_threshold_default() {
-        let default_threshold = crate::config::Config::default().n_plus_one_threshold;
+        let default_threshold = crate::config::Config::default()
+            .detection
+            .n_plus_one_threshold;
         let threshold_f64 = f64::from(default_threshold);
         assert!(
             (IIS_HIGH - threshold_f64).abs() < f64::EPSILON,

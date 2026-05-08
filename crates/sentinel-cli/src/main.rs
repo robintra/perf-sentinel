@@ -1022,9 +1022,9 @@ fn cmd_analyze(
     show_acknowledged: bool,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(input, config.max_payload_size);
+    let raw = read_events(input, config.daemon.max_payload_size);
 
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
 
     let mut report = pipeline::analyze(events, &config);
     apply_acknowledgments_or_exit(
@@ -1048,12 +1048,12 @@ fn cmd_diff(
     let config = load_config(config_path);
     // Run analyze on both trace files with the SAME config so per-endpoint
     // counts and severity assignments are comparable.
-    let before_raw = read_events(Some(before), config.max_payload_size);
-    let before_events = ingest_json_or_exit(&before_raw, config.max_payload_size);
+    let before_raw = read_events(Some(before), config.daemon.max_payload_size);
+    let before_events = ingest_json_or_exit(&before_raw, config.daemon.max_payload_size);
     let mut before_report = pipeline::analyze(before_events, &config);
 
-    let after_raw = read_events(Some(after), config.max_payload_size);
-    let after_events = ingest_json_or_exit(&after_raw, config.max_payload_size);
+    let after_raw = read_events(Some(after), config.daemon.max_payload_size);
+    let after_events = ingest_json_or_exit(&after_raw, config.daemon.max_payload_size);
     let mut after_report = pipeline::analyze(after_events, &config);
 
     // Apply the same ack file to both runs so the diff stays meaningful:
@@ -1153,7 +1153,7 @@ fn load_report_from_input(
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     match first_byte {
         Some(b'[') => {
-            let events = ingest_json_or_exit(raw, config.max_payload_size);
+            let events = ingest_json_or_exit(raw, config.daemon.max_payload_size);
             pipeline::analyze_with_traces(events, config)
         }
         Some(b'{') => {
@@ -1168,7 +1168,7 @@ fn load_report_from_input(
                 sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
                 return (report, Vec::new());
             }
-            let ingest = JsonIngest::new(config.max_payload_size);
+            let ingest = JsonIngest::new(config.daemon.max_payload_size);
             match ingest.ingest(raw) {
                 Ok(events) => pipeline::analyze_with_traces(events, config),
                 Err(e) => {
@@ -1216,9 +1216,9 @@ fn load_pg_stat_from_file(
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let raw_pg = read_file_capped(
         path,
-        u64::try_from(config.max_payload_size).unwrap_or(u64::MAX),
+        u64::try_from(config.daemon.max_payload_size).unwrap_or(u64::MAX),
     );
-    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.max_payload_size) {
+    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.daemon.max_payload_size) {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error parsing --pg-stat {}: {e}", path.display());
@@ -1296,7 +1296,7 @@ fn load_diff_against_baseline(
 ) -> sentinel_core::diff::DiffReport {
     let raw_before = read_file_capped(
         before_path,
-        u64::try_from(config.max_payload_size).unwrap_or(u64::MAX),
+        u64::try_from(config.daemon.max_payload_size).unwrap_or(u64::MAX),
     );
     let slice = strip_bom(&raw_before);
     let source_label = format!("--before {}", before_path.display());
@@ -1330,7 +1330,7 @@ async fn cmd_report(
 
     let stdin_mode = is_stdin_input(input);
     let effective_input = if stdin_mode { None } else { input };
-    let raw_bytes = read_events(effective_input, config.max_payload_size);
+    let raw_bytes = read_events(effective_input, config.daemon.max_payload_size);
     let raw = strip_bom(&raw_bytes);
 
     let (mut report, traces) = load_report_from_input(raw, &config);
@@ -1567,9 +1567,9 @@ fn cmd_calibrate(
     config_path: Option<&std::path::Path>,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(traces_path), config.max_payload_size);
+    let raw = read_events(Some(traces_path), config.daemon.max_payload_size);
 
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
 
     // Cap the energy CSV size the same way `read_events` caps trace files.
     // A 10 GB CSV passed as `--measured-energy` would otherwise load
@@ -1662,9 +1662,9 @@ fn cmd_explain(
     format: ExplainFormat,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.max_payload_size);
+    let raw = read_events(Some(input), config.daemon.max_payload_size);
 
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
 
     let normalized = sentinel_core::normalize::normalize_all(events);
     let traces = sentinel_core::correlate::correlate(normalized);
@@ -1722,13 +1722,13 @@ async fn cmd_watch(
 ) {
     let mut config = load_config(config_path);
     if let Some(addr) = listen_address {
-        config.listen_addr = addr;
+        config.daemon.listen_addr = addr;
     }
     if let Some(port) = listen_port_http {
-        config.listen_port = port;
+        config.daemon.listen_port = port;
     }
     if let Some(port) = listen_port_grpc {
-        config.listen_port_grpc = port;
+        config.daemon.listen_port_grpc = port;
     }
     // Re-run validation so a CLI override to a non-loopback address still
     // emits the security warning from `validate_listen_addr`.
@@ -1738,7 +1738,7 @@ async fn cmd_watch(
     }
     info!(
         "Starting daemon: gRPC={}:{}, HTTP={}:{}",
-        config.listen_addr, config.listen_port_grpc, config.listen_addr, config.listen_port,
+        config.daemon.listen_addr, config.daemon.listen_port_grpc, config.daemon.listen_addr, config.daemon.listen_port,
     );
     if let Err(e) = sentinel_core::daemon::run(config).await {
         eprintln!("Daemon error: {e}");
@@ -1751,10 +1751,10 @@ fn cmd_demo(config_path: Option<&std::path::Path>) {
 
     let mut config = load_config(config_path);
     // Default to eu-west-3 for demo CO2 display if no region configured
-    if config.green_default_region.is_none() {
-        config.green_default_region = Some("eu-west-3".to_string());
+    if config.green.default_region.is_none() {
+        config.green.default_region = Some("eu-west-3".to_string());
     }
-    let events = ingest_json_or_exit(DEMO_DATA.as_bytes(), config.max_payload_size);
+    let events = ingest_json_or_exit(DEMO_DATA.as_bytes(), config.daemon.max_payload_size);
 
     let report = pipeline::analyze(events, &config);
     print_colored_report(&report, "demo");
@@ -1767,9 +1767,9 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
     }
 
     let config = Config::default();
-    let raw = read_events(input, config.max_payload_size);
+    let raw = read_events(input, config.daemon.max_payload_size);
 
-    let events = ingest_json_or_exit(&raw, config.max_payload_size);
+    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
 
     let event_count = events.len();
     if event_count == 0 {
@@ -1843,7 +1843,7 @@ fn cmd_inspect(
     no_acknowledgments: bool,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.max_payload_size);
+    let raw = read_events(Some(input), config.daemon.max_payload_size);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
     // Auto-detect events array vs pre-computed Report object, same shape
@@ -1886,9 +1886,9 @@ fn cmd_pg_stat(
     format: PgStatOutputFormat,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.max_payload_size);
+    let raw = read_events(Some(input), config.daemon.max_payload_size);
 
-    let entries = match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, config.max_payload_size)
+    let entries = match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, config.daemon.max_payload_size)
     {
         Ok(entries) => entries,
         Err(e) => {
@@ -1928,8 +1928,8 @@ fn run_pg_stat_pipeline(
 
     // Cross-reference with trace findings if --traces is provided.
     if let Some(traces_path) = traces {
-        let traces_raw = read_events(Some(traces_path), config.max_payload_size);
-        let ingest = JsonIngest::new(config.max_payload_size);
+        let traces_raw = read_events(Some(traces_path), config.daemon.max_payload_size);
+        let ingest = JsonIngest::new(config.daemon.max_payload_size);
         match ingest.ingest(&traces_raw) {
             Ok(events) => {
                 let report = pipeline::analyze(events, config);
@@ -2335,8 +2335,8 @@ mod tests {
     fn load_config_returns_default_when_no_file() {
         // No .perf-sentinel.toml in the test working directory
         let config = load_config(None);
-        assert_eq!(config.n_plus_one_threshold, 5);
-        assert_eq!(config.max_payload_size, 16 * 1024 * 1024);
+        assert_eq!(config.detection.n_plus_one_threshold, 5);
+        assert_eq!(config.daemon.max_payload_size, 16 * 1024 * 1024);
     }
 
     #[test]
@@ -2350,7 +2350,7 @@ mod tests {
         .expect("failed to write config");
 
         let config = load_config(Some(&config_path));
-        assert_eq!(config.n_plus_one_threshold, 15);
+        assert_eq!(config.detection.n_plus_one_threshold, 15);
     }
 
     #[test]

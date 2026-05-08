@@ -428,7 +428,7 @@ struct ProcessTracesCtx<'a> {
 }
 
 /// stamps `confidence` on every finding after detection. The
-/// value is derived from `config.daemon_environment` in `run()` and passed
+/// value is derived from `config.daemon.environment` in `run()` and passed
 /// here unchanged. `analyze` batch mode does not call this function; it
 /// uses `pipeline::analyze_with_traces` which hardcodes
 /// `Confidence::CiBatch`.

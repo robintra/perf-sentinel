@@ -705,7 +705,7 @@ mod tests {
         );
         let raw = std::fs::read(&path).expect("fixture readable");
         let cfg = crate::config::Config::default();
-        let events = crate::ingest::json::JsonIngest::new(cfg.max_payload_size)
+        let events = crate::ingest::json::JsonIngest::new(cfg.daemon.max_payload_size)
             .ingest(&raw)
             .expect("fixture parses");
         let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);

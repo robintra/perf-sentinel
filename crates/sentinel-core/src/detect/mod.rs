@@ -373,15 +373,15 @@ pub struct DetectConfig {
 impl From<&crate::config::Config> for DetectConfig {
     fn from(config: &crate::config::Config) -> Self {
         Self {
-            n_plus_one_threshold: config.n_plus_one_threshold,
-            window_ms: config.window_duration_ms,
-            slow_threshold_ms: config.slow_query_threshold_ms,
-            slow_min_occurrences: config.slow_query_min_occurrences,
-            max_fanout: config.max_fanout,
-            chatty_service_min_calls: config.chatty_service_min_calls,
-            pool_saturation_concurrent_threshold: config.pool_saturation_concurrent_threshold,
-            serialized_min_sequential: config.serialized_min_sequential,
-            sanitizer_aware_classification: config.sanitizer_aware_classification,
+            n_plus_one_threshold: config.detection.n_plus_one_threshold,
+            window_ms: config.detection.window_duration_ms,
+            slow_threshold_ms: config.detection.slow_query_threshold_ms,
+            slow_min_occurrences: config.detection.slow_query_min_occurrences,
+            max_fanout: config.detection.max_fanout,
+            chatty_service_min_calls: config.detection.chatty_service_min_calls,
+            pool_saturation_concurrent_threshold: config.detection.pool_saturation_concurrent_threshold,
+            serialized_min_sequential: config.detection.serialized_min_sequential,
+            sanitizer_aware_classification: config.detection.sanitizer_aware_classification,
         }
     }
 }
