@@ -1,5 +1,7 @@
 //! Core event types for the perf-sentinel pipeline.
 
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 
 /// The type of I/O operation a span represents.
@@ -90,7 +92,7 @@ pub(crate) fn truncate_field(s: &mut String, max_len: usize) {
 /// Mirrors the silent-drop posture used for `cloud.region` invalid values.
 /// Control characters in `code.*` would render badly in TUI/CLI output and
 /// could enable log-injection if any future log site emitted them raw.
-fn sanitize_optional_string(field: &mut Option<String>, max_len: usize) {
+fn sanitize_optional_arc_str(field: &mut Option<Arc<str>>, max_len: usize) {
     if field
         .as_deref()
         .is_some_and(crate::config::has_control_char)
@@ -98,9 +100,27 @@ fn sanitize_optional_string(field: &mut Option<String>, max_len: usize) {
         *field = None;
         return;
     }
-    if let Some(s) = field.as_mut() {
-        truncate_field(s, max_len);
+    if let Some(s) = field.as_ref()
+        && s.len() > max_len
+    {
+        let mut tmp = s.to_string();
+        truncate_field(&mut tmp, max_len);
+        *field = Some(Arc::from(tmp));
     }
+}
+
+/// Truncate an `Arc<str>` field in place via alloc-and-replace.
+///
+/// `Arc<str>` is immutable, so we materialize a `String`, truncate it
+/// on a char boundary, and rebuild a fresh `Arc::<str>::from(String)`
+/// that reuses the buffer (no double allocation).
+fn truncate_arc_str(field: &mut Arc<str>, max_len: usize) {
+    if field.len() <= max_len {
+        return;
+    }
+    let mut tmp = field.to_string();
+    truncate_field(&mut tmp, max_len);
+    *field = Arc::from(tmp);
 }
 
 /// Drop entries with control characters, truncate the remainder to
@@ -111,13 +131,13 @@ fn sanitize_optional_string(field: &mut Option<String>, max_len: usize) {
 /// structural depth bound). Bounds both the per-element and per-event
 /// memory amplification when those scope names propagate into the
 /// per-finding clone.
-fn sanitize_string_vec(field: &mut Vec<String>, max_len: usize, max_count: usize) {
+fn sanitize_arc_str_vec(field: &mut Vec<Arc<str>>, max_len: usize, max_count: usize) {
     field.retain(|s| !crate::config::has_control_char(s));
     if field.len() > max_count {
         field.truncate(max_count);
     }
     for s in field.iter_mut() {
-        truncate_field(s, max_len);
+        truncate_arc_str(s, max_len);
     }
 }
 
@@ -139,18 +159,20 @@ pub fn sanitize_span_event(event: &mut SpanEvent) {
     if let Some(ref mut pid) = event.parent_span_id {
         truncate_field(pid, MAX_ID_LENGTH);
     }
-    if let Some(ref mut region) = event.cloud_region {
-        truncate_field(region, MAX_ID_LENGTH); // is_valid_region_id caps at 64
-    }
-    truncate_field(&mut event.service, MAX_SERVICE_LENGTH);
+    // is_valid_region_id at OTLP/JSON ingest already caps cloud_region at
+    // 64 chars, but Jaeger/Zipkin paths leave the field None. Funnel
+    // through the same control-char + truncate helper as code_* for
+    // defense-in-depth on hand-crafted inputs.
+    sanitize_optional_arc_str(&mut event.cloud_region, MAX_ID_LENGTH);
+    truncate_arc_str(&mut event.service, MAX_SERVICE_LENGTH);
     truncate_field(&mut event.operation, MAX_OPERATION_LENGTH);
     truncate_field(&mut event.target, MAX_TARGET_LENGTH);
     truncate_field(&mut event.source.endpoint, MAX_SOURCE_LENGTH);
     truncate_field(&mut event.source.method, MAX_SOURCE_LENGTH);
-    sanitize_optional_string(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
-    sanitize_optional_string(&mut event.code_filepath, MAX_CODE_FILEPATH_LENGTH);
-    sanitize_optional_string(&mut event.code_namespace, MAX_CODE_NAMESPACE_LENGTH);
-    sanitize_string_vec(
+    sanitize_optional_arc_str(&mut event.code_function, MAX_CODE_FUNCTION_LENGTH);
+    sanitize_optional_arc_str(&mut event.code_filepath, MAX_CODE_FILEPATH_LENGTH);
+    sanitize_optional_arc_str(&mut event.code_namespace, MAX_CODE_NAMESPACE_LENGTH);
+    sanitize_arc_str_vec(
         &mut event.instrumentation_scopes,
         MAX_SCOPE_NAME_LENGTH,
         MAX_INSTRUMENTATION_SCOPES,
@@ -220,6 +242,9 @@ impl CodeLocation {
 }
 
 /// A single span event representing an I/O operation (SQL query, HTTP call).
+///
+/// Strings repeated across events of the same workload are stored as
+/// `Arc<str>` for cheap clones, per-event-unique strings stay as `String`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanEvent {
     pub timestamp: String,
@@ -227,7 +252,7 @@ pub struct SpanEvent {
     pub span_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_span_id: Option<String>,
-    pub service: String,
+    pub service: Arc<str>,
     /// Cloud region this span was emitted from, sourced from the `OTel`
     /// `cloud.region` resource attribute (or span attribute as fallback).
     ///
@@ -236,7 +261,7 @@ pub struct SpanEvent {
     /// the attribute is absent or when ingesting from formats that don't
     /// carry it (`Jaeger`, `Zipkin`, raw `JSON` without explicit field).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cloud_region: Option<String>,
+    pub cloud_region: Option<Arc<str>>,
     #[serde(rename = "type")]
     pub event_type: EventType,
     /// SQL: `db.system` for OTLP (e.g. "postgresql"), verb for native JSON.
@@ -257,16 +282,16 @@ pub struct SpanEvent {
     pub response_size_bytes: Option<u64>,
     /// `OTel` `code.function` attribute: the function name in the instrumented code.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_function: Option<String>,
+    pub code_function: Option<Arc<str>>,
     /// `OTel` `code.filepath` attribute: the source file path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_filepath: Option<String>,
+    pub code_filepath: Option<Arc<str>>,
     /// `OTel` `code.lineno` attribute: the line number in the source file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_lineno: Option<u32>,
     /// `OTel` `code.namespace` attribute: the namespace (e.g. Java package).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_namespace: Option<String>,
+    pub code_namespace: Option<Arc<str>>,
     /// OpenTelemetry instrumentation scope names captured at ingest time:
     /// the leaf span's scope at index 0, then each unique ancestor scope
     /// up to a bounded depth. Lets framework detection identify Spring
@@ -274,7 +299,7 @@ pub struct SpanEvent {
     /// `io.opentelemetry.<module>` strings emitted by the agent, without
     /// relying on user-code naming conventions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub instrumentation_scopes: Vec<String>,
+    pub instrumentation_scopes: Vec<Arc<str>>,
 }
 
 impl SpanEvent {
@@ -291,10 +316,10 @@ impl SpanEvent {
             return None;
         }
         Some(CodeLocation {
-            function: self.code_function.clone(),
-            filepath: self.code_filepath.clone(),
+            function: self.code_function.as_deref().map(String::from),
+            filepath: self.code_filepath.as_deref().map(String::from),
             lineno: self.code_lineno,
-            namespace: self.code_namespace.clone(),
+            namespace: self.code_namespace.as_deref().map(String::from),
         })
     }
 }
@@ -394,7 +419,7 @@ mod tests {
         let event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         assert_eq!(event.event_type, EventType::Sql);
         assert_eq!(event.trace_id, "abc123-def456");
-        assert_eq!(event.service, "order-svc");
+        assert_eq!(&*event.service, "order-svc");
         assert_eq!(event.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(event.duration_us, 1200);
         assert!(event.status_code.is_none());
@@ -515,7 +540,7 @@ mod tests {
     fn make_event_with_field(field: &str, value: &str) -> SpanEvent {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         match field {
-            "service" => event.service = value.to_string(),
+            "service" => event.service = Arc::from(value),
             "operation" => event.operation = value.to_string(),
             "target" => event.target = value.to_string(),
             "endpoint" => event.source.endpoint = value.to_string(),
@@ -613,10 +638,10 @@ mod tests {
     #[test]
     fn span_event_code_location_some_when_present() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_function = Some("processItems".to_string());
-        event.code_filepath = Some("src/OrderService.java".to_string());
+        event.code_function = Some(Arc::from("processItems"));
+        event.code_filepath = Some(Arc::from("src/OrderService.java"));
         event.code_lineno = Some(42);
-        event.code_namespace = Some("com.example".to_string());
+        event.code_namespace = Some(Arc::from("com.example"));
         let loc = event.code_location().unwrap();
         assert_eq!(loc.function.as_deref(), Some("processItems"));
         assert_eq!(loc.filepath.as_deref(), Some("src/OrderService.java"));
@@ -662,7 +687,7 @@ mod tests {
     #[test]
     fn sanitize_truncates_long_code_function() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_function = Some("x".repeat(1000));
+        event.code_function = Some(Arc::from("x".repeat(1000)));
         sanitize_span_event(&mut event);
         assert!(event.code_function.as_ref().unwrap().len() <= MAX_CODE_FUNCTION_LENGTH);
     }
@@ -670,7 +695,7 @@ mod tests {
     #[test]
     fn sanitize_truncates_long_code_filepath() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_filepath = Some("x".repeat(2000));
+        event.code_filepath = Some(Arc::from("x".repeat(2000)));
         sanitize_span_event(&mut event);
         assert!(event.code_filepath.as_ref().unwrap().len() <= MAX_CODE_FILEPATH_LENGTH);
     }
@@ -678,7 +703,7 @@ mod tests {
     #[test]
     fn sanitize_drops_code_function_with_control_char() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_function = Some("findItems\x1b[31m".to_string());
+        event.code_function = Some(Arc::from("findItems\x1b[31m"));
         sanitize_span_event(&mut event);
         assert!(event.code_function.is_none());
     }
@@ -686,7 +711,7 @@ mod tests {
     #[test]
     fn sanitize_drops_code_filepath_with_newline() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_filepath = Some("src/main.rs\nINJECT".to_string());
+        event.code_filepath = Some(Arc::from("src/main.rs\nINJECT"));
         sanitize_span_event(&mut event);
         assert!(event.code_filepath.is_none());
     }
@@ -694,7 +719,7 @@ mod tests {
     #[test]
     fn sanitize_drops_code_namespace_with_del() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_namespace = Some("com.foo\x7fX".to_string());
+        event.code_namespace = Some(Arc::from("com.foo\x7fX"));
         sanitize_span_event(&mut event);
         assert!(event.code_namespace.is_none());
     }
@@ -702,9 +727,9 @@ mod tests {
     #[test]
     fn sanitize_keeps_clean_code_fields() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.code_function = Some("findItems".to_string());
-        event.code_filepath = Some("src/main/java/com/foo/Repo.java".to_string());
-        event.code_namespace = Some("com.foo.Repo".to_string());
+        event.code_function = Some(Arc::from("findItems"));
+        event.code_filepath = Some(Arc::from("src/main/java/com/foo/Repo.java"));
+        event.code_namespace = Some(Arc::from("com.foo.Repo"));
         sanitize_span_event(&mut event);
         assert_eq!(event.code_function.as_deref(), Some("findItems"));
         assert_eq!(
@@ -719,7 +744,7 @@ mod tests {
     #[test]
     fn sanitize_truncates_long_instrumentation_scope() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
-        event.instrumentation_scopes = vec!["x".repeat(1024)];
+        event.instrumentation_scopes = vec![Arc::from("x".repeat(1024))];
         sanitize_span_event(&mut event);
         assert_eq!(event.instrumentation_scopes.len(), 1);
         assert!(event.instrumentation_scopes[0].len() <= MAX_SCOPE_NAME_LENGTH);
@@ -729,17 +754,19 @@ mod tests {
     fn sanitize_drops_instrumentation_scope_with_control_char() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         event.instrumentation_scopes = vec![
-            "io.opentelemetry.spring-data".to_string(),
-            "\x1b[31mio.opentelemetry.evil\x1b[0m".to_string(),
-            "io.opentelemetry.hibernate".to_string(),
+            Arc::from("io.opentelemetry.spring-data"),
+            Arc::from("\x1b[31mio.opentelemetry.evil\x1b[0m"),
+            Arc::from("io.opentelemetry.hibernate"),
         ];
         sanitize_span_event(&mut event);
+        let scopes: Vec<&str> = event
+            .instrumentation_scopes
+            .iter()
+            .map(AsRef::as_ref)
+            .collect();
         assert_eq!(
-            event.instrumentation_scopes,
-            vec![
-                "io.opentelemetry.spring-data".to_string(),
-                "io.opentelemetry.hibernate".to_string()
-            ]
+            scopes,
+            vec!["io.opentelemetry.spring-data", "io.opentelemetry.hibernate"]
         );
     }
 
@@ -747,13 +774,16 @@ mod tests {
     fn sanitize_caps_oversize_instrumentation_scopes_vec() {
         let mut event: SpanEvent = serde_json::from_str(sample_sql_json()).unwrap();
         event.instrumentation_scopes = (0..32)
-            .map(|i| format!("io.opentelemetry.scope-{i}"))
+            .map(|i| Arc::from(format!("io.opentelemetry.scope-{i}")))
             .collect();
         sanitize_span_event(&mut event);
         assert_eq!(
             event.instrumentation_scopes.len(),
             MAX_INSTRUMENTATION_SCOPES
         );
-        assert_eq!(event.instrumentation_scopes[0], "io.opentelemetry.scope-0");
+        assert_eq!(
+            &*event.instrumentation_scopes[0],
+            "io.opentelemetry.scope-0"
+        );
     }
 }

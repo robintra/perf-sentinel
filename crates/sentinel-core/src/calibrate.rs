@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -278,9 +279,10 @@ pub fn calibrate(
     let window_start = readings.iter().map(|r| r.timestamp_ms).min().unwrap_or(0);
     let window_end = readings.iter().map(|r| r.timestamp_ms).max().unwrap_or(0);
 
-    // Count I/O ops per service within the observation window.
-    // Events with unparsable timestamps are skipped with a debug log.
-    let mut ops_per_service: HashMap<String, u64> = HashMap::new();
+    // Count I/O ops per service within the observation window. Keying on
+    // Arc<str> lets us amortize the per-event clone via Arc::clone (O(1))
+    // instead of allocating a String per event.
+    let mut ops_per_service: HashMap<Arc<str>, u64> = HashMap::new();
     let mut skipped = 0usize;
     for event in events {
         let Ok(ts) = parse_timestamp_ms(&event.timestamp) else {
@@ -288,7 +290,9 @@ pub fn calibrate(
             continue;
         };
         if ts >= window_start && ts <= window_end {
-            *ops_per_service.entry(event.service.clone()).or_default() += 1;
+            *ops_per_service
+                .entry(Arc::clone(&event.service))
+                .or_default() += 1;
         }
     }
     if skipped > 0 {
@@ -298,7 +302,8 @@ pub fn calibrate(
         );
     }
 
-    // Sum energy per service
+    // Sum energy per service. Readings come from disk (CalibrationResult /
+    // EnergyReading store String), so keying on String matches the join.
     let mut energy_per_service: HashMap<String, f64> = HashMap::new();
     for reading in readings {
         *energy_per_service
@@ -309,7 +314,7 @@ pub fn calibrate(
     // Compute calibration results for services with both measurements
     let mut results: Vec<CalibrationResult> = Vec::new();
     for (service, total_energy_kwh) in &energy_per_service {
-        let total_ops = ops_per_service.get(service).copied().unwrap_or(0);
+        let total_ops = ops_per_service.get(service.as_str()).copied().unwrap_or(0);
         if total_ops == 0 {
             tracing::warn!(
                 service = %service,
@@ -504,7 +509,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: service.to_string(),
+            service: Arc::from(service),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),

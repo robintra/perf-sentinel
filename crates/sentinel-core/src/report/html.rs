@@ -455,7 +455,7 @@ fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
         .spans
         .iter()
         .map(|s| {
-            rank.get(&(s.event.service.as_str(), s.event.source.endpoint.as_str()))
+            rank.get(&(s.event.service.as_ref(), s.event.source.endpoint.as_str()))
                 .copied()
                 .unwrap_or(usize::MAX)
         })
@@ -558,7 +558,7 @@ fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
     EmbeddedSpan {
         span_id: e.event.span_id.as_str(),
         parent_span_id: e.event.parent_span_id.as_deref(),
-        service: e.event.service.as_str(),
+        service: e.event.service.as_ref(),
         endpoint: e.event.source.endpoint.as_str(),
         event_type: match e.event.event_type {
             EventType::Sql => "sql",
@@ -566,7 +566,7 @@ fn embed_span(e: &NormalizedEvent) -> EmbeddedSpan<'_> {
         },
         operation: e.event.operation.as_str(),
         target: e.event.target.as_str(),
-        template: e.template.as_str(),
+        template: e.template.as_ref(),
         duration_us: e.event.duration_us,
         status_code: e.event.status_code,
     }

@@ -85,7 +85,12 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
             first_timestamp: min_ts,
             last_timestamp: max_ts,
             code_location: first.event.code_location(),
-            instrumentation_scopes: first.event.instrumentation_scopes.clone(),
+            instrumentation_scopes: first
+                .event
+                .instrumentation_scopes
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
             classification_method: None,
         }));
     }
@@ -212,7 +217,7 @@ fn build_cross_trace_finding(
         finding_type: FindingType::from_event_type_slow(event_type),
         severity,
         trace_id: worst_trace_id.to_string(),
-        service: worst_event.service.clone(),
+        service: worst_event.service.to_string(),
         source_endpoint: worst_event.source.endpoint.clone(),
         pattern: Pattern {
             template: template.to_string(),
@@ -227,7 +232,11 @@ fn build_cross_trace_finding(
         confidence: Confidence::default(),
         classification_method: None,
         code_location: worst_event.code_location(),
-        instrumentation_scopes: worst_event.instrumentation_scopes.clone(),
+        instrumentation_scopes: worst_event
+            .instrumentation_scopes
+            .iter()
+            .map(ToString::to_string)
+            .collect(),
         suggested_fix: None,
         signature: String::new(),
     })

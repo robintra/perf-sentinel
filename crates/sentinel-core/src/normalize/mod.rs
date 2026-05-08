@@ -3,13 +3,18 @@
 pub mod http;
 pub mod sql;
 
+use std::sync::Arc;
+
 use crate::event::{EventType, MAX_ID_LENGTH, SpanEvent, sanitize_id};
 
 /// A span event enriched with its normalized template and extracted parameters.
+///
+/// `template` is `Arc<str>` so findings of the same pattern share the
+/// canonical string buffer when cloned across the detect / report stages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NormalizedEvent {
     pub event: SpanEvent,
-    pub template: String,
+    pub template: Arc<str>,
     pub params: Vec<String>,
 }
 
@@ -35,7 +40,7 @@ pub fn normalize(mut event: SpanEvent) -> NormalizedEvent {
             let result = sql::normalize_sql(&event.target);
             NormalizedEvent {
                 event,
-                template: result.template,
+                template: Arc::from(result.template),
                 params: result.params,
             }
         }
@@ -43,7 +48,7 @@ pub fn normalize(mut event: SpanEvent) -> NormalizedEvent {
             let result = http::normalize_http(&event.operation, &event.target);
             NormalizedEvent {
                 event,
-                template: result.template,
+                template: Arc::from(result.template),
                 params: result.params,
             }
         }
@@ -67,7 +72,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -93,7 +98,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::HttpOut,
             operation: method.to_string(),
@@ -117,7 +122,7 @@ mod tests {
     fn normalize_dispatches_sql() {
         let event = make_sql_event("SELECT * FROM users WHERE id = 42");
         let normalized = normalize(event);
-        assert_eq!(normalized.template, "SELECT * FROM users WHERE id = ?");
+        assert_eq!(&*normalized.template, "SELECT * FROM users WHERE id = ?");
         assert_eq!(normalized.params, vec!["42"]);
     }
 
@@ -125,7 +130,7 @@ mod tests {
     fn normalize_dispatches_http() {
         let event = make_http_event("GET", "/api/users/42");
         let normalized = normalize(event);
-        assert_eq!(normalized.template, "GET /api/users/{id}");
+        assert_eq!(&*normalized.template, "GET /api/users/{id}");
     }
 
     #[test]
@@ -136,8 +141,8 @@ mod tests {
         ];
         let normalized = normalize_all(events);
         assert_eq!(normalized.len(), 2);
-        assert_eq!(normalized[0].template, "SELECT ?");
-        assert_eq!(normalized[1].template, "POST /api/orders/{id}/submit");
+        assert_eq!(&*normalized[0].template, "SELECT ?");
+        assert_eq!(&*normalized[1].template, "POST /api/orders/{id}/submit");
     }
 
     #[test]

@@ -91,6 +91,8 @@ pub fn analyze_with_traces(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::event::SpanEvent;
 
@@ -353,7 +355,7 @@ mod tests {
                     &format!("SELECT * FROM orders WHERE id = {}", 100 + i),
                     &ts,
                 );
-                ev.service = service.to_string();
+                ev.service = Arc::from(*service);
                 all_events.push(ev);
             }
         }

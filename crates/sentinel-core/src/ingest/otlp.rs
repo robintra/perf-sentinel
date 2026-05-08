@@ -315,15 +315,15 @@ fn collect_instrumentation_scopes(
     span: &Span,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
-) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
+) -> Vec<Arc<str>> {
+    let mut out: Vec<Arc<str>> = Vec::new();
     let mut current = span;
     let mut depth = 0;
     loop {
         if let Some(name) = scope_index.get(current.span_id.as_slice())
-            && !out.iter().any(|s| s == *name)
+            && !out.iter().any(|s| s.as_ref() == *name)
         {
-            out.push((*name).to_string());
+            out.push(Arc::from(*name));
         }
         if current.parent_span_id.is_empty() || depth >= CODE_ATTRS_MAX_DEPTH {
             return out;
@@ -341,21 +341,25 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
     let mut events = Vec::new();
 
     for resource_spans in &request.resource_spans {
-        let service_name = resource_spans
-            .resource
-            .as_ref()
-            .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
-            .unwrap_or("unknown")
-            .to_string();
+        // Build the per-Resource Arc<str> once, then Arc::clone into each span.
+        // A resource_spans block routinely carries hundreds of spans for the
+        // same service.name, so this collapses N allocations to one.
+        let service_arc: Arc<str> = Arc::from(
+            resource_spans
+                .resource
+                .as_ref()
+                .and_then(|r| get_str_attribute(&r.attributes, "service.name"))
+                .unwrap_or("unknown"),
+        );
 
         // cloud.region: resource-level with span-level fallback in convert_span.
         // Invalid values silently dropped (sanitization at ingest boundary).
-        let resource_cloud_region = resource_spans
+        let resource_cloud_region: Option<Arc<str>> = resource_spans
             .resource
             .as_ref()
             .and_then(|r| get_str_attribute(&r.attributes, "cloud.region"))
             .filter(|s| crate::score::carbon::is_valid_region_id(s))
-            .map(str::to_string);
+            .map(Arc::from);
 
         let span_index = build_span_index(resource_spans);
         let scope_index = build_scope_index(resource_spans);
@@ -364,8 +368,8 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
             for span in &scope_spans.spans {
                 if let Some(event) = convert_span(
                     span,
-                    &service_name,
-                    resource_cloud_region.as_deref(),
+                    &service_arc,
+                    resource_cloud_region.as_ref(),
                     &span_index,
                     &scope_index,
                 ) {
@@ -381,8 +385,8 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
 fn convert_span(
     span: &Span,
-    service_name: &str,
-    resource_cloud_region: Option<&str>,
+    service_arc: &Arc<str>,
+    resource_cloud_region: Option<&Arc<str>>,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
 ) -> Option<SpanEvent> {
@@ -464,12 +468,14 @@ fn convert_span(
         Some(bytes_to_hex(&span.parent_span_id))
     };
 
-    // cloud.region: resource → span fallback → None.
-    let cloud_region = resource_cloud_region.map(str::to_string).or_else(|| {
+    // cloud.region: resource → span fallback → None. The resource-level
+    // Arc is shared across all spans of this resource_spans block via
+    // Arc::clone; only the span-level fallback path allocates.
+    let cloud_region: Option<Arc<str>> = resource_cloud_region.cloned().or_else(|| {
         classified
             .cloud_region
             .filter(|s| crate::score::carbon::is_valid_region_id(s))
-            .map(str::to_string)
+            .map(Arc::from)
     });
 
     // code.* attributes: leaf attrs first, walk parents only when empty.
@@ -477,10 +483,10 @@ fn convert_span(
     // user frame sits on a parent.
     let code =
         walk_parents_for_code_attrs(classified.code_attrs(), &span.parent_span_id, span_index);
-    let code_function = code.function_name.map(str::to_string);
-    let code_filepath = code.filepath.map(str::to_string);
+    let code_function: Option<Arc<str>> = code.function_name.map(Arc::from);
+    let code_filepath: Option<Arc<str>> = code.filepath.map(Arc::from);
     let code_lineno = code.lineno.and_then(|v| u32::try_from(v).ok());
-    let code_namespace = code.namespace.map(str::to_string);
+    let code_namespace: Option<Arc<str>> = code.namespace.map(Arc::from);
 
     let instrumentation_scopes = collect_instrumentation_scopes(span, span_index, scope_index);
 
@@ -489,7 +495,7 @@ fn convert_span(
         trace_id,
         span_id,
         parent_span_id,
-        service: service_name.to_string(), // per-span clone; unavoidable (SpanEvent owns String)
+        service: Arc::clone(service_arc),
         cloud_region,
         event_type,
         operation,
@@ -784,7 +790,7 @@ mod tests {
             events[0].target,
             "SELECT * FROM order_item WHERE order_id = 42"
         );
-        assert_eq!(events[0].service, "order-svc");
+        assert_eq!(&*events[0].service, "order-svc");
         assert_eq!(events[0].duration_us, 1200);
         assert!(events[0].status_code.is_none());
     }
@@ -1013,7 +1019,7 @@ mod tests {
         let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1000);
         let req = make_request("my-service", vec![span]);
         let events = convert_otlp_request(&req);
-        assert_eq!(events[0].service, "my-service");
+        assert_eq!(&*events[0].service, "my-service");
     }
 
     #[test]
@@ -1101,7 +1107,7 @@ mod tests {
             }],
         };
         let events = convert_otlp_request(&req);
-        assert_eq!(events[0].service, "unknown");
+        assert_eq!(&*events[0].service, "unknown");
     }
 
     #[test]
@@ -1118,7 +1124,7 @@ mod tests {
             }],
         };
         let events = convert_otlp_request(&req);
-        assert_eq!(events[0].service, "unknown");
+        assert_eq!(&*events[0].service, "unknown");
     }
 
     // ----- cloud.region extraction tests -----
@@ -1291,10 +1297,12 @@ mod tests {
         let req = scoped_request("svc", vec![("io.opentelemetry.jdbc", vec![span])]);
         let events = convert_otlp_request(&req);
         assert_eq!(events.len(), 1);
-        assert_eq!(
-            events[0].instrumentation_scopes,
-            vec!["io.opentelemetry.jdbc"]
-        );
+        let scopes: Vec<&str> = events[0]
+            .instrumentation_scopes
+            .iter()
+            .map(AsRef::as_ref)
+            .collect();
+        assert_eq!(scopes, vec!["io.opentelemetry.jdbc"]);
     }
 
     #[test]
@@ -1324,8 +1332,13 @@ mod tests {
         );
         let events = convert_otlp_request(&req);
         assert_eq!(events.len(), 1, "only the JDBC span yields a SpanEvent");
+        let scopes: Vec<&str> = events[0]
+            .instrumentation_scopes
+            .iter()
+            .map(AsRef::as_ref)
+            .collect();
         assert_eq!(
-            events[0].instrumentation_scopes,
+            scopes,
             vec![
                 "io.opentelemetry.jdbc",
                 "io.opentelemetry.hibernate-6.0",

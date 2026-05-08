@@ -209,8 +209,9 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for span in spans {
         for scope in &span.event.instrumentation_scopes {
-            if !out.iter().any(|existing| existing == scope) {
-                out.push(scope.clone());
+            let scope_str: &str = scope.as_ref();
+            if !out.iter().any(|existing| existing == scope_str) {
+                out.push(scope.to_string());
             }
         }
     }
@@ -347,6 +348,8 @@ fn sanitize_for_log(value: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::event::SpanEvent;
     use crate::normalize;
@@ -360,7 +363,7 @@ mod tests {
             ts,
             duration_us,
         );
-        e.instrumentation_scopes = vec!["io.opentelemetry.spring-data-jpa-3.0".to_string()];
+        e.instrumentation_scopes = vec![Arc::from("io.opentelemetry.spring-data-jpa-3.0")];
         e
     }
 
@@ -640,7 +643,7 @@ mod tests {
                     &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
                     *d,
                 );
-                e.instrumentation_scopes = scope.map(|s| vec![s.to_string()]).unwrap_or_default();
+                e.instrumentation_scopes = scope.map(|s| vec![Arc::from(s)]).unwrap_or_default();
                 e
             })
             .collect();

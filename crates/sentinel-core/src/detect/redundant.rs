@@ -69,7 +69,7 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
             finding_type: FindingType::from_event_type_redundant(event_type),
             severity,
             trace_id: trace.trace_id.clone(),
-            service: first.event.service.clone(),
+            service: first.event.service.to_string(),
             source_endpoint: first.event.source.endpoint.clone(),
             pattern: Pattern {
                 template: (*template).to_string(),
@@ -87,7 +87,12 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
             confidence: Confidence::default(),
             classification_method: None,
             code_location: first.event.code_location(),
-            instrumentation_scopes: first.event.instrumentation_scopes.clone(),
+            instrumentation_scopes: first
+                .event
+                .instrumentation_scopes
+                .iter()
+                .map(ToString::to_string)
+                .collect(),
             suggested_fix: None,
             signature: String::new(),
         });

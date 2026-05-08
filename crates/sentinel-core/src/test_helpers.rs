@@ -1,5 +1,7 @@
 //! Shared test helpers for sentinel-core unit tests.
 
+use std::sync::Arc;
+
 use crate::correlate::Trace;
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::normalize;
@@ -76,7 +78,7 @@ pub fn make_sql_event_with_duration(
         trace_id: trace_id.to_string(),
         span_id: span_id.to_string(),
         parent_span_id: None,
-        service: "order-svc".to_string(),
+        service: Arc::from("order-svc"),
         cloud_region: None,
         event_type: EventType::Sql,
         operation: "SELECT".to_string(),
@@ -108,7 +110,7 @@ pub fn make_http_event_with_duration(
         trace_id: trace_id.to_string(),
         span_id: span_id.to_string(),
         parent_span_id: None,
-        service: "order-svc".to_string(),
+        service: Arc::from("order-svc"),
         cloud_region: None,
         event_type: EventType::HttpOut,
         operation: "GET".to_string(),
@@ -208,7 +210,7 @@ pub fn make_sanitized_n_plus_one_events(
                 duration,
             );
             if let Some(s) = scope {
-                event.instrumentation_scopes = vec![s.to_string()];
+                event.instrumentation_scopes = vec![Arc::from(s)];
             }
             event
         })

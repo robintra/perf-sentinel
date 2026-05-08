@@ -79,7 +79,7 @@ pub fn build_tree(trace: &Trace, findings: &[Finding]) -> ExplainTree {
     // Collect the set of span templates that actually appear in the trace.
     // Used both to index span-anchored findings and to decide which findings
     // fall through to the trace-level bucket.
-    let span_templates: HashSet<&str> = trace.spans.iter().map(|s| s.template.as_str()).collect();
+    let span_templates: HashSet<&str> = trace.spans.iter().map(|s| s.template.as_ref()).collect();
 
     // Index findings by template for quick lookup (span-anchored path).
     // Any finding whose template does not match a span template is collected
@@ -147,15 +147,15 @@ fn make_node(
     findings_by_template: &HashMap<&str, Vec<&Finding>>,
 ) -> SpanNode {
     let inline_findings = findings_by_template
-        .get(span.template.as_str())
+        .get(span.template.as_ref())
         .map(|fs| fs.iter().map(|f| InlineFinding::from_finding(f)).collect())
         .unwrap_or_default();
 
     SpanNode {
         span_id: span.event.span_id.clone(),
         parent_span_id: span.event.parent_span_id.clone(),
-        service: span.event.service.clone(),
-        template: span.template.clone(),
+        service: span.event.service.to_string(),
+        template: span.template.to_string(),
         operation: span.event.operation.clone(),
         duration_us: span.event.duration_us,
         timestamp: span.event.timestamp.clone(),
@@ -419,6 +419,8 @@ pub fn format_tree_json(tree: &ExplainTree) -> Result<String, serde_json::Error>
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::detect::{Confidence, FindingType, Pattern, Severity};
     use crate::test_helpers::{make_sql_event, make_trace};
@@ -675,7 +677,7 @@ mod tests {
                 trace_id: "trace-cycle".to_string(),
                 span_id: "span-a".to_string(),
                 parent_span_id: Some("span-b".to_string()),
-                service: "svc".to_string(),
+                service: Arc::from("svc"),
                 cloud_region: None,
                 event_type: EventType::Sql,
                 operation: "SELECT".to_string(),
@@ -693,7 +695,7 @@ mod tests {
                 code_namespace: None,
                 instrumentation_scopes: Vec::new(),
             },
-            template: "SELECT ?".to_string(),
+            template: Arc::from("SELECT ?"),
             params: vec!["1".to_string()],
         };
         let span_b = NormalizedEvent {
@@ -702,7 +704,7 @@ mod tests {
                 trace_id: "trace-cycle".to_string(),
                 span_id: "span-b".to_string(),
                 parent_span_id: Some("span-a".to_string()),
-                service: "svc".to_string(),
+                service: Arc::from("svc"),
                 cloud_region: None,
                 event_type: EventType::Sql,
                 operation: "SELECT".to_string(),
@@ -720,7 +722,7 @@ mod tests {
                 code_namespace: None,
                 instrumentation_scopes: Vec::new(),
             },
-            template: "SELECT ?".to_string(),
+            template: Arc::from("SELECT ?"),
             params: vec!["2".to_string()],
         };
         let trace = Trace {

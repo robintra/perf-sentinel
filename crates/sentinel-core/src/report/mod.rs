@@ -182,7 +182,7 @@ pub fn compute_per_endpoint_io_ops(traces: &[Trace]) -> Vec<PerEndpointIoOps> {
     for trace in traces {
         for span in &trace.spans {
             let key = (
-                span.event.service.as_str(),
+                span.event.service.as_ref(),
                 span.event.source.endpoint.as_str(),
             );
             *counts.entry(key).or_insert(0) += 1;

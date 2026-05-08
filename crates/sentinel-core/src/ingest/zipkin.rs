@@ -11,6 +11,7 @@ use crate::time::micros_to_iso8601;
 
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Ingests span events from Zipkin JSON v2 format.
 pub struct ZipkinIngest {
@@ -111,12 +112,11 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
             .to_string(),
     };
 
-    let service = span
+    let service: Arc<str> = span
         .local_endpoint
         .as_ref()
         .and_then(|ep| ep.service_name.as_deref())
-        .unwrap_or_default()
-        .to_string();
+        .map_or_else(|| Arc::from(""), Arc::from);
 
     let timestamp = span.timestamp.unwrap_or(0);
     let duration_us = span.duration.unwrap_or(0);
@@ -138,10 +138,10 @@ fn convert_zipkin_span(span: &ZipkinSpan) -> Option<SpanEvent> {
         .unwrap_or_default();
 
     // code.* attributes from span tags.
-    let code_function = get_tag("code.function").map(String::from);
-    let code_filepath = get_tag("code.filepath").map(String::from);
+    let code_function: Option<Arc<str>> = get_tag("code.function").map(Arc::from);
+    let code_filepath: Option<Arc<str>> = get_tag("code.filepath").map(Arc::from);
     let code_lineno = get_tag("code.lineno").and_then(|s| s.parse::<u32>().ok());
-    let code_namespace = get_tag("code.namespace").map(String::from);
+    let code_namespace: Option<Arc<str>> = get_tag("code.namespace").map(Arc::from);
 
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(timestamp),
@@ -237,7 +237,7 @@ mod tests {
 
         assert_eq!(sql.trace_id, "abc123");
         assert_eq!(sql.span_id, "span-1");
-        assert_eq!(sql.service, "order-svc");
+        assert_eq!(&*sql.service, "order-svc");
         assert_eq!(sql.operation, "postgresql");
         assert_eq!(sql.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(sql.duration_us, 1200);
@@ -306,7 +306,7 @@ mod tests {
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].duration_us, 0);
-        assert_eq!(events[0].service, "");
+        assert_eq!(&*events[0].service, "");
         assert!(events[0].parent_span_id.is_none());
     }
 

@@ -60,7 +60,7 @@ fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointS
         for span in &trace.spans {
             total_io_ops += 1;
             let key: EndpointKey<'_> = (
-                span.event.service.as_str(),
+                span.event.service.as_ref(),
                 span.event.source.endpoint.as_str(),
             );
             let stats = endpoint_stats.entry(key).or_insert_with(|| EndpointStats {
@@ -280,6 +280,8 @@ pub fn score_green(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::detect::{Confidence, FindingType, Pattern, Severity};
     use crate::event::SpanEvent;
@@ -445,7 +447,7 @@ mod tests {
                 &format!("SELECT * FROM users WHERE id = {i}"),
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
             );
-            e.service = "svc-a".to_string();
+            e.service = Arc::from("svc-a");
             e.source.endpoint = "GET /api/users".to_string();
             events.push(e);
         }
@@ -456,7 +458,7 @@ mod tests {
                 &format!("SELECT * FROM users WHERE id = {i}"),
                 &format!("2025-07-10T14:32:02.{:03}Z", i * 50),
             );
-            e.service = "svc-b".to_string();
+            e.service = Arc::from("svc-b");
             // Same endpoint path as svc-a, on a different service.
             e.source.endpoint = "GET /api/users".to_string();
             events.push(e);
@@ -980,7 +982,7 @@ mod tests {
                 &format!("SELECT * FROM t WHERE id = {i}"),
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
             );
-            event.cloud_region = Some(region.to_string());
+            event.cloud_region = Some(Arc::from(region));
             events.push(event);
         }
         make_trace(events)
@@ -1100,11 +1102,11 @@ mod tests {
         // span-2: service "order-svc" → service_regions["order-svc"] = "us-east-1"
         // span-3: no event attr, no service map → default_region = "eu-west-3"
         let mut span1 = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
-        span1.cloud_region = Some("ap-south-1".to_string());
+        span1.cloud_region = Some(Arc::from("ap-south-1"));
         let mut span2 = make_sql_event("t1", "s2", "SELECT 2", "2025-07-10T14:32:01.002Z");
-        span2.service = "order-svc".to_string();
+        span2.service = Arc::from("order-svc");
         let mut span3 = make_sql_event("t1", "s3", "SELECT 3", "2025-07-10T14:32:01.003Z");
-        span3.service = "other-svc".to_string();
+        span3.service = Arc::from("other-svc");
         let trace = make_trace(vec![span1, span2, span3]);
 
         let mut service_regions = HashMap::new();
@@ -1248,8 +1250,8 @@ mod tests {
         // Even when [green.service_regions] maps the service, an explicit
         // cloud.region on the span itself should win (most authoritative).
         let mut event = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
-        event.service = "order-svc".to_string();
-        event.cloud_region = Some("ap-south-1".to_string());
+        event.service = Arc::from("order-svc");
+        event.cloud_region = Some(Arc::from("ap-south-1"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -1361,7 +1363,7 @@ mod tests {
             );
             // Use out-of-table region names so the per-region CO₂ is 0
             // but the bucket still counts. Keeps the test focused on the cap.
-            event.cloud_region = Some(format!("test-region-{i:04}"));
+            event.cloud_region = Some(Arc::from(format!("test-region-{i:04}")));
             events.push(event);
         }
         let trace = make_trace(events);
@@ -1421,7 +1423,7 @@ mod tests {
                 &format!("SELECT * FROM t WHERE id = {i}"),
                 &format!("2025-07-10T14:32:01.{:03}Z", i * 20),
             );
-            e.cloud_region = Some("eu-west-3".to_string());
+            e.cloud_region = Some(Arc::from("eu-west-3"));
             events_eu.push(e);
         }
         let trace_eu = make_trace(events_eu);
@@ -1526,7 +1528,7 @@ mod tests {
         // table → status "out_of_table". A second span with no resolvable
         // region → status "unresolved" in the "unknown" bucket.
         let mut span_mars = make_sql_event("t1", "s1", "SELECT 1", "2025-07-10T14:32:01.001Z");
-        span_mars.cloud_region = Some("mars-1".to_string());
+        span_mars.cloud_region = Some(Arc::from("mars-1"));
         let span_orphan = make_sql_event("t1", "s2", "SELECT 2", "2025-07-10T14:32:01.002Z");
         let trace = make_trace(vec![span_mars, span_orphan]);
 
@@ -1578,7 +1580,7 @@ mod tests {
                 &format!("SELECT * FROM t WHERE id = {i}"),
                 &format!("2025-07-10T{hour:02}:00:00.{i:03}Z"),
             );
-            event.cloud_region = Some(region.to_string());
+            event.cloud_region = Some(Arc::from(region));
             events.push(event);
         }
         make_trace(events)
@@ -2211,7 +2213,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             Some(100_000), // 100 KB
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -2248,7 +2250,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             Some(100_000),
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -2280,7 +2282,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             Some(100_000),
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -2313,7 +2315,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             None, // no size
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -2344,7 +2346,7 @@ mod tests {
             "SELECT * FROM users WHERE id = 1",
             "2025-07-10T14:32:01.000Z",
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         event.response_size_bytes = Some(100_000);
         let trace = make_trace(vec![event]);
 
@@ -2380,7 +2382,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             Some(response_bytes),
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();
@@ -2417,7 +2419,7 @@ mod tests {
             "2025-07-10T14:32:01.000Z",
             Some(50_000),
         );
-        event.cloud_region = Some("eu-west-3".to_string());
+        event.cloud_region = Some(Arc::from("eu-west-3"));
         let trace = make_trace(vec![event]);
 
         let mut service_regions = HashMap::new();

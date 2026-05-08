@@ -63,7 +63,7 @@ pub fn detect_serialized(
                 timed.push(TimedSpan {
                     start_ms,
                     end_ms: start_ms.saturating_add(dur_ms),
-                    template: span.template.as_str(),
+                    template: span.template.as_ref(),
                     duration_us: span.event.duration_us,
                     span_idx: idx,
                 });
@@ -283,9 +283,9 @@ fn evaluate_sequence(
         || first_child.event.source.endpoint.clone(),
         |s| s.event.source.endpoint.clone(),
     );
-    let service = parent_span.map_or_else(
-        || first_child.event.service.clone(),
-        |s| s.event.service.clone(),
+    let service: String = parent_span.map_or_else(
+        || first_child.event.service.to_string(),
+        |s| s.event.service.to_string(),
     );
 
     let count = seq.len();
@@ -328,6 +328,8 @@ fn evaluate_sequence(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::test_helpers::{
         make_http_event_with_duration, make_sql_event_with_duration, make_trace,
@@ -373,7 +375,7 @@ mod tests {
                 100_000, // 100ms each
             );
             child.parent_span_id = Some(parent_id.to_string());
-            child.service = format!("svc-{i}");
+            child.service = Arc::from(format!("svc-{i}"));
             events.push(child);
         }
         events
@@ -424,7 +426,7 @@ mod tests {
                 100_000,
             );
             child.parent_span_id = Some("root".to_string());
-            child.service = format!("svc-{i}");
+            child.service = Arc::from(format!("svc-{i}"));
             events.push(child);
         }
 
@@ -494,7 +496,7 @@ mod tests {
                 100_000,
             );
             child.parent_span_id = Some("root".to_string());
-            child.service = format!("svc-{i}");
+            child.service = Arc::from(format!("svc-{i}"));
             events.push(child);
         }
 
@@ -509,7 +511,7 @@ mod tests {
                 100_000,
             );
             child.parent_span_id = Some("root".to_string());
-            child.service = format!("svc-{i}");
+            child.service = Arc::from(format!("svc-{i}"));
             events.push(child);
         }
 
@@ -563,7 +565,7 @@ mod tests {
             120_000,
         );
         c0.parent_span_id = Some("root".to_string());
-        c0.service = "user-svc".to_string();
+        c0.service = Arc::from("user-svc");
         events.push(c0);
 
         // child-1: starts at 220ms, duration 95ms (ends at 315ms)
@@ -575,7 +577,7 @@ mod tests {
             95_000,
         );
         c1.parent_span_id = Some("root".to_string());
-        c1.service = "inventory-svc".to_string();
+        c1.service = Arc::from("inventory-svc");
         events.push(c1);
 
         // child-2: starts at 315ms, duration 80ms (ends at 395ms)
@@ -587,7 +589,7 @@ mod tests {
             80_000,
         );
         c2.parent_span_id = Some("root".to_string());
-        c2.service = "pricing-svc".to_string();
+        c2.service = Arc::from("pricing-svc");
         events.push(c2);
 
         let trace = make_trace(events);
@@ -635,7 +637,7 @@ mod tests {
             100_000,
         );
         c1.parent_span_id = Some("root".to_string());
-        c1.service = "inventory-svc".to_string();
+        c1.service = Arc::from("inventory-svc");
         events.push(c1);
 
         let mut c2 = make_sql_event_with_duration(
@@ -693,7 +695,7 @@ mod tests {
             200_000,
         );
         a.parent_span_id = Some("root".to_string());
-        a.service = "auth-svc".to_string();
+        a.service = Arc::from("auth-svc");
         events.push(a);
 
         // B: [100-150ms], short, overlaps with A
@@ -705,7 +707,7 @@ mod tests {
             50_000,
         );
         b.parent_span_id = Some("root".to_string());
-        b.service = "user-svc".to_string();
+        b.service = Arc::from("user-svc");
         events.push(b);
 
         // C: [160-300ms], starts after B ends, overlaps with A
@@ -717,7 +719,7 @@ mod tests {
             140_000,
         );
         c.parent_span_id = Some("root".to_string());
-        c.service = "inventory-svc".to_string();
+        c.service = Arc::from("inventory-svc");
         events.push(c);
 
         // D: [310-400ms], starts after both A and C end
@@ -729,7 +731,7 @@ mod tests {
             90_000,
         );
         d.parent_span_id = Some("root".to_string());
-        d.service = "pricing-svc".to_string();
+        d.service = Arc::from("pricing-svc");
         events.push(d);
 
         let trace = make_trace(events);
@@ -773,7 +775,7 @@ mod tests {
                 0, // zero duration
             );
             child.parent_span_id = Some("root".to_string());
-            child.service = format!("svc-{i}");
+            child.service = Arc::from(format!("svc-{i}"));
             events.push(child);
         }
 

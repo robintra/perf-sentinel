@@ -43,7 +43,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         HashMap::with_capacity(http_indices.len().min(64));
     for &idx in &http_indices {
         *template_counts
-            .entry(trace.spans[idx].template.as_str())
+            .entry(trace.spans[idx].template.as_ref())
             .or_default() += 1;
     }
 
@@ -86,7 +86,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         finding_type: FindingType::ChattyService,
         severity,
         trace_id: trace.trace_id.clone(),
-        service: first.event.service.clone(),
+        service: first.event.service.to_string(),
         source_endpoint: entry_endpoint.clone(),
         pattern: Pattern {
             template: entry_endpoint,

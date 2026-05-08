@@ -1,5 +1,7 @@
 //! End-to-end tests for perf-sentinel pipeline stages.
 
+use std::sync::Arc;
+
 use sentinel_core::config::Config;
 use sentinel_core::correlate;
 use sentinel_core::detect::FindingType;
@@ -31,7 +33,7 @@ fn n_plus_one_sql_fixture_normalizes_to_same_template() {
     assert_eq!(events.len(), 6);
 
     let normalized = normalize::normalize_all(events);
-    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_str()).collect();
+    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_ref()).collect();
     assert!(
         templates.iter().all(|t| *t == templates[0]),
         "expected all templates to be the same, got: {templates:?}"
@@ -48,7 +50,7 @@ fn n_plus_one_http_fixture_normalizes_to_same_template() {
     assert_eq!(events.len(), 6);
 
     let normalized = normalize::normalize_all(events);
-    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_str()).collect();
+    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_ref()).collect();
     assert!(
         templates.iter().all(|t| *t == templates[0]),
         "expected all templates to be the same, got: {templates:?}"
@@ -62,7 +64,7 @@ fn clean_traces_fixture_has_diverse_templates() {
     assert_eq!(events.len(), 4);
 
     let normalized = normalize::normalize_all(events);
-    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_str()).collect();
+    let templates: Vec<&str> = normalized.iter().map(|n| n.template.as_ref()).collect();
     let unique: std::collections::HashSet<&&str> = templates.iter().collect();
     assert_eq!(
         unique.len(),
@@ -514,7 +516,7 @@ fn sanitizer_aware_heuristic_reclassifies_jpa_n_plus_one_end_to_end() {
             trace_id: "trace-jpa-sanitized".to_string(),
             span_id: format!("span-{i}"),
             parent_span_id: None,
-            service: "order-svc".to_string(),
+            service: Arc::from("order-svc"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -530,7 +532,7 @@ fn sanitizer_aware_heuristic_reclassifies_jpa_n_plus_one_end_to_end() {
             code_filepath: None,
             code_lineno: None,
             code_namespace: None,
-            instrumentation_scopes: vec!["io.opentelemetry.spring-data-jpa-3.0".to_string()],
+            instrumentation_scopes: vec![Arc::from("io.opentelemetry.spring-data-jpa-3.0")],
         })
         .collect();
 

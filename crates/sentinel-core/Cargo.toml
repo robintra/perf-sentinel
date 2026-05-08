@@ -27,7 +27,7 @@ tempo = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:
 jaeger-query = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:hyper-rustls"]
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive", "rc"] }
 serde_json = "1.0.149"
 tracing = "0.1.44"
 thiserror = "2.0.18"

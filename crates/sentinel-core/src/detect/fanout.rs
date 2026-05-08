@@ -33,9 +33,9 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
         // Find the parent span for context (service, endpoint)
         let parent_span = span_index.get(*parent_id).map(|&i| &trace.spans[i]);
 
-        let service = parent_span.map_or_else(
-            || trace.spans[child_indices[0]].event.service.clone(),
-            |s| s.event.service.clone(),
+        let service: String = parent_span.map_or_else(
+            || trace.spans[child_indices[0]].event.service.to_string(),
+            |s| s.event.service.to_string(),
         );
 
         let endpoint = parent_span.map_or_else(
@@ -55,7 +55,7 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
 
         // Parent template (operation name or span template)
         let template =
-            parent_span.map_or_else(|| format!("parent:{parent_id}"), |s| s.template.clone());
+            parent_span.map_or_else(|| format!("parent:{parent_id}"), |s| s.template.to_string());
 
         findings.push(Finding {
             finding_type: FindingType::ExcessiveFanout,

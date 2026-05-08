@@ -42,7 +42,7 @@ fn group_sql_indices_by_service(trace: &Trace) -> HashMap<&str, Vec<usize>> {
     for (i, span) in trace.spans.iter().enumerate() {
         if span.event.event_type == EventType::Sql {
             sql_by_service
-                .entry(span.event.service.as_str())
+                .entry(span.event.service.as_ref())
                 .or_default()
                 .push(i);
         }
@@ -126,6 +126,8 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::test_helpers::{
         make_http_event_with_duration, make_sql_event_with_duration, make_trace,
@@ -147,7 +149,7 @@ mod tests {
                     "2025-07-10T14:32:01.000Z",
                     duration_us,
                 );
-                ev.service = service.to_string();
+                ev.service = Arc::from(service);
                 ev
             })
             .collect()

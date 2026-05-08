@@ -32,6 +32,8 @@ pub fn correlate(events: Vec<NormalizedEvent>) -> Vec<Trace> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::event::{EventSource, EventType, SpanEvent};
     use crate::normalize;
@@ -42,7 +44,7 @@ mod tests {
             trace_id: trace_id.to_string(),
             span_id: span_id.to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),

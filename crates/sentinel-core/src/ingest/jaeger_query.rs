@@ -412,7 +412,7 @@ mod tests {
         .await
         .expect("search must succeed");
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].service, "order-svc");
+        assert_eq!(&*events[0].service, "order-svc");
         server.await.expect("server join");
     }
 

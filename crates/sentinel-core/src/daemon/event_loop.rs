@@ -194,7 +194,7 @@ async fn ingest_event_batch(
     // Normalize OUTSIDE the lock to minimize lock hold time.
     let normalized: Vec<_> = events.into_iter().map(normalize::normalize).collect();
     for event in &normalized {
-        service_meter.record(event.event.service.as_str(), metrics);
+        service_meter.record(event.event.service.as_ref(), metrics);
     }
     let now_ms = current_time_ms();
     let mut lru_evicted = Vec::new();
@@ -512,6 +512,8 @@ fn current_time_ms() -> u64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::correlate::window::WindowConfig;
     use crate::event::{EventSource, EventType, SpanEvent};
@@ -522,7 +524,7 @@ mod tests {
             trace_id: trace_id.to_string(),
             span_id: "s1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -660,7 +662,7 @@ mod tests {
             trace_id: "t1".to_string(),
             span_id: "s1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),

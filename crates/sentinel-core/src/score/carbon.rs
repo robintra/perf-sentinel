@@ -405,7 +405,7 @@ pub fn resolve_region<'a>(event: &'a SpanEvent, ctx: &'a CarbonContext) -> Optio
         let lookup = if event.service.bytes().any(|b| b.is_ascii_uppercase()) {
             ctx.service_regions.get(&event.service.to_ascii_lowercase())
         } else {
-            ctx.service_regions.get(event.service.as_str())
+            ctx.service_regions.get(event.service.as_ref())
         };
         if let Some(region) = lookup {
             return Some(region.as_str());
@@ -1457,6 +1457,8 @@ mod tests {
 
     // ----- CarbonEstimate / CarbonReport / resolve_region tests -----
 
+    use std::sync::Arc;
+
     use crate::event::{EventSource, EventType, SpanEvent};
 
     fn make_event(service: &str, cloud_region: Option<&str>) -> SpanEvent {
@@ -1465,8 +1467,8 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: service.to_string(),
-            cloud_region: cloud_region.map(str::to_string),
+            service: Arc::from(service),
+            cloud_region: cloud_region.map(Arc::from),
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
             target: "SELECT 1".to_string(),
@@ -1699,7 +1701,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "postgresql".to_string(),
@@ -1725,7 +1727,7 @@ mod tests {
             trace_id: "trace-1".to_string(),
             span_id: "span-1".to_string(),
             parent_span_id: None,
-            service: "test".to_string(),
+            service: Arc::from("test"),
             cloud_region: None,
             event_type: EventType::HttpOut,
             operation: "GET".to_string(),

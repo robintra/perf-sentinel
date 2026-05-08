@@ -413,7 +413,7 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
         finding_type: args.finding_type,
         severity: args.severity,
         trace_id: args.trace_id.to_string(),
-        service: args.first_span.event.service.clone(),
+        service: args.first_span.event.service.to_string(),
         source_endpoint: args.first_span.event.source.endpoint.clone(),
         pattern: Pattern {
             template: args.template.to_string(),

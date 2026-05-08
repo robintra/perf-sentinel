@@ -367,7 +367,7 @@ fn resolve_span_energy(
         false
     };
     let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
-        Some(snapshot) => match snapshot.get(&span.event.service) {
+        Some(snapshot) => match snapshot.get(span.event.service.as_ref()) {
             Some(entry) => (entry.energy_per_op_kwh, Some(entry.model_tag)),
             None => (proxy_energy_kwh, None),
         },

@@ -6,6 +6,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::Deserialize;
 
@@ -117,8 +118,16 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
     let cap: usize = export.data.iter().map(|t| t.spans.len()).sum();
     let mut events = Vec::with_capacity(cap);
     for trace in &export.data {
+        // Build the per-process Arc<str> once per trace, then Arc::clone
+        // into each span. A trace routinely has hundreds of spans sharing
+        // the same processID, so this collapses N allocations to one.
+        let service_arcs: HashMap<&str, Arc<str>> = trace
+            .processes
+            .iter()
+            .map(|(pid, p)| (pid.as_str(), Arc::from(p.service_name.as_str())))
+            .collect();
         for span in &trace.spans {
-            if let Some(event) = convert_jaeger_span(span, &trace.trace_id, &trace.processes) {
+            if let Some(event) = convert_jaeger_span(span, &trace.trace_id, &service_arcs) {
                 events.push(event);
             }
         }
@@ -129,7 +138,7 @@ pub(super) fn convert_jaeger_export(export: &JaegerExport) -> Vec<SpanEvent> {
 fn convert_jaeger_span(
     span: &JaegerSpan,
     trace_id: &str,
-    processes: &HashMap<String, JaegerProcess>,
+    service_arcs: &HashMap<&str, Arc<str>>,
 ) -> Option<SpanEvent> {
     let tags = &span.tags;
 
@@ -152,11 +161,10 @@ fn convert_jaeger_span(
             .unwrap_or_else(|| "GET".to_string()),
     };
 
-    // Service name from processes map
-    let service = processes
-        .get(&span.process_id)
-        .map(|p| p.service_name.clone())
-        .unwrap_or_default();
+    // Service name from the per-trace Arc cache, cloned (O(1)) per span.
+    let service: Arc<str> = service_arcs
+        .get(span.process_id.as_str())
+        .map_or_else(|| Arc::from(""), Arc::clone);
 
     // Parent span ID from CHILD_OF reference
     let parent_span_id = span
@@ -180,10 +188,10 @@ fn convert_jaeger_span(
     let method = find_tag(tags, "code.function").unwrap_or_else(|| span.operation_name.clone());
 
     // code.* attributes from span tags.
-    let code_function = find_tag(tags, "code.function");
-    let code_filepath = find_tag(tags, "code.filepath");
+    let code_function: Option<Arc<str>> = find_tag(tags, "code.function").map(Arc::from);
+    let code_filepath: Option<Arc<str>> = find_tag(tags, "code.filepath").map(Arc::from);
     let code_lineno = find_tag(tags, "code.lineno").and_then(|s| s.parse::<u32>().ok());
-    let code_namespace = find_tag(tags, "code.namespace");
+    let code_namespace: Option<Arc<str>> = find_tag(tags, "code.namespace").map(Arc::from);
 
     let mut event = SpanEvent {
         timestamp: micros_to_iso8601(span.start_time),
@@ -293,7 +301,7 @@ mod tests {
 
         assert_eq!(sql.trace_id, "abc123");
         assert_eq!(sql.span_id, "span-1");
-        assert_eq!(sql.service, "order-svc");
+        assert_eq!(&*sql.service, "order-svc");
         assert_eq!(sql.operation, "postgresql");
         assert_eq!(sql.target, "SELECT * FROM order_item WHERE order_id = 42");
         assert_eq!(sql.duration_us, 1200);
@@ -377,7 +385,7 @@ mod tests {
         let ingest = JaegerIngest::new(1_048_576);
         let events = ingest.ingest(json.as_bytes()).unwrap();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].service, "");
+        assert_eq!(&*events[0].service, "");
     }
 
     #[test]
