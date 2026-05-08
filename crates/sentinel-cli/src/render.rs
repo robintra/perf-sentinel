@@ -345,7 +345,7 @@ fn print_acknowledged_summary(report: &Report, force_color: bool, show_acknowled
 pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_color: bool) {
     let colors = ansi_colors(force_color);
     println!(
-        "{}Found {} issue(s):{}",
+        "{}Found {} finding(s):{}",
         colors.bold,
         findings.len(),
         colors.reset
@@ -363,7 +363,7 @@ pub(crate) fn print_findings(findings: &[sentinel_core::detect::Finding], force_
     }
 }
 
-/// One-line severity breakdown printed under the `Found N issue(s):`
+/// One-line severity breakdown printed under the `Found N finding(s):`
 /// header. Returns `None` for empty inputs so the caller can skip the
 /// line entirely.
 fn format_severity_breakdown(

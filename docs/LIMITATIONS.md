@@ -11,6 +11,7 @@
 - [`rss_peak_bytes` on Windows](#rss_peak_bytes-on-windows): why bench RSS is null on Windows.
 - [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
 - [Maximum events per trace](#maximum-events-per-trace): per-trace ring-buffer cap.
+- [Long-running traces and TTL eviction in daemon mode](#long-running-traces-and-ttl-eviction-in-daemon-mode): why sparse-burst traces undercount in streaming mode.
 - [Field length limits at ingestion](#field-length-limits-at-ingestion): per-field byte caps applied at the ingestion boundary.
 - [Binary size](#binary-size): release-binary target and what contributes to it.
 - [HTML dashboard: CSV formula-injection guard](#html-dashboard-csv-formula-injection-guard): OWASP CSV-injection neutralization in exported CSVs.
@@ -116,6 +117,20 @@ In streaming mode, each trace holds at most `max_events_per_trace` events (defau
 - Undercounted occurrences in findings
 
 For traces with very high event counts, increase `max_events_per_trace` or investigate why a single trace generates so many operations.
+
+## Long-running traces and TTL eviction in daemon mode
+
+The streaming detector window evicts a trace when it has been inactive for `trace_ttl_ms` (default 30s). "Inactive" means no span event for that `trace_id` was ingested within the TTL. The active TTL is reset on every span ingest, so a trace that emits a span every <30s stays alive indefinitely.
+
+But a trace that emits sparse, gap-heavy spans (e.g. a long batch job emitting one span every 60s, or a long-polling websocket) will be evicted between bursts. A late span with the same `trace_id` arriving after eviction creates a **new** trace bucket; the previous events are gone. Threshold-driven detections that rely on co-located spans within one trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) will silently underreport because each fragment falls below the per-trace threshold.
+
+Mitigations, in order of precision:
+
+- **Increase `trace_ttl_ms`** if you know the maximum expected gap between bursts (`[daemon] trace_ttl_ms = 120000` for 2 minutes). Memory grows with `max_active_traces`, not with TTL, so a longer TTL costs nothing as long as your traffic shape does not blow past the LRU cap.
+- **Use batch mode** (`perf-sentinel analyze`) on a captured trace dump for off-line investigation. Batch correlation has no TTL boundary; the entire trace is correlated in a single pass.
+- **Shorten the upstream trace.** If a trace is conceptually long because it spans multiple user actions, consider splitting it at the application level (one trace per logical request).
+
+This is a property of the streaming window, not a bug. Real-time detection on a bounded ring buffer always trades trace duration against memory; the daemon picks 30s as a default that fits typical request-response shapes (HTTP API, RPC).
 
 ## Field length limits at ingestion
 
@@ -547,7 +562,7 @@ When the daemon runs with `api_enabled = true`, the query API exposes findings (
 ## Tempo ingestion
 
 - **Protobuf format.** The `perf-sentinel tempo` subcommand requests traces as OTLP protobuf from Tempo's HTTP API. Tempo must be configured to serve protobuf responses (the default).
-- **Parallel fetch concurrency cap.** The search-then-fetch flow (`--service --lookback`) fetches matching trace bodies in parallel via a `tokio::task::JoinSet`, capped at 16 in-flight requests through an internal semaphore. The cap is not currently user-configurable. Per-fetch timeout is 30s (vs. 5s for the search step) to allow a wide fan-out trace body to be assembled from ingesters and long-term storage. On a capacity-constrained Tempo deployment with long lookback windows (e.g. 24h), some fetches may still time out. Remedy is Tempo-side: scale `tempo-query-frontend` replicas, tune `max_search_duration` and `max_concurrent_queries`.
+- **Parallel fetch concurrency cap.** The search-then-fetch flow (`--service --lookback`) fetches matching trace bodies in parallel via a `tokio::task::JoinSet`, capped at 16 in-flight requests through an internal semaphore. The cap is not currently user-configurable. Per-fetch timeout is 30s (vs. 5s for the search step) to allow a wide fanout trace body to be assembled from ingesters and long-term storage. On a capacity-constrained Tempo deployment with long lookback windows (e.g. 24h), some fetches may still time out. Remedy is Tempo-side: scale `tempo-query-frontend` replicas, tune `max_search_duration` and `max_concurrent_queries`.
 - **Ctrl-C preserves partial results.** Interrupting a long parallel fetch aborts every in-flight task and returns whatever traces had already completed. The CLI surfaces the dedicated `TempoError::Interrupted` error if zero traces completed before the signal, so CI quality-gate paths can distinguish an operator abort from a genuine empty result (`NoTracesFound`).
 - **Search API.** The search mode uses Tempo's `GET /api/search` endpoint which may not be available on all Tempo deployments (requires the search feature to be enabled in Tempo).
 
