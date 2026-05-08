@@ -345,7 +345,7 @@ Daemon limits accept any value inside their hard bounds (rejected at config load
 | `max_events_per_trace`  | 100 to 10,000            | Smaller truncates complex traces; larger rarely improves detection quality                                                  |
 | `max_retained_findings` | 100 to 100,000 (or `0`)  | Smaller evicts findings before `/api/findings` can serve them; larger holds a backlog. `0` disables the store and is silent |
 | `trace_ttl_ms`          | 1,000 to 600,000         | Below 1s flushes traces before slow spans land; above 10min keeps near-dead traces                                          |
-| `max_fanout`            | 5 to 1,000               | Smaller floods the findings store with noise; larger suppresses most fan-out detections                                     |
+| `max_fanout`            | 5 to 1,000               | Smaller floods the findings store with noise; larger suppresses most fanout detections                                      |
 
 #### `[daemon.correlation]` (optional)
 

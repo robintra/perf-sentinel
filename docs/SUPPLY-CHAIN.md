@@ -191,7 +191,7 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
    is upstream, run `cargo update -p <crate>`, verify with
    `cargo audit`, open a PR with `chore(deps)` prefix.
 
-4. **Acknowledgement**: if the affected code path is not exercised,
+4. **Acknowledgment**: if the affected code path is not exercised,
    add an entry to `audit.toml` with a paragraph explaining the
    exposure analysis and the conditions under which the entry should
    be revisited. Do not silently ignore.

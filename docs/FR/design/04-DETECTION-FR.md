@@ -426,7 +426,7 @@ L'option `enabled` (défaut false) active la corrélation. Les résultats sont e
 
 ## Corrections actionnables (suggestions framework-aware)
 
-À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`. La première version livrait Java/JPA uniquement. L'état actuel couvre Java (JPA, WebFlux, Quarkus reactive, Quarkus non-réactif, Helidon SE, Helidon MP), C# (.NET 8 à 10 avec EF Core / Pomelo MySQL) et Rust (Diesel, SeaORM), avec un fallback générique par langage pour le fan-out HTTP et le caching request-scoped.
+À partir de v0.4.2, un champ `suggested_fix: Option<SuggestedFix>` sur `Finding` porte une remédiation spécifique au framework qui va au-delà de la chaîne générique `suggestion`. Ce champ est peuplé par `detect::suggestions::enrich` après que les détecteurs per-trace aient retourné, à l'intérieur de `detect()`. La première version livrait Java/JPA uniquement. L'état actuel couvre Java (JPA, WebFlux, Quarkus reactive, Quarkus non-réactif, Helidon SE, Helidon MP), C# (.NET 8 à 10 avec EF Core / Pomelo MySQL) et Rust (Diesel, SeaORM), avec un fallback générique par langage pour le fanout HTTP et le caching request-scoped.
 
 ### Structure `SuggestedFix`
 
