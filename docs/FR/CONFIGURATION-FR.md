@@ -13,7 +13,7 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 - [Sections](#sections) : référence complète par section (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, ...).
 - [Configuration minimale](#configuration-minimale) : le `.perf-sentinel.toml` le plus court utile.
 - [Exemple de configuration complète](#exemple-de-configuration-complète) : chaque section peuplée avec des valeurs d'exemple.
-- [Format plat legacy](#format-plat-legacy) : format pré-section conservé pour la compatibilité ascendante.
+- [Migration depuis 0.5.x](#migration-depuis-05x) : les 8 clés top-level legacy retirées en 0.6.0 et comment migrer.
 - [Variables d'environnement](#variables-denvironnement) : quelles variables d'environnement surchargent les valeurs du fichier de config.
 
 ## Sous-commandes
@@ -539,25 +539,11 @@ max_retained_findings = 10000
 # lag_threshold_ms = 2000
 ```
 
-## Format plat legacy
+## Migration depuis 0.5.x
 
-Pour la rétrocompatibilité, perf-sentinel accepte également un format plat (non sectionné) :
+Huit clés top-level legacy ont été dépréciées en 0.5.26 et retirées en 0.6.0. Une configuration 0.5.x qui en utilise encore une échoue désormais au chargement avec un message de migration explicite, plutôt que de retomber silencieusement sur la valeur par défaut. Migrez vers la forme sectionnée ci-dessous avant la mise à jour.
 
-```toml
-n_plus_one_threshold = 5
-window_duration_ms = 500
-n_plus_one_sql_critical_max = 0
-n_plus_one_http_warning_max = 3
-io_waste_ratio_max = 0.30
-```
-
-Lorsque les deux formats sont présents, les valeurs sectionnées ont priorité sur les valeurs plates. Le format sectionné est recommandé pour les nouvelles configurations.
-
-### Clés dépréciées
-
-Les clés top-level (plates) suivantes sont dépréciées. Elles résolvent toujours correctement pour la rétrocompatibilité, mais émettent un message de dépréciation niveau `WARN` au chargement de la configuration quand aucune valeur sectionnée ne les supplante. Elles seront retirées dans une future version. Migrez vers la forme sectionnée ci-dessous.
-
-| Dépréciée (plate) | Utiliser à la place | Section |
+| Retirée (top-level) | Utiliser à la place | Section |
 |---|---|---|
 | `n_plus_one_threshold` | `n_plus_one_min_occurrences` | `[detection]` |
 | `window_duration_ms` | `window_duration_ms` | `[detection]` |
@@ -568,7 +554,7 @@ Les clés top-level (plates) suivantes sont dépréciées. Elles résolvent touj
 | `max_events_per_trace` | `max_events_per_trace` | `[daemon]` |
 | `max_payload_size` | `max_payload_size` | `[daemon]` |
 
-Exemple de migration. Avant (déprécié) :
+Exemple de migration. Avant (0.5.x) :
 
 ```toml
 n_plus_one_threshold = 5
@@ -576,7 +562,7 @@ listen_port = 4318
 max_payload_size = 2097152
 ```
 
-Après (recommandé) :
+Après (0.6.0+) :
 
 ```toml
 [detection]
@@ -587,7 +573,7 @@ listen_port_http = 4318
 max_payload_size = 2097152
 ```
 
-Quand les deux formes coexistent pour le même paramètre, la forme sectionnée gagne et aucun warning de dépréciation n'est émis pour cette clé.
+Le chargement d'un fichier 0.5.x sur 0.6.0 retourne une `ConfigError::Validation` dont le message nomme à la fois la clé retirée et son remplacement, donc un simple tail du flux d'erreur indique exactement quoi modifier.
 
 ## Variables d'environnement
 

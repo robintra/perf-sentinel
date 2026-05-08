@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn co2_none_when_no_carbon_context() {
         // When `score_green` is called with `None` (green disabled at the call
-        // site, e.g. via `pipeline::analyze` when `green_enabled = false`),
+        // site, e.g. via `pipeline::analyze` when `green.enabled = false`),
         // no CO₂ data is produced.
         let events: Vec<SpanEvent> = (1..=3)
             .map(|i| {

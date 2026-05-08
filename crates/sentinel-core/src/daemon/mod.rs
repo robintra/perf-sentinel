@@ -130,18 +130,18 @@ pub enum TlsConfigError {
 ///
 /// # Panics
 ///
-/// Panics if `config.max_active_traces` is 0 (config validation prevents this).
+/// Panics if `config.daemon.max_active_traces` is 0 (config validation prevents this).
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
-        max_events_per_trace: config.max_events_per_trace,
-        trace_ttl_ms: config.trace_ttl_ms,
-        max_active_traces: std::num::NonZeroUsize::new(config.max_active_traces)
+        max_events_per_trace: config.daemon.max_events_per_trace,
+        trace_ttl_ms: config.daemon.trace_ttl_ms,
+        max_active_traces: std::num::NonZeroUsize::new(config.daemon.max_active_traces)
             .expect("config validates max_active_traces >= 1"),
     })));
     let metrics = Arc::new(MetricsState::new());
     let findings_store = Arc::new(findings_store::FindingsStore::new(
-        config.max_retained_findings,
+        config.daemon.max_retained_findings,
     ));
     let correlator = setup_correlator(&config);
     // Shared cell mutated by the event loop after each batch and read
@@ -199,9 +199,9 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         &energy_sources,
         shutdown,
         EventLoopConfig {
-            green_enabled: config.green_enabled,
-            sampling_rate: config.sampling_rate,
-            evict_ms: config.trace_ttl_ms / 2,
+            green_enabled: config.green.enabled,
+            sampling_rate: config.daemon.sampling_rate,
+            evict_ms: config.daemon.trace_ttl_ms / 2,
             confidence: config.confidence(),
         },
         &green_summary_cell,
@@ -210,7 +210,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
 
     #[cfg(unix)]
     {
-        let _ = std::fs::remove_file(&config.json_socket);
+        let _ = std::fs::remove_file(&config.daemon.json_socket);
     }
     Ok(())
 }
@@ -224,7 +224,10 @@ mod tests {
         // Malformed listen_addr fails the `format!().parse()` call in
         // `run` before any listener binds. Covers the InvalidAddr path.
         let config = Config {
-            listen_addr: "not an address".to_string(),
+            daemon: crate::config::DaemonConfig {
+                listen_addr: "not an address".to_string(),
+                ..crate::config::DaemonConfig::default()
+            },
             ..Config::default()
         };
         // Bogus port paths still reach .parse(), which fails.
@@ -282,12 +285,15 @@ mod tests {
         let (_dir, socket_path) = json_socket::unique_socket_dir_and_path("daemon-run");
         let socket_path_str = socket_path.to_string_lossy().into_owned();
         let config = Config {
-            listen_addr: "127.0.0.1".to_string(),
-            listen_port: http_port,
-            listen_port_grpc: grpc_port,
-            json_socket: socket_path_str,
-            trace_ttl_ms: 200, // fast eviction so the ticker fires during test
-            max_active_traces: 10,
+            daemon: crate::config::DaemonConfig {
+                listen_addr: "127.0.0.1".to_string(),
+                listen_port: http_port,
+                listen_port_grpc: grpc_port,
+                json_socket: socket_path_str,
+                trace_ttl_ms: 200, // fast eviction so the ticker fires during test
+                max_active_traces: 10,
+                ..crate::config::DaemonConfig::default()
+            },
             ..Config::default()
         };
 
@@ -382,7 +388,7 @@ mod tests {
     // ------------------------------------------------------------------
     //
     // Liveness probes (K8s, load balancers, systemd) must not depend on
-    // `daemon_api_enabled`. This test spins up a daemon with the query
+    // `daemon.api_enabled`. This test spins up a daemon with the query
     // API off, then hits `/health` over TCP to verify both the 200 OK
     // and the JSON body shape.
 
@@ -402,11 +408,14 @@ mod tests {
 
         let (_dir, socket_path) = json_socket::unique_socket_dir_and_path("daemon-health");
         let config = Config {
-            listen_addr: "127.0.0.1".to_string(),
-            listen_port: http_port,
-            listen_port_grpc: grpc_port,
-            json_socket: socket_path.to_string_lossy().into_owned(),
-            daemon_api_enabled: false, // proves /health is not gated by the query API toggle
+            daemon: crate::config::DaemonConfig {
+                listen_addr: "127.0.0.1".to_string(),
+                listen_port: http_port,
+                listen_port_grpc: grpc_port,
+                json_socket: socket_path.to_string_lossy().into_owned(),
+                api_enabled: false, // proves /health is not gated by the query API toggle
+                ..crate::config::DaemonConfig::default()
+            },
             ..Config::default()
         };
 

@@ -82,6 +82,3 @@ tower = { version = "0.5.3", features = ["util", "timeout"] }
 http-body-util = "0.1.3"
 tempfile = "3.27.0"
 flate2 = "1.1.9"
-# Capturing layer for asserting `tracing` events in unit tests. Used by
-# the legacy-flat deprecation tests to lock the warn message exactly once.
-tracing-test = "0.2.6"
