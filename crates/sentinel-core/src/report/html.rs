@@ -1829,12 +1829,31 @@ mod tests {
         assert!(TEMPLATE.contains("bootLiveMode()"));
     }
 
+    #[cfg(feature = "daemon")]
     #[test]
     fn live_mode_acks_cap_matches_daemon_constant() {
-        // The HTML footer message says "showing up to 1000". The daemon
-        // caps `/api/acks` at the same number via `MAX_ACKS_RESPONSE`.
-        // Catch any drift between the two.
-        assert!(TEMPLATE.contains("DAEMON_ACKS_CAP = 1000"));
+        // The HTML JS hardcodes `DAEMON_ACKS_CAP = N` as the limit before the
+        // footer note kicks in. The daemon caps `/api/acks` at
+        // `MAX_ACKS_RESPONSE`. Both must stay in lockstep — drift means the JS
+        // either truncates findings the daemon would have served, or claims a
+        // larger window than the daemon backs. Parse N out of the template and
+        // assert equality against the daemon constant; do not check a literal
+        // here.
+        let needle = "var DAEMON_ACKS_CAP = ";
+        let start = TEMPLATE
+            .find(needle)
+            .expect("template must define DAEMON_ACKS_CAP");
+        let after = &TEMPLATE[start + needle.len()..];
+        let end = after.find(';').expect("DAEMON_ACKS_CAP must end with ';'");
+        let parsed: usize = after[..end]
+            .trim()
+            .parse()
+            .expect("DAEMON_ACKS_CAP value must be a usize");
+        assert_eq!(
+            parsed,
+            crate::daemon::query_api::MAX_ACKS_RESPONSE,
+            "HTML DAEMON_ACKS_CAP drift vs daemon MAX_ACKS_RESPONSE"
+        );
     }
 
     #[test]

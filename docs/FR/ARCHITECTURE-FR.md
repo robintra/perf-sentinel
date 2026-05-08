@@ -5,6 +5,23 @@ perf-sentinel est un détecteur polyglotte d'anti-patterns de performance, const
 - **sentinel-core** : bibliothèque contenant toute la logique du pipeline
 - **sentinel-cli** : binaire fournissant le point d'entrée CLI (`perf-sentinel`)
 
+## Glossaire
+
+Quelques termes récurrents dans la doc et le code, dont les distinctions comptent :
+
+- **Event** — un SpanEvent normalisé. L'unité pré-détection (entrée).
+- **Finding** — un anti-pattern détecté (sortie de `detect`). Le concept produit, exposé dans la sortie CLI, JSON, SARIF, HTML, l'API daemon et les acks.
+- **Pattern** — le template SQL/HTTP normalisé qui regroupe les events d'un finding (ex. `SELECT * FROM users WHERE id = ?`).
+- **Detection** — l'action, ou la famille de détecteurs (`n_plus_one`, `chatty`, ...). N'est pas synonyme de `finding`.
+
+Modes opérationnels :
+
+- **Mode batch** (`perf-sentinel analyze`) — traite un jeu complet de traces et produit un seul Report. Utilisé pour les tests d'intégration CI, l'analyse ponctuelle, et `perf-sentinel report` (HTML).
+- **Mode CI** (`perf-sentinel analyze --ci`) — identique au batch, mais une violation du quality gate fait sortir le process en code 1. Le champ `Confidence` de chaque finding est tagué `ci_batch` (confiance la plus faible : variété de trafic limitée).
+- **Mode daemon** / **streaming** / **watch** (`perf-sentinel watch`) — process long-running qui ingère les events OTLP/JSON en temps réel, avec éviction TTL et détection per-trace. Les findings sont tagués `daemon_staging` ou `daemon_production` selon `[daemon] daemon_environment` (booste la sévérité chez les consommateurs downstream comme perf-lint).
+
+L'axe `Confidence` (`ci_batch` < `daemon_staging` < `daemon_production`) est tagué automatiquement par le runtime et exposé dans JSON, SARIF, HTML et l'API de requête du daemon.
+
 ## Vue d'ensemble du pipeline
 
 ```

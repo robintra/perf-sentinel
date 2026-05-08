@@ -347,7 +347,7 @@ Les limites du daemon acceptent toute valeur à l'intérieur de leurs bornes dur
 | `max_events_per_trace`  | 100 à 10 000            | Plus petit tronque les traces complexes ; plus grand n'améliore que rarement la qualité de détection                                                               |
 | `max_retained_findings` | 100 à 100 000 (ou `0`)  | Plus petit évince les findings avant que `/api/findings` ne puisse les servir ; plus grand garde un backlog en mémoire. `0` désactive le store et reste silencieux |
 | `trace_ttl_ms`          | 1 000 à 600 000         | Sous 1s, les traces sont vidées avant que les spans lents n'arrivent ; au-dessus de 10min, des traces presque mortes restent en mémoire                            |
-| `max_fanout`            | 5 à 1 000               | Plus petit inonde le store de findings de bruit ; plus grand supprime la plupart des détections de fan-out                                                         |
+| `max_fanout`            | 5 à 1 000               | Plus petit inonde le store de findings de bruit ; plus grand supprime la plupart des détections de fanout                                                          |
 
 #### `[daemon.correlation]` (optionnel)
 
