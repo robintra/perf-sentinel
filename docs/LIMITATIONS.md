@@ -392,6 +392,22 @@ This captures workload-proportional power scaling, which the fixed proxy constan
 2. **Memory or I/O power:** the SPECpower data captures CPU and baseboard, not storage or network.
 3. **Shared tenancy correction:** the model assumes the instance's full power is attributed to perf-sentinel's traced workload.
 
+#### Two data vintages, two methodologies.
+
+The embedded lookup table mixes two snapshots. **Legacy entries** (Cascade Lake, Skylake, Ice Lake, EPYC 1st-3rd Gen, ~190 instances) come from Cloud Carbon Footprint coefficients 2023-05-01: AWS uses CCF `aws-instances.csv` with baseboard and memory overhead included, GCP and Azure use `vCPU * per_vCPU_coefficient`. **Modern entries** (Sapphire Rapids, Emerald Rapids, Granite Rapids, Genoa, Milan, Turin, Graviton 3/4, Cobalt 100, Sierra Forest, ~130 instances) are derived directly from `SPECpower_ssj 2008` quarterly results 2024 Q1 - 2026 Q2 using the per-vCPU method for all providers. **Consequence**: a modern AWS instance like `m7i.large` reads lower than a legacy `m5.large` of equivalent vCPU count, because no AWS-specific baseboard overhead is layered on top. Both values are sourced and defendable, but cross-vintage absolute comparisons should be interpreted as "modern is at least this efficient" rather than a clean ratio.
+
+#### Graviton 3/4 and Cobalt 100 are estimated, not measured.
+
+AWS does not submit Graviton to SPECpower. Microsoft does not submit Cobalt 100. The table values are bounded by Ampere Altra Q80-30 (Neoverse N1, SPECpower 2024 Q1, 0.67/1.75 W/vCPU as conservative floor) and Sapphire Rapids minus 25% per AWS public efficiency claim (0.53/2.63 W/vCPU upper bound). Graviton 3 settles at 0.53/2.63, Graviton 4 = Graviton 3 minus 30% per AWS re:Invent 2023 claim = 0.37/1.84. Cobalt 100 (Neoverse N2) is positioned between Altra (N1) and Graviton 3 (V1) since N2 is efficiency-focused with lower IPC than V1, so the table uses the midpoint blend 0.60/2.20 W/vCPU pending direct Cobalt SPECpower data. These ARM values carry an additional layer of uncertainty: expect **+/-40% rather than +/-30%** for Graviton, Cobalt 100, and Ampere Altra-derived entries.
+
+#### Genoa coefficient is single-sample.
+
+The AMD Genoa coefficient (0.40/2.05 W/vCPU) drives 26 SKUs (AWS m7a/c7a, GCP c3d/n2d, Azure Standard_Dadsv6) but is derived from a single SPECpower 2024 Q1 result for EPYC 9654 (top-bin 96-core). Mid-bin Genoa silicon (9354, 9474F, 9554) typically runs 5-15% worse perf/watt than 9654 at iso-load. Expect **+/-40% rather than +/-30% for Genoa-based instances** until additional SPECpower submissions widen the sample.
+
+#### Memory-optimized SKUs reuse general-purpose coefficients (legacy gap).
+
+GCP `n2-highmem-*` and Azure `Standard_E*` series in the legacy table reuse the same per-vCPU coefficient as `n2-standard-*` / `Standard_D*`, with no DRAM premium. AWS `r5` and `r6i` apply a 1.15x factor on max watts but not on idle. Real DRAM contributes ~3-5W per 64GB DIMM at load and ~30-40% of that at idle; the omission is small in absolute terms but biases low for memory-bound services. This is a pre-existing legacy data limitation, not introduced by the 2024-2026 refresh.
+
 #### Correct mental model.
 
 Cloud SPECpower is an interpolation model with approximately +/-30% accuracy. It is a step up from the I/O proxy (order-of-magnitude estimate) but less precise than Scaphandre RAPL (direct hardware measurement).

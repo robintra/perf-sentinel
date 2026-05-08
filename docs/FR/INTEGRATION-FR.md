@@ -507,21 +507,21 @@ Pour les VMs cloud sans accès RAPL, perf-sentinel peut estimer l'énergie par s
 prometheus_endpoint = "http://prometheus:9090"
 scrape_interval_secs = 15
 default_provider = "aws"
-default_instance_type = "c5.xlarge"
+default_instance_type = "m7i.xlarge"
 cpu_metric = "node_cpu_seconds_total"
 
 [green.cloud.services.api-us]
 provider = "aws"
 region = "us-east-1"
-instance_type = "c5.4xlarge"
+instance_type = "m7i.4xlarge"  # Sapphire Rapids
 
 [green.cloud.services.analytics]
 provider = "azure"
 region = "westeurope"
-instance_type = "Standard_D8s_v3"
+instance_type = "Standard_D8s_v6"  # Emerald Rapids
 ```
 
-Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` en utilisant les données SPECpower embarquées (~60 types d'instances courants). Le tag de modèle est `"cloud_specpower"`. Fonctionnalité daemon uniquement.
+Le daemon interpole la consommation avec `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` en utilisant les données SPECpower embarquées (~320 types d'instances couvrant AWS, GCP, Azure, y compris les architectures modernes Sapphire Rapids, Emerald Rapids, Granite Rapids, Genoa, Turin, Graviton 3/4 et Cobalt 100). Le tag de modèle est `"cloud_specpower"`. Fonctionnalité daemon uniquement.
 
 **Précédence des sources d'énergie.** Quand Scaphandre et cloud energy sont configurés pour le même service, Scaphandre gagne (mesure RAPL directe). La chaîne complète : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 

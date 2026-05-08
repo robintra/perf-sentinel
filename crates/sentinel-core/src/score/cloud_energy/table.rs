@@ -1,16 +1,28 @@
 //! Embedded `SPECpower` instance type lookup table.
 //!
-//! Maps cloud instance types to their idle and max power consumption in
-//! watts. Data sourced from the [Cloud Carbon Footprint coefficients]
-//! project, which derives per-instance power from `SPECpower` benchmarks
-//! and processor architecture specifications.
+//! Maps cloud instance types to their `(idle_watts, max_watts)` envelope.
+//! Two data vintages coexist with different methodologies:
+//!
+//! - **Legacy entries** (Cascade Lake, Skylake, Ice Lake, EPYC 1st-3rd
+//!   Gen, ~190 instances): from [Cloud Carbon Footprint coefficients]
+//!   2023-05-01, AWS direct from `aws-instances.csv` (baseboard inclus),
+//!   GCP and Azure as `vCPU * coefficient`.
+//! - **Modern entries** (Sapphire Rapids and beyond, ~130 instances):
+//!   `SPECpower_ssj 2008` quarterly results 2024 Q1 - 2026 Q2, computed
+//!   as `vCPU * (avg_watts_at_load / total_threads)` averaged per
+//!   architecture. No AWS-specific baseboard overhead is layered on top.
+//!
+//! Modern AWS entries therefore read lower than legacy AWS entries of
+//! the same nominal size. The Graviton 3/4 and Cobalt 100 ARM entries
+//! are estimates (no `SPECpower` submissions) bounded by Ampere Altra
+//! (floor) and Sapphire Rapids minus 25% (AWS public claim, upper).
+//! Sierra Forest entries (`xeon-6780e`) are 1-chip system level for
+//! bare-metal users owning the full chip -- not vCPU-scaled.
+//!
+//! Full methodology, uncertainty bounds, and per-architecture caveats
+//! are in `docs/LIMITATIONS.md` "Cloud `SPECpower` precision bounds".
 //!
 //! [Cloud Carbon Footprint coefficients]: https://github.com/cloud-carbon-footprint/cloud-carbon-coefficients
-//!
-//! AWS values are taken directly from the CCF `aws-instances.csv` output.
-//! GCP and Azure values are computed as `vCPU_count * per_vCPU_coefficient`
-//! using the CCF per-architecture coefficients for the corresponding
-//! processor family (Cascade Lake, EPYC 2nd/3rd Gen, Skylake, etc.).
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -128,6 +140,88 @@ static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::n
         ("r6i.12xlarge", 45.0, 447.8),
         ("r6i.16xlarge", 60.0, 597.1),
         ("r6i.24xlarge", 90.0, 895.6),
+        // --- m7i (Sapphire Rapids, Xeon Platinum 8488C) ---
+        // SPECpower 2024 Q1-Q2, n=6 Platinum 8480+/8490H, 0.71/3.50 W/vCPU
+        ("m7i.large", 1.4, 7.0),
+        ("m7i.xlarge", 2.8, 14.0),
+        ("m7i.2xlarge", 5.7, 28.0),
+        ("m7i.4xlarge", 11.4, 56.0),
+        ("m7i.8xlarge", 22.7, 112.0),
+        ("m7i.16xlarge", 45.4, 224.0),
+        // --- c7i (Sapphire Rapids, compute-optimized) ---
+        ("c7i.large", 1.4, 7.0),
+        ("c7i.xlarge", 2.8, 14.0),
+        ("c7i.2xlarge", 5.7, 28.0),
+        ("c7i.4xlarge", 11.4, 56.0),
+        ("c7i.8xlarge", 22.7, 112.0),
+        ("c7i.16xlarge", 45.4, 224.0),
+        // --- r7i (Sapphire Rapids, memory-optimized, 1.15x max factor) ---
+        ("r7i.large", 1.4, 8.0),
+        ("r7i.xlarge", 2.8, 16.1),
+        ("r7i.2xlarge", 5.7, 32.2),
+        ("r7i.4xlarge", 11.4, 64.4),
+        ("r7i.8xlarge", 22.7, 128.8),
+        ("r7i.16xlarge", 45.4, 257.6),
+        // --- m7a (AMD Genoa, EPYC 9R14 custom) ---
+        // SPECpower 2024 Q1, EPYC 9654 + extrapolation, 0.40/2.05 W/vCPU
+        ("m7a.large", 0.8, 4.1),
+        ("m7a.xlarge", 1.6, 8.2),
+        ("m7a.2xlarge", 3.2, 16.4),
+        ("m7a.4xlarge", 6.4, 32.8),
+        ("m7a.8xlarge", 12.8, 65.6),
+        ("m7a.16xlarge", 25.6, 131.2),
+        // --- c7a (Genoa, compute-optimized) ---
+        ("c7a.large", 0.8, 4.1),
+        ("c7a.xlarge", 1.6, 8.2),
+        ("c7a.2xlarge", 3.2, 16.4),
+        ("c7a.4xlarge", 6.4, 32.8),
+        ("c7a.8xlarge", 12.8, 65.6),
+        ("c7a.16xlarge", 25.6, 131.2),
+        // --- m6a (AMD Milan, EPYC 7R13) ---
+        // CCF EPYC 3rd Gen coefficient, 0.445/2.019 W/vCPU
+        ("m6a.large", 0.9, 4.0),
+        ("m6a.xlarge", 1.8, 8.1),
+        ("m6a.2xlarge", 3.6, 16.2),
+        ("m6a.4xlarge", 7.1, 32.3),
+        ("m6a.8xlarge", 14.2, 64.6),
+        ("m6a.16xlarge", 28.5, 129.2),
+        // --- c6a (Milan, compute-optimized) ---
+        ("c6a.large", 0.9, 4.0),
+        ("c6a.xlarge", 1.8, 8.1),
+        ("c6a.2xlarge", 3.6, 16.2),
+        ("c6a.4xlarge", 7.1, 32.3),
+        ("c6a.8xlarge", 14.2, 64.6),
+        ("c6a.16xlarge", 28.5, 129.2),
+        // --- m7g (Graviton 3, Neoverse V1) ---
+        // Mix B+D: floor Ampere Altra (0.67/1.75), upper SPR x 0.75 = 0.53/2.63 W/vCPU
+        ("m7g.large", 1.1, 5.3),
+        ("m7g.xlarge", 2.1, 10.5),
+        ("m7g.2xlarge", 4.2, 21.0),
+        ("m7g.4xlarge", 8.5, 42.1),
+        ("m7g.8xlarge", 17.0, 84.2),
+        ("m7g.16xlarge", 33.9, 168.3),
+        // --- c7g (Graviton 3, compute-optimized) ---
+        ("c7g.large", 1.1, 5.3),
+        ("c7g.xlarge", 2.1, 10.5),
+        ("c7g.2xlarge", 4.2, 21.0),
+        ("c7g.4xlarge", 8.5, 42.1),
+        ("c7g.8xlarge", 17.0, 84.2),
+        ("c7g.16xlarge", 33.9, 168.3),
+        // --- m8g (Graviton 4, Neoverse V2) ---
+        // Graviton 3 x 0.70 per AWS re:Invent 2023 claim, 0.37/1.84 W/vCPU
+        ("m8g.large", 0.7, 3.7),
+        ("m8g.xlarge", 1.5, 7.4),
+        ("m8g.2xlarge", 3.0, 14.7),
+        ("m8g.4xlarge", 5.9, 29.4),
+        ("m8g.8xlarge", 11.8, 58.9),
+        ("m8g.16xlarge", 23.7, 117.8),
+        // --- c8g (Graviton 4, compute-optimized) ---
+        ("c8g.large", 0.7, 3.7),
+        ("c8g.xlarge", 1.5, 7.4),
+        ("c8g.2xlarge", 3.0, 14.7),
+        ("c8g.4xlarge", 5.9, 29.4),
+        ("c8g.8xlarge", 11.8, 58.9),
+        ("c8g.16xlarge", 23.7, 117.8),
         // ================================================================
         // GCP instances (vCPU * per_vCPU_coefficient from CCF)
         // ================================================================
@@ -178,6 +272,53 @@ static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::n
         ("c2-standard-16", 10.2, 58.3),
         ("c2-standard-30", 19.1, 109.3),
         ("c2-standard-60", 38.3, 218.5),
+        // --- c3 (Sapphire Rapids, general purpose) ---
+        // SPECpower 2024 Q1-Q2, Xeon Platinum 8480+/8490H, 0.71/3.50 W/vCPU
+        ("c3-standard-4", 2.8, 14.0),
+        ("c3-standard-8", 5.7, 28.0),
+        ("c3-standard-22", 15.6, 77.0),
+        ("c3-standard-44", 31.2, 154.0),
+        ("c3-standard-88", 62.5, 308.0),
+        ("c3-standard-176", 125.0, 616.0),
+        // --- c3d (AMD Genoa, EPYC 9004) ---
+        // SPECpower 2024 Q1 EPYC 9654 + extrapolation, 0.40/2.05 W/vCPU
+        ("c3d-standard-4", 1.6, 8.2),
+        ("c3d-standard-8", 3.2, 16.4),
+        ("c3d-standard-16", 6.4, 32.8),
+        ("c3d-standard-30", 12.0, 61.5),
+        ("c3d-standard-60", 24.0, 123.0),
+        ("c3d-standard-180", 72.0, 369.0),
+        // --- c4 (Emerald Rapids, Xeon Platinum 8592+) ---
+        // SPECpower 2024 Q1-Q2, n=18 Platinum 8592+/8581V, 0.55/3.20 W/vCPU
+        ("c4-standard-2", 1.1, 6.4),
+        ("c4-standard-4", 2.2, 12.8),
+        ("c4-standard-8", 4.4, 25.6),
+        ("c4-standard-16", 8.8, 51.2),
+        ("c4-standard-32", 17.6, 102.4),
+        ("c4-standard-96", 52.8, 307.2),
+        // --- c4d (AMD Turin, EPYC 9005 Zen 5) ---
+        // SPECpower 2024 Q4-2026 Q2, n=9 EPYC 9655/9755, 0.32/1.91 W/vCPU
+        ("c4d-standard-2", 0.6, 3.8),
+        ("c4d-standard-4", 1.3, 7.6),
+        ("c4d-standard-8", 2.6, 15.3),
+        ("c4d-standard-16", 5.1, 30.6),
+        ("c4d-standard-32", 10.2, 61.1),
+        ("c4d-standard-96", 30.7, 183.4),
+        // --- n2d (Genoa-era newer, EPYC 9004) ---
+        ("n2d-standard-2", 0.8, 4.1),
+        ("n2d-standard-4", 1.6, 8.2),
+        ("n2d-standard-8", 3.2, 16.4),
+        ("n2d-standard-16", 6.4, 32.8),
+        ("n2d-standard-32", 12.8, 65.6),
+        ("n2d-standard-64", 25.6, 131.2),
+        // --- t2a (Ampere Altra, Neoverse N1) ---
+        // SPECpower 2024 Q1, n=1 Altra Q80-30, 0.67/1.75 W/vCPU
+        ("t2a-standard-1", 0.7, 1.8),
+        ("t2a-standard-2", 1.3, 3.5),
+        ("t2a-standard-4", 2.7, 7.0),
+        ("t2a-standard-8", 5.4, 14.0),
+        ("t2a-standard-16", 10.7, 28.0),
+        ("t2a-standard-32", 21.4, 56.0),
         // ================================================================
         // Azure instances (vCPU * per_vCPU_coefficient from CCF)
         // ================================================================
@@ -253,6 +394,47 @@ static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::n
         ("Standard_F48s_v2", 30.7, 190.4),
         ("Standard_F64s_v2", 40.9, 253.9),
         ("Standard_F72s_v2", 46.0, 285.6),
+        // --- Standard_D v6 (Emerald Rapids, Xeon Platinum 8573C) ---
+        // SPECpower 2024 Q1-Q2, n=18 Platinum 8592+/8581V, 0.55/3.20 W/vCPU
+        ("Standard_D2s_v6", 1.1, 6.4),
+        ("Standard_D4s_v6", 2.2, 12.8),
+        ("Standard_D8s_v6", 4.4, 25.6),
+        ("Standard_D16s_v6", 8.8, 51.2),
+        ("Standard_D32s_v6", 17.6, 102.4),
+        ("Standard_D64s_v6", 35.2, 204.8),
+        ("Standard_D96s_v6", 52.8, 307.2),
+        // --- Standard_Dads v6 (AMD Genoa, EPYC 9004) ---
+        // 0.40/2.05 W/vCPU per Genoa coefficient
+        ("Standard_D2ads_v6", 0.8, 4.1),
+        ("Standard_D4ads_v6", 1.6, 8.2),
+        ("Standard_D8ads_v6", 3.2, 16.4),
+        ("Standard_D16ads_v6", 6.4, 32.8),
+        ("Standard_D32ads_v6", 12.8, 65.6),
+        ("Standard_D64ads_v6", 25.6, 131.2),
+        ("Standard_D96ads_v6", 38.4, 196.8),
+        // --- Standard_Dps v6 (Microsoft Cobalt 100, Neoverse N2 ARM) ---
+        // N2 sits between Altra N1 (0.67/1.75) and Graviton 3 V1 (0.53/2.63).
+        // Midpoint blend = 0.60/2.20 W/vCPU pending direct Cobalt SPECpower data.
+        ("Standard_D2ps_v6", 1.2, 4.4),
+        ("Standard_D4ps_v6", 2.4, 8.8),
+        ("Standard_D8ps_v6", 4.8, 17.6),
+        ("Standard_D16ps_v6", 9.6, 35.2),
+        ("Standard_D32ps_v6", 19.2, 70.4),
+        ("Standard_D64ps_v6", 38.4, 140.8),
+        ("Standard_D96ps_v6", 57.6, 211.2),
+        // --- Standard_E v6 (Emerald Rapids, memory-optimized) ---
+        // Same coefficient as Dv6 by Azure convention (no memory premium applied)
+        ("Standard_E2s_v6", 1.1, 6.4),
+        ("Standard_E4s_v6", 2.2, 12.8),
+        ("Standard_E8s_v6", 4.4, 25.6),
+        ("Standard_E16s_v6", 8.8, 51.2),
+        ("Standard_E32s_v6", 17.6, 102.4),
+        ("Standard_E64s_v6", 35.2, 204.8),
+        ("Standard_E96s_v6", 52.8, 307.2),
+        // --- xeon-6780e (Sierra Forest 144 E-core, 1-chip system level) ---
+        // ASSUMES FULL CHIP OWNERSHIP. For partial-vCPU bare-metal,
+        // override via [green.cloud.services.X] idle_watts/max_watts.
+        ("xeon-6780e", 100.0, 420.0),
     ];
     let mut m = HashMap::with_capacity(entries.len());
     for &(name, idle, max) in entries {
@@ -268,9 +450,14 @@ static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::n
 /// each provider's most common general-purpose 2-vCPU instances.
 static PROVIDER_DEFAULTS: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::new(|| {
     let mut m = HashMap::with_capacity(4);
-    m.insert("aws", (2.0, 20.0)); // m5.large (Cascade Lake, 2 vCPU)
-    m.insert("gcp", (1.3, 7.3)); // n2-standard-2 (Cascade Lake, 2 vCPU)
-    m.insert("azure", (1.3, 7.9)); // Standard_D2s_v4 (Cascade Lake, 2 vCPU)
+    // AWS default kept on legacy m5.large to preserve waste-signal continuity:
+    // bumping to m7i would silently drop reported energy ~3x for unconfigured
+    // services due to the methodology shift (legacy CCF baseboard vs modern
+    // per-vCPU). Users wanting a modern default should set default_instance_type
+    // explicitly. Azure bump is methodology-homogeneous (v4/v6 both per-vCPU).
+    m.insert("aws", (2.0, 20.0)); // m5.large (Cascade Lake, CCF baseboard)
+    m.insert("gcp", (1.3, 7.3)); // n2-standard-2 (Cascade Lake)
+    m.insert("azure", (1.1, 6.4)); // Standard_D2s_v6 (Emerald Rapids)
     m.insert("generic", (3.0, 20.0)); // Conservative on-prem server estimate
     m
 });
@@ -375,10 +562,41 @@ mod tests {
 
     #[test]
     fn unknown_instance_falls_back_to_provider_default() {
-        let (idle, max) = lookup_instance_power("m7i.large", "aws");
-        // Should be the AWS provider default (m5.large values).
+        let (idle, max) = lookup_instance_power("m999.future", "aws");
+        // AWS default kept on m5.large to preserve waste-signal continuity.
         assert!((idle - 2.0).abs() < 0.01);
         assert!((max - 20.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn modern_architecture_keys_present() {
+        for key in [
+            "m7i.large",
+            "c7a.large",
+            "m6a.xlarge",
+            "c7g.large",
+            "m8g.large",
+            "c4-standard-4",
+            "c4d-standard-8",
+            "t2a-standard-2",
+            "Standard_D2s_v6",
+            "Standard_D2ps_v6",
+            "xeon-6780e",
+        ] {
+            assert!(is_known_instance_type(key), "missing modern entry: {key}");
+        }
+    }
+
+    #[test]
+    fn sierra_forest_entries_are_chip_level_not_vcpu_level() {
+        // Sierra Forest entries are 1-chip system-level watts, not vCPU-scaled.
+        // A vCPU-scaled value would never exceed ~6 W idle for a 144-thread
+        // entry, so floor at 50 W idle catches accidental rescaling errors.
+        let (idle, _) = lookup_instance_power("xeon-6780e", "generic");
+        assert!(
+            idle >= 50.0,
+            "xeon-6780e must be system-level (>=50W idle), got {idle}"
+        );
     }
 
     #[test]
@@ -495,10 +713,11 @@ mod tests {
 
     #[test]
     fn table_has_expected_entry_count() {
-        // Sanity check: we expect at least 150 entries.
+        // 187 legacy + ~130 modern (2024-2026) + 1 Sierra Forest CPU-named.
+        // Conservative floor: trims survive minor entry pruning during review.
         assert!(
-            INSTANCE_POWER.len() >= 150,
-            "expected >= 150 entries, got {}",
+            INSTANCE_POWER.len() >= 300,
+            "expected >= 300 entries, got {}",
             INSTANCE_POWER.len()
         );
     }

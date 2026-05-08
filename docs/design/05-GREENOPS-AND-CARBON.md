@@ -417,7 +417,7 @@ For cloud VMs (AWS, GCP, Azure) that do not expose Intel RAPL to guests, perf-se
 **Architecture.** The `cloud_energy/` directory contains:
 
 - `config.rs`: `CloudEnergyConfig` and per-service `ServiceCloudConfig` (provider, region, instance_type, optional idle/max watts overrides).
-- `table.rs`: embedded SPECpower lookup table with idle and max watt values for ~60 common instance types across AWS (c5, m5, r5, t3 families), GCP (n2, e2, c2 families) and Azure (D, E, F series). Data sourced from Cloud Carbon Footprint.
+- `table.rs`: embedded SPECpower lookup table with idle and max watt values for ~320 instance types. Two data vintages mixed: legacy entries (Cascade Lake, Skylake, Ice Lake, EPYC 1st-3rd Gen, ~190 instances) come from the Cloud Carbon Footprint coefficients project (snapshot 2023-05-01); modern entries (Sapphire Rapids, Emerald Rapids, Granite Rapids, Genoa, Milan, Turin, Graviton 3/4, Cobalt 100, Sierra Forest, ~130 instances) are derived directly from `SPECpower_ssj 2008` quarterly results 2024 Q1 - 2026 Q2 (`avg_watts_at_load / total_threads`, averaged per architecture, multiplied by vCPU count). Modern AWS entries use the per-vCPU method (consistent with GCP/Azure) which reads lower than legacy AWS entries (CCF baseboard-inclus). Graviton 3/4 are bounded by Ampere Altra (Neoverse N1, floor) and Sapphire Rapids minus 25% (AWS public claim, upper bound). See `docs/LIMITATIONS.md`.
 - `scraper.rs`: Prometheus JSON API scraper. Queries `avg(rate(cpu_metric[interval]))` per service, fetches JSON from the Prometheus endpoint.
 - `state.rs`: `CloudEnergyState` backed by `ArcSwap` for lock-free reads from the scoring path.
 - `mod.rs`: re-exports and module documentation.
@@ -447,12 +447,12 @@ cpu_metric = "node_cpu_seconds_total"
 [green.cloud.services.api-us]
 provider = "aws"
 region = "us-east-1"
-instance_type = "c5.4xlarge"
+instance_type = "m7i.4xlarge"  # Sapphire Rapids, modern entry
 
 [green.cloud.services.api-eu]
 provider = "gcp"
 region = "europe-west1"
-instance_type = "n2-standard-8"
+instance_type = "c4d-standard-8"  # AMD Turin (Zen 5), modern entry
 ```
 
 **Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, Scaphandre entries take precedence: if both Scaphandre and cloud energy exist for the same service, the Scaphandre entry wins (it measures real power, the cloud entry interpolates). The top-level model tag reflects the most precise source: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.

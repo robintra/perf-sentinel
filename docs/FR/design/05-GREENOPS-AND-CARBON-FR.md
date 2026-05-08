@@ -413,7 +413,7 @@ Pour les VMs cloud (AWS, GCP, Azure) qui n'exposent pas Intel RAPL aux guests, p
 **Architecture.** Le répertoire `cloud_energy/` contient :
 
 - `config.rs` : `CloudEnergyConfig` et `ServiceCloudConfig` par service (provider, région, instance_type, overrides optionnels idle/max watts).
-- `table.rs` : table de lookup SPECpower embarquée avec les valeurs idle et max watts pour ~60 types d'instances courants AWS (familles c5, m5, r5, t3), GCP (familles n2, e2, c2) et Azure (séries D, E, F). Données provenant de Cloud Carbon Footprint.
+- `table.rs` : table de lookup SPECpower embarquée avec les valeurs idle et max watts pour ~320 types d'instances. Deux millésimes mélangés : entrées legacy (Cascade Lake, Skylake, Ice Lake, EPYC 1ère-3ème Gen, ~190 instances) issues du projet Cloud Carbon Footprint coefficients (snapshot 2023-05-01), entrées modernes (Sapphire Rapids, Emerald Rapids, Granite Rapids, Genoa, Milan, Turin, Graviton 3/4, Cobalt 100, Sierra Forest, ~130 instances) dérivées directement des résultats trimestriels `SPECpower_ssj 2008` 2024 Q1 - 2026 Q2 (`avg_watts_at_load / total_threads`, moyennés par architecture, multipliés par le nombre de vCPU). Les nouvelles entrées AWS utilisent la méthode per-vCPU (cohérent avec GCP/Azure) ce qui donne des valeurs plus basses que les entrées AWS legacy (CCF baseboard inclus). Graviton 3/4 sont bornés par Ampere Altra (Neoverse N1, plancher) et Sapphire Rapids moins 25% (claim AWS public, plafond). Voir `docs/FR/LIMITATIONS-FR.md`.
 - `scraper.rs` : scraper API JSON Prometheus. Interroge `avg(rate(cpu_metric[interval]))` par service.
 - `state.rs` : `CloudEnergyState` supporté par `ArcSwap` pour des lectures sans verrou depuis le chemin de scoring.
 - `mod.rs` : ré-exports et documentation du module.
