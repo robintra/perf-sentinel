@@ -1788,7 +1788,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "daemon")]
     #[test]
     fn live_mode_acks_cap_matches_daemon_constant() {
         // The HTML JS hardcodes `DAEMON_ACKS_CAP = N` as the limit before the
