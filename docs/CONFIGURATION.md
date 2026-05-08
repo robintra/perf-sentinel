@@ -13,7 +13,7 @@ perf-sentinel is configured via a `.perf-sentinel.toml` file. All fields are opt
 - [Sections](#sections): full per-section reference (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, ...).
 - [Minimal configuration](#minimal-configuration): the smallest useful `.perf-sentinel.toml`.
 - [Full configuration example](#full-configuration-example): every section populated with example values.
-- [Legacy flat format](#legacy-flat-format): pre-section format kept for backward compatibility.
+- [Migration from 0.5.x](#migration-from-05x): the 8 legacy top-level keys removed in 0.6.0 and how to migrate.
 - [Environment variables](#environment-variables): which env vars override config-file values.
 
 ## Subcommands
@@ -531,25 +531,11 @@ max_retained_findings = 10000
 # lag_threshold_ms = 2000
 ```
 
-## Legacy flat format
+## Migration from 0.5.x
 
-For backward compatibility, perf-sentinel also accepts a flat (non-sectioned) format:
+Eight legacy top-level keys were deprecated in 0.5.26 and removed in 0.6.0. A 0.5.x config that still uses any of them now fails at load time with a migration message rather than silently falling back to the default. Update to the sectioned form below before upgrading.
 
-```toml
-n_plus_one_threshold = 5
-window_duration_ms = 500
-n_plus_one_sql_critical_max = 0
-n_plus_one_http_warning_max = 3
-io_waste_ratio_max = 0.30
-```
-
-When both formats are present, sectioned values take priority over flat values. The sectioned format is recommended for new configurations.
-
-### Deprecated keys
-
-The following top-level (flat) keys are deprecated. They still resolve correctly for backward compatibility, but emit a `WARN`-level deprecation message at config load when no section override is set. They will be removed in a future release. Migrate to the sectioned form below.
-
-| Deprecated (flat) | Use instead | Section |
+| Removed (top-level) | Use instead | Section |
 |---|---|---|
 | `n_plus_one_threshold` | `n_plus_one_min_occurrences` | `[detection]` |
 | `window_duration_ms` | `window_duration_ms` | `[detection]` |
@@ -560,7 +546,7 @@ The following top-level (flat) keys are deprecated. They still resolve correctly
 | `max_events_per_trace` | `max_events_per_trace` | `[daemon]` |
 | `max_payload_size` | `max_payload_size` | `[daemon]` |
 
-Migration example. Before (deprecated):
+Migration example. Before (0.5.x):
 
 ```toml
 n_plus_one_threshold = 5
@@ -568,7 +554,7 @@ listen_port = 4318
 max_payload_size = 2097152
 ```
 
-After (recommended):
+After (0.6.0+):
 
 ```toml
 [detection]
@@ -579,7 +565,7 @@ listen_port_http = 4318
 max_payload_size = 2097152
 ```
 
-When both forms are present for the same setting, the sectioned form takes precedence and no deprecation warning is emitted for that key.
+Loading a 0.5.x file on 0.6.0 returns a `ConfigError::Validation` whose message names both the removed key and its replacement, so a single tail of the error stream tells you exactly what to edit.
 
 ## Environment variables
 

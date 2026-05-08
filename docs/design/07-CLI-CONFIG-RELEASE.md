@@ -260,37 +260,33 @@ The default daemon URL is `http://localhost:4318`, matching the daemon's default
 
 ## Configuration parsing
 
-### Dual format: sectioned + flat
+### Sectioned format (only format accepted from 0.6.0)
 
-The config supports two formats for backward compatibility:
+The config requires a sectioned form: every tunable lives under
+`[thresholds]`, `[detection]`, `[green]` or `[daemon]`.
 
-**Sectioned (recommended):**
 ```toml
 [detection]
 n_plus_one_min_occurrences = 5
 ```
 
-**Legacy flat:**
-```toml
-n_plus_one_threshold = 5
-```
-
-**Priority:** section value > flat value > default. This is implemented with `Option<T>` fields in the raw section structs:
-
-```rust
-struct DetectionSection {
-    n_plus_one_min_occurrences: Option<u32>,
-    // ...
-}
-```
-
-`serde(default)` produces `None` for absent fields. The `From<RawConfig> for Config` conversion uses `.or()` chains:
+`serde(default)` produces `None` for absent fields. The `From<RawConfig> for Config` conversion is a flat `.unwrap_or(default)` per field:
 
 ```rust
 n_plus_one_threshold: raw.detection.n_plus_one_min_occurrences
-    .or(raw.n_plus_one_threshold)
     .unwrap_or(defaults.n_plus_one_threshold),
 ```
+
+### 0.6.0 breaking change: 8 legacy top-level keys removed
+
+`load_from_str` runs `reject_legacy_top_level_keys` before the typed
+`RawConfig` parse. Eight 0.5.x top-level keys (`n_plus_one_threshold`,
+`window_duration_ms`, `listen_addr`, `listen_port`, `max_active_traces`,
+`trace_ttl_ms`, `max_events_per_trace`, `max_payload_size`) now produce
+a `ConfigError::Validation` whose message names both the removed key
+and its sectioned replacement, so `cargo run --bin perf-sentinel watch`
+on a 0.5.x config fails fast and tells the operator exactly what to
+edit. The full migration table is in `docs/CONFIGURATION.md`.
 
 ### Validation bounds
 

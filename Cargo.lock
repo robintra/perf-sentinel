@@ -1518,7 +1518,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "perf-sentinel"
-version = "0.5.28"
+version = "0.6.0"
 dependencies = [
  "bytes",
  "chrono",
@@ -1542,7 +1542,7 @@ dependencies = [
 
 [[package]]
 name = "perf-sentinel-core"
-version = "0.5.28"
+version = "0.6.0"
 dependencies = [
  "arc-swap",
  "axum",
@@ -1574,7 +1574,6 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "tracing-test",
 ]
 
 [[package]]
@@ -2814,27 +2813,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
-]
-
-[[package]]
-name = "tracing-test"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19a4c448db514d4f24c5ddb9f73f2ee71bfb24c526cf0c570ba142d1119e0051"
-dependencies = [
- "tracing-core",
- "tracing-subscriber",
- "tracing-test-macro",
-]
-
-[[package]]
-name = "tracing-test-macro"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad06847b7afb65c7866a36664b75c40b895e318cea4f71299f013fb22965329d"
-dependencies = [
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
