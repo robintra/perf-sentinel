@@ -14,6 +14,7 @@
 - [`rss_peak_bytes` sous Windows](#rss_peak_bytes-sous-windows) : pourquoi le RSS du bench est null sous Windows.
 - [Échantillonnage en mode daemon](#échantillonnage-en-mode-daemon) : conséquences de `sampling_rate < 1.0`.
 - [Nombre maximum d'événements par trace](#nombre-maximum-dévénements-par-trace) : cap du ring buffer par trace.
+- [Traces longues et éviction TTL en mode daemon](#traces-longues-et-éviction-ttl-en-mode-daemon) : pourquoi les traces à rafales espacées sous-comptent en mode streaming.
 - [Limites de longueur des champs à l'ingestion](#limites-de-longueur-des-champs-à-lingestion) : caps en octets appliqués à la frontière d'ingestion.
 - [Taille du binaire](#taille-du-binaire) : cible de la release et ce qui contribue à la taille.
 - [Dashboard HTML : guard formula-injection CSV](#dashboard-html--guard-formula-injection-csv) : neutralisation OWASP CSV-injection dans les CSVs exportés.
@@ -180,6 +181,20 @@ En mode streaming, chaque trace contient au maximum `max_events_per_trace` évé
 - Un sous-comptage des occurrences dans les findings
 
 Pour les traces avec un très grand nombre d'événements, augmentez `max_events_per_trace` ou investiguer pourquoi une seule trace génère autant d'opérations.
+
+## Traces longues et éviction TTL en mode daemon
+
+La fenêtre de détection en streaming évince une trace lorsqu'elle est restée inactive pendant `trace_ttl_ms` (défaut 30s). « Inactive » signifie qu'aucun span event pour ce `trace_id` n'a été ingéré dans le TTL. Le TTL actif est réinitialisé à chaque ingestion de span, donc une trace qui émet un span toutes les <30s reste vivante indéfiniment.
+
+Mais une trace qui émet des spans creux et espacés (par exemple un job batch long qui émet un span toutes les 60s, ou un websocket en long polling) sera évincée entre les rafales. Un span tardif portant le même `trace_id` qui arrive après l'éviction crée un **nouveau** bucket de trace ; les events précédents sont perdus. Les détections threshold-driven qui s'appuient sur des spans co-localisés dans une même trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) sous-rapportent silencieusement parce que chaque fragment passe sous le seuil per-trace.
+
+Mitigations, par ordre de précision :
+
+- **Augmentez `trace_ttl_ms`** si vous connaissez l'écart maximum attendu entre rafales (`[daemon] trace_ttl_ms = 120000` pour 2 minutes). La mémoire croît avec `max_active_traces`, pas avec le TTL : un TTL plus long ne coûte rien tant que le profil de trafic ne dépasse pas le cap LRU.
+- **Utilisez le mode batch** (`perf-sentinel analyze`) sur un dump de trace capturé pour une investigation hors-ligne. La corrélation batch n'a pas de frontière TTL ; la trace entière est corrélée en une seule passe.
+- **Raccourcissez la trace en amont.** Si une trace est conceptuellement longue parce qu'elle couvre plusieurs actions utilisateur, envisagez de la découper côté application (une trace par requête logique).
+
+C'est une propriété de la fenêtre streaming, pas un bug. La détection temps réel sur un buffer circulaire borné troque toujours durée de trace contre mémoire ; le daemon retient 30s comme défaut adapté aux profils request-response classiques (API HTTP, RPC).
 
 ## Limites de longueur des champs à l'ingestion
 
@@ -550,7 +565,7 @@ Quand le daemon tourne avec `api_enabled = true`, l'API de requêtage expose les
 ## Ingestion Tempo
 
 - **Format protobuf.** La sous-commande `perf-sentinel tempo` demande les traces en protobuf OTLP depuis l'API HTTP de Tempo.
-- **Plafond de concurrence sur le fetch parallèle.** Le flow search-then-fetch (`--service --lookback`) récupère les corps de trace en parallèle via un `tokio::task::JoinSet`, capé à 16 requêtes in-flight par un sémaphore interne. Le cap n'est pas configurable par l'utilisateur aujourd'hui. Timeout par fetch à 30s (vs. 5s pour l'étape search) pour laisser la query-frontend assembler un trace à fort fan-out depuis ingesters + stockage long terme. Sur un Tempo sous-dimensionné avec des fenêtres longues (24h par exemple), certains fetches peuvent malgré tout timeout. Le remède est côté Tempo : scaler `tempo-query-frontend`, ajuster `max_search_duration` et `max_concurrent_queries`.
+- **Plafond de concurrence sur le fetch parallèle.** Le flow search-then-fetch (`--service --lookback`) récupère les corps de trace en parallèle via un `tokio::task::JoinSet`, capé à 16 requêtes in-flight par un sémaphore interne. Le cap n'est pas configurable par l'utilisateur aujourd'hui. Timeout par fetch à 30s (vs. 5s pour l'étape search) pour laisser la query-frontend assembler un trace à fort fanout depuis ingesters + stockage long terme. Sur un Tempo sous-dimensionné avec des fenêtres longues (24h par exemple), certains fetches peuvent malgré tout timeout. Le remède est côté Tempo : scaler `tempo-query-frontend`, ajuster `max_search_duration` et `max_concurrent_queries`.
 - **Ctrl-C préserve les résultats partiels.** Interrompre un fetch parallèle long abort toutes les tasks in-flight et retourne les traces déjà complétées. La CLI renvoie l'erreur dédiée `TempoError::Interrupted` si zéro trace n'a eu le temps de se compléter avant le signal, pour que les quality gates CI distinguent un abort opérateur d'un vrai résultat vide (`NoTracesFound`).
 - **API de recherche.** Le mode recherche utilise l'endpoint `GET /api/search` de Tempo, qui doit être activé dans la configuration Tempo.
 

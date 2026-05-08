@@ -444,7 +444,7 @@ fn cli_analyze_text_shows_severity_breakdown() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        stdout.contains("Found 1 issue(s):"),
+        stdout.contains("Found 1 finding(s):"),
         "header missing, got:\n{stdout}"
     );
     assert!(
