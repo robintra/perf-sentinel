@@ -62,6 +62,10 @@ Un outil, 2 modes, 4 topologies de déploiement :
 
 ![Zoom production : daemon centralisé ingérant via OTel Collector et OTLP direct, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
 
+Plus un angle transversal : GreenOps (estimation énergie et carbone à partir de sources externes temps réel et de données internes en dur, en mode batch ou daemon).
+
+![Intégration GreenOps : sources externes temps réel (Scaphandre en kWh, Electricity Maps en gCO2/kWh) plus sources internes froides (Cloud SPECpower en kWh, carbone embarqué en gCO2e/req via Boavizta + HotCarbon 2024, transport réseau en kWh/GB via Mytton 2024) alimentant perf-sentinel en mode batch ou daemon, émettant énergie et carbone en parallèle des traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
 <details>
 <summary>Vue d'ensemble : comment les quatre environnements s'articulent</summary>
 
