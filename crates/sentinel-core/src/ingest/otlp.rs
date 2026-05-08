@@ -13,7 +13,28 @@ use opentelemetry_proto::tonic::common::v1::{KeyValue, any_value};
 use opentelemetry_proto::tonic::trace::v1::Span;
 
 use crate::event::{EventSource, EventType, SpanEvent};
-use crate::report::metrics::{MetricsState, OtlpRejectReason};
+use crate::report::metrics::OtlpRejectReason;
+
+/// Sink for the rejection counters this module emits.
+///
+/// `ingest::otlp` produced runtime telemetry on every rejection path
+/// (unsupported media type, decode failure, channel full). Before
+/// 0.6.0 these calls reached straight into `report::metrics::MetricsState`,
+/// which leaked the downstream metrics implementation upstream and made
+/// `ingest` impossible to use without paying for the Prometheus registry.
+///
+/// This trait is the abstraction. `MetricsState` implements it (in
+/// `report::metrics`) so daemon callers keep the same wiring; alternative
+/// builds (e.g. a future fork that wants OpenTelemetry metrics, or
+/// tests that want a counting fake) can plug their own sink without
+/// touching `ingest`.
+///
+/// `Send + Sync` are required because the gRPC and HTTP paths share
+/// the sink across tokio tasks via `Arc<dyn MetricsSink>`.
+pub trait MetricsSink: Send + Sync {
+    /// Record one rejected OTLP request, labeled by reason.
+    fn record_otlp_reject(&self, reason: OtlpRejectReason);
+}
 
 // ── Conversion helpers ──────────────────────────────────────────────
 
@@ -522,14 +543,14 @@ fn convert_span(
 /// OTLP gRPC trace service that converts spans and sends them through a channel.
 pub struct OtlpGrpcService {
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
-    metrics: Option<Arc<MetricsState>>,
+    metrics: Option<Arc<dyn MetricsSink>>,
 }
 
 impl OtlpGrpcService {
     #[must_use]
     pub fn new(
         sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
-        metrics: Option<Arc<MetricsState>>,
+        metrics: Option<Arc<dyn MetricsSink>>,
     ) -> Self {
         Self { sender, metrics }
     }
@@ -566,7 +587,7 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
 #[derive(Clone)]
 struct OtlpHttpState {
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
-    metrics: Option<Arc<MetricsState>>,
+    metrics: Option<Arc<dyn MetricsSink>>,
 }
 
 /// Build an axum router for OTLP HTTP ingestion.
@@ -578,7 +599,7 @@ struct OtlpHttpState {
 pub fn otlp_http_router(
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
     max_payload_size: usize,
-    metrics: Option<Arc<MetricsState>>,
+    metrics: Option<Arc<dyn MetricsSink>>,
 ) -> axum::Router {
     use axum::{
         Router,
@@ -658,9 +679,20 @@ pub fn otlp_http_router(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::report::metrics::MetricsState;
     use opentelemetry_proto::tonic::common::v1::AnyValue;
     use opentelemetry_proto::tonic::resource::v1::Resource;
     use opentelemetry_proto::tonic::trace::v1::{ResourceSpans, ScopeSpans};
+
+    /// Build a metrics sink from a fresh `MetricsState`, coerced to the
+    /// trait object the OTLP module expects. Co-locates the
+    /// `Arc<MetricsState>` -> `Arc<dyn MetricsSink>` cast so the four
+    /// HTTP-handler tests below stay readable.
+    fn fresh_metrics_sink() -> (Arc<MetricsState>, Arc<dyn MetricsSink>) {
+        let state = Arc::new(MetricsState::new());
+        let sink: Arc<dyn MetricsSink> = state.clone();
+        (state, sink)
+    }
 
     fn make_kv(key: &str, value: &str) -> KeyValue {
         KeyValue {
@@ -1793,8 +1825,8 @@ mod tests {
         #[tokio::test]
         async fn http_handler_records_unsupported_media_type() {
             let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
-            let metrics = Arc::new(MetricsState::new());
-            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+            let (metrics, sink) = fresh_metrics_sink();
+            let router = otlp_http_router(tx, 1_048_576, Some(sink));
 
             let response = router
                 .oneshot(unsupported_media_type_request())
@@ -1813,8 +1845,8 @@ mod tests {
         #[tokio::test]
         async fn http_handler_records_parse_error() {
             let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(8);
-            let metrics = Arc::new(MetricsState::new());
-            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+            let (metrics, sink) = fresh_metrics_sink();
+            let router = otlp_http_router(tx, 1_048_576, Some(sink));
 
             // Random bytes are extremely unlikely to be a valid OTLP
             // ExportTraceServiceRequest protobuf. prost decode returns
@@ -1843,8 +1875,8 @@ mod tests {
             // counter.
             let (tx, rx) = mpsc::channel::<Vec<SpanEvent>>(1);
             drop(rx);
-            let metrics = Arc::new(MetricsState::new());
-            let router = otlp_http_router(tx, 1_048_576, Some(metrics.clone()));
+            let (metrics, sink) = fresh_metrics_sink();
+            let router = otlp_http_router(tx, 1_048_576, Some(sink));
 
             let body = build_minimal_request_bytes();
             let req = Request::builder()

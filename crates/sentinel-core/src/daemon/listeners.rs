@@ -117,7 +117,8 @@ fn spawn_grpc_listener(
     max_payload: usize,
     metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics));
+    let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics_sink));
     tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         if tls_acceptor.is_some() {
@@ -288,10 +289,11 @@ fn build_http_router(
     toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
+    let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
     let otlp_router = crate::ingest::otlp::otlp_http_router(
         tx,
         config.daemon.max_payload_size,
-        Some(Arc::clone(&metrics)),
+        Some(metrics_sink),
     );
     // Clone the Arc unconditionally so `metrics_route` and the query
     // API state can share it when the API is enabled. When disabled,

@@ -625,13 +625,7 @@ impl MetricsState {
     /// amplify daemon slowdown via metric overhead.
     #[inline]
     pub fn record_otlp_reject(&self, reason: OtlpRejectReason) {
-        match reason {
-            OtlpRejectReason::UnsupportedMediaType => {
-                self.otlp_rejected_unsupported_media_type.inc();
-            }
-            OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
-            OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
-        }
+        <Self as crate::ingest::otlp::MetricsSink>::record_otlp_reject(self, reason);
     }
 
     /// Increment `perf_sentinel_ack_operations_total` for the given
@@ -946,6 +940,26 @@ impl MetricsState {
     #[must_use]
     pub fn content_type(&self) -> &'static str {
         self.negotiate(None).1
+    }
+}
+
+/// Plug `MetricsState` into the upstream `ingest::otlp` sink contract.
+///
+/// The trait is defined in `ingest::otlp` (the only emitter today) so the
+/// upstream module no longer imports the concrete metrics state. The
+/// branchless match below is the same hot-path dispatch the inherent
+/// method used to inline; calling either entry point reaches the cached
+/// `IntCounter` children with no label-hashmap lookup.
+impl crate::ingest::otlp::MetricsSink for MetricsState {
+    #[inline]
+    fn record_otlp_reject(&self, reason: OtlpRejectReason) {
+        match reason {
+            OtlpRejectReason::UnsupportedMediaType => {
+                self.otlp_rejected_unsupported_media_type.inc();
+            }
+            OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
+            OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
+        }
     }
 }
 
