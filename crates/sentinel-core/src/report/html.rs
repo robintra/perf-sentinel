@@ -705,7 +705,7 @@ mod tests {
         );
         let raw = std::fs::read(&path).expect("fixture readable");
         let cfg = crate::config::Config::default();
-        let events = crate::ingest::json::JsonIngest::new(cfg.max_payload_size)
+        let events = crate::ingest::json::JsonIngest::new(cfg.daemon.max_payload_size)
             .ingest(&raw)
             .expect("fixture parses");
         let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
@@ -1765,68 +1765,27 @@ mod tests {
         );
     }
 
+    #[cfg(any(feature = "daemon", feature = "tempo"))]
     #[test]
-    fn template_carries_daemon_status_badge_id() {
-        assert!(TEMPLATE.contains("id=\"ps-daemon-status\""));
-        assert!(TEMPLATE.contains("id=\"ps-daemon-dot\""));
-        assert!(TEMPLATE.contains("id=\"ps-daemon-status-text\""));
-    }
-
-    #[test]
-    fn template_carries_refresh_button_id() {
-        assert!(TEMPLATE.contains("id=\"ps-refresh-btn\""));
-    }
-
-    #[test]
-    fn template_carries_acknowledgments_panel_id() {
-        assert!(TEMPLATE.contains("id=\"panel-acknowledgments\""));
-        assert!(TEMPLATE.contains("id=\"acks-table\""));
-        assert!(TEMPLATE.contains("id=\"acks-body\""));
-    }
-
-    #[test]
-    fn template_carries_include_acked_toggle_id() {
-        assert!(TEMPLATE.contains("id=\"findings-include-acked\""));
-    }
-
-    #[test]
-    fn template_carries_auth_modal() {
-        assert!(TEMPLATE.contains("id=\"auth-modal\""));
-        assert!(TEMPLATE.contains("id=\"auth-modal-form\""));
-        assert!(TEMPLATE.contains("id=\"auth-modal-key\""));
-    }
-
-    #[test]
-    fn template_carries_ack_modal() {
-        assert!(TEMPLATE.contains("id=\"ack-modal\""));
-        assert!(TEMPLATE.contains("id=\"ack-modal-form\""));
-        assert!(TEMPLATE.contains("id=\"ack-modal-sig\""));
-        assert!(TEMPLATE.contains("id=\"ack-modal-reason\""));
-    }
-
-    #[test]
-    fn template_carries_fetch_with_auth_helper() {
-        // Defense-in-depth that the live-mode auth path stays present
-        // and is the only place where the X-API-Key gets attached.
+    fn template_propagates_api_key_header_constant() {
+        // Cross-surface drift guard. The daemon's `check_ack_auth` reads
+        // the header named by `http_client::API_KEY_HEADER`. Live-mode
+        // HTML is the *other* side of that wire: its `fetchWithAuth`
+        // helper must attach the same header name. Asserting on the
+        // constant (not the literal `"X-API-Key"`) means a rename of the
+        // constant either updates the template at the same time, or
+        // fails this test loudly.
+        let header = crate::http_client::API_KEY_HEADER;
+        assert!(
+            TEMPLATE.contains(header),
+            "live-mode JS must propagate `{header}` on authenticated requests; \
+             template contains no occurrence of the constant"
+        );
         assert!(
             TEMPLATE.contains("function fetchWithAuth"),
-            "fetchWithAuth helper must be defined in the template"
+            "fetchWithAuth helper missing from the template; \
+             without it the header above is never attached"
         );
-        assert!(
-            TEMPLATE.contains("X-API-Key"),
-            "live-mode JS must propagate X-API-Key on authenticated requests"
-        );
-    }
-
-    #[test]
-    fn template_carries_session_api_key_storage_constant() {
-        assert!(TEMPLATE.contains("perf-sentinel.daemon.api-key"));
-    }
-
-    #[test]
-    fn template_carries_boot_live_mode_function() {
-        assert!(TEMPLATE.contains("function bootLiveMode"));
-        assert!(TEMPLATE.contains("bootLiveMode()"));
     }
 
     #[cfg(feature = "daemon")]

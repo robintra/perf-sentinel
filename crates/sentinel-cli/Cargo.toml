@@ -29,7 +29,7 @@ tempo = ["perf-sentinel-core/tempo"]
 jaeger-query = ["perf-sentinel-core/jaeger-query"]
 
 [dependencies]
-perf-sentinel-core = { version = "0.5.28", path = "../sentinel-core" }
+perf-sentinel-core = { version = "0.6.0", path = "../sentinel-core" }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_complete = "4.6.3"
 tokio = { version = "1.52.2", features = ["full"] }

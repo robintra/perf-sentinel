@@ -18,7 +18,7 @@ pub fn evaluate(
         .iter()
         .filter(|f| f.finding_type == FindingType::NPlusOneSql && f.severity == Severity::Critical)
         .count();
-    let threshold_sql = config.n_plus_one_sql_critical_max;
+    let threshold_sql = config.thresholds.n_plus_one_sql_critical_max;
     rules.push(QualityRule {
         rule: "n_plus_one_sql_critical_max".to_string(),
         threshold: f64::from(threshold_sql),
@@ -34,7 +34,7 @@ pub fn evaluate(
                 && matches!(f.severity, Severity::Warning | Severity::Critical)
         })
         .count();
-    let threshold_http = config.n_plus_one_http_warning_max;
+    let threshold_http = config.thresholds.n_plus_one_http_warning_max;
     rules.push(QualityRule {
         rule: "n_plus_one_http_warning_max".to_string(),
         threshold: f64::from(threshold_http),
@@ -45,9 +45,9 @@ pub fn evaluate(
     // Rule 3: io_waste_ratio_max
     rules.push(QualityRule {
         rule: "io_waste_ratio_max".to_string(),
-        threshold: config.io_waste_ratio_max,
+        threshold: config.thresholds.io_waste_ratio_max,
         actual: green_summary.io_waste_ratio,
-        passed: green_summary.io_waste_ratio <= config.io_waste_ratio_max,
+        passed: green_summary.io_waste_ratio <= config.thresholds.io_waste_ratio_max,
     });
 
     let passed = rules.iter().all(|r| r.passed);
@@ -113,7 +113,10 @@ mod tests {
     #[test]
     fn warning_http_under_threshold() {
         let config = Config {
-            n_plus_one_http_warning_max: 3,
+            thresholds: crate::config::ThresholdsConfig {
+                n_plus_one_http_warning_max: 3,
+                ..crate::config::ThresholdsConfig::default()
+            },
             ..Config::default()
         };
         let findings = vec![
@@ -134,7 +137,10 @@ mod tests {
     #[test]
     fn warning_http_over_threshold() {
         let config = Config {
-            n_plus_one_http_warning_max: 3,
+            thresholds: crate::config::ThresholdsConfig {
+                n_plus_one_http_warning_max: 3,
+                ..crate::config::ThresholdsConfig::default()
+            },
             ..Config::default()
         };
         let findings = vec![
@@ -175,8 +181,11 @@ mod tests {
     #[test]
     fn custom_thresholds() {
         let config = Config {
-            n_plus_one_sql_critical_max: 5,
-            io_waste_ratio_max: 0.90,
+            thresholds: crate::config::ThresholdsConfig {
+                n_plus_one_sql_critical_max: 5,
+                io_waste_ratio_max: 0.90,
+                ..crate::config::ThresholdsConfig::default()
+            },
             ..Config::default()
         };
         let findings = vec![
@@ -192,7 +201,10 @@ mod tests {
     #[test]
     fn critical_http_counts_as_warning_plus() {
         let config = Config {
-            n_plus_one_http_warning_max: 0,
+            thresholds: crate::config::ThresholdsConfig {
+                n_plus_one_http_warning_max: 0,
+                ..crate::config::ThresholdsConfig::default()
+            },
             ..Config::default()
         };
         let findings = vec![make_finding(FindingType::NPlusOneHttp, Severity::Critical)];

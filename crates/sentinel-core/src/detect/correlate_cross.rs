@@ -13,6 +13,11 @@ use crate::detect::Finding;
 /// Configuration for cross-trace correlation.
 #[derive(Debug, Clone)]
 pub struct CorrelationConfig {
+    /// Whether cross-trace correlation runs at all. When `false`, the
+    /// daemon never builds a `CrossTraceCorrelator` and the other fields
+    /// are irrelevant. Opt-in: keeping it `false` by default preserves
+    /// the pre-0.5 behavior for users who do not wire correlation up.
+    pub enabled: bool,
     /// Rolling window in milliseconds (default 600,000 = 10 min).
     pub window_ms: u64,
     /// Max delay between correlated findings in milliseconds (default 5,000).
@@ -28,6 +33,7 @@ pub struct CorrelationConfig {
 impl Default for CorrelationConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             window_ms: 600_000,
             lag_threshold_ms: 5_000,
             min_co_occurrences: 5,

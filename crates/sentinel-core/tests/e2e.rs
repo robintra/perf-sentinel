@@ -261,7 +261,10 @@ fn slow_finding_has_timestamps_and_green_impact() {
 #[test]
 fn pipeline_with_region_includes_co2_in_report() {
     let config = Config {
-        green_default_region: Some("eu-west-3".to_string()),
+        green: sentinel_core::config::GreenConfig {
+            default_region: Some("eu-west-3".to_string()),
+            ..sentinel_core::config::GreenConfig::default()
+        },
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
@@ -325,7 +328,10 @@ fn pipeline_unknown_region_emits_zero_operational() {
     // a region not in the embedded carbon table (e.g. "mars-1")
     // contributes 0 operational CO₂. Embodied is still emitted.
     let config = Config {
-        green_default_region: Some("mars-1".to_string()),
+        green: sentinel_core::config::GreenConfig {
+            default_region: Some("mars-1".to_string()),
+            ..sentinel_core::config::GreenConfig::default()
+        },
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
@@ -387,7 +393,10 @@ fn full_pipeline_runs_on_slow_fixture() {
 #[test]
 fn co2_serializes_correctly_in_json() {
     let config = Config {
-        green_default_region: Some("eu-west-3".to_string()),
+        green: sentinel_core::config::GreenConfig {
+            default_region: Some("eu-west-3".to_string()),
+            ..sentinel_core::config::GreenConfig::default()
+        },
         ..Config::default()
     };
     let events = load_fixture("n_plus_one_sql.json");
@@ -405,7 +414,10 @@ fn co2_serializes_correctly_in_json() {
 fn co2_absent_from_json_when_green_disabled() {
     // With green disabled, no co2/regions are serialized.
     let config = Config {
-        green_enabled: false,
+        green: sentinel_core::config::GreenConfig {
+            enabled: false,
+            ..sentinel_core::config::GreenConfig::default()
+        },
         ..Config::default()
     };
     let events = load_fixture("clean_traces.json");

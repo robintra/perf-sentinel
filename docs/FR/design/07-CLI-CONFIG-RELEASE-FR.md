@@ -228,37 +228,34 @@ Cela compile le pipeline batch complet (normalize, correlate, detect, score, rep
 
 ## Parsing de la configuration
 
-### Double format : sectionné + plat
+### Format sectionné (seul format accepté à partir de 0.6.0)
 
-La config supporte deux formats pour la rétrocompatibilité :
+La config exige une forme sectionnée : chaque tunable vit sous
+`[thresholds]`, `[detection]`, `[green]` ou `[daemon]`.
 
-**Sectionné (recommandé) :**
 ```toml
 [detection]
 n_plus_one_min_occurrences = 5
 ```
 
-**Legacy plat :**
-```toml
-n_plus_one_threshold = 5
-```
-
-**Priorité :** valeur sectionnée > valeur plate > défaut. Cela est implémenté avec des champs `Option<T>` dans les structs de section brutes :
-
-```rust
-struct DetectionSection {
-    n_plus_one_min_occurrences: Option<u32>,
-    // ...
-}
-```
-
-`serde(default)` produit `None` pour les champs absents. La conversion `From<RawConfig> for Config` utilise des chaînes `.or()` :
+`serde(default)` produit `None` pour les champs absents. La conversion `From<RawConfig> for Config` est un `.unwrap_or(default)` plat par champ :
 
 ```rust
 n_plus_one_threshold: raw.detection.n_plus_one_min_occurrences
-    .or(raw.n_plus_one_threshold)
     .unwrap_or(defaults.n_plus_one_threshold),
 ```
+
+### Breaking change 0.6.0 : 8 clés top-level legacy retirées
+
+`load_from_str` exécute `reject_legacy_top_level_keys` avant le parse
+typé `RawConfig`. Huit clés top-level 0.5.x (`n_plus_one_threshold`,
+`window_duration_ms`, `listen_addr`, `listen_port`, `max_active_traces`,
+`trace_ttl_ms`, `max_events_per_trace`, `max_payload_size`) produisent
+désormais une `ConfigError::Validation` dont le message nomme à la
+fois la clé retirée et son remplacement sectionné, donc
+`cargo run --bin perf-sentinel watch` sur une config 0.5.x échoue
+rapidement et indique à l'opérateur exactement quoi modifier. La
+table de migration complète est dans `docs/CONFIGURATION-FR.md`.
 
 ### Bornes de validation
 

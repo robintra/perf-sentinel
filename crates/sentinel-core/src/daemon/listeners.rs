@@ -50,10 +50,16 @@ pub(super) async fn spawn_listeners(
     ),
     DaemonError,
 > {
-    let grpc_addr: std::net::SocketAddr =
-        format!("{}:{}", config.listen_addr, config.listen_port_grpc).parse()?;
-    let http_addr: std::net::SocketAddr =
-        format!("{}:{}", config.listen_addr, config.listen_port).parse()?;
+    let grpc_addr: std::net::SocketAddr = format!(
+        "{}:{}",
+        config.daemon.listen_addr, config.daemon.listen_port_grpc
+    )
+    .parse()?;
+    let http_addr: std::net::SocketAddr = format!(
+        "{}:{}",
+        config.daemon.listen_addr, config.daemon.listen_port
+    )
+    .parse()?;
 
     let http_listener = tokio::net::TcpListener::bind(http_addr)
         .await
@@ -69,7 +75,7 @@ pub(super) async fn spawn_listeners(
         grpc_addr,
         tls_acceptor.clone(),
         tx.clone(),
-        config.max_payload_size,
+        config.daemon.max_payload_size,
         Arc::clone(&metrics),
     );
     let (toml_acks, ack_store) = init_ack_resources(config).await?;
@@ -93,7 +99,9 @@ pub(super) async fn spawn_listeners(
 /// Load the TLS cert+key pair when both paths are configured. Returns
 /// `Ok(None)` when TLS is disabled.
 fn load_optional_tls(config: &Config) -> Result<Option<tokio_rustls::TlsAcceptor>, DaemonError> {
-    let (Some(cert_path), Some(key_path)) = (&config.tls_cert_path, &config.tls_key_path) else {
+    let (Some(cert_path), Some(key_path)) =
+        (&config.daemon.tls.cert_path, &config.daemon.tls.key_path)
+    else {
         return Ok(None);
     };
     let (cert, key) = load_tls_pem(cert_path, key_path)?;
@@ -109,7 +117,8 @@ fn spawn_grpc_listener(
     max_payload: usize,
     metrics: Arc<MetricsState>,
 ) -> tokio::task::JoinHandle<()> {
-    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics));
+    let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics;
+    let grpc_service = crate::ingest::otlp::OtlpGrpcService::new(tx, Some(metrics_sink));
     tokio::spawn(async move {
         use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceServiceServer;
         if tls_acceptor.is_some() {
@@ -156,7 +165,7 @@ async fn init_ack_resources(
     ),
     DaemonError,
 > {
-    if !config.ack_enabled {
+    if !config.daemon.ack.enabled {
         return Ok((Arc::new(HashMap::new()), None));
     }
     let toml_acks = load_toml_acks(config)?;
@@ -181,8 +190,8 @@ async fn init_ack_resources(
 fn load_toml_acks(
     config: &Config,
 ) -> Result<HashMap<String, query_api::ResolvedTomlAck>, DaemonError> {
-    let configured = config.ack_toml_path.is_some();
-    let toml_path = config.ack_toml_path.as_deref().map_or_else(
+    let configured = config.daemon.ack.toml_path.is_some();
+    let toml_path = config.daemon.ack.toml_path.as_deref().map_or_else(
         || PathBuf::from(".perf-sentinel-acknowledgments.toml"),
         |s| Path::new(s).to_path_buf(),
     );
@@ -240,7 +249,7 @@ fn load_toml_acks(
 /// whether to escalate to a fatal `DaemonError` (operator-supplied
 /// path) or downgrade to a WARN log (default-resolved path).
 async fn init_store(config: &Config) -> Result<Arc<AckStore>, (ack::AckError, Option<String>)> {
-    let (storage_path, configured) = match &config.ack_storage_path {
+    let (storage_path, configured) = match &config.daemon.ack.storage_path {
         Some(p) => (PathBuf::from(p), Some(p.clone())),
         None => match ack::default_storage_path() {
             Ok(p) => (p, None),
@@ -280,10 +289,11 @@ fn build_http_router(
     toml_acks: Arc<HashMap<String, query_api::ResolvedTomlAck>>,
     ack_store: Option<Arc<AckStore>>,
 ) -> axum::Router {
+    let metrics_sink: Arc<dyn crate::ingest::otlp::MetricsSink> = metrics.clone();
     let otlp_router = crate::ingest::otlp::otlp_http_router(
         tx,
-        config.max_payload_size,
-        Some(Arc::clone(&metrics)),
+        config.daemon.max_payload_size,
+        Some(metrics_sink),
     );
     // Clone the Arc unconditionally so `metrics_route` and the query
     // API state can share it when the API is enabled. When disabled,
@@ -292,7 +302,7 @@ fn build_http_router(
     let metrics_router = crate::report::metrics::metrics_route(Arc::clone(&metrics));
     let health_router = super::health::health_route();
     let mut http_router = otlp_router.merge(metrics_router).merge(health_router);
-    if config.daemon_api_enabled {
+    if config.daemon.api_enabled {
         let query_state = Arc::new(query_api::QueryApiState {
             findings_store,
             window,
@@ -301,32 +311,35 @@ fn build_http_router(
             correlator,
             metrics,
             scoring_config: config
-                .green_electricity_maps
+                .green
+                .electricity_maps
                 .as_ref()
                 .map(score::carbon::ScoringConfig::from_electricity_maps),
             green_summary,
             ack_store,
             toml_acks,
-            ack_api_key: config.ack_api_key.clone(),
+            ack_api_key: config.daemon.ack.api_key.clone(),
         });
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.
         let mut query_router = query_api::query_api_router(query_state);
         // CORS `*` plus an X-API-Key auth lets any browser origin
         // replay a captured key; whitelist explicit origins in prod.
-        if config.ack_api_key.is_some() && config.cors_allowed_origins.iter().any(|o| o == "*") {
+        if config.daemon.ack.api_key.is_some()
+            && config.daemon.cors.allowed_origins.iter().any(|o| o == "*")
+        {
             tracing::warn!(
                 "[daemon.cors] wildcard `*` with [daemon.ack] api_key: any browser origin can replay a captured X-API-Key"
             );
         }
-        if let Some(cors) = build_cors_layer(&config.cors_allowed_origins) {
+        if let Some(cors) = build_cors_layer(&config.daemon.cors.allowed_origins) {
             query_router = query_router.layer(cors);
         }
         http_router = http_router.merge(query_router);
     } else {
         // The CORS-vs-API consistency check in `Config::validate`
-        // already rejects `daemon_api_enabled = false +
-        // cors_allowed_origins != []` at config load, so this branch
+        // already rejects `daemon.api_enabled = false +
+        // cors.allowed_origins != []` at config load, so this branch
         // never sees a non-empty CORS list at runtime.
         tracing::info!("Daemon query API disabled by config");
     }
@@ -436,8 +449,8 @@ fn spawn_json_socket_listener(
 ) -> Option<tokio::task::JoinHandle<()>> {
     #[cfg(unix)]
     {
-        let socket_path = config.json_socket.clone();
-        let max_payload = config.max_payload_size;
+        let socket_path = config.daemon.json_socket.clone();
+        let max_payload = config.daemon.max_payload_size;
         Some(tokio::spawn(async move {
             super::json_socket::run_json_socket(&socket_path, tx, max_payload).await;
         }))
@@ -456,12 +469,12 @@ fn spawn_json_socket_listener(
 pub(super) fn setup_correlator(
     config: &Config,
 ) -> Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>> {
-    if !config.correlation_enabled {
+    if !config.daemon.correlation.enabled {
         return None;
     }
     tracing::info!("Cross-trace correlation enabled");
     Some(Arc::new(Mutex::new(
-        detect::correlate_cross::CrossTraceCorrelator::new(config.correlation_config.clone()),
+        detect::correlate_cross::CrossTraceCorrelator::new(config.daemon.correlation.clone()),
     )))
 }
 
@@ -480,7 +493,7 @@ pub(super) fn setup_scaphandre_scraper(
     config: &Config,
     metrics: &Arc<MetricsState>,
 ) -> ScraperSetup<ScaphandreState> {
-    let Some(scaph_cfg) = config.green_scaphandre.clone() else {
+    let Some(scaph_cfg) = config.green.scaphandre.clone() else {
         return ScraperSetup {
             state: None,
             handle: None,
@@ -503,7 +516,7 @@ pub(super) fn setup_cloud_scraper(
     config: &Config,
     metrics: &Arc<MetricsState>,
 ) -> ScraperSetup<CloudEnergyState> {
-    let Some(cloud_cfg) = config.green_cloud_energy.clone() else {
+    let Some(cloud_cfg) = config.green.cloud_energy.clone() else {
         return ScraperSetup {
             state: None,
             handle: None,
@@ -524,7 +537,7 @@ pub(super) fn setup_cloud_scraper(
 /// Spawn the Electricity Maps real-time intensity scraper when
 /// `[green.electricity_maps]` is configured.
 pub(super) fn setup_emaps_scraper(config: &Config) -> ScraperSetup<ElectricityMapsState> {
-    let Some(emaps_cfg) = config.green_electricity_maps.clone() else {
+    let Some(emaps_cfg) = config.green.electricity_maps.clone() else {
         return ScraperSetup {
             state: None,
             handle: None,

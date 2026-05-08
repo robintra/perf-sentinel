@@ -34,7 +34,7 @@ pub fn analyze_with_traces(
     let detect_config = DetectConfig::from(config);
     let findings = detect::run_full_detection(&traces, &detect_config);
 
-    let (mut findings, green_summary, per_endpoint_io_ops) = if config.green_enabled {
+    let (mut findings, green_summary, per_endpoint_io_ops) = if config.green.enabled {
         let carbon_ctx = config.carbon_context();
         score::score_green(&traces, findings, Some(&carbon_ctx))
     } else {
@@ -230,7 +230,10 @@ mod tests {
         let events = make_n_plus_one_events();
 
         let config = Config {
-            green_default_region: Some("eu-west-3".to_string()),
+            green: crate::config::GreenConfig {
+                default_region: Some("eu-west-3".to_string()),
+                ..crate::config::GreenConfig::default()
+            },
             ..Config::default()
         };
         let report = analyze(events, &config);
@@ -265,7 +268,10 @@ mod tests {
         let events = make_n_plus_one_events();
 
         let config = Config {
-            green_enabled: false,
+            green: crate::config::GreenConfig {
+                enabled: false,
+                ..crate::config::GreenConfig::default()
+            },
             ..Config::default()
         };
         let report = analyze(events, &config);
@@ -289,8 +295,11 @@ mod tests {
     #[test]
     fn green_disabled_with_region_still_no_co2() {
         let config = Config {
-            green_enabled: false,
-            green_default_region: Some("eu-west-3".to_string()),
+            green: crate::config::GreenConfig {
+                enabled: false,
+                default_region: Some("eu-west-3".to_string()),
+                ..crate::config::GreenConfig::default()
+            },
             ..Config::default()
         };
         let report = analyze(vec![], &config);
@@ -305,10 +314,13 @@ mod tests {
         let events = make_n_plus_one_events();
         // Even with a production environment in config, batch analyze
         // must stamp CiBatch, confidence is mode-driven, not config-driven,
-        // for `analyze` (the config `daemon_environment` only affects
+        // for `analyze` (the config `daemon.environment` only affects
         // `watch` daemon mode).
         let config = Config {
-            daemon_environment: crate::config::DaemonEnvironment::Production,
+            daemon: crate::config::DaemonConfig {
+                environment: crate::config::DaemonEnvironment::Production,
+                ..crate::config::DaemonConfig::default()
+            },
             ..Config::default()
         };
         let report = analyze(events, &config);
