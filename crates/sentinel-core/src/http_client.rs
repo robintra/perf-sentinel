@@ -8,6 +8,16 @@
 /// Re-export `hyper::Uri` so callers don't need a direct hyper dependency.
 pub use hyper::Uri;
 
+/// Auth header name shared between every surface that emits or consumes
+/// it: the daemon's inbound ack-auth check (`daemon::query_api::check_ack_auth`),
+/// the outbound HTTP client below (Tempo / Electricity Maps / daemon CLI),
+/// and the HTML report's live-mode `fetchWithAuth` helper. Centralized
+/// here because `http_client` is enabled under both the `daemon` and
+/// `tempo` features, so a single source-of-truth covers every build
+/// variant. A drift-guard test in `report::html` asserts the template
+/// references this exact constant.
+pub const API_KEY_HEADER: &str = "X-API-Key";
+
 /// Hyper-util legacy client with TLS support via rustls.
 ///
 /// Supports both `http://` and `https://` endpoints. Built once per
@@ -196,7 +206,7 @@ pub async fn fetch_with_body(
         let mut value = hyper::header::HeaderValue::from_str(key)
             .map_err(|e| FetchError::RequestBuild(e.into()))?;
         value.set_sensitive(true);
-        builder = builder.header("X-API-Key", value);
+        builder = builder.header(API_KEY_HEADER, value);
     }
     let req = builder
         .body(Full::new(body))

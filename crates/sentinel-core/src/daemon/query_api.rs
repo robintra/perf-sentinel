@@ -747,7 +747,7 @@ fn check_ack_auth(headers: &HeaderMap, expected: Option<&str>) -> Result<(), Err
         return Ok(());
     };
     let provided = headers
-        .get("X-API-Key")
+        .get(crate::http_client::API_KEY_HEADER)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
     if provided.as_bytes().ct_eq(expected_key.as_bytes()).into() {
