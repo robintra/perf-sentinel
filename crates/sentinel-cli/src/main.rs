@@ -1738,7 +1738,10 @@ async fn cmd_watch(
     }
     info!(
         "Starting daemon: gRPC={}:{}, HTTP={}:{}",
-        config.daemon.listen_addr, config.daemon.listen_port_grpc, config.daemon.listen_addr, config.daemon.listen_port,
+        config.daemon.listen_addr,
+        config.daemon.listen_port_grpc,
+        config.daemon.listen_addr,
+        config.daemon.listen_port,
     );
     if let Err(e) = sentinel_core::daemon::run(config).await {
         eprintln!("Daemon error: {e}");
@@ -1888,14 +1891,14 @@ fn cmd_pg_stat(
     let config = load_config(config_path);
     let raw = read_events(Some(input), config.daemon.max_payload_size);
 
-    let entries = match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, config.daemon.max_payload_size)
-    {
-        Ok(entries) => entries,
-        Err(e) => {
-            eprintln!("Error parsing pg_stat_statements: {e}");
-            std::process::exit(1);
-        }
-    };
+    let entries =
+        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, config.daemon.max_payload_size) {
+            Ok(entries) => entries,
+            Err(e) => {
+                eprintln!("Error parsing pg_stat_statements: {e}");
+                std::process::exit(1);
+            }
+        };
 
     run_pg_stat_pipeline(entries, top_n, traces, &config, format);
 }
