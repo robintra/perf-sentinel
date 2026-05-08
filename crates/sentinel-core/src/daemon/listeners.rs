@@ -50,10 +50,16 @@ pub(super) async fn spawn_listeners(
     ),
     DaemonError,
 > {
-    let grpc_addr: std::net::SocketAddr =
-        format!("{}:{}", config.daemon.listen_addr, config.daemon.listen_port_grpc).parse()?;
-    let http_addr: std::net::SocketAddr =
-        format!("{}:{}", config.daemon.listen_addr, config.daemon.listen_port).parse()?;
+    let grpc_addr: std::net::SocketAddr = format!(
+        "{}:{}",
+        config.daemon.listen_addr, config.daemon.listen_port_grpc
+    )
+    .parse()?;
+    let http_addr: std::net::SocketAddr = format!(
+        "{}:{}",
+        config.daemon.listen_addr, config.daemon.listen_port
+    )
+    .parse()?;
 
     let http_listener = tokio::net::TcpListener::bind(http_addr)
         .await
@@ -93,7 +99,9 @@ pub(super) async fn spawn_listeners(
 /// Load the TLS cert+key pair when both paths are configured. Returns
 /// `Ok(None)` when TLS is disabled.
 fn load_optional_tls(config: &Config) -> Result<Option<tokio_rustls::TlsAcceptor>, DaemonError> {
-    let (Some(cert_path), Some(key_path)) = (&config.daemon.tls.cert_path, &config.daemon.tls.key_path) else {
+    let (Some(cert_path), Some(key_path)) =
+        (&config.daemon.tls.cert_path, &config.daemon.tls.key_path)
+    else {
         return Ok(None);
     };
     let (cert, key) = load_tls_pem(cert_path, key_path)?;
@@ -301,7 +309,8 @@ fn build_http_router(
             correlator,
             metrics,
             scoring_config: config
-                .green.electricity_maps
+                .green
+                .electricity_maps
                 .as_ref()
                 .map(score::carbon::ScoringConfig::from_electricity_maps),
             green_summary,
@@ -314,7 +323,9 @@ fn build_http_router(
         let mut query_router = query_api::query_api_router(query_state);
         // CORS `*` plus an X-API-Key auth lets any browser origin
         // replay a captured key; whitelist explicit origins in prod.
-        if config.daemon.ack.api_key.is_some() && config.daemon.cors.allowed_origins.iter().any(|o| o == "*") {
+        if config.daemon.ack.api_key.is_some()
+            && config.daemon.cors.allowed_origins.iter().any(|o| o == "*")
+        {
             tracing::warn!(
                 "[daemon.cors] wildcard `*` with [daemon.ack] api_key: any browser origin can replay a captured X-API-Key"
             );

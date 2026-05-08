@@ -272,8 +272,7 @@ impl Default for GreenConfig {
             cloud_energy: None,
             per_operation_coefficients: true,
             include_network_transport: false,
-            network_energy_per_byte_kwh:
-                crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
+            network_energy_per_byte_kwh: crate::score::carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH,
             hourly_profiles_file: None,
             custom_hourly_profiles: None,
             calibration_file: None,
@@ -722,54 +721,113 @@ impl From<RawConfig> for Config {
         let ack_defaults = DaemonAckConfig::default();
 
         Self {
-            // Thresholds
-            n_plus_one_sql_critical_max: raw
-                .thresholds
-                .n_plus_one_sql_critical_max
-                .unwrap_or(defaults.n_plus_one_sql_critical_max),
-            n_plus_one_http_warning_max: raw
-                .thresholds
-                .n_plus_one_http_warning_max
-                .unwrap_or(defaults.n_plus_one_http_warning_max),
-            io_waste_ratio_max: raw
-                .thresholds
-                .io_waste_ratio_max
-                .unwrap_or(defaults.io_waste_ratio_max),
-
-            // Detection
-            n_plus_one_threshold: raw
-                .detection
-                .n_plus_one_min_occurrences
-                .unwrap_or(defaults.n_plus_one_threshold),
-            window_duration_ms: raw
-                .detection
-                .window_duration_ms
-                .unwrap_or(defaults.window_duration_ms),
-            slow_query_threshold_ms: raw
-                .detection
-                .slow_query_threshold_ms
-                .unwrap_or(defaults.slow_query_threshold_ms),
-            slow_query_min_occurrences: raw
-                .detection
-                .slow_query_min_occurrences
-                .unwrap_or(defaults.slow_query_min_occurrences),
-            max_fanout: raw.detection.max_fanout.unwrap_or(defaults.max_fanout),
-            chatty_service_min_calls: raw
-                .detection
-                .chatty_service_min_calls
-                .unwrap_or(defaults.chatty_service_min_calls),
-            pool_saturation_concurrent_threshold: raw
-                .detection
-                .pool_saturation_concurrent_threshold
-                .unwrap_or(defaults.pool_saturation_concurrent_threshold),
-            serialized_min_sequential: raw
-                .detection
-                .serialized_min_sequential
-                .unwrap_or(defaults.serialized_min_sequential),
-            sanitizer_aware_classification:
-                crate::detect::sanitizer_aware::SanitizerAwareMode::from_config(
-                    raw.detection.sanitizer_aware_classification.as_deref(),
-                ),
+            thresholds: ThresholdsConfig {
+                n_plus_one_sql_critical_max: raw
+                    .thresholds
+                    .n_plus_one_sql_critical_max
+                    .unwrap_or(thresholds_defaults.n_plus_one_sql_critical_max),
+                n_plus_one_http_warning_max: raw
+                    .thresholds
+                    .n_plus_one_http_warning_max
+                    .unwrap_or(thresholds_defaults.n_plus_one_http_warning_max),
+                io_waste_ratio_max: raw
+                    .thresholds
+                    .io_waste_ratio_max
+                    .unwrap_or(thresholds_defaults.io_waste_ratio_max),
+            },
+            detection: DetectionConfig {
+                n_plus_one_threshold: raw
+                    .detection
+                    .n_plus_one_min_occurrences
+                    .unwrap_or(detection_defaults.n_plus_one_threshold),
+                window_duration_ms: raw
+                    .detection
+                    .window_duration_ms
+                    .unwrap_or(detection_defaults.window_duration_ms),
+                slow_query_threshold_ms: raw
+                    .detection
+                    .slow_query_threshold_ms
+                    .unwrap_or(detection_defaults.slow_query_threshold_ms),
+                slow_query_min_occurrences: raw
+                    .detection
+                    .slow_query_min_occurrences
+                    .unwrap_or(detection_defaults.slow_query_min_occurrences),
+                max_fanout: raw
+                    .detection
+                    .max_fanout
+                    .unwrap_or(detection_defaults.max_fanout),
+                chatty_service_min_calls: raw
+                    .detection
+                    .chatty_service_min_calls
+                    .unwrap_or(detection_defaults.chatty_service_min_calls),
+                pool_saturation_concurrent_threshold: raw
+                    .detection
+                    .pool_saturation_concurrent_threshold
+                    .unwrap_or(detection_defaults.pool_saturation_concurrent_threshold),
+                serialized_min_sequential: raw
+                    .detection
+                    .serialized_min_sequential
+                    .unwrap_or(detection_defaults.serialized_min_sequential),
+                sanitizer_aware_classification:
+                    crate::detect::sanitizer_aware::SanitizerAwareMode::from_config(
+                        raw.detection.sanitizer_aware_classification.as_deref(),
+                    ),
+            },
+            green: GreenConfig {
+                enabled: raw.green.enabled.unwrap_or(green_defaults.enabled),
+                default_region: raw.green.default_region,
+                // Lowercase service_regions keys so resolve_region's
+                // lowercase lookup matches regardless of config casing.
+                service_regions: raw
+                    .green
+                    .service_regions
+                    .into_iter()
+                    .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                    .collect(),
+                embodied_carbon_per_request_gco2: raw
+                    .green
+                    .embodied_carbon_per_request_gco2
+                    .unwrap_or(green_defaults.embodied_carbon_per_request_gco2),
+                use_hourly_profiles: raw
+                    .green
+                    .use_hourly_profiles
+                    .unwrap_or(green_defaults.use_hourly_profiles),
+                scaphandre: convert_scaphandre_section(&raw.green.scaphandre),
+                cloud_energy: convert_cloud_section(&raw.green.cloud),
+                per_operation_coefficients: raw
+                    .green
+                    .per_operation_coefficients
+                    .unwrap_or(green_defaults.per_operation_coefficients),
+                include_network_transport: raw
+                    .green
+                    .include_network_transport
+                    .unwrap_or(green_defaults.include_network_transport),
+                network_energy_per_byte_kwh: raw
+                    .green
+                    .network_energy_per_byte_kwh
+                    .unwrap_or(green_defaults.network_energy_per_byte_kwh),
+                hourly_profiles_file: raw.green.hourly_profiles_file.clone(),
+                custom_hourly_profiles: raw.green.hourly_profiles_file.as_ref().and_then(|path| {
+                    if has_control_char(path) {
+                        tracing::warn!(
+                            "hourly_profiles_file path contains control characters, skipping"
+                        );
+                        return None;
+                    }
+                    let p = std::path::Path::new(path);
+                    match crate::score::carbon::load_custom_profiles(p) {
+                        Ok(profiles) => Some(std::sync::Arc::new(profiles)),
+                        Err(e) => {
+                            // Not logged at warn: validate_green() will
+                            // surface a hard error for this case.
+                            tracing::debug!(
+                                error = %e,
+                                "Custom hourly profiles failed to load"
+                            );
+                            None
+                        }
+                    }
+                }),
                 calibration_file: raw.green.calibration_file.clone(),
                 calibration: raw.green.calibration_file.as_ref().and_then(|path| {
                     if has_control_char(path) {
@@ -860,9 +918,9 @@ impl From<RawConfig> for Config {
                     let c = &raw.daemon.correlation;
                     crate::detect::correlate_cross::CorrelationConfig {
                         enabled: c.enabled.unwrap_or(correlation_defaults.enabled),
-                        window_ms: c.window_minutes.map_or(correlation_defaults.window_ms, |m| {
-                            m.saturating_mul(60_000)
-                        }),
+                        window_ms: c
+                            .window_minutes
+                            .map_or(correlation_defaults.window_ms, |m| m.saturating_mul(60_000)),
                         lag_threshold_ms: c
                             .lag_threshold_ms
                             .unwrap_or(correlation_defaults.lag_threshold_ms),
@@ -876,46 +934,7 @@ impl From<RawConfig> for Config {
                             .max_tracked_pairs
                             .unwrap_or(correlation_defaults.max_tracked_pairs),
                     }
-                }
-            }),
-            green_electricity_maps: convert_electricity_maps_section(&raw.green.electricity_maps),
-
-            // Daemon
-            listen_addr: raw
-                .daemon
-                .listen_address
-                .unwrap_or(defaults.listen_addr),
-            listen_port: raw
-                .daemon
-                .listen_port_http
-                .unwrap_or(defaults.listen_port),
-            listen_port_grpc: raw
-                .daemon
-                .listen_port_grpc
-                .unwrap_or(defaults.listen_port_grpc),
-            json_socket: raw.daemon.json_socket.unwrap_or(defaults.json_socket),
-            max_active_traces: raw
-                .daemon
-                .max_active_traces
-                .unwrap_or(defaults.max_active_traces),
-            trace_ttl_ms: raw.daemon.trace_ttl_ms.unwrap_or(defaults.trace_ttl_ms),
-            sampling_rate: raw.daemon.sampling_rate.unwrap_or(defaults.sampling_rate),
-            max_events_per_trace: raw
-                .daemon
-                .max_events_per_trace
-                .unwrap_or(defaults.max_events_per_trace),
-            max_payload_size: raw
-                .daemon
-                .max_payload_size
-                .unwrap_or(defaults.max_payload_size),
-            // parse environment into the typed enum. Invalid
-            // strings are rejected later in Config::validate so parse
-            // Fallback to Staging is safe: load_from_str() pre-validates
-            // this field before calling Config::from(). Direct callers
-            // (only tests) get Staging as a safe default.
-            daemon_environment: match raw.daemon.environment.as_deref() {
-                None => defaults.daemon_environment,
-                Some(s) => parse_daemon_environment(s).unwrap_or(DaemonEnvironment::Staging),
+                },
             },
         }
     }
@@ -1833,7 +1852,12 @@ impl Config {
             &1024,
             &(100 * 1024 * 1024),
         )?;
-        check_range("max_active_traces", &self.daemon.max_active_traces, &1, &1_000_000)?;
+        check_range(
+            "max_active_traces",
+            &self.daemon.max_active_traces,
+            &1,
+            &1_000_000,
+        )?;
         check_range(
             "max_events_per_trace",
             &self.daemon.max_events_per_trace,
@@ -1850,7 +1874,12 @@ impl Config {
         )?;
         check_range("trace_ttl_ms", &self.daemon.trace_ttl_ms, &100, &3_600_000)?;
         check_range("listen_port_http", &self.daemon.listen_port, &1, &65535)?;
-        check_range("listen_port_grpc", &self.daemon.listen_port_grpc, &1, &65535)?;
+        check_range(
+            "listen_port_grpc",
+            &self.daemon.listen_port_grpc,
+            &1,
+            &65535,
+        )?;
         self.warn_unusual_daemon_limits();
         Ok(())
     }
@@ -1914,9 +1943,17 @@ impl Config {
     }
 
     fn validate_detection_params(&self) -> Result<(), String> {
-        check_min("n_plus_one_threshold", &self.detection.n_plus_one_threshold, &1)?;
+        check_min(
+            "n_plus_one_threshold",
+            &self.detection.n_plus_one_threshold,
+            &1,
+        )?;
         check_min("window_duration_ms", &self.detection.window_duration_ms, &1)?;
-        check_min("slow_query_threshold_ms", &self.detection.slow_query_threshold_ms, &1)?;
+        check_min(
+            "slow_query_threshold_ms",
+            &self.detection.slow_query_threshold_ms,
+            &1,
+        )?;
         check_min(
             "slow_query_min_occurrences",
             &self.detection.slow_query_min_occurrences,
@@ -1995,7 +2032,10 @@ impl Config {
 /// config that loads on 0.6.x without a clear error is the worst-case
 /// outcome we want to avoid.
 const REMOVED_LEGACY_TOP_LEVEL_KEYS: &[(&str, &str)] = &[
-    ("n_plus_one_threshold", "[detection] n_plus_one_min_occurrences"),
+    (
+        "n_plus_one_threshold",
+        "[detection] n_plus_one_min_occurrences",
+    ),
     ("window_duration_ms", "[detection] window_duration_ms"),
     ("listen_addr", "[daemon] listen_address"),
     ("listen_port", "[daemon] listen_port_http"),
@@ -2116,8 +2156,8 @@ mod tests {
     #[test]
     fn parse_partial_toml() {
         let config = load_from_str("[detection]\nn_plus_one_min_occurrences = 10").unwrap();
-        assert_eq!(config.n_plus_one_threshold, 10);
-        assert_eq!(config.max_payload_size, 16 * 1024 * 1024); // default preserved
+        assert_eq!(config.detection.n_plus_one_threshold, 10);
+        assert_eq!(config.daemon.max_payload_size, 16 * 1024 * 1024); // default preserved
     }
 
     #[test]
@@ -2274,15 +2314,24 @@ max_payload_size = 2097152
     #[test]
     fn empty_config_yields_defaults_after_legacy_removal() {
         let config = load_from_str("").unwrap();
-        let defaults = Config::default();
-        assert_eq!(config.n_plus_one_threshold, defaults.n_plus_one_threshold);
-        assert_eq!(config.window_duration_ms, defaults.window_duration_ms);
-        assert_eq!(config.listen_addr, defaults.listen_addr);
-        assert_eq!(config.listen_port, defaults.listen_port);
-        assert_eq!(config.max_active_traces, defaults.max_active_traces);
-        assert_eq!(config.trace_ttl_ms, defaults.trace_ttl_ms);
-        assert_eq!(config.max_events_per_trace, defaults.max_events_per_trace);
-        assert_eq!(config.max_payload_size, defaults.max_payload_size);
+        let d = Config::default();
+        assert_eq!(
+            config.detection.n_plus_one_threshold,
+            d.detection.n_plus_one_threshold
+        );
+        assert_eq!(
+            config.detection.window_duration_ms,
+            d.detection.window_duration_ms
+        );
+        assert_eq!(config.daemon.listen_addr, d.daemon.listen_addr);
+        assert_eq!(config.daemon.listen_port, d.daemon.listen_port);
+        assert_eq!(config.daemon.max_active_traces, d.daemon.max_active_traces);
+        assert_eq!(config.daemon.trace_ttl_ms, d.daemon.trace_ttl_ms);
+        assert_eq!(
+            config.daemon.max_events_per_trace,
+            d.daemon.max_events_per_trace
+        );
+        assert_eq!(config.daemon.max_payload_size, d.daemon.max_payload_size);
     }
 
     #[test]
@@ -2505,8 +2554,8 @@ n_plus_one_min_occurrences = 12
 window_duration_ms = 800
 ";
         let config = load_from_str(toml).unwrap();
-        assert_eq!(config.n_plus_one_threshold, 12);
-        assert_eq!(config.window_duration_ms, 800);
+        assert_eq!(config.detection.n_plus_one_threshold, 12);
+        assert_eq!(config.detection.window_duration_ms, 800);
     }
 
     #[test]
@@ -2626,14 +2675,16 @@ default_region = "eu-west-3"
         assert_eq!(config.green.service_regions.len(), 2);
         assert_eq!(
             config
-                .green.service_regions
+                .green
+                .service_regions
                 .get("order-svc")
                 .map(String::as_str),
             Some("us-east-1")
         );
         assert_eq!(
             config
-                .green.service_regions
+                .green
+                .service_regions
                 .get("chat-svc")
                 .map(String::as_str),
             Some("ap-southeast-1")
@@ -2806,14 +2857,16 @@ default_region = "eu-west-3"
         // Keys are lowercased regardless of TOML casing.
         assert_eq!(
             config
-                .green.service_regions
+                .green
+                .service_regions
                 .get("order-svc")
                 .map(String::as_str),
             Some("us-east-1")
         );
         assert_eq!(
             config
-                .green.service_regions
+                .green
+                .service_regions
                 .get("chat-svc")
                 .map(String::as_str),
             Some("ap-southeast-1")
@@ -3344,7 +3397,8 @@ endpoint = "http://localhost/metrics"
         .unwrap();
         assert_eq!(
             config
-                .green.scaphandre
+                .green
+                .scaphandre
                 .as_ref()
                 .unwrap()
                 .scrape_interval
@@ -3361,7 +3415,8 @@ endpoint = "http://localhost/metrics"
         .unwrap();
         assert_eq!(
             config
-                .green.scaphandre
+                .green
+                .scaphandre
                 .as_ref()
                 .unwrap()
                 .scrape_interval
@@ -3992,8 +4047,14 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
             key.display()
         );
         let cfg = load_from_str(&toml).unwrap();
-        assert_eq!(cfg.daemon.tls.cert_path.as_deref(), Some(cert.to_str().unwrap()));
-        assert_eq!(cfg.daemon.tls.key_path.as_deref(), Some(key.to_str().unwrap()));
+        assert_eq!(
+            cfg.daemon.tls.cert_path.as_deref(),
+            Some(cert.to_str().unwrap())
+        );
+        assert_eq!(
+            cfg.daemon.tls.key_path.as_deref(),
+            Some(key.to_str().unwrap())
+        );
     }
 
     #[test]
@@ -4047,7 +4108,10 @@ toml_path = \"/etc/perf-sentinel/acknowledgments.toml\"
             cfg.daemon.ack.storage_path.as_deref(),
             Some("/var/lib/perf-sentinel/acks.jsonl")
         );
-        assert_eq!(cfg.daemon.ack.api_key.as_deref(), Some("a-long-enough-secret-key"));
+        assert_eq!(
+            cfg.daemon.ack.api_key.as_deref(),
+            Some("a-long-enough-secret-key")
+        );
         assert_eq!(
             cfg.daemon.ack.toml_path.as_deref(),
             Some("/etc/perf-sentinel/acknowledgments.toml")

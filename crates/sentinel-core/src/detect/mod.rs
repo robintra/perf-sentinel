@@ -379,7 +379,9 @@ impl From<&crate::config::Config> for DetectConfig {
             slow_min_occurrences: config.detection.slow_query_min_occurrences,
             max_fanout: config.detection.max_fanout,
             chatty_service_min_calls: config.detection.chatty_service_min_calls,
-            pool_saturation_concurrent_threshold: config.detection.pool_saturation_concurrent_threshold,
+            pool_saturation_concurrent_threshold: config
+                .detection
+                .pool_saturation_concurrent_threshold,
             serialized_min_sequential: config.detection.serialized_min_sequential,
             sanitizer_aware_classification: config.detection.sanitizer_aware_classification,
         }
