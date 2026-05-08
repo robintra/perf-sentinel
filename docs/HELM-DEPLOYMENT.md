@@ -577,5 +577,5 @@ kubectl --namespace observability delete pvc \
 
 [`examples/helm/`](../examples/helm/) ships two values files composing
 the perf-sentinel chart with the upstream OTel Collector chart for a
-Zipkin + OTLP fan-out topology to Tempo and perf-sentinel. Walk through
+Zipkin + OTLP fanout topology to Tempo and perf-sentinel. Walk through
 the README there for the full install + verification recipe.

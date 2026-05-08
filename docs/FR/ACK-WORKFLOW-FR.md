@@ -224,6 +224,27 @@ instrumentation saine. Des URL instanciées avec des id en dur
 (`/api/orders/42`) signalent que `http.route` est absent et que les
 acks vont churner.
 
+### Les renommages de service invalident les acks
+
+Le composant `<service>` de la signature est l'attribut de ressource
+OpenTelemetry `service.name`. Renommer un service
+(`order-svc` → `orders-svc`) produit une nouvelle signature pour
+chaque finding existant ; tout ack TOML ou daemon associé à l'ancien
+nom cesse de s'appliquer. Les findings réapparaissent dans la sortie
+CLI et les quality gates jusqu'à ce que :
+
+- vous mettiez à jour le champ `signature` de chaque entrée d'ack
+  affectée pour utiliser le nouveau nom de service (TOML), ou
+- vous recréiez les acks côté daemon via `perf-sentinel ack create`
+  contre la nouvelle signature.
+
+Idem pour les changements non cosmétiques de `http.route` (par
+exemple `/api/orders/{id}` → `/api/v2/orders/{id}`) et pour les
+changements sur le template SQL/HTTP construit par le détecteur (une
+refacto qui ajoute une clause `WHERE` change le template normalisé
+et donc le préfixe sha256). Planifiez ces renommages en même temps
+qu'une PR de mise à jour du fichier d'ack.
+
 ### Périmètre du carbon scoring
 
 Le champ `green_impact` sur chaque finding est calculé par détection

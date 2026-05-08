@@ -460,7 +460,7 @@ The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-tr
 
 ## Actionable fixes (framework-aware suggestions)
 
-Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`. The first cut shipped Java/JPA only. The current state covers Java (JPA, WebFlux, Quarkus reactive, Quarkus non-reactive, Helidon SE, Helidon MP), C# (.NET 8 to 10 with EF Core / Pomelo MySQL) and Rust (Diesel, SeaORM), with a generic per-language fallback for HTTP fan-out and request-scoped caching guidance.
+Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`. The first cut shipped Java/JPA only. The current state covers Java (JPA, WebFlux, Quarkus reactive, Quarkus non-reactive, Helidon SE, Helidon MP), C# (.NET 8 to 10 with EF Core / Pomelo MySQL) and Rust (Diesel, SeaORM), with a generic per-language fallback for HTTP fanout and request-scoped caching guidance.
 
 ### The `SuggestedFix` struct
 

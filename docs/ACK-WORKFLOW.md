@@ -23,7 +23,7 @@ Edit the file directly:
 signature = "n_plus_one_sql:order-svc:_api_orders:0123456789abcdef0123456789abcdef"
 acknowledged_by = "team-architecture"
 acknowledged_at = "2026-05-04T13:30:00Z"
-reason = "Intentional fan-out for batch reporting endpoint"
+reason = "Intentional fanout for batch reporting endpoint"
 ```
 
 Commit, open a pull request, get review, merge. The next CI run will
@@ -212,6 +212,26 @@ Templates with placeholders (`/api/orders/{id}`) indicate healthy
 instrumentation. Instantiated URLs with hardcoded ids
 (`/api/orders/42`) indicate `http.route` is missing and acks will
 churn.
+
+### Service renames invalidate acks
+
+The `<service>` component of the signature is the OpenTelemetry
+`service.name` resource attribute. Renaming a service
+(`order-svc` → `orders-svc`) produces a new signature for every
+existing finding, so any TOML or daemon ack matched against the old
+name stops applying. The findings reappear in CLI output and quality
+gates until you either:
+
+- Update the `signature` field of each affected ack entry to use the
+  new service name (TOML), or
+- Re-create the daemon-side acks via `perf-sentinel ack create` against
+  the new signature.
+
+Same applies to non-cosmetic changes to `http.route` (e.g.
+`/api/orders/{id}` → `/api/v2/orders/{id}`) and to changes to the
+SQL/HTTP template that the detector builds (a refactor that adds a
+`WHERE` clause changes the normalized template, hence the
+sha256 prefix). Plan these renames alongside an ack-file refresh PR.
 
 ### Carbon scoring scope
 

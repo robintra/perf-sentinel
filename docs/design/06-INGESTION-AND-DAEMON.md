@@ -335,7 +335,7 @@ The per-trace fetch loop is parallelized via `tokio::task::JoinSet` guarded by a
 
 ### Timeout split
 
-Two dedicated constants instead of a single value: `SEARCH_TIMEOUT = 5s` for `/api/search` (response is a small list of trace IDs, a tight timeout fails fast on a broken endpoint) and `FETCH_TRACE_TIMEOUT = 30s` for `/api/traces/{id}` (trace bodies can legitimately be many MiB on a wide fan-out request and the query-frontend has to gather spans from ingesters + long-term storage). A single 5 s cap was empirically dropping tens of traces per 100-trace batch on long lookback windows; 30 s matches the Grafana Tempo datasource default. Both timeouts are parameters of the shared `fetch_raw` helper rather than a single module-level constant, so search and fetch-trace paths can never drift apart.
+Two dedicated constants instead of a single value: `SEARCH_TIMEOUT = 5s` for `/api/search` (response is a small list of trace IDs, a tight timeout fails fast on a broken endpoint) and `FETCH_TRACE_TIMEOUT = 30s` for `/api/traces/{id}` (trace bodies can legitimately be many MiB on a wide fanout request and the query-frontend has to gather spans from ingesters + long-term storage). A single 5 s cap was empirically dropping tens of traces per 100-trace batch on long lookback windows; 30 s matches the Grafana Tempo datasource default. Both timeouts are parameters of the shared `fetch_raw` helper rather than a single module-level constant, so search and fetch-trace paths can never drift apart.
 
 ### Ctrl-C and error aggregation
 
