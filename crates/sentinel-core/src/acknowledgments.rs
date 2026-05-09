@@ -141,8 +141,21 @@ pub fn enrich_with_signatures(findings: &mut [Finding]) {
 /// - [`AcknowledgmentLoadError::InvalidDate`] when an `expires_at` value is
 ///   not a valid `YYYY-MM-DD` ISO 8601 date.
 pub fn load_from_file(path: &Path) -> Result<AcknowledgmentsFile, AcknowledgmentLoadError> {
-    if !path.exists() {
-        return Ok(AcknowledgmentsFile::default());
+    // Use symlink_metadata so a symlink at the configured path does not
+    // redirect the read to a sensitive file (e.g. a hostile collaborator
+    // landing a symlink to /etc/passwd in a CI runner working tree). The
+    // daemon JSONL store applies the same discipline at write time, this
+    // mirrors it for the read-side baseline.
+    match std::fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                return Err(AcknowledgmentLoadError::SymlinkRefused);
+            }
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(AcknowledgmentsFile::default());
+        }
+        Err(err) => return Err(AcknowledgmentLoadError::Io(err)),
     }
     let file = std::fs::File::open(path).map_err(AcknowledgmentLoadError::Io)?;
     // `take(cap + 1)` closes the TOCTOU window between metadata().len()
@@ -270,6 +283,9 @@ pub enum AcknowledgmentLoadError {
         value: String,
         message: String,
     },
+
+    #[error("Acknowledgments file is a symlink, refusing to follow")]
+    SymlinkRefused,
 }
 
 #[cfg(test)]
