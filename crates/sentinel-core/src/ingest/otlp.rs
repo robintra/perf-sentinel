@@ -96,6 +96,12 @@ fn get_str_attribute<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a str> {
 /// (Spring AOP proxies stay invisible).
 const CODE_ATTRS_MAX_DEPTH: usize = 8;
 
+/// Hard cap on the per-resource span index used for parent lookup and scope
+/// attribution. Bounds memory and avoids quadratic walks on pathological
+/// payloads. Spans beyond the cap lose parent/scope attribution but are still
+/// converted into events.
+const MAX_SPANS_PER_RESOURCE: usize = 100_000;
+
 /// Code-frame attributes read from a single span's attribute set.
 ///
 /// Borrows from the span attributes, so the lifetime is tied to the
@@ -283,7 +289,8 @@ fn walk_parents_for_code_attrs<'a>(
 /// Spans without `db.statement` or `http.url` attributes are skipped.
 /// Parent span lookup is done within the same request; if the parent is not
 /// found, `source.endpoint` defaults to `"unknown"`.
-/// Build a span index for parent lookup within a single resource (capped at 100k spans).
+/// Build a span index for parent lookup within a single resource
+/// (capped at [`MAX_SPANS_PER_RESOURCE`] spans).
 fn build_span_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
 ) -> HashMap<&[u8], &Span> {
@@ -293,9 +300,10 @@ fn build_span_index(
         for span in &scope_spans.spans {
             index.insert(&span.span_id, span);
             count += 1;
-            if count >= 100_000 {
+            if count >= MAX_SPANS_PER_RESOURCE {
                 tracing::warn!(
-                    "OTLP span index capped at 100k entries, parent lookup may be degraded for remaining spans"
+                    "OTLP span index capped at {} entries, parent lookup may be degraded for remaining spans",
+                    MAX_SPANS_PER_RESOURCE
                 );
                 break 'outer;
             }
@@ -305,8 +313,8 @@ fn build_span_index(
 }
 
 /// Build a `span_id -> instrumentation scope name` index alongside the
-/// span index. Same 100k cap as `build_span_index`, entries beyond the
-/// cap simply lose scope attribution.
+/// span index. Same [`MAX_SPANS_PER_RESOURCE`] cap as `build_span_index`,
+/// entries beyond the cap simply lose scope attribution.
 fn build_scope_index(
     resource_spans: &opentelemetry_proto::tonic::trace::v1::ResourceSpans,
 ) -> HashMap<&[u8], &str> {
@@ -320,7 +328,7 @@ fn build_scope_index(
         for span in &scope_spans.spans {
             index.insert(&span.span_id, scope_name);
             count += 1;
-            if count >= 100_000 {
+            if count >= MAX_SPANS_PER_RESOURCE {
                 break 'outer;
             }
         }
