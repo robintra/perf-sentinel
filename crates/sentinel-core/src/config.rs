@@ -1290,6 +1290,20 @@ impl Config {
                     .to_string(),
             );
         }
+        // Reject the wildcard combined with an api_key. The API key is
+        // header-based (not cookie-based) so allow_credentials = false does
+        // not block it, and any browser origin can replay X-API-Key against
+        // the daemon. Wildcard mode is intended for development without
+        // authentication, not as an "open auth" mode.
+        if has_wildcard && self.daemon.ack.api_key.is_some() {
+            return Err(
+                "[daemon.cors] allowed_origins = [\"*\"] is incompatible with \
+                 [daemon.ack] api_key, since X-API-Key is sent on every cross-origin \
+                 request and would be replayable from any browser tab. \
+                 Use an explicit origin list or unset api_key for development"
+                    .to_string(),
+            );
+        }
         for origin in &self.daemon.cors.allowed_origins {
             if origin.is_empty() {
                 return Err(
@@ -4227,6 +4241,22 @@ api_key = \"short-enough\"
         cfg.daemon.cors.allowed_origins = vec!["*".to_string(), "https://example.com".to_string()];
         let err = cfg.validate_daemon_cors().unwrap_err();
         assert!(err.contains("cannot mix"), "{err}");
+    }
+
+    #[test]
+    #[allow(clippy::field_reassign_with_default)]
+    fn validate_daemon_cors_rejects_wildcard_with_api_key() {
+        // X-API-Key is a header (not a cookie), so allow_credentials = false
+        // does not block it, any browser origin can replay it under wildcard
+        // CORS. Reject the combination at config load.
+        let mut cfg = Config::default();
+        cfg.daemon.cors.allowed_origins = vec!["*".to_string()];
+        cfg.daemon.ack.api_key = Some("test-token-12chars".to_string());
+        let err = cfg.validate_daemon_cors().unwrap_err();
+        assert!(
+            err.contains("incompatible with") && err.contains("api_key"),
+            "{err}"
+        );
     }
 
     #[test]
