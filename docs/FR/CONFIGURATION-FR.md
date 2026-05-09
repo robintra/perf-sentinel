@@ -49,17 +49,17 @@ Seuils du quality gate. Le quality gate échoue si une règle est violée.
 
 Paramètres des algorithmes de détection.
 
-| Champ                                  | Type   | Défaut | Description                                                                                                                                                                      |
-|----------------------------------------|--------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `n_plus_one_min_occurrences`           | entier | `5`    | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                                                                                        |
-| `window_duration_ms`                   | entier | `500`  | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1                                                                  |
-| `slow_query_threshold_ms`              | entier | `500`  | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                                                                                        |
-| `slow_query_min_occurrences`           | entier | `3`    | Nombre minimum d'occurrences lentes du même template pour générer un finding                                                                                                     |
-| `max_fanout`                           | entier | `20`   | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)                                                                               |
-| `chatty_service_min_calls`             | entier | `15`   | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil.                                                |
-| `pool_saturation_concurrent_threshold` | entier | `10`   | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans. |
-| `serialized_min_sequential`            | entier | `3`    | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.               |
-| `sanitizer_aware_classification`       | chaîne | `"auto"`| Classification des groupes SQL dont les littéraux ont été remplacés par `?` par le sanitizer d'instruction d'un agent OpenTelemetry. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous.                                                  |
+| Champ                                  | Type   | Défaut   | Description                                                                                                                                                                                                                 |
+|----------------------------------------|--------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `n_plus_one_min_occurrences`           | entier | `5`      | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                                                                                                                                   |
+| `window_duration_ms`                   | entier | `500`    | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1                                                                                                             |
+| `slow_query_threshold_ms`              | entier | `500`    | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                                                                                                                                   |
+| `slow_query_min_occurrences`           | entier | `3`      | Nombre minimum d'occurrences lentes du même template pour générer un finding                                                                                                                                                |
+| `max_fanout`                           | entier | `20`     | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)                                                                                                                          |
+| `chatty_service_min_calls`             | entier | `15`     | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil.                                                                                           |
+| `pool_saturation_concurrent_threshold` | entier | `10`     | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans.                                            |
+| `serialized_min_sequential`            | entier | `3`      | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.                                                          |
+| `sanitizer_aware_classification`       | chaîne | `"auto"` | Classification des groupes SQL dont les littéraux ont été remplacés par `?` par le sanitizer d'instruction d'un agent OpenTelemetry. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous. |
 
 #### `sanitizer_aware_classification`
 
@@ -258,13 +258,13 @@ Familles d'instances modernes couvertes : AWS m7i/c7i/r7i, m7a/c7a, m6a/c6a, m7g
 
 Intensité carbone en temps réel via l'API Electricity Maps. Mode daemon uniquement.
 
-| Champ                | Type    | Défaut                               | Description                                                 |
-|----------------------|---------|--------------------------------------|-------------------------------------------------------------|
-| `api_key`              | string  | aucun                                | Token API. Préférez la variable `PERF_SENTINEL_EMAPS_TOKEN` |
-| `endpoint`             | string  | `https://api.electricitymaps.com/v4` | URL de base (`http://` ou `https://`). v3 reste accepté mais émet un avertissement de dépréciation au démarrage |
-| `poll_interval_secs`   | integer | `300`                                | Intervalle de sondage en secondes (plage : 60-86400)        |
+| Champ                  | Type    | Défaut                               | Description                                                                                                                                                                                                                      |
+|------------------------|---------|--------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `api_key`              | string  | aucun                                | Token API. Préférez la variable `PERF_SENTINEL_EMAPS_TOKEN`                                                                                                                                                                      |
+| `endpoint`             | string  | `https://api.electricitymaps.com/v4` | URL de base (`http://` ou `https://`). v3 reste accepté mais émet un avertissement de dépréciation au démarrage                                                                                                                  |
+| `poll_interval_secs`   | integer | `300`                                | Intervalle de sondage en secondes (plage : 60-86400)                                                                                                                                                                             |
 | `emission_factor_type` | string  | `lifecycle`                          | Modèle de facteur d'émission. `lifecycle` (défaut) inclut les émissions amont (fabrication, transport). `direct` inclut uniquement la combustion. Certains référentiels Scope 2 préfèrent `direct` pour une comptabilité stricte |
-| `temporal_granularity` | string  | `hourly`                             | Agrégation temporelle de la réponse API. `hourly` (défaut), `5_minutes` ou `15_minutes`. Les valeurs sub-horaires nécessitent un plan payant qui les expose, sinon l'API agrège silencieusement en horaire |
+| `temporal_granularity` | string  | `hourly`                             | Agrégation temporelle de la réponse API. `hourly` (défaut), `5_minutes` ou `15_minutes`. Les valeurs sub-horaires nécessitent un plan payant qui les expose, sinon l'API agrège silencieusement en horaire                       |
 
 La sous-table `region_map` associe les régions cloud aux zones Electricity Maps :
 
@@ -329,7 +329,7 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `trace_ttl_ms`          | entier   | `30000`                     | Durée de vie des traces en millisecondes. Les traces plus anciennes sont évincées et analysées. Plage : 100 à 3 600 000                                                                                                                                                                                                                                                      |
 | `sampling_rate`         | flottant | `1.0`                       | Fraction des traces à analyser (0.0 à 1.0). Réduire en dessous de 1.0 pour diminuer la charge dans les environnements à fort trafic                                                                                                                                                                                                                                          |
 | `max_events_per_trace`  | entier   | `1000`                      | Nombre maximum d'événements stockés par trace (buffer circulaire). Les événements les plus anciens sont supprimés en cas de dépassement. Plage : 1 à 100 000                                                                                                                                                                                                                 |
-| `max_payload_size`      | entier   | `16777216`                  | Taille maximale en octets d'un payload JSON unique (défaut : 16 Mio depuis 0.5.13, monté depuis 1 Mio parce qu'un snapshot daemon de `/api/export/report` dépasse déjà 1 Mio sur un cluster modeste). Plage : 1 024 à 104 857 600 (100 Mo). Le défaut sit à la borne supérieure inclusive de la zone de confort par design                                                  |
+| `max_payload_size`      | entier   | `16777216`                  | Taille maximale en octets d'un payload JSON unique (défaut : 16 Mio depuis 0.5.13, monté depuis 1 Mio parce qu'un snapshot daemon de `/api/export/report` dépasse déjà 1 Mio sur un cluster modeste). Plage : 1 024 à 104 857 600 (100 Mo). Le défaut sit à la borne supérieure inclusive de la zone de confort par design                                                   |
 | `environment`           | chaîne   | `"staging"`                 | Label d'environnement de déploiement. Valeurs acceptées : `"staging"` (défaut, confiance moyenne) ou `"production"` (confiance élevée). Tague chaque finding avec le champ `confidence` correspondant pour les consommateurs en aval (perf-lint planifié). Insensible à la casse ; toute autre valeur est rejetée au chargement de la config                                 |
 | `tls_cert_path`         | chaîne   | *(absent)*                  | Chemin vers une chaîne de certificats TLS au format PEM pour les récepteurs OTLP. Quand renseigné avec `tls_key_path`, les listeners gRPC et HTTP utilisent TLS. Quand absent, les listeners utilisent TCP en clair. Chaque listener TLS borne à 128 les handshakes en vol simultanés (non configurable) et coupe les pairs qui ne terminent pas le handshake en 10 secondes |
 | `tls_key_path`          | chaîne   | *(absent)*                  | Chemin vers la clé privée TLS au format PEM. Doit être renseigné avec `tls_cert_path` (les deux ou aucun). Sous Unix, le daemon avertit si le fichier de clé est lisible par le groupe ou les autres                                                                                                                                                                         |
@@ -379,12 +379,12 @@ Store d'acks runtime côté daemon. Complète les acks TOML CI (voir
 `ACKNOWLEDGMENTS-FR.md`) avec un fichier JSONL append-only muté via les
 endpoints HTTP `POST` / `DELETE` `/api/findings/{signature}/ack`.
 
-| Champ          | Type    | Défaut                                                  | Description                                                                                                                                                                          |
-|----------------|---------|----------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `enabled`      | booléen | `true`                                                   | Active les endpoints ack du daemon. Quand `false`, `POST` / `DELETE` / `GET /api/acks` retournent 503 Service Unavailable, et `GET /api/findings` saute le filtre ack                |
-| `storage_path` | chaîne  | `<data_local_dir>/perf-sentinel/acks.jsonl`              | Override pour l'emplacement du fichier JSONL. Résolu au runtime via `dirs::data_local_dir()` (XDG sur Linux, Library/Application Support sur macOS) en absence d'override. Le daemon refuse de démarrer si le défaut ne peut pas être résolu et qu'aucun override n'est défini, on ne fallback pas sur `/tmp` car le fichier contient des données d'audit qui doivent survivre à un reboot |
-| `api_key`      | chaîne  | *(absent)*                                               | Secret optionnel. Quand défini, `POST` et `DELETE` sur `/api/findings/{signature}/ack` exigent que le header `X-API-Key` matche (comparaison constant-time via `subtle`). `GET /api/acks` et `GET /api/findings` restent non authentifiés par design (lectures loopback). Une chaîne vide est rejetée au load de config |
-| `toml_path`    | chaîne  | `".perf-sentinel-acknowledgments.toml"` (relatif à CWD)  | Override pour le fichier TOML d'acks CI que le daemon lit au startup. À régler en chemin absolu pour les déploiements systemd ou container où CWD n'est pas la racine du repo        |
+| Champ          | Type    | Défaut                                                  | Description                                                                                                                                                                                                                                                                                                                                                                                |
+|----------------|---------|---------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `enabled`      | booléen | `true`                                                  | Active les endpoints ack du daemon. Quand `false`, `POST` / `DELETE` / `GET /api/acks` retournent 503 Service Unavailable, et `GET /api/findings` saute le filtre ack                                                                                                                                                                                                                      |
+| `storage_path` | chaîne  | `<data_local_dir>/perf-sentinel/acks.jsonl`             | Override pour l'emplacement du fichier JSONL. Résolu au runtime via `dirs::data_local_dir()` (XDG sur Linux, Library/Application Support sur macOS) en absence d'override. Le daemon refuse de démarrer si le défaut ne peut pas être résolu et qu'aucun override n'est défini, on ne fallback pas sur `/tmp` car le fichier contient des données d'audit qui doivent survivre à un reboot |
+| `api_key`      | chaîne  | *(absent)*                                              | Secret optionnel. Quand défini, `POST` et `DELETE` sur `/api/findings/{signature}/ack` exigent que le header `X-API-Key` matche (comparaison constant-time via `subtle`). `GET /api/acks` et `GET /api/findings` restent non authentifiés par design (lectures loopback). Une chaîne vide est rejetée au load de config                                                                    |
+| `toml_path`    | chaîne  | `".perf-sentinel-acknowledgments.toml"` (relatif à CWD) | Override pour le fichier TOML d'acks CI que le daemon lit au startup. À régler en chemin absolu pour les déploiements systemd ou container où CWD n'est pas la racine du repo                                                                                                                                                                                                              |
 
 ```toml
 [daemon.ack]
@@ -429,9 +429,9 @@ origines auxquelles vous faites confiance pour voir l'ensemble des
 données du daemon.** Mélanger des origines non fiables avec le mode
 wildcard (`["*", "https://x"]`) est rejeté au load de la config.
 
-| Champ             | Type           | Défaut | Description                                                                                                                                                                                                                                                |
-|-------------------|----------------|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `allowed_origins` | array<string>  | `[]`   | Liste des origines autorisées à appeler la surface `/api/*` du daemon. `["*"]` est le mode wildcard (développement uniquement, sans credentials). Une liste non-wildcard whiteliste les origines exactes. Chaque entrée doit être une origine complète (scheme + hôte + port optionnel), sans slash final |
+| Champ             | Type          | Défaut | Description                                                                                                                                                                                                                                                                                               |
+|-------------------|---------------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `allowed_origins` | array<string> | `[]`   | Liste des origines autorisées à appeler la surface `/api/*` du daemon. `["*"]` est le mode wildcard (développement uniquement, sans credentials). Une liste non-wildcard whiteliste les origines exactes. Chaque entrée doit être une origine complète (scheme + hôte + port optionnel), sans slash final |
 
 Exemple wildcard (développement) :
 
@@ -543,16 +543,16 @@ max_retained_findings = 10000
 
 Huit clés top-level legacy ont été dépréciées en 0.5.26 et retirées en 0.6.0. Une configuration 0.5.x qui en utilise encore une échoue désormais au chargement avec un message de migration explicite, plutôt que de retomber silencieusement sur la valeur par défaut. Migrez vers la forme sectionnée ci-dessous avant la mise à jour.
 
-| Retirée (top-level) | Utiliser à la place | Section |
-|---|---|---|
+| Retirée (top-level)    | Utiliser à la place          | Section       |
+|------------------------|------------------------------|---------------|
 | `n_plus_one_threshold` | `n_plus_one_min_occurrences` | `[detection]` |
-| `window_duration_ms` | `window_duration_ms` | `[detection]` |
-| `listen_addr` | `listen_address` | `[daemon]` |
-| `listen_port` | `listen_port_http` | `[daemon]` |
-| `max_active_traces` | `max_active_traces` | `[daemon]` |
-| `trace_ttl_ms` | `trace_ttl_ms` | `[daemon]` |
-| `max_events_per_trace` | `max_events_per_trace` | `[daemon]` |
-| `max_payload_size` | `max_payload_size` | `[daemon]` |
+| `window_duration_ms`   | `window_duration_ms`         | `[detection]` |
+| `listen_addr`          | `listen_address`             | `[daemon]`    |
+| `listen_port`          | `listen_port_http`           | `[daemon]`    |
+| `max_active_traces`    | `max_active_traces`          | `[daemon]`    |
+| `trace_ttl_ms`         | `trace_ttl_ms`               | `[daemon]`    |
+| `max_events_per_trace` | `max_events_per_trace`       | `[daemon]`    |
+| `max_payload_size`     | `max_payload_size`           | `[daemon]`    |
 
 Exemple de migration. Avant (0.5.x) :
 
