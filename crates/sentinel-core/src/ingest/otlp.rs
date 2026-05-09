@@ -710,6 +710,7 @@ mod tests {
             value: Some(AnyValue {
                 value: Some(any_value::Value::StringValue(value.to_string())),
             }),
+            ..Default::default()
         }
     }
 
@@ -719,6 +720,7 @@ mod tests {
             value: Some(AnyValue {
                 value: Some(any_value::Value::IntValue(value)),
             }),
+            ..Default::default()
         }
     }
 
@@ -1081,6 +1083,7 @@ mod tests {
             value: Some(AnyValue {
                 value: Some(any_value::Value::StringValue("http://svc/api".to_string())),
             }),
+            ..Default::default()
         });
         let req = make_request("test", vec![span]);
         let events = convert_otlp_request(&req);
