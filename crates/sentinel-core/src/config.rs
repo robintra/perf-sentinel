@@ -1196,6 +1196,68 @@ pub(crate) fn has_control_char(s: &str) -> bool {
     s.bytes().any(|b| b < 0x20 || b == 0x7F)
 }
 
+/// Validate the wildcard-mode interactions of `[daemon.cors] allowed_origins`.
+///
+/// - `["*"]` mixed with explicit origins is ambiguous and silently degrades to
+///   wildcard mode in `build_cors_layer`. Reject the mix at config load.
+/// - `["*"]` combined with `[daemon.ack] api_key` lets any browser origin
+///   replay a captured `X-API-Key` header (header-based auth, not blocked by
+///   `allow_credentials = false`). Reject the combination.
+fn validate_cors_wildcard_mode(
+    has_wildcard: bool,
+    origin_count: usize,
+    has_api_key: bool,
+) -> Result<(), String> {
+    if has_wildcard && origin_count > 1 {
+        return Err(
+            "[daemon.cors] allowed_origins cannot mix \"*\" with explicit origins, \
+             either use [\"*\"] for wildcard mode or list every origin explicitly"
+                .to_string(),
+        );
+    }
+    if has_wildcard && has_api_key {
+        return Err(
+            "[daemon.cors] allowed_origins = [\"*\"] is incompatible with \
+             [daemon.ack] api_key, since X-API-Key is sent on every cross-origin \
+             request and would be replayable from any browser tab. \
+             Use an explicit origin list or unset api_key for development"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+/// Validate a single `[daemon.cors] allowed_origins` entry: rejects empty
+/// strings, control characters, missing scheme and trailing slashes. The
+/// literal `"*"` is accepted (wildcard-mode interactions live in
+/// [`validate_cors_wildcard_mode`]).
+fn validate_cors_origin(origin: &str) -> Result<(), String> {
+    if origin.is_empty() {
+        return Err(
+            "[daemon.cors] allowed_origins entry is empty, drop it or set a value".to_string(),
+        );
+    }
+    if has_control_char(origin) {
+        return Err(format!(
+            "[daemon.cors] allowed_origins entry '{origin}' contains control characters"
+        ));
+    }
+    if origin == "*" {
+        return Ok(());
+    }
+    if !(origin.starts_with("http://") || origin.starts_with("https://")) {
+        return Err(format!(
+            "[daemon.cors] allowed_origins entry '{origin}' must start with http:// or https:// (or be \"*\" for wildcard mode)"
+        ));
+    }
+    if origin.ends_with('/') {
+        return Err(format!(
+            "[daemon.cors] allowed_origins entry '{origin}' must not end with a trailing slash, an origin is scheme + host + optional port"
+        ));
+    }
+    Ok(())
+}
+
 /// Validate the authority portion of an HTTP(S) URI.
 /// Rejects credentials, empty host, control characters, and invalid port.
 /// Handles IPv6 bracket notation (`[::1]`, `[::1]:8080`).
@@ -1277,58 +1339,14 @@ impl Config {
     }
 
     fn validate_daemon_cors(&self) -> Result<(), String> {
-        // Mixing the wildcard with explicit origins is ambiguous and
-        // silently degrades to wildcard mode in `build_cors_layer`.
-        // Reject the mix here so the operator gets a clear error
-        // instead of a whitelist that looks tighter than it actually
-        // is at runtime.
         let has_wildcard = self.daemon.cors.allowed_origins.iter().any(|o| o == "*");
-        if has_wildcard && self.daemon.cors.allowed_origins.len() > 1 {
-            return Err(
-                "[daemon.cors] allowed_origins cannot mix \"*\" with explicit origins, \
-                 either use [\"*\"] for wildcard mode or list every origin explicitly"
-                    .to_string(),
-            );
-        }
-        // Reject the wildcard combined with an api_key. The API key is
-        // header-based (not cookie-based) so allow_credentials = false does
-        // not block it, and any browser origin can replay X-API-Key against
-        // the daemon. Wildcard mode is intended for development without
-        // authentication, not as an "open auth" mode.
-        if has_wildcard && self.daemon.ack.api_key.is_some() {
-            return Err(
-                "[daemon.cors] allowed_origins = [\"*\"] is incompatible with \
-                 [daemon.ack] api_key, since X-API-Key is sent on every cross-origin \
-                 request and would be replayable from any browser tab. \
-                 Use an explicit origin list or unset api_key for development"
-                    .to_string(),
-            );
-        }
+        validate_cors_wildcard_mode(
+            has_wildcard,
+            self.daemon.cors.allowed_origins.len(),
+            self.daemon.ack.api_key.is_some(),
+        )?;
         for origin in &self.daemon.cors.allowed_origins {
-            if origin.is_empty() {
-                return Err(
-                    "[daemon.cors] allowed_origins entry is empty, drop it or set a value"
-                        .to_string(),
-                );
-            }
-            if has_control_char(origin) {
-                return Err(format!(
-                    "[daemon.cors] allowed_origins entry '{origin}' contains control characters"
-                ));
-            }
-            if origin == "*" {
-                continue;
-            }
-            if !(origin.starts_with("http://") || origin.starts_with("https://")) {
-                return Err(format!(
-                    "[daemon.cors] allowed_origins entry '{origin}' must start with http:// or https:// (or be \"*\" for wildcard mode)"
-                ));
-            }
-            if origin.ends_with('/') {
-                return Err(format!(
-                    "[daemon.cors] allowed_origins entry '{origin}' must not end with a trailing slash, an origin is scheme + host + optional port"
-                ));
-            }
+            validate_cors_origin(origin)?;
         }
         Ok(())
     }
