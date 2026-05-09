@@ -33,14 +33,14 @@ tracing = "0.1.44"
 thiserror = "2.0.18"
 toml = "1.1.2"
 regex = "1.12.3"
-tokio = { version = "1.52.2", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
+tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
 # /metrics router) uses axum+tower and ingest/otlp.rs uses opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
 # gRPC/HTTP listeners only run when the daemon feature is enabled at runtime.
-tonic = "0.14.5"
+tonic = "0.14.6"
 prost = "0.14.3"
-opentelemetry-proto = { version = "0.31.0", features = ["gen-tonic-messages", "trace"] }
+opentelemetry-proto = { version = "0.32.0", features = ["gen-tonic-messages", "trace"] }
 axum = "0.8.9"
 tower = { version = "0.5.3", features = ["timeout"] }
 prometheus = { version = "0.14.0", features = ["process"] }

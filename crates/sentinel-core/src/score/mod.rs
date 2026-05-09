@@ -1810,7 +1810,7 @@ mod tests {
             use_hourly_profiles: true,
             energy_snapshot: None,
             per_operation_coefficients: false,
-            custom_hourly_profiles: Some(std::sync::Arc::new(custom)),
+            custom_hourly_profiles: Some(Arc::new(custom)),
             ..CarbonContext::default()
         };
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
@@ -1845,7 +1845,7 @@ mod tests {
             use_hourly_profiles: true,
             energy_snapshot: None,
             per_operation_coefficients: false,
-            custom_hourly_profiles: Some(std::sync::Arc::new(custom)),
+            custom_hourly_profiles: Some(Arc::new(custom)),
             ..CarbonContext::default()
         };
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
