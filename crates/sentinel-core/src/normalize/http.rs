@@ -31,14 +31,17 @@ fn is_numeric(seg: &str) -> bool {
     !seg.is_empty() && seg.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Count occurrences of `target` in `s`.
+fn bytecount(s: &str, target: u8) -> usize {
+    s.bytes().filter(|&b| b == target).count()
+}
+
 /// Normalize an HTTP target URL.
 ///
 /// Strips scheme+authority, replaces numeric segments with `{id}`,
 /// UUID segments with `{uuid}`, strips query params, and prepends the method.
 #[must_use]
 pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
-    let mut params = Vec::new();
-
     // Strip scheme + authority if present
     let path_and_query = strip_origin(target);
 
@@ -51,12 +54,19 @@ pub fn normalize_http(method: &str, target: &str) -> HttpNormalized {
     // Collect query params as extracted values (capped to prevent unbounded allocation).
     // Each pair is heap-allocated via to_string(). A Cow<str> backed by the source
     // would avoid this, but NormalizedEvent.params is Vec<String> throughout the
-    // pipeline, so the allocation is unavoidable without a larger refactor.
-    if let Some(q) = query_params {
-        for pair in q.split('&').take(100) {
-            params.push(pair.to_string());
+    // pipeline, so the allocation is unavoidable without a larger refactor. Pre-size
+    // the Vec from the ampersand count to avoid the doubling growth on the hot path.
+    let mut params = match query_params {
+        Some(q) => {
+            let cap = (bytecount(q, b'&') + 1).min(100);
+            let mut out = Vec::with_capacity(cap);
+            for pair in q.split('&').take(100) {
+                out.push(pair.to_string());
+            }
+            out
         }
-    }
+        None => Vec::new(),
+    };
 
     let normalized_path = normalize_path_segments(path, &mut params);
 

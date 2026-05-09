@@ -150,8 +150,14 @@ pub fn score_green(
 
     // Dedup avoidable I/O ops by (trace_id, template, source_endpoint), taking max.
     // Slow findings are excluded: slow queries are not "avoidable" I/O, they are
-    // necessary operations that happen to be slow.
-    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(findings.len());
+    // necessary operations that happen to be slow. Capacity is the count of
+    // avoidable findings to avoid over-allocating when many findings are slow
+    // or one of the non-avoidable kinds (fanout, chatty, pool, serialized).
+    let avoidable_capacity = findings
+        .iter()
+        .filter(|f| f.finding_type.is_avoidable_io())
+        .count();
+    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(avoidable_capacity);
     for f in &findings {
         if !f.finding_type.is_avoidable_io() {
             continue;
