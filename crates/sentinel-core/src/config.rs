@@ -775,9 +775,11 @@ impl From<RawConfig> for Config {
             },
             green: GreenConfig {
                 enabled: raw.green.enabled.unwrap_or(green_defaults.enabled),
-                default_region: raw.green.default_region,
-                // Lowercase service_regions keys so resolve_region's
-                // lowercase lookup matches regardless of config casing.
+                // Lowercase default_region and service_regions keys so
+                // resolve_region's lowercase lookup matches regardless of
+                // config casing, without paying the lowercase cost on every
+                // downstream call site.
+                default_region: raw.green.default_region.map(|s| s.to_ascii_lowercase()),
                 service_regions: raw
                     .green
                     .service_regions
