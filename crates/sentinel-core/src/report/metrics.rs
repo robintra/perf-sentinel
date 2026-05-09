@@ -52,7 +52,7 @@ impl OtlpRejectReason {
     ];
 
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::UnsupportedMediaType => "unsupported_media_type",
             Self::ParseError => "parse_error",
@@ -111,7 +111,7 @@ pub enum AckFailureReason {
 impl AckFailureReason {
     /// Stable Prometheus label string for this variant.
     #[must_use]
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::AlreadyAcked => "already_acked",
             Self::NotAcked => "not_acked",
@@ -161,7 +161,7 @@ impl ScaphandreScrapeReason {
     ];
 
     /// Stable Prometheus label string for this variant.
-    pub(crate) fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Unreachable => "unreachable",
             Self::Timeout => "timeout",
@@ -201,13 +201,15 @@ struct ExemplarData {
 /// Sanitize a value for use in an `OpenMetrics` exemplar label.
 ///
 /// Keeps only alphanumeric characters, `-`, and `_`. Truncates to 64 characters.
-/// Prevents injection into the Prometheus text exposition format.
-fn sanitize_exemplar_value(value: &str) -> String {
-    value
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-        .take(64)
-        .collect()
+/// Prevents injection into the Prometheus text exposition format. Trace IDs are
+/// almost always already valid (hex from `bytes_to_hex`), so probe-before-allocate
+/// returns `Cow::Borrowed` on the hot path.
+fn sanitize_exemplar_value(value: &str) -> std::borrow::Cow<'_, str> {
+    let valid = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    if value.len() <= 64 && value.chars().all(valid) {
+        return std::borrow::Cow::Borrowed(value);
+    }
+    std::borrow::Cow::Owned(value.chars().filter(|&c| valid(c)).take(64).collect())
 }
 
 /// Shared metrics state for the daemon.
