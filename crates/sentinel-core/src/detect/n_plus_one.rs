@@ -231,57 +231,13 @@ pub(crate) fn compute_window_ms(timestamps: &[&str]) -> u64 {
     compute_window_and_bounds(timestamps).0
 }
 
-/// Parse an ISO 8601 timestamp to milliseconds since Unix epoch.
-/// Format: `YYYY-MM-DDTHH:MM:SS.mmmZ`
+/// Parse an ISO 8601 UTC timestamp to milliseconds since Unix epoch.
+///
+/// Thin adapter over the canonical [`crate::time::parse_iso8601_utc_to_ms`]
+/// so the detect pipeline keeps its `Option<u64>` shape while the
+/// civil-date arithmetic stays in `time.rs` (single source of truth).
 pub(crate) fn parse_timestamp_ms(ts: &str) -> Option<u64> {
-    let (date_part, time_part) = ts.split_once('T')?;
-    let time_part = time_part.trim_end_matches('Z');
-
-    // Parse date
-    let mut date_parts = date_part.split('-');
-    let year: u64 = date_parts.next()?.parse().ok()?;
-    let month: u64 = date_parts.next()?.parse().ok()?;
-    let day: u64 = date_parts.next()?.parse().ok()?;
-
-    // Parse time
-    let mut colon_parts = time_part.split(':');
-    let hours: u64 = colon_parts.next()?.parse().ok()?;
-    let minutes: u64 = colon_parts.next()?.parse().ok()?;
-    let sec_str = colon_parts.next()?;
-
-    // Seconds may have fractional part
-    let mut dot_parts = sec_str.split('.');
-    let seconds: u64 = dot_parts.next()?.parse().ok()?;
-    let millis: u64 = if let Some(frac) = dot_parts.next() {
-        match frac.len() {
-            0 => 0,
-            1 => frac.parse::<u64>().unwrap_or(0) * 100,
-            2 => frac.parse::<u64>().unwrap_or(0) * 10,
-            _ => frac
-                .get(..3)
-                .and_then(|s| s.parse::<u64>().ok())
-                .unwrap_or(0),
-        }
-    } else {
-        0
-    };
-
-    let days = days_from_civil(year, month, day);
-    let time_ms = hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis;
-    Some(days * 86_400_000 + time_ms)
-}
-
-/// Convert a civil date (year, month, day) to days since Unix epoch (1970-01-01).
-/// Uses the Howard Hinnant algorithm (public domain).
-/// Only valid for dates >= 1970-01-01 (returns `u64`).
-fn days_from_civil(y: u64, m: u64, d: u64) -> u64 {
-    let y = if m <= 2 { y.saturating_sub(1) } else { y };
-    let era = y / 400;
-    let yoe = y - era * 400;
-    let m_adj = if m > 2 { m - 3 } else { m + 9 };
-    let doy = (153 * m_adj + 2) / 5 + d - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    era * 146_097 + doe - 719_468
+    crate::time::parse_iso8601_utc_to_ms(ts).ok()
 }
 
 #[cfg(test)]
