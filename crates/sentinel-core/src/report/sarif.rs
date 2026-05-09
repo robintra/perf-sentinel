@@ -237,15 +237,27 @@ fn build_rules() -> Vec<SarifRule> {
 }
 
 fn finding_to_result(finding: &Finding) -> SarifResult {
+    // Strip BiDi/invisible-format characters from every untrusted string
+    // that flows into the SARIF message and logical locations. A hostile
+    // span can set `service.name` or `http.url` to a value containing the
+    // RLO override (U+202E) which would render mirrored in GitHub/GitLab
+    // code scanning UIs. The signature/ack metadata path already passes
+    // through this sanitizer, this extends the same discipline to the
+    // main result body.
+    let safe_service = strip_bidi_and_invisible(&finding.service);
+    let safe_endpoint = strip_bidi_and_invisible(&finding.source_endpoint);
+    let safe_template = strip_bidi_and_invisible(&finding.pattern.template);
+    let safe_suggestion = strip_bidi_and_invisible(&finding.suggestion);
+
     let message = format!(
         "{} in {} on {}: {} ({} occurrences, {}ms window). {}",
         finding.finding_type.as_str(),
-        finding.service,
-        finding.source_endpoint,
-        finding.pattern.template,
+        safe_service,
+        safe_endpoint,
+        safe_template,
         finding.pattern.occurrences,
         finding.pattern.window_ms,
-        finding.suggestion
+        safe_suggestion,
     );
 
     let signature = (!finding.signature.is_empty()).then(|| finding.signature.clone());
@@ -261,11 +273,11 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
         message: SarifMessage { text: message },
         logical_locations: vec![
             SarifLogicalLocation {
-                name: finding.service.clone(),
+                name: safe_service.into_owned(),
                 kind: "module".to_string(),
             },
             SarifLogicalLocation {
-                name: finding.source_endpoint.clone(),
+                name: safe_endpoint.into_owned(),
                 kind: "function".to_string(),
             },
         ],
