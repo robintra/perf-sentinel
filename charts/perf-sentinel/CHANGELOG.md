@@ -6,6 +6,40 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.33]
+
+### Changed
+
+- `appVersion` bumped to `0.6.1`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.6.1`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.6.1 binary ships an internal-audit-driven hardening pass: CORS
+  `["*"]` combined with `[daemon.ack] api_key` is now rejected at
+  config load (was a startup `WARN`), the CI ack TOML loader
+  refuses to follow symlinks, the SARIF result body strips BiDi
+  and invisible-format characters, and the OTLP gRPC listener
+  caps HTTP/2 stream multiplexing at 256 per connection. Plus
+  hot-path tightening across the detection and scoring stages
+  (single-pass chatty, unstable sort in serialized, pre-sized
+  HTTP query-param vec, right-sized avoidable-finding dedup).
+  Dependency bumps: `opentelemetry-proto` 0.31 to 0.32, `tonic`
+  0.14.5 to 0.14.6, `tokio` 1.52.2 to 1.52.3. No chart-level
+  template change.
+
+## [0.2.32]
+
+### Changed
+
+- `appVersion` bumped to `0.6.0`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.6.0`. The 0.6.0
+  binary removes the eight legacy top-level config keys deprecated
+  in 0.5.26 and restructures the `Config` type around the
+  `[thresholds]`, `[detection]`, `[green]` and `[daemon]`
+  sections. Operators still on the flat form (a startup `WARN`
+  has been firing since 0.5.26) must migrate before upgrade,
+  config load now errors out instead of warning. No chart-level
+  template change.
+
 ## [0.2.31]
 
 ### Changed
