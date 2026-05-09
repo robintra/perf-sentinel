@@ -1,6 +1,7 @@
 //! Chatty service detection: identifies traces with excessive inter-service HTTP calls.
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
 use crate::correlate::Trace;
 use crate::event::EventType;
@@ -13,17 +14,8 @@ use super::{Confidence, Finding, FindingType, Pattern, Severity};
 /// Severity is `Warning` if > `min_calls`, `Critical` if > 3x `min_calls`.
 #[must_use]
 pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
-    // Count-only first pass: sub-threshold traces (the common case) exit
-    // before any heap allocation.
-    let count = trace
-        .spans
-        .iter()
-        .filter(|s| s.event.event_type == EventType::HttpOut)
-        .count();
-    if count <= min_calls as usize {
-        return vec![];
-    }
-
+    // Single-pass collect of HTTP-out indices, then threshold check. The
+    // common sub-threshold case still exits without a sort or HashMap pass.
     let http_indices: Vec<usize> = trace
         .spans
         .iter()
@@ -31,6 +23,10 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         .filter(|(_, s)| s.event.event_type == EventType::HttpOut)
         .map(|(i, _)| i)
         .collect();
+    let count = http_indices.len();
+    if count <= min_calls as usize {
+        return vec![];
+    }
 
     let severity = if count > (min_calls as usize) * 3 {
         Severity::Critical
@@ -60,11 +56,13 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
         entries.sort_unstable_by_key(|b| std::cmp::Reverse(b.1));
         entries
     };
-    let top_str: String = top_two
-        .iter()
-        .map(|(tmpl, cnt)| format!("{tmpl} x{cnt}"))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let mut top_str = String::with_capacity(64);
+    for (i, (tmpl, cnt)) in top_two.iter().enumerate() {
+        if i > 0 {
+            top_str.push_str(", ");
+        }
+        let _ = write!(top_str, "{tmpl} x{cnt}");
+    }
 
     let first = &trace.spans[http_indices[0]];
     let entry_endpoint = first.event.source.endpoint.clone();

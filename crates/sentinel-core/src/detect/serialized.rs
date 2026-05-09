@@ -74,8 +74,9 @@ pub fn detect_serialized(
             continue;
         }
 
-        // Sort by end time for the DP approach.
-        timed.sort_by_key(|s| s.end_ms);
+        // Sort by end time for the DP approach. Order between equal-end-ms
+        // spans is irrelevant downstream so the unstable variant suffices.
+        timed.sort_unstable_by_key(|s| s.end_ms);
 
         // Find the longest non-overlapping subsequence via DP, then
         // pass it to evaluate_sequence for threshold / template checks.
@@ -193,7 +194,7 @@ fn fill_dp_table(pred: &[Option<usize>], n: usize) -> (Vec<usize>, Vec<bool>) {
             included[i] = true;
         } else {
             dp[i] = without;
-            // included[i] remains false
+            included[i] = false;
         }
     }
     (dp, included)
