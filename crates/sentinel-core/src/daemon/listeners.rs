@@ -31,6 +31,12 @@ use super::findings_store;
 use super::query_api;
 use super::tls::{build_tls_acceptor, load_tls_pem, serve_https, tls_tcp_incoming};
 
+/// HTTP/2 stream multiplexing cap for the OTLP gRPC listener. Tonic's
+/// defaults are generous (thousands of concurrent streams); on a non-loopback
+/// bind a misbehaving client must not monopolize the listener. 256 leaves
+/// plenty of headroom for legitimate OTLP exporters batching spans.
+const GRPC_MAX_CONCURRENT_STREAMS: u32 = 256;
+
 /// Assemble the optional TLS acceptor and spawn the gRPC, HTTP (or HTTPS),
 /// and JSON socket listeners. All three handles are returned so the caller
 /// can abort them on Ctrl-C.
@@ -129,6 +135,8 @@ fn spawn_grpc_listener(
         let incoming = tls_tcp_incoming(listener, tls_acceptor);
         if let Err(e) = tonic::transport::Server::builder()
             .timeout(Duration::from_mins(1))
+            .max_concurrent_streams(Some(GRPC_MAX_CONCURRENT_STREAMS))
+            .concurrency_limit_per_connection(GRPC_MAX_CONCURRENT_STREAMS as usize)
             .add_service(
                 TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
             )
