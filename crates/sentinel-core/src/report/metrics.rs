@@ -42,6 +42,15 @@ pub enum OtlpRejectReason {
 }
 
 impl OtlpRejectReason {
+    /// Every variant in declaration order. Fixed-size array so adding a
+    /// variant without bumping the count is a compile-time error,
+    /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
+    pub const ALL: [Self; 3] = [
+        Self::UnsupportedMediaType,
+        Self::ParseError,
+        Self::ChannelFull,
+    ];
+
     #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
@@ -250,13 +259,13 @@ pub struct MetricsState {
     /// an empty envelope), consistent with HTTP access-log conventions.
     pub export_report_requests_total: Counter,
     /// OTLP requests rejected by the daemon, labeled by `reason`.
-    /// Pre-warmed to 0 for the 3 reasons (`unsupported_media_type`,
-    /// `parse_error`, `channel_full`) at startup so dashboards plot
-    /// zero-values before the first rejection. The 3
-    /// `otlp_rejected_*` `IntCounter` fields below cache the labeled
-    /// children so the hot path (`record_otlp_reject`) avoids a label
-    /// hashmap lookup per rejection. Lookup the vec directly only for
-    /// scrape rendering and tests, not in the hot path.
+    /// Pre-warmed to 0 for every variant in [`OtlpRejectReason::ALL`]
+    /// at startup so dashboards plot zero-values before the first
+    /// rejection. The `otlp_rejected_*` `IntCounter` fields below
+    /// cache the labeled children so the hot path
+    /// (`record_otlp_reject`) avoids a label hashmap lookup per
+    /// rejection. Lookup the vec directly only for scrape rendering
+    /// and tests, not in the hot path.
     pub otlp_rejected_total: IntCounterVec,
     /// Cached child for `otlp_rejected_total{reason="unsupported_media_type"}`.
     pub otlp_rejected_unsupported_media_type: IntCounter,
@@ -477,6 +486,14 @@ impl MetricsState {
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ParseError.as_str()]);
         let otlp_rejected_channel_full =
             otlp_rejected_total.with_label_values(&[OtlpRejectReason::ChannelFull.as_str()]);
+        // Belt-and-suspenders pre-warm via the exhaustive `ALL`
+        // constant. Idempotent with the named handles above (same
+        // children) but shifts the guarantee: a future variant added
+        // to the enum forces a compile error on `[Self; 3]` until
+        // `ALL` is updated, so pre-warming cannot silently drift.
+        for reason in &OtlpRejectReason::ALL {
+            let _ = otlp_rejected_total.with_label_values(&[reason.as_str()]);
+        }
 
         #[cfg(feature = "daemon")]
         let ack_operations_total = register_int_counter_vec(
