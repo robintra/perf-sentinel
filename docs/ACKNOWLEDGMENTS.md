@@ -17,6 +17,10 @@ The runtime path (against a live daemon) layers on top: the `perf-sentinel ack` 
 
 ![analyze with two findings acked via TOML, footer hint and PASSED gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
 
+**TUI live mode** (`perf-sentinel query inspect`, since 0.5.24): the `a` key opens an ack modal on the highlighted finding, `u` revokes:
+
+![query inspect TUI: ack modal filled with reason, expires and by, ready to submit](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/tui-modal-filled.png)
+
 **HTML dashboard live mode** (`--daemon-url`, since 0.5.23): per-finding `Ack` button opens a modal that posts to the daemon, an `Acks` tab lists active acks with per-row `Revoke`:
 
 <picture>

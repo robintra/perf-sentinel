@@ -609,6 +609,12 @@ For runtime acks against a live daemon, the workflow has three surfaces: the `pe
 
 ![analyze with two findings acked via TOML, footer hint and PASSED gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
 
+**TUI live mode** (`perf-sentinel query inspect`, press `a` on a finding): a modal opens prefilled with the signature, prompts for reason and an optional expiry, the row gets annotated `[Acked by ...]` after submit:
+
+![query inspect TUI: ack modal filled with reason, expires and by, ready to submit](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/tui-modal-filled.png)
+
+![query inspect TUI: finding annotated as acked after the modal submits](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/tui-confirm.png)
+
 **HTML dashboard live mode** (`--daemon-url http://localhost:4318`): per-finding `Ack` buttons, an `Acks` tab listing active acks with per-row `Revoke`, a `Show acknowledged` toggle and a connection status dot:
 
 <picture>

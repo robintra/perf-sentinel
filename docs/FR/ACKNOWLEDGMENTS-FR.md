@@ -17,6 +17,10 @@ Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus, la sous-command
 
 ![analyze avec deux findings acquittés via TOML, hint en pied et gate PASSED](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
 
+**TUI mode live** (`perf-sentinel query inspect`, depuis 0.5.24) : la touche `a` ouvre une modale ack sur le finding sélectionné, `u` révoque :
+
+![query inspect TUI : modale ack remplie avec reason, expires et by, prête à soumettre](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/tui-modal-filled.png)
+
 **Dashboard HTML en mode live** (`--daemon-url`, depuis 0.5.23) : bouton `Ack` par finding qui ouvre une modale postant au daemon, onglet `Acks` listant les acks actifs avec `Revoke` par ligne :
 
 <picture>
