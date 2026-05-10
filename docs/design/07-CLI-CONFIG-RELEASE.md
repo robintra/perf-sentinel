@@ -421,6 +421,55 @@ Consequences:
 
 The feature-flag-less, target-gated form was chosen over an opt-in cargo feature because (1) there is no plausible musl-build reason to keep the slower default, and (2) the swap has zero user-visible surface, so exposing it as a toggle would add documentation burden without a corresponding benefit.
 
+#### v0.6.1 re-measurement
+
+The v0.4.7 figures above were re-measured on perf-sentinel **0.6.1** to confirm the allocator decision still holds and to surface a realistic end-to-end number on top of the in-memory microbench.
+
+**Hardware**: Apple **Mac16,11** (M4 Pro, 12 CPU cores, 24 GB unified memory). **Host OS**: macOS 26.4.1 (build 25E253). **Toolchain**: rustc 1.95.0, profile `release` (`opt-level = 3`, `lto = "thin"`, `codegen-units = 1`).
+
+**Build matrix**:
+
+| Build | Target triple | Allocator | Run environment | Memory available |
+|-------|---------------|-----------|-----------------|------------------|
+| Native macOS | `aarch64-apple-darwin` | system (Darwin) | macOS host | 24 GB unified (shared with host OS) |
+| Release artifact (musl) | `aarch64-unknown-linux-musl` | mimalloc 0.1.49 | Docker Desktop 29.4.2, `--platform linux/arm64` (LinuxKit VM passthrough) | 15.6 GiB allocated to the VM, 12 vCPU, 1 GiB swap |
+
+The musl build is run inside Docker because that is the deployment shape (the official Linux release artifacts are static `aarch64-unknown-linux-musl` ELF binaries, typically run from a `FROM scratch` container on Kubernetes). Docker Desktop on macOS does not give the VM the full host RAM — it allocated 15.6 GiB on this machine, the rest is reserved for the macOS host. Both runs have ample headroom for the bench. The LinuxKit VM also adds a small virtio tax on syscalls and I/O compared to bare-metal arm64 Linux.
+
+**Memory footprint observed** (RSS sampled at 100 ms cadence on the musl + mimalloc daemon during the 156 000-event end-to-end run):
+
+| Phase | Daemon RSS | Note |
+|-------|-----------|------|
+| Idle, just started | 17.5 MB | After listeners come up, before any traffic |
+| Pic during sustained ingest (926 k events/s) | **237 MB** | 156 000 events, 20 000 traces, 10 000 findings stored |
+| Plateau after drain (`active_traces` back to 0) | 237 MB | TraceWindow released, findings store still resident |
+
+For reference, the in-memory `bench` subcommand peaks at ~648 MB on the 31 200-event workload because it loads the entire input vector into RAM up front. That is a property of the microbench harness, not of the daemon — in production the daemon streams events through the TraceWindow and never holds the full input set.
+
+**Methodology**:
+- *In-memory microbench*: `perf-sentinel bench --input <fixture> --iterations N` clones the event vector outside the timing loop and times `pipeline::analyze` (pure function, no I/O, no async dispatch).
+- *End-to-end through daemon*: `perf-sentinel watch` with `[daemon] json_socket` and `trace_ttl_ms = 500`, fed via Unix-socket NDJSON batches. Throughput is the send-side wall-clock. Correctness is validated by polling `/api/status` until `active_traces` returns to 0 (no dropped events).
+
+**Dataset**: `tests/fixtures/demo.json` (78 events, 10 traces, mix of SQL and HTTP spans) replicated by trace-ID multiplier to scale up while preserving the detection signal (each replica creates distinct trace_ids and span_ids, finding density per trace stays constant).
+
+| Workload | macOS native | musl + mimalloc | Gap |
+|---|---|---|---|
+| In-memory, 78 events, 500 iter | 0.92M events/s | **1.94M events/s** | +112% |
+| In-memory, 7 800 events, 30 iter | 1.38M events/s | **1.82M events/s** | +32% |
+| In-memory, 31 200 events, 30 iter | 1.14M events/s | **1.45M events/s** | +27% |
+| End-to-end JSON socket, 7 800 events | 0.62M events/s | **0.63M events/s** | +3% |
+| End-to-end JSON socket, 39 000 events | 0.86M events/s | **0.93M events/s** | +9% |
+| End-to-end JSON socket, 156 000 events | 0.80M events/s | **0.96M events/s** | +20% |
+
+Takeaways:
+
+- The v0.4.7 2.00M figure reproduces at ~3% noise on the original 78-event microbench: **1.94M events/sec**. The allocator decision still holds and remains a 2x win over the macOS Darwin allocator on this microbench.
+- At realistic dataset sizes (>30k events), the in-memory pipeline plateaus at **~1.5–1.8M events/s** on the musl+mimalloc build as the working set grows past L2 and allocator wins shrink.
+- End-to-end through the daemon (the actually-deployed path) tops out at **~960k events/s sustained** on a 156k-event dataset. The gap between in-memory and end-to-end is the cost of JSON deserialization, async dispatch through Tokio, the streaming `TraceWindow` LRU+TTL, and `findings_store` writes — none of which the `bench` subcommand exercises.
+- The JSON-socket end-to-end is itself an upper bound for the real OTLP ingest path: the protobuf decode in OTLP gRPC/HTTP is heavier than the serde JSON parse used here.
+
+When citing perf-sentinel throughput externally, prefer the end-to-end number (or both, with the conditions). The in-memory microbench is the right number for allocator and pipeline regression tracking, not for capacity planning.
+
 ## Distribution strategy
 
 1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2

@@ -390,6 +390,55 @@ Conséquences :
 
 La forme sans feature flag, target-gated, a été retenue plutôt qu'une feature cargo opt-in parce que (1) il n'y a pas de raison plausible, sur un build musl, de garder le défaut plus lent, et (2) le swap n'a aucune surface visible utilisateur, donc l'exposer en toggle alourdirait la doc sans bénéfice correspondant.
 
+#### Re-mesure 0.6.1
+
+Les chiffres v0.4.7 ci-dessus ont été re-mesurés sur perf-sentinel **0.6.1** pour confirmer que la décision d'allocateur tient toujours et pour exposer un chiffre end-to-end réaliste, en plus du microbench in-memory.
+
+**Matériel** : Apple **Mac16,11** (M4 Pro, 12 cœurs CPU, 24 Go de mémoire unifiée). **OS hôte** : macOS 26.4.1 (build 25E253). **Toolchain** : rustc 1.95.0, profil `release` (`opt-level = 3`, `lto = "thin"`, `codegen-units = 1`).
+
+**Matrice de builds** :
+
+| Build | Triple cible | Allocateur | Environnement d'exécution | Mémoire disponible |
+|-------|--------------|------------|---------------------------|--------------------|
+| Natif macOS | `aarch64-apple-darwin` | système (Darwin) | macOS hôte | 24 Go unifiés (partagés avec l'OS hôte) |
+| Artefact release (musl) | `aarch64-unknown-linux-musl` | mimalloc 0.1.49 | Docker Desktop 29.4.2, `--platform linux/arm64` (VM LinuxKit, virtio passthrough) | 15,6 Gio alloués à la VM, 12 vCPU, 1 Gio de swap |
+
+Le build musl est exécuté dans Docker car c'est la forme effectivement déployée : les artefacts release Linux officiels sont des binaires statiques `aarch64-unknown-linux-musl` (ELF), typiquement lancés depuis un conteneur `FROM scratch` sur Kubernetes. Docker Desktop sur macOS ne donne pas toute la RAM hôte à la VM, il en a alloué 15,6 Gio sur cette machine, le reste est réservé à macOS. Les deux runs ont une marge confortable. La VM LinuxKit ajoute aussi une légère taxe virtio sur les syscalls et les I/O par rapport à du Linux arm64 sur métal nu.
+
+**Empreinte mémoire mesurée** (RSS échantillonné à 100 ms de cadence sur le daemon musl + mimalloc pendant le run end-to-end de 156 000 événements) :
+
+| Phase | RSS daemon | Note |
+|-------|-----------|------|
+| Idle, juste démarré | 17,5 Mo | Après que les listeners soient up, avant tout trafic |
+| Pic pendant l'ingest sustained (926 k événements/s) | **237 Mo** | 156 000 événements, 20 000 traces, 10 000 findings stockés |
+| Plateau après drain (`active_traces` retombé à 0) | 237 Mo | TraceWindow relâchée, findings store toujours résident |
+
+À titre de référence, la sous-commande `bench` in-memory plafonne à environ 648 Mo sur le workload de 31 200 événements parce qu'elle charge le vecteur d'input entier en RAM dès le départ. C'est une propriété du harnais de microbench, pas du daemon. En production, le daemon streame les événements à travers la `TraceWindow` et ne garde jamais tout le set d'input.
+
+**Méthodologie** :
+- *Microbench in-memory* : `perf-sentinel bench --input <fixture> --iterations N` clone le vecteur d'événements hors de la boucle de chronométrage et mesure uniquement `pipeline::analyze` (fonction pure, sans I/O ni dispatch async).
+- *End-to-end via daemon* : `perf-sentinel watch` avec `[daemon] json_socket` et `trace_ttl_ms = 500`, alimenté par lots NDJSON sur Unix socket. Le throughput est le wall-clock côté envoi. La complétude est validée en pollant `/api/status` jusqu'à ce que `active_traces` retombe à 0 (zéro drop).
+
+**Dataset** : `tests/fixtures/demo.json` (78 événements, 10 traces, mix SQL et HTTP), répliqué par multiplicateur de trace_id pour monter en échelle tout en préservant le signal de détection (chaque réplica génère trace_ids et span_ids distincts, la densité de findings par trace reste constante).
+
+| Workload | Natif macOS | musl + mimalloc | Écart musl |
+|---|---|---|---|
+| In-memory, 78 événements, 500 itérations | 0,92 M evt/s | **1,94 M evt/s** | +112 % |
+| In-memory, 7 800 événements, 30 itérations | 1,38 M evt/s | **1,82 M evt/s** | +32 % |
+| In-memory, 31 200 événements, 30 itérations | 1,14 M evt/s | **1,45 M evt/s** | +27 % |
+| End-to-end socket JSON, 7 800 événements | 0,62 M evt/s | **0,63 M evt/s** | +3 % |
+| End-to-end socket JSON, 39 000 événements | 0,86 M evt/s | **0,93 M evt/s** | +9 % |
+| End-to-end socket JSON, 156 000 événements | 0,80 M evt/s | **0,96 M evt/s** | +20 % |
+
+À retenir :
+
+- Le chiffre v0.4.7 de 2,00M événements/sec se reproduit à environ 3 % de bruit près sur le microbench 78 événements d'origine : **1,94M événements/sec**. La décision d'allocateur tient toujours et reste une victoire d'un facteur 2 sur l'allocateur Darwin de macOS sur ce microbench.
+- À des tailles de dataset réalistes (>30 k événements), la pipeline in-memory plafonne à **~1,5 à 1,8 M événements/s** sur le build musl+mimalloc, le bénéfice allocateur diminue dès que la working set sort du L2.
+- En end-to-end via le daemon (le path effectivement déployé), le pic est de **~960 k événements/s sustained** sur un dataset de 156 k événements. L'écart in-memory vs end-to-end est le coût réel de la désérialisation JSON, du dispatch async via Tokio, de la `TraceWindow` LRU+TTL en streaming et des écritures dans le `findings_store`, tout ce que la sous-commande `bench` ne mesure pas.
+- Le path JSON socket en end-to-end est lui-même un plafond optimiste pour l'ingest OTLP réel : le décodage protobuf en OTLP gRPC ou HTTP est plus lourd que le parse JSON serde utilisé ici.
+
+Pour citer le throughput de perf-sentinel à l'extérieur, privilégier le chiffre end-to-end (ou les deux, avec leurs conditions). Le microbench in-memory est le bon chiffre pour le tracking de régression d'allocateur et de pipeline, pas pour le sizing capacitaire.
+
 ## Stratégie de distribution
 
 1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2
