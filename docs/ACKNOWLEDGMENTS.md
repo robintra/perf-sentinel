@@ -4,6 +4,33 @@ A way to tell perf-sentinel "yes, this finding is real, and we have decided not 
 
 This document covers the file format, the workflow, the CLI flags, and the FAQ.
 
+The runtime path (against a live daemon) layers on top: the `perf-sentinel ack` CLI subcommand, the live HTML dashboard (`perf-sentinel report --daemon-url ...`) and the TUI (`perf-sentinel query inspect`, press `a` to acknowledge a finding, `u` to revoke).
+
+<details>
+<summary>Visual reference</summary>
+
+**CLI subcommand against the daemon** (`create` / `list` / `revoke`, since 0.5.22):
+
+![ack CLI: create, list and revoke against the daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/cli.gif)
+
+**TOML CI fallback footer** (default `analyze` output, the criticals are suppressed and the quality gate flips to PASSED):
+
+![analyze with two findings acked via TOML, footer hint and PASSED gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
+
+**HTML dashboard live mode** (`--daemon-url`, since 0.5.23): per-finding `Ack` button opens a modal that posts to the daemon, an `Acks` tab lists active acks with per-row `Revoke`:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal-dark.png">
+  <img alt="dashboard live mode: Acknowledge finding modal opened from a finding row" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel-dark.png">
+  <img alt="dashboard live mode: Acknowledgments panel listing three active acks with Revoke buttons" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel.png">
+</picture>
+
+</details>
+
 ## When to use it
 
 - The team has decided that a finding is intentional (cache invalidation pattern, batched-on-purpose work, throwaway script with O(N) calls).
@@ -121,13 +148,13 @@ No, signature-only matching is intentional in 0.5.17. Wildcards make it too easy
 Revert the commit. The next CI run will re-surface the finding.
 
 **Q: Is there an `acknowledgments` API on the daemon?**
-Not in 0.5.17. The daemon path is on the roadmap (deferred to a later release pending architecture review), the CI/batch path covers the bulk of the use cases.
+Yes, since 0.5.20. `POST /api/findings/{sig}/ack` creates, `DELETE /api/findings/{sig}/ack` revokes, `GET /api/acks` lists. The CLI exposes the same surface via `perf-sentinel ack create / revoke / list` (since 0.5.22). Auth via `PERF_SENTINEL_DAEMON_API_KEY` or `--api-key-file`.
 
 **Q: Does `inspect` (TUI) honor acknowledgments?**
-Yes, the same flags apply. The TUI does not yet have a dedicated panel to show suppressed findings, but the status footer surfaces the count.
+Yes, the TOML CI flags apply. Since 0.5.24, `perf-sentinel query inspect` (live daemon mode) also exposes `a` to acknowledge the highlighted finding via the daemon API and `u` to revoke, with a modal form for reason / expires / by.
 
 **Q: Does the HTML dashboard surface ack metadata?**
-With `--show-acknowledged`, the embedded JSON payload includes the `acknowledged_findings` array (visible in DevTools or with `jq` against the embedded data). The visual UI does not yet render a dedicated ack section, that is on the dashboard roadmap.
+Yes. The static report shows `acknowledged_findings` in the embedded JSON payload (`--show-acknowledged` to keep them in the visible list). Since 0.5.23, `perf-sentinel report --daemon-url <url>` flips the dashboard into live mode: per-finding `Ack` buttons, an `Acks` tab listing active acks with per-row `Revoke`, and a `Show acknowledged` toggle in the Findings panel. See the [Visual reference](#visual-reference) above.
 
 ## SARIF integration
 

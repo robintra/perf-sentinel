@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import {expect, test} from "@playwright/test";
 
 // Scripted tour of the HTML dashboard. Pacing is deliberate: each
 // pause is tuned so the final GIF reads as a calm demo rather than a
@@ -8,6 +8,11 @@ import { test, expect } from "@playwright/test";
 async function pause(page: import("@playwright/test").Page, ms: number) {
   await page.waitForTimeout(ms);
 }
+
+// Tour duration overruns the 30 s default once live-mode steps are
+// added. 60 s gives the same headroom as the previous version did
+// before live mode bumped the script length.
+test.setTimeout(60000);
 
 test("dashboard tour", async ({ page }, testInfo) => {
   const primary = testInfo.project.name === "dashboard-dark" ? "dark" : "light";
@@ -71,6 +76,24 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await pause(page, 200);
   await page.keyboard.press("c");
   await pause(page, 2600);
+
+  // Acks tab (live mode only): three pre-loaded acks come back from
+  // the mocked /api/acks endpoint, each row exposes a Revoke button.
+  // No vim-style shortcut is registered for this tab, click the tab
+  // header directly.
+  await page.locator("#tab-acknowledgments").click();
+  await pause(page, 2400);
+
+  // Back to Findings, then flip "Show acknowledged" to demonstrate
+  // the live-mode toggle that surfaces previously-hidden findings.
+  await page.keyboard.press("g");
+  await pause(page, 200);
+  await page.keyboard.press("f");
+  await pause(page, 1200);
+  await page.locator("#findings-include-acked").check();
+  await pause(page, 1800);
+  await page.locator("#findings-include-acked").uncheck();
+  await pause(page, 600);
 
   // --- Wink at the opposite theme and come back ---
   // Cycle auto -> dark -> light -> auto. One click advances one

@@ -1,6 +1,6 @@
-import { execFileSync, spawn, ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import {ChildProcess, execFileSync, spawn} from "node:child_process";
+import {existsSync, mkdirSync, readFileSync, writeFileSync} from "node:fs";
+import {join, resolve} from "node:path";
 import * as net from "node:net";
 
 // Builds the release binary if missing, renders the HTML fixture,
@@ -164,6 +164,12 @@ function renderFixtures() {
   // by demo/tour.spec.ts; the regular test suite keeps hitting
   // dashboard.html built from the pristine fixture.
   writeDemoEvents(FIXTURE_JSON, DEMO_EVENTS);
+  // `--daemon-url` flips the dashboard into live mode: per-finding
+  // Ack/Revoke buttons, an Acknowledgments panel, a connection status
+  // dot and a manual refresh button all become visible. The URL points
+  // at a closed loopback port (65535) because the actual HTTP exchange
+  // is intercepted by `injectDemoAckMock` below, no network call ever
+  // leaves the page.
   execFileSync(
     BINARY,
     [
@@ -176,12 +182,15 @@ function renderFixtures() {
       PG_STAT_FIXTURE,
       "--pg-stat-top",
       "15",
+      "--daemon-url",
+      "http://127.0.0.1:65535",
       "--output",
       DEMO_HTML
     ],
     { stdio: "inherit" }
   );
   injectDemoCorrelations(DEMO_HTML);
+  injectDemoAckMock(DEMO_HTML);
 }
 
 // Copy the shared trace fixture and stamp a cloud_region on each
@@ -240,6 +249,113 @@ function injectDemoCorrelations(htmlPath: string) {
   };
   const newEscaped = JSON.stringify(payload).replace(/<\//g, "<\\/");
   writeFileSync(htmlPath, html.slice(0, jsonStart) + newEscaped + html.slice(endIdx));
+}
+
+// Patch `window.fetch` inside the demo dashboard so the live-mode UI
+// (Ack/Revoke buttons, Acknowledgments panel, connection status dot)
+// renders without spawning a real daemon. The dashboard JS calls four
+// endpoints when `--daemon-url` is set: GET `/api/status`, GET
+// `/api/acks`, POST `/api/findings/{sig}/ack`, DELETE
+// `/api/findings/{sig}/ack`. The mock answers each with the exact
+// status code the dashboard expects (200 for status/acks, 201 for
+// POST, 204 for DELETE) and keeps a small in-memory store so toggling
+// "Show acknowledged" or revoking a row updates the panel as a real
+// daemon would. Three pre-populated acks make the panel non-empty
+// from the first paint, which is what the stills capture.
+//
+// The three signatures match real findings in report_realistic.json
+// (idx 1, 3, 4 of the Findings list) so three of the five rows
+// render with the "Revoke" button (acked state) instead of "Ack".
+// This is what the "Show acknowledged" still captures, otherwise the
+// toggle would have no visual effect on the demo dataset. Idx 0
+// (POST /api/orders/7/checkout) is deliberately left un-acked so the
+// existing `02 explain trace tree` still finds a visible first row to
+// click without needing a `:visible` selector tweak.
+function injectDemoAckMock(htmlPath: string) {
+  // Anchor on the embedded report-data script tag (unique in the
+  // template, see html_template.html line 407) and insert the mock
+  // *before* it. The mock must be parsed and executed before any
+  // dashboard bundle runs `pingStatus()` / `fetchAcks()` so the
+  // patched `window.fetch` is in place for the very first call.
+  const MARKER = '<script id="report-data"';
+  const html = readFileSync(htmlPath, "utf8");
+  const idx = html.indexOf(MARKER);
+  if (idx === -1) {
+    throw new Error(`injectDemoAckMock: ${MARKER} not found in ${htmlPath}`);
+  }
+  const insertAt = idx;
+  const script = [
+    "<script>(function () {",
+    "  var originalFetch = window.fetch.bind(window);",
+    "  var acks = [",
+    "    {",
+    '      signature: "n_plus_one_sql:order-svc:POST__api_orders_8_checkout:c69d2f3ae7f5c6cdb2c6762367852ec7",',
+    '      by: "alice@example.com",',
+    '      reason: "Known intentional batch in checkout, JIRA-1234",',
+    '      at: "2026-05-02T09:14:22Z",',
+    '      expires_at: "2026-05-09T09:14:22Z"',
+    "    },",
+    "    {",
+    '      signature: "slow_http:chat-svc:POST__api_chat_send:5e35a0e005ee19f3a02169ed764b106d",',
+    '      by: "bob@example.com",',
+    '      reason: "Notify endpoint pending move to gRPC, see ADR-0042",',
+    '      at: "2026-05-04T16:02:11Z",',
+    "      expires_at: null",
+    "    },",
+    "    {",
+    '      signature: "redundant_sql:payment-svc:GET__api_payment_999:48b668a2479a4b5b068b0cc99041abec",',
+    '      by: "ops-bot",',
+    '      reason: "Cache layer planned for 0.7.0 release",',
+    '      at: "2026-05-06T11:48:00Z",',
+    '      expires_at: "2026-06-30T00:00:00Z"',
+    "    }",
+    "  ];",
+    "  function jsonResponse(status, body) {",
+    "    return new Response(JSON.stringify(body), {",
+    "      status: status,",
+    '      headers: { "Content-Type": "application/json" }',
+    "    });",
+    "  }",
+    "  function emptyResponse(status) {",
+    "    return new Response(null, { status: status });",
+    "  }",
+    "  window.fetch = function (input, init) {",
+    '    var url = typeof input === "string" ? input : (input && input.url) || "";',
+    '    var method = (init && init.method) || (input && input.method) || "GET";',
+    "    method = method.toUpperCase();",
+    '    if (url.indexOf("/api/status") !== -1 && method === "GET") {',
+    '      return Promise.resolve(jsonResponse(200, { ok: true, version: "demo-mock" }));',
+    "    }",
+    '    if (url.indexOf("/api/acks") !== -1 && method === "GET") {',
+    "      return Promise.resolve(jsonResponse(200, acks));",
+    "    }",
+    "    var ackMatch = url.match(/\\/api\\/findings\\/([^/]+)\\/ack/);",
+    "    if (ackMatch) {",
+    "      var sig = decodeURIComponent(ackMatch[1]);",
+    '      if (method === "POST") {',
+    "        var body = {};",
+    '        try { body = JSON.parse((init && init.body) || "{}"); } catch (_) {}',
+    "        acks = acks.filter(function (a) { return a.signature !== sig; });",
+    "        acks.push({",
+    "          signature: sig,",
+    '          by: body.by || "demo@perf-sentinel",',
+    '          reason: body.reason || "(no reason)",',
+    "          at: new Date().toISOString(),",
+    "          expires_at: body.expires_at || null",
+    "        });",
+    "        return Promise.resolve(emptyResponse(201));",
+    "      }",
+    '      if (method === "DELETE") {',
+    "        acks = acks.filter(function (a) { return a.signature !== sig; });",
+    "        return Promise.resolve(emptyResponse(204));",
+    "      }",
+    "    }",
+    "    return originalFetch(input, init);",
+    "  };",
+    "})();</script>",
+    ""
+  ].join("\n");
+  writeFileSync(htmlPath, html.slice(0, insertAt) + script + html.slice(insertAt));
 }
 
 async function startStaticServer(): Promise<void> {

@@ -596,6 +596,33 @@ expires_at = "2026-12-31"  # Optionnel, omettre pour rendre l'ack permanent.
 
 Récupérez la signature d'un finding via `perf-sentinel analyze --format json | jq '.findings[].signature'`. Utilisez `--show-acknowledged` pour les faire réapparaître dans la sortie, ou `--no-acknowledgments` pour un audit complet. Référence détaillée dans [`docs/FR/ACKNOWLEDGMENTS-FR.md`](docs/FR/ACKNOWLEDGMENTS-FR.md).
 
+Pour les acks runtime contre un daemon vivant, le workflow s'expose sur trois surfaces, la sous-commande CLI `perf-sentinel ack`, le dashboard HTML live (`perf-sentinel report --daemon-url ...`) et la TUI (`perf-sentinel query inspect`, touche `a` pour acquitter un finding, `u` pour révoquer).
+
+<details>
+<summary>Captures du workflow ack</summary>
+
+**Sous-commande CLI** (`perf-sentinel ack create / list / revoke` contre le daemon) :
+
+![ack CLI : create, list et revoke contre le daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/cli.gif)
+
+**Sortie `analyze` par défaut avec un fichier TOML CI d'acks en place** (les criticals sont supprimés, la quality gate passe à PASSED, un hint pointe vers `--show-acknowledged`) :
+
+![analyze avec deux findings acquittés via TOML, hint en pied et gate PASSED](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
+
+**Dashboard HTML en mode live** (`--daemon-url http://localhost:4318`) : boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, toggle `Show acknowledged` et indicateur de statut de connexion :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal-dark.png">
+  <img alt="dashboard mode live : modale Acknowledge finding ouverte depuis une ligne de finding" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel-dark.png">
+  <img alt="dashboard mode live : panneau Acknowledgments listant trois acks actifs avec boutons Revoke" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel.png">
+</picture>
+
+</details>
+
 ## Architecture
 
 <picture>

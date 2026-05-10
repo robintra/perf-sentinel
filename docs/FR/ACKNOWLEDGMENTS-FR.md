@@ -4,6 +4,33 @@ Une façon de dire à perf-sentinel "oui, ce finding est réel, et nous avons d�
 
 Ce document couvre le format, le workflow, les flags CLI et la FAQ.
 
+Le chemin runtime (contre un daemon vivant) s'ajoute par-dessus, la sous-commande CLI `perf-sentinel ack`, le dashboard HTML live (`perf-sentinel report --daemon-url ...`) et la TUI (`perf-sentinel query inspect`, touche `a` pour acquitter un finding, `u` pour révoquer).
+
+<details>
+<summary>Référence visuelle</summary>
+
+**Sous-commande CLI contre le daemon** (`create` / `list` / `revoke`, depuis 0.5.22) :
+
+![ack CLI : create, list et revoke contre le daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/cli.gif)
+
+**Footer du fallback TOML CI** (sortie `analyze` par défaut, les criticals sont supprimés et la quality gate passe à PASSED) :
+
+![analyze avec deux findings acquittés via TOML, hint en pied et gate PASSED](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/ack/fallback-default.png)
+
+**Dashboard HTML en mode live** (`--daemon-url`, depuis 0.5.23) : bouton `Ack` par finding qui ouvre une modale postant au daemon, onglet `Acks` listant les acks actifs avec `Revoke` par ligne :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal-dark.png">
+  <img alt="dashboard mode live : modale Acknowledge finding ouverte depuis une ligne de finding" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-modal.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel-dark.png">
+  <img alt="dashboard mode live : panneau Acknowledgments listant trois acks actifs avec boutons Revoke" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/ack-panel.png">
+</picture>
+
+</details>
+
 ## Quand l'utiliser
 
 - L'équipe a décidé qu'un finding est intentionnel (pattern d'invalidation de cache, batch volontaire, script jetable avec O(N) appels).
@@ -122,13 +149,13 @@ Non, le matching par signature exacte est intentionnel en 0.5.17. Les wildcards 
 Revertez le commit. Le run CI suivant fera réapparaître le finding.
 
 **Q : Y a-t-il une API d'acknowledgments sur le daemon ?**
-Pas en 0.5.17. Le chemin daemon est dans la roadmap (différé à une release ultérieure en attente de review architecture), le chemin CI/batch couvre la majorité des cas.
+Oui, depuis 0.5.20. `POST /api/findings/{sig}/ack` crée, `DELETE /api/findings/{sig}/ack` révoque, `GET /api/acks` liste. La CLI expose la même surface via `perf-sentinel ack create / revoke / list` (depuis 0.5.22). Auth via `PERF_SENTINEL_DAEMON_API_KEY` ou `--api-key-file`.
 
 **Q : `inspect` (TUI) honore-t-il les acknowledgments ?**
-Oui, les mêmes flags s'appliquent. La TUI n'a pas encore de panneau dédié pour les findings supprimés, mais le footer de status surface le count.
+Oui, les flags CI TOML s'appliquent. Depuis 0.5.24, `perf-sentinel query inspect` (mode daemon live) expose aussi `a` pour acquitter le finding sélectionné via l'API daemon et `u` pour révoquer, avec une modale qui demande reason / expires / by.
 
 **Q : Le dashboard HTML surface-t-il la metadata d'ack ?**
-Avec `--show-acknowledged`, le payload JSON embarqué inclut le tableau `acknowledged_findings` (visible dans DevTools ou avec `jq` sur la donnée embarquée). L'UI visuelle n'a pas encore de section dédiée aux acks, c'est dans la roadmap dashboard.
+Oui. Le report statique expose `acknowledged_findings` dans le payload JSON embarqué (`--show-acknowledged` pour les garder dans la liste visible). Depuis 0.5.23, `perf-sentinel report --daemon-url <url>` bascule le dashboard en mode live, boutons `Ack` par finding, onglet `Acks` listant les acks actifs avec `Revoke` par ligne, et toggle `Show acknowledged` dans le panneau Findings. Voir la [Référence visuelle](#référence-visuelle) ci-dessus.
 
 ## Intégration SARIF
 
