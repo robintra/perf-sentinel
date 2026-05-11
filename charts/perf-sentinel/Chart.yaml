@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.33
-appVersion: "0.6.1"
+version: 0.2.34
+appVersion: "0.6.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,13 +37,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: security
-      description: "appVersion 0.6.1: reject CORS wildcard combined with [daemon.ack] api_key at config load (closes the cross-origin X-API-Key replay vector), refuse following symlinks on TOML acknowledgments load, strip BiDi/invisible characters from SARIF result message and logical locations, cap OTLP gRPC HTTP/2 concurrent streams at 256 per connection."
     - kind: changed
-      description: "Hot-path tightening across detect, normalize and score (chatty single-pass, serialized unstable sort, pre-sized HTTP params vec, right-sized avoidable-finding dedup). Centralized timestamp parsing on the shared time module. Lowercased default_region at config load."
+      description: "appVersion 0.6.2: HTML dashboard visual polish — the Explain trace_id breadcrumb renders as a chip and the .ps-drill banner used on the pg_stat and Explain panels carries a 12px bottom margin, both no longer sit flush against the content immediately below."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.6.1
+      image: ghcr.io/robintra/perf-sentinel:0.6.2
       platforms:
         - linux/amd64
         - linux/arm64
