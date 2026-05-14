@@ -28,6 +28,7 @@ pub mod html;
 pub mod interpret;
 pub mod json;
 pub mod metrics;
+pub mod periodic;
 pub mod sarif;
 pub mod warnings;
 

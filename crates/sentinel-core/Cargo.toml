@@ -55,6 +55,9 @@ lru = "0.18.0"
 # (`Utc::now()` comparison).
 sha2 = "0.11.0"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "serde"] }
+# UUID v4 for the `report_uuid` field of periodic disclosure reports.
+# Serde feature lets the wire schema embed the value as a JSON string.
+uuid = { version = "1.23.1", features = ["v4", "serde"] }
 # Daemon-only deps (behind the `daemon` feature flag).
 hyper = { version = "1.9.0", features = ["client", "http1", "server"], optional = true }
 hyper-util = { version = "0.1.20", features = ["client", "client-legacy", "http1", "http2", "tokio", "server-auto"], optional = true }
