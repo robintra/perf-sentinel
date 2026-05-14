@@ -290,10 +290,21 @@ fn verify_core_patterns(report: &PeriodicReport) -> Status {
         .filter(|c| !declared.iter().any(|d| d == *c))
         .map(String::as_str)
         .collect();
+    // Cite the report-declared producing binary so an auditor on a
+    // mismatched version knows exactly which perf-sentinel to download
+    // and re-run against. Falls back to perf_sentinel_version when
+    // binary_version is empty on pre-0.7.0 reports.
+    let producing_version = if report.report_metadata.binary_version.is_empty() {
+        report.report_metadata.perf_sentinel_version.as_str()
+    } else {
+        report.report_metadata.binary_version.as_str()
+    };
     Status::Fail(format!(
         "core_patterns_required diverges from local canonical set: \
          declared-only={only_in_declared:?}, canonical-only={only_in_canonical:?}. \
-         Possible substitution at sign time, or verifying binary is a different perf-sentinel version."
+         Possible substitution at sign time, or verifying binary is a different version. \
+         Report was produced by perf-sentinel {producing_version}, consider re-running \
+         verify-hash with that exact version before flagging the report as untrusted."
     ))
 }
 
