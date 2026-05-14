@@ -313,7 +313,7 @@
         "binary_versions": {
           "type": "array",
           "uniqueItems": true,
-          "maxItems": 16,
+          "maxItems": 256,
           "items": {
             "type": "string",
             "minLength": 1,

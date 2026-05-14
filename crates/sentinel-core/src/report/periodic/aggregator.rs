@@ -34,7 +34,10 @@ const MAX_ENERGY_MODEL_LEN: usize = 64;
 
 /// Cardinality cap on distinct `binary_version` strings tracked in
 /// `Builder.binary_versions`. Overflow entries are silently dropped.
-const MAX_BINARY_VERSIONS: usize = 16;
+/// Sized for multi-team async-release environments where a quarter can
+/// span more than a dozen patch versions; 256 × 64 bytes = 16 KB worst
+/// case, negligible memory budget.
+const MAX_BINARY_VERSIONS: usize = 256;
 
 /// Per-string length cap on `binary_version` entries.
 const MAX_BINARY_VERSION_LEN: usize = 64;
