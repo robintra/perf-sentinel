@@ -18,6 +18,20 @@ use super::schema::{Aggregate, Period};
 
 pub const UNATTRIBUTED_SERVICE: &str = "_unattributed";
 
+/// Cardinality cap on services tracked by the aggregator. Caps the
+/// `Builder.per_service` map so that a tampered archive carrying an
+/// unbounded number of distinct service strings cannot exhaust memory.
+/// Overflow is folded into `UNATTRIBUTED_SERVICE`.
+const MAX_SERVICES: usize = 4096;
+
+/// Cardinality cap on distinct `energy_model` strings tracked in
+/// `Builder.energy_source_models`. Overflow entries are silently dropped.
+const MAX_ENERGY_MODELS: usize = 64;
+
+/// Per-string length cap for `energy_model` entries collected from
+/// archive lines. Longer values are rejected (dropped, never inserted).
+const MAX_ENERGY_MODEL_LEN: usize = 64;
+
 #[derive(Debug, Default)]
 pub struct AggregateInputs {
     pub aggregate: Aggregate,
@@ -27,6 +41,18 @@ pub struct AggregateInputs {
     pub malformed_lines_skipped: u64,
     pub first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     pub last_seen: BTreeMap<(String, String), DateTime<Utc>>,
+    /// Distinct `energy_model` tags (without `+cal` suffix) observed
+    /// across the folded windows. Empty when every window predates
+    /// per-service carbon attribution.
+    pub energy_source_models: BTreeSet<String>,
+    /// Number of windows that carried runtime-calibrated per-service
+    /// data. Together with `fallback_windows`, surfaces the share of
+    /// the period that benefits from runtime attribution vs. the proxy.
+    pub runtime_windows: u64,
+    /// Number of windows that fell back to the I/O proxy path. Each
+    /// archive file emits at most one `tracing::warn!` when its first
+    /// fallback window is folded.
+    pub fallback_windows: u64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -102,6 +128,17 @@ struct Builder {
     avoidable_io_ops: u64,
     total_carbon_kgco2eq: f64,
     avoidable_carbon_kgco2eq: f64,
+    /// Sum of runtime-calibrated `energy_kwh` for windows that carry it.
+    runtime_energy_kwh: f64,
+    /// Distinct energy model strings collected across all windows. The
+    /// `+cal` suffix is stripped so consumers see the bare source tag.
+    energy_source_models: BTreeSet<String>,
+    /// Windows that carried `green_summary.energy_kwh > 0` or non-empty
+    /// per-service runtime maps.
+    runtime_windows: u64,
+    /// Windows that fell back to the I/O proxy path. Used by tests and
+    /// surfaced via [`AggregateInputs`] for operator diagnostics.
+    fallback_windows: u64,
 }
 
 impl Builder {
@@ -116,6 +153,7 @@ impl Builder {
             source,
         })?;
         let reader = BufReader::new(file);
+        let mut warned_fallback = false;
         for (line_no, line) in reader.lines().enumerate() {
             let line = line.map_err(|source| AggregationError::Io {
                 path: path.display().to_string(),
@@ -127,8 +165,17 @@ impl Builder {
             }
             match serde_json::from_str::<ArchivedReport>(trimmed) {
                 Ok(envelope) => {
-                    if in_period(envelope.ts, period) {
-                        self.process_window(envelope, strict)?;
+                    if !in_period(envelope.ts, period) {
+                        continue;
+                    }
+                    let used_fallback = self.process_window(envelope, strict)?;
+                    if used_fallback && !warned_fallback {
+                        warned_fallback = true;
+                        tracing::warn!(
+                            path = %path.display(),
+                            "archive predates per-service carbon attribution; \
+                             falling back to I/O share proxy for this file",
+                        );
                     }
                 }
                 Err(err) => {
@@ -145,11 +192,12 @@ impl Builder {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn process_window(
         &mut self,
         envelope: ArchivedReport,
         strict: bool,
-    ) -> Result<(), AggregationError> {
+    ) -> Result<bool, AggregationError> {
         let ts = envelope.ts;
         let report = envelope.report;
 
@@ -166,21 +214,48 @@ impl Builder {
         if !window_carbon_kg.is_finite() || !window_avoidable_kg.is_finite() {
             self.malformed_lines_skipped += 1;
             tracing::warn!(ts = %ts, "skipping window with non-finite carbon");
-            return Ok(());
+            return Ok(false);
         }
         let window_total_io = report.green_summary.total_io_ops as u64;
         let window_avoidable_io = report.green_summary.avoidable_io_ops as u64;
-        let window_energy_kwh = report.green_summary.total_io_ops as f64 * ENERGY_PER_IO_OP_KWH;
         let window_traces = report.analysis.traces_analyzed as u64;
+
+        let runtime_attribution = !report.green_summary.per_service_carbon_kgco2eq.is_empty()
+            && !report.green_summary.per_service_energy_kwh.is_empty();
+        let window_energy_kwh = if report.green_summary.energy_kwh > 0.0 {
+            report.green_summary.energy_kwh
+        } else {
+            (report.green_summary.total_io_ops as f64) * ENERGY_PER_IO_OP_KWH
+        };
 
         self.windows_aggregated += 1;
         self.total_io_ops += window_total_io;
         self.avoidable_io_ops += window_avoidable_io;
         self.total_carbon_kgco2eq += window_carbon_kg;
         self.avoidable_carbon_kgco2eq += window_avoidable_kg;
+        // Guard the runtime energy total against `+Inf` from tampered
+        // archives. NaN/-Inf/negative inputs are already filtered by the
+        // `> 0.0` branch above (which falls through to the proxy path),
+        // so this clamp specifically catches the `+Inf` case.
+        let window_energy_kwh = sanitize_f64(window_energy_kwh);
+        self.runtime_energy_kwh += window_energy_kwh;
+        if !report.green_summary.energy_model.is_empty()
+            && report.green_summary.energy_model.len() <= MAX_ENERGY_MODEL_LEN
+        {
+            let bare = report
+                .green_summary
+                .energy_model
+                .strip_suffix("+cal")
+                .unwrap_or(&report.green_summary.energy_model);
+            if self.energy_source_models.len() < MAX_ENERGY_MODELS
+                || self.energy_source_models.contains(bare)
+            {
+                self.energy_source_models.insert(bare.to_string());
+            }
+        }
 
         let per_service_io = service_io_distribution(&report.per_endpoint_io_ops);
-        let unattributed = per_service_io.is_empty();
+        let unattributed = per_service_io.is_empty() && !runtime_attribution;
 
         if unattributed && strict {
             return Err(AggregationError::UnattributedWindow {
@@ -188,7 +263,36 @@ impl Builder {
             });
         }
 
-        if unattributed {
+        if runtime_attribution {
+            self.runtime_windows += 1;
+            for (service, carbon) in &report.green_summary.per_service_carbon_kgco2eq {
+                let carbon = sanitize_f64(*carbon);
+                let energy = sanitize_f64(
+                    report
+                        .green_summary
+                        .per_service_energy_kwh
+                        .get(service)
+                        .copied()
+                        .unwrap_or(0.0),
+                );
+                let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
+                    continue;
+                };
+                bucket.carbon_kgco2eq += carbon;
+                bucket.energy_kwh += energy;
+                if let Some(io) = per_service_io.get(service) {
+                    bucket.total_io_ops += *io;
+                    let share = if window_total_io == 0 {
+                        0.0
+                    } else {
+                        *io as f64 / window_total_io as f64
+                    };
+                    bucket.total_requests += scale_u64(window_traces, share);
+                }
+            }
+            collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
+        } else if unattributed {
+            self.fallback_windows += 1;
             let bucket = self
                 .per_service
                 .entry(UNATTRIBUTED_SERVICE.to_string())
@@ -198,6 +302,7 @@ impl Builder {
             bucket.energy_kwh += window_energy_kwh;
             bucket.carbon_kgco2eq += window_carbon_kg;
         } else {
+            self.fallback_windows += 1;
             let total_window_io: u64 = per_service_io.values().sum();
             for (service, io) in &per_service_io {
                 let share = if total_window_io == 0 {
@@ -205,23 +310,22 @@ impl Builder {
                 } else {
                     *io as f64 / total_window_io as f64
                 };
-                let bucket = self.per_service.entry(service.clone()).or_default();
+                let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
+                    continue;
+                };
                 bucket.total_io_ops += *io;
                 bucket.total_requests += scale_u64(window_traces, share);
                 bucket.energy_kwh += window_energy_kwh * share;
                 bucket.carbon_kgco2eq += window_carbon_kg * share;
             }
-            for entry in &report.per_endpoint_io_ops {
-                if let Some(bucket) = self.per_service.get_mut(&entry.service) {
-                    bucket.endpoints_seen.insert(entry.endpoint.clone());
-                }
-            }
+            collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
         }
 
         for finding in &report.findings {
             // Route findings to the unattributed bucket when the window
-            // had no per-service offenders, otherwise the service shows
-            // efficiency = 100 with anti_patterns_detected_count > 0.
+            // had no per-service offenders or runtime maps, so a service
+            // never publishes efficiency=100 alongside non-zero
+            // anti_patterns_detected_count.
             let service_key: &str = if unattributed {
                 UNATTRIBUTED_SERVICE
             } else {
@@ -234,7 +338,9 @@ impl Builder {
                 0
             };
 
-            let bucket = self.per_service.entry(service_key.to_string()).or_default();
+            let Some(bucket) = bounded_entry(&mut self.per_service, service_key) else {
+                continue;
+            };
             let ap = bucket.anti_patterns.entry(pattern.to_string()).or_default();
             ap.occurrences += 1;
             ap.avoidable_io_ops = ap.avoidable_io_ops.saturating_add(avoidable);
@@ -258,12 +364,19 @@ impl Builder {
                 .or_insert(ts);
         }
 
-        Ok(())
+        Ok(!runtime_attribution)
     }
 
     fn finalize(self, source_files: Vec<String>) -> AggregateInputs {
         let total_requests: u64 = self.per_service.values().map(|s| s.total_requests).sum();
-        let total_energy_kwh: f64 = self.per_service.values().map(|s| s.energy_kwh).sum();
+        // Prefer the sum of runtime-calibrated `energy_kwh` accumulated
+        // from each window. Falls back to per-service energy (which is
+        // already proxy when no runtime data exists).
+        let total_energy_kwh: f64 = if self.runtime_energy_kwh > 0.0 {
+            self.runtime_energy_kwh
+        } else {
+            self.per_service.values().map(|s| s.energy_kwh).sum()
+        };
         let total_carbon = self.total_carbon_kgco2eq;
         let waste_ratio = if self.total_io_ops == 0 {
             0.0
@@ -294,6 +407,9 @@ impl Builder {
             malformed_lines_skipped: self.malformed_lines_skipped,
             first_seen: self.first_seen,
             last_seen: self.last_seen,
+            energy_source_models: self.energy_source_models,
+            runtime_windows: self.runtime_windows,
+            fallback_windows: self.fallback_windows,
         }
     }
 }
@@ -306,6 +422,48 @@ fn service_io_distribution(
         *out.entry(entry.service.clone()).or_insert(0) += entry.io_ops as u64;
     }
     out
+}
+
+/// Strip non-finite and negative values from any `f64` field read out
+/// of archive JSON (top-level energy, per-service energy, per-service
+/// carbon). Tampered or corrupted archives can carry `NaN`, `+Inf`, or
+/// negative numbers which would otherwise poison every downstream sum.
+fn sanitize_f64(value: f64) -> f64 {
+    if value.is_finite() && value >= 0.0 {
+        value
+    } else {
+        0.0
+    }
+}
+
+/// Record each `(service, endpoint)` pair into the matching service
+/// bucket's `endpoints_seen` set. Services absent from the bucket map
+/// (filtered out by the cap or never inserted) are skipped.
+fn collect_endpoints_seen(
+    per_service: &mut BTreeMap<String, ServiceAccumulator>,
+    entries: &[crate::report::PerEndpointIoOps],
+) {
+    for entry in entries {
+        if let Some(bucket) = per_service.get_mut(&entry.service) {
+            bucket.endpoints_seen.insert(entry.endpoint.clone());
+        }
+    }
+}
+
+/// Bounded `entry()`-equivalent for the per-service map. Returns a
+/// mutable handle to the bucket when the cap has room, `None` once the
+/// cap is reached for a previously unseen service.
+fn bounded_entry<'a>(
+    per_service: &'a mut BTreeMap<String, ServiceAccumulator>,
+    service: &str,
+) -> Option<&'a mut ServiceAccumulator> {
+    if per_service.contains_key(service) {
+        return per_service.get_mut(service);
+    }
+    if per_service.len() >= MAX_SERVICES {
+        return None;
+    }
+    Some(per_service.entry(service.to_string()).or_default())
 }
 
 #[allow(
@@ -675,5 +833,219 @@ mod tests {
         let key = ("svc".to_string(), "n_plus_one_sql".to_string());
         assert_eq!(*out.first_seen.get(&key).unwrap(), ts1);
         assert_eq!(*out.last_seen.get(&key).unwrap(), ts2);
+    }
+
+    fn make_runtime_report(
+        services: &[(&str, &str, usize)],
+        per_service_carbon: &[(&str, f64)],
+        per_service_energy: &[(&str, f64)],
+        per_service_region: &[(&str, &str)],
+        energy_kwh: f64,
+        energy_model: &str,
+    ) -> Report {
+        let mut r = make_report(10, 100, 5, services, vec![]);
+        r.green_summary.energy_kwh = energy_kwh;
+        r.green_summary.energy_model = energy_model.to_string();
+        r.green_summary.per_service_carbon_kgco2eq = per_service_carbon
+            .iter()
+            .map(|(s, v)| ((*s).to_string(), *v))
+            .collect();
+        r.green_summary.per_service_energy_kwh = per_service_energy
+            .iter()
+            .map(|(s, v)| ((*s).to_string(), *v))
+            .collect();
+        r.green_summary.per_service_region = per_service_region
+            .iter()
+            .map(|(s, r)| ((*s).to_string(), (*r).to_string()))
+            .collect();
+        r
+    }
+
+    #[test]
+    fn aggregator_uses_runtime_attribution_when_present() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_runtime_report(
+            &[("svc-low", "/api", 100), ("svc-high", "/api", 100)],
+            &[("svc-low", 0.005), ("svc-high", 0.500)],
+            &[("svc-low", 0.001), ("svc-high", 0.001)],
+            &[("svc-low", "eu-west-3"), ("svc-high", "pl")],
+            0.002,
+            "scaphandre_rapl",
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.runtime_windows, 1);
+        assert_eq!(out.fallback_windows, 0);
+        assert!(
+            (out.aggregate.total_energy_kwh - 0.002).abs() < 1e-12,
+            "runtime energy must replace the proxy"
+        );
+        let low = out.per_service.get("svc-low").expect("svc-low");
+        let high = out.per_service.get("svc-high").expect("svc-high");
+        assert!((low.carbon_kgco2eq - 0.005).abs() < 1e-12);
+        assert!((high.carbon_kgco2eq - 0.500).abs() < 1e-12);
+        assert!(out.energy_source_models.contains("scaphandre_rapl"));
+    }
+
+    #[test]
+    fn aggregator_falls_back_to_proxy_for_legacy_archives() {
+        // make_report leaves the per-service maps empty and energy_kwh
+        // at zero, mirroring a sprint-1 archive.
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.runtime_windows, 0);
+        assert_eq!(out.fallback_windows, 1);
+        assert!(out.energy_source_models.is_empty());
+        // Proxy energy = 100 ops * 1e-7 kWh.
+        assert!((out.aggregate.total_energy_kwh - 100.0 * 1e-7).abs() < 1e-12);
+    }
+
+    #[test]
+    fn aggregator_mixed_archive_per_window_strategy() {
+        let ts_legacy = Utc.with_ymd_and_hms(2026, 1, 10, 0, 0, 0).unwrap();
+        let ts_runtime = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let legacy = make_report(10, 100, 5, &[("svc-a", "/", 100)], vec![]);
+        let runtime = make_runtime_report(
+            &[("svc-b", "/", 50)],
+            &[("svc-b", 0.020)],
+            &[("svc-b", 0.0005)],
+            &[("svc-b", "eu-west-3")],
+            0.0005,
+            "cloud_specpower+cal",
+        );
+        let (_dir, path) = write_archive(&[(ts_legacy, legacy), (ts_runtime, runtime)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.runtime_windows, 1);
+        assert_eq!(out.fallback_windows, 1);
+        // `+cal` suffix is stripped in the collected set.
+        assert!(out.energy_source_models.contains("cloud_specpower"));
+        assert!(!out.energy_source_models.iter().any(|m| m.ends_with("+cal")));
+    }
+
+    #[test]
+    fn aggregator_clamps_negative_energy_and_carbon_from_tampered_archive() {
+        // JSON allows negative numbers; a tampered archive could carry
+        // them to skew the period downward. Without the clamp, per-service
+        // sums would go negative and propagate to `total_energy_kwh`.
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_runtime_report(
+            &[("svc-a", "/", 100)],
+            &[("svc-a", -1.0e10), ("svc-b", -0.5)],
+            &[("svc-a", -1.0), ("svc-b", -2.0)],
+            &[("svc-a", "eu-west-3"), ("svc-b", "pl")],
+            -1.0e6,
+            "scaphandre_rapl",
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        // Per-service clamp exercised here: every negative input maps to 0.
+        let svc_a = out.per_service.get("svc-a").expect("svc-a");
+        assert!((svc_a.carbon_kgco2eq - 0.0).abs() < f64::EPSILON);
+        assert!((svc_a.energy_kwh - 0.0).abs() < f64::EPSILON);
+        let svc_b = out.per_service.get("svc-b").expect("svc-b");
+        assert!((svc_b.carbon_kgco2eq - 0.0).abs() < f64::EPSILON);
+        assert!((svc_b.energy_kwh - 0.0).abs() < f64::EPSILON);
+        // Negative `energy_kwh` was rejected by the `> 0.0` check, so the
+        // proxy fallback ran: 100 ops × 1e-7 kWh = 1e-5.
+        assert!((out.aggregate.total_energy_kwh - 100.0 * 1e-7).abs() < 1e-12);
+    }
+
+    #[test]
+    fn aggregator_caps_per_service_cardinality() {
+        // A tampered archive carrying MAX_SERVICES + N distinct service
+        // strings must not balloon `per_service`. Overflow services are
+        // silently dropped, existing services keep accumulating.
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let overflow = 32_usize;
+        let services_raw: Vec<(String, f64, f64, String)> = (0..(MAX_SERVICES + overflow))
+            .map(|i| {
+                (
+                    format!("svc-{i:05}"),
+                    0.001,
+                    0.0001,
+                    "eu-west-3".to_string(),
+                )
+            })
+            .collect();
+        let services: Vec<(&str, &str, usize)> = services_raw
+            .iter()
+            .map(|(s, _, _, _)| (s.as_str(), "/", 1))
+            .collect();
+        let carbon: Vec<(&str, f64)> = services_raw
+            .iter()
+            .map(|(s, c, _, _)| (s.as_str(), *c))
+            .collect();
+        let energy: Vec<(&str, f64)> = services_raw
+            .iter()
+            .map(|(s, _, e, _)| (s.as_str(), *e))
+            .collect();
+        let regions: Vec<(&str, &str)> = services_raw
+            .iter()
+            .map(|(s, _, _, r)| (s.as_str(), r.as_str()))
+            .collect();
+        let r = make_runtime_report(
+            &services,
+            &carbon,
+            &energy,
+            &regions,
+            0.0001,
+            "scaphandre_rapl",
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.per_service.len() <= MAX_SERVICES);
+        assert_eq!(out.windows_aggregated, 1);
+    }
+
+    #[test]
+    fn aggregator_rejects_oversize_energy_model_strings() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let oversize = "x".repeat(1024);
+        let r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            &oversize,
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(
+            out.energy_source_models.is_empty(),
+            "oversize energy_model strings must not enter the set"
+        );
+    }
+
+    #[test]
+    fn aggregator_caps_distinct_energy_models() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut reports = Vec::new();
+        for i in 0..(MAX_ENERGY_MODELS + 20) {
+            let model = format!("model_{i:04}");
+            let r = make_runtime_report(
+                &[("svc", "/", 10)],
+                &[("svc", 0.001)],
+                &[("svc", 0.0001)],
+                &[("svc", "eu-west-3")],
+                0.0001,
+                &model,
+            );
+            let offset = i64::try_from(i).expect("test bound");
+            reports.push((ts + chrono::Duration::seconds(offset), r));
+        }
+        let (_dir, path) = write_archive(&reports);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        // Fed 84 distinct models, cap is 64. Set must saturate at the cap.
+        assert_eq!(out.energy_source_models.len(), MAX_ENERGY_MODELS);
     }
 }
