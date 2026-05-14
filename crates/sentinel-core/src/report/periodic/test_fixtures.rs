@@ -118,7 +118,8 @@ pub(super) fn sample_integrity() -> Integrity {
         binary_hash: None,
         binary_verification_url: None,
         trace_integrity_chain: serde_json::Value::Null,
-        signature: serde_json::Value::Null,
+        signature: None,
+        binary_attestation: None,
     }
 }
 

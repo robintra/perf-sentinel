@@ -62,6 +62,7 @@ pub enum IntegrityLevel {
     None,
     HashOnly,
     Signed,
+    SignedWithAttestation,
     Audited,
 }
 
@@ -315,8 +316,57 @@ pub struct Integrity {
     pub binary_verification_url: Option<String>,
     #[serde(default)]
     pub trace_integrity_chain: serde_json::Value,
+    /// Sigstore cosign in-toto attestation metadata. The signature
+    /// itself lives in a sidecar bundle file. This object carries
+    /// the locator and identity facts a verifier needs. Serialised
+    /// as `null` when absent so the canonical `content_hash` form
+    /// stays stable for files predating this typed schema.
     #[serde(default)]
-    pub signature: serde_json::Value,
+    pub signature: Option<SignatureMetadata>,
+    /// SLSA build provenance attestation for the perf-sentinel binary
+    /// that produced this report. Skipped from the output when absent
+    /// so files predating the field retain their canonical form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_attestation: Option<BinaryAttestationMetadata>,
+}
+
+/// Sigstore cosign + in-toto signature locator. Format strings are
+/// documented in `docs/design/10-SIGSTORE-ATTESTATION.md`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignatureMetadata {
+    /// Format identifier, currently `"sigstore-cosign-intoto-v1"`.
+    pub format: String,
+    /// URL where the attestation bundle (statement + signature +
+    /// Rekor inclusion proof) is published.
+    pub bundle_url: String,
+    /// Signer identity recorded by the OIDC issuer.
+    pub signer_identity: String,
+    /// OIDC issuer that authenticated the signer.
+    pub signer_issuer: String,
+    /// Rekor transparency log URL.
+    pub rekor_url: String,
+    /// Numeric log index in the Rekor instance.
+    pub rekor_log_index: u64,
+    /// Inclusion-proof timestamp, RFC 3339.
+    pub signed_at: String,
+}
+
+/// SLSA build provenance attestation locator. The full attestation
+/// bundle is published as a separate artifact alongside the binary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BinaryAttestationMetadata {
+    /// Format identifier, currently `"slsa-provenance-v1"`.
+    pub format: String,
+    /// URL where the SLSA provenance attestation is published.
+    pub attestation_url: String,
+    /// Builder identifier as recorded in the SLSA provenance.
+    pub builder_id: String,
+    /// Git tag of the perf-sentinel release that produced the binary.
+    pub git_tag: String,
+    /// Git commit SHA of the source tree used for the build.
+    pub git_commit: String,
+    /// SLSA level claimed by the attestation (e.g. `"L2"`, `"L3"`).
+    pub slsa_level: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -427,7 +477,8 @@ mod tests {
             binary_hash: None,
             binary_verification_url: None,
             trace_integrity_chain: serde_json::Value::Null,
-            signature: serde_json::Value::Null,
+            signature: None,
+            binary_attestation: None,
         }
     }
 
@@ -614,5 +665,105 @@ mod tests {
         assert_eq!(agg.runtime_windows_count, 0);
         assert_eq!(agg.fallback_windows_count, 0);
         assert!(agg.binary_versions.is_empty());
+    }
+
+    fn sample_signature() -> SignatureMetadata {
+        SignatureMetadata {
+            format: "sigstore-cosign-intoto-v1".to_string(),
+            bundle_url: "https://example.fr/perf-sentinel-attestation.sig".to_string(),
+            signer_identity: "https://github.com/robintra/perf-sentinel/.github/workflows/release.yml@refs/tags/v0.7.0".to_string(),
+            signer_issuer: "https://token.actions.githubusercontent.com".to_string(),
+            rekor_url: "https://rekor.sigstore.dev".to_string(),
+            rekor_log_index: 123_456_789,
+            signed_at: "2026-05-14T16:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_attestation() -> BinaryAttestationMetadata {
+        BinaryAttestationMetadata {
+            format: "slsa-provenance-v1".to_string(),
+            attestation_url: "https://github.com/robintra/perf-sentinel/releases/download/v0.7.0/perf-sentinel-linux-amd64.intoto.jsonl".to_string(),
+            builder_id: "https://github.com/actions/runner".to_string(),
+            git_tag: "v0.7.0".to_string(),
+            git_commit: "a47be9d".to_string(),
+            slsa_level: "L2".to_string(),
+        }
+    }
+
+    #[test]
+    fn integrity_roundtrip_with_signature_and_attestation() {
+        let i = Integrity {
+            content_hash: "sha256:".to_string() + &"0".repeat(64),
+            binary_hash: None,
+            binary_verification_url: None,
+            trace_integrity_chain: serde_json::Value::Null,
+            signature: Some(sample_signature()),
+            binary_attestation: Some(sample_attestation()),
+        };
+        let s = serde_json::to_string(&i).unwrap();
+        let back: Integrity = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.signature, Some(sample_signature()));
+        assert_eq!(back.binary_attestation, Some(sample_attestation()));
+    }
+
+    #[test]
+    fn integrity_roundtrip_with_signature_only() {
+        let i = Integrity {
+            content_hash: "sha256:".to_string() + &"0".repeat(64),
+            binary_hash: None,
+            binary_verification_url: None,
+            trace_integrity_chain: serde_json::Value::Null,
+            signature: Some(sample_signature()),
+            binary_attestation: None,
+        };
+        let s = serde_json::to_string(&i).unwrap();
+        let back: Integrity = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.signature, Some(sample_signature()));
+        assert!(back.binary_attestation.is_none());
+        // skip_serializing_if drops binary_attestation when None to keep
+        // the canonical content_hash form stable for files predating it.
+        assert!(!s.contains("binary_attestation"));
+    }
+
+    #[test]
+    fn integrity_roundtrip_with_attestation_only() {
+        let i = Integrity {
+            content_hash: "sha256:".to_string() + &"0".repeat(64),
+            binary_hash: None,
+            binary_verification_url: None,
+            trace_integrity_chain: serde_json::Value::Null,
+            signature: None,
+            binary_attestation: Some(sample_attestation()),
+        };
+        let s = serde_json::to_string(&i).unwrap();
+        let back: Integrity = serde_json::from_str(&s).unwrap();
+        assert!(back.signature.is_none());
+        assert_eq!(back.binary_attestation, Some(sample_attestation()));
+    }
+
+    #[test]
+    fn integrity_roundtrip_hash_only_emits_null_signature() {
+        // signature has no skip_serializing_if so legacy hash-only files
+        // continue to serialize "signature": null. Required so the
+        // canonical content_hash form is stable across the type migration.
+        let i = Integrity {
+            content_hash: "sha256:".to_string() + &"0".repeat(64),
+            binary_hash: None,
+            binary_verification_url: None,
+            trace_integrity_chain: serde_json::Value::Null,
+            signature: None,
+            binary_attestation: None,
+        };
+        let s = serde_json::to_string(&i).unwrap();
+        assert!(s.contains("\"signature\":null"));
+        assert!(!s.contains("binary_attestation"));
+    }
+
+    #[test]
+    fn integrity_level_kebab_serialization_for_new_variant() {
+        let v = serde_json::to_string(&IntegrityLevel::SignedWithAttestation).unwrap();
+        assert_eq!(v, "\"signed-with-attestation\"");
+        let back: IntegrityLevel = serde_json::from_str("\"signed-with-attestation\"").unwrap();
+        assert!(matches!(back, IntegrityLevel::SignedWithAttestation));
     }
 }

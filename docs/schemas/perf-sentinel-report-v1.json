@@ -52,7 +52,7 @@
     },
     "IntegrityLevel": {
       "type": "string",
-      "enum": ["none", "hash-only", "signed", "audited"]
+      "enum": ["none", "hash-only", "signed", "signed-with-attestation", "audited"]
     },
     "PeriodType": {
       "type": "string",
@@ -465,8 +465,70 @@
           "description": "Reserved. Always null in schema v1.0."
         },
         "signature": {
-          "type": ["null", "object"],
-          "description": "Reserved for Sigstore signatures in a future revision. Always null in schema v1.0."
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/SignatureMetadata" }
+          ],
+          "description": "Sigstore cosign in-toto signature locator. Null when the report is hash-only. Typed object when the report has been signed (0.7.0+)."
+        },
+        "binary_attestation": {
+          "$ref": "#/$defs/BinaryAttestationMetadata",
+          "description": "SLSA build provenance attestation for the perf-sentinel binary that produced this report. Present when the binary comes from a recognized SLSA L2+ builder (0.7.0+)."
+        }
+      }
+    },
+    "SignatureMetadata": {
+      "type": "object",
+      "required": [
+        "format",
+        "bundle_url",
+        "signer_identity",
+        "signer_issuer",
+        "rekor_url",
+        "rekor_log_index",
+        "signed_at"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["sigstore-cosign-intoto-v1"]
+        },
+        "bundle_url": { "type": "string", "format": "uri" },
+        "signer_identity": { "type": "string", "minLength": 1 },
+        "signer_issuer": { "type": "string", "format": "uri" },
+        "rekor_url": { "type": "string", "format": "uri" },
+        "rekor_log_index": { "type": "integer", "minimum": 0 },
+        "signed_at": { "$ref": "#/$defs/Iso8601DateTime" }
+      }
+    },
+    "BinaryAttestationMetadata": {
+      "type": "object",
+      "required": [
+        "format",
+        "attestation_url",
+        "builder_id",
+        "git_tag",
+        "git_commit",
+        "slsa_level"
+      ],
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": ["slsa-provenance-v1"]
+        },
+        "attestation_url": { "type": "string", "format": "uri" },
+        "builder_id": { "type": "string", "format": "uri" },
+        "git_tag": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+([+-][A-Za-z0-9._-]+)?$"
+        },
+        "git_commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$"
+        },
+        "slsa_level": {
+          "type": "string",
+          "enum": ["L2", "L3"]
         }
       }
     },
