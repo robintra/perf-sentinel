@@ -320,18 +320,53 @@ mod tests {
     }
 
     #[test]
-    fn hash_changes_when_a_non_blanked_field_mutates() {
+    fn hash_changes_when_any_non_blanked_field_mutates() {
         // Negative-cover: mutating a field that is NOT in
-        // POST_SIGN_FIELDS must change the hash. Guards against an
-        // accidental over-broad blanking that would let an attacker
-        // mutate, say, the organisation name without invalidating
-        // the signature.
+        // POST_SIGN_FIELDS must change the hash. Table-driven so
+        // a future over-broad blanking on any of these sibling
+        // objects gets caught (an attacker tampering with the
+        // organisation, the aggregate totals, the methodology
+        // header, or the period bounds must invalidate the
+        // signature).
+        use chrono::Datelike as _;
         let r = sample_report();
         let baseline = compute_content_hash(&r).unwrap();
-        let mut mutated = r.clone();
-        mutated.organisation.name = format!("{}-edited", mutated.organisation.name);
-        let after = compute_content_hash(&mutated).unwrap();
-        assert_ne!(baseline, after);
+
+        let mut m = r.clone();
+        m.organisation.name = format!("{}-edited", m.organisation.name);
+        assert_ne!(
+            compute_content_hash(&m).unwrap(),
+            baseline,
+            "organisation.name"
+        );
+
+        let mut m = r.clone();
+        m.aggregate.total_energy_kwh += 1.0;
+        assert_ne!(
+            compute_content_hash(&m).unwrap(),
+            baseline,
+            "aggregate.total_energy_kwh"
+        );
+
+        let mut m = r.clone();
+        m.methodology.sci_specification = format!("{}-v2", m.methodology.sci_specification);
+        assert_ne!(
+            compute_content_hash(&m).unwrap(),
+            baseline,
+            "methodology.sci_specification"
+        );
+
+        let mut m = r.clone();
+        m.period.from_date = m
+            .period
+            .from_date
+            .with_day(m.period.from_date.day().wrapping_add(1).min(28))
+            .unwrap();
+        assert_ne!(
+            compute_content_hash(&m).unwrap(),
+            baseline,
+            "period.from_date"
+        );
     }
 
     #[test]
