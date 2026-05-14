@@ -22,7 +22,9 @@ use std::collections::HashMap;
 use crate::correlate::Trace;
 use crate::detect::{Finding, GreenImpact};
 use crate::report::{GreenSummary, PerEndpointIoOps, TopOffender};
-use carbon::{CarbonContext, CarbonReport, RegionBreakdown};
+use carbon::CarbonContext;
+#[cfg(test)]
+use carbon::RegionBreakdown;
 
 use carbon_compute::compute_carbon_report;
 
@@ -208,11 +210,22 @@ pub fn score_green(
     //
     // Multi-region detection is folded into compute_carbon_report's
     // single span pass.
-    let (co2, regions, multi_region_active): (Option<CarbonReport>, Vec<RegionBreakdown>, bool) =
-        match carbon {
-            Some(ctx) => compute_carbon_report(traces, ctx, total_io_ops, avoidable_io_ops),
-            None => (None, Vec::new(), false),
-        };
+    let carbon_outputs = match carbon {
+        Some(ctx) => compute_carbon_report(traces, ctx, total_io_ops, avoidable_io_ops),
+        None => carbon_compute::CarbonComputeOutputs {
+            report: None,
+            regions: Vec::new(),
+            multi_region_active: false,
+            per_service: std::collections::BTreeMap::new(),
+            window_model: "",
+        },
+    };
+    let co2 = carbon_outputs.report;
+    let regions = carbon_outputs.regions;
+    let multi_region_active = carbon_outputs.multi_region_active;
+    // Per-service maps + window_model are wired into GreenSummary by
+    // step 3; bind them to suppress unused warnings until then.
+    let _ = (&carbon_outputs.per_service, carbon_outputs.window_model);
 
     // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
     // only emitted in mono-region mode when the proxy model is the sole

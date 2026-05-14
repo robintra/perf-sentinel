@@ -35,10 +35,23 @@ const MAX_REGIONS: usize = 256;
 #[derive(Default)]
 struct CarbonRunState {
     per_region: BTreeMap<String, RegionAccumulator>,
+    per_service: BTreeMap<String, ServiceCarbonAccumulator>,
     unknown_ops: usize,
     overflow_warned: bool,
     total_transport_gco2: f64,
     multi_region_active: bool,
+}
+
+/// Per-service energy and carbon accumulated during scoring. Feeds
+/// `GreenSummary.per_service_*`. See design doc 09.
+#[derive(Default)]
+#[allow(dead_code, reason = "consumed by score::score_green in the next step")]
+pub(super) struct ServiceCarbonAccumulator {
+    pub energy_kwh: f64,
+    pub operational_gco2: f64,
+    /// First region observed for the service. Later spans keep this
+    /// region even if `cloud_region` differs.
+    pub region: String,
 }
 
 /// Per-span intensity lookup result: pre-cached profile references + the
@@ -60,6 +73,15 @@ struct SpanRegionContext<'a> {
     pue: f64,
 }
 
+/// Outputs of [`compute_carbon_report`].
+pub(super) struct CarbonComputeOutputs {
+    pub report: Option<CarbonReport>,
+    pub regions: Vec<RegionBreakdown>,
+    pub multi_region_active: bool,
+    pub per_service: BTreeMap<String, ServiceCarbonAccumulator>,
+    pub window_model: &'static str,
+}
+
 /// Compute carbon report, per-region breakdown, and multi-region flag.
 /// Single-pass over spans with interleaved hourly/measured/proxy paths.
 /// See `docs/design/05-GREENOPS-AND-CARBON.md` for the full algorithm.
@@ -68,7 +90,7 @@ pub(super) fn compute_carbon_report(
     ctx: &CarbonContext,
     total_io_ops: usize,
     avoidable_io_ops: usize,
-) -> (Option<CarbonReport>, Vec<RegionBreakdown>, bool) {
+) -> CarbonComputeOutputs {
     // Multi-region flag seeded from config; updated from span attributes
     // during the main loop below.
     let mut state = CarbonRunState {
@@ -81,7 +103,13 @@ pub(super) fn compute_carbon_report(
     // batch with a configured service_regions map is consistent with a
     // non-empty batch from the same config.
     if traces.is_empty() {
-        return (None, Vec::new(), state.multi_region_active);
+        return CarbonComputeOutputs {
+            report: None,
+            regions: Vec::new(),
+            multi_region_active: state.multi_region_active,
+            per_service: BTreeMap::new(),
+            window_model: "",
+        };
     }
 
     for trace in traces {
@@ -104,7 +132,13 @@ pub(super) fn compute_carbon_report(
         model,
     );
     sort_regions_by_co2_desc(&mut regions);
-    (Some(report), regions, state.multi_region_active)
+    CarbonComputeOutputs {
+        report: Some(report),
+        regions,
+        multi_region_active: state.multi_region_active,
+        per_service: state.per_service,
+        window_model: model,
+    }
 }
 
 /// Single-span update for the main scoring loop. Resolves the region,
@@ -131,6 +165,16 @@ fn process_span_for_carbon(
     let region_ref = region_ctx.region_ref;
     let pue = region_ctx.pue;
     let intensity_value = intensity.value;
+    let service_key = span.event.service.as_ref();
+    // Lowercase the per-service region to align with `per_region` keys.
+    // `region_ctx.region_key` is Some when the raw `region_ref` carried
+    // uppercase bytes, None when it was already lowercase ASCII.
+    let service_region = region_ctx
+        .region_key
+        .as_deref()
+        .unwrap_or(region_ref)
+        .to_string();
+
     accumulate_span_into_region(
         &mut state.per_region,
         region_ctx,
@@ -139,6 +183,17 @@ fn process_span_for_carbon(
         measured_model,
         calibrated,
     );
+
+    let svc = state
+        .per_service
+        .entry(service_key.to_string())
+        .or_insert_with(|| ServiceCarbonAccumulator {
+            energy_kwh: 0.0,
+            operational_gco2: 0.0,
+            region: service_region,
+        });
+    svc.energy_kwh += energy_kwh;
+    svc.operational_gco2 += op_co2;
 
     state.total_transport_gco2 +=
         network_transport_contribution(span, region_ref, intensity_value, pue, ctx);
