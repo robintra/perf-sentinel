@@ -57,6 +57,11 @@ pub(super) struct ServiceCarbonAccumulator {
     /// window-level model tag (which already carries the `+cal` suffix
     /// when calibration is active).
     pub measured_model: Option<&'static str>,
+    /// Spans whose energy was resolved via Scaphandre or cloud
+    /// `SPECpower` (measured), not the proxy fallback.
+    pub measured_ops: u64,
+    /// Total spans processed for this service (measured + proxy).
+    pub total_ops: u64,
 }
 
 /// Precedence between two measured energy sources observed on different
@@ -219,10 +224,16 @@ fn process_span_for_carbon(
             operational_gco2: 0.0,
             region: service_region,
             measured_model: None,
+            measured_ops: 0,
+            total_ops: 0,
         });
     svc.energy_kwh += energy_kwh;
     svc.operational_gco2 += op_co2;
     svc.measured_model = higher_fidelity_measured(svc.measured_model, measured_model);
+    svc.total_ops += 1;
+    if measured_model.is_some() {
+        svc.measured_ops += 1;
+    }
 
     state.total_transport_gco2 +=
         network_transport_contribution(span, region_ref, intensity_value, pue, ctx);
