@@ -188,6 +188,18 @@ pub struct GreenSummary {
     /// to a region. Empty on pre-carbon-attribution baselines.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_region: BTreeMap<String, String>,
+    /// Per-service energy model tag. Same value set as `energy_model`
+    /// (window-level), per-service this time so auditors can verify which
+    /// services benefited from Scaphandre or cloud `SPECpower` during this
+    /// window. Presence of `"scaphandre_rapl"` or `"cloud_specpower"`
+    /// indicates that at least one span of the service hit a measured
+    /// energy source, not that 100% of the service's spans were measured.
+    /// Services without any measured span inherit the window-level proxy
+    /// tag; the `+cal` suffix on that inherited tag reflects window-wide
+    /// calibration state, not whether a calibration factor applied to
+    /// this specific service. Empty on pre-per-service-model baselines.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_energy_model: BTreeMap<String, String>,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
@@ -257,6 +269,7 @@ impl GreenSummary {
             per_service_carbon_kgco2eq: BTreeMap::new(),
             per_service_energy_kwh: BTreeMap::new(),
             per_service_region: BTreeMap::new(),
+            per_service_energy_model: BTreeMap::new(),
         }
     }
 }
@@ -413,6 +426,9 @@ mod tests {
         let mut per_service_region = BTreeMap::new();
         per_service_region.insert("checkout".to_string(), "eu-west-3".to_string());
         per_service_region.insert("catalog".to_string(), "unknown".to_string());
+        let mut per_service_energy_model = BTreeMap::new();
+        per_service_energy_model.insert("checkout".to_string(), "scaphandre_rapl".to_string());
+        per_service_energy_model.insert("catalog".to_string(), "io_proxy_v3+cal".to_string());
 
         let summary = GreenSummary {
             energy_kwh: 0.0026,
@@ -420,6 +436,7 @@ mod tests {
             per_service_carbon_kgco2eq: per_service_carbon.clone(),
             per_service_energy_kwh: per_service_energy.clone(),
             per_service_region: per_service_region.clone(),
+            per_service_energy_model: per_service_energy_model.clone(),
             ..GreenSummary::disabled(0)
         };
         let json = serde_json::to_string(&summary).expect("serialize");
@@ -430,6 +447,7 @@ mod tests {
         assert_eq!(parsed.per_service_carbon_kgco2eq, per_service_carbon);
         assert_eq!(parsed.per_service_energy_kwh, per_service_energy);
         assert_eq!(parsed.per_service_region, per_service_region);
+        assert_eq!(parsed.per_service_energy_model, per_service_energy_model);
     }
 
     #[test]
@@ -452,5 +470,6 @@ mod tests {
         assert!(parsed.per_service_carbon_kgco2eq.is_empty());
         assert!(parsed.per_service_energy_kwh.is_empty());
         assert!(parsed.per_service_region.is_empty());
+        assert!(parsed.per_service_energy_model.is_empty());
     }
 }

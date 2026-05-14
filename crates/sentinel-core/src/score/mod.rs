@@ -279,11 +279,14 @@ pub fn score_green(
     let mut per_service_energy_kwh = std::collections::BTreeMap::new();
     let mut per_service_carbon_kgco2eq = std::collections::BTreeMap::new();
     let mut per_service_region = std::collections::BTreeMap::new();
+    let mut per_service_energy_model = std::collections::BTreeMap::new();
     let mut energy_kwh = 0.0_f64;
     for (svc, acc) in per_service_runtime {
         energy_kwh += acc.energy_kwh;
         per_service_energy_kwh.insert(svc.clone(), acc.energy_kwh);
         per_service_carbon_kgco2eq.insert(svc.clone(), acc.operational_gco2 / 1000.0);
+        let svc_tag = acc.measured_model.unwrap_or(window_model);
+        per_service_energy_model.insert(svc.clone(), svc_tag.to_string());
         per_service_region.insert(
             svc,
             if acc.region.is_empty() {
@@ -319,6 +322,7 @@ pub fn score_green(
         per_service_carbon_kgco2eq,
         per_service_energy_kwh,
         per_service_region,
+        per_service_energy_model,
     };
 
     (enriched, green_summary, per_endpoint_io_ops)
@@ -2185,6 +2189,109 @@ mod tests {
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
         assert_eq!(co2.total.model, "io_proxy_v1");
+    }
+
+    // ------------------------------------------------------------------
+    // Per-service energy model tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn per_service_energy_model_tracks_scaphandre_hit() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        assert_eq!(
+            summary.per_service_energy_model.get("order-svc"),
+            Some(&"scaphandre_rapl".to_string())
+        );
+    }
+
+    #[test]
+    fn per_service_energy_model_tracks_cloud_specpower_hit() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::cloud(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        assert_eq!(
+            summary.per_service_energy_model.get("order-svc"),
+            Some(&"cloud_specpower".to_string())
+        );
+    }
+
+    #[test]
+    fn per_service_energy_model_falls_back_to_window_proxy_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        assert_eq!(
+            summary.per_service_energy_model.get("order-svc"),
+            Some(&"io_proxy_v1".to_string())
+        );
+    }
+
+    #[test]
+    fn per_service_energy_model_inherits_cal_suffix_when_proxy() {
+        // Calibration active + no measured snapshot -> window tag carries
+        // "+cal", and the service without a measured entry inherits it.
+        let trace = make_trace_with_region("trace-1", "eu-west-3", 4);
+        let cal_data = crate::calibrate::CalibrationData {
+            calibration: crate::calibrate::CalibrationSection {
+                base_energy_per_io_op_kwh: ENERGY_PER_IO_OP_KWH,
+                services: {
+                    let mut m = HashMap::new();
+                    m.insert(
+                        "order-svc".to_string(),
+                        crate::calibrate::ServiceCalibration {
+                            factor: 1.5,
+                            measured_energy_per_op_kwh: ENERGY_PER_IO_OP_KWH * 1.5,
+                        },
+                    );
+                    m
+                },
+            },
+        };
+        let ctx = CarbonContext {
+            default_region: None,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            calibration: Some(cal_data),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        assert_eq!(
+            summary.per_service_energy_model.get("order-svc"),
+            Some(&"io_proxy_v1+cal".to_string())
+        );
     }
 
     // ── Per-operation coefficient integration tests ────────────────
