@@ -149,6 +149,45 @@ pub struct GreenSummary {
     /// Additive on pre-0.5.12 baselines via `skip_serializing_if`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scoring_config: Option<ScoringConfig>,
+    /// Total energy consumed by the workload during the scoring window
+    /// in kWh, runtime-calibrated. Sum of per-service energy when
+    /// service-level measurement is available, falls back to the
+    /// operational proxy (`total_io_ops × ENERGY_PER_IO_OP_KWH`) when
+    /// not. `0.0` on pre-carbon-attribution baselines via `serde(default)`.
+    #[serde(default)]
+    pub energy_kwh: f64,
+    /// Energy model used to compute `energy_kwh`. One of
+    /// `"scaphandre_rapl"`, `"cloud_specpower"`, `"io_proxy_v3"`,
+    /// `"io_proxy_v2"`, `"io_proxy_v1"`, with optional `+cal` suffix
+    /// when per-service calibration factors are active. Reflects the
+    /// highest-fidelity model observed in the window (not weighted by
+    /// energy consumption). Empty string on pre-carbon-attribution
+    /// baselines.
+    #[serde(default)]
+    pub energy_model: String,
+    /// Operational carbon per service in kgCO2eq. Excludes the embodied
+    /// term (which stays in `co2.total` only) and the transport term.
+    /// Built at scoring time using the runtime-resolved
+    /// `service → region` mapping and the per-region grid intensity
+    /// (Electricity Maps real-time when available). Sum is
+    /// approximately `co2.operational_gco2 / 1000.0` up to
+    /// floating-point rounding. Empty on pre-carbon-attribution baselines.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_carbon_kgco2eq: BTreeMap<String, f64>,
+    /// Operational energy per service in kWh. Built at scoring time
+    /// using the runtime-resolved energy entries (Scaphandre per-process
+    /// RAPL when available, cloud `SPECpower` interpolation otherwise,
+    /// proxy fallback). Sum is approximately `energy_kwh` up to
+    /// floating-point rounding. Empty on pre-carbon-attribution
+    /// baselines.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_energy_kwh: BTreeMap<String, f64>,
+    /// Per-service region attribution snapshot at scoring time. Surfaces
+    /// the `service → region` mapping that produced the per-service
+    /// carbon, using `"unknown"` for services that could not be resolved
+    /// to a region. Empty on pre-carbon-attribution baselines.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_region: BTreeMap<String, String>,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
@@ -213,6 +252,11 @@ impl GreenSummary {
             regions: vec![],
             transport_gco2: None,
             scoring_config: None,
+            energy_kwh: 0.0,
+            energy_model: String::new(),
+            per_service_carbon_kgco2eq: BTreeMap::new(),
+            per_service_energy_kwh: BTreeMap::new(),
+            per_service_region: BTreeMap::new(),
         }
     }
 }
@@ -356,5 +400,57 @@ mod tests {
         assert_eq!(array.len(), 2);
         assert_eq!(array[0]["kind"], "cold_start");
         assert_eq!(array[1]["kind"], "ingestion_drops");
+    }
+
+    #[test]
+    fn green_summary_roundtrip_with_new_carbon_attribution_fields() {
+        let mut per_service_carbon = BTreeMap::new();
+        per_service_carbon.insert("checkout".to_string(), 0.42);
+        per_service_carbon.insert("catalog".to_string(), 0.11);
+        let mut per_service_energy = BTreeMap::new();
+        per_service_energy.insert("checkout".to_string(), 0.0021);
+        per_service_energy.insert("catalog".to_string(), 0.0005);
+        let mut per_service_region = BTreeMap::new();
+        per_service_region.insert("checkout".to_string(), "eu-west-3".to_string());
+        per_service_region.insert("catalog".to_string(), "unknown".to_string());
+
+        let summary = GreenSummary {
+            energy_kwh: 0.0026,
+            energy_model: "scaphandre_rapl+cal".to_string(),
+            per_service_carbon_kgco2eq: per_service_carbon.clone(),
+            per_service_energy_kwh: per_service_energy.clone(),
+            per_service_region: per_service_region.clone(),
+            ..GreenSummary::disabled(0)
+        };
+        let json = serde_json::to_string(&summary).expect("serialize");
+        let parsed: GreenSummary = serde_json::from_str(&json).expect("deserialize");
+
+        assert!((parsed.energy_kwh - 0.0026).abs() < 1e-12);
+        assert_eq!(parsed.energy_model, "scaphandre_rapl+cal");
+        assert_eq!(parsed.per_service_carbon_kgco2eq, per_service_carbon);
+        assert_eq!(parsed.per_service_energy_kwh, per_service_energy);
+        assert_eq!(parsed.per_service_region, per_service_region);
+    }
+
+    #[test]
+    fn green_summary_legacy_baseline_deserializes_with_default_carbon_attribution() {
+        // A pre-carbon-attribution archive line carries `GreenSummary`
+        // without `energy_kwh`, `energy_model`, or the per_service_*
+        // maps. Deserialization must fill them with the documented
+        // defaults so the aggregator can detect the absence and fall
+        // back to the proxy path.
+        let legacy = serde_json::json!({
+            "total_io_ops": 100,
+            "avoidable_io_ops": 5,
+            "io_waste_ratio": 0.05,
+            "io_waste_ratio_band": "healthy",
+            "top_offenders": []
+        });
+        let parsed: GreenSummary = serde_json::from_value(legacy).expect("deserialize legacy");
+        assert!(parsed.energy_kwh.abs() < f64::EPSILON);
+        assert!(parsed.energy_model.is_empty());
+        assert!(parsed.per_service_carbon_kgco2eq.is_empty());
+        assert!(parsed.per_service_energy_kwh.is_empty());
+        assert!(parsed.per_service_region.is_empty());
     }
 }

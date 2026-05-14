@@ -279,6 +279,10 @@ pub fn score_green(
         co2,
         regions,
         scoring_config: carbon.and_then(|ctx| ctx.scoring_config.clone()),
+        // Per-service energy/carbon attribution populated by step 3 of
+        // the carbon-attribution work, defaulted here to keep step 1
+        // additive.
+        ..GreenSummary::disabled(0)
     };
 
     (enriched, green_summary, per_endpoint_io_ops)

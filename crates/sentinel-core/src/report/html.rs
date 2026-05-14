@@ -666,10 +666,7 @@ mod tests {
                     io_intensity_band: InterpretationLevel::High,
                     co2_grams: Some(0.000_050),
                 }],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
+                ..GreenSummary::disabled(0)
             },
             quality_gate: QualityGate {
                 passed: true,

@@ -50,11 +50,7 @@ pub fn make_test_green_summary(
         avoidable_io_ops,
         io_waste_ratio,
         io_waste_ratio_band: InterpretationLevel::for_waste_ratio(io_waste_ratio),
-        top_offenders: vec![],
-        co2: None,
-        regions: vec![],
-        transport_gco2: None,
-        scoring_config: None,
+        ..GreenSummary::disabled(0)
     }
 }
 

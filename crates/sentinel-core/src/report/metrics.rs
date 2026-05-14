@@ -1130,11 +1130,7 @@ mod tests {
                 io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
                     waste_ratio,
                 ),
-                top_offenders: vec![],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
+                ..GreenSummary::disabled(0)
             },
             quality_gate: QualityGate {
                 passed: true,

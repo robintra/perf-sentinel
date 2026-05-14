@@ -253,7 +253,6 @@ fn is_rotation_stamp(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::interpret::InterpretationLevel;
     use crate::report::{Analysis, GreenSummary, QualityGate, Report};
     use tempfile::TempDir;
 
@@ -273,17 +272,7 @@ mod tests {
                 traces_analyzed: 0,
             },
             findings: vec![],
-            green_summary: GreenSummary {
-                total_io_ops: 0,
-                avoidable_io_ops: 0,
-                io_waste_ratio: 0.0,
-                io_waste_ratio_band: InterpretationLevel::Healthy,
-                top_offenders: vec![],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
-            },
+            green_summary: GreenSummary::disabled(0),
             quality_gate: QualityGate {
                 passed: true,
                 rules: vec![],

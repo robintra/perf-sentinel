@@ -2192,14 +2192,8 @@ mod tests {
             findings,
             green_summary: GreenSummary {
                 total_io_ops: event_count,
-                avoidable_io_ops: 0,
-                io_waste_ratio: 0.0,
-                io_waste_ratio_band: sentinel_core::InterpretationLevel::Healthy,
                 top_offenders,
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
+                ..GreenSummary::disabled(0)
             },
             quality_gate: QualityGate {
                 passed: gate_passed,
@@ -2382,10 +2376,7 @@ mod tests {
                     io_intensity_band: sentinel_core::InterpretationLevel::for_iis(8.2),
                     co2_grams: Some(0.001),
                 }],
-                co2: None,
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
+                ..GreenSummary::disabled(0)
             },
             quality_gate: QualityGate {
                 passed: true,

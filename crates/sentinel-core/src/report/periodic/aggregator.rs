@@ -477,11 +477,8 @@ mod tests {
                 avoidable_io_ops: avoidable_io,
                 io_waste_ratio: waste_ratio,
                 io_waste_ratio_band: band,
-                top_offenders: vec![],
                 co2: Some(carbon),
-                regions: vec![],
-                transport_gco2: None,
-                scoring_config: None,
+                ..GreenSummary::disabled(0)
             },
             quality_gate: QualityGate {
                 passed: true,
