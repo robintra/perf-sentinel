@@ -1,0 +1,105 @@
+# perf-sentinel org-config TOML.
+#
+# Referenced by `[reporting] org_config_path` in `.perf-sentinel.toml` and
+# by `perf-sentinel disclose --org-config` to fill the static fields of a
+# periodic disclosure report. Runtime fields (aggregate, applications,
+# integrity) are produced by the aggregator and the hasher.
+#
+# Keep this file in the same infrastructure repository as your daemon
+# config and rotate it through normal review. The official-intent
+# validator (both at daemon startup and at `disclose` time) refuses
+# disclosures that miss any of the required fields below.
+
+[organisation]
+# Legal name of the organisation publishing the disclosure. Must be
+# non-empty.
+name = "Example SAS"
+# ISO 3166-1 alpha-2 country code, upper case.
+country = "FR"
+# Optional NACE rev2 code.
+sector = "62.01"
+
+[organisation.identifiers]
+# Every identifier here is optional. Populate the ones that exist for
+# your jurisdiction; they help downstream consumers cross-reference the
+# disclosure with public registries.
+siren = "123456789"
+vat = "FR12123456789"
+# lei = "..."
+# opencorporates_url = "https://opencorporates.com/companies/fr/..."
+domain = "example.fr"
+
+[methodology]
+# Reference to the SCI specification the methodology aligns with.
+sci_specification = "ISO/IEC 21031:2024"
+# Patterns activated for this organisation. Must include the four
+# core-required patterns for an `intent = "official"` disclosure:
+# n_plus_one_sql, n_plus_one_http, redundant_sql, redundant_http.
+enabled_patterns = [
+    "n_plus_one_sql",
+    "n_plus_one_http",
+    "redundant_sql",
+    "redundant_http",
+    "slow_sql",
+    "slow_http",
+    "excessive_fanout",
+    "chatty_service",
+    "pool_saturation",
+    "serialized_calls",
+]
+# Patterns explicitly disabled and why. Must NOT include any core
+# pattern for an `intent = "official"` disclosure.
+disabled_patterns = []
+# `core-required` is the minimum bar for publishable disclosures.
+# `extended` indicates broader coverage; `partial` is informational only
+# and not publishable.
+conformance = "core-required"
+
+[methodology.calibration]
+# Cloud regions observed during the period. Informational, helps a
+# consumer interpret operational CO2 even though region-specific
+# grid-intensity data is sourced from the binary or the API.
+cloud_regions = ["eu-west-3"]
+# `electricity_maps` (real-time API), `static_tables` (embedded
+# annual averages), or `mixed`.
+carbon_intensity_source = "electricity_maps"
+# Version of the embedded SPECpower table that produced the cloud CPU%
+# energy proxy. perf-sentinel ships the only authoritative copy.
+specpower_table_version = "2024-2026"
+# True when the operator's deployment is wired to Scaphandre RAPL.
+scaphandre_used = false
+
+[scope_manifest]
+# Total applications the organisation declares as in-scope for
+# disclosure. Compared to runtime-observed count to compute coverage.
+total_applications_declared = 4
+# Optional operator estimate of total requests across all in-scope
+# applications during the period. Drives the `coverage_percentage`
+# field of the disclosure.
+# total_requests_in_period = 4200000
+# Environments observed by the daemon and rolled into the disclosure.
+environments_measured = ["prod"]
+
+# Each excluded application MUST carry a non-empty reason. Listing
+# applications here surfaces the gaps to a consumer and is required by
+# the official-intent validator.
+[[scope_manifest.applications_excluded]]
+service_name = "legacy-batch"
+reason = "OTel instrumentation pending, scheduled Q2"
+
+# Excluded environments follow the same pattern.
+# [[scope_manifest.environments_excluded]]
+# name = "internal-staging"
+# reason = "not customer-facing"
+
+[notes]
+# Override the default disclaimers when needed. Leaving the array empty
+# uses the four standard SCI / regulatory-grade disclaimers.
+disclaimers = []
+
+[notes.reference_urls]
+# Override these URLs to point at the documentation hosted on your
+# transparency domain rather than the upstream repository.
+methodology = "https://github.com/robintra/perf-sentinel/blob/main/docs/METHODOLOGY.md"
+project = "https://github.com/robintra/perf-sentinel"
+schema = "https://github.com/robintra/perf-sentinel/blob/main/docs/schemas/perf-sentinel-report-v1.json"

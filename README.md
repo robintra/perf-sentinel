@@ -629,6 +629,12 @@ For runtime acks against a live daemon, the workflow has three surfaces: the `pe
 
 </details>
 
+## Public reporting
+
+`perf-sentinel disclose` rolls up archived per-window `Report` NDJSON into a single, hash-verifiable JSON document over a calendar period (quarter by default). The format is schema-versioned (`perf-sentinel-report/v1.0`), structurally distinct from the per-batch report tree, and intended for public transparency rather than regulatory-grade reporting. Operators choose between G1 (internal, per-anti-pattern detail) and G2 (public, aggregate-only). When the daemon is configured with `[reporting] intent = "official"`, it refuses to start unless the org-config TOML can produce a publishable disclosure, surfacing every missing field in one pass.
+
+See [docs/REPORTING.md](docs/REPORTING.md) for the CLI usage guide, [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the calculation chain, and [docs/SCHEMA.md](docs/SCHEMA.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) for the wire format.
+
 ## Architecture
 
 <picture>

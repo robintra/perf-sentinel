@@ -21,6 +21,7 @@ For user-facing documentation, see the parent `docs/` directory:
 | [05: GreenOps and Carbon](05-GREENOPS-AND-CARBON.md)             | IIS formula, waste ratio dedup, CO2 conversion, SCI alignment                                                                                                                                      |
 | [06: Ingestion and Daemon](06-INGESTION-AND-DAEMON.md)           | OTLP conversion, daemon event loop, sampling, security hardening, query API, Prometheus pg_stat                                                                                                    |
 | [07: CLI, Config and Release](07-CLI-CONFIG-RELEASE.md)          | Bench, query, report, diff subcommands. HTML dashboard sink, CSV export, deep-link hash, cheatsheet modal, vim-style tab shortcuts. Config parsing, release profile, distribution, source location |
+| [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)             | Schema v1.0 determinism, G1/G2 granularity, collect-all validator, per-service attribution, daemon archive writer, `disclose` CLI dispatcher                                                       |
 
 ## Source file mapping
 
@@ -56,8 +57,11 @@ For user-facing documentation, see the parent `docs/` directory:
 | `daemon/sampling.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon/findings_store.rs`  | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
 | `daemon/query_api.rs`       | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `config.rs`                 | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
+| `config.rs`                 | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md), [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
 | `report/mod.rs`, `json.rs`  | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
 | `report/metrics.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
+| `report/periodic/*`         | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
+| `daemon/archive.rs`         | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
 | `sentinel-cli/src/main.rs`  | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
+| `sentinel-cli/src/disclose.rs` | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
 | `sentinel-cli/src/tui.rs`   | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
