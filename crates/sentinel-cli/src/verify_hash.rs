@@ -174,11 +174,21 @@ fn http_get(url: &str) -> Result<Vec<u8>, String> {
     if !url.starts_with("https://") {
         return Err("only https:// URLs are accepted".to_string());
     }
+    // max_redirects(0): refuse cross-host redirects entirely. The
+    // scheme guard above only covers the initial request; redirects
+    // could rebind to http://internal or https://localhost:4317 and
+    // turn this fetch into an SSRF probe. Operators who need
+    // redirect-following should re-resolve the canonical URL first.
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(REMOTE_TIMEOUT))
+        .max_redirects(0)
         .build()
         .into();
-    let mut response = agent.get(url).call().map_err(|e| format!("http: {e}"))?;
+    let response = agent.get(url).call().map_err(|e| format!("http: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("http status {}", response.status().as_u16()));
+    }
+    let mut response = response;
     let mut reader = response.body_mut().as_reader();
     let mut out = Vec::with_capacity(64 * 1024);
     reader
@@ -238,6 +248,16 @@ fn verify_signature(
             "signature metadata present, pass --bundle <path> to verify".to_string(),
         );
     };
+    if !is_safe_cosign_argument(&sig.signer_identity) {
+        return Status::Fail(
+            "signer_identity rejected: starts with '-' or contains control chars".to_string(),
+        );
+    }
+    if !is_safe_cosign_argument(&sig.signer_issuer) {
+        return Status::Fail(
+            "signer_issuer rejected: starts with '-' or contains control chars".to_string(),
+        );
+    }
     if !command_exists("cosign") {
         return Status::Skip(
             "cosign not found in PATH (install from https://docs.sigstore.dev/system_config/installation)".to_string(),
@@ -315,6 +335,15 @@ fn verify_binary_attestation(report: &PeriodicReport) -> Status {
 fn command_exists(name: &str) -> bool {
     let path = std::env::var_os("PATH").unwrap_or_default();
     std::env::split_paths(&path).any(|d| d.join(name).is_file())
+}
+
+/// Reject values that would let an adversarial report pivot cosign's
+/// CLI flags (anything starting with `-`) or smuggle control chars
+/// past terminal sanitisation. `Command::arg()` does not invoke a
+/// shell so quoting / `;` / `$(...)` are inert, but flag values are
+/// still parsed by cosign itself.
+fn is_safe_cosign_argument(s: &str) -> bool {
+    !s.is_empty() && !s.starts_with('-') && !s.chars().any(|c| c.is_control() || c == '\0')
 }
 
 fn sanitise_for_terminal(s: &str) -> String {
@@ -539,5 +568,19 @@ mod tests {
     #[test]
     fn derive_sidecar_url_returns_none_for_non_report_url() {
         assert!(derive_sidecar_url("https://example.fr/foo.json", "attestation.sig").is_none());
+    }
+
+    #[test]
+    fn cosign_argument_rejects_flag_injection() {
+        assert!(!is_safe_cosign_argument(
+            "--certificate-github-workflow-ref=evil"
+        ));
+        assert!(!is_safe_cosign_argument("-x"));
+        assert!(!is_safe_cosign_argument(""));
+        assert!(!is_safe_cosign_argument("user@example.fr\nmalicious"));
+        assert!(is_safe_cosign_argument("user@example.fr"));
+        assert!(is_safe_cosign_argument(
+            "https://token.actions.githubusercontent.com"
+        ));
     }
 }
