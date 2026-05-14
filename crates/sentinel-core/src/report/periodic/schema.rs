@@ -228,6 +228,12 @@ pub struct Aggregate {
     /// proxy attribution path.
     #[serde(default)]
     pub fallback_windows_count: u64,
+    /// Per-service set of distinct energy models observed over the
+    /// period. The `+cal` suffix is stripped before insertion; see
+    /// `calibration_inputs.calibration_applied` for the period-wide
+    /// calibration flag. Empty for periods without per-service attribution.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_energy_models: BTreeMap<String, BTreeSet<String>>,
 }
 
 #[inline]
@@ -393,6 +399,7 @@ mod tests {
             binary_versions: BTreeSet::new(),
             runtime_windows_count: 0,
             fallback_windows_count: 0,
+            per_service_energy_models: BTreeMap::new(),
         }
     }
 

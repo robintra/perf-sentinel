@@ -4,7 +4,7 @@
 #![cfg(test)]
 
 use chrono::{DateTime, NaiveDate, Utc};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 use super::schema::{
@@ -149,6 +149,7 @@ pub(super) fn sample_report(
             binary_versions: BTreeSet::new(),
             runtime_windows_count: 0,
             fallback_windows_count: 0,
+            per_service_energy_models: BTreeMap::new(),
         },
         applications,
         integrity: sample_integrity(),

@@ -331,6 +331,21 @@
           "type": "integer",
           "minimum": 0,
           "description": "Number of scoring windows that fell back to the proxy attribution path."
+        },
+        "per_service_energy_models": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[a-z0-9_+-]+$"
+            }
+          },
+          "description": "Per-service set of distinct energy models observed across the period's windows. The +cal suffix is stripped before insertion; see methodology.calibration_inputs.calibration_applied for the period-wide flag."
         }
       }
     },

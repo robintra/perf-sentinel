@@ -155,6 +155,11 @@ struct Builder {
     /// Set when at least one window's `energy_model` carried the `+cal`
     /// suffix, indicating operator calibration was active for that window.
     calibration_applied: bool,
+    /// Per-service set of distinct energy model tags accumulated across
+    /// the period's windows. The `+cal` suffix is stripped before
+    /// insertion. Service cardinality is bounded by `MAX_SERVICES`,
+    /// each inner set by `MAX_ENERGY_MODELS`.
+    per_service_energy_models: BTreeMap<String, BTreeSet<String>>,
 }
 
 impl Builder {
@@ -275,6 +280,28 @@ impl Builder {
                 || self.energy_source_models.contains(bare)
             {
                 self.energy_source_models.insert(bare.to_string());
+            }
+        }
+
+        for (service, raw_model) in &report.green_summary.per_service_energy_model {
+            if raw_model.is_empty() || raw_model.len() > MAX_ENERGY_MODEL_LEN {
+                continue;
+            }
+            let bare = raw_model.strip_suffix("+cal").unwrap_or(raw_model);
+            if raw_model.len() != bare.len() {
+                self.calibration_applied = true;
+            }
+            let set = if let Some(existing) = self.per_service_energy_models.get_mut(service) {
+                existing
+            } else if self.per_service_energy_models.len() >= MAX_SERVICES {
+                continue;
+            } else {
+                self.per_service_energy_models
+                    .entry(service.clone())
+                    .or_default()
+            };
+            if set.len() < MAX_ENERGY_MODELS || set.contains(bare) {
+                set.insert(bare.to_string());
             }
         }
 
@@ -435,6 +462,7 @@ impl Builder {
                 binary_versions: self.binary_versions,
                 runtime_windows_count: self.runtime_windows,
                 fallback_windows_count: self.fallback_windows,
+                per_service_energy_models: self.per_service_energy_models,
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -1187,6 +1215,100 @@ mod tests {
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert!(!out.calibration_applied);
+    }
+
+    #[test]
+    fn aggregator_collects_per_service_energy_models_single_window() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_runtime_report(
+            &[("svc-a", "/", 10), ("svc-b", "/", 10)],
+            &[("svc-a", 0.001), ("svc-b", 0.001)],
+            &[("svc-a", 0.0001), ("svc-b", 0.0001)],
+            &[("svc-a", "eu-west-3"), ("svc-b", "eu-west-3")],
+            0.0002,
+            "scaphandre_rapl",
+        );
+        r.green_summary
+            .per_service_energy_model
+            .insert("svc-a".to_string(), "scaphandre_rapl".to_string());
+        r.green_summary
+            .per_service_energy_model
+            .insert("svc-b".to_string(), "io_proxy_v3".to_string());
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let map = &out.aggregate.per_service_energy_models;
+        assert_eq!(map.len(), 2);
+        assert!(map.get("svc-a").unwrap().contains("scaphandre_rapl"));
+        assert!(map.get("svc-b").unwrap().contains("io_proxy_v3"));
+    }
+
+    #[test]
+    fn aggregator_merges_per_service_energy_models_across_windows() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 10, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let mut r1 = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "io_proxy_v3",
+        );
+        r1.green_summary
+            .per_service_energy_model
+            .insert("svc".to_string(), "io_proxy_v3".to_string());
+        let mut r2 = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "scaphandre_rapl",
+        );
+        r2.green_summary
+            .per_service_energy_model
+            .insert("svc".to_string(), "scaphandre_rapl".to_string());
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let set = out.aggregate.per_service_energy_models.get("svc").unwrap();
+        assert_eq!(set.len(), 2);
+        assert!(set.contains("io_proxy_v3"));
+        assert!(set.contains("scaphandre_rapl"));
+    }
+
+    #[test]
+    fn aggregator_strips_cal_suffix_from_per_service_energy_models() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "io_proxy_v3+cal",
+        );
+        r.green_summary
+            .per_service_energy_model
+            .insert("svc".to_string(), "io_proxy_v3+cal".to_string());
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let set = out.aggregate.per_service_energy_models.get("svc").unwrap();
+        assert!(set.contains("io_proxy_v3"));
+        assert!(!set.iter().any(|m| m.ends_with("+cal")));
+    }
+
+    #[test]
+    fn aggregator_per_service_energy_models_empty_for_legacy_archive() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        // make_report leaves the per-service map empty.
+        let r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.aggregate.per_service_energy_models.is_empty());
     }
 
     #[test]
