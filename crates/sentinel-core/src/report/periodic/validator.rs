@@ -164,6 +164,14 @@ fn validate_scope_manifest(scope: &ScopeManifest, errors: &mut Vec<ValidationErr
 }
 
 fn validate_methodology(meth: &Methodology, errors: &mut Vec<ValidationError>) {
+    validate_enabled_patterns(meth, errors);
+    validate_core_patterns(meth, errors);
+    validate_disabled_patterns(meth, errors);
+    validate_conformance(meth, errors);
+    validate_calibration_inputs(meth, errors);
+}
+
+fn validate_enabled_patterns(meth: &Methodology, errors: &mut Vec<ValidationError>) {
     for name in &meth.enabled_patterns {
         if !KNOWN_PATTERNS.contains(&name.as_str()) {
             errors.push(ValidationError::Methodology {
@@ -172,6 +180,9 @@ fn validate_methodology(meth: &Methodology, errors: &mut Vec<ValidationError>) {
             });
         }
     }
+}
+
+fn validate_core_patterns(meth: &Methodology, errors: &mut Vec<ValidationError>) {
     for name in &meth.core_patterns_required {
         if !KNOWN_PATTERNS.contains(&name.as_str()) {
             errors.push(ValidationError::Methodology {
@@ -186,37 +197,9 @@ fn validate_methodology(meth: &Methodology, errors: &mut Vec<ValidationError>) {
             });
         }
     }
-    for disabled in &meth.disabled_patterns {
-        if !KNOWN_PATTERNS.contains(&disabled.name.as_str()) {
-            errors.push(ValidationError::Methodology {
-                field: "disabled_patterns",
-                reason: format!("unknown pattern {:?}", disabled.name),
-            });
-        }
-        if meth.core_patterns_required.contains(&disabled.name) {
-            errors.push(ValidationError::Methodology {
-                field: "disabled_patterns",
-                reason: format!(
-                    "pattern {:?} is core-required and cannot be disabled",
-                    disabled.name
-                ),
-            });
-        }
-    }
-    // Conformance must be at least `core-required` for a publishable
-    // disclosure. `partial` is informational only.
-    if matches!(meth.conformance, Conformance::Partial) {
-        errors.push(ValidationError::Methodology {
-            field: "conformance",
-            reason: "official disclosure requires conformance \"core-required\" or \"extended\""
-                .to_string(),
-        });
-    }
-    // core_patterns_required must exactly match the canonical set
-    // returned by `core_patterns_required()`. The validator already
-    // rejects missing entries via the "must be in enabled_patterns"
-    // path, but a divergent vector (extra entries, reordering) would
-    // pass that check unnoticed.
+    // The declared core set must match `core_patterns_required()` exactly.
+    // Extra entries or reordering would otherwise pass the per-name checks
+    // above without invalidating the canonical-set claim.
     let canonical = super::schema::core_patterns_required();
     for declared in &meth.core_patterns_required {
         if !canonical.contains(declared) {
@@ -234,6 +217,40 @@ fn validate_methodology(meth: &Methodology, errors: &mut Vec<ValidationError>) {
             });
         }
     }
+}
+
+fn validate_disabled_patterns(meth: &Methodology, errors: &mut Vec<ValidationError>) {
+    for disabled in &meth.disabled_patterns {
+        if !KNOWN_PATTERNS.contains(&disabled.name.as_str()) {
+            errors.push(ValidationError::Methodology {
+                field: "disabled_patterns",
+                reason: format!("unknown pattern {:?}", disabled.name),
+            });
+        }
+        if meth.core_patterns_required.contains(&disabled.name) {
+            errors.push(ValidationError::Methodology {
+                field: "disabled_patterns",
+                reason: format!(
+                    "pattern {:?} is core-required and cannot be disabled",
+                    disabled.name
+                ),
+            });
+        }
+    }
+}
+
+fn validate_conformance(meth: &Methodology, errors: &mut Vec<ValidationError>) {
+    // `partial` is informational only, not a publishable conformance level.
+    if matches!(meth.conformance, Conformance::Partial) {
+        errors.push(ValidationError::Methodology {
+            field: "conformance",
+            reason: "official disclosure requires conformance \"core-required\" or \"extended\""
+                .to_string(),
+        });
+    }
+}
+
+fn validate_calibration_inputs(meth: &Methodology, errors: &mut Vec<ValidationError>) {
     let src = meth.calibration_inputs.carbon_intensity_source.trim();
     if src.is_empty() {
         errors.push(ValidationError::Methodology {
