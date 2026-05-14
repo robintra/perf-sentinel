@@ -34,9 +34,23 @@ pub fn compute_content_hash(report: &PeriodicReport) -> Result<String, HashError
     Ok(format_sha256(&bytes))
 }
 
+/// Zero out every field that the post-`disclose` signing workflow may
+/// add to or mutate on the report: `integrity.content_hash` itself,
+/// the typed `integrity.signature` / `integrity.binary_attestation`
+/// locators that an operator pastes in after `cosign attest`, and
+/// `report_metadata.integrity_level` which flips from `hash-only` to
+/// `signed` / `signed-with-attestation`. Keeping the canonical form
+/// invariant under that exact set of mutations is what lets a
+/// downstream consumer recompute the same `content_hash` against a
+/// signed report.
 fn blank_content_hash(v: &mut Value) {
     if let Some(integrity) = v.get_mut("integrity").and_then(Value::as_object_mut) {
         integrity.insert("content_hash".to_string(), Value::String(String::new()));
+        integrity.insert("signature".to_string(), Value::Null);
+        integrity.insert("binary_attestation".to_string(), Value::Null);
+    }
+    if let Some(metadata) = v.get_mut("report_metadata").and_then(Value::as_object_mut) {
+        metadata.insert("integrity_level".to_string(), Value::String(String::new()));
     }
 }
 
@@ -261,5 +275,43 @@ mod tests {
             empty,
             "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[test]
+    fn hash_is_invariant_under_post_sign_locator_addition() {
+        use crate::report::periodic::schema::{
+            BinaryAttestationMetadata, IntegrityLevel, SignatureMetadata,
+        };
+        // The operator workflow adds `integrity.signature`,
+        // `integrity.binary_attestation`, and bumps `integrity_level`
+        // AFTER `disclose` has already committed `content_hash`. The
+        // canonical form must be invariant under those edits so a
+        // signed disclosure still verifies.
+        let r = sample_report();
+        let baseline = compute_content_hash(&r).unwrap();
+
+        let mut signed = r.clone();
+        signed.report_metadata.integrity_level = IntegrityLevel::Signed;
+        signed.integrity.signature = Some(SignatureMetadata {
+            format: "sigstore-cosign-intoto-v1".to_string(),
+            bundle_url: "https://example.fr/bundle.sig".to_string(),
+            signer_identity: "ci@example.fr".to_string(),
+            signer_issuer: "https://accounts.google.com".to_string(),
+            rekor_url: "https://rekor.sigstore.dev".to_string(),
+            rekor_log_index: 42,
+            signed_at: "2026-05-14T12:00:00Z".to_string(),
+        });
+        assert_eq!(compute_content_hash(&signed).unwrap(), baseline);
+
+        signed.report_metadata.integrity_level = IntegrityLevel::SignedWithAttestation;
+        signed.integrity.binary_attestation = Some(BinaryAttestationMetadata {
+            format: "slsa-provenance-v1".to_string(),
+            attestation_url: "https://gh/p.intoto.jsonl".to_string(),
+            builder_id: "https://github.com/actions/runner".to_string(),
+            git_tag: "v0.7.0".to_string(),
+            git_commit: "deadbeef".to_string(),
+            slsa_level: "L2".to_string(),
+        });
+        assert_eq!(compute_content_hash(&signed).unwrap(), baseline);
     }
 }
