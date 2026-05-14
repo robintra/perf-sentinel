@@ -11,6 +11,7 @@ use opentelemetry_proto::tonic::collector::trace::v1::{
 };
 use opentelemetry_proto::tonic::common::v1::{KeyValue, any_value};
 use opentelemetry_proto::tonic::trace::v1::Span;
+use tonic::{Request, Response, Status, async_trait};
 
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::report::metrics::OtlpRejectReason;
@@ -564,22 +565,22 @@ impl OtlpGrpcService {
     }
 }
 
-#[tonic::async_trait]
+#[async_trait]
 impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService
     for OtlpGrpcService
 {
     async fn export(
         &self,
-        request: tonic::Request<ExportTraceServiceRequest>,
-    ) -> Result<tonic::Response<ExportTraceServiceResponse>, tonic::Status> {
+        request: Request<ExportTraceServiceRequest>,
+    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
         let events = convert_otlp_request(request.get_ref());
         if !events.is_empty() && self.sender.send(events).await.is_err() {
             if let Some(m) = self.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
             }
-            return Err(tonic::Status::internal("event channel closed"));
+            return Err(Status::internal("event channel closed"));
         }
-        Ok(tonic::Response::new(ExportTraceServiceResponse {
+        Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
         }))
     }
@@ -1932,6 +1933,8 @@ mod tests {
             let svc = OtlpGrpcService::new(tx, Some(metrics.clone()));
 
             let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+            // Fully-qualified to avoid the `axum::http::Request` shadow
+            // pulled in by the surrounding axum test module.
             let req = tonic::Request::new(make_request("svc", vec![span]));
             let result = svc.export(req).await;
             assert!(result.is_err());

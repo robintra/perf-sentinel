@@ -35,7 +35,8 @@ toml = "1.1.2"
 regex = "1.12.3"
 tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "sync", "time", "net", "signal", "macros", "io-util", "fs"] }
 # tonic/axum/tower are unconditional because report/metrics.rs (Prometheus
-# /metrics router) uses axum+tower and ingest/otlp.rs uses opentelemetry-proto
+# /metrics router) uses axum+tower, and ingest/otlp.rs uses tonic directly
+# (`Request`, `Response`, `Status`, `async_trait`) plus opentelemetry-proto
 # message types which depend on prost (via gen-tonic-messages). The actual
 # gRPC/HTTP listeners only run when the daemon feature is enabled at runtime.
 tonic = "0.14.6"
