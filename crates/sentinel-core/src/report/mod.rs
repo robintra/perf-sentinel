@@ -198,12 +198,24 @@ pub struct GreenSummary {
     /// window. Presence of `"scaphandre_rapl"` or `"cloud_specpower"`
     /// indicates that at least one span of the service hit a measured
     /// energy source, not that 100% of the service's spans were measured.
-    /// Services without any measured span inherit the window-level proxy
-    /// tag; the `+cal` suffix on that inherited tag reflects window-wide
-    /// calibration state, not whether a calibration factor applied to
-    /// this specific service. Empty on pre-per-service-model baselines.
+    /// Read together with `per_service_measured_ratio` for the share of
+    /// spans that benefited from the measured model. Services without any
+    /// measured span inherit the window-level proxy tag; the `+cal` suffix
+    /// on that inherited tag reflects window-wide calibration state, not
+    /// whether a calibration factor applied to this specific service.
+    /// Empty on pre-per-service-model baselines.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_energy_model: BTreeMap<String, String>,
+    /// Fraction of spans whose energy was resolved by Scaphandre or
+    /// cloud `SPECpower` (versus proxy fallback) per service, in `[0.0,
+    /// 1.0]`. `1.0` means every span had measured energy, `0.0` means
+    /// the service fell back to proxy entirely. Pair with
+    /// `per_service_energy_model` to assess fidelity. The aggregator
+    /// surfaces a simple arithmetic mean of these per-window ratios
+    /// under `aggregate.per_service_measured_ratio`, not a span-weighted
+    /// average. Empty on pre-per-service-ratio baselines.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_measured_ratio: BTreeMap<String, f64>,
 }
 
 /// Raw I/O operation count for a single `(service, endpoint)` pair.
@@ -274,6 +286,7 @@ impl GreenSummary {
             per_service_energy_kwh: BTreeMap::new(),
             per_service_region: BTreeMap::new(),
             per_service_energy_model: BTreeMap::new(),
+            per_service_measured_ratio: BTreeMap::new(),
         }
     }
 }
@@ -433,6 +446,9 @@ mod tests {
         let mut per_service_energy_model = BTreeMap::new();
         per_service_energy_model.insert("checkout".to_string(), "scaphandre_rapl".to_string());
         per_service_energy_model.insert("catalog".to_string(), "io_proxy_v3+cal".to_string());
+        let mut per_service_measured_ratio = BTreeMap::new();
+        per_service_measured_ratio.insert("checkout".to_string(), 0.75);
+        per_service_measured_ratio.insert("catalog".to_string(), 0.0);
 
         let summary = GreenSummary {
             energy_kwh: 0.0026,
@@ -441,6 +457,7 @@ mod tests {
             per_service_energy_kwh: per_service_energy.clone(),
             per_service_region: per_service_region.clone(),
             per_service_energy_model: per_service_energy_model.clone(),
+            per_service_measured_ratio: per_service_measured_ratio.clone(),
             ..GreenSummary::disabled(0)
         };
         let json = serde_json::to_string(&summary).expect("serialize");
@@ -452,6 +469,10 @@ mod tests {
         assert_eq!(parsed.per_service_energy_kwh, per_service_energy);
         assert_eq!(parsed.per_service_region, per_service_region);
         assert_eq!(parsed.per_service_energy_model, per_service_energy_model);
+        assert_eq!(
+            parsed.per_service_measured_ratio,
+            per_service_measured_ratio
+        );
     }
 
     #[test]
@@ -475,5 +496,6 @@ mod tests {
         assert!(parsed.per_service_energy_kwh.is_empty());
         assert!(parsed.per_service_region.is_empty());
         assert!(parsed.per_service_energy_model.is_empty());
+        assert!(parsed.per_service_measured_ratio.is_empty());
     }
 }

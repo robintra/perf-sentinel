@@ -234,6 +234,15 @@ pub struct Aggregate {
     /// calibration flag. Empty for periods without per-service attribution.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_energy_models: BTreeMap<String, BTreeSet<String>>,
+    /// Per-service mean of the per-window `per_service_measured_ratio`
+    /// across the period. Simple arithmetic mean (each window counts
+    /// equally), not span-weighted: a 10-span window and a 10000-span
+    /// window contribute the same weight. Read with
+    /// `per_service_energy_models` to distinguish "service had a
+    /// measured tag but only on 5% of its spans" from "service was
+    /// fully measured". Empty for periods without per-service attribution.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_service_measured_ratio: BTreeMap<String, f64>,
 }
 
 #[inline]
@@ -400,6 +409,7 @@ mod tests {
             runtime_windows_count: 0,
             fallback_windows_count: 0,
             per_service_energy_models: BTreeMap::new(),
+            per_service_measured_ratio: BTreeMap::new(),
         }
     }
 

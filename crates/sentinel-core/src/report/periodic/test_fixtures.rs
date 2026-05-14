@@ -150,6 +150,7 @@ pub(super) fn sample_report(
             runtime_windows_count: 0,
             fallback_windows_count: 0,
             per_service_energy_models: BTreeMap::new(),
+            per_service_measured_ratio: BTreeMap::new(),
         },
         applications,
         integrity: sample_integrity(),

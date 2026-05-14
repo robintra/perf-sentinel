@@ -39,6 +39,16 @@ const MAX_BINARY_VERSIONS: usize = 16;
 /// Per-string length cap on `binary_version` entries.
 const MAX_BINARY_VERSION_LEN: usize = 64;
 
+/// Matches the JSON Schema pattern `^[A-Za-z0-9._+-]+$` for `binary_version`
+/// without pulling in a regex. Rejects empty input and any byte outside the
+/// allowed alphabet so a tampered archive cannot inject control chars or
+/// arbitrary UTF-8 into the periodic report.
+fn is_valid_binary_version(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
+}
+
 #[derive(Debug, Default)]
 pub struct AggregateInputs {
     pub aggregate: Aggregate,
@@ -160,6 +170,9 @@ struct Builder {
     /// insertion. Service cardinality is bounded by `MAX_SERVICES`,
     /// each inner set by `MAX_ENERGY_MODELS`.
     per_service_energy_models: BTreeMap<String, BTreeSet<String>>,
+    /// Sum and count of per-window `per_service_measured_ratio` values,
+    /// keyed by service. Finalized to a per-service mean in `finalize`.
+    per_service_measured_ratio_sums: BTreeMap<String, (f64, u32)>,
 }
 
 impl Builder {
@@ -257,6 +270,7 @@ impl Builder {
         let bv = &report.binary_version;
         if !bv.is_empty()
             && bv.len() <= MAX_BINARY_VERSION_LEN
+            && is_valid_binary_version(bv)
             && (self.binary_versions.len() < MAX_BINARY_VERSIONS
                 || self.binary_versions.contains(bv))
         {
@@ -283,6 +297,25 @@ impl Builder {
             }
         }
 
+        for (service, ratio) in &report.green_summary.per_service_measured_ratio {
+            // Symmetric clamp: sanitize_f64 maps NaN/Inf/negative to 0.0,
+            // .min(1.0) maps overshoots to 1.0. Both are treated as "data
+            // out of spec" rather than dropped, so the mean stays defined.
+            let ratio = sanitize_f64(*ratio).min(1.0);
+            let entry =
+                if let Some(existing) = self.per_service_measured_ratio_sums.get_mut(service) {
+                    existing
+                } else if self.per_service_measured_ratio_sums.len() >= MAX_SERVICES {
+                    continue;
+                } else {
+                    self.per_service_measured_ratio_sums
+                        .entry(service.clone())
+                        .or_insert((0.0, 0))
+                };
+            entry.0 += ratio;
+            entry.1 = entry.1.saturating_add(1);
+        }
+
         for (service, raw_model) in &report.green_summary.per_service_energy_model {
             if raw_model.is_empty() || raw_model.len() > MAX_ENERGY_MODEL_LEN {
                 continue;
@@ -290,6 +323,14 @@ impl Builder {
             let bare = raw_model.strip_suffix("+cal").unwrap_or(raw_model);
             if raw_model.len() != bare.len() {
                 self.calibration_applied = true;
+            }
+            // Also feed the period-wide set so a window with empty
+            // window-level `energy_model` but populated per-service tags
+            // still surfaces under `methodology.calibration_inputs`.
+            if self.energy_source_models.len() < MAX_ENERGY_MODELS
+                || self.energy_source_models.contains(bare)
+            {
+                self.energy_source_models.insert(bare.to_string());
             }
             let set = if let Some(existing) = self.per_service_energy_models.get_mut(service) {
                 existing
@@ -463,6 +504,18 @@ impl Builder {
                 runtime_windows_count: self.runtime_windows,
                 fallback_windows_count: self.fallback_windows,
                 per_service_energy_models: self.per_service_energy_models,
+                per_service_measured_ratio: self
+                    .per_service_measured_ratio_sums
+                    .into_iter()
+                    .map(|(svc, (sum, count))| {
+                        let mean = if count == 0 {
+                            0.0
+                        } else {
+                            sum / f64::from(count)
+                        };
+                        (svc, mean)
+                    })
+                    .collect(),
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -1301,6 +1354,75 @@ mod tests {
     }
 
     #[test]
+    fn aggregator_per_service_measured_ratio_means_across_windows() {
+        // Three windows with the same service at ratios 0.5, 0.8, 0.3.
+        // Period-level mean: (0.5 + 0.8 + 0.3) / 3 = 0.533...
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 10, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 10, 0, 0, 0).unwrap();
+        let make = |ratio: f64| {
+            let mut r = make_runtime_report(
+                &[("svc", "/", 10)],
+                &[("svc", 0.001)],
+                &[("svc", 0.0001)],
+                &[("svc", "eu-west-3")],
+                0.0001,
+                "scaphandre_rapl",
+            );
+            r.green_summary
+                .per_service_measured_ratio
+                .insert("svc".to_string(), ratio);
+            r
+        };
+        let (_dir, path) = write_archive(&[(ts1, make(0.5)), (ts2, make(0.8)), (ts3, make(0.3))]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        let mean = out
+            .aggregate
+            .per_service_measured_ratio
+            .get("svc")
+            .copied()
+            .expect("ratio entry");
+        let expected = (0.5 + 0.8 + 0.3) / 3.0;
+        assert!(
+            (mean - expected).abs() < 1e-9,
+            "expected mean {expected}, got {mean}"
+        );
+    }
+
+    #[test]
+    fn aggregator_per_service_measured_ratio_clamps_out_of_range_symmetrically() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "scaphandre_rapl",
+        );
+        // Negative -> 0.0 (sanitize_f64), overshoot -> 1.0 (.min(1.0)).
+        // Symmetric: both produce a mean entry instead of dropping.
+        r.green_summary
+            .per_service_measured_ratio
+            .insert("svc-neg".to_string(), -0.5);
+        r.green_summary
+            .per_service_measured_ratio
+            .insert("svc-over".to_string(), 1.5);
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(
+            out.aggregate.per_service_measured_ratio.get("svc-neg"),
+            Some(&0.0)
+        );
+        assert_eq!(
+            out.aggregate.per_service_measured_ratio.get("svc-over"),
+            Some(&1.0)
+        );
+    }
+
+    #[test]
     fn aggregator_per_service_energy_models_empty_for_legacy_archive() {
         let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
         // make_report leaves the per-service map empty.
@@ -1335,6 +1457,19 @@ mod tests {
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert!(out.calibration_applied);
+    }
+
+    #[test]
+    fn aggregator_rejects_invalid_binary_version_pattern() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        // Control char + arbitrary UTF-8: must be rejected by the
+        // boundary check, no entry in the period-level set.
+        r.binary_version = "0.6.2\u{0001}\u{00e9}".to_string();
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.aggregate.binary_versions.is_empty());
     }
 
     #[test]

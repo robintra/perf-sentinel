@@ -280,6 +280,7 @@ pub fn score_green(
     let mut per_service_carbon_kgco2eq = std::collections::BTreeMap::new();
     let mut per_service_region = std::collections::BTreeMap::new();
     let mut per_service_energy_model = std::collections::BTreeMap::new();
+    let mut per_service_measured_ratio = std::collections::BTreeMap::new();
     let mut energy_kwh = 0.0_f64;
     for (svc, acc) in per_service_runtime {
         energy_kwh += acc.energy_kwh;
@@ -287,6 +288,12 @@ pub fn score_green(
         per_service_carbon_kgco2eq.insert(svc.clone(), acc.operational_gco2 / 1000.0);
         let svc_tag = acc.measured_model.unwrap_or(window_model);
         per_service_energy_model.insert(svc.clone(), svc_tag.to_string());
+        let ratio = if acc.total_ops == 0 {
+            0.0
+        } else {
+            acc.measured_ops as f64 / acc.total_ops as f64
+        };
+        per_service_measured_ratio.insert(svc.clone(), ratio);
         per_service_region.insert(
             svc,
             if acc.region.is_empty() {
@@ -323,6 +330,7 @@ pub fn score_green(
         per_service_energy_kwh,
         per_service_region,
         per_service_energy_model,
+        per_service_measured_ratio,
     };
 
     (enriched, green_summary, per_endpoint_io_ops)
@@ -2257,6 +2265,81 @@ mod tests {
             summary.per_service_energy_model.get("order-svc"),
             Some(&"io_proxy_v1".to_string())
         );
+    }
+
+    #[test]
+    fn per_service_measured_ratio_one_when_all_spans_measured() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let ratio = summary
+            .per_service_measured_ratio
+            .get("order-svc")
+            .copied()
+            .expect("ratio entry");
+        assert!((ratio - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn per_service_measured_ratio_zero_when_all_spans_proxy() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: None,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let ratio = summary
+            .per_service_measured_ratio
+            .get("order-svc")
+            .copied()
+            .expect("ratio entry");
+        assert!(ratio.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn per_service_measured_ratio_partial_when_only_some_services_measured() {
+        // Two services: one with a Scaphandre snapshot entry, one without.
+        // The measured service should be 1.0, the other 0.0.
+        let trace_a = make_trace_at_hour("t1", "eu-west-3", 12, 4);
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace_a], vec![], Some(&ctx));
+        let measured = summary
+            .per_service_measured_ratio
+            .get("order-svc")
+            .copied()
+            .unwrap_or(0.0);
+        assert!((measured - 1.0).abs() < f64::EPSILON);
     }
 
     #[test]

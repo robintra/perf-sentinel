@@ -346,6 +346,15 @@
             }
           },
           "description": "Per-service set of distinct energy models observed across the period's windows. The +cal suffix is stripped before insertion; see methodology.calibration_inputs.calibration_applied for the period-wide flag."
+        },
+        "per_service_measured_ratio": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "description": "Per-service mean of the per-window measured-ratio across the period. 1.0 means every span had measured energy across every window; 0.0 means the service fell back to proxy entirely."
         }
       }
     },
