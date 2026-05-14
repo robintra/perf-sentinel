@@ -77,6 +77,7 @@ struct ProcessTracesCtxParts<'a> {
     findings_store: &'a findings_store::FindingsStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
+    archive_handle: Option<&'a super::archive::ArchiveHandle>,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
@@ -93,6 +94,7 @@ pub(super) async fn run_event_loop(
     shutdown: ShutdownTargets<'_>,
     loop_cfg: EventLoopConfig,
     green_summary_cell: &Arc<RwLock<GreenSummary>>,
+    archive_handle: Option<&super::archive::ArchiveHandle>,
 ) {
     let mut ticker = interval(Duration::from_millis(loop_cfg.evict_ms.max(100)));
     // Prevent burst-catchup if process_traces takes longer than the tick
@@ -114,6 +116,7 @@ pub(super) async fn run_event_loop(
         findings_store,
         correlator,
         green_summary_cell,
+        archive_handle,
     };
 
     loop {
@@ -256,6 +259,7 @@ async fn flush_evicted(
             findings_store: parts.findings_store,
             correlator: parts.correlator,
             green_summary_cell: parts.green_summary_cell,
+            archive_handle: parts.archive_handle,
         },
     )
     .await;
@@ -425,6 +429,7 @@ struct ProcessTracesCtx<'a> {
     findings_store: &'a findings_store::FindingsStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
+    archive_handle: Option<&'a super::archive::ArchiveHandle>,
 }
 
 /// stamps `confidence` on every finding after detection. The
@@ -450,11 +455,9 @@ async fn process_traces(
 
     record_slow_durations(&trace_structs, ctx.detect_config, ctx.metrics);
 
-    // The daemon path discards `per_endpoint_io_ops` (third tuple
-    // element): it is consumed by the batch `diff` subcommand, not by
-    // the daemon's NDJSON / metrics surface. Bind it to `_` so the
-    // hot-path span iteration in `score_green` is still a single pass.
-    let (mut findings, green_summary, _per_endpoint_io_ops) = if ctx.green_enabled {
+    // Keep `per_endpoint_io_ops` for the periodic-disclosure archive
+    // (design doc 08). Already computed by `score_green`'s single pass.
+    let (mut findings, green_summary, per_endpoint_io_ops) = if ctx.green_enabled {
         score::score_green(&trace_structs, findings, Some(ctx.carbon_ctx))
     } else {
         let total_io_ops = trace_structs.iter().map(|t| t.spans.len()).sum();
@@ -490,6 +493,36 @@ async fn process_traces(
     }
 
     emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
+
+    if let Some(handle) = ctx.archive_handle {
+        let events_processed = trace_structs.iter().map(|t| t.spans.len()).sum();
+        let report = crate::report::Report {
+            analysis: crate::report::Analysis {
+                duration_ms: 0,
+                events_processed,
+                traces_analyzed: trace_count,
+            },
+            // Move owned data into the archive; aggregator consumes
+            // findings, green_summary, and per_endpoint_io_ops. Other
+            // fields are placeholders, see design doc 08.
+            findings,
+            green_summary,
+            quality_gate: crate::report::QualityGate {
+                passed: true,
+                rules: vec![],
+            },
+            per_endpoint_io_ops,
+            correlations: vec![],
+            warnings: vec![],
+            warning_details: vec![],
+            acknowledged_findings: vec![],
+        };
+        let archive = super::archive::OwnedArchive {
+            ts: chrono::Utc::now(),
+            report,
+        };
+        handle.try_send(archive);
+    }
 }
 
 /// Get current time in milliseconds since epoch.
@@ -580,6 +613,7 @@ mod tests {
             findings_store,
             correlator: None,
             green_summary_cell,
+            archive_handle: None,
         }
     }
 

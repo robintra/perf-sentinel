@@ -5,6 +5,7 @@
 //! findings as NDJSON on stdout when traces expire.
 
 pub mod ack;
+pub mod archive;
 pub mod findings_store;
 pub mod health;
 pub mod query_api;
@@ -85,6 +86,15 @@ pub enum DaemonError {
     ReportingValidation {
         /// All validation failures detected at startup.
         errors: Vec<String>,
+    },
+    /// Opening the per-window report archive file failed at startup.
+    #[error("failed to open report archive at '{path}'")]
+    ArchiveOpen {
+        /// Operator-configured path that failed to open.
+        path: String,
+        /// Underlying open error.
+        #[source]
+        source: archive::ArchiveError,
     },
 }
 
@@ -174,6 +184,16 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let cloud = setup_cloud_scraper(&config, &metrics);
     let emaps = setup_emaps_scraper(&config);
 
+    let archive_handle = match &config.daemon.archive {
+        Some(cfg) => Some(
+            archive::spawn(cfg).map_err(|source| DaemonError::ArchiveOpen {
+                path: cfg.path.clone(),
+                source,
+            })?,
+        ),
+        None => None,
+    };
+
     let base_carbon_ctx = config.carbon_context();
     let detect_config = DetectConfig::from(&config);
     let energy_sources = EnergySources {
@@ -214,8 +234,14 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             confidence: config.confidence(),
         },
         &green_summary_cell,
+        archive_handle.as_ref(),
     )
     .await;
+
+    if let Some(handle) = archive_handle {
+        drop(handle.tx);
+        let _ = handle.join.await;
+    }
 
     #[cfg(unix)]
     {
