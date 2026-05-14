@@ -34,23 +34,49 @@ pub fn compute_content_hash(report: &PeriodicReport) -> Result<String, HashError
     Ok(format_sha256(&bytes))
 }
 
-/// Zero out every field that the post-`disclose` signing workflow may
-/// add to or mutate on the report: `integrity.content_hash` itself,
-/// the typed `integrity.signature` / `integrity.binary_attestation`
-/// locators that an operator pastes in after `cosign attest`, and
-/// `report_metadata.integrity_level` which flips from `hash-only` to
-/// `signed` / `signed-with-attestation`. Keeping the canonical form
-/// invariant under that exact set of mutations is what lets a
-/// downstream consumer recompute the same `content_hash` against a
-/// signed report.
+/// JSON null/empty zero used when blanking a post-sign field in the
+/// canonical form. `Null` matches the unsigned wire shape of typed
+/// `Option<_>` locators, `EmptyString` matches scalar fields that
+/// serialise as a non-empty string only after signing.
+#[derive(Clone, Copy)]
+enum BlankZero {
+    Null,
+    EmptyString,
+}
+
+/// Object/field pairs whose value is zeroed before computing the
+/// canonical `content_hash`. These fields are populated or mutated
+/// after the initial disclose run, so the hash that the signature
+/// covers must not depend on them:
+///
+/// - `(integrity, content_hash)` is filled by disclose at write time.
+/// - `(integrity, signature)` is filled by the operator after
+///   `cosign attest-blob` succeeds and the locator is pasted in.
+/// - `(integrity, binary_attestation)` is filled when the producing
+///   binary carries SLSA provenance recorded post-build.
+/// - `(report_metadata, integrity_level)` flips from `hash-only` to
+///   `signed` or `signed-with-attestation` once a signature lands.
+///
+/// When a future schema revision adds a post-signing field (typed
+/// `trace_integrity_chain`, an external audit signature, ...) append
+/// it here. The hash invariant only holds for the exact set
+/// declared, see the regression test in this module.
+const POST_SIGN_FIELDS: &[(&str, &str, BlankZero)] = &[
+    ("integrity", "content_hash", BlankZero::EmptyString),
+    ("integrity", "signature", BlankZero::Null),
+    ("integrity", "binary_attestation", BlankZero::Null),
+    ("report_metadata", "integrity_level", BlankZero::EmptyString),
+];
+
 fn blank_content_hash(v: &mut Value) {
-    if let Some(integrity) = v.get_mut("integrity").and_then(Value::as_object_mut) {
-        integrity.insert("content_hash".to_string(), Value::String(String::new()));
-        integrity.insert("signature".to_string(), Value::Null);
-        integrity.insert("binary_attestation".to_string(), Value::Null);
-    }
-    if let Some(metadata) = v.get_mut("report_metadata").and_then(Value::as_object_mut) {
-        metadata.insert("integrity_level".to_string(), Value::String(String::new()));
+    for (parent, field, zero) in POST_SIGN_FIELDS {
+        if let Some(obj) = v.get_mut(*parent).and_then(Value::as_object_mut) {
+            let zeroed = match zero {
+                BlankZero::Null => Value::Null,
+                BlankZero::EmptyString => Value::String(String::new()),
+            };
+            obj.insert((*field).to_string(), zeroed);
+        }
     }
 }
 
@@ -275,6 +301,37 @@ mod tests {
             empty,
             "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
+    }
+
+    #[test]
+    fn post_sign_fields_inventory_is_locked() {
+        // Pinning the exact set so an unintended removal fails a test
+        // rather than silently shrinking the hash invariant. If you
+        // add a new post-sign field, update both the const and this
+        // expectation.
+        let expected: &[(&str, &str)] = &[
+            ("integrity", "content_hash"),
+            ("integrity", "signature"),
+            ("integrity", "binary_attestation"),
+            ("report_metadata", "integrity_level"),
+        ];
+        let actual: Vec<(&str, &str)> = POST_SIGN_FIELDS.iter().map(|(p, f, _)| (*p, *f)).collect();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn hash_changes_when_a_non_blanked_field_mutates() {
+        // Negative-cover: mutating a field that is NOT in
+        // POST_SIGN_FIELDS must change the hash. Guards against an
+        // accidental over-broad blanking that would let an attacker
+        // mutate, say, the organisation name without invalidating
+        // the signature.
+        let r = sample_report();
+        let baseline = compute_content_hash(&r).unwrap();
+        let mut mutated = r.clone();
+        mutated.organisation.name = format!("{}-edited", mutated.organisation.name);
+        let after = compute_content_hash(&mutated).unwrap();
+        assert_ne!(baseline, after);
     }
 
     #[test]
