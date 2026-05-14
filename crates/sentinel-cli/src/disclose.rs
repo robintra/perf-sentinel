@@ -19,7 +19,9 @@ use sentinel_core::report::periodic::schema::{
     Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport,
     ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, core_patterns_required,
 };
-use sentinel_core::report::periodic::{binary_hash, compute_content_hash, validate_official};
+use sentinel_core::report::periodic::{
+    MIN_PERIOD_COVERAGE_FOR_OFFICIAL, binary_hash, compute_content_hash, validate_official,
+};
 use sentinel_core::text_safety::sanitize_for_terminal;
 use std::collections::BTreeMap;
 use uuid::Uuid;
@@ -258,6 +260,17 @@ fn build_report(
         confidentiality,
     );
 
+    let base_disclaimers = if org.notes.disclaimers.is_empty() {
+        default_disclaimers()
+    } else {
+        org.notes.disclaimers.clone()
+    };
+    let disclaimers = augment_disclaimers_for_coverage(
+        base_disclaimers,
+        intent,
+        aggregate.aggregate.period_coverage,
+    );
+
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
         report_metadata: ReportMetadata {
@@ -294,14 +307,34 @@ fn build_report(
             signature: serde_json::Value::Null,
         },
         notes: Notes {
-            disclaimers: if org.notes.disclaimers.is_empty() {
-                default_disclaimers()
-            } else {
-                org.notes.disclaimers.clone()
-            },
+            disclaimers,
             reference_urls: org.notes.reference_urls.clone(),
         },
     }
+}
+
+/// Append the runtime-calibration coverage disclaimer when an internal
+/// report falls below the official-grade threshold. Official reports are
+/// rejected by `validate_official` upstream, so they never reach this
+/// branch.
+fn augment_disclaimers_for_coverage(
+    mut disclaimers: Vec<String>,
+    intent: ReportIntent,
+    period_coverage: f64,
+) -> Vec<String> {
+    if matches!(intent, ReportIntent::Internal)
+        && period_coverage < MIN_PERIOD_COVERAGE_FOR_OFFICIAL
+    {
+        disclaimers.push(format!(
+            "Runtime-calibration coverage for this period is {:.1}%, below the \
+             {:.0}% threshold. Aggregate energy and per-service attribution rely \
+             on proxy fallback for the remaining windows. Not suitable for \
+             official disclosure.",
+            period_coverage * 100.0,
+            MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0,
+        ));
+    }
+    disclaimers
 }
 
 fn build_applications(
@@ -440,4 +473,48 @@ fn write_pretty_json(report: &PeriodicReport, output: &Path) -> std::io::Result<
     use std::io::Write as _;
     writer.write_all(b"\n")?;
     writer.flush()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coverage_disclaimer_added_for_internal_below_threshold() {
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_coverage(base, ReportIntent::Internal, 0.5);
+        assert_eq!(out.len(), 2);
+        assert!(out[1].contains("50.0%"));
+        let threshold_text = format!("{:.0}%", MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0);
+        assert!(out[1].contains(&threshold_text));
+        assert!(out[1].contains("Not suitable for official disclosure"));
+    }
+
+    #[test]
+    fn coverage_disclaimer_omitted_for_internal_at_full_coverage() {
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_coverage(base.clone(), ReportIntent::Internal, 1.0);
+        assert_eq!(out, base);
+    }
+
+    #[test]
+    fn coverage_disclaimer_omitted_for_internal_exactly_at_threshold() {
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_coverage(
+            base.clone(),
+            ReportIntent::Internal,
+            MIN_PERIOD_COVERAGE_FOR_OFFICIAL,
+        );
+        assert_eq!(out, base);
+    }
+
+    #[test]
+    fn coverage_disclaimer_omitted_for_official_intent() {
+        // Official below threshold is refused by the validator upstream,
+        // but if we ever build the report (e.g. validator bypassed), this
+        // branch must not add the internal-only disclaimer.
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_coverage(base.clone(), ReportIntent::Official, 0.5);
+        assert_eq!(out, base);
+    }
 }

@@ -29,6 +29,12 @@ const KNOWN_PATTERNS: &[&str] = &[
 /// Values accepted for `methodology.calibration_inputs.carbon_intensity_source`.
 const CARBON_SOURCE_VALUES: &[&str] = &["electricity_maps", "static_tables", "mixed"];
 
+/// Minimum runtime-calibration ratio for an `official` intent report.
+/// Reports below this threshold are likely produced during a daemon
+/// migration or with partial Scaphandre coverage; publishing them as
+/// `official` would silently understate or distort the period total.
+pub const MIN_PERIOD_COVERAGE_FOR_OFFICIAL: f64 = 0.75;
+
 /// Validate a report for the given intent.
 ///
 /// `internal` always returns `Ok(())`.
@@ -302,6 +308,24 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
             reason: format!(
                 "must be in [0, 100], got {}",
                 agg.aggregate_efficiency_score
+            ),
+        });
+    }
+    if !agg.period_coverage.is_finite() || !(0.0..=1.0).contains(&agg.period_coverage) {
+        errors.push(ValidationError::Aggregate {
+            field: "period_coverage",
+            reason: format!("must be in [0, 1], got {}", agg.period_coverage),
+        });
+    } else if agg.period_coverage < MIN_PERIOD_COVERAGE_FOR_OFFICIAL {
+        errors.push(ValidationError::Aggregate {
+            field: "period_coverage",
+            reason: format!(
+                "{:.1}% is below the {:.0}% threshold required for official intent. \
+                 Likely cause: daemon migration mid-period or partial Scaphandre \
+                 coverage. Either regenerate the report over a shorter period that \
+                 excludes non-calibrated windows, or set intent=internal.",
+                agg.period_coverage * 100.0,
+                MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0,
             ),
         });
     }
@@ -609,6 +633,49 @@ mod tests {
                     if *field == "aggregate_waste_ratio")),
             "got {errors:?}"
         );
+    }
+
+    #[test]
+    fn period_coverage_below_threshold_rejected_for_official() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.period_coverage = 0.6;
+        let errors = validate_official(&r).unwrap_err();
+        let threshold_text = format!("{:.0}%", MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0);
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, reason }
+                    if *field == "period_coverage" && reason.contains(&threshold_text))),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn period_coverage_at_threshold_accepted_for_official() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.period_coverage = MIN_PERIOD_COVERAGE_FOR_OFFICIAL;
+        validate_official(&r).expect("0.75 should clear the official gate");
+    }
+
+    #[test]
+    fn period_coverage_out_of_range_rejected_for_official() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.period_coverage = 1.5;
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, reason }
+                    if *field == "period_coverage" && reason.contains("[0, 1]"))),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn period_coverage_below_threshold_skipped_for_internal() {
+        let mut r = good_report(ReportIntent::Internal, Confidentiality::Internal);
+        r.aggregate.period_coverage = 0.2;
+        validate_official(&r).expect("internal intent must not gate on coverage");
     }
 
     #[test]

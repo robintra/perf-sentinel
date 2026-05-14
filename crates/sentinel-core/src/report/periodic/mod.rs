@@ -31,4 +31,4 @@ pub use schema::{
     PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest,
     core_patterns_required,
 };
-pub use validator::{validate_content_hash, validate_official};
+pub use validator::{MIN_PERIOD_COVERAGE_FOR_OFFICIAL, validate_content_hash, validate_official};
