@@ -18,3 +18,12 @@ lto = "thin"
 strip = true
 panic = "abort"
 opt-level = 3
+
+# Catch cognitive-complexity regressions at pre-commit time rather
+# than at SonarCloud time five sprints later. Clippy's
+# `cognitive_complexity` lint uses the same algorithm class as
+# SonarCloud `rust:S3776`, so a clean `cargo clippy` here implies a
+# clean SonarCloud scan for that rule. Crates opt in via
+# `lints.workspace = true`.
+[workspace.lints.clippy]
+cognitive_complexity = "deny"
