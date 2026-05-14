@@ -61,13 +61,17 @@ fn write_example_with_fixed_hash(dir: &std::path::Path) -> PathBuf {
 }
 
 #[test]
-fn verify_hash_passes_on_freshly_hashed_report() {
+fn verify_hash_returns_partial_with_exit_1_when_signature_absent() {
+    // A hash-only report (no Sigstore signature) yields PARTIAL.
+    // verify-hash MUST exit non-zero so a script using
+    // `verify-hash && deploy` cannot treat an unsigned report as
+    // trusted. Content hash matches, but signature was never verified.
     let tmp = tempfile::tempdir().expect("tempdir");
     let report_path = write_example_with_fixed_hash(tmp.path());
     let v = run_verify(&["--report", report_path.to_str().unwrap()]);
     assert_eq!(
         v.status.code(),
-        Some(0),
+        Some(1),
         "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&v.stdout),
         String::from_utf8_lossy(&v.stderr)

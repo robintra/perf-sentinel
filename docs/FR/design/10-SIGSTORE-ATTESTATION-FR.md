@@ -171,8 +171,11 @@ propriété du format, pas un opt-in optionnel.
    `integrity.binary_verification_url`. Le fetch binaire + verify
    en une seule commande est un travail futur.
 
-Codes de sortie : `0` trusted, `1` untrusted (un check a échoué),
-`2` erreur fichier, `3` erreur réseau.
+Codes de sortie : `0` TRUSTED (content hash matché ET signature
+vérifiée ok), `1` tout le reste (UNTRUSTED ou PARTIAL), `2`
+erreur fichier, `3` erreur réseau. PARTIAL retombe sur `1` à
+dessein : un script doit exiger content hash ET signature pour
+traiter le rapport comme trusted.
 
 ## Privacy sur Rekor public
 

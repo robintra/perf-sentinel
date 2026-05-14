@@ -4,8 +4,18 @@
 //! deterministic content hash recompute (pure Rust, always run),
 //! Sigstore cosign attestation (delegated to the `cosign` binary), and
 //! SLSA build provenance for the producing binary (delegated to
-//! `slsa-verifier`). Exit codes: 0 trusted, 1 untrusted, 2 file error,
-//! 3 network error.
+//! `slsa-verifier`). Exit codes:
+//!
+//! - `0` TRUSTED (content hash matched and signature verified ok)
+//! - `1` UNTRUSTED or PARTIAL (a check failed, was skipped, or the
+//!   metadata was absent and a downstream script must not assume
+//!   integrity)
+//! - `2` file error
+//! - `3` network error
+//!
+//! PARTIAL collapses into `1` on purpose: a script doing
+//! `verify-hash && deploy` must require the cryptographic primitives,
+//! not just the local content hash.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -133,7 +143,7 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, Fetched
         2
     })?;
     let attestation_url = derive_sidecar_url(url, "attestation.intoto.jsonl");
-    let bundle_url = derive_sidecar_url(url, "attestation.sig");
+    let bundle_url = derive_sidecar_url(url, "bundle.sig");
     let mut fetched = FetchedPaths {
         attestation: None,
         bundle: None,
@@ -198,13 +208,13 @@ fn http_get(url: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// Conventional sidecar URL: replace the final filename suffix with the
-/// given `tail`. e.g. `/path/perf-sentinel-report.json` +
-/// `attestation.intoto.jsonl` -> `/path/perf-sentinel-attestation.intoto.jsonl`.
+/// Conventional sidecar URL: same directory as the report, fixed
+/// tail. Matches the operator workflow in `docs/REPORTING.md` which
+/// instructs publishing `attestation.intoto.jsonl` and `bundle.sig`
+/// alongside the report regardless of the report's exact filename.
 fn derive_sidecar_url(report_url: &str, tail: &str) -> Option<String> {
-    let (prefix, last) = report_url.rsplit_once('/')?;
-    let stem = last.strip_suffix("-report.json")?;
-    Some(format!("{prefix}/{stem}-{tail}"))
+    let (prefix, _last) = report_url.rsplit_once('/')?;
+    Some(format!("{prefix}/{tail}"))
 }
 
 fn verify_content_hash(report: &PeriodicReport) -> Status {
@@ -349,11 +359,10 @@ fn sanitise_for_terminal(s: &str) -> String {
 }
 
 fn exit_code(outcome: &Outcome) -> i32 {
-    i32::from(
-        outcome.content_hash.is_failure()
-            || outcome.signature.is_failure()
-            || outcome.binary_attestation.is_failure(),
-    )
+    match overall_label(outcome) {
+        "TRUSTED" => 0,
+        _ => 1,
+    }
 }
 
 fn print_text(outcome: &Outcome) {
@@ -550,19 +559,23 @@ mod tests {
     }
 
     #[test]
-    fn derive_sidecar_url_replaces_report_suffix() {
+    fn derive_sidecar_url_uses_same_directory() {
         assert_eq!(
             derive_sidecar_url(
                 "https://example.fr/perf-sentinel-report.json",
                 "attestation.intoto.jsonl"
             ),
-            Some("https://example.fr/perf-sentinel-attestation.intoto.jsonl".to_string())
+            Some("https://example.fr/attestation.intoto.jsonl".to_string())
+        );
+        assert_eq!(
+            derive_sidecar_url("https://example.fr/report.json", "bundle.sig"),
+            Some("https://example.fr/bundle.sig".to_string())
         );
     }
 
     #[test]
-    fn derive_sidecar_url_returns_none_for_non_report_url() {
-        assert!(derive_sidecar_url("https://example.fr/foo.json", "attestation.sig").is_none());
+    fn derive_sidecar_url_returns_none_when_url_has_no_slash() {
+        assert!(derive_sidecar_url("report.json", "bundle.sig").is_none());
     }
 
     #[test]

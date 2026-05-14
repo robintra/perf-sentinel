@@ -163,8 +163,11 @@ the format, not an optional opt-in.
    `integrity.binary_verification_url`; binary fetch + verify in
    a single command is future work.
 
-Exit codes: `0` trusted, `1` untrusted (any check failed), `2`
-file error, `3` network error.
+Exit codes: `0` TRUSTED (content hash matched AND signature
+verified ok), `1` anything else (UNTRUSTED or PARTIAL), `2` file
+error, `3` network error. PARTIAL collapses into `1` on purpose:
+a script must require both content hash AND signature to treat
+the report as trusted.
 
 ## Privacy on Rekor public
 

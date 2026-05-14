@@ -170,11 +170,15 @@ perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 
 `verify-hash` chaîne trois vérifications : recompute déterministe
 du content hash (Rust pur, toujours lancé), signature Sigstore
-(`cosign verify-attestation`), et provenance SLSA du binaire
+(`cosign verify-blob-attestation`), et provenance SLSA du binaire
 (résumé métadonnée plus une commande `slsa-verifier` qui pointe
 vers le binaire dans `integrity.binary_verification_url`). Codes
-de sortie : `0` trusted, `1` untrusted, `2` erreur fichier,
-`3` erreur réseau.
+de sortie : `0` TRUSTED (content hash matché ET signature
+vérifiée ok), `1` tout le reste y compris PARTIAL (signature
+skippée parce que `cosign` est absent ou les sidecars n'ont pas
+été fournis), `2` erreur fichier, `3` erreur réseau. Un gate
+scripté `verify-hash && deploy` exige donc les deux couches, pas
+juste le hash local.
 
 ## Erreurs courantes
 

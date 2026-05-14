@@ -168,10 +168,14 @@ perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 
 `verify-hash` chains three checks: deterministic content hash
 recompute (pure Rust, always run), Sigstore signature
-(`cosign verify-attestation`), and SLSA binary provenance
+(`cosign verify-blob-attestation`), and SLSA binary provenance
 (metadata summary plus an `slsa-verifier` command pointing at the
 binary in `integrity.binary_verification_url`). Exit codes: `0`
-trusted, `1` untrusted, `2` file error, `3` network error.
+TRUSTED (content hash matched AND signature verified ok), `1`
+anything else including PARTIAL (signature skipped because
+`cosign` is absent or sidecars were not provided), `2` file
+error, `3` network error. A scripted `verify-hash && deploy`
+gate therefore requires both layers, not just the local hash.
 
 ## Common errors
 
