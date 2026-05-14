@@ -626,6 +626,33 @@ mod tests {
     }
 
     #[test]
+    fn core_patterns_check_fails_on_shrinkage() {
+        let mut report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        let dropped = report.methodology.core_patterns_required.pop().unwrap();
+        let s = verify_core_patterns(&report);
+        match s {
+            Status::Fail(detail) => assert!(detail.contains(&dropped), "{detail}"),
+            _ => panic!("expected Fail on shrinkage"),
+        }
+    }
+
+    #[test]
+    fn core_patterns_check_fails_on_growth() {
+        let mut report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        report
+            .methodology
+            .core_patterns_required
+            .push("slow_sql".to_string());
+        let s = verify_core_patterns(&report);
+        match s {
+            Status::Fail(detail) => assert!(detail.contains("slow_sql"), "{detail}"),
+            _ => panic!("expected Fail on growth"),
+        }
+    }
+
+    #[test]
     fn signature_check_returns_not_provided_when_absent() {
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
