@@ -12,6 +12,7 @@
 pub mod aggregator;
 pub mod errors;
 pub mod hasher;
+pub mod org_config;
 pub mod schema;
 pub mod validator;
 

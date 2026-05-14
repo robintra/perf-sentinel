@@ -78,6 +78,14 @@ pub enum DaemonError {
         #[source]
         source: ack::AckError,
     },
+    /// `[reporting] intent = "official"` is configured but the org-config
+    /// is missing fields required for a publishable disclosure. Every
+    /// missing or invalid field is listed in `errors`.
+    #[error("[reporting] official intent is misconfigured:\n - {}", errors.join("\n - "))]
+    ReportingValidation {
+        /// All validation failures detected at startup.
+        errors: Vec<String>,
+    },
 }
 
 /// Typed sub-enum for TLS configuration failures.
@@ -132,6 +140,7 @@ pub enum TlsConfigError {
 ///
 /// Panics if `config.daemon.max_active_traces` is 0 (config validation prevents this).
 pub async fn run(config: Config) -> Result<(), DaemonError> {
+    validate_official_reporting(&config)?;
     let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
         max_events_per_trace: config.daemon.max_events_per_trace,
@@ -215,6 +224,51 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     Ok(())
 }
 
+/// Daemon startup gate for `[reporting] intent = "official"`.
+/// See `docs/design/08-PERIODIC-DISCLOSURE.md`.
+fn validate_official_reporting(config: &Config) -> Result<(), DaemonError> {
+    use crate::report::periodic::org_config;
+
+    if config.reporting.intent.as_deref() == Some("audited") {
+        return Err(DaemonError::ReportingValidation {
+            errors: vec![
+                "[reporting] intent = \"audited\" is not yet implemented, refusing to start daemon"
+                    .to_string(),
+            ],
+        });
+    }
+    if config.reporting.intent.as_deref() != Some("official") {
+        return Ok(());
+    }
+
+    let mut errors: Vec<String> = Vec::new();
+    let loaded = match &config.reporting.org_config_path {
+        None => {
+            errors.push(
+                "[reporting] org_config_path is required when intent = \"official\"".to_string(),
+            );
+            None
+        }
+        Some(path) => match org_config::load_from_path(path) {
+            Ok(cfg) => Some(cfg),
+            Err(err) => {
+                errors.push(err.to_string());
+                None
+            }
+        },
+    };
+
+    if let Some(cfg) = loaded {
+        errors.extend(org_config::validate_for_official(&cfg));
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(DaemonError::ReportingValidation { errors })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +287,88 @@ mod tests {
         // Bogus port paths still reach .parse(), which fails.
         let err = run(config).await.expect_err("should fail");
         assert!(matches!(err, DaemonError::InvalidAddr(_)));
+    }
+
+    #[tokio::test]
+    async fn daemon_run_refuses_official_without_org_config_path() {
+        let config = Config {
+            reporting: crate::config::ReportingConfig {
+                intent: Some("official".to_string()),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = run(config).await.expect_err("must refuse");
+        match err {
+            DaemonError::ReportingValidation { errors } => {
+                assert!(
+                    errors.iter().any(|e| e.contains("org_config_path")),
+                    "got {errors:?}"
+                );
+            }
+            other => panic!("expected ReportingValidation, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn daemon_run_refuses_official_with_unreadable_org_config() {
+        let config = Config {
+            reporting: crate::config::ReportingConfig {
+                intent: Some("official".to_string()),
+                org_config_path: Some("/no/such/path/org.toml".to_string()),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = run(config).await.expect_err("must refuse");
+        assert!(matches!(err, DaemonError::ReportingValidation { .. }));
+    }
+
+    #[tokio::test]
+    async fn daemon_run_refuses_official_when_org_config_misses_fields() {
+        use std::io::Write;
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        // Incomplete: empty name, lowercase country, missing core patterns.
+        writeln!(
+            file,
+            r#"
+[organisation]
+name = ""
+country = "fr"
+
+[methodology]
+sci_specification = "ISO/IEC 21031:2024"
+enabled_patterns = ["slow_sql"]
+disabled_patterns = []
+conformance = "partial"
+
+[methodology.calibration]
+carbon_intensity_source = "electricity_maps"
+specpower_table_version = "2024-2026"
+
+[scope_manifest]
+total_applications_declared = 1
+"#
+        )
+        .unwrap();
+
+        let config = Config {
+            reporting: crate::config::ReportingConfig {
+                intent: Some("official".to_string()),
+                org_config_path: Some(file.path().display().to_string()),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = run(config).await.expect_err("must refuse");
+        match err {
+            DaemonError::ReportingValidation { errors } => {
+                assert!(errors.iter().any(|e| e.contains("organisation.name")));
+                assert!(errors.iter().any(|e| e.contains("country")));
+                assert!(errors.iter().any(|e| e.contains("n_plus_one_sql")));
+            }
+            other => panic!("expected ReportingValidation, got {other:?}"),
+        }
     }
 
     #[test]
