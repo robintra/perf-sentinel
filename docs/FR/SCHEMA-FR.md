@@ -76,7 +76,13 @@ Les deux granularités sont encodées dans le JSON Schema avec des clauses `not:
 
 ## Intégrité
 
-`content_hash` est `"sha256:<64-hex>"` sur la forme JSON canonique du document avec le champ `content_hash` mis à chaîne vide. Le schéma accepte aussi une chaîne vide pour ce champ afin que les exemples puissent être livrés sans valeur cuite. `binary_hash` est `"sha256:<64-hex>"` du binaire perf-sentinel qui a produit le fichier. `binary_verification_url` pointe vers l'artefact de release où les consommateurs récupèrent le même binaire. `trace_integrity_chain` et `signature` sont réservés pour une révision future et valent `null` en v1.0.
+`content_hash` est `"sha256:<64-hex>"` sur la forme JSON canonique du document avec le champ `content_hash` mis à chaîne vide. Le schéma accepte aussi une chaîne vide pour ce champ afin que les exemples puissent être livrés sans valeur cuite. `binary_hash` est `"sha256:<64-hex>"` du binaire perf-sentinel qui a produit le fichier. `binary_verification_url` pointe vers l'artefact de release où les consommateurs récupèrent le même binaire. `trace_integrity_chain` est réservé pour une révision future et vaut `null` en v1.0.
+
+`signature` (0.7.0+) vaut soit `null` (rapport hash-only) soit un objet typé avec `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, et `signed_at`. Les champs permettent collectivement à un vérifieur de localiser le bundle cosign et la preuve d'inclusion Rekor.
+
+`binary_attestation` (0.7.0+) est optionnel et, quand présent, porte un `format` (`"slsa-provenance-v1"`), `attestation_url`, `builder_id`, `git_tag`, `git_commit`, et `slsa_level` (`"L2"` pour le workflow GitHub Actions actuel). Les consommateurs passent `attestation_url` à `slsa-verifier verify-artifact` contre le binaire téléchargé depuis `binary_verification_url`.
+
+`integrity_level` dans `report_metadata` vaut `none`, `hash-only`, `signed`, `signed-with-attestation` (0.7.0+), `audited`. Le lecteur peut l'utiliser comme filtre rapide avant de parser le bloc integrity.
 
 ## Notes
 

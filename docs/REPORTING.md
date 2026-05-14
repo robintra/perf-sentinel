@@ -101,30 +101,77 @@ disclose_period = "calendar-quarter"
 
 `intent = "internal"` (or omitting the section) leaves the daemon in monitoring mode without the publishable-disclosure gate.
 
-## Verifying a published disclosure
+## Signing your disclosure
 
-A third party can verify a published file with three commands:
+`intent = "official"` disclosures should be signed via Sigstore so a
+consumer can verify the file was published by your organisation and
+has not been modified. The pipeline is opt-in: pass
+`--emit-attestation <path>` to `disclose` to get a sidecar in-toto
+v1 statement, then sign that statement with `cosign`.
 
 ```bash
-# 1. The schema id under notes.reference_urls.schema points to a JSON
-#    Schema v2020-12 published in the perf-sentinel repository.
-jq -r '.notes.reference_urls.schema' perf-sentinel-report.json
+# 1. Produce the report and the in-toto attestation.
+perf-sentinel disclose \
+    --intent official \
+    --confidentiality public \
+    --period-type calendar-quarter \
+    --from 2026-01-01 --to 2026-03-31 \
+    --input archive/2026Q1/*.ndjson \
+    --output report.json \
+    --emit-attestation attestation.intoto.jsonl \
+    --org-config org.toml
 
-# 2. The content_hash is reproducible. The canonical bytes are produced
-#    by perf-sentinel itself via `serde_json` shortest round-trip
-#    number formatting plus a recursive BTreeMap key sort. A `jq`
-#    pipeline cannot match those bytes byte-for-byte for arbitrary
-#    f64 values (jq emits IEEE-754 repr, serde_json emits shortest
-#    round-trip). The reproducible reference implementation is:
-#       perf-sentinel verify-hash <path>
-#    (planned helper; until then use the perf-sentinel binary
-#    to recompute or accept the hash as-shipped).
+# 2. Sign the attestation with cosign against Sigstore public. The
+#    OIDC issuer (browser flow or GitHub Actions token) records the
+#    signer identity. The bundle includes the Rekor inclusion proof.
+cosign attest \
+    --type custom \
+    --predicate attestation.intoto.jsonl \
+    --bundle bundle.sig \
+    report.json
 
-# 3. The binary_hash matches the perf-sentinel release tag listed in
-#    integrity.binary_verification_url. Download the release artifact,
-#    SHA-256 it locally, compare.
-jq -r '.integrity.binary_hash' perf-sentinel-report.json
+# 3. Add the signature locator metadata to integrity.signature in
+#    report.json so verifiers can find the bundle and Rekor entry,
+#    then bump report_metadata.integrity_level from "hash-only" to
+#    "signed" (or "signed-with-attestation" if the producing binary
+#    carries SLSA provenance). A future `perf-sentinel sign`
+#    subcommand will automate this step.
+
+# 4. Publish report.json, attestation.intoto.jsonl, bundle.sig at
+#    your transparency URL.
 ```
+
+Operators who run a private Rekor instance set
+`[reporting.sigstore] rekor_url = "..."` in their perf-sentinel
+config and pass the same URL to `cosign --rekor-url`. Reports
+produced without `--no-tlog-upload` only: `verify-hash` rejects
+bundles without a Rekor inclusion proof.
+
+See `docs/design/10-SIGSTORE-ATTESTATION.md` for the full
+methodology, failure modes, and privacy considerations on Rekor
+public.
+
+## Verifying a published disclosure
+
+A third party verifies a published file with one command:
+
+```bash
+# Local mode: all three files already downloaded.
+perf-sentinel verify-hash \
+    --report report.json \
+    --attestation attestation.intoto.jsonl \
+    --bundle bundle.sig
+
+# Remote mode: fetch the report and sidecars by HTTPS convention.
+perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
+```
+
+`verify-hash` chains three checks: deterministic content hash
+recompute (pure Rust, always run), Sigstore signature
+(`cosign verify-attestation`), and SLSA binary provenance
+(metadata summary plus an `slsa-verifier` command pointing at the
+binary in `integrity.binary_verification_url`). Exit codes: `0`
+trusted, `1` untrusted, `2` file error, `3` network error.
 
 ## Common errors
 

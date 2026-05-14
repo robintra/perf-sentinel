@@ -81,4 +81,13 @@ A disclosure carries:
 - `integrity.content_hash`: SHA-256 over the canonical JSON form (sorted object keys, compact serialisation, UTF-8) with `content_hash` blanked to an empty string. A consumer recomputes by setting their copy's `content_hash` to `""` and hashing.
 - `integrity.binary_hash`: SHA-256 of the perf-sentinel binary that produced the file, taken via `std::env::current_exe()`. Pair with `binary_verification_url` to assert the binary matches a published release.
 
-The hash chain in `integrity.trace_integrity_chain` and a Sigstore signature in `integrity.signature` are reserved for a future revision and always `null` in schema v1.0.
+The hash chain in `integrity.trace_integrity_chain` is reserved for a future revision and is always `null` in schema v1.0.
+
+## Cryptographic integrity (0.7.0+)
+
+Two optional primitives layered on top of the content hash anchor a published disclosure in public infrastructure.
+
+- **Sigstore signature** (`integrity.signature`). When the operator signs the disclosure's in-toto v1 attestation via `cosign attest`, the report carries metadata (`bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, `signed_at`) that lets a consumer recover the bundle and verify it through Rekor public. `verify-hash` rejects bundles without a Rekor inclusion proof, so transparency is a property of the format, not optional.
+- **SLSA build provenance** (`integrity.binary_attestation`). Official perf-sentinel release binaries carry a SLSA L2 attestation produced by the GitHub Actions release workflow. The report records the locator metadata so a consumer can pull the attestation and run `slsa-verifier verify-artifact` against the binary referenced by `integrity.binary_verification_url`.
+
+Combined, the two primitives form the chain `source -> SLSA -> binary -> report -> Sigstore signature`. `verify-hash` chains content hash recompute, cosign signature, and slsa-verifier in a single command. The methodology, failure modes, and Rekor public privacy considerations live in `docs/design/10-SIGSTORE-ATTESTATION.md`.

@@ -101,31 +101,80 @@ disclose_period = "calendar-quarter"
 
 `intent = "internal"` (ou l'absence de section) laisse le daemon en mode monitoring sans la barrière de rapport publiable.
 
-## Vérifier un rapport publié
+## Signer votre divulgation
 
-Un tiers peut vérifier un fichier publié en trois commandes :
+Les divulgations `intent = "official"` doivent être signées via
+Sigstore pour qu'un consommateur puisse vérifier que le fichier a
+été publié par votre organisation et n'a pas été modifié. Le
+pipeline est opt-in : passer `--emit-attestation <chemin>` à
+`disclose` pour obtenir un statement in-toto v1 sidecar, puis
+signer ce statement avec `cosign`.
 
 ```bash
-# 1. L'id de schéma sous notes.reference_urls.schema pointe vers un JSON
-#    Schema v2020-12 publié dans le dépôt perf-sentinel.
-jq -r '.notes.reference_urls.schema' perf-sentinel-report.json
+# 1. Produire le rapport et l'attestation in-toto.
+perf-sentinel disclose \
+    --intent official \
+    --confidentiality public \
+    --period-type calendar-quarter \
+    --from 2026-01-01 --to 2026-03-31 \
+    --input archive/2026Q1/*.ndjson \
+    --output report.json \
+    --emit-attestation attestation.intoto.jsonl \
+    --org-config org.toml
 
-# 2. content_hash est reproductible. Les octets canoniques sont produits
-#    par perf-sentinel via le formatage des nombres serde_json (shortest
-#    round-trip) plus un tri récursif des clés via BTreeMap. Un pipeline
-#    jq ne peut pas reproduire ces octets à l'identique pour des valeurs
-#    f64 arbitraires (jq émet la repr IEEE-754, serde_json émet le
-#    shortest round-trip). L'implémentation de référence reproductible
-#    est :
-#       perf-sentinel verify-hash <chemin>
-#    (utilitaire à venir, en attendant utiliser le binaire perf-sentinel
-#    pour recompute, ou accepter le hash tel que livré).
+# 2. Signer l'attestation avec cosign contre Sigstore public.
+#    L'issuer OIDC (flow navigateur ou token GitHub Actions)
+#    enregistre l'identité signataire. Le bundle inclut la preuve
+#    d'inclusion Rekor.
+cosign attest \
+    --type custom \
+    --predicate attestation.intoto.jsonl \
+    --bundle bundle.sig \
+    report.json
 
-# 3. binary_hash correspond au tag de release perf-sentinel listé dans
-#    integrity.binary_verification_url. Télécharger l'artefact de release,
-#    le SHA-256 en local, comparer.
-jq -r '.integrity.binary_hash' perf-sentinel-report.json
+# 3. Ajouter le locator signature dans integrity.signature de
+#    report.json pour que les vérifieurs trouvent le bundle et
+#    l'entrée Rekor, puis bumper report_metadata.integrity_level
+#    de "hash-only" à "signed" (ou "signed-with-attestation" si le
+#    binaire producteur porte une provenance SLSA). Une future
+#    subcommand `perf-sentinel sign` automatisera cette étape.
+
+# 4. Publier report.json, attestation.intoto.jsonl, bundle.sig à
+#    votre URL de transparence.
 ```
+
+Les opérateurs qui font tourner une instance Rekor privée fixent
+`[reporting.sigstore] rekor_url = "..."` dans leur config
+perf-sentinel et passent la même URL à `cosign --rekor-url`.
+Rapports produits sans `--no-tlog-upload` uniquement :
+`verify-hash` refuse les bundles sans preuve d'inclusion Rekor.
+
+Voir `docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md` pour la
+méthodologie complète, les modes d'échec, et les considérations
+privacy sur Rekor public.
+
+## Vérifier un rapport publié
+
+Un tiers vérifie un fichier publié en une commande :
+
+```bash
+# Mode local : les trois fichiers sont déjà téléchargés.
+perf-sentinel verify-hash \
+    --report report.json \
+    --attestation attestation.intoto.jsonl \
+    --bundle bundle.sig
+
+# Mode distant : fetch le rapport et les sidecars par convention HTTPS.
+perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
+```
+
+`verify-hash` chaîne trois vérifications : recompute déterministe
+du content hash (Rust pur, toujours lancé), signature Sigstore
+(`cosign verify-attestation`), et provenance SLSA du binaire
+(résumé métadonnée plus une commande `slsa-verifier` qui pointe
+vers le binaire dans `integrity.binary_verification_url`). Codes
+de sortie : `0` trusted, `1` untrusted, `2` erreur fichier,
+`3` erreur réseau.
 
 ## Erreurs courantes
 

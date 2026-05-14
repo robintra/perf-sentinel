@@ -81,4 +81,13 @@ Un rapport porte :
 - `integrity.content_hash` : SHA-256 sur la forme JSON canonique (clés d'objets triées, sérialisation compacte, UTF-8) avec `content_hash` mis à chaîne vide. Un consommateur recompute en posant `content_hash` à `""` sur sa propre copie puis en hashant.
 - `integrity.binary_hash` : SHA-256 du binaire perf-sentinel qui a produit le fichier, lu via `std::env::current_exe()`. À coupler avec `binary_verification_url` pour vérifier que le binaire correspond à une release publiée.
 
-La chaîne d'intégrité de traces dans `integrity.trace_integrity_chain` et la signature Sigstore dans `integrity.signature` sont réservées pour une révision future et toujours `null` dans le schéma v1.0.
+La chaîne d'intégrité de traces dans `integrity.trace_integrity_chain` est réservée pour une révision future et toujours `null` dans le schéma v1.0.
+
+## Intégrité cryptographique (0.7.0+)
+
+Deux primitives optionnelles s'ajoutent au content hash pour ancrer un rapport publié dans une infrastructure publique.
+
+- **Signature Sigstore** (`integrity.signature`). Quand l'opérateur signe l'attestation in-toto v1 du rapport via `cosign attest`, le rapport porte des métadonnées (`bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, `signed_at`) qui permettent à un consommateur de récupérer le bundle et de le vérifier via Rekor public. `verify-hash` refuse les bundles sans preuve d'inclusion Rekor, la transparence est une propriété du format, pas un opt-in.
+- **Provenance SLSA du binaire** (`integrity.binary_attestation`). Les binaires de release perf-sentinel officiels portent une attestation SLSA niveau L2 produite par le workflow GitHub Actions. Le rapport enregistre les métadonnées de locator pour qu'un consommateur télécharge l'attestation et lance `slsa-verifier verify-artifact` contre le binaire référencé par `integrity.binary_verification_url`.
+
+Combinées, les deux primitives forment la chaîne `source -> SLSA -> binaire -> rapport -> signature Sigstore`. `verify-hash` chaîne le recompute content hash, la signature cosign, et slsa-verifier en une commande. La méthodologie, les modes d'échec, et les considérations privacy Rekor public vivent dans `docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md`.
