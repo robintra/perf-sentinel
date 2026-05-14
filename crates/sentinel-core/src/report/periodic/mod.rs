@@ -10,9 +10,11 @@
 //! [`Report`]: crate::report::Report
 
 pub mod errors;
+pub mod hasher;
 pub mod schema;
 
 pub use errors::{AggregationError, HashError, ValidationError};
+pub use hasher::compute_content_hash;
 pub use schema::{
     Aggregate, AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
     Confidentiality, Conformance, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity,

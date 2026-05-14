@@ -255,7 +255,7 @@ pub struct Integrity {
     pub signature: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Notes {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub disclaimers: Vec<String>,
