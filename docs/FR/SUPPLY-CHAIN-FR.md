@@ -206,6 +206,38 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 5. **Divulgation** : voir `SECURITY.md` pour le processus complet de
    divulgation coordonnée et la matrice des versions supportées.
 
+## Provenance SLSA des binaires
+
+Depuis v0.7.0, chaque binaire de release officiel perf-sentinel porte
+une attestation SLSA niveau L2. L'attestation est générée par GitHub
+Actions via `slsa-framework/slsa-github-generator` (pinné par SHA,
+tag en commentaire) et publiée comme asset du Release GitHub à
+côté du binaire sous le nom `multiple.intoto.jsonl`.
+
+Pourquoi L2 et pas L3 : le générateur reusable peut atteindre L3
+s'il tourne sur un runner durci et audité. perf-sentinel utilise
+les runners partagés `ubuntu-latest` avec des permissions réduites
+au niveau du job, pas un runner isolé. L2 est la revendication
+honnête, et c'est la valeur portée par
+`integrity.binary_attestation.slsa_level` dans chaque rapport
+périodique produit par un tel binaire.
+
+Vérifier un binaire téléchargé :
+
+```bash
+slsa-verifier verify-artifact \
+  --provenance-path multiple.intoto.jsonl \
+  --source-uri github.com/robintra/perf-sentinel \
+  --source-tag v0.7.0 \
+  perf-sentinel-linux-amd64
+```
+
+Une vérification réussie confirme que le binaire vient du tag
+spécifié de ce repo, construit par GitHub Actions, pas par un
+tiers. Combiner avec la subcommand `verify-hash` sur un rapport
+périodique pour vérifier la chaîne complète :
+`source -> SLSA -> binaire -> rapport -> signature Sigstore`.
+
 ## Checklist de relecture PR
 
 Lors de la relecture d'une PR qui touche l'infrastructure CI :
