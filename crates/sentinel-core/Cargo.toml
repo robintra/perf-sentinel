@@ -70,7 +70,7 @@ tokio-rustls = { version = "0.26.4", optional = true, default-features = false, 
 
 tokio-stream = { version = "0.1.18", optional = true }
 # Provides RequestDecompressionLayer for OTLP/HTTP gzip decompression on /v1/traces.
-tower-http = { version = "0.6.8", features = ["cors", "decompression-gzip", "limit"], optional = true }
+tower-http = { version = "0.6.10", features = ["cors", "decompression-gzip", "limit"], optional = true }
 # Cross-platform locator for `~/.local/share/perf-sentinel/acks.jsonl`
 # (XDG on Linux, Library/Application Support on macOS, Roaming on Windows).
 # Daemon-only: only the ack store consumes it, batch builds skip the dep.
