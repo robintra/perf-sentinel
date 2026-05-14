@@ -92,6 +92,7 @@ pub(super) fn sample_methodology() -> Methodology {
             carbon_intensity_source: "electricity_maps".to_string(),
             specpower_table_version: "2024-2026".to_string(),
             scaphandre_used: false,
+            calibration_applied: false,
             energy_source_models: BTreeSet::new(),
         },
     }

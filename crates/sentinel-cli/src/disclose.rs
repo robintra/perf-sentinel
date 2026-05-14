@@ -212,6 +212,7 @@ fn build_report(
             specpower_table_version: org.methodology.calibration.specpower_table_version.clone(),
             scaphandre_used: org.methodology.calibration.scaphandre_used,
             energy_source_models: aggregate.energy_source_models.clone(),
+            calibration_applied: aggregate.calibration_applied,
         },
     };
 
@@ -272,6 +273,8 @@ fn build_report(
     );
     let disclaimers =
         augment_disclaimers_for_binary_versions(disclaimers, &aggregate.aggregate.binary_versions);
+    let disclaimers =
+        augment_disclaimers_for_calibration(disclaimers, aggregate.calibration_applied);
 
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
@@ -313,6 +316,23 @@ fn build_report(
             reference_urls: org.notes.reference_urls.clone(),
         },
     }
+}
+
+/// Append a disclaimer when the period had at least one window with
+/// operator-supplied calibration coefficients applied.
+fn augment_disclaimers_for_calibration(
+    mut disclaimers: Vec<String>,
+    calibration_applied: bool,
+) -> Vec<String> {
+    if calibration_applied {
+        disclaimers.push(
+            "Calibration applied: per-service energy coefficients from the operator \
+             calibration file were used for at least one scoring window in this period. \
+             Inspect methodology.calibration_inputs.calibration_applied for the binary fact."
+                .to_string(),
+        );
+    }
+    disclaimers
 }
 
 /// Append a disclaimer when the period spans more than one
@@ -556,6 +576,22 @@ mod tests {
         let versions = std::collections::BTreeSet::new();
         let out = augment_disclaimers_for_binary_versions(base.clone(), &versions);
         assert_eq!(out, base);
+    }
+
+    #[test]
+    fn calibration_disclaimer_omitted_when_not_applied() {
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_calibration(base.clone(), false);
+        assert_eq!(out, base);
+    }
+
+    #[test]
+    fn calibration_disclaimer_added_when_applied() {
+        let base = vec!["existing".to_string()];
+        let out = augment_disclaimers_for_calibration(base, true);
+        assert_eq!(out.len(), 2);
+        assert!(out[1].contains("Calibration applied"));
+        assert!(out[1].contains("calibration_inputs.calibration_applied"));
     }
 
     #[test]

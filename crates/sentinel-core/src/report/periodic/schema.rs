@@ -186,6 +186,13 @@ pub struct CalibrationInputs {
     /// archived window predates per-service carbon attribution.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub energy_source_models: BTreeSet<String>,
+    /// `true` if at least one window in the period emitted an
+    /// `energy_model` tag with the `+cal` suffix, meaning operator-supplied
+    /// per-service calibration coefficients adjusted the proxy energy.
+    /// The `+cal` suffix is stripped from `energy_source_models`, so this
+    /// flag is the only place that surfaces the fact.
+    #[serde(default)]
+    pub calibration_applied: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -367,6 +374,7 @@ mod tests {
                 carbon_intensity_source: "electricity_maps".to_string(),
                 specpower_table_version: "2024-2026".to_string(),
                 scaphandre_used: false,
+                calibration_applied: false,
                 energy_source_models: BTreeSet::new(),
             },
         }

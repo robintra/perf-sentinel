@@ -60,6 +60,9 @@ pub struct AggregateInputs {
     /// archive file emits at most one `tracing::warn!` when its first
     /// fallback window is folded.
     pub fallback_windows: u64,
+    /// `true` if at least one folded window carried a `+cal` suffix on
+    /// its `energy_model`. Surfaced via `CalibrationInputs.calibration_applied`.
+    pub calibration_applied: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -149,6 +152,9 @@ struct Builder {
     /// Distinct `binary_version` values observed across the folded
     /// windows. Empty when every window predates the field.
     binary_versions: BTreeSet<String>,
+    /// Set when at least one window's `energy_model` carried the `+cal`
+    /// suffix, indicating operator calibration was active for that window.
+    calibration_applied: bool,
 }
 
 impl Builder {
@@ -260,11 +266,11 @@ impl Builder {
         if !report.green_summary.energy_model.is_empty()
             && report.green_summary.energy_model.len() <= MAX_ENERGY_MODEL_LEN
         {
-            let bare = report
-                .green_summary
-                .energy_model
-                .strip_suffix("+cal")
-                .unwrap_or(&report.green_summary.energy_model);
+            let raw = &report.green_summary.energy_model;
+            let bare = raw.strip_suffix("+cal").unwrap_or(raw);
+            if raw.len() != bare.len() {
+                self.calibration_applied = true;
+            }
             if self.energy_source_models.len() < MAX_ENERGY_MODELS
                 || self.energy_source_models.contains(bare)
             {
@@ -439,6 +445,7 @@ impl Builder {
             energy_source_models: self.energy_source_models,
             runtime_windows: self.runtime_windows,
             fallback_windows: self.fallback_windows,
+            calibration_applied: self.calibration_applied,
         }
     }
 }
@@ -1144,6 +1151,68 @@ mod tests {
 
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         assert!(out.aggregate.binary_versions.is_empty());
+    }
+
+    #[test]
+    fn aggregator_detects_calibration_when_cal_suffix_present() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "io_proxy_v3+cal",
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.calibration_applied);
+        // Bare model is collected without the +cal suffix.
+        assert!(out.energy_source_models.contains("io_proxy_v3"));
+    }
+
+    #[test]
+    fn aggregator_does_not_set_calibration_when_no_cal_suffix() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "scaphandre_rapl",
+        );
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(!out.calibration_applied);
+    }
+
+    #[test]
+    fn aggregator_calibration_sticky_when_only_one_window_has_cal() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 10, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let r1 = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "io_proxy_v3",
+        );
+        let r2 = make_runtime_report(
+            &[("svc", "/", 10)],
+            &[("svc", 0.001)],
+            &[("svc", 0.0001)],
+            &[("svc", "eu-west-3")],
+            0.0001,
+            "io_proxy_v3+cal",
+        );
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.calibration_applied);
     }
 
     #[test]
