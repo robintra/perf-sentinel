@@ -12,6 +12,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[cfg(feature = "daemon")]
 mod ack;
+mod disclose;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;
@@ -471,6 +472,47 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+    /// Produce a periodic public disclosure report (sprint 1 sketch).
+    ///
+    /// Reads archived per-window `Report` NDJSON, filters to the
+    /// requested period, applies the official-intent validator when
+    /// applicable, computes the deterministic SHA-256 content hash, and
+    /// writes a single `perf-sentinel-report.json`. Designed for public
+    /// transparency, not regulatory-grade.
+    Disclose {
+        /// `internal`, `official`, or `audited`. `audited` short-circuits
+        /// with exit code 2 in this release.
+        #[arg(long, value_enum)]
+        intent: disclose::ReportIntentCli,
+        /// `internal` (G1: per-anti-pattern detail) or `public` (G2:
+        /// aggregate-only per service).
+        #[arg(long, value_enum)]
+        confidentiality: disclose::ConfidentialityCli,
+        /// Period selector: `calendar-quarter`, `calendar-month`,
+        /// `calendar-year`, or `custom`.
+        #[arg(long, value_enum)]
+        period_type: disclose::PeriodTypeCli,
+        /// Inclusive period start (UTC), YYYY-MM-DD.
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        from: chrono::NaiveDate,
+        /// Inclusive period end (UTC), YYYY-MM-DD.
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        to: chrono::NaiveDate,
+        /// One or more archive paths. Each may be a single `.ndjson`
+        /// file or a directory whose `*.ndjson` files are unioned.
+        #[arg(long, value_name = "PATH", num_args = 1.., required = true)]
+        input: Vec<PathBuf>,
+        /// Where to write the produced `perf-sentinel-report.json`.
+        #[arg(long, value_name = "PATH")]
+        output: PathBuf,
+        /// Operator-supplied organisation/scope/methodology TOML.
+        #[arg(long, value_name = "PATH")]
+        org_config: PathBuf,
+        /// Refuse to fold windows that have no per-service offenders.
+        /// Default is to bucket them under `_unattributed`.
+        #[arg(long)]
+        strict_attribution: bool,
+    },
 }
 
 /// Output format for query sub-actions.
@@ -786,6 +828,30 @@ async fn dispatch_command(command: Commands) {
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "perf-sentinel", &mut std::io::stdout());
+        }
+        Commands::Disclose {
+            intent,
+            confidentiality,
+            period_type,
+            from,
+            to,
+            input,
+            output,
+            org_config,
+            strict_attribution,
+        } => {
+            let code = disclose::cmd_disclose(
+                intent,
+                confidentiality,
+                period_type,
+                from,
+                to,
+                &input,
+                &output,
+                &org_config,
+                strict_attribution,
+            );
+            std::process::exit(code);
         }
     }
 }

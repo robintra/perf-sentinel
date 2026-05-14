@@ -4,12 +4,18 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
+use std::io::Read;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::errors::HashError;
 use super::schema::PeriodicReport;
+
+/// Soft cap on the binary read in [`binary_hash`]. perf-sentinel release
+/// binaries are tens of MiB; this guards against `current_exe` resolving
+/// to an unexpectedly large path (e.g. a procfs link).
+const BINARY_HASH_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Compute the canonical SHA-256 content hash of a report.
 ///
@@ -65,6 +71,52 @@ fn format_sha256(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+/// Hash the running binary at `std::env::current_exe()` and return the
+/// `"sha256:<64-hex>"` string used by
+/// [`crate::report::periodic::schema::Integrity::binary_hash`].
+///
+/// Streams the file via a `BufReader` (no whole-binary allocation) and
+/// caps the read at `BINARY_HASH_MAX_BYTES` so an unexpectedly large
+/// `current_exe` resolution cannot OOM the process.
+///
+/// # Errors
+///
+/// Returns the I/O error from `current_exe` or the file read when the
+/// running executable cannot be resolved or read.
+pub fn binary_hash() -> std::io::Result<String> {
+    let path = std::env::current_exe()?;
+    let file = std::fs::File::open(&path)?;
+    let total_len = file.metadata().map_or(0, |m| m.len());
+    if total_len > BINARY_HASH_MAX_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "binary at {} exceeds {} byte cap ({} bytes), refusing to hash a truncated view",
+                path.display(),
+                BINARY_HASH_MAX_BYTES,
+                total_len
+            ),
+        ));
+    }
+    let mut reader = std::io::BufReader::new(file).take(BINARY_HASH_MAX_BYTES);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(7 + 64);
+    out.push_str("sha256:");
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

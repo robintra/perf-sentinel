@@ -21,7 +21,7 @@ pub use aggregator::{
     aggregate_from_paths,
 };
 pub use errors::{AggregationError, HashError, ValidationError};
-pub use hasher::compute_content_hash;
+pub use hasher::{binary_hash, compute_content_hash};
 pub use schema::{
     Aggregate, AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
     Confidentiality, Conformance, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity,

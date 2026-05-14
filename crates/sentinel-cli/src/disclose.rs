@@ -1,0 +1,441 @@
+//! `perf-sentinel disclose` subcommand.
+//!
+//! Loads an org-config TOML, aggregates archived per-window `Report`
+//! NDJSON files inside the requested period, applies the official-intent
+//! validator when needed, computes the deterministic content hash, and
+//! writes the resulting `perf-sentinel-report.json`.
+
+use std::path::{Path, PathBuf};
+
+use chrono::{NaiveDate, Utc};
+use sentinel_core::report::periodic::aggregator::{
+    AggregateInputs, AntiPatternAccumulator, ServiceAccumulator, UNATTRIBUTED_SERVICE,
+    aggregate_from_paths,
+};
+use sentinel_core::report::periodic::org_config::{self, OrgConfig};
+use sentinel_core::report::periodic::schema::{
+    AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
+    Confidentiality, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity, IntegrityLevel,
+    Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport,
+    ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, core_patterns_required,
+};
+use sentinel_core::report::periodic::{binary_hash, compute_content_hash, validate_official};
+use sentinel_core::text_safety::sanitize_for_terminal;
+use std::collections::BTreeMap;
+use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ReportIntentCli {
+    Internal,
+    Official,
+    Audited,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ConfidentialityCli {
+    Internal,
+    Public,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum PeriodTypeCli {
+    #[value(name = "calendar-quarter")]
+    CalendarQuarter,
+    #[value(name = "calendar-month")]
+    CalendarMonth,
+    #[value(name = "calendar-year")]
+    CalendarYear,
+    Custom,
+}
+
+impl From<ReportIntentCli> for ReportIntent {
+    fn from(value: ReportIntentCli) -> Self {
+        match value {
+            ReportIntentCli::Internal => Self::Internal,
+            ReportIntentCli::Official => Self::Official,
+            ReportIntentCli::Audited => Self::Audited,
+        }
+    }
+}
+
+impl From<ConfidentialityCli> for Confidentiality {
+    fn from(value: ConfidentialityCli) -> Self {
+        match value {
+            ConfidentialityCli::Internal => Self::Internal,
+            ConfidentialityCli::Public => Self::Public,
+        }
+    }
+}
+
+impl From<PeriodTypeCli> for PeriodType {
+    fn from(value: PeriodTypeCli) -> Self {
+        match value {
+            PeriodTypeCli::CalendarQuarter => Self::CalendarQuarter,
+            PeriodTypeCli::CalendarMonth => Self::CalendarMonth,
+            PeriodTypeCli::CalendarYear => Self::CalendarYear,
+            PeriodTypeCli::Custom => Self::Custom,
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn cmd_disclose(
+    intent: ReportIntentCli,
+    confidentiality: ConfidentialityCli,
+    period_type: PeriodTypeCli,
+    from: NaiveDate,
+    to: NaiveDate,
+    input: &[PathBuf],
+    output: &Path,
+    org_config_path: &Path,
+    strict_attribution: bool,
+) -> i32 {
+    if matches!(intent, ReportIntentCli::Audited) {
+        eprintln!("Error: audited intent is not yet implemented");
+        return 2;
+    }
+
+    let org = match org_config::load_from_path(org_config_path) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!("Error: {}", sanitize_for_terminal(&err.to_string()));
+            return 1;
+        }
+    };
+
+    let days_covered = match (to - from).num_days() {
+        n if n < 0 => {
+            eprintln!("Error: to_date precedes from_date");
+            return 2;
+        }
+        n => u32::try_from(n).map_or(u32::MAX, |d| d.saturating_add(1)),
+    };
+
+    let period = Period {
+        from_date: from,
+        to_date: to,
+        period_type: period_type.into(),
+        days_covered,
+    };
+
+    let aggregate = match aggregate_from_paths(input, &period, strict_attribution) {
+        Ok(a) => a,
+        Err(err) => {
+            eprintln!("Error: {}", sanitize_for_terminal(&err.to_string()));
+            return 1;
+        }
+    };
+
+    let intent_schema: ReportIntent = intent.into();
+    let confidentiality_schema: Confidentiality = confidentiality.into();
+    let generated_by = if std::env::var("CI").is_ok_and(|v| !v.is_empty()) {
+        "ci".to_string()
+    } else {
+        "cli-batch".to_string()
+    };
+
+    let windows = aggregate.windows_aggregated;
+    let mut report = build_report(
+        &org,
+        period,
+        intent_schema,
+        confidentiality_schema,
+        generated_by,
+        aggregate,
+    );
+
+    report.integrity.binary_hash = binary_hash().ok();
+    report.report_metadata.integrity_level = IntegrityLevel::HashOnly;
+
+    if matches!(intent_schema, ReportIntent::Official)
+        && let Err(errors) = validate_official(&report)
+    {
+        eprintln!("Error: report validation failed");
+        for e in &errors {
+            eprintln!("  - {}", sanitize_for_terminal(&e.to_string()));
+        }
+        return 2;
+    }
+
+    match compute_content_hash(&report) {
+        Ok(hash) => {
+            report.integrity.content_hash = hash;
+        }
+        Err(err) => {
+            eprintln!("Error: failed to hash report: {err}");
+            return 1;
+        }
+    }
+
+    if let Err(err) = write_pretty_json(&report, output) {
+        eprintln!("Error: failed to write {}: {err}", output.display());
+        return 1;
+    }
+
+    eprintln!(
+        "Wrote {} ({} windows aggregated, {} services)",
+        output.display(),
+        windows,
+        report.applications.len()
+    );
+    0
+}
+
+fn build_report(
+    org: &OrgConfig,
+    period: Period,
+    intent: ReportIntent,
+    confidentiality: Confidentiality,
+    generated_by: String,
+    aggregate: AggregateInputs,
+) -> PeriodicReport {
+    let methodology = Methodology {
+        sci_specification: org.methodology.sci_specification.clone(),
+        perf_sentinel_version: env!("CARGO_PKG_VERSION").to_string(),
+        enabled_patterns: org.methodology.enabled_patterns.clone(),
+        disabled_patterns: org
+            .methodology
+            .disabled_patterns
+            .iter()
+            .map(|d| DisabledPattern {
+                name: d.name.clone(),
+                reason: d.reason.clone(),
+            })
+            .collect(),
+        core_patterns_required: core_patterns_required(),
+        conformance: org.methodology.conformance,
+        calibration_inputs: CalibrationInputs {
+            cloud_regions: org.methodology.calibration.cloud_regions.clone(),
+            carbon_intensity_source: org.methodology.calibration.carbon_intensity_source.clone(),
+            specpower_table_version: org.methodology.calibration.specpower_table_version.clone(),
+            scaphandre_used: org.methodology.calibration.scaphandre_used,
+        },
+    };
+
+    let measured_services_count = aggregate
+        .per_service
+        .keys()
+        .filter(|k| k.as_str() != UNATTRIBUTED_SERVICE)
+        .count();
+    let scope_manifest = ScopeManifest {
+        total_applications_declared: org.scope_manifest.total_applications_declared,
+        applications_measured: u32::try_from(measured_services_count).unwrap_or(u32::MAX),
+        applications_excluded: org
+            .scope_manifest
+            .applications_excluded
+            .iter()
+            .map(|a| ExcludedApp {
+                service_name: a.service_name.clone(),
+                reason: a.reason.clone(),
+            })
+            .collect(),
+        environments_measured: org.scope_manifest.environments_measured.clone(),
+        environments_excluded: org
+            .scope_manifest
+            .environments_excluded
+            .iter()
+            .map(|e| ExcludedEnv {
+                name: e.name.clone(),
+                reason: e.reason.clone(),
+            })
+            .collect(),
+        total_requests_in_period: org.scope_manifest.total_requests_in_period,
+        requests_measured: aggregate.aggregate.total_requests,
+        coverage_percentage: org.scope_manifest.total_requests_in_period.map(|total| {
+            if total == 0 {
+                0.0
+            } else {
+                100.0 * (aggregate.aggregate.total_requests as f64) / (total as f64)
+            }
+        }),
+    };
+
+    let applications = build_applications(
+        &aggregate.per_service,
+        &aggregate.first_seen,
+        &aggregate.last_seen,
+        confidentiality,
+    );
+
+    PeriodicReport {
+        schema_version: SCHEMA_VERSION.to_string(),
+        report_metadata: ReportMetadata {
+            intent,
+            confidentiality_level: confidentiality,
+            integrity_level: IntegrityLevel::None,
+            generated_at: Utc::now(),
+            generated_by,
+            perf_sentinel_version: env!("CARGO_PKG_VERSION").to_string(),
+            report_uuid: Uuid::new_v4(),
+        },
+        organisation: Organisation {
+            name: org.organisation.name.clone(),
+            country: org.organisation.country.clone(),
+            identifiers: OrgIdentifiers {
+                siren: org.organisation.identifiers.siren.clone(),
+                vat: org.organisation.identifiers.vat.clone(),
+                lei: org.organisation.identifiers.lei.clone(),
+                opencorporates_url: org.organisation.identifiers.opencorporates_url.clone(),
+                domain: org.organisation.identifiers.domain.clone(),
+            },
+            sector: org.organisation.sector.clone(),
+        },
+        period,
+        scope_manifest,
+        methodology,
+        aggregate: aggregate.aggregate,
+        applications,
+        integrity: Integrity {
+            content_hash: String::new(),
+            binary_hash: None,
+            binary_verification_url: None,
+            trace_integrity_chain: serde_json::Value::Null,
+            signature: serde_json::Value::Null,
+        },
+        notes: Notes {
+            disclaimers: if org.notes.disclaimers.is_empty() {
+                default_disclaimers()
+            } else {
+                org.notes.disclaimers.clone()
+            },
+            reference_urls: org.notes.reference_urls.clone(),
+        },
+    }
+}
+
+fn build_applications(
+    per_service: &BTreeMap<String, ServiceAccumulator>,
+    first_seen: &BTreeMap<(String, String), chrono::DateTime<Utc>>,
+    last_seen: &BTreeMap<(String, String), chrono::DateTime<Utc>>,
+    confidentiality: Confidentiality,
+) -> Vec<Application> {
+    let mut out = Vec::with_capacity(per_service.len());
+    for (service, accum) in per_service {
+        // The `_unattributed` bucket contributes to aggregate totals
+        // but is not a "measured application" in the wire output.
+        // Keeping it would desync applications_measured from applications.len().
+        if service == UNATTRIBUTED_SERVICE {
+            continue;
+        }
+        let avoidable: u64 = accum
+            .anti_patterns
+            .values()
+            .map(|ap| ap.avoidable_io_ops)
+            .sum();
+        let any_anti_pattern: u64 = accum.anti_patterns.values().map(|ap| ap.occurrences).sum();
+        let efficiency_score = if accum.total_io_ops == 0 {
+            // Zero I/O recorded but findings present: cannot publish 100%.
+            if any_anti_pattern == 0 { 100.0 } else { 0.0 }
+        } else {
+            // Efficiency = 100 - 100 * avoidable / total_io_ops (clamped).
+            (100.0 - 100.0 * (avoidable as f64) / (accum.total_io_ops as f64)).clamp(0.0, 100.0)
+        };
+        let endpoints_observed = u32::try_from(accum.endpoints_seen.len()).unwrap_or(u32::MAX);
+        match confidentiality {
+            Confidentiality::Internal => out.push(Application::G1(ApplicationG1 {
+                service_name: service.clone(),
+                display_name: None,
+                service_version: None,
+                endpoints_observed,
+                total_requests: accum.total_requests,
+                energy_kwh: accum.energy_kwh,
+                carbon_kgco2eq: accum.carbon_kgco2eq,
+                efficiency_score,
+                anti_patterns: build_anti_pattern_details(
+                    service,
+                    &accum.anti_patterns,
+                    first_seen,
+                    last_seen,
+                    service_carbon_ratio(accum),
+                ),
+            })),
+            Confidentiality::Public => {
+                let count: u64 = accum.anti_patterns.values().map(|ap| ap.occurrences).sum();
+                out.push(Application::G2(ApplicationG2 {
+                    service_name: service.clone(),
+                    display_name: None,
+                    service_version: None,
+                    endpoints_observed,
+                    total_requests: accum.total_requests,
+                    energy_kwh: accum.energy_kwh,
+                    carbon_kgco2eq: accum.carbon_kgco2eq,
+                    efficiency_score,
+                    anti_patterns_detected_count: count,
+                }));
+            }
+        }
+    }
+    out
+}
+
+fn service_carbon_ratio(accum: &ServiceAccumulator) -> f64 {
+    if accum.energy_kwh > 0.0 {
+        accum.carbon_kgco2eq / accum.energy_kwh
+    } else {
+        0.0
+    }
+}
+
+fn build_anti_pattern_details(
+    service: &str,
+    anti_patterns: &BTreeMap<String, AntiPatternAccumulator>,
+    first_seen: &BTreeMap<(String, String), chrono::DateTime<Utc>>,
+    last_seen: &BTreeMap<(String, String), chrono::DateTime<Utc>>,
+    service_carbon_kwh_ratio: f64,
+) -> Vec<AntiPatternDetail> {
+    // Proxy coefficient lifted from the carbon module so the per-pattern
+    // waste line up with the aggregate proxy energy. Region-blind, see
+    // design doc 08.
+    const ENERGY_PER_IO_OP_KWH: f64 = 0.000_000_1;
+    let now = Utc::now();
+    let mut out = Vec::with_capacity(anti_patterns.len());
+    for (pattern, accum) in anti_patterns {
+        let key = (service.to_string(), pattern.clone());
+        let first = first_seen.get(&key).copied().unwrap_or(now);
+        let last = last_seen.get(&key).copied().unwrap_or(now);
+        let waste_kwh = (accum.avoidable_io_ops as f64) * ENERGY_PER_IO_OP_KWH;
+        let waste_kgco2eq = waste_kwh * service_carbon_kwh_ratio;
+        out.push(AntiPatternDetail {
+            kind: pattern.clone(),
+            occurrences: accum.occurrences,
+            estimated_waste_kwh: waste_kwh,
+            estimated_waste_kgco2eq: waste_kgco2eq,
+            first_seen: first,
+            last_seen: last,
+        });
+    }
+    out
+}
+
+fn default_disclaimers() -> Vec<String> {
+    vec![
+        "Directional estimate, not regulatory-grade.".to_string(),
+        "Approximate uncertainty bracket: ~2x multiplicative.".to_string(),
+        "Optimization potential excludes embodied hardware emissions (SCI M term).".to_string(),
+        "Per-service CO2 is distributed by I/O share, region-blind in schema v1.0.".to_string(),
+        "Not suitable for CSRD or GHG Protocol Scope 3 reporting.".to_string(),
+        "Methodology: ISO/IEC 21031:2024 (SCI).".to_string(),
+    ]
+}
+
+fn write_pretty_json(report: &PeriodicReport, output: &Path) -> std::io::Result<()> {
+    // Refuse to truncate a symlink. Residual TOCTOU between the check
+    // and the open is accepted given the CLI is operator-driven.
+    if let Ok(meta) = std::fs::symlink_metadata(output)
+        && meta.file_type().is_symlink()
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "output {} is a symlink; refusing to overwrite",
+                output.display()
+            ),
+        ));
+    }
+    let file = std::fs::File::create(output)?;
+    let mut writer = std::io::BufWriter::new(file);
+    serde_json::to_writer_pretty(&mut writer, report)?;
+    use std::io::Write as _;
+    writer.write_all(b"\n")?;
+    writer.flush()
+}
