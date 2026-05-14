@@ -153,7 +153,7 @@ Both sections are optional. Their absence leaves perf-sentinel in its prior beha
 
 ## v1.0 limitations carried as disclaimers
 
-- **Runtime-calibrated energy + per-service carbon when present.** `Builder::process_window` reads the source window's `green_summary.energy_kwh` and `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` maps when they are populated, and falls back to the I/O proxy + share distribution when they are not (sprint-1 archives). The aggregator surfaces the observed `energy_model` tags under `methodology.calibration_inputs.energy_source_models`. See `docs/design/09-CARBON-ATTRIBUTION.md`.
+- **Runtime-calibrated energy + per-service carbon when present.** `Builder::process_window` reads the source window's `green_summary.energy_kwh` and `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` maps when they are populated, and falls back to the I/O proxy + share distribution when they are not (proxy-only archives). The aggregator surfaces the observed `energy_model` tags under `methodology.calibration_inputs.energy_source_models`. See `docs/design/09-CARBON-ATTRIBUTION.md`.
 - **Optimization potential excludes embodied.** `estimated_optimization_potential_kgco2eq` sums `co2.avoidable.mid` only. `total_carbon_kgco2eq` is the full `co2.total.mid` (operational + embodied). The default disclaimers spell this out.
 - **`_unattributed` co-routes findings.** A window with no `per_endpoint_io_ops` and no runtime per-service maps lands its energy/carbon AND its findings under `_unattributed`. Without this routing, a service with N+1 findings could publish at `efficiency_score = 100` when its `total_io_ops` happened to be zero in the same window.
 
@@ -161,7 +161,7 @@ Both sections are optional. Their absence leaves perf-sentinel in its prior beha
 
 - **Sigstore signature**: `integrity.signature` is reserved. Adding a real signature is a SemVer-minor schema bump (additive field becoming non-null in some files).
 - **`audited` intent**: the third intent value will require an external audit attestation. The shape will live under `integrity` or in a sibling section; not decided yet.
-- **Trace integrity chain**: `integrity.trace_integrity_chain` is reserved for a Merkle root over the source traces that fed the disclosure. Out of scope for sprint 1.
+- **Trace integrity chain**: `integrity.trace_integrity_chain` is reserved for a Merkle root over the source traces that fed the disclosure. Out of scope for the v1.0 schema.
 - **Boavizta integration**: `methodology.calibration_inputs` will gain a `boavizta_version` field when the integration ships. Schema consumers must tolerate unknown calibration fields, which they already do because `additionalProperties` is unset.
 
 ## Source file mapping

@@ -10,7 +10,7 @@ The fix is to compute and serialise per-service energy + carbon at scoring time,
 
 ## Algorithm
 
-Scoring runs in `score::compute_carbon_report`. The function already loops once over all spans in the batch and accumulates per-region carbon into `RegionAccumulator`. Sprint 2 adds a parallel `BTreeMap<String, ServiceCarbonAccumulator>` that follows the same single-pass shape.
+Scoring runs in `score::compute_carbon_report`. The function already loops once over all spans in the batch and accumulates per-region carbon into `RegionAccumulator`. Per-service attribution adds a parallel `BTreeMap<String, ServiceCarbonAccumulator>` that follows the same single-pass shape.
 
 For each span, after computing the per-span energy, region, intensity, and PUE, the inner loop now also runs:
 
@@ -35,7 +35,7 @@ Once the loop completes, `score_green` produces the GreenSummary maps:
 - `energy_kwh = sum(per_service_energy_kwh.values())`
 - `energy_model = select_co2_model_tag(window_flags)` when energy > 0, else empty string
 
-The per-service map is keyed by service name (lowercased upstream by `CarbonContext.service_regions`). The `region` field on the accumulator is also lowercased before storage, matching the keys in `per_region` so the two maps collate. Empty energy yields an empty `energy_model` string, which marks the window as pre-sprint-2 for the aggregator's fallback path.
+The per-service map is keyed by service name (lowercased upstream by `CarbonContext.service_regions`). The `region` field on the accumulator is also lowercased before storage, matching the keys in `per_region` so the two maps collate. Empty energy yields an empty `energy_model` string, which routes the window to the aggregator's proxy fallback path.
 
 ## Region attribution
 
@@ -89,9 +89,9 @@ These caps mirror the runtime-side `MAX_REGIONS` cap in `score::carbon_compute`.
 
 ## Backward compatibility
 
-All five new `GreenSummary` fields carry `#[serde(default)]`. An archive line written before sprint 2 deserialises with `energy_kwh = 0.0`, `energy_model = ""`, and empty maps. The aggregator detects this and falls back to the proxy.
+All five new `GreenSummary` fields carry `#[serde(default)]`. An archive line written without runtime energy attribution deserialises with `energy_kwh = 0.0`, `energy_model = ""`, and empty maps. The aggregator detects this and falls back to the proxy.
 
-No schema version bump. `perf-sentinel-report/v1.0` stays the wire identifier. Consumers that read only the documented sprint-1 set keep working; consumers that opt into the new fields gain runtime-calibrated values automatically.
+No schema version bump. `perf-sentinel-report/v1.0` stays the wire identifier. Consumers that read only the documented v1.0 baseline set keep working, consumers that opt into the new fields gain runtime-calibrated values automatically.
 
 ## What we did not do
 

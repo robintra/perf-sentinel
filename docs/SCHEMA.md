@@ -21,7 +21,7 @@ The schema does not set `additionalProperties: false`; new fields can be added i
 
 ## Report metadata
 
-`intent` is one of `internal | official | audited`. `audited` is reserved (the CLI refuses it today). `confidentiality_level` is one of `internal | public`. `integrity_level` is one of `none | hash-only | signed | audited`; sprint 1 produces `hash-only`. `generated_at` is an RFC 3339 UTC timestamp. `generated_by` is one of `daemon | cli-batch | ci`. `perf_sentinel_version` is the SemVer string of the binary that wrote the file. `report_uuid` is a v4 UUID stamped per run.
+`intent` is one of `internal | official | audited`. `audited` is reserved (the CLI refuses it today). `confidentiality_level` is one of `internal | public`. `integrity_level` is one of `none | hash-only | signed | audited`. The v1.0 schema produces `hash-only`. `generated_at` is an RFC 3339 UTC timestamp. `generated_by` is one of `daemon | cli-batch | ci`. `perf_sentinel_version` is the SemVer string of the binary that wrote the file. `report_uuid` is a v4 UUID stamped per run.
 
 ## Organisation
 
@@ -65,7 +65,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 ## Notes
 
-`disclaimers` carries seven default statements: the two standard SCI uncertainty lines (directional estimate, ~2x bracket), the embodied-carbon scope clarification (excluded from optimization potential), the embodied-per-service note (operational only at the service level, full at the aggregate), the runtime-attribution caveat (sprint-2+ archives carry runtime-calibrated per-service data, older archives fall back to I/O share), and two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
+`disclaimers` carries seven default statements: the two standard SCI uncertainty lines (directional estimate, ~2x bracket), the embodied-carbon scope clarification (excluded from optimization potential), the embodied-per-service note (operational only at the service level, full at the aggregate), the runtime-attribution caveat (runtime-calibrated archives carry per-service data, older archives fall back to I/O share), and two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
 
 ## Boavizta and other omitted fields
 

@@ -10,7 +10,7 @@ The subcommand is added in v0.6.x and supersedes earlier ad-hoc disclosure recip
 |-------------|------------------|-------------|---------------------------------|
 | `internal`  | none             | no          | development drafts, dry runs    |
 | `official`  | strict           | yes         | quarterly transparency post     |
-| `audited`   | reserved         | not yet     | future revision (sprint 2 / 3)  |
+| `audited`   | reserved         | not yet     | future revision                 |
 
 `audited` is accepted by the JSON schema for forward compatibility but the CLI returns `Error: audited intent is not yet implemented` and exits with code 2.
 
@@ -115,7 +115,7 @@ jq -r '.notes.reference_urls.schema' perf-sentinel-report.json
 #    f64 values (jq emits IEEE-754 repr, serde_json emits shortest
 #    round-trip). The reproducible reference implementation is:
 #       perf-sentinel verify-hash <path>
-#    (sprint 2 deliverable, until then use the perf-sentinel binary
+#    (planned helper; until then use the perf-sentinel binary
 #    to recompute or accept the hash as-shipped).
 
 # 3. The binary_hash matches the perf-sentinel release tag listed in
