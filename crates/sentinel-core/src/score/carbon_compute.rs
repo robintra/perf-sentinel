@@ -51,6 +51,34 @@ pub(super) struct ServiceCarbonAccumulator {
     /// First region observed for the service. Later spans keep this
     /// region even if `cloud_region` differs.
     pub region: String,
+    /// Best measured energy source observed across this service's spans
+    /// (Scaphandre RAPL or cloud `SPECpower`). `None` when only proxy
+    /// spans were seen, in which case the consumer falls back to the
+    /// window-level model tag (which already carries the `+cal` suffix
+    /// when calibration is active).
+    pub measured_model: Option<&'static str>,
+}
+
+/// Precedence between two measured energy sources observed on different
+/// spans of the same service. Scaphandre RAPL outranks cloud `SPECpower`.
+/// `None` is the absorbing identity (any `Some` wins).
+#[inline]
+fn higher_fidelity_measured(
+    current: Option<&'static str>,
+    incoming: Option<&'static str>,
+) -> Option<&'static str> {
+    #[inline]
+    fn rank(tag: &str) -> u8 {
+        match tag {
+            super::carbon::CO2_MODEL_SCAPHANDRE => 2,
+            super::carbon::CO2_MODEL_CLOUD_SPECPOWER => 1,
+            _ => 0,
+        }
+    }
+    match (current, incoming) {
+        (None, x) | (x, None) => x,
+        (Some(a), Some(b)) => Some(if rank(a) >= rank(b) { a } else { b }),
+    }
 }
 
 /// Per-span intensity lookup result: pre-cached profile references + the
@@ -190,9 +218,11 @@ fn process_span_for_carbon(
             energy_kwh: 0.0,
             operational_gco2: 0.0,
             region: service_region,
+            measured_model: None,
         });
     svc.energy_kwh += energy_kwh;
     svc.operational_gco2 += op_co2;
+    svc.measured_model = higher_fidelity_measured(svc.measured_model, measured_model);
 
     state.total_transport_gco2 +=
         network_transport_contribution(span, region_ref, intensity_value, pue, ctx);
