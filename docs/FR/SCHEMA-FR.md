@@ -65,7 +65,7 @@ Les deux granularités sont encodées dans le JSON Schema avec des clauses `not:
 
 ## Notes
 
-`disclaimers` porte six déclarations par défaut en v1.0 : les deux lignes standard d'incertitude SCI (estimation directionnelle, fourchette ~2x), deux limitations spécifiques à la v1.0 (le potentiel d'optimisation exclut l'embarqué, le CO2 par service est aveugle à la région), et deux lignes de fitness réglementaire (inadapté à CSRD / GHG Scope 3, référence méthodologique). Les opérateurs peuvent surcharger la liste dans leur TOML org-config. `reference_urls` est un objet ouvert qui mappe des clés courtes (`methodology`, `schema`, `project`) à des URLs. Les opérateurs peuvent ajouter des clés personnalisées.
+`disclaimers` porte sept déclarations par défaut : les deux lignes standard d'incertitude SCI (estimation directionnelle, fourchette ~2x), la précision sur le scope embarqué (exclu du potentiel d'optimisation), la note embarqué par service (opérationnel uniquement au niveau service, total au niveau agrégat), le caveat sur l'attribution runtime (les archives sprint-2+ portent des données per-service runtime-calibrated, les plus anciennes retombent sur la part d'I/O), et deux lignes de fitness réglementaire (inadapté à CSRD / GHG Scope 3, référence méthodologique). Les opérateurs peuvent surcharger la liste dans leur TOML org-config. `reference_urls` est un objet ouvert qui mappe des clés courtes (`methodology`, `schema`, `project`) à des URLs. Les opérateurs peuvent ajouter des clés personnalisées.
 
 ## Boavizta et autres champs omis
 

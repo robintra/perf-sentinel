@@ -65,7 +65,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 ## Notes
 
-`disclaimers` carries six default statements in v1.0: the two standard SCI uncertainty lines (directional estimate, ~2x bracket), two v1.0-specific limitations (optimization potential excludes embodied, per-service CO2 is region-blind), and two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
+`disclaimers` carries seven default statements: the two standard SCI uncertainty lines (directional estimate, ~2x bracket), the embodied-carbon scope clarification (excluded from optimization potential), the embodied-per-service note (operational only at the service level, full at the aggregate), the runtime-attribution caveat (sprint-2+ archives carry runtime-calibrated per-service data, older archives fall back to I/O share), and two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
 
 ## Boavizta and other omitted fields
 

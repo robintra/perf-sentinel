@@ -413,7 +413,8 @@ fn default_disclaimers() -> Vec<String> {
         "Directional estimate, not regulatory-grade.".to_string(),
         "Approximate uncertainty bracket: ~2x multiplicative.".to_string(),
         "Optimization potential excludes embodied hardware emissions (SCI M term).".to_string(),
-        "Per-service CO2 is distributed by I/O share, region-blind in schema v1.0.".to_string(),
+        "Per-service carbon includes operational emissions only; embodied carbon (SCI M term) is reported in the aggregate total but not attributed per service.".to_string(),
+        "Energy and carbon attribution per service is runtime-calibrated when the window's energy_model is non-empty; archives written before this feature shipped fall back to proportional I/O share.".to_string(),
         "Not suitable for CSRD or GHG Protocol Scope 3 reporting.".to_string(),
         "Methodology: ISO/IEC 21031:2024 (SCI).".to_string(),
     ]
