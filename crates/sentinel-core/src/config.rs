@@ -33,6 +33,50 @@ pub struct Config {
     /// Daemon (`perf-sentinel watch`) runtime config: listeners, ack
     /// store, TLS, CORS, cross-trace correlation.
     pub daemon: DaemonConfig,
+    /// Periodic disclosure report config (intent, org-config path, output
+    /// destination). Drives daemon startup validation when
+    /// `intent = "official"` and is consumed by `perf-sentinel disclose`.
+    pub reporting: ReportingConfig,
+}
+
+/// Maps 1:1 to `[reporting]` in TOML. All fields optional: an absent
+/// section means the operator never asked for a periodic disclosure.
+#[derive(Debug, Clone, Default)]
+pub struct ReportingConfig {
+    /// `"internal"`, `"official"`, or `"audited"`. `None` means no
+    /// reporting intent declared.
+    pub intent: Option<String>,
+    /// `"internal"` or `"public"`. Drives G1 vs G2 granularity.
+    pub confidentiality_level: Option<String>,
+    /// Path to the operator's organisation/scope/methodology TOML.
+    /// Required by daemon startup when `intent = "official"`.
+    pub org_config_path: Option<String>,
+    /// Path where `perf-sentinel disclose` writes the produced JSON.
+    /// Hint only, the CLI accepts an explicit `--output`.
+    pub disclose_output_path: Option<String>,
+    /// Period selector hint: `"calendar-quarter"`, `"calendar-month"`,
+    /// `"calendar-year"`, or `"custom"`. Pure hint for scheduled runs.
+    pub disclose_period: Option<String>,
+}
+
+/// Maps to `[daemon.archive]` in TOML. When `Some`, the daemon writes
+/// each per-window `Report` as one NDJSON line to `path`, with
+/// size-triggered rotation and `max_files` count-based pruning.
+#[derive(Debug, Clone)]
+pub struct DaemonArchiveConfig {
+    pub path: String,
+    pub max_size_mb: u64,
+    pub max_files: u32,
+}
+
+impl Default for DaemonArchiveConfig {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            max_size_mb: 100,
+            max_files: 12,
+        }
+    }
 }
 
 /// Quality-gate thresholds. Maps 1:1 to `[thresholds]` in TOML.
@@ -158,6 +202,9 @@ pub struct DaemonConfig {
     /// daemon never wires the correlator when off, so the other fields
     /// only apply when `enabled = true`.
     pub correlation: crate::detect::correlate_cross::CorrelationConfig,
+    /// Optional per-window `Report` archive writer. `None` (default)
+    /// means no archive is written. Consumed by `perf-sentinel disclose`.
+    pub archive: Option<DaemonArchiveConfig>,
 }
 
 /// TLS material. Both fields must be set together (or both `None`).
@@ -302,6 +349,7 @@ impl Default for DaemonConfig {
             ack: DaemonAckConfig::default(),
             cors: DaemonCorsConfig::default(),
             correlation: crate::detect::correlate_cross::CorrelationConfig::default(),
+            archive: None,
         }
     }
 }
@@ -369,6 +417,25 @@ struct RawConfig {
     detection: DetectionSection,
     green: GreenSection,
     daemon: DaemonSection,
+    reporting: ReportingSection,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ReportingSection {
+    intent: Option<String>,
+    confidentiality_level: Option<String>,
+    org_config_path: Option<String>,
+    disclose_output_path: Option<String>,
+    disclose_period: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ArchiveSection {
+    path: Option<String>,
+    max_size_mb: Option<u64>,
+    max_files: Option<u32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -510,6 +577,8 @@ struct DaemonSection {
     ack: DaemonAckSection,
     /// CORS section for the daemon HTTP API.
     cors: DaemonCorsSection,
+    /// Per-window report archive writer section.
+    archive: ArchiveSection,
 }
 
 /// Raw deserialization target for `[daemon.correlation]`.
@@ -937,9 +1006,29 @@ impl From<RawConfig> for Config {
                             .unwrap_or(correlation_defaults.max_tracked_pairs),
                     }
                 },
+                archive: convert_archive_section(&raw.daemon.archive),
+            },
+            reporting: ReportingConfig {
+                intent: raw.reporting.intent,
+                confidentiality_level: raw.reporting.confidentiality_level,
+                org_config_path: raw.reporting.org_config_path,
+                disclose_output_path: raw.reporting.disclose_output_path,
+                disclose_period: raw.reporting.disclose_period,
             },
         }
     }
+}
+
+/// Convert the raw `[daemon.archive]` TOML section into a typed config.
+/// Returns `None` when `path` is absent (the operator did not opt in).
+fn convert_archive_section(raw: &ArchiveSection) -> Option<DaemonArchiveConfig> {
+    let path = raw.path.clone()?;
+    let defaults = DaemonArchiveConfig::default();
+    Some(DaemonArchiveConfig {
+        path,
+        max_size_mb: raw.max_size_mb.unwrap_or(defaults.max_size_mb),
+        max_files: raw.max_files.unwrap_or(defaults.max_files),
+    })
 }
 
 /// Parse a case-insensitive environment string into [`DaemonEnvironment`].
@@ -1316,7 +1405,67 @@ impl Config {
         self.validate_green()?;
         self.validate_daemon_ack()?;
         self.validate_daemon_cors()?;
+        self.validate_daemon_archive()?;
+        self.validate_reporting()?;
         self.validate_cross_section_consistency()?;
+        Ok(())
+    }
+
+    /// Validate `[reporting]` settings. Rejects unknown intent /
+    /// confidentiality values and requires `org_config_path` when
+    /// `intent = "official"`.
+    fn validate_reporting(&self) -> Result<(), String> {
+        if let Some(intent) = &self.reporting.intent {
+            match intent.as_str() {
+                "internal" | "official" | "audited" => {}
+                other => {
+                    return Err(format!(
+                        "[reporting] intent must be one of \"internal\", \"official\", \"audited\", got {other:?}"
+                    ));
+                }
+            }
+        }
+        if let Some(level) = &self.reporting.confidentiality_level {
+            match level.as_str() {
+                "internal" | "public" => {}
+                other => {
+                    return Err(format!(
+                        "[reporting] confidentiality_level must be \"internal\" or \"public\", got {other:?}"
+                    ));
+                }
+            }
+        }
+        if self.reporting.intent.as_deref() == Some("official")
+            && self
+                .reporting
+                .org_config_path
+                .as_deref()
+                .is_none_or(str::is_empty)
+        {
+            return Err(
+                "[reporting] org_config_path is required when intent = \"official\"".to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    /// Validate `[daemon.archive]` settings when present.
+    fn validate_daemon_archive(&self) -> Result<(), String> {
+        let Some(archive) = &self.daemon.archive else {
+            return Ok(());
+        };
+        if archive.path.trim().is_empty() {
+            return Err("[daemon.archive] path must not be empty".to_string());
+        }
+        if has_control_char(&archive.path) {
+            return Err("[daemon.archive] path contains control characters".to_string());
+        }
+        if archive.max_size_mb < 1 {
+            return Err("[daemon.archive] max_size_mb must be >= 1".to_string());
+        }
+        if archive.max_files < 1 {
+            return Err("[daemon.archive] max_files must be >= 1".to_string());
+        }
         Ok(())
     }
 
@@ -1332,6 +1481,15 @@ impl Config {
                  silently do nothing, which is almost always a misconfiguration. \
                  Either remove [daemon.cors] allowed_origins for this environment, or \
                  enable the API with [daemon] api_enabled = true."
+                    .to_string(),
+            );
+        }
+        if self.daemon.archive.is_some() && !self.green.enabled {
+            return Err(
+                "[daemon.archive] is configured but [green] enabled = false. The archive \
+                 would write windows with zero carbon/energy, making `perf-sentinel disclose` \
+                 produce a meaningless output. Either enable green scoring or remove the \
+                 archive section."
                     .to_string(),
             );
         }
@@ -4340,5 +4498,98 @@ allowed_origins = ["*", "https://reports.example.com"]
             msg.contains("cannot mix"),
             "expected validation error to mention mixing: {msg}"
         );
+    }
+
+    #[test]
+    fn reporting_section_parses_and_validates() {
+        let toml = r#"
+[reporting]
+intent = "official"
+confidentiality_level = "public"
+org_config_path = "/etc/perf-sentinel/org.toml"
+disclose_output_path = "/var/lib/perf-sentinel/last.json"
+disclose_period = "calendar-quarter"
+"#;
+        let cfg = load_from_str(toml).expect("valid reporting section");
+        assert_eq!(cfg.reporting.intent.as_deref(), Some("official"));
+        assert_eq!(
+            cfg.reporting.confidentiality_level.as_deref(),
+            Some("public")
+        );
+        assert_eq!(
+            cfg.reporting.org_config_path.as_deref(),
+            Some("/etc/perf-sentinel/org.toml")
+        );
+    }
+
+    #[test]
+    fn reporting_unknown_intent_rejected() {
+        let toml = r#"
+[reporting]
+intent = "draft"
+"#;
+        let err = load_from_str(toml).expect_err("unknown intent must be rejected");
+        assert!(err.to_string().contains("intent must be one of"));
+    }
+
+    #[test]
+    fn reporting_unknown_confidentiality_rejected() {
+        let toml = r#"
+[reporting]
+confidentiality_level = "restricted"
+"#;
+        let err = load_from_str(toml).expect_err("unknown confidentiality must be rejected");
+        assert!(err.to_string().contains("confidentiality_level"));
+    }
+
+    #[test]
+    fn reporting_official_requires_org_config_path() {
+        let toml = r#"
+[reporting]
+intent = "official"
+"#;
+        let err = load_from_str(toml).expect_err("missing org_config_path must be rejected");
+        assert!(err.to_string().contains("org_config_path"));
+    }
+
+    #[test]
+    fn daemon_archive_section_parses_with_defaults() {
+        let toml = r#"
+[daemon.archive]
+path = "/var/lib/perf-sentinel/reports.ndjson"
+"#;
+        let cfg = load_from_str(toml).expect("valid archive section");
+        let archive = cfg.daemon.archive.expect("archive must be Some");
+        assert_eq!(archive.path, "/var/lib/perf-sentinel/reports.ndjson");
+        assert_eq!(archive.max_size_mb, 100);
+        assert_eq!(archive.max_files, 12);
+    }
+
+    #[test]
+    fn daemon_archive_zero_size_rejected() {
+        let toml = r#"
+[daemon.archive]
+path = "/tmp/a.ndjson"
+max_size_mb = 0
+"#;
+        let err = load_from_str(toml).expect_err("zero size must be rejected");
+        assert!(err.to_string().contains("max_size_mb"));
+    }
+
+    #[test]
+    fn daemon_archive_zero_files_rejected() {
+        let toml = r#"
+[daemon.archive]
+path = "/tmp/a.ndjson"
+max_files = 0
+"#;
+        let err = load_from_str(toml).expect_err("zero files must be rejected");
+        assert!(err.to_string().contains("max_files"));
+    }
+
+    #[test]
+    fn daemon_archive_absent_section_yields_none() {
+        let cfg = load_from_str("").expect("empty config parses");
+        assert!(cfg.daemon.archive.is_none());
     }
 }
