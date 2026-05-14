@@ -41,9 +41,24 @@ The publication domain (e.g. `transparency.example.fr`) is treated as an implici
 
 `sci_specification` references the SCI revision (e.g. `"ISO/IEC 21031:2024"`). `perf_sentinel_version` mirrors the report metadata field for consumers that index only the methodology block. `enabled_patterns` and `disabled_patterns` each carry pattern names taken from the closed set defined by `FindingType::as_str()` (10 values). `core_patterns_required` is the closed list of patterns whose remediation directly cuts I/O and carbon: `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`. `conformance` is one of `core-required | extended | partial`; `core-required` is the minimum bar for an `intent = "official"` disclosure. `calibration_inputs.carbon_intensity_source` is one of `electricity_maps | static_tables | mixed`. `specpower_table_version` is the version of the embedded SPECpower table; the binary ships the only authoritative copy. `scaphandre_used` flags whether the runtime energy proxy came from Scaphandre RAPL.
 
+`calibration_applied` (0.7.0+) is `true` if any scoring window in the period had operator-supplied per-service calibration coefficients applied to the proxy energy. The flag is methodologically distinct from `scaphandre_used` and `energy_source_models`: those describe which energy source produced the numbers, this flag describes whether those numbers were further adjusted by operator coefficients.
+
 ## Aggregate
 
 Sums across the entire period and the entire `applications` array. `total_requests`, `total_energy_kwh`, `total_carbon_kgco2eq`, and `estimated_optimization_potential_kgco2eq` are non-negative finite numbers. `aggregate_waste_ratio` is in `[0, 1]`. `aggregate_efficiency_score` is in `[0, 100]` and equals `clamp(100 - 100 * io_waste_ratio, 0, 100)`. `anti_patterns_detected_count` is the sum of every per-service occurrences count, including non-avoidable patterns.
+
+### Quality signals (0.7.0+)
+
+The aggregate carries four optional fields that describe the quality of the source archives, not the workload itself. These let auditors gauge how much of the period was directly measured versus inferred from a proxy.
+
+- `period_coverage` is in `[0, 1]` and equals `runtime_windows / (runtime_windows + fallback_windows)`. A value of `1.0` means every scoring window in the period carried runtime-calibrated energy (Scaphandre or cloud SPECpower). A value of `0.0` means every window fell back to the I/O proxy. The validator refuses an `intent = "official"` disclosure with `period_coverage < 0.75`, see `docs/design/08-PERIODIC-DISCLOSURE.md` for the threshold rationale.
+- `runtime_windows_count` and `fallback_windows_count` carry the absolute counts behind that ratio, so a reader can distinguish "9 out of 10 windows runtime-calibrated" from "900 out of 1000".
+- `binary_versions` is the set of distinct perf-sentinel binary versions that produced the archives folded into this period. A period spanning several versions (daemon upgrade mid-quarter, async releases across teams) flags this set with more than one entry, which the report disclaimer surfaces.
+
+### Per-service quality fields (0.7.0+)
+
+- `per_service_energy_models` maps each service to the set of energy-model tags observed across the period (`scaphandre_rapl`, `cloud_specpower`, `io_proxy_v3`, etc.). The `+cal` suffix is stripped before insertion, the period-wide `calibration_applied` flag in `methodology.calibration_inputs` carries that information instead.
+- `per_service_measured_ratio` is the per-service mean of the per-window fraction of spans whose energy was resolved by Scaphandre or cloud SPECpower. A value close to `1.0` means the service is fully measured across the period, `0.0` means it relies on proxy fallback. This is a simple arithmetic mean of per-window ratios, not span-weighted: a window with 10 spans and a window with 10000 spans contribute equally to the mean.
 
 ## Applications
 

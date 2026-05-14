@@ -39,11 +39,26 @@ Le domaine de publication (par exemple `transparency.example.fr`) est traité co
 
 ## Méthodologie
 
-`sci_specification` référence la révision SCI (par exemple `"ISO/IEC 21031:2024"`). `perf_sentinel_version` reprend le champ des métadonnées pour les consommateurs qui n'indexent que le bloc méthodologie. `enabled_patterns` et `disabled_patterns` portent chacun des noms de patterns issus du set fermé défini par `FindingType::as_str()` (10 valeurs). `core_patterns_required` est la liste fermée des patterns dont la remédiation coupe directement de l'I/O et du carbone : `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`. `conformance` vaut `core-required | extended | partial` ; `core-required` est le seuil minimum pour un rapport `intent = "official"`. `calibration_inputs.carbon_intensity_source` vaut `electricity_maps | static_tables | mixed`. `specpower_table_version` est la version de la table SPECpower embarquée ; le binaire embarque la seule copie autoritaire. `scaphandre_used` indique si le proxy énergie temps réel vient de Scaphandre RAPL.
+`sci_specification` référence la révision SCI (par exemple `"ISO/IEC 21031:2024"`). `perf_sentinel_version` reprend le champ des métadonnées pour les consommateurs qui n'indexent que le bloc méthodologie. `enabled_patterns` et `disabled_patterns` portent chacun des noms de patterns issus du set fermé défini par `FindingType::as_str()` (10 valeurs). `core_patterns_required` est la liste fermée des patterns dont la remédiation coupe directement de l'I/O et du carbone : `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`. `conformance` vaut `core-required | extended | partial`, `core-required` étant le seuil minimum pour un rapport `intent = "official"`. `calibration_inputs.carbon_intensity_source` vaut `electricity_maps | static_tables | mixed`. `specpower_table_version` est la version de la table SPECpower embarquée, le binaire portant la seule copie autoritaire. `scaphandre_used` indique si le proxy énergie temps réel vient de Scaphandre RAPL.
+
+`calibration_applied` (0.7.0+) vaut `true` si au moins une fenêtre de scoring de la période a appliqué des coefficients de calibration opérateur per-service à l'énergie proxy. Le flag est méthodologiquement distinct de `scaphandre_used` et `energy_source_models` : ceux-ci décrivent quelle source d'énergie a produit les chiffres, ce flag décrit si ces chiffres ont été ensuite ajustés par des coefficients opérateur.
 
 ## Agrégat
 
 Sommes sur toute la période et tout le tableau `applications`. `total_requests`, `total_energy_kwh`, `total_carbon_kgco2eq` et `estimated_optimization_potential_kgco2eq` sont des nombres finis non négatifs. `aggregate_waste_ratio` est dans `[0, 1]`. `aggregate_efficiency_score` est dans `[0, 100]` et vaut `clamp(100 - 100 * io_waste_ratio, 0, 100)`. `anti_patterns_detected_count` est la somme de toutes les occurrences par service, y compris les patterns non évitables.
+
+### Signaux de qualité (0.7.0+)
+
+L'agrégat porte quatre champs optionnels qui décrivent la qualité des archives sources, pas la charge applicative elle-même. Ils permettent à un auditeur d'évaluer quelle proportion de la période a été mesurée directement plutôt qu'inférée d'un proxy.
+
+- `period_coverage` est dans `[0, 1]` et vaut `runtime_windows / (runtime_windows + fallback_windows)`. Une valeur de `1.0` signifie que toutes les fenêtres de scoring de la période portaient une énergie runtime-calibrated (Scaphandre ou cloud SPECpower). Une valeur de `0.0` signifie que toutes les fenêtres sont tombées sur le proxy I/O. Le validator refuse un rapport `intent = "official"` avec `period_coverage < 0.75`, voir `docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md` pour la justification du seuil.
+- `runtime_windows_count` et `fallback_windows_count` portent les compteurs absolus derrière ce ratio, pour qu'un lecteur puisse distinguer "9 fenêtres sur 10 runtime-calibrated" de "900 sur 1000".
+- `binary_versions` est l'ensemble des versions distinctes du binaire perf-sentinel qui ont produit les archives repliées dans cette période. Une période qui couvre plusieurs versions (upgrade de daemon en milieu de trimestre, releases asynchrones entre équipes) porte plus d'une entrée dans cet ensemble, ce que le disclaimer du rapport surface.
+
+### Champs de qualité par service (0.7.0+)
+
+- `per_service_energy_models` mappe chaque service à l'ensemble des tags de modèle énergétique observés sur la période (`scaphandre_rapl`, `cloud_specpower`, `io_proxy_v3`, etc.). Le suffixe `+cal` est strippé avant insertion, le flag period-wide `calibration_applied` dans `methodology.calibration_inputs` porte cette information à la place.
+- `per_service_measured_ratio` est la moyenne par service de la fraction par fenêtre des spans dont l'énergie a été résolue par Scaphandre ou cloud SPECpower. Une valeur proche de `1.0` signifie que le service est entièrement mesuré sur la période, `0.0` qu'il s'appuie sur le proxy fallback. C'est une moyenne arithmétique simple des ratios par fenêtre, pas pondérée par le nombre de spans : une fenêtre de 10 spans et une fenêtre de 10000 spans contribuent à part égale à la moyenne.
 
 ## Applications
 

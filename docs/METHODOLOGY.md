@@ -46,9 +46,18 @@ The SCI `M` term covers manufactured-silicon emissions amortised per request. pe
 
 1. Each envelope is filtered to fall inside the requested calendar period.
 2. Global counters add up `total_io_ops`, `avoidable_io_ops`, `total.mid` (gCO2), `avoidable.mid` (gCO2). gCO2 is divided by 1000 to obtain `kgCO2eq`.
-3. Per-service attribution distributes the global totals proportionally to the per-service I/O share read from `Report.per_endpoint_io_ops`. A window with zero per-service offenders is bucketed under `_unattributed` unless `--strict-attribution` was passed.
+3. Per-service attribution uses the runtime-calibrated `per_service_*` maps when the source window carries them. Otherwise the global totals are distributed proportionally to the per-service I/O share read from `Report.per_endpoint_io_ops`. A window with zero per-service offenders is bucketed under `_unattributed` unless `--strict-attribution` was passed.
 
 `efficiency_score = clamp(100 - 100 * io_waste_ratio, 0, 100)`. Per-service efficiency uses the same formula on the service's own avoidable / total ratio.
+
+Quality signals (0.7.0+) summarise how much of the period was directly measured versus inferred from the proxy.
+
+- `period_coverage = runtime_windows / total_windows`, in `[0, 1]`, with `runtime_windows_count` and `fallback_windows_count` carrying the absolute counts behind the ratio.
+- `binary_versions` is the set of perf-sentinel binary versions observed across the period; a daemon upgrade mid-period makes this set carry more than one entry.
+- `calibration_applied` on `methodology.calibration_inputs` flips to `true` when at least one window applied operator calibration coefficients to the proxy energy.
+- `per_service_energy_models` and `per_service_measured_ratio` (in both `GreenSummary` per window and `Aggregate` over the period) surface the per-service fidelity view: which energy model fed each service and what fraction of its spans actually got measured.
+
+The wire-format definitions for these fields live in the "Aggregate" and "Methodology" sections of `docs/SCHEMA.md`.
 
 ## Known limitations in schema v1.0
 
@@ -56,6 +65,10 @@ The SCI `M` term covers manufactured-silicon emissions amortised per request. pe
 - **Optimization potential excludes embodied carbon.** `estimated_optimization_potential_kgco2eq` is the avoidable operational term only (you cannot un-manufacture silicon by fixing N+1 queries). The aggregate `total_carbon_kgco2eq` includes both operational and embodied terms. The disclaimer in `notes.disclaimers` calls this out explicitly.
 - **Per-service carbon excludes embodied.** The embodied term (SCI `M`) lives only in the aggregate. `sum(per_service_carbon_kgco2eq) × 1000` approximates `co2.operational_gco2`, not `co2.total.mid`.
 - **`_unattributed` bucket.** Windows whose `Report.per_endpoint_io_ops` is empty (and that lack runtime per-service maps) land in the `_unattributed` service. `disclose --strict-attribution` refuses such windows. Findings from those windows are also bucketed under `_unattributed` so a service is never published with `efficiency_score = 100` and non-zero anti-patterns.
+- **Period coverage and the 75% gate (0.7.0+).** Every disclosure carries `aggregate.period_coverage`, the fraction of scoring windows that used runtime-calibrated energy versus the proxy fallback. An `intent = "official"` disclosure with coverage below 0.75 is rejected by the validator. An `intent = "internal"` disclosure below that threshold ships an explicit disclaimer in `notes.disclaimers`. The empirical rationale for 0.75 lives in `docs/design/08-PERIODIC-DISCLOSURE.md`.
+- **Per-service measured ratio is span-uniform, window-mean (0.7.0+).** `per_service_measured_ratio` in `GreenSummary` is the fraction of a service's spans whose energy was resolved by Scaphandre or cloud SPECpower in that window. The period-level value in `Aggregate.per_service_measured_ratio` is the simple arithmetic mean of those per-window ratios, not span-weighted: a 10-span window and a 10000-span window contribute equally. A service whose `per_service_energy_model` shows `scaphandre_rapl` with `per_service_measured_ratio` of `0.05` had a single Scaphandre observation against 95% proxy fallback in the window: the tag indicates the best source observed, the ratio describes the fidelity.
+- **Calibration applied is binary, period-wide (0.7.0+).** `methodology.calibration_inputs.calibration_applied` is `true` as soon as at least one window of the period had operator calibration active, even if 89 of 90 windows did not. The disclaimer text in `notes.disclaimers` reflects this exact wording so a reader cannot mistake the flag for "every window was calibrated".
+- **Binary versions across the period (0.7.0+).** `aggregate.binary_versions` lists the perf-sentinel binary versions that produced the source archives. A period spanning multiple versions ships a disclaimer pointing the consumer to verify version compatibility before comparing this report against historical baselines. The set is capped at 256 entries; in the unlikely case a quarter spans more, overflow entries are silently dropped.
 
 ## Uncertainty bracket
 
