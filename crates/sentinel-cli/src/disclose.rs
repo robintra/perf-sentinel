@@ -208,10 +208,27 @@ fn write_attestation(
     use sentinel_core::report::periodic::attestation::build_in_toto_statement_named;
     use sentinel_core::report::periodic::compute_file_sha256_hex;
 
+    // Refuse to truncate a symlink, same posture as write_pretty_json.
+    if let Ok(meta) = std::fs::symlink_metadata(attestation_path)
+        && meta.file_type().is_symlink()
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "attestation output {} is a symlink, refusing to overwrite",
+                attestation_path.display()
+            ),
+        ));
+    }
     let digest = compute_file_sha256_hex(report_path)?;
     let statement = build_in_toto_statement_named(report, &digest, subject_name);
-    let json = serde_json::to_string_pretty(&statement)
+    // Compact single-line JSON matches the `.intoto.jsonl` convention
+    // (one self-contained JSON value per line) used by cosign and
+    // slsa-verifier tooling, with a trailing newline so concatenating
+    // multiple statements stays valid JSONL.
+    let mut json = serde_json::to_string(&statement)
         .map_err(|e| std::io::Error::other(format!("serialise attestation: {e}")))?;
+    json.push('\n');
     std::fs::write(attestation_path, json)
 }
 
