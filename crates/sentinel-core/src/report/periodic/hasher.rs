@@ -123,104 +123,16 @@ pub fn binary_hash() -> std::io::Result<String> {
 mod tests {
     use super::*;
     use crate::report::periodic::schema::{
-        Aggregate, AntiPatternDetail, Application, ApplicationG1, CalibrationInputs,
-        Confidentiality, Conformance, Integrity, IntegrityLevel, Methodology, Notes,
-        OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport, ReportIntent,
-        ReportMetadata, SCHEMA_VERSION, ScopeManifest, core_patterns_required,
+        Application, Confidentiality, PeriodicReport, ReportIntent,
     };
-    use chrono::{DateTime, NaiveDate, Utc};
-    use uuid::Uuid;
+    use crate::report::periodic::test_fixtures;
 
     fn sample_report() -> PeriodicReport {
-        PeriodicReport {
-            schema_version: SCHEMA_VERSION.to_string(),
-            report_metadata: ReportMetadata {
-                intent: ReportIntent::Official,
-                confidentiality_level: Confidentiality::Public,
-                integrity_level: IntegrityLevel::HashOnly,
-                generated_at: DateTime::parse_from_rfc3339("2026-04-01T00:00:00Z")
-                    .unwrap()
-                    .with_timezone(&Utc),
-                generated_by: "cli-batch".to_string(),
-                perf_sentinel_version: "0.6.2".to_string(),
-                report_uuid: Uuid::nil(),
-            },
-            organisation: Organisation {
-                name: "Acme".to_string(),
-                country: "FR".to_string(),
-                identifiers: OrgIdentifiers::default(),
-                sector: None,
-            },
-            period: Period {
-                from_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
-                to_date: NaiveDate::from_ymd_opt(2026, 3, 31).unwrap(),
-                period_type: PeriodType::CalendarQuarter,
-                days_covered: 90,
-            },
-            scope_manifest: ScopeManifest {
-                total_applications_declared: 1,
-                applications_measured: 1,
-                applications_excluded: vec![],
-                environments_measured: vec!["prod".to_string()],
-                environments_excluded: vec![],
-                total_requests_in_period: None,
-                requests_measured: 1000,
-                coverage_percentage: None,
-            },
-            methodology: Methodology {
-                sci_specification: "ISO/IEC 21031:2024".to_string(),
-                perf_sentinel_version: "0.6.2".to_string(),
-                enabled_patterns: vec!["n_plus_one_sql".to_string()],
-                disabled_patterns: vec![],
-                core_patterns_required: core_patterns_required(),
-                conformance: Conformance::CoreRequired,
-                calibration_inputs: CalibrationInputs {
-                    cloud_regions: vec!["eu-west-3".to_string()],
-                    carbon_intensity_source: "electricity_maps".to_string(),
-                    specpower_table_version: "2024-2026".to_string(),
-                    scaphandre_used: false,
-                },
-            },
-            aggregate: Aggregate {
-                total_requests: 1000,
-                total_energy_kwh: 0.5,
-                total_carbon_kgco2eq: 0.05,
-                aggregate_efficiency_score: 90.0,
-                aggregate_waste_ratio: 0.1,
-                anti_patterns_detected_count: 3,
-                estimated_optimization_potential_kgco2eq: 0.01,
-            },
-            applications: vec![Application::G1(ApplicationG1 {
-                service_name: "svc".to_string(),
-                display_name: None,
-                service_version: None,
-                endpoints_observed: 1,
-                total_requests: 1000,
-                energy_kwh: 0.5,
-                carbon_kgco2eq: 0.05,
-                efficiency_score: 90.0,
-                anti_patterns: vec![AntiPatternDetail {
-                    kind: "n_plus_one_sql".to_string(),
-                    occurrences: 3,
-                    estimated_waste_kwh: 0.02,
-                    estimated_waste_kgco2eq: 0.003,
-                    first_seen: DateTime::parse_from_rfc3339("2026-01-05T00:00:00Z")
-                        .unwrap()
-                        .with_timezone(&Utc),
-                    last_seen: DateTime::parse_from_rfc3339("2026-03-20T00:00:00Z")
-                        .unwrap()
-                        .with_timezone(&Utc),
-                }],
-            })],
-            integrity: Integrity {
-                content_hash: String::new(),
-                binary_hash: None,
-                binary_verification_url: None,
-                trace_integrity_chain: Value::Null,
-                signature: Value::Null,
-            },
-            notes: Notes::default(),
-        }
+        test_fixtures::sample_report(
+            ReportIntent::Official,
+            Confidentiality::Public,
+            vec![Application::G1(test_fixtures::sample_g1_application())],
+        )
     }
 
     #[test]

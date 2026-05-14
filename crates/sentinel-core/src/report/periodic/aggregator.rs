@@ -339,7 +339,7 @@ fn naive_to_utc_start(d: NaiveDate) -> DateTime<Utc> {
 
 fn resolve_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AggregationError> {
     let mut out = Vec::new();
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     for path in paths {
         let meta = std::fs::symlink_metadata(path).map_err(|source| AggregationError::Io {
             path: path.display().to_string(),
@@ -389,11 +389,7 @@ fn resolve_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AggregationError> {
     Ok(out)
 }
 
-fn push_unique(
-    out: &mut Vec<PathBuf>,
-    seen: &mut std::collections::BTreeSet<PathBuf>,
-    path: PathBuf,
-) {
+fn push_unique(out: &mut Vec<PathBuf>, seen: &mut BTreeSet<PathBuf>, path: PathBuf) {
     let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
     if seen.insert(canonical) {
         out.push(path);

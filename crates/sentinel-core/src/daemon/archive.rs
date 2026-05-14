@@ -366,10 +366,10 @@ mod tests {
             let p = dir
                 .path()
                 .join(format!("archive-2026010{i}T000000000000000Z.ndjson"));
-            std::fs::File::create(&p).unwrap();
+            File::create(&p).unwrap();
         }
         let decoy = dir.path().join("archive-evil.ndjson");
-        std::fs::File::create(&decoy).unwrap();
+        File::create(&decoy).unwrap();
 
         let handle = spawn(&cfg(&dir, 1, 2)).unwrap();
         for _ in 0..15 {
@@ -406,7 +406,7 @@ mod tests {
     async fn writer_refuses_symlink_target() {
         let dir = TempDir::new().unwrap();
         let real = dir.path().join("real.ndjson");
-        std::fs::File::create(&real).unwrap();
+        File::create(&real).unwrap();
         let link = dir.path().join("archive.ndjson");
         std::os::unix::fs::symlink(&real, &link).unwrap();
 

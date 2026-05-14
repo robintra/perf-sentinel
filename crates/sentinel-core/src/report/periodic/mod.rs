@@ -16,6 +16,8 @@ pub mod org_config;
 pub mod schema;
 pub mod validator;
 
+#[cfg(test)]
+mod test_fixtures;
 pub use aggregator::{
     AggregateInputs, AntiPatternAccumulator, ServiceAccumulator, UNATTRIBUTED_SERVICE,
     aggregate_from_paths,
