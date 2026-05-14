@@ -69,7 +69,7 @@
       "carbon_intensity_source": "electricity_maps",
       "specpower_table_version": "2024-2026",
       "scaphandre_used": false,
-      "energy_source_models": ["cloud_specpower", "io_proxy_v3", "scaphandre_rapl"],
+      "energy_source_models": ["cloud_specpower", "io_proxy_v3"],
       "calibration_applied": false
     }
   },
@@ -88,7 +88,7 @@
     "per_service_energy_models": {
       "billing": ["io_proxy_v3"],
       "catalog": ["cloud_specpower"],
-      "checkout": ["scaphandre_rapl"]
+      "checkout": ["cloud_specpower"]
     },
     "per_service_measured_ratio": {
       "billing": 0.0,
