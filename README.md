@@ -657,6 +657,14 @@ When the daemon is configured with `[reporting] intent = "official"`, it refuses
 
 The schema is versioned (`perf-sentinel-report/v1.0`) and aligned with the Software Carbon Intensity v1.0 specification (ISO/IEC 21031:2024).
 
+Disclosures can be cryptographically signed via Sigstore so a consumer verifies authorship and integrity in a single command:
+
+```bash
+perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
+```
+
+The full chain `source -> SLSA -> binary -> report -> Sigstore signature` is anchored in Rekor public. See [docs/design/10-SIGSTORE-ATTESTATION.md](docs/design/10-SIGSTORE-ATTESTATION.md) for the cryptographic flow and [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md) for the SLSA L2 binary attestation.
+
 See [docs/REPORTING.md](docs/REPORTING.md) for the CLI usage guide, [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the calculation chain, and [docs/SCHEMA.md](docs/SCHEMA.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) for the wire format.
 
 ## Architecture
