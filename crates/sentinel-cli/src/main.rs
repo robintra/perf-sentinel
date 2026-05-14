@@ -18,6 +18,7 @@ mod query;
 mod render;
 #[cfg(feature = "tui")]
 mod tui;
+mod verify_hash;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
@@ -519,6 +520,33 @@ enum Commands {
         #[arg(long, value_name = "PATH")]
         emit_attestation: Option<PathBuf>,
     },
+    /// Verify the integrity of a published periodic disclosure report.
+    ///
+    /// Recomputes the canonical `content_hash` and, when the report
+    /// carries signature/attestation metadata and the operator points
+    /// at the matching sidecar files, delegates signature verification
+    /// to `cosign verify-attestation` and SLSA verification to
+    /// `slsa-verifier verify-artifact`.
+    VerifyHash {
+        /// Local report file to verify. Required unless `--url` is set.
+        #[arg(long, value_name = "PATH", conflicts_with = "url")]
+        report: Option<PathBuf>,
+        /// HTTPS URL of a published report. perf-sentinel will also
+        /// fetch the sidecar attestation and bundle at the same prefix.
+        #[arg(long, value_name = "URL", conflicts_with = "report")]
+        url: Option<String>,
+        /// Local in-toto v1 attestation file. When omitted in
+        /// `--report` mode, signature verification is skipped.
+        #[arg(long, value_name = "PATH")]
+        attestation: Option<PathBuf>,
+        /// Local cosign bundle file. When omitted in `--report` mode,
+        /// signature verification is skipped.
+        #[arg(long, value_name = "PATH")]
+        bundle: Option<PathBuf>,
+        /// Output format. Defaults to human-readable text.
+        #[arg(long, value_enum, default_value = "text")]
+        format: verify_hash::VerifyHashFormat,
+    },
 }
 
 /// Output format for query sub-actions.
@@ -858,6 +886,22 @@ async fn dispatch_command(command: Commands) {
                 &org_config,
                 strict_attribution,
                 emit_attestation.as_deref(),
+            );
+            std::process::exit(code);
+        }
+        Commands::VerifyHash {
+            report,
+            url,
+            attestation,
+            bundle,
+            format,
+        } => {
+            let code = verify_hash::cmd_verify_hash(
+                report.as_deref(),
+                url.as_deref(),
+                attestation.as_deref(),
+                bundle.as_deref(),
+                format,
             );
             std::process::exit(code);
         }

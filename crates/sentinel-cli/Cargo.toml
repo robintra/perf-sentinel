@@ -55,6 +55,10 @@ hyper = { version = "1.9.0", optional = true }
 bytes = { version = "1.11.1", optional = true }
 humantime = { version = "2.3.0", optional = true }
 rpassword = { version = "7.5.2", optional = true }
+# Synchronous HTTP client used exclusively by `verify-hash --url`.
+# Sync (not tokio), small dep graph, audited (Cure53 2021). The default
+# `rustls` feature pulls in TLS support; no native-tls fallback.
+ureq = { version = "3.3.0", default-features = false, features = ["rustls", "json"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.183"
