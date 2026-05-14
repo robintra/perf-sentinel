@@ -707,8 +707,8 @@ mod tests {
     fn per_service_carbon_respects_service_region() {
         // Two services in regions with very different grid intensities.
         // `eu-west-3` is ~56 gCO2/kWh, `pl` is ~700. The proportional
-        // I/O share that sprint 1 used would give both services the same
-        // average; runtime attribution must reflect the per-region rate.
+        // I/O share used by the proxy-only path would give both services
+        // the same average; runtime attribution must reflect the per-region rate.
         let mut events = Vec::new();
         for i in 1..=3 {
             let mut e = make_sql_event(

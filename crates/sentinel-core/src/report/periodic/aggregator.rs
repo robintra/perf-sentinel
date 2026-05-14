@@ -891,7 +891,7 @@ mod tests {
     #[test]
     fn aggregator_falls_back_to_proxy_for_legacy_archives() {
         // make_report leaves the per-service maps empty and energy_kwh
-        // at zero, mirroring a sprint-1 archive.
+        // at zero, mirroring an archive without runtime energy attribution.
         let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
         let r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
         let (_dir, path) = write_archive(&[(ts, r)]);
