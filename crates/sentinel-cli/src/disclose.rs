@@ -286,6 +286,7 @@ fn build_report(
             generated_by,
             perf_sentinel_version: env!("CARGO_PKG_VERSION").to_string(),
             report_uuid: Uuid::new_v4(),
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
         },
         organisation: Organisation {
             name: org.organisation.name.clone(),

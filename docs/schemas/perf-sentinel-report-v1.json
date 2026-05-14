@@ -120,7 +120,13 @@
           "enum": ["daemon", "cli-batch", "ci"]
         },
         "perf_sentinel_version": { "type": "string", "minLength": 1 },
-        "report_uuid": { "$ref": "#/$defs/UuidV4" }
+        "report_uuid": { "$ref": "#/$defs/UuidV4" },
+        "binary_version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._+-]+$",
+          "maxLength": 64,
+          "description": "Binary that wrote this disclosure file. Mirrors the per-window Report.binary_version; same convention so disclosure files and source archives are indexable on a single key. May be absent for disclosure files produced before this field shipped (0.7.0+)."
+        }
       }
     },
     "Organisation": {
@@ -270,6 +276,11 @@
           },
           "uniqueItems": true,
           "maxItems": 64
+        },
+        "calibration_applied": {
+          "type": "boolean",
+          "default": false,
+          "description": "True if at least one scoring window in the period had operator-supplied per-service calibration coefficients applied to the proxy energy (i.e. emitted an energy_model with the +cal suffix). Period-wide binary flag, distinct from energy_source_models which describes which source produced the numbers (0.7.0+)."
         }
       }
     },

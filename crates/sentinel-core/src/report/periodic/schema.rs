@@ -91,6 +91,12 @@ pub struct ReportMetadata {
     pub generated_by: String,
     pub perf_sentinel_version: String,
     pub report_uuid: Uuid,
+    /// Binary that wrote the disclosure file. Mirrors the per-window
+    /// `Report.binary_version` so disclosure files and source archives
+    /// share the same indexing convention. Empty on files produced
+    /// before this field shipped.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub binary_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,6 +342,7 @@ mod tests {
             generated_by: "cli-batch".to_string(),
             perf_sentinel_version: "0.6.2".to_string(),
             report_uuid: Uuid::nil(),
+            binary_version: String::new(),
         }
     }
 

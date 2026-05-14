@@ -77,3 +77,33 @@ fn example_hashes_are_deterministic() {
     assert_eq!(h2a, h2b);
     assert_ne!(h1a, h2a, "different examples should hash differently");
 }
+
+#[test]
+fn example_internal_g1_has_all_quality_signal_fields() {
+    let r = load_example("docs/schemas/examples/example-internal-G1.json");
+    assert!(r.aggregate.period_coverage > 0.0);
+    assert!(r.aggregate.runtime_windows_count > 0);
+    assert!(!r.aggregate.binary_versions.is_empty());
+    assert!(!r.aggregate.per_service_energy_models.is_empty());
+    assert!(!r.aggregate.per_service_measured_ratio.is_empty());
+    assert!(!r.report_metadata.binary_version.is_empty());
+    assert!(r.methodology.calibration_inputs.calibration_applied);
+}
+
+#[test]
+fn example_official_public_g2_has_all_quality_signal_fields() {
+    let r = load_example("docs/schemas/examples/example-official-public-G2.json");
+    assert!(r.aggregate.period_coverage >= 0.75);
+    assert!(r.aggregate.runtime_windows_count > 0);
+    assert!(!r.aggregate.binary_versions.is_empty());
+    assert!(!r.aggregate.per_service_energy_models.is_empty());
+    assert!(!r.aggregate.per_service_measured_ratio.is_empty());
+}
+
+#[test]
+fn example_disclaimers_include_quality_signals() {
+    let r = load_example("docs/schemas/examples/example-internal-G1.json");
+    let combined = r.notes.disclaimers.join(" ");
+    assert!(combined.contains("Calibration applied"));
+    assert!(combined.contains("multiple perf-sentinel binary versions"));
+}

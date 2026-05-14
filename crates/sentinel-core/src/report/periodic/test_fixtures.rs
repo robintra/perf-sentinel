@@ -32,6 +32,7 @@ pub(super) fn sample_metadata(
         generated_by: "cli-batch".to_string(),
         perf_sentinel_version: "0.6.2".to_string(),
         report_uuid: Uuid::nil(),
+        binary_version: String::new(),
     }
 }
 

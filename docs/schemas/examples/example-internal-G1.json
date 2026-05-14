@@ -6,8 +6,9 @@
     "integrity_level": "hash-only",
     "generated_at": "2026-04-01T08:00:00Z",
     "generated_by": "cli-batch",
-    "perf_sentinel_version": "0.6.2",
-    "report_uuid": "00000000-0000-4000-8000-000000000001"
+    "perf_sentinel_version": "0.7.0",
+    "report_uuid": "00000000-0000-4000-8000-000000000001",
+    "binary_version": "0.7.0"
   },
   "organisation": {
     "name": "Example SAS",
@@ -41,7 +42,7 @@
   },
   "methodology": {
     "sci_specification": "ISO/IEC 21031:2024",
-    "perf_sentinel_version": "0.6.2",
+    "perf_sentinel_version": "0.7.0",
     "enabled_patterns": [
       "n_plus_one_sql",
       "n_plus_one_http",
@@ -66,7 +67,9 @@
       "cloud_regions": ["eu-west-3"],
       "carbon_intensity_source": "electricity_maps",
       "specpower_table_version": "2024-2026",
-      "scaphandre_used": false
+      "scaphandre_used": true,
+      "energy_source_models": ["cloud_specpower", "io_proxy_v3", "scaphandre_rapl"],
+      "calibration_applied": true
     }
   },
   "aggregate": {
@@ -76,7 +79,21 @@
     "aggregate_efficiency_score": 82.1,
     "aggregate_waste_ratio": 0.18,
     "anti_patterns_detected_count": 47,
-    "estimated_optimization_potential_kgco2eq": 0.34
+    "estimated_optimization_potential_kgco2eq": 0.34,
+    "period_coverage": 0.94,
+    "binary_versions": ["0.6.2", "0.7.0"],
+    "runtime_windows_count": 169,
+    "fallback_windows_count": 11,
+    "per_service_energy_models": {
+      "billing": ["io_proxy_v3"],
+      "catalog": ["cloud_specpower"],
+      "checkout": ["io_proxy_v3", "scaphandre_rapl"]
+    },
+    "per_service_measured_ratio": {
+      "billing": 0.0,
+      "catalog": 1.0,
+      "checkout": 0.87
+    }
   },
   "applications": [
     {
@@ -150,6 +167,8 @@
   ],
   "integrity": {
     "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "binary_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
     "trace_integrity_chain": null,
     "signature": null
   },
@@ -158,7 +177,11 @@
       "Directional estimate, not regulatory-grade.",
       "Approximate uncertainty bracket: ~2x multiplicative.",
       "Not suitable for CSRD or GHG Protocol Scope 3 reporting.",
-      "Methodology: ISO/IEC 21031:2024 (SCI)."
+      "Methodology: ISO/IEC 21031:2024 (SCI).",
+      "Per-service carbon includes operational emissions only; embodied carbon (SCI M term) is reported in the aggregate total but not attributed per service.",
+      "Energy and carbon attribution per service is runtime-calibrated when the window's energy_model is non-empty; archives without runtime energy attribution fall back to proportional I/O share.",
+      "Calibration applied: per-service energy coefficients from the operator calibration file were used for at least one scoring window in this period. Inspect aggregate.methodology.calibration_inputs.calibration_applied for the binary fact.",
+      "This period spans multiple perf-sentinel binary versions (0.6.2, 0.7.0). Verify version compatibility if comparing this report against historical baselines."
     ],
     "reference_urls": {
       "methodology": "https://github.com/robintra/perf-sentinel/blob/main/docs/METHODOLOGY.md",
