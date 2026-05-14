@@ -9,11 +9,16 @@
 //!
 //! [`Report`]: crate::report::Report
 
+pub mod aggregator;
 pub mod errors;
 pub mod hasher;
 pub mod schema;
 pub mod validator;
 
+pub use aggregator::{
+    AggregateInputs, AntiPatternAccumulator, ServiceAccumulator, UNATTRIBUTED_SERVICE,
+    aggregate_from_paths,
+};
 pub use errors::{AggregationError, HashError, ValidationError};
 pub use hasher::compute_content_hash;
 pub use schema::{

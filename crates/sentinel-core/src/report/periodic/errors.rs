@@ -45,4 +45,6 @@ pub enum AggregationError {
     NoWindowsInPeriod,
     #[error("strict attribution requested but window at {ts} has no per-service offenders")]
     UnattributedWindow { ts: String },
+    #[error("input path {path} is a symlink; refusing to follow")]
+    SymlinkRefused { path: String },
 }

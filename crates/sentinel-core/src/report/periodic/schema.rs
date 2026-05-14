@@ -181,7 +181,7 @@ pub struct CalibrationInputs {
     pub scaphandre_used: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Aggregate {
     pub total_requests: u64,
     pub total_energy_kwh: f64,
