@@ -10,7 +10,7 @@ La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad h
 |------------|------------|------------|-------------------------------------------|
 | `internal` | aucune     | non        | brouillons de dev, tests à blanc          |
 | `official` | stricte    | oui        | publication trimestrielle de transparence |
-| `audited`  | réservé    | pas encore | révision future (sprint 2 / 3)            |
+| `audited`  | réservé    | pas encore | révision future                           |
 
 `audited` est accepté par le schéma JSON pour la compatibilité ascendante, mais la CLI retourne `Error: audited intent is not yet implemented` et sort avec le code 2.
 
@@ -116,7 +116,7 @@ jq -r '.notes.reference_urls.schema' perf-sentinel-report.json
 #    shortest round-trip). L'implémentation de référence reproductible
 #    est :
 #       perf-sentinel verify-hash <chemin>
-#    (livrable sprint 2, en attendant utiliser le binaire perf-sentinel
+#    (utilitaire à venir, en attendant utiliser le binaire perf-sentinel
 #    pour recompute, ou accepter le hash tel que livré).
 
 # 3. binary_hash correspond au tag de release perf-sentinel listé dans

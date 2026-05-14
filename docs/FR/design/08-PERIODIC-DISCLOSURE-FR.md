@@ -153,7 +153,7 @@ Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son 
 
 ## Limitations v1.0 portées en disclaimers
 
-- **Énergie + carbone par service runtime-calibrated quand l'archive les porte.** `Builder::process_window` lit `green_summary.energy_kwh` et les maps `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` de la fenêtre source quand elles sont peuplées, et tombe sur le proxy I/O + part proportionnelle quand elles ne le sont pas (archives sprint-1). L'aggregator expose les tags `energy_model` observés sous `methodology.calibration_inputs.energy_source_models`. Voir `docs/FR/design/09-CARBON-ATTRIBUTION-FR.md`.
+- **Énergie + carbone par service runtime-calibrated quand l'archive les porte.** `Builder::process_window` lit `green_summary.energy_kwh` et les maps `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` de la fenêtre source quand elles sont peuplées, et tombe sur le proxy I/O + part proportionnelle quand elles ne le sont pas (archives proxy-only). L'aggregator expose les tags `energy_model` observés sous `methodology.calibration_inputs.energy_source_models`. Voir `docs/FR/design/09-CARBON-ATTRIBUTION-FR.md`.
 - **Le potentiel d'optimisation exclut l'embarqué.** `estimated_optimization_potential_kgco2eq` ne somme que `co2.avoidable.mid`. `total_carbon_kgco2eq` est le `co2.total.mid` complet (opérationnel + embarqué). Les disclaimers par défaut le précisent.
 - **`_unattributed` co-route les findings.** Une fenêtre sans `per_endpoint_io_ops` et sans maps runtime per-service range son énergie/carbone ET ses findings sous `_unattributed`. Sans ce routage, un service avec des findings N+1 pourrait être publié à `efficiency_score = 100` si son `total_io_ops` se trouve à zéro dans la même fenêtre.
 
@@ -161,7 +161,7 @@ Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son 
 
 - **Signature Sigstore** : `integrity.signature` est réservé. Ajouter une vraie signature est un bump mineur SemVer du schéma (champ additif passant non null dans certains fichiers).
 - **Intent `audited`** : la troisième valeur d'intent demandera une attestation d'audit externe. La forme vivra sous `integrity` ou dans une section voisine, pas encore tranché.
-- **Chaîne d'intégrité de traces** : `integrity.trace_integrity_chain` est réservé pour une racine de Merkle sur les traces sources alimentant la disclosure. Hors scope du sprint 1.
+- **Chaîne d'intégrité de traces** : `integrity.trace_integrity_chain` est réservé pour une racine de Merkle sur les traces sources alimentant la disclosure. Hors scope du schéma v1.0.
 - **Intégration Boavizta** : `methodology.calibration_inputs` gagnera un champ `boavizta_version` quand l'intégration sera livrée. Les consommateurs de schéma doivent tolérer des champs de calibration inconnus, ce qu'ils font déjà parce que `additionalProperties` n'est pas posé.
 
 ## Mapping des fichiers source

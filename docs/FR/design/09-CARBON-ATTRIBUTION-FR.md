@@ -35,7 +35,7 @@ Une fois la boucle terminée, `score_green` produit les maps du GreenSummary :
 - `energy_kwh = sum(per_service_energy_kwh.values())`
 - `energy_model = select_co2_model_tag(window_flags)` si l'énergie est positive, chaîne vide sinon
 
-La map per-service est indexée par nom de service (lowercased en amont par `CarbonContext.service_regions`). Le champ `region` de l'accumulateur est aussi lowercased avant stockage, pour s'aligner avec les clés de `per_region` et que les deux maps se collationnent. Une énergie nulle donne une chaîne `energy_model` vide, ce qui sert de marqueur pre-sprint-2 pour le chemin fallback de l'aggregator.
+La map per-service est indexée par nom de service (lowercased en amont par `CarbonContext.service_regions`). Le champ `region` de l'accumulateur est aussi lowercased avant stockage, pour s'aligner avec les clés de `per_region` et que les deux maps se collationnent. Une énergie nulle donne une chaîne `energy_model` vide, ce qui route la fenêtre vers le chemin fallback proxy de l'aggregator.
 
 ## Attribution de la région
 
@@ -91,7 +91,7 @@ Ces caps reflètent le cap `MAX_REGIONS` côté runtime dans `score::carbon_comp
 
 Les cinq nouveaux champs `GreenSummary` portent tous `#[serde(default)]`. Une ligne d'archive écrite avant la livraison de cette fonctionnalité désérialise avec `energy_kwh = 0.0`, `energy_model = ""` et des maps vides. L'aggregator détecte ce cas et tombe sur le proxy.
 
-Pas de bump de version de schéma. `perf-sentinel-report/v1.0` reste l'identifiant wire. Les consommateurs qui lisent uniquement l'ensemble documenté sprint-1 continuent à fonctionner, ceux qui opt-in dans les nouveaux champs gagnent automatiquement les valeurs runtime-calibrated.
+Pas de bump de version de schéma. `perf-sentinel-report/v1.0` reste l'identifiant wire. Les consommateurs qui lisent uniquement l'ensemble v1.0 documenté continuent à fonctionner, ceux qui opt-in dans les nouveaux champs gagnent automatiquement les valeurs runtime-calibrated.
 
 ## Ce qu'on n'a pas fait
 
