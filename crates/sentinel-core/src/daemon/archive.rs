@@ -253,7 +253,7 @@ fn is_rotation_stamp(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::report::{Analysis, GreenSummary, QualityGate, Report};
+    use crate::test_helpers::empty_report;
     use tempfile::TempDir;
 
     fn cfg(dir: &TempDir, max_size_mb: u64, max_files: u32) -> DaemonArchiveConfig {
@@ -264,31 +264,10 @@ mod tests {
         }
     }
 
-    fn sample_report() -> Report {
-        Report {
-            analysis: Analysis {
-                duration_ms: 0,
-                events_processed: 0,
-                traces_analyzed: 0,
-            },
-            findings: vec![],
-            green_summary: GreenSummary::disabled(0),
-            quality_gate: QualityGate {
-                passed: true,
-                rules: vec![],
-            },
-            per_endpoint_io_ops: vec![],
-            correlations: vec![],
-            warnings: vec![],
-            warning_details: vec![],
-            acknowledged_findings: vec![],
-        }
-    }
-
     fn sample_archive() -> OwnedArchive {
         OwnedArchive {
             ts: Utc::now(),
-            report: sample_report(),
+            report: empty_report(),
         }
     }
 
