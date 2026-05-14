@@ -136,31 +136,83 @@ fn endpoint_stats_to_per_endpoint_io_ops(
 ///    compute operational + embodied CO₂, build the structured `CarbonReport`
 ///    and the per-region breakdown (sorted by `co2_gco2` DESC).
 #[must_use]
-#[allow(clippy::too_many_lines)] // Pipeline stage with carbon scoring branches; splitting
-// would obscure the data flow.
 pub fn score_green(
     traces: &[Trace],
     findings: Vec<Finding>,
     carbon: Option<&CarbonContext>,
 ) -> (Vec<Finding>, GreenSummary, Vec<PerEndpointIoOps>) {
     let (endpoint_stats, total_io_ops) = count_endpoint_stats(traces);
-    // Project the same `endpoint_stats` we just built into the public
-    // per-endpoint counter so the pipeline does not need to walk the
-    // spans a second time. One O(N) span pass for both `top_offenders`
-    // (IIS view) and `per_endpoint_io_ops` (raw counter for diff).
     let per_endpoint_io_ops = endpoint_stats_to_per_endpoint_io_ops(&endpoint_stats);
+    let avoidable_io_ops = dedup_avoidable_io_ops(&findings);
+    let iis_map = build_iis_map(&endpoint_stats);
+    let enriched = enrich_findings_with_iis(findings, &iis_map);
 
-    // Dedup avoidable I/O ops by (trace_id, template, source_endpoint), taking max.
-    // Slow findings are excluded: slow queries are not "avoidable" I/O, they are
-    // necessary operations that happen to be slow. Capacity is the count of
-    // avoidable findings to avoid over-allocating when many findings are slow
-    // or one of the non-avoidable kinds (fanout, chatty, pool, serialized).
-    let avoidable_capacity = findings
+    let carbon_outputs = match carbon {
+        Some(ctx) => compute_carbon_report(traces, ctx, total_io_ops, avoidable_io_ops),
+        None => carbon_compute::CarbonComputeOutputs {
+            report: None,
+            regions: Vec::new(),
+            multi_region_active: false,
+            per_service: std::collections::BTreeMap::new(),
+            window_model: "",
+        },
+    };
+
+    let default_region_lower = top_offender_co2_region(carbon, carbon_outputs.multi_region_active);
+    let top_offenders =
+        build_top_offenders(&endpoint_stats, &iis_map, default_region_lower.as_deref());
+
+    let io_waste_ratio = if total_io_ops > 0 {
+        avoidable_io_ops as f64 / total_io_ops as f64
+    } else {
+        0.0
+    };
+    let window_model = carbon_outputs.window_model;
+    let per_service = build_per_service_maps(carbon_outputs.per_service, window_model);
+    let energy_model = if per_service.energy_kwh > 0.0 {
+        window_model.to_string()
+    } else {
+        String::new()
+    };
+
+    let co2 = carbon_outputs.report;
+    let green_summary = GreenSummary {
+        total_io_ops,
+        avoidable_io_ops,
+        io_waste_ratio,
+        io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
+            io_waste_ratio,
+        ),
+        top_offenders,
+        // Hoisted from co2.transport_gco2 for top-level JSON visibility so
+        // consumers can read it without navigating the nested co2 object.
+        // Canonical value lives in CarbonReport.
+        transport_gco2: co2.as_ref().and_then(|r| r.transport_gco2),
+        co2,
+        regions: carbon_outputs.regions,
+        scoring_config: carbon.and_then(|ctx| ctx.scoring_config.clone()),
+        energy_kwh: per_service.energy_kwh,
+        energy_model,
+        per_service_carbon_kgco2eq: per_service.carbon_kgco2eq,
+        per_service_energy_kwh: per_service.energy_kwh_by_service,
+        per_service_region: per_service.region,
+        per_service_energy_model: per_service.energy_model,
+        per_service_measured_ratio: per_service.measured_ratio,
+    };
+
+    (enriched, green_summary, per_endpoint_io_ops)
+}
+
+/// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`),
+/// taking max. Slow findings are not avoidable I/O, they are necessary
+/// operations that happen to be slow.
+fn dedup_avoidable_io_ops(findings: &[Finding]) -> usize {
+    let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())
         .count();
-    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(avoidable_capacity);
-    for f in &findings {
+    let mut dedup: HashMap<(&str, &str, &str), usize> = HashMap::with_capacity(capacity);
+    for f in findings {
         if !f.finding_type.is_avoidable_io() {
             continue;
         }
@@ -170,27 +222,30 @@ pub fn score_green(
             .or_insert(0);
         *entry = (*entry).max(avoidable);
     }
-    let avoidable_io_ops: usize = dedup.values().sum();
+    dedup.values().sum()
+}
 
-    // Compute IIS per `(service, endpoint)` pair (cached for finding
-    // enrichment). Same key as `endpoint_stats` so the lookup below uses
-    // the finding's `(service, source_endpoint)`.
-    let iis_map: HashMap<EndpointKey<'_>, f64> = endpoint_stats
+fn build_iis_map<'a>(
+    endpoint_stats: &HashMap<EndpointKey<'a>, EndpointStats>,
+) -> HashMap<EndpointKey<'a>, f64> {
+    endpoint_stats
         .iter()
         .map(|(&key, stats)| {
             let invocations = stats.invocation_count.max(1) as f64;
             (key, stats.total_io_ops as f64 / invocations)
         })
-        .collect();
+        .collect()
+}
 
-    // Enrich findings with green_impact
-    let mut enriched = findings;
-    for f in &mut enriched {
+fn enrich_findings_with_iis(
+    mut findings: Vec<Finding>,
+    iis_map: &HashMap<EndpointKey<'_>, f64>,
+) -> Vec<Finding> {
+    for f in &mut findings {
         let iis = iis_map
             .get(&(f.service.as_str(), f.source_endpoint.as_str()))
             .copied()
             .unwrap_or(0.0);
-
         let extra = if f.finding_type.is_avoidable_io() {
             f.pattern.occurrences.saturating_sub(1)
         } else {
@@ -202,58 +257,46 @@ pub fn score_green(
             io_intensity_band: crate::report::interpret::InterpretationLevel::for_iis(iis),
         });
     }
+    findings
+}
 
-    // Multi-region carbon scoring (before top offenders so we can
-    // reuse the multi_region_active flag it computes). Only runs when a
-    // CarbonContext is provided. Builds the per-region breakdown using a
-    // BTreeMap for deterministic accumulation order.
-    //
-    // Multi-region detection is folded into compute_carbon_report's
-    // single span pass.
-    let carbon_outputs = match carbon {
-        Some(ctx) => compute_carbon_report(traces, ctx, total_io_ops, avoidable_io_ops),
-        None => carbon_compute::CarbonComputeOutputs {
-            report: None,
-            regions: Vec::new(),
-            multi_region_active: false,
-            per_service: std::collections::BTreeMap::new(),
-            window_model: "",
-        },
-    };
-    let co2 = carbon_outputs.report;
-    let regions = carbon_outputs.regions;
-    let multi_region_active = carbon_outputs.multi_region_active;
-    let per_service_runtime = carbon_outputs.per_service;
-    let window_model = carbon_outputs.window_model;
-
-    // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
-    // only emitted in mono-region mode when the proxy model is the sole
-    // energy source and no modifiers are active. When per-op coefficients,
-    // measured energy (Scaphandre/cloud), calibration factors or real-time
-    // intensity change the formula, the scalar would be inconsistent with
-    // the per-region breakdown.
+/// `TopOffender.co2_grams` uses the flat `ENERGY_PER_IO_OP_KWH`, so we
+/// only emit it in mono-region mode with the proxy model and no
+/// modifiers. Returns `Some(region)` when emission is safe, `None`
+/// otherwise.
+fn top_offender_co2_region(
+    carbon: Option<&CarbonContext>,
+    multi_region_active: bool,
+) -> Option<String> {
     let per_op_active = carbon.is_some_and(|ctx| ctx.per_operation_coefficients);
-    let has_energy_modifier = carbon.is_some_and(|ctx| {
-        ctx.energy_snapshot.as_ref().is_some_and(|s| !s.is_empty())
-            || ctx.calibration.is_some()
-            || ctx
-                .real_time_intensity
-                .as_ref()
-                .is_some_and(|rt| !rt.is_empty())
-    });
-    let default_region_lower = if multi_region_active || per_op_active || has_energy_modifier {
-        None
-    } else {
-        carbon
-            .and_then(|ctx| ctx.default_region.as_deref())
-            .map(str::to_ascii_lowercase)
-    };
+    let has_energy_modifier = carbon.is_some_and(has_energy_modifier);
+    if multi_region_active || per_op_active || has_energy_modifier {
+        return None;
+    }
+    carbon
+        .and_then(|ctx| ctx.default_region.as_deref())
+        .map(str::to_ascii_lowercase)
+}
+
+fn has_energy_modifier(ctx: &CarbonContext) -> bool {
+    ctx.energy_snapshot.as_ref().is_some_and(|s| !s.is_empty())
+        || ctx.calibration.is_some()
+        || ctx
+            .real_time_intensity
+            .as_ref()
+            .is_some_and(|rt| !rt.is_empty())
+}
+
+fn build_top_offenders<'a>(
+    endpoint_stats: &HashMap<EndpointKey<'a>, EndpointStats>,
+    iis_map: &HashMap<EndpointKey<'a>, f64>,
+    default_region_lower: Option<&str>,
+) -> Vec<TopOffender> {
     let mut top_offenders: Vec<TopOffender> = endpoint_stats
         .iter()
         .map(|(&(service, endpoint), stats)| {
             let iis = iis_map.get(&(service, endpoint)).copied().unwrap_or(0.0);
             let co2_grams = default_region_lower
-                .as_deref()
                 .and_then(|r| carbon::io_ops_to_co2_grams(stats.total_io_ops, r));
             TopOffender {
                 endpoint: endpoint.to_string(),
@@ -270,31 +313,48 @@ pub fn score_green(
             .then_with(|| a.service.cmp(&b.service))
             .then_with(|| a.endpoint.cmp(&b.endpoint))
     });
+    top_offenders
+}
 
-    let io_waste_ratio = if total_io_ops > 0 {
-        avoidable_io_ops as f64 / total_io_ops as f64
-    } else {
-        0.0
+struct PerServiceMaps {
+    energy_kwh: f64,
+    energy_kwh_by_service: std::collections::BTreeMap<String, f64>,
+    carbon_kgco2eq: std::collections::BTreeMap<String, f64>,
+    region: std::collections::BTreeMap<String, String>,
+    energy_model: std::collections::BTreeMap<String, String>,
+    measured_ratio: std::collections::BTreeMap<String, f64>,
+}
+
+fn build_per_service_maps(
+    per_service_runtime: std::collections::BTreeMap<
+        String,
+        carbon_compute::ServiceCarbonAccumulator,
+    >,
+    window_model: &'static str,
+) -> PerServiceMaps {
+    let mut out = PerServiceMaps {
+        energy_kwh: 0.0,
+        energy_kwh_by_service: std::collections::BTreeMap::new(),
+        carbon_kgco2eq: std::collections::BTreeMap::new(),
+        region: std::collections::BTreeMap::new(),
+        energy_model: std::collections::BTreeMap::new(),
+        measured_ratio: std::collections::BTreeMap::new(),
     };
-    let mut per_service_energy_kwh = std::collections::BTreeMap::new();
-    let mut per_service_carbon_kgco2eq = std::collections::BTreeMap::new();
-    let mut per_service_region = std::collections::BTreeMap::new();
-    let mut per_service_energy_model = std::collections::BTreeMap::new();
-    let mut per_service_measured_ratio = std::collections::BTreeMap::new();
-    let mut energy_kwh = 0.0_f64;
     for (svc, acc) in per_service_runtime {
-        energy_kwh += acc.energy_kwh;
-        per_service_energy_kwh.insert(svc.clone(), acc.energy_kwh);
-        per_service_carbon_kgco2eq.insert(svc.clone(), acc.operational_gco2 / 1000.0);
+        out.energy_kwh += acc.energy_kwh;
+        out.energy_kwh_by_service
+            .insert(svc.clone(), acc.energy_kwh);
+        out.carbon_kgco2eq
+            .insert(svc.clone(), acc.operational_gco2 / 1000.0);
         let svc_tag = acc.measured_model.unwrap_or(window_model);
-        per_service_energy_model.insert(svc.clone(), svc_tag.to_string());
+        out.energy_model.insert(svc.clone(), svc_tag.to_string());
         let ratio = if acc.total_ops == 0 {
             0.0
         } else {
             acc.measured_ops as f64 / acc.total_ops as f64
         };
-        per_service_measured_ratio.insert(svc.clone(), ratio);
-        per_service_region.insert(
+        out.measured_ratio.insert(svc.clone(), ratio);
+        out.region.insert(
             svc,
             if acc.region.is_empty() {
                 carbon::UNKNOWN_REGION.to_string()
@@ -303,37 +363,7 @@ pub fn score_green(
             },
         );
     }
-    let energy_model = if energy_kwh > 0.0 {
-        window_model.to_string()
-    } else {
-        String::new()
-    };
-
-    let green_summary = GreenSummary {
-        total_io_ops,
-        avoidable_io_ops,
-        io_waste_ratio,
-        io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
-            io_waste_ratio,
-        ),
-        top_offenders,
-        // Hoisted from co2.transport_gco2 for top-level JSON visibility:
-        // consumers can read transport_gco2 without navigating into the
-        // nested co2 object. The canonical value lives in CarbonReport.
-        transport_gco2: co2.as_ref().and_then(|r| r.transport_gco2),
-        co2,
-        regions,
-        scoring_config: carbon.and_then(|ctx| ctx.scoring_config.clone()),
-        energy_kwh,
-        energy_model,
-        per_service_carbon_kgco2eq,
-        per_service_energy_kwh,
-        per_service_region,
-        per_service_energy_model,
-        per_service_measured_ratio,
-    };
-
-    (enriched, green_summary, per_endpoint_io_ops)
+    out
 }
 
 #[cfg(test)]
