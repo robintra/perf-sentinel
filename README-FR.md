@@ -629,6 +629,12 @@ Pour les acks runtime contre un daemon vivant, le workflow s'expose sur trois su
 
 </details>
 
+## Rapport public périodique
+
+`perf-sentinel disclose` agrège les enveloppes `Report` archivées par fenêtre (NDJSON) en un seul document JSON vérifiable par hash sur une période calendaire (trimestre par défaut). Le format est versionné par schéma (`perf-sentinel-report/v1.0`), structurellement distinct du `Report` par batch, et destiné à la transparence publique plutôt qu'à un reporting de grade réglementaire. Les opérateurs choisissent entre G1 (internal, détail par anti-pattern) et G2 (public, agrégat seul). Quand le daemon est configuré avec `[reporting] intent = "official"`, il refuse de démarrer si le TOML org-config ne permet pas de produire un rapport publiable, en listant tous les champs manquants en un seul passage.
+
+Voir [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md) pour le guide d'utilisation CLI, [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md) pour la chaîne de calcul, et [docs/FR/SCHEMA-FR.md](docs/FR/SCHEMA-FR.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) pour le format de wire.
+
 ## Architecture
 
 <picture>

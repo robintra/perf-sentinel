@@ -167,16 +167,16 @@ Both sections are optional. Their absence leaves perf-sentinel in its prior beha
 
 ## Source file mapping
 
-| Source file                                | Topic                                            |
-|--------------------------------------------|--------------------------------------------------|
-| `report/periodic/schema.rs`                | wire types, determinism invariants               |
-| `report/periodic/hasher.rs`                | canonical JSON + SHA-256, binary hash            |
-| `report/periodic/validator.rs`             | collect-all validator, KNOWN_PATTERNS            |
-| `report/periodic/aggregator.rs`            | NDJSON folding, per-service attribution          |
-| `report/periodic/org_config.rs`            | operator TOML loader                             |
-| `report/periodic/errors.rs`                | error enums                                      |
-| `daemon/archive.rs`                        | non-blocking NDJSON writer with rotation/prune   |
-| `daemon/mod.rs` (`validate_official_reporting`) | startup gate                                |
-| `daemon/event_loop.rs`                     | archive hook in `process_traces`                 |
-| `config.rs` (`ReportingConfig`, `DaemonArchiveConfig`) | TOML sections + validators            |
-| `sentinel-cli/src/disclose.rs`             | CLI dispatcher, value enums, build_report        |
+| Source file                                            | Topic                                          |
+|--------------------------------------------------------|------------------------------------------------|
+| `report/periodic/schema.rs`                            | wire types, determinism invariants             |
+| `report/periodic/hasher.rs`                            | canonical JSON + SHA-256, binary hash          |
+| `report/periodic/validator.rs`                         | collect-all validator, KNOWN_PATTERNS          |
+| `report/periodic/aggregator.rs`                        | NDJSON folding, per-service attribution        |
+| `report/periodic/org_config.rs`                        | operator TOML loader                           |
+| `report/periodic/errors.rs`                            | error enums                                    |
+| `daemon/archive.rs`                                    | non-blocking NDJSON writer with rotation/prune |
+| `daemon/mod.rs` (`validate_official_reporting`)        | startup gate                                   |
+| `daemon/event_loop.rs`                                 | archive hook in `process_traces`               |
+| `config.rs` (`ReportingConfig`, `DaemonArchiveConfig`) | TOML sections + validators                     |
+| `sentinel-cli/src/disclose.rs`                         | CLI dispatcher, value enums, build_report      |

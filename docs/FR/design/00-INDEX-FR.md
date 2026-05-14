@@ -21,6 +21,7 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 | [05 : GreenOps et carbone](05-GREENOPS-AND-CARBON-FR.md)            | Formule IIS, dédup du ratio de gaspillage, conversion CO2, alignement SCI                                                                                                                      |
 | [06 : Ingestion et daemon](06-INGESTION-AND-DAEMON-FR.md)           | Conversion OTLP, boucle événementielle du daemon, échantillonnage, renforcement sécurité                                                                                                       |
 | [07 : CLI, config et release](07-CLI-CONFIG-RELEASE-FR.md)          | Sous-commandes bench, query, report, diff. Sink dashboard HTML, export CSV, hash deep-link, modal cheatsheet, raccourcis clavier style vim. Parsing de la config, profil release, distribution |
+| [08 : Rapport public périodique](08-PERIODIC-DISCLOSURE-FR.md)      | Déterminisme du schéma v1.0, granularité G1/G2, validator collect-all, attribution par service, writer d'archive daemon, dispatcher CLI `disclose`                                             |
 
 ## Correspondance avec les fichiers source
 
@@ -55,9 +56,12 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 | `daemon/sampling.rs`        | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `daemon/findings_store.rs`  | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
 | `daemon/query_api.rs`       | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
-| `config.rs`                 | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
+| `config.rs`                 | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md), [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
 | `report/mod.rs`, `json.rs`  | [01 : Pipeline](01-PIPELINE-AND-TYPES-FR.md)           |
 | `report/metrics.rs`         | [06 : Ingestion](06-INGESTION-AND-DAEMON-FR.md)        |
+| `report/periodic/*`         | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
+| `daemon/archive.rs`         | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
 | `sentinel-cli/src/main.rs`  | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
+| `sentinel-cli/src/disclose.rs` | [08 : Rapport périodique](08-PERIODIC-DISCLOSURE-FR.md) |
 | `sentinel-cli/src/tui.rs`   | [07 : CLI/Config](07-CLI-CONFIG-RELEASE-FR.md)         |
 | `detect/correlate_cross.rs` | [04 : Détection](04-DETECTION-FR.md)                   |
