@@ -23,6 +23,7 @@ Pour la documentation orientée utilisateur, voir le répertoire parent `docs/FR
 | [07 : CLI, config et release](07-CLI-CONFIG-RELEASE-FR.md)          | Sous-commandes bench, query, report, diff. Sink dashboard HTML, export CSV, hash deep-link, modal cheatsheet, raccourcis clavier style vim. Parsing de la config, profil release, distribution |
 | [08 : Rapport public périodique](08-PERIODIC-DISCLOSURE-FR.md)      | Déterminisme du schéma v1.0, granularité G1/G2, validator collect-all, attribution par service, writer d'archive daemon, dispatcher CLI `disclose`                                             |
 | [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)             | Énergie + carbone par service au scoring, attribution de la région, précédence des modèles, branchement runtime-vs-proxy dans l'aggregator                                                     |
+| [10 : Sigstore et SLSA](10-SIGSTORE-ATTESTATION-FR.md)              | Predicate in-toto v1, flow signature Sigstore cosign, provenance SLSA L2 du binaire, chaîne `verify-hash`, privacy sur Rekor public                                                            |
 
 ## Correspondance avec les fichiers source
 

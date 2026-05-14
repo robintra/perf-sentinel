@@ -631,7 +631,37 @@ Pour les acks runtime contre un daemon vivant, le workflow s'expose sur trois su
 
 ## Rapport public périodique
 
-`perf-sentinel disclose` agrège les enveloppes `Report` archivées par fenêtre (NDJSON) en un seul document JSON vérifiable par hash sur une période calendaire (trimestre par défaut). Le format est versionné par schéma (`perf-sentinel-report/v1.0`), structurellement distinct du `Report` par batch, et destiné à la transparence publique plutôt qu'à un reporting de grade réglementaire. Les opérateurs choisissent entre G1 (internal, détail par anti-pattern) et G2 (public, agrégat seul). Quand le daemon est configuré avec `[reporting] intent = "official"`, il refuse de démarrer si le TOML org-config ne permet pas de produire un rapport publiable, en listant tous les champs manquants en un seul passage.
+perf-sentinel produit des divulgations périodiques de l'efficacité logicielle d'une organisation aux frontières calendaires (trimestre par défaut). La sortie est un document JSON unique vérifiable par hash, couvrant une période multi-semaines, avec estimations énergie et carbone runtime-calibrated par service, attribution région, et bloc méthodologie complet.
+
+C'est destiné à servir de matière première à la transparence, pas à un reporting réglementaire. Les opérateurs choisissent le niveau de confidentialité :
+
+- **Internal** (G1 détail) : ventilation par anti-pattern par service, pour les décisions d'optimisation.
+- **Public** (G2 agrégat) : totaux par service seuls, sans détail d'anti-pattern, adapté à la publication sur le domaine de l'organisation.
+
+Exemple :
+
+```bash
+perf-sentinel disclose \
+  --intent official \
+  --confidentiality public \
+  --period-type calendar-quarter \
+  --from 2026-01-01 --to 2026-03-31 \
+  --input /var/lib/perf-sentinel/reports.ndjson \
+  --output /var/www/html/perf-sentinel-report.json \
+  --org-config /etc/perf-sentinel/org.toml
+```
+
+Quand le daemon est configuré avec `[reporting] intent = "official"`, il refuse de démarrer si le TOML org-config ne permet pas de produire un rapport publiable, en listant tous les champs manquants en un seul passage. Les rapports sous 75% de couverture runtime-calibrée (par exemple pendant une migration de daemon en milieu de période) sont automatiquement refusés en intent official.
+
+Le schéma est versionné (`perf-sentinel-report/v1.0`) et aligné sur la spécification Software Carbon Intensity v1.0 (ISO/IEC 21031:2024).
+
+Les divulgations peuvent être signées cryptographiquement via Sigstore pour qu'un consommateur vérifie paternité et intégrité en une commande :
+
+```bash
+perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
+```
+
+La chaîne complète `source -> SLSA -> binaire -> rapport -> signature Sigstore` est ancrée dans Rekor public. Voir [docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md](docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md) pour le flow cryptographique et [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md) pour l'attestation SLSA L2 du binaire.
 
 Voir [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md) pour le guide d'utilisation CLI, [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md) pour la chaîne de calcul, et [docs/FR/SCHEMA-FR.md](docs/FR/SCHEMA-FR.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) pour le format de wire.
 

@@ -23,6 +23,7 @@ For user-facing documentation, see the parent `docs/` directory:
 | [07: CLI, Config and Release](07-CLI-CONFIG-RELEASE.md)          | Bench, query, report, diff subcommands. HTML dashboard sink, CSV export, deep-link hash, cheatsheet modal, vim-style tab shortcuts. Config parsing, release profile, distribution, source location |
 | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)             | Schema v1.0 determinism, G1/G2 granularity, collect-all validator, per-service attribution, daemon archive writer, `disclose` CLI dispatcher                                                       |
 | [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)               | Per-service energy + carbon at scoring time, region attribution, model precedence, aggregator runtime-vs-proxy branching                                                                           |
+| [10: Sigstore and SLSA](10-SIGSTORE-ATTESTATION.md)              | In-toto v1 predicate, Sigstore cosign signature flow, SLSA L2 build provenance, `verify-hash` chain, privacy on Rekor public                                                                       |
 
 ## Source file mapping
 
