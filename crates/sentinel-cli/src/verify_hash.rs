@@ -148,12 +148,14 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, Fetched
         attestation: None,
         bundle: None,
     };
+    let pid = std::process::id();
     if let Some(a_url) = attestation_url {
         match http_get(&a_url) {
             Ok(data) => {
-                let path =
-                    std::env::temp_dir().join("perf-sentinel-verify-attestation.intoto.jsonl");
-                if std::fs::write(&path, &data).is_ok() {
+                let path = std::env::temp_dir().join(format!(
+                    "perf-sentinel-verify-attestation-{pid}.intoto.jsonl"
+                ));
+                if write_temp_no_follow(&path, &data).is_ok() {
                     fetched.attestation = Some(path);
                 }
             }
@@ -163,8 +165,9 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, Fetched
     if let Some(b_url) = bundle_url {
         match http_get(&b_url) {
             Ok(data) => {
-                let path = std::env::temp_dir().join("perf-sentinel-verify-bundle.sig");
-                if std::fs::write(&path, &data).is_ok() {
+                let path =
+                    std::env::temp_dir().join(format!("perf-sentinel-verify-bundle-{pid}.sig"));
+                if write_temp_no_follow(&path, &data).is_ok() {
                     fetched.bundle = Some(path);
                 }
             }
@@ -172,6 +175,24 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, Fetched
         }
     }
     Ok((report, bytes, url.to_string(), fetched))
+}
+
+/// Write `data` to `path` while refusing to follow a pre-existing
+/// symlink (defence in depth on shared `/tmp` setups). Uses
+/// `O_CREAT|O_EXCL|O_WRONLY` on Unix-likes via `create_new(true)`;
+/// on Windows there is no real symlink-attack surface for the
+/// system temp dir, so a plain `fs::write` is acceptable.
+fn write_temp_no_follow(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    // Best-effort: tolerate a residual file from a previous run with
+    // the same pid wrap-around by unlinking, then create_new to bind
+    // the inode atomically.
+    let _ = std::fs::remove_file(path);
+    let mut f = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(path)?;
+    f.write_all(data)
 }
 
 fn http_get(url: &str) -> Result<Vec<u8>, String> {
@@ -342,7 +363,20 @@ fn verify_binary_attestation(report: &PeriodicReport) -> Status {
 
 fn command_exists(name: &str) -> bool {
     let path = std::env::var_os("PATH").unwrap_or_default();
-    std::env::split_paths(&path).any(|d| d.join(name).is_file())
+    std::env::split_paths(&path).any(|d| {
+        if d.join(name).is_file() {
+            return true;
+        }
+        #[cfg(windows)]
+        {
+            for ext in ["exe", "cmd", "bat", "com"] {
+                if d.join(format!("{name}.{ext}")).is_file() {
+                    return true;
+                }
+            }
+        }
+        false
+    })
 }
 
 /// Reject values that would let an adversarial report pivot cosign's
