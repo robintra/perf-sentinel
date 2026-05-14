@@ -163,7 +163,12 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: build
+    # Gate the public release on compute-subjects too: if SLSA subject
+    # collection fails, the provenance job is skipped, but without this
+    # extra dependency the release would still get published, leaving a
+    # tagged binary without the attestation v0.7.0+ advertises as load-
+    # bearing in `docs/SUPPLY-CHAIN.md`.
+    needs: [build, compute-subjects]
     runs-on: ubuntu-latest
     permissions:
       contents: write # required for softprops/action-gh-release to upload assets
