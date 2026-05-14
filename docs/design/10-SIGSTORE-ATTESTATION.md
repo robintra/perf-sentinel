@@ -107,7 +107,8 @@ single-statement in-toto v1 document. Shape:
       "period_coverage": 0.91,
       "core_patterns_count": 4,
       "enabled_patterns_count": 10,
-      "disabled_patterns_count": 0
+      "disabled_patterns_count": 0,
+      "core_patterns_hash": "<64-hex SHA-256>"
     }
   }
 }
@@ -130,12 +131,20 @@ The three count fields (`core_patterns_count`,
 reading only the signed predicate detect a report that claims
 `conformance: "core-required"` while having dropped one of the four
 core patterns post-hoc. The invariant `enabled_patterns_count >=
-core_patterns_count` holds for any honest core-required disclosure,
-because every core pattern must be in the enabled set. Combined with
-`perf_sentinel_version`, an auditor can also compare
-`core_patterns_count` against the live `core_patterns_required` list
-for that version (currently four: `n_plus_one_sql`, `n_plus_one_http`,
-`redundant_sql`, `redundant_http`).
+core_patterns_count` is enforced by the validator for `intent =
+"official"` (`validate_official` refuses any disclosure where a
+core pattern is missing from the enabled set), so every conformant
+official disclosure satisfies it by construction.
+
+The `core_patterns_hash` field (SHA-256 over the sorted, colon-joined
+names) complements the counts by detecting substitution: an attacker
+who replaces `n_plus_one_sql` with `slow_sql` keeps
+`core_patterns_count = 4` but changes the hash. A consumer
+recomputes the hash over the canonical `core_patterns_required()`
+list for the perf-sentinel version recorded in
+`perf_sentinel_version` (currently four: `n_plus_one_sql`,
+`n_plus_one_http`, `redundant_sql`, `redundant_http`) and compares
+it against the signed hash.
 
 ## Cosign command
 

@@ -113,7 +113,8 @@ document in-toto v1 à statement unique. Forme :
       "period_coverage": 0.91,
       "core_patterns_count": 4,
       "enabled_patterns_count": 10,
-      "disabled_patterns_count": 0
+      "disabled_patterns_count": 0,
+      "core_patterns_hash": "<64-hex SHA-256>"
     }
   }
 }
@@ -136,14 +137,22 @@ Les trois champs de comptage (`core_patterns_count`,
 `enabled_patterns_count`, `disabled_patterns_count`) permettent à un
 consommateur qui ne lit que le predicate signé de détecter un
 rapport qui revendique `conformance: "core-required"` tout en ayant
-abandonné un des quatre patterns core post-hoc. L'invariant
-`enabled_patterns_count >= core_patterns_count` est vrai pour
-n'importe quelle divulgation core-required honnête, parce que chaque
-pattern core doit figurer dans le set enabled. Combiné à
-`perf_sentinel_version`, un auditeur peut aussi comparer
-`core_patterns_count` à la liste live `core_patterns_required` pour
-cette version (actuellement quatre : `n_plus_one_sql`,
-`n_plus_one_http`, `redundant_sql`, `redundant_http`).
+retiré un des quatre patterns core post-hoc. L'invariant
+`enabled_patterns_count >= core_patterns_count` est enforced par le
+validator côté `intent = "official"` (`validate_official` refuse
+toute divulgation où un pattern core manque du set enabled), donc
+toute divulgation officielle conforme respecte cet invariant par
+construction.
+
+Le champ `core_patterns_hash` (SHA-256 sur les noms triés et joints
+par `:`) complète les counts pour détecter la substitution : un
+attaquant qui remplace `n_plus_one_sql` par `slow_sql` garde
+`core_patterns_count = 4` mais change le hash. Le consommateur
+recalcule le hash sur la liste canonique
+`core_patterns_required()` de la version perf-sentinel déclarée
+dans `perf_sentinel_version` (actuellement quatre :
+`n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`,
+`redundant_http`) et le compare au hash signé.
 
 ## Commande cosign
 

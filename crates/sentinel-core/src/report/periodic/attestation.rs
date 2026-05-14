@@ -9,8 +9,10 @@
 //! and <https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md>.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::schema::{PeriodicReport, ReportIntent};
 
@@ -91,6 +93,15 @@ pub struct MethodologySummary {
     /// generation. Lets a consumer flag reports that disabled too many
     /// patterns or disabled core patterns.
     pub disabled_patterns_count: u32,
+    /// SHA-256 over the sorted, colon-joined names of the core pattern
+    /// set declared in `methodology.core_patterns_required`. Lets a
+    /// consumer detect not just shrinkage (covered by
+    /// `core_patterns_count`) but substitution: replacing a canonical
+    /// core pattern with another keeps the count constant yet changes
+    /// the hash. The reference value for a given
+    /// `predicate.perf_sentinel_version` is the hash of the canonical
+    /// `core_patterns_required()` slice in that version.
+    pub core_patterns_hash: String,
 }
 
 impl Eq for MethodologySummary {}
@@ -173,9 +184,25 @@ pub fn build_in_toto_statement_named(
                     .unwrap_or(u32::MAX),
                 disabled_patterns_count: u32::try_from(report.methodology.disabled_patterns.len())
                     .unwrap_or(u32::MAX),
+                core_patterns_hash: hash_core_patterns(&report.methodology.core_patterns_required),
             },
         },
     }
+}
+
+/// SHA-256 over the sorted, colon-joined core pattern names. Sort is
+/// applied to make the hash invariant of input order. 64-hex output,
+/// no `sha256:` prefix, to match the in-toto subject digest format.
+fn hash_core_patterns(patterns: &[String]) -> String {
+    let mut sorted: Vec<&str> = patterns.iter().map(String::as_str).collect();
+    sorted.sort_unstable();
+    let joined = sorted.join(":");
+    let digest = Sha256::digest(joined.as_bytes());
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
 }
 
 const fn intent_str(intent: ReportIntent) -> &'static str {
@@ -289,6 +316,69 @@ mod tests {
         let s = build_in_toto_statement(&r, DIGEST_64);
         let m = &s.predicate.methodology_summary;
         assert!(m.enabled_patterns_count >= m.core_patterns_count);
+    }
+
+    #[test]
+    fn predicate_core_patterns_hash_is_64_hex_and_stable() {
+        let r = load_g2_example();
+        let s1 = build_in_toto_statement(&r, DIGEST_64);
+        let s2 = build_in_toto_statement(&r, DIGEST_64);
+        let h1 = &s1.predicate.methodology_summary.core_patterns_hash;
+        let h2 = &s2.predicate.methodology_summary.core_patterns_hash;
+        assert_eq!(h1, h2, "hash must be deterministic");
+        assert_eq!(h1.len(), 64);
+        assert!(h1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn core_patterns_hash_is_invariant_under_input_order() {
+        let a = hash_core_patterns(&[
+            "n_plus_one_sql".to_string(),
+            "n_plus_one_http".to_string(),
+            "redundant_sql".to_string(),
+            "redundant_http".to_string(),
+        ]);
+        let b = hash_core_patterns(&[
+            "redundant_http".to_string(),
+            "n_plus_one_http".to_string(),
+            "redundant_sql".to_string(),
+            "n_plus_one_sql".to_string(),
+        ]);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn core_patterns_hash_changes_on_substitution() {
+        // Substituting a core pattern with another (same count) must
+        // change the hash. Defence in depth beyond core_patterns_count.
+        let baseline = hash_core_patterns(&[
+            "n_plus_one_sql".to_string(),
+            "n_plus_one_http".to_string(),
+            "redundant_sql".to_string(),
+            "redundant_http".to_string(),
+        ]);
+        let substituted = hash_core_patterns(&[
+            "n_plus_one_sql".to_string(),
+            "n_plus_one_http".to_string(),
+            "redundant_sql".to_string(),
+            "slow_sql".to_string(),
+        ]);
+        assert_ne!(baseline, substituted);
+    }
+
+    #[test]
+    fn core_patterns_hash_matches_canonical_set_for_g2() {
+        // Anchor: the G2 example carries the canonical 4-pattern core
+        // set, so the predicate hash equals the hash of the canonical
+        // reference list a consumer would hardcode.
+        let r = load_g2_example();
+        let s = build_in_toto_statement(&r, DIGEST_64);
+        let canonical =
+            hash_core_patterns(&crate::report::periodic::schema::core_patterns_required());
+        assert_eq!(
+            s.predicate.methodology_summary.core_patterns_hash,
+            canonical
+        );
     }
 
     #[test]
