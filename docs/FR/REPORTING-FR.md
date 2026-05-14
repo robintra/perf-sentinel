@@ -149,6 +149,16 @@ perf-sentinel et passent la même URL à `cosign --rekor-url`.
 Rapports produits sans `--no-tlog-upload` uniquement :
 `verify-hash` refuse les bundles sans preuve d'inclusion Rekor.
 
+`verify-hash` lit lui-même `integrity.signature.rekor_url` dans
+le rapport vérifié, donc un consommateur qui télécharge une
+divulgation publique n'a besoin d'aucune config locale : l'URL
+voyage avec le rapport. Pour forcer un Rekor différent au moment
+de la vérification (par exemple cross-check une revendication
+Rekor public contre une archive privée), invoquer cosign
+directement avec son propre flag `--rekor-url` plutôt que via
+`verify-hash`. Le rapport reste la source de vérité unique pour
+le journal de transparence qui l'a signé.
+
 Voir `docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md` pour la
 méthodologie complète, les modes d'échec, et les considérations
 privacy sur Rekor public.

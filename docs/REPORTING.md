@@ -147,6 +147,16 @@ config and pass the same URL to `cosign --rekor-url`. Reports
 produced without `--no-tlog-upload` only: `verify-hash` rejects
 bundles without a Rekor inclusion proof.
 
+`verify-hash` itself reads `integrity.signature.rekor_url` from
+the report being verified, so a consumer fetching a publicly
+hosted disclosure does not need any local configuration: the
+URL travels with the report. If you want to force a different
+Rekor at verification time (e.g. cross-check a public-Rekor
+claim against a private archive), invoke cosign directly with
+its own `--rekor-url` flag rather than going through
+`verify-hash`. The report stays the single source of truth for
+which transparency log signed it.
+
 See `docs/design/10-SIGSTORE-ATTESTATION.md` for the full
 methodology, failure modes, and privacy considerations on Rekor
 public.
