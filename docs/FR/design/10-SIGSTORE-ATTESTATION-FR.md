@@ -110,7 +110,10 @@ document in-toto v1 à statement unique. Forme :
       "sci_specification": "ISO/IEC 21031:2024",
       "conformance": "core-required",
       "calibration_applied": true,
-      "period_coverage": 0.91
+      "period_coverage": 0.91,
+      "core_patterns_count": 4,
+      "enabled_patterns_count": 10,
+      "disabled_patterns_count": 0
     }
   }
 }
@@ -128,6 +131,19 @@ deux servent des buts différents : le hash canonique est
 déterministe (clés triées, un champ blanké) et vit dans le
 document. Le subject digest est le hash byte-level réel du fichier
 et vit dans l'attestation.
+
+Les trois champs de comptage (`core_patterns_count`,
+`enabled_patterns_count`, `disabled_patterns_count`) permettent à un
+consommateur qui ne lit que le predicate signé de détecter un
+rapport qui revendique `conformance: "core-required"` tout en ayant
+abandonné un des quatre patterns core post-hoc. L'invariant
+`enabled_patterns_count >= core_patterns_count` est vrai pour
+n'importe quelle divulgation core-required honnête, parce que chaque
+pattern core doit figurer dans le set enabled. Combiné à
+`perf_sentinel_version`, un auditeur peut aussi comparer
+`core_patterns_count` à la liste live `core_patterns_required` pour
+cette version (actuellement quatre : `n_plus_one_sql`,
+`n_plus_one_http`, `redundant_sql`, `redundant_http`).
 
 ## Commande cosign
 

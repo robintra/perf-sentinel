@@ -104,7 +104,10 @@ single-statement in-toto v1 document. Shape:
       "sci_specification": "ISO/IEC 21031:2024",
       "conformance": "core-required",
       "calibration_applied": true,
-      "period_coverage": 0.91
+      "period_coverage": 0.91,
+      "core_patterns_count": 4,
+      "enabled_patterns_count": 10,
+      "disabled_patterns_count": 0
     }
   }
 }
@@ -121,6 +124,18 @@ serve different purposes: the canonical hash is deterministic
 (sorted keys, one field blanked) and lives inside the document;
 the subject digest is the file's actual byte-level hash and lives in
 the attestation.
+
+The three count fields (`core_patterns_count`,
+`enabled_patterns_count`, `disabled_patterns_count`) let a consumer
+reading only the signed predicate detect a report that claims
+`conformance: "core-required"` while having dropped one of the four
+core patterns post-hoc. The invariant `enabled_patterns_count >=
+core_patterns_count` holds for any honest core-required disclosure,
+because every core pattern must be in the enabled set. Combined with
+`perf_sentinel_version`, an auditor can also compare
+`core_patterns_count` against the live `core_patterns_required` list
+for that version (currently four: `n_plus_one_sql`, `n_plus_one_http`,
+`redundant_sql`, `redundant_http`).
 
 ## Cosign command
 

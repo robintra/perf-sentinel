@@ -75,6 +75,22 @@ pub struct MethodologySummary {
     pub conformance: String,
     pub calibration_applied: bool,
     pub period_coverage: f64,
+    /// Count of patterns flagged as core-required by the validator at
+    /// the time of signing. A consumer can compare this to the live
+    /// `core_patterns_required` set defined by the perf-sentinel
+    /// version recorded in `predicate.perf_sentinel_version`. A
+    /// mismatch suggests the report was generated with a non-standard
+    /// core set.
+    pub core_patterns_count: u32,
+    /// Count of patterns actively enabled at the time of report
+    /// generation. Combined with `core_patterns_count`, lets a consumer
+    /// detect reports where the enabled set is a strict subset of core
+    /// (core patterns dropped post-hoc).
+    pub enabled_patterns_count: u32,
+    /// Count of patterns explicitly disabled at the time of report
+    /// generation. Lets a consumer flag reports that disabled too many
+    /// patterns or disabled core patterns.
+    pub disabled_patterns_count: u32,
 }
 
 impl Eq for MethodologySummary {}
@@ -151,6 +167,12 @@ pub fn build_in_toto_statement_named(
                 conformance: conformance_str(report.methodology.conformance).to_string(),
                 calibration_applied: report.methodology.calibration_inputs.calibration_applied,
                 period_coverage: report.aggregate.period_coverage,
+                core_patterns_count: u32::try_from(report.methodology.core_patterns_required.len())
+                    .unwrap_or(u32::MAX),
+                enabled_patterns_count: u32::try_from(report.methodology.enabled_patterns.len())
+                    .unwrap_or(u32::MAX),
+                disabled_patterns_count: u32::try_from(report.methodology.disabled_patterns.len())
+                    .unwrap_or(u32::MAX),
             },
         },
     }
@@ -223,6 +245,50 @@ mod tests {
             (s.predicate.methodology_summary.period_coverage - r.aggregate.period_coverage).abs()
                 < f64::EPSILON
         );
+    }
+
+    #[test]
+    fn predicate_pattern_counts_match_g2_methodology() {
+        let r = load_g2_example();
+        let s = build_in_toto_statement(&r, DIGEST_64);
+        let m = &s.predicate.methodology_summary;
+        // G2 ships the four canonical core patterns, the ten enabled
+        // patterns from FindingType, and no disabled patterns.
+        assert_eq!(m.core_patterns_count, 4);
+        assert_eq!(m.enabled_patterns_count, 10);
+        assert_eq!(m.disabled_patterns_count, 0);
+    }
+
+    #[test]
+    fn predicate_pattern_counts_reflect_disabled_overrides() {
+        use crate::report::periodic::schema::DisabledPattern;
+        let mut r = load_g2_example();
+        r.methodology.enabled_patterns.truncate(8);
+        r.methodology.disabled_patterns = vec![
+            DisabledPattern {
+                name: "pool_saturation".to_string(),
+                reason: "noisy on this stack".to_string(),
+            },
+            DisabledPattern {
+                name: "serialized_calls".to_string(),
+                reason: "false positives in batch jobs".to_string(),
+            },
+        ];
+        let s = build_in_toto_statement(&r, DIGEST_64);
+        let m = &s.predicate.methodology_summary;
+        assert_eq!(m.enabled_patterns_count, 8);
+        assert_eq!(m.disabled_patterns_count, 2);
+    }
+
+    #[test]
+    fn predicate_enabled_count_is_at_least_core_count() {
+        // Audit invariant: every core pattern must be enabled, so
+        // enabled_patterns_count >= core_patterns_count. A consumer
+        // can fail an audit on the reverse.
+        let r = load_g2_example();
+        let s = build_in_toto_statement(&r, DIGEST_64);
+        let m = &s.predicate.methodology_summary;
+        assert!(m.enabled_patterns_count >= m.core_patterns_count);
     }
 
     #[test]
