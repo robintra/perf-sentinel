@@ -30,21 +30,27 @@ cargo fmt --all -- --check
 
 ### Git hooks
 
-A pre-commit hook scans staged changes for secrets via [gitleaks](https://github.com/gitleaks/gitleaks) (version 8.16 or newer, for the `git --staged` subcommand). Install once after cloning:
+The pre-commit hook runs two checks: gitleaks on staged content for secrets, and `cargo clippy --workspace --features daemon -- -D warnings` when at least one staged file is a `*.rs`. Install once after cloning:
 
 ```bash
 bash scripts/install-hooks.sh
 ```
 
-The hook skips silently if `gitleaks` is not on PATH or is older than 8.16, surfacing a one-line install or upgrade hint. Missing or stale tooling never blocks a commit. To bypass on a specific commit (use sparingly):
+The gitleaks check requires version 8.16+ for the `git --staged` subcommand. Both checks skip silently if their tooling is not on PATH (gitleaks not installed, cargo not available), so a fresh checkout never fails `git commit` with a confusing missing-binary error.
 
-```bash
-git commit --no-verify
-```
+Bypass matrix:
 
-If you have set `core.hooksPath` globally to a custom directory (some `dotfiles` setups do), `install-hooks.sh` aborts with instructions. Either unset it for this repo (`git config --local --unset core.hooksPath`) or chain the gitleaks invocation from `scripts/hooks/pre-commit` into your existing global hook.
+| Situation                                   | Command                                         |
+|---------------------------------------------|-------------------------------------------------|
+| Normal commit                               | `git commit ...` (runs both checks)             |
+| WIP commit, clippy noisy on transient state | `SKIP_CLIPPY=1 git commit ...` (keeps gitleaks) |
+| Emergency, all checks off                   | `git commit --no-verify` (use sparingly)        |
 
-CI also runs gitleaks on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier.
+The clippy check on a Rust-touching commit costs ~5s on a warm cache for modern CPUs, up to ~20s on memory-constrained or slow runners. Commits that only touch docs, CI, or config files skip the clippy step entirely, so the only contributors paying the cost are the ones editing Rust.
+
+If you have set `core.hooksPath` globally to a custom directory (some `dotfiles` setups do), `install-hooks.sh` aborts with instructions. Either unset it for this repo (`git config --local --unset core.hooksPath`) or chain the invocation from `scripts/hooks/pre-commit` into your existing global hook.
+
+CI also runs gitleaks and clippy on every push (`.github/workflows/ci.yml`), the local hook only catches issues earlier. SonarCloud cloud scan handles cognitive-complexity at threshold 15 on every PR, the local clippy gate is at threshold 60 by design (see `clippy.toml` for the rationale).
 
 ## Code coverage
 
