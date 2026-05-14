@@ -32,3 +32,25 @@ fi
 # the project-level `.gitleaks.toml` config (allowlist for the
 # documented finding-signature format).
 gitleaks git --staged --redact --no-banner --verbose
+
+# Run clippy on commits that touch Rust files to catch
+# cognitive-complexity and other lint regressions before they land.
+# Skipped when no `.rs` files are staged (docs/CI/config changes
+# would otherwise pay the compile cost for no benefit). The lint
+# `cognitive_complexity` is gated at threshold 60 via clippy.toml,
+# SonarCloud cloud scan remains the canonical gate at 15. Override
+# via `SKIP_CLIPPY=1 git commit ...` if you must bypass.
+if [ "${SKIP_CLIPPY:-0}" = "1" ]; then
+  echo "SKIP_CLIPPY=1, skipping cargo clippy pre-commit check."
+  exit 0
+fi
+staged_rust_files="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.rs$' || true)"
+if [ -z "${staged_rust_files}" ]; then
+  exit 0
+fi
+if ! command -v cargo > /dev/null 2>&1; then
+  echo "warning: cargo not on PATH; skipping pre-commit clippy check."
+  exit 0
+fi
+echo "Running cargo clippy on staged Rust changes..."
+cargo clippy --workspace --features daemon -- -D warnings
