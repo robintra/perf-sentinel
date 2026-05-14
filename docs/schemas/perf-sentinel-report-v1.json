@@ -1,0 +1,411 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/schemas/perf-sentinel-report-v1.json",
+  "title": "perf-sentinel periodic disclosure report",
+  "description": "Aggregated, hash-verifiable disclosure of perf-sentinel detections over a calendar period (typically a quarter). Intended for public transparency. Distinct from the per-batch Report tree.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "report_metadata",
+    "organisation",
+    "period",
+    "scope_manifest",
+    "methodology",
+    "aggregate",
+    "applications",
+    "integrity",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "perf-sentinel-report/v1.0"
+    },
+    "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
+    "organisation": { "$ref": "#/$defs/Organisation" },
+    "period": { "$ref": "#/$defs/Period" },
+    "scope_manifest": { "$ref": "#/$defs/ScopeManifest" },
+    "methodology": { "$ref": "#/$defs/Methodology" },
+    "aggregate": { "$ref": "#/$defs/Aggregate" },
+    "applications": {
+      "type": "array",
+      "description": "Per-application breakdown. Either all entries are G1 (with anti_patterns detail, intended for internal disclosures) or all entries are G2 (without anti_patterns detail, intended for public disclosures). The validator enforces homogeneity.",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/ApplicationG1" },
+          { "$ref": "#/$defs/ApplicationG2" }
+        ]
+      }
+    },
+    "integrity": { "$ref": "#/$defs/Integrity" },
+    "notes": { "$ref": "#/$defs/Notes" }
+  },
+  "$defs": {
+    "ReportIntent": {
+      "type": "string",
+      "enum": ["internal", "official", "audited"]
+    },
+    "Confidentiality": {
+      "type": "string",
+      "enum": ["internal", "public"]
+    },
+    "IntegrityLevel": {
+      "type": "string",
+      "enum": ["none", "hash-only", "signed", "audited"]
+    },
+    "PeriodType": {
+      "type": "string",
+      "enum": ["calendar-quarter", "calendar-month", "calendar-year", "custom"]
+    },
+    "Conformance": {
+      "type": "string",
+      "enum": ["core-required", "extended", "partial"]
+    },
+    "Iso8601DateTime": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 / ISO 8601 instant, UTC."
+    },
+    "Iso8601Date": {
+      "type": "string",
+      "format": "date",
+      "description": "ISO 8601 calendar date, YYYY-MM-DD."
+    },
+    "UuidV4": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "Sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "PatternName": {
+      "type": "string",
+      "enum": [
+        "n_plus_one_sql",
+        "n_plus_one_http",
+        "redundant_sql",
+        "redundant_http",
+        "slow_sql",
+        "slow_http",
+        "excessive_fanout",
+        "chatty_service",
+        "pool_saturation",
+        "serialized_calls"
+      ]
+    },
+    "CarbonIntensitySource": {
+      "type": "string",
+      "enum": ["electricity_maps", "static_tables", "mixed"]
+    },
+    "ReportMetadata": {
+      "type": "object",
+      "required": [
+        "intent",
+        "confidentiality_level",
+        "integrity_level",
+        "generated_at",
+        "generated_by",
+        "perf_sentinel_version",
+        "report_uuid"
+      ],
+      "properties": {
+        "intent": { "$ref": "#/$defs/ReportIntent" },
+        "confidentiality_level": { "$ref": "#/$defs/Confidentiality" },
+        "integrity_level": { "$ref": "#/$defs/IntegrityLevel" },
+        "generated_at": { "$ref": "#/$defs/Iso8601DateTime" },
+        "generated_by": {
+          "type": "string",
+          "enum": ["daemon", "cli-batch", "ci"]
+        },
+        "perf_sentinel_version": { "type": "string", "minLength": 1 },
+        "report_uuid": { "$ref": "#/$defs/UuidV4" }
+      }
+    },
+    "Organisation": {
+      "type": "object",
+      "required": ["name", "country", "identifiers"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alpha-2 country code, upper case."
+        },
+        "identifiers": { "$ref": "#/$defs/OrgIdentifiers" },
+        "sector": {
+          "type": "string",
+          "description": "NACE rev2 code, e.g. 62.01."
+        }
+      }
+    },
+    "OrgIdentifiers": {
+      "type": "object",
+      "properties": {
+        "siren": { "type": "string" },
+        "vat": { "type": "string" },
+        "lei": { "type": "string" },
+        "opencorporates_url": { "type": "string", "format": "uri" },
+        "domain": { "type": "string" }
+      }
+    },
+    "Period": {
+      "type": "object",
+      "required": ["from_date", "to_date", "period_type", "days_covered"],
+      "properties": {
+        "from_date": { "$ref": "#/$defs/Iso8601Date" },
+        "to_date": { "$ref": "#/$defs/Iso8601Date" },
+        "period_type": { "$ref": "#/$defs/PeriodType" },
+        "days_covered": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ScopeManifest": {
+      "type": "object",
+      "required": [
+        "total_applications_declared",
+        "applications_measured",
+        "requests_measured"
+      ],
+      "properties": {
+        "total_applications_declared": { "type": "integer", "minimum": 0 },
+        "applications_measured": { "type": "integer", "minimum": 0 },
+        "applications_excluded": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ExcludedApp" }
+        },
+        "environments_measured": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "environments_excluded": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ExcludedEnv" }
+        },
+        "total_requests_in_period": { "type": "integer", "minimum": 0 },
+        "requests_measured": { "type": "integer", "minimum": 0 },
+        "coverage_percentage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "ExcludedApp": {
+      "type": "object",
+      "required": ["service_name", "reason"],
+      "properties": {
+        "service_name": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ExcludedEnv": {
+      "type": "object",
+      "required": ["name", "reason"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "Methodology": {
+      "type": "object",
+      "required": [
+        "sci_specification",
+        "perf_sentinel_version",
+        "enabled_patterns",
+        "core_patterns_required",
+        "conformance",
+        "calibration_inputs"
+      ],
+      "properties": {
+        "sci_specification": { "type": "string", "minLength": 1 },
+        "perf_sentinel_version": { "type": "string", "minLength": 1 },
+        "enabled_patterns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PatternName" }
+        },
+        "disabled_patterns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/DisabledPattern" }
+        },
+        "core_patterns_required": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/PatternName" }
+        },
+        "conformance": { "$ref": "#/$defs/Conformance" },
+        "calibration_inputs": { "$ref": "#/$defs/CalibrationInputs" }
+      }
+    },
+    "DisabledPattern": {
+      "type": "object",
+      "required": ["name", "reason"],
+      "properties": {
+        "name": { "$ref": "#/$defs/PatternName" },
+        "reason": { "type": "string", "minLength": 1 }
+      }
+    },
+    "CalibrationInputs": {
+      "type": "object",
+      "required": [
+        "carbon_intensity_source",
+        "specpower_table_version",
+        "scaphandre_used"
+      ],
+      "properties": {
+        "cloud_regions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "carbon_intensity_source": { "$ref": "#/$defs/CarbonIntensitySource" },
+        "specpower_table_version": { "type": "string", "minLength": 1 },
+        "scaphandre_used": { "type": "boolean" }
+      }
+    },
+    "Aggregate": {
+      "type": "object",
+      "required": [
+        "total_requests",
+        "total_energy_kwh",
+        "total_carbon_kgco2eq",
+        "aggregate_efficiency_score",
+        "aggregate_waste_ratio",
+        "anti_patterns_detected_count",
+        "estimated_optimization_potential_kgco2eq"
+      ],
+      "properties": {
+        "total_requests": { "type": "integer", "minimum": 0 },
+        "total_energy_kwh": { "type": "number", "minimum": 0 },
+        "total_carbon_kgco2eq": { "type": "number", "minimum": 0 },
+        "aggregate_efficiency_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "aggregate_waste_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "anti_patterns_detected_count": { "type": "integer", "minimum": 0 },
+        "estimated_optimization_potential_kgco2eq": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "ApplicationG1": {
+      "type": "object",
+      "required": [
+        "service_name",
+        "endpoints_observed",
+        "total_requests",
+        "energy_kwh",
+        "carbon_kgco2eq",
+        "efficiency_score",
+        "anti_patterns"
+      ],
+      "properties": {
+        "service_name": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string" },
+        "service_version": { "type": "string" },
+        "endpoints_observed": { "type": "integer", "minimum": 0 },
+        "total_requests": { "type": "integer", "minimum": 0 },
+        "energy_kwh": { "type": "number", "minimum": 0 },
+        "carbon_kgco2eq": { "type": "number", "minimum": 0 },
+        "efficiency_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "anti_patterns": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/AntiPatternDetail" }
+        }
+      },
+      "not": { "required": ["anti_patterns_detected_count"] }
+    },
+    "ApplicationG2": {
+      "type": "object",
+      "required": [
+        "service_name",
+        "endpoints_observed",
+        "total_requests",
+        "energy_kwh",
+        "carbon_kgco2eq",
+        "efficiency_score",
+        "anti_patterns_detected_count"
+      ],
+      "properties": {
+        "service_name": { "type": "string", "minLength": 1 },
+        "display_name": { "type": "string" },
+        "service_version": { "type": "string" },
+        "endpoints_observed": { "type": "integer", "minimum": 0 },
+        "total_requests": { "type": "integer", "minimum": 0 },
+        "energy_kwh": { "type": "number", "minimum": 0 },
+        "carbon_kgco2eq": { "type": "number", "minimum": 0 },
+        "efficiency_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "anti_patterns_detected_count": { "type": "integer", "minimum": 0 }
+      },
+      "not": { "required": ["anti_patterns"] }
+    },
+    "AntiPatternDetail": {
+      "type": "object",
+      "required": [
+        "type",
+        "occurrences",
+        "estimated_waste_kwh",
+        "estimated_waste_kgco2eq",
+        "first_seen",
+        "last_seen"
+      ],
+      "properties": {
+        "type": { "$ref": "#/$defs/PatternName" },
+        "occurrences": { "type": "integer", "minimum": 0 },
+        "estimated_waste_kwh": { "type": "number", "minimum": 0 },
+        "estimated_waste_kgco2eq": { "type": "number", "minimum": 0 },
+        "first_seen": { "$ref": "#/$defs/Iso8601DateTime" },
+        "last_seen": { "$ref": "#/$defs/Iso8601DateTime" }
+      }
+    },
+    "Integrity": {
+      "type": "object",
+      "required": ["content_hash"],
+      "properties": {
+        "content_hash": {
+          "oneOf": [
+            { "$ref": "#/$defs/Sha256" },
+            { "type": "string", "maxLength": 0 }
+          ],
+          "description": "SHA-256 over the canonical JSON form of the report with this field blanked to an empty string. Consumers verify by setting their own copy of content_hash to \"\" and recomputing."
+        },
+        "binary_hash": { "$ref": "#/$defs/Sha256" },
+        "binary_verification_url": { "type": "string", "format": "uri" },
+        "trace_integrity_chain": {
+          "type": ["null", "object"],
+          "description": "Reserved. Always null in schema v1.0."
+        },
+        "signature": {
+          "type": ["null", "object"],
+          "description": "Reserved for Sigstore signatures in a future revision. Always null in schema v1.0."
+        }
+      }
+    },
+    "Notes": {
+      "type": "object",
+      "properties": {
+        "disclaimers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "reference_urls": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

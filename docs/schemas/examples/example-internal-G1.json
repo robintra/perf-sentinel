@@ -1,0 +1,169 @@
+{
+  "schema_version": "perf-sentinel-report/v1.0",
+  "report_metadata": {
+    "intent": "internal",
+    "confidentiality_level": "internal",
+    "integrity_level": "hash-only",
+    "generated_at": "2026-04-01T08:00:00Z",
+    "generated_by": "cli-batch",
+    "perf_sentinel_version": "0.6.2",
+    "report_uuid": "00000000-0000-4000-8000-000000000001"
+  },
+  "organisation": {
+    "name": "Example SAS",
+    "country": "FR",
+    "identifiers": {
+      "siren": "123456789",
+      "domain": "example.fr"
+    },
+    "sector": "62.01"
+  },
+  "period": {
+    "from_date": "2026-01-01",
+    "to_date": "2026-03-31",
+    "period_type": "calendar-quarter",
+    "days_covered": 90
+  },
+  "scope_manifest": {
+    "total_applications_declared": 4,
+    "applications_measured": 3,
+    "applications_excluded": [
+      {
+        "service_name": "legacy-batch",
+        "reason": "OTel instrumentation pending, scheduled Q2"
+      }
+    ],
+    "environments_measured": ["prod"],
+    "environments_excluded": [],
+    "total_requests_in_period": 4200000,
+    "requests_measured": 4150000,
+    "coverage_percentage": 98.8
+  },
+  "methodology": {
+    "sci_specification": "ISO/IEC 21031:2024",
+    "perf_sentinel_version": "0.6.2",
+    "enabled_patterns": [
+      "n_plus_one_sql",
+      "n_plus_one_http",
+      "redundant_sql",
+      "redundant_http",
+      "slow_sql",
+      "slow_http",
+      "excessive_fanout",
+      "chatty_service",
+      "pool_saturation",
+      "serialized_calls"
+    ],
+    "disabled_patterns": [],
+    "core_patterns_required": [
+      "n_plus_one_sql",
+      "n_plus_one_http",
+      "redundant_sql",
+      "redundant_http"
+    ],
+    "conformance": "core-required",
+    "calibration_inputs": {
+      "cloud_regions": ["eu-west-3"],
+      "carbon_intensity_source": "electricity_maps",
+      "specpower_table_version": "2024-2026",
+      "scaphandre_used": false
+    }
+  },
+  "aggregate": {
+    "total_requests": 4150000,
+    "total_energy_kwh": 18.42,
+    "total_carbon_kgco2eq": 1.91,
+    "aggregate_efficiency_score": 82.1,
+    "aggregate_waste_ratio": 0.18,
+    "anti_patterns_detected_count": 47,
+    "estimated_optimization_potential_kgco2eq": 0.34
+  },
+  "applications": [
+    {
+      "service_name": "checkout",
+      "display_name": "Checkout",
+      "service_version": "v1.4.2",
+      "endpoints_observed": 14,
+      "total_requests": 2100000,
+      "energy_kwh": 9.4,
+      "carbon_kgco2eq": 0.98,
+      "efficiency_score": 78.0,
+      "anti_patterns": [
+        {
+          "type": "n_plus_one_sql",
+          "occurrences": 12,
+          "estimated_waste_kwh": 0.05,
+          "estimated_waste_kgco2eq": 0.006,
+          "first_seen": "2026-01-04T10:00:00Z",
+          "last_seen": "2026-03-29T18:00:00Z"
+        },
+        {
+          "type": "redundant_sql",
+          "occurrences": 8,
+          "estimated_waste_kwh": 0.03,
+          "estimated_waste_kgco2eq": 0.004,
+          "first_seen": "2026-01-10T09:12:00Z",
+          "last_seen": "2026-03-30T11:45:00Z"
+        }
+      ]
+    },
+    {
+      "service_name": "catalog",
+      "display_name": "Catalog",
+      "service_version": "v2.0.1",
+      "endpoints_observed": 9,
+      "total_requests": 1500000,
+      "energy_kwh": 6.7,
+      "carbon_kgco2eq": 0.70,
+      "efficiency_score": 86.0,
+      "anti_patterns": [
+        {
+          "type": "slow_sql",
+          "occurrences": 22,
+          "estimated_waste_kwh": 0.0,
+          "estimated_waste_kgco2eq": 0.0,
+          "first_seen": "2026-01-02T07:00:00Z",
+          "last_seen": "2026-03-31T22:00:00Z"
+        }
+      ]
+    },
+    {
+      "service_name": "billing",
+      "display_name": "Billing",
+      "service_version": "v0.9.4",
+      "endpoints_observed": 6,
+      "total_requests": 550000,
+      "energy_kwh": 2.32,
+      "carbon_kgco2eq": 0.23,
+      "efficiency_score": 84.5,
+      "anti_patterns": [
+        {
+          "type": "chatty_service",
+          "occurrences": 5,
+          "estimated_waste_kwh": 0.0,
+          "estimated_waste_kgco2eq": 0.0,
+          "first_seen": "2026-02-11T13:20:00Z",
+          "last_seen": "2026-03-28T09:50:00Z"
+        }
+      ]
+    }
+  ],
+  "integrity": {
+    "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "trace_integrity_chain": null,
+    "signature": null
+  },
+  "notes": {
+    "disclaimers": [
+      "Directional estimate, not regulatory-grade.",
+      "Approximate uncertainty bracket: ~2x multiplicative.",
+      "Not suitable for CSRD or GHG Protocol Scope 3 reporting.",
+      "Methodology: ISO/IEC 21031:2024 (SCI)."
+    ],
+    "reference_urls": {
+      "methodology": "https://github.com/robintra/perf-sentinel/blob/main/docs/METHODOLOGY.md",
+      "project": "https://github.com/robintra/perf-sentinel",
+      "schema": "https://github.com/robintra/perf-sentinel/blob/main/docs/schemas/perf-sentinel-report-v1.json"
+    }
+  }
+}
