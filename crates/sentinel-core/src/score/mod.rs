@@ -223,9 +223,8 @@ pub fn score_green(
     let co2 = carbon_outputs.report;
     let regions = carbon_outputs.regions;
     let multi_region_active = carbon_outputs.multi_region_active;
-    // Per-service maps + window_model are wired into GreenSummary by
-    // step 3; bind them to suppress unused warnings until then.
-    let _ = (&carbon_outputs.per_service, carbon_outputs.window_model);
+    let per_service_runtime = carbon_outputs.per_service;
+    let window_model = carbon_outputs.window_model;
 
     // Top-offender co2_grams uses the flat ENERGY_PER_IO_OP_KWH, so it's
     // only emitted in mono-region mode when the proxy model is the sole
@@ -277,6 +276,29 @@ pub fn score_green(
     } else {
         0.0
     };
+    let mut per_service_energy_kwh = std::collections::BTreeMap::new();
+    let mut per_service_carbon_kgco2eq = std::collections::BTreeMap::new();
+    let mut per_service_region = std::collections::BTreeMap::new();
+    let mut energy_kwh = 0.0_f64;
+    for (svc, acc) in per_service_runtime {
+        energy_kwh += acc.energy_kwh;
+        per_service_energy_kwh.insert(svc.clone(), acc.energy_kwh);
+        per_service_carbon_kgco2eq.insert(svc.clone(), acc.operational_gco2 / 1000.0);
+        per_service_region.insert(
+            svc,
+            if acc.region.is_empty() {
+                carbon::UNKNOWN_REGION.to_string()
+            } else {
+                acc.region
+            },
+        );
+    }
+    let energy_model = if energy_kwh > 0.0 {
+        window_model.to_string()
+    } else {
+        String::new()
+    };
+
     let green_summary = GreenSummary {
         total_io_ops,
         avoidable_io_ops,
@@ -292,10 +314,11 @@ pub fn score_green(
         co2,
         regions,
         scoring_config: carbon.and_then(|ctx| ctx.scoring_config.clone()),
-        // Per-service energy/carbon attribution populated by step 3 of
-        // the carbon-attribution work, defaulted here to keep step 1
-        // additive.
-        ..GreenSummary::disabled(0)
+        energy_kwh,
+        energy_model,
+        per_service_carbon_kgco2eq,
+        per_service_energy_kwh,
+        per_service_region,
     };
 
     (enriched, green_summary, per_endpoint_io_ops)
@@ -678,6 +701,90 @@ mod tests {
         assert_eq!(summary.avoidable_io_ops, 0);
         assert!((summary.io_waste_ratio - 0.0).abs() < f64::EPSILON);
         assert_eq!(summary.top_offenders.len(), 1); // 1 endpoint
+    }
+
+    #[test]
+    fn per_service_carbon_respects_service_region() {
+        // Two services in regions with very different grid intensities.
+        // `eu-west-3` is ~56 gCO2/kWh, `pl` is ~700. The proportional
+        // I/O share that sprint 1 used would give both services the same
+        // average; runtime attribution must reflect the per-region rate.
+        let mut events = Vec::new();
+        for i in 1..=3 {
+            let mut e = make_sql_event(
+                "trace-1",
+                &format!("span-a{i}"),
+                &format!("SELECT * FROM users WHERE id = {i}"),
+                &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+            );
+            e.service = Arc::from("svc-low");
+            events.push(e);
+        }
+        for i in 1..=3 {
+            let mut e = make_sql_event(
+                "trace-2",
+                &format!("span-b{i}"),
+                &format!("SELECT * FROM users WHERE id = {i}"),
+                &format!("2025-07-10T14:32:02.{:03}Z", i * 50),
+            );
+            e.service = Arc::from("svc-high");
+            events.push(e);
+        }
+        let trace = make_trace(events);
+
+        let mut service_regions = HashMap::new();
+        service_regions.insert("svc-low".to_string(), "eu-west-3".to_string());
+        service_regions.insert("svc-high".to_string(), "pl".to_string());
+        let ctx = CarbonContext {
+            service_regions,
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+
+        let low = summary
+            .per_service_carbon_kgco2eq
+            .get("svc-low")
+            .copied()
+            .expect("svc-low");
+        let high = summary
+            .per_service_carbon_kgco2eq
+            .get("svc-high")
+            .copied()
+            .expect("svc-high");
+        // True ratio ~13.2x: pl is 700 g/kWh with Generic PUE 1.2 (840),
+        // eu-west-3 is 56 g/kWh with AWS PUE 1.135 (~63.6). A buggy
+        // "average across regions" path would give ~6x. Future intensity
+        // or PUE table refreshes that drift the ratio will surface here.
+        assert!(
+            high > low * 13.0 && high < low * 13.5,
+            "svc-high (pl) {high} vs svc-low (eu-west-3) {low}: ratio out of [13.0x, 13.5x]"
+        );
+        assert_eq!(
+            summary.per_service_region.get("svc-low").unwrap(),
+            "eu-west-3"
+        );
+        assert_eq!(summary.per_service_region.get("svc-high").unwrap(), "pl");
+
+        // Invariant: sum of per-service carbon (kg) × 1000 ≈ operational gCO2.
+        let operational = summary.co2.as_ref().expect("co2").operational_gco2;
+        let summed_kg: f64 = summary.per_service_carbon_kgco2eq.values().sum();
+        assert!(
+            (summed_kg * 1000.0 - operational).abs() < 1e-6,
+            "sum {} vs operational {}",
+            summed_kg * 1000.0,
+            operational
+        );
+
+        // Invariant: sum of per-service energy ≈ total energy.
+        let summed_energy: f64 = summary.per_service_energy_kwh.values().sum();
+        assert!((summed_energy - summary.energy_kwh).abs() < 1e-9);
+
+        // No measured energy entries → proxy model tag.
+        assert_eq!(summary.energy_model, "io_proxy_v1");
     }
 
     /// Build a [`CarbonContext`] with a single default region and zero embodied

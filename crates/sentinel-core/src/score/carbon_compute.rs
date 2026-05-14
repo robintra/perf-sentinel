@@ -45,7 +45,6 @@ struct CarbonRunState {
 /// Per-service energy and carbon accumulated during scoring. Feeds
 /// `GreenSummary.per_service_*`. See design doc 09.
 #[derive(Default)]
-#[allow(dead_code, reason = "consumed by score::score_green in the next step")]
 pub(super) struct ServiceCarbonAccumulator {
     pub energy_kwh: f64,
     pub operational_gco2: f64,
