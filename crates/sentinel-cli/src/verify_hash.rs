@@ -13,9 +13,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use sentinel_core::report::periodic::compute_content_hash;
-use sentinel_core::report::periodic::schema::{
-    BinaryAttestationMetadata, IntegrityLevel, PeriodicReport, SignatureMetadata,
-};
+use sentinel_core::report::periodic::schema::{IntegrityLevel, PeriodicReport, SignatureMetadata};
 
 /// Hard cap on remote payloads pulled by `--url`. 10 MB is well above any
 /// realistic report file size and guards against pathological responses.
@@ -59,11 +57,10 @@ pub fn cmd_verify_hash(
     bundle_path: Option<&Path>,
     format: VerifyHashFormat,
 ) -> i32 {
-    let (report, report_bytes, display_path, fetched_paths) =
-        match load_report(report_path, url, attestation_path, bundle_path) {
-            Ok(v) => v,
-            Err(code) => return code,
-        };
+    let (report, report_bytes, display_path, fetched_paths) = match load_report(report_path, url) {
+        Ok(v) => v,
+        Err(code) => return code,
+    };
 
     let content_hash = verify_content_hash(&report);
     let signature = verify_signature(
@@ -95,12 +92,9 @@ struct FetchedPaths {
     bundle: Option<PathBuf>,
 }
 
-#[allow(clippy::type_complexity)]
 fn load_report(
     report_path: Option<&Path>,
     url: Option<&str>,
-    _attestation_path: Option<&Path>,
-    _bundle_path: Option<&Path>,
 ) -> Result<(PeriodicReport, Vec<u8>, String, FetchedPaths), i32> {
     if let Some(path) = report_path {
         let bytes = std::fs::read(path).map_err(|e| {
@@ -466,13 +460,10 @@ fn integrity_level_label(level: IntegrityLevel) -> &'static str {
     }
 }
 
-// Silence unused-warnings if a future refactor removes the binding.
-#[allow(dead_code)]
-fn _unused(_: &BinaryAttestationMetadata) {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sentinel_core::report::periodic::schema::BinaryAttestationMetadata;
     use std::path::PathBuf;
 
     fn example_g2() -> PathBuf {
