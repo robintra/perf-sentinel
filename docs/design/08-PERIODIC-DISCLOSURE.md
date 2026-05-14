@@ -157,6 +157,29 @@ Both sections are optional. Their absence leaves perf-sentinel in its prior beha
 - **Optimization potential excludes embodied.** `estimated_optimization_potential_kgco2eq` sums `co2.avoidable.mid` only. `total_carbon_kgco2eq` is the full `co2.total.mid` (operational + embodied). The default disclaimers spell this out.
 - **`_unattributed` co-routes findings.** A window with no `per_endpoint_io_ops` and no runtime per-service maps lands its energy/carbon AND its findings under `_unattributed`. Without this routing, a service with N+1 findings could publish at `efficiency_score = 100` when its `total_io_ops` happened to be zero in the same window.
 
+## The 75% runtime-calibration threshold
+
+The `MIN_PERIOD_COVERAGE_FOR_OFFICIAL` constant in `report::periodic::validator` gates an `official` intent disclosure at `period_coverage >= 0.75`. Reports below are rejected with a message asking the operator to shorten the period or fall back to `intent = internal`.
+
+### Why 75% and not another value
+
+The threshold balances two failure modes.
+
+- **Too strict** (e.g. 95%): rejects legitimate migrations. An operator deploying Scaphandre mid-quarter would never produce an official report for that quarter, even though three quarters of the data are correctly calibrated.
+- **Too permissive** (e.g. 50%): allows reports where half the data is proxy fallback. Aggregate energy and per-service attribution would silently understate or distort the period total for half the windows.
+
+### Empirical rationale
+
+The 75% choice reflects three observations.
+
+- A typical operator migration (rolling out Scaphandre across a fleet, switching from on-prem to cloud SPECpower, redeploying the daemon with a new config) completes within one to two weeks. On a 90-day calendar quarter, that represents 11 to 22% of the period. A threshold at 75% accommodates such a migration without rejecting the resulting report.
+- Below 75%, the proxy fallback contributes more than a quarter of the total energy estimate. The proxy is uniform across services and regions, so its share dilutes both the runtime-calibrated total and the per-service attribution. A report where the proxy carries more than a quarter of the signal is not honestly described as "runtime-calibrated".
+- The 75% threshold aligns with `MIN_DAYS_COVERED = 30` heuristically. On a quarter, a 30-day window with full coverage represents one-third of the period. Combined with the requirement that the rest must be at least mostly calibrated to stay above 75%, the gate forms a consistent shape of "enough data, enough calibration".
+
+### When to revisit
+
+This threshold is not normative. If terrain feedback from operators or auditors shows it is too strict (internal reports routinely landing just below 75% that would have been useful as official) or too permissive (an audit identifies a quarter of proxy data is enough to mask a regression), it should be tuned. The constant lives in `crates/sentinel-core/src/report/periodic/validator.rs` and is re-exported via the `report::periodic` module.
+
 ## Future revisions
 
 - **Sigstore signature**: `integrity.signature` is reserved. Adding a real signature is a SemVer-minor schema bump (additive field becoming non-null in some files).

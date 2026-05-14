@@ -14,6 +14,8 @@ The subcommand is added in v0.6.x and supersedes earlier ad-hoc disclosure recip
 
 `audited` is accepted by the JSON schema for forward compatibility but the CLI returns `Error: audited intent is not yet implemented` and exits with code 2.
 
+For `official` intent, the validator also rejects reports below 75% runtime-calibration coverage (see [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md#the-75-runtime-calibration-threshold) for the rationale).
+
 ## Granularity
 
 - `--confidentiality internal` produces G1 entries per application: the per-anti-pattern breakdown (`anti_patterns: [...]`) is included.

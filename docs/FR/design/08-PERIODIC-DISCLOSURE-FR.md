@@ -157,6 +157,29 @@ Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son 
 - **Le potentiel d'optimisation exclut l'embarqué.** `estimated_optimization_potential_kgco2eq` ne somme que `co2.avoidable.mid`. `total_carbon_kgco2eq` est le `co2.total.mid` complet (opérationnel + embarqué). Les disclaimers par défaut le précisent.
 - **`_unattributed` co-route les findings.** Une fenêtre sans `per_endpoint_io_ops` et sans maps runtime per-service range son énergie/carbone ET ses findings sous `_unattributed`. Sans ce routage, un service avec des findings N+1 pourrait être publié à `efficiency_score = 100` si son `total_io_ops` se trouve à zéro dans la même fenêtre.
 
+## Le seuil de 75% de calibration runtime
+
+La constante `MIN_PERIOD_COVERAGE_FOR_OFFICIAL` dans `report::periodic::validator` gate une disclosure d'intent `official` à `period_coverage >= 0.75`. Les rapports en deçà sont refusés avec un message qui invite l'opérateur à raccourcir la période ou à retomber sur `intent = internal`.
+
+### Pourquoi 75% et pas une autre valeur
+
+Le seuil équilibre deux modes de défaillance.
+
+- **Trop strict** (par exemple 95%) : rejette les migrations légitimes. Un opérateur qui déploie Scaphandre en milieu de trimestre ne produirait jamais un rapport officiel pour ce trimestre, même si trois quarts des données sont correctement calibrées.
+- **Trop permissif** (par exemple 50%) : autorise des rapports où la moitié des données vient du proxy fallback. L'énergie agrégée et l'attribution par service sous-estimeraient ou déformeraient silencieusement le total de la période pour la moitié des fenêtres.
+
+### Justification empirique
+
+Le choix de 75% reflète trois observations.
+
+- Une migration opérateur typique (déploiement de Scaphandre sur une flotte, passage de on-prem à cloud SPECpower, redéploiement du daemon avec une nouvelle config) prend une à deux semaines. Sur un trimestre civil de 90 jours, cela représente 11 à 22% de la période. Un seuil à 75% accommode ce type de migration sans rejeter le rapport produit.
+- En dessous de 75%, le proxy fallback contribue à plus d'un quart de l'estimation énergétique totale. Le proxy est uniforme entre services et régions, sa part dilue donc à la fois le total runtime-calibrated et l'attribution par service. Un rapport où le proxy porte plus d'un quart du signal n'est pas honnêtement décrit comme "runtime-calibrated".
+- Le seuil de 75% s'aligne avec `MIN_DAYS_COVERED = 30` de manière heuristique. Sur un trimestre, une fenêtre de 30 jours avec couverture complète représente un tiers de la période. Combiné à l'exigence que le reste soit majoritairement calibré pour rester au-dessus de 75%, le gate dessine une forme cohérente de "assez de données, assez de calibration".
+
+### Quand le reconsidérer
+
+Ce seuil n'est pas normatif. Si un retour terrain d'opérateurs ou d'auditeurs montre qu'il est trop strict (rapports `internal` qui atterrissent régulièrement juste sous 75% et qui auraient été utiles en `official`) ou trop permissif (un audit identifie qu'un quart de proxy suffit à masquer une régression), il doit être ajusté. La constante vit dans `crates/sentinel-core/src/report/periodic/validator.rs` et est ré-exportée via le module `report::periodic`.
+
 ## Révisions futures
 
 - **Signature Sigstore** : `integrity.signature` est réservé. Ajouter une vraie signature est un bump mineur SemVer du schéma (champ additif passant non null dans certains fichiers).

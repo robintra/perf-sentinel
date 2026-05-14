@@ -14,6 +14,8 @@ La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad h
 
 `audited` est accepté par le schéma JSON pour la compatibilité ascendante, mais la CLI retourne `Error: audited intent is not yet implemented` et sort avec le code 2.
 
+Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated (voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime) pour la justification).
+
 ## Granularité
 
 - `--confidentiality internal` produit des entrées G1 par application : le détail par anti-pattern (`anti_patterns: [...]`) est inclus.
