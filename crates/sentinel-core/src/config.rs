@@ -57,7 +57,33 @@ pub struct ReportingConfig {
     /// Period selector hint: `"calendar-quarter"`, `"calendar-month"`,
     /// `"calendar-year"`, or `"custom"`. Pure hint for scheduled runs.
     pub disclose_period: Option<String>,
+    /// Sigstore signing target. Empty defaults to the public Sigstore
+    /// instance. perf-sentinel does not sign itself; this value lives
+    /// in the report so `verify-hash` knows which Rekor to query.
+    pub sigstore: SigstoreConfig,
 }
+
+/// Sigstore Rekor + Fulcio endpoints used by `verify-hash` and reported
+/// in `integrity.signature.rekor_url`. Maps to `[reporting.sigstore]`.
+#[derive(Debug, Clone)]
+pub struct SigstoreConfig {
+    pub rekor_url: String,
+    pub fulcio_url: String,
+}
+
+impl Default for SigstoreConfig {
+    fn default() -> Self {
+        Self {
+            rekor_url: DEFAULT_REKOR_URL.to_string(),
+            fulcio_url: DEFAULT_FULCIO_URL.to_string(),
+        }
+    }
+}
+
+/// Public Sigstore Rekor transparency log.
+pub const DEFAULT_REKOR_URL: &str = "https://rekor.sigstore.dev";
+/// Public Sigstore Fulcio certificate authority.
+pub const DEFAULT_FULCIO_URL: &str = "https://fulcio.sigstore.dev";
 
 /// Maps to `[daemon.archive]` in TOML. When `Some`, the daemon writes
 /// each per-window `Report` as one NDJSON line to `path`, with
@@ -428,6 +454,14 @@ struct ReportingSection {
     org_config_path: Option<String>,
     disclose_output_path: Option<String>,
     disclose_period: Option<String>,
+    sigstore: SigstoreSection,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct SigstoreSection {
+    rekor_url: Option<String>,
+    fulcio_url: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1014,6 +1048,18 @@ impl From<RawConfig> for Config {
                 org_config_path: raw.reporting.org_config_path,
                 disclose_output_path: raw.reporting.disclose_output_path,
                 disclose_period: raw.reporting.disclose_period,
+                sigstore: SigstoreConfig {
+                    rekor_url: raw
+                        .reporting
+                        .sigstore
+                        .rekor_url
+                        .unwrap_or_else(|| DEFAULT_REKOR_URL.to_string()),
+                    fulcio_url: raw
+                        .reporting
+                        .sigstore
+                        .fulcio_url
+                        .unwrap_or_else(|| DEFAULT_FULCIO_URL.to_string()),
+                },
             },
         }
     }
@@ -4550,6 +4596,31 @@ intent = "official"
 "#;
         let err = load_from_str(toml).expect_err("missing org_config_path must be rejected");
         assert!(err.to_string().contains("org_config_path"));
+    }
+
+    #[test]
+    fn reporting_sigstore_absent_defaults_to_public() {
+        let cfg = load_from_str("[reporting]\n").expect("valid empty reporting");
+        assert_eq!(cfg.reporting.sigstore.rekor_url, DEFAULT_REKOR_URL);
+        assert_eq!(cfg.reporting.sigstore.fulcio_url, DEFAULT_FULCIO_URL);
+    }
+
+    #[test]
+    fn reporting_sigstore_section_overrides_defaults() {
+        let toml = r#"
+[reporting.sigstore]
+rekor_url = "https://rekor.internal.example.fr"
+fulcio_url = "https://fulcio.internal.example.fr"
+"#;
+        let cfg = load_from_str(toml).expect("valid sigstore section");
+        assert_eq!(
+            cfg.reporting.sigstore.rekor_url,
+            "https://rekor.internal.example.fr"
+        );
+        assert_eq!(
+            cfg.reporting.sigstore.fulcio_url,
+            "https://fulcio.internal.example.fr"
+        );
     }
 
     #[test]
