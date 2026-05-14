@@ -146,6 +146,17 @@ list for the perf-sentinel version recorded in
 `n_plus_one_http`, `redundant_sql`, `redundant_http`) and compares
 it against the signed hash.
 
+`verify-hash` automates this cross-check: it hashes the canonical
+core set baked into the local verifying binary, hashes the report's
+`methodology.core_patterns_required`, and surfaces a `[FAIL] Core
+patterns` line when the two diverge. The check runs on every
+`verify-hash` invocation, no extra flag required. A consumer running
+the same perf-sentinel version as the signer therefore catches a
+substitution attempt without needing an external reference table. A
+divergence against a verifying binary on a different version is
+surfaced with a hint ("verifying binary is a different perf-sentinel
+version") so the consumer can re-run with a matching version.
+
 ## Cosign command
 
 For Sigstore public signing with keyless OIDC, the recommended

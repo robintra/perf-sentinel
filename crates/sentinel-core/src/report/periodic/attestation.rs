@@ -195,7 +195,10 @@ pub fn build_in_toto_statement_named(
 /// SHA-256 over the sorted, colon-joined core pattern names. Sort is
 /// applied to make the hash invariant of input order. 64-hex output,
 /// no `sha256:` prefix, to match the in-toto subject digest format.
-fn hash_core_patterns(patterns: &[String]) -> String {
+/// Exposed so `verify-hash` can recompute the canonical value from
+/// the local binary and cross-check against the predicate.
+#[must_use]
+pub fn hash_core_patterns(patterns: &[String]) -> String {
     let mut sorted: Vec<&str> = patterns.iter().map(String::as_str).collect();
     sorted.sort_unstable();
     let joined = sorted.join(":");

@@ -26,7 +26,7 @@ pub use aggregator::{
 pub use attestation::{
     IN_TOTO_STATEMENT_TYPE, InTotoStatement, InTotoSubject, MethodologySummary,
     OrganisationSummary, PERF_SENTINEL_PREDICATE_TYPE, PerfSentinelPredicate, PeriodSummary,
-    build_in_toto_statement, build_in_toto_statement_named,
+    build_in_toto_statement, build_in_toto_statement_named, hash_core_patterns,
 };
 pub use errors::{AggregationError, HashError, ValidationError};
 pub use hasher::{binary_hash, compute_content_hash, compute_file_sha256_hex};

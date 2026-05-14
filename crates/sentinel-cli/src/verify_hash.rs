@@ -55,6 +55,7 @@ struct Outcome {
     report_path: String,
     report: PeriodicReport,
     content_hash: Status,
+    core_patterns: Status,
     signature: Status,
     binary_attestation: Status,
 }
@@ -73,6 +74,7 @@ pub fn cmd_verify_hash(
     };
 
     let content_hash = verify_content_hash(&report);
+    let core_patterns = verify_core_patterns(&report);
     let signature = verify_signature(
         &report,
         &report_bytes,
@@ -85,6 +87,7 @@ pub fn cmd_verify_hash(
         report_path: display_path,
         report,
         content_hash,
+        core_patterns,
         signature,
         binary_attestation,
     };
@@ -254,6 +257,46 @@ fn verify_content_hash(report: &PeriodicReport) -> Status {
     }
 }
 
+/// Cross-check `methodology.core_patterns_required` against the
+/// canonical set baked into the verifying binary. Detects core-pattern
+/// substitution that the validator would have rejected at signing
+/// time only if the signer was honest. A divergence means either the
+/// report was tampered with (substitution) or the verifying binary
+/// is a different perf-sentinel version with a different canonical
+/// core (rare, surfaced as a hint).
+fn verify_core_patterns(report: &PeriodicReport) -> Status {
+    use sentinel_core::report::periodic::hash_core_patterns;
+    use sentinel_core::report::periodic::schema::core_patterns_required as canonical_set;
+
+    let declared = &report.methodology.core_patterns_required;
+    let local_canonical = canonical_set();
+    let declared_hash = hash_core_patterns(declared);
+    let canonical_hash = hash_core_patterns(&local_canonical);
+
+    if declared_hash == canonical_hash {
+        return Status::Ok(format!(
+            "matches canonical core set for local perf-sentinel ({} patterns)",
+            local_canonical.len()
+        ));
+    }
+
+    let only_in_declared: Vec<&str> = declared
+        .iter()
+        .filter(|d| !local_canonical.iter().any(|c| c == *d))
+        .map(String::as_str)
+        .collect();
+    let only_in_canonical: Vec<&str> = local_canonical
+        .iter()
+        .filter(|c| !declared.iter().any(|d| d == *c))
+        .map(String::as_str)
+        .collect();
+    Status::Fail(format!(
+        "core_patterns_required diverges from local canonical set: \
+         declared-only={only_in_declared:?}, canonical-only={only_in_canonical:?}. \
+         Possible substitution at sign time, or verifying binary is a different perf-sentinel version."
+    ))
+}
+
 fn verify_signature(
     report: &PeriodicReport,
     report_bytes: &[u8],
@@ -420,6 +463,10 @@ fn print_text(outcome: &Outcome) {
     println!();
     println!("Verifications:");
     println!("  {}", format_status("Content hash", &outcome.content_hash));
+    println!(
+        "  {}",
+        format_status("Core patterns", &outcome.core_patterns)
+    );
     println!("  {}", format_status("Signature", &outcome.signature));
     println!(
         "  {}",
@@ -453,6 +500,7 @@ fn print_json(outcome: &Outcome) {
         },
         "verifications": {
             "content_hash": status_to_json(&outcome.content_hash),
+            "core_patterns": status_to_json(&outcome.core_patterns),
             "signature": status_to_json(&outcome.signature),
             "binary_attestation": status_to_json(&outcome.binary_attestation),
         },
@@ -475,6 +523,7 @@ fn status_to_json(s: &Status) -> serde_json::Value {
 
 fn overall_label(outcome: &Outcome) -> &'static str {
     if outcome.content_hash.is_failure()
+        || outcome.core_patterns.is_failure()
         || outcome.signature.is_failure()
         || outcome.binary_attestation.is_failure()
     {
@@ -538,6 +587,42 @@ mod tests {
         // match the recomputed canonical value.
         let s = verify_content_hash(&report);
         assert!(matches!(s, Status::Fail(_)));
+    }
+
+    #[test]
+    fn core_patterns_check_passes_on_canonical_set() {
+        let report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        let s = verify_core_patterns(&report);
+        assert!(
+            matches!(s, Status::Ok(_)),
+            "G2 ships the canonical core set"
+        );
+    }
+
+    #[test]
+    fn core_patterns_check_fails_on_substitution() {
+        let mut report: PeriodicReport =
+            serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
+        // Substitute one of the four canonical core patterns with a
+        // non-canonical one. Counts stay at 4 but the canonical hash
+        // differs, which is exactly the audit case the cross-check
+        // exists to catch.
+        let to_replace = report.methodology.core_patterns_required[0].clone();
+        for slot in &mut report.methodology.core_patterns_required {
+            if *slot == to_replace {
+                *slot = "slow_sql".to_string();
+                break;
+            }
+        }
+        let s = verify_core_patterns(&report);
+        match s {
+            Status::Fail(detail) => {
+                assert!(detail.contains("slow_sql"), "{detail}");
+                assert!(detail.contains(&to_replace), "{detail}");
+            }
+            _ => panic!("expected Fail"),
+        }
     }
 
     #[test]
