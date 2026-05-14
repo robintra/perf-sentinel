@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde::Deserialize;
 
+use crate::detect::Finding;
 use crate::report::Report;
 use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 
@@ -140,6 +141,20 @@ pub fn aggregate_from_paths(
     Ok(builder.finalize(source_files))
 }
 
+/// Per-window scalars extracted up front so `process_window` and its
+/// helpers can pass a single value around instead of re-reading the
+/// `Report` everywhere. Fields are derived from `green_summary` and
+/// `analysis.traces_analyzed` only, never mutated downstream.
+struct WindowMetrics {
+    carbon_kg: f64,
+    avoidable_kg: f64,
+    total_io: u64,
+    avoidable_io: u64,
+    traces: u64,
+    energy_kwh: f64,
+    runtime_attribution: bool,
+}
+
 #[derive(Default)]
 struct Builder {
     per_service: BTreeMap<String, ServiceAccumulator>,
@@ -229,7 +244,6 @@ impl Builder {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)]
     fn process_window(
         &mut self,
         envelope: ArchivedReport,
@@ -238,72 +252,120 @@ impl Builder {
         let ts = envelope.ts;
         let report = envelope.report;
 
-        let window_carbon_kg = report
+        let Some(m) = self.compute_window_metrics(&report, ts) else {
+            return Ok(false);
+        };
+
+        self.fold_global_counters(&m);
+        self.fold_binary_version(&report.binary_version);
+        self.fold_window_energy_model(&report.green_summary.energy_model);
+        self.fold_per_service_measured_ratio(&report.green_summary.per_service_measured_ratio);
+        self.fold_per_service_energy_models(&report.green_summary.per_service_energy_model);
+
+        let per_service_io = service_io_distribution(&report.per_endpoint_io_ops);
+        let unattributed = per_service_io.is_empty() && !m.runtime_attribution;
+        if unattributed && strict {
+            return Err(AggregationError::UnattributedWindow {
+                ts: ts.to_rfc3339(),
+            });
+        }
+
+        self.attribute_window(&report, &m, &per_service_io, unattributed);
+        self.route_findings(&report.findings, ts, unattributed);
+
+        Ok(!m.runtime_attribution)
+    }
+
+    /// Validate, then capture the per-window scalars the rest of
+    /// `process_window` needs. Returns `None` (and bumps the malformed
+    /// counter) when the carbon fields are non-finite, signalling the
+    /// caller to skip the window.
+    fn compute_window_metrics(
+        &mut self,
+        report: &Report,
+        ts: chrono::DateTime<chrono::Utc>,
+    ) -> Option<WindowMetrics> {
+        let carbon_kg = report
             .green_summary
             .co2
             .as_ref()
             .map_or(0.0, |c| c.total.mid / 1000.0);
-        let window_avoidable_kg = report
+        let avoidable_kg = report
             .green_summary
             .co2
             .as_ref()
             .map_or(0.0, |c| c.avoidable.mid / 1000.0);
-        if !window_carbon_kg.is_finite() || !window_avoidable_kg.is_finite() {
+        if !carbon_kg.is_finite() || !avoidable_kg.is_finite() {
             self.malformed_lines_skipped += 1;
             tracing::warn!(ts = %ts, "skipping window with non-finite carbon");
-            return Ok(false);
+            return None;
         }
-        let window_total_io = report.green_summary.total_io_ops as u64;
-        let window_avoidable_io = report.green_summary.avoidable_io_ops as u64;
-        let window_traces = report.analysis.traces_analyzed as u64;
-
-        let runtime_attribution = !report.green_summary.per_service_carbon_kgco2eq.is_empty()
-            && !report.green_summary.per_service_energy_kwh.is_empty();
-        let window_energy_kwh = if report.green_summary.energy_kwh > 0.0 {
+        // Sanitize against `+Inf` from tampered archives. NaN / -Inf /
+        // negative inputs fall through the `> 0.0` check to the proxy
+        // path; the post-clamp catches the remaining `+Inf` case.
+        let raw_energy = if report.green_summary.energy_kwh > 0.0 {
             report.green_summary.energy_kwh
         } else {
             (report.green_summary.total_io_ops as f64) * ENERGY_PER_IO_OP_KWH
         };
+        Some(WindowMetrics {
+            carbon_kg,
+            avoidable_kg,
+            total_io: report.green_summary.total_io_ops as u64,
+            avoidable_io: report.green_summary.avoidable_io_ops as u64,
+            traces: report.analysis.traces_analyzed as u64,
+            energy_kwh: sanitize_f64(raw_energy),
+            runtime_attribution: !report.green_summary.per_service_carbon_kgco2eq.is_empty()
+                && !report.green_summary.per_service_energy_kwh.is_empty(),
+        })
+    }
 
+    fn fold_global_counters(&mut self, m: &WindowMetrics) {
         self.windows_aggregated += 1;
-        self.total_io_ops += window_total_io;
-        self.avoidable_io_ops += window_avoidable_io;
-        self.total_carbon_kgco2eq += window_carbon_kg;
-        self.avoidable_carbon_kgco2eq += window_avoidable_kg;
-        let bv = &report.binary_version;
-        if !bv.is_empty()
-            && bv.len() <= MAX_BINARY_VERSION_LEN
-            && is_valid_binary_version(bv)
-            && (self.binary_versions.len() < MAX_BINARY_VERSIONS
-                || self.binary_versions.contains(bv))
-        {
-            self.binary_versions.insert(bv.clone());
-        }
-        // Guard the runtime energy total against `+Inf` from tampered
-        // archives. NaN/-Inf/negative inputs are already filtered by the
-        // `> 0.0` branch above (which falls through to the proxy path),
-        // so this clamp specifically catches the `+Inf` case.
-        let window_energy_kwh = sanitize_f64(window_energy_kwh);
-        self.runtime_energy_kwh += window_energy_kwh;
-        if !report.green_summary.energy_model.is_empty()
-            && report.green_summary.energy_model.len() <= MAX_ENERGY_MODEL_LEN
-        {
-            let raw = &report.green_summary.energy_model;
-            let bare = raw.strip_suffix("+cal").unwrap_or(raw);
-            if raw.len() != bare.len() {
-                self.calibration_applied = true;
-            }
-            if self.energy_source_models.len() < MAX_ENERGY_MODELS
-                || self.energy_source_models.contains(bare)
-            {
-                self.energy_source_models.insert(bare.to_string());
-            }
-        }
+        self.total_io_ops += m.total_io;
+        self.avoidable_io_ops += m.avoidable_io;
+        self.total_carbon_kgco2eq += m.carbon_kg;
+        self.avoidable_carbon_kgco2eq += m.avoidable_kg;
+        self.runtime_energy_kwh += m.energy_kwh;
+    }
 
-        for (service, ratio) in &report.green_summary.per_service_measured_ratio {
-            // Symmetric clamp: sanitize_f64 maps NaN/Inf/negative to 0.0,
-            // .min(1.0) maps overshoots to 1.0. Both are treated as "data
-            // out of spec" rather than dropped, so the mean stays defined.
+    fn fold_binary_version(&mut self, bv: &str) {
+        if bv.is_empty() || bv.len() > MAX_BINARY_VERSION_LEN || !is_valid_binary_version(bv) {
+            return;
+        }
+        if self.binary_versions.len() < MAX_BINARY_VERSIONS || self.binary_versions.contains(bv) {
+            self.binary_versions.insert(bv.to_string());
+        }
+    }
+
+    fn fold_window_energy_model(&mut self, model: &str) {
+        if model.is_empty() || model.len() > MAX_ENERGY_MODEL_LEN {
+            return;
+        }
+        self.record_energy_model_tag(model);
+    }
+
+    /// Strip the `+cal` suffix, flip the calibration flag if present,
+    /// and insert the bare tag into `energy_source_models` subject to
+    /// the model-set cap.
+    fn record_energy_model_tag(&mut self, raw: &str) {
+        let bare = raw.strip_suffix("+cal").unwrap_or(raw);
+        if raw.len() != bare.len() {
+            self.calibration_applied = true;
+        }
+        if self.energy_source_models.len() < MAX_ENERGY_MODELS
+            || self.energy_source_models.contains(bare)
+        {
+            self.energy_source_models.insert(bare.to_string());
+        }
+    }
+
+    fn fold_per_service_measured_ratio(&mut self, map: &BTreeMap<String, f64>) {
+        for (service, ratio) in map {
+            // Symmetric clamp: `sanitize_f64` maps NaN/Inf/negative to
+            // 0.0, `.min(1.0)` maps overshoots to 1.0. Both are treated
+            // as "out of spec" rather than dropped, so the period mean
+            // stays defined.
             let ratio = sanitize_f64(*ratio).min(1.0);
             let entry =
                 if let Some(existing) = self.per_service_measured_ratio_sums.get_mut(service) {
@@ -318,23 +380,15 @@ impl Builder {
             entry.0 += ratio;
             entry.1 = entry.1.saturating_add(1);
         }
+    }
 
-        for (service, raw_model) in &report.green_summary.per_service_energy_model {
+    fn fold_per_service_energy_models(&mut self, map: &BTreeMap<String, String>) {
+        for (service, raw_model) in map {
             if raw_model.is_empty() || raw_model.len() > MAX_ENERGY_MODEL_LEN {
                 continue;
             }
+            self.record_energy_model_tag(raw_model);
             let bare = raw_model.strip_suffix("+cal").unwrap_or(raw_model);
-            if raw_model.len() != bare.len() {
-                self.calibration_applied = true;
-            }
-            // Also feed the period-wide set so a window with empty
-            // window-level `energy_model` but populated per-service tags
-            // still surfaces under `methodology.calibration_inputs`.
-            if self.energy_source_models.len() < MAX_ENERGY_MODELS
-                || self.energy_source_models.contains(bare)
-            {
-                self.energy_source_models.insert(bare.to_string());
-            }
             let set = if let Some(existing) = self.per_service_energy_models.get_mut(service) {
                 existing
             } else if self.per_service_energy_models.len() >= MAX_SERVICES {
@@ -348,75 +402,103 @@ impl Builder {
                 set.insert(bare.to_string());
             }
         }
+    }
 
-        let per_service_io = service_io_distribution(&report.per_endpoint_io_ops);
-        let unattributed = per_service_io.is_empty() && !runtime_attribution;
-
-        if unattributed && strict {
-            return Err(AggregationError::UnattributedWindow {
-                ts: ts.to_rfc3339(),
-            });
-        }
-
-        if runtime_attribution {
-            self.runtime_windows += 1;
-            for (service, carbon) in &report.green_summary.per_service_carbon_kgco2eq {
-                let carbon = sanitize_f64(*carbon);
-                let energy = sanitize_f64(
-                    report
-                        .green_summary
-                        .per_service_energy_kwh
-                        .get(service)
-                        .copied()
-                        .unwrap_or(0.0),
-                );
-                let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
-                    continue;
-                };
-                bucket.carbon_kgco2eq += carbon;
-                bucket.energy_kwh += energy;
-                if let Some(io) = per_service_io.get(service) {
-                    bucket.total_io_ops += *io;
-                    let share = if window_total_io == 0 {
-                        0.0
-                    } else {
-                        *io as f64 / window_total_io as f64
-                    };
-                    bucket.total_requests += scale_u64(window_traces, share);
-                }
-            }
-            collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
+    fn attribute_window(
+        &mut self,
+        report: &Report,
+        m: &WindowMetrics,
+        per_service_io: &BTreeMap<String, u64>,
+        unattributed: bool,
+    ) {
+        if m.runtime_attribution {
+            self.attribute_runtime(report, m, per_service_io);
         } else if unattributed {
-            self.fallback_windows += 1;
-            let bucket = self
-                .per_service
-                .entry(UNATTRIBUTED_SERVICE.to_string())
-                .or_default();
-            bucket.total_requests += window_traces;
-            bucket.total_io_ops += window_total_io;
-            bucket.energy_kwh += window_energy_kwh;
-            bucket.carbon_kgco2eq += window_carbon_kg;
+            self.attribute_unattributed(m);
         } else {
-            self.fallback_windows += 1;
-            let total_window_io: u64 = per_service_io.values().sum();
-            for (service, io) in &per_service_io {
-                let share = if total_window_io == 0 {
+            self.attribute_proxy_share(report, m, per_service_io);
+        }
+    }
+
+    fn attribute_runtime(
+        &mut self,
+        report: &Report,
+        m: &WindowMetrics,
+        per_service_io: &BTreeMap<String, u64>,
+    ) {
+        self.runtime_windows += 1;
+        for (service, carbon) in &report.green_summary.per_service_carbon_kgco2eq {
+            let carbon = sanitize_f64(*carbon);
+            let energy = sanitize_f64(
+                report
+                    .green_summary
+                    .per_service_energy_kwh
+                    .get(service)
+                    .copied()
+                    .unwrap_or(0.0),
+            );
+            let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
+                continue;
+            };
+            bucket.carbon_kgco2eq += carbon;
+            bucket.energy_kwh += energy;
+            if let Some(io) = per_service_io.get(service) {
+                bucket.total_io_ops += *io;
+                let share = if m.total_io == 0 {
                     0.0
                 } else {
-                    *io as f64 / total_window_io as f64
+                    *io as f64 / m.total_io as f64
                 };
-                let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
-                    continue;
-                };
-                bucket.total_io_ops += *io;
-                bucket.total_requests += scale_u64(window_traces, share);
-                bucket.energy_kwh += window_energy_kwh * share;
-                bucket.carbon_kgco2eq += window_carbon_kg * share;
+                bucket.total_requests += scale_u64(m.traces, share);
             }
-            collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
         }
+        collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
+    }
 
-        for finding in &report.findings {
+    fn attribute_unattributed(&mut self, m: &WindowMetrics) {
+        self.fallback_windows += 1;
+        let bucket = self
+            .per_service
+            .entry(UNATTRIBUTED_SERVICE.to_string())
+            .or_default();
+        bucket.total_requests += m.traces;
+        bucket.total_io_ops += m.total_io;
+        bucket.energy_kwh += m.energy_kwh;
+        bucket.carbon_kgco2eq += m.carbon_kg;
+    }
+
+    fn attribute_proxy_share(
+        &mut self,
+        report: &Report,
+        m: &WindowMetrics,
+        per_service_io: &BTreeMap<String, u64>,
+    ) {
+        self.fallback_windows += 1;
+        let total_window_io: u64 = per_service_io.values().sum();
+        for (service, io) in per_service_io {
+            let share = if total_window_io == 0 {
+                0.0
+            } else {
+                *io as f64 / total_window_io as f64
+            };
+            let Some(bucket) = bounded_entry(&mut self.per_service, service) else {
+                continue;
+            };
+            bucket.total_io_ops += *io;
+            bucket.total_requests += scale_u64(m.traces, share);
+            bucket.energy_kwh += m.energy_kwh * share;
+            bucket.carbon_kgco2eq += m.carbon_kg * share;
+        }
+        collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
+    }
+
+    fn route_findings(
+        &mut self,
+        findings: &[Finding],
+        ts: chrono::DateTime<chrono::Utc>,
+        unattributed: bool,
+    ) {
+        for finding in findings {
             // Route findings to the unattributed bucket when the window
             // had no per-service offenders or runtime maps, so a service
             // never publishes efficiency=100 alongside non-zero
@@ -439,27 +521,33 @@ impl Builder {
             let ap = bucket.anti_patterns.entry(pattern.to_string()).or_default();
             ap.occurrences += 1;
             ap.avoidable_io_ops = ap.avoidable_io_ops.saturating_add(avoidable);
-
-            let key = (service_key.to_string(), pattern.to_string());
-            self.first_seen
-                .entry(key.clone())
-                .and_modify(|prev| {
-                    if ts < *prev {
-                        *prev = ts;
-                    }
-                })
-                .or_insert(ts);
-            self.last_seen
-                .entry(key)
-                .and_modify(|prev| {
-                    if ts > *prev {
-                        *prev = ts;
-                    }
-                })
-                .or_insert(ts);
+            self.update_seen_timestamps(service_key, pattern, ts);
         }
+    }
 
-        Ok(!runtime_attribution)
+    fn update_seen_timestamps(
+        &mut self,
+        service_key: &str,
+        pattern: &str,
+        ts: chrono::DateTime<chrono::Utc>,
+    ) {
+        let key = (service_key.to_string(), pattern.to_string());
+        self.first_seen
+            .entry(key.clone())
+            .and_modify(|prev| {
+                if ts < *prev {
+                    *prev = ts;
+                }
+            })
+            .or_insert(ts);
+        self.last_seen
+            .entry(key)
+            .and_modify(|prev| {
+                if ts > *prev {
+                    *prev = ts;
+                }
+            })
+            .or_insert(ts);
     }
 
     fn finalize(self, source_files: Vec<String>) -> AggregateInputs {
@@ -619,52 +707,60 @@ fn resolve_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AggregationError> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
     for path in paths {
-        let meta = std::fs::symlink_metadata(path).map_err(|source| AggregationError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        if meta.file_type().is_symlink() {
-            return Err(AggregationError::SymlinkRefused {
-                path: path.display().to_string(),
-            });
-        }
+        let meta = stat_no_follow(path)?;
         if meta.is_file() {
             push_unique(&mut out, &mut seen, path.clone());
         } else if meta.is_dir() {
-            let entries = std::fs::read_dir(path).map_err(|source| AggregationError::Io {
-                path: path.display().to_string(),
-                source,
-            })?;
-            for entry in entries {
-                let entry = entry.map_err(|source| AggregationError::Io {
-                    path: path.display().to_string(),
-                    source,
-                })?;
-                let p = entry.path();
-                // Symlink rejection scoped to `.ndjson` candidates only.
-                // A symlinked README or sibling file in the same archive
-                // directory is not our concern.
-                if p.extension().and_then(|e| e.to_str()) != Some("ndjson") {
-                    continue;
-                }
-                let entry_meta =
-                    std::fs::symlink_metadata(&p).map_err(|source| AggregationError::Io {
-                        path: p.display().to_string(),
-                        source,
-                    })?;
-                if entry_meta.file_type().is_symlink() {
-                    return Err(AggregationError::SymlinkRefused {
-                        path: p.display().to_string(),
-                    });
-                }
-                push_unique(&mut out, &mut seen, p);
-            }
+            collect_dir_ndjson(path, &mut out, &mut seen)?;
         } else {
             return Err(AggregationError::InvalidInput(path.display().to_string()));
         }
     }
     out.sort();
     Ok(out)
+}
+
+/// `symlink_metadata` plus an explicit symlink rejection. The
+/// `resolve_files` caller wants `is_file()` / `is_dir()` semantics
+/// without following links.
+fn stat_no_follow(path: &Path) -> Result<std::fs::Metadata, AggregationError> {
+    let meta = std::fs::symlink_metadata(path).map_err(|source| AggregationError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(AggregationError::SymlinkRefused {
+            path: path.display().to_string(),
+        });
+    }
+    Ok(meta)
+}
+
+fn collect_dir_ndjson(
+    dir: &Path,
+    out: &mut Vec<PathBuf>,
+    seen: &mut BTreeSet<PathBuf>,
+) -> Result<(), AggregationError> {
+    let entries = std::fs::read_dir(dir).map_err(|source| AggregationError::Io {
+        path: dir.display().to_string(),
+        source,
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|source| AggregationError::Io {
+            path: dir.display().to_string(),
+            source,
+        })?;
+        let p = entry.path();
+        // Symlink rejection scoped to `.ndjson` candidates only. A
+        // symlinked README or sibling file in the same archive
+        // directory is not our concern.
+        if p.extension().and_then(|e| e.to_str()) != Some("ndjson") {
+            continue;
+        }
+        stat_no_follow(&p)?;
+        push_unique(out, seen, p);
+    }
+    Ok(())
 }
 
 fn push_unique(out: &mut Vec<PathBuf>, seen: &mut BTreeSet<PathBuf>, path: PathBuf) {
