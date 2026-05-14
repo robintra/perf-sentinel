@@ -21,6 +21,8 @@ Performance anti-patterns like N+1 queries exist in any application that does I/
 
 perf-sentinel takes a different approach: **protocol-level analysis**. It observes the traces your application produces (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
 
+Beyond CI gates, perf-sentinel can also produce **periodic public disclosures** of an organization's software efficiency: a hash-verifiable JSON document that aggregates energy and carbon estimates over a calendar period (quarter, year), suitable as raw material for transparency reporting alongside CSRD or RGESN obligations. See [Public reporting](#public-reporting) below.
+
 ## Quick look
 
 In the dashboard:
@@ -631,7 +633,29 @@ For runtime acks against a live daemon, the workflow has three surfaces: the `pe
 
 ## Public reporting
 
-`perf-sentinel disclose` rolls up archived per-window `Report` NDJSON into a single, hash-verifiable JSON document over a calendar period (quarter by default). The format is schema-versioned (`perf-sentinel-report/v1.0`), structurally distinct from the per-batch report tree, and intended for public transparency rather than regulatory-grade reporting. Operators choose between G1 (internal, per-anti-pattern detail) and G2 (public, aggregate-only). When the daemon is configured with `[reporting] intent = "official"`, it refuses to start unless the org-config TOML can produce a publishable disclosure, surfacing every missing field in one pass.
+perf-sentinel produces periodic disclosures of an organization's software efficiency at calendar boundaries (quarter by default). The output is a single hash-verifiable JSON document covering a multi-week period, with runtime-calibrated energy and carbon estimates per service, region attribution, and a complete methodology block.
+
+This is intended as raw material for transparency, not regulatory-grade reporting. Operators choose the confidentiality level:
+
+- **Internal** (G1 detail): per-anti-pattern breakdown per service, for optimization decisions.
+- **Public** (G2 aggregate): per-service totals only, no anti-pattern detail, suitable for publication on the organization's domain.
+
+Example:
+
+```bash
+perf-sentinel disclose \
+  --intent official \
+  --confidentiality public \
+  --period-type calendar-quarter \
+  --from 2026-01-01 --to 2026-03-31 \
+  --input /var/lib/perf-sentinel/reports.ndjson \
+  --output /var/www/html/perf-sentinel-report.json \
+  --org-config /etc/perf-sentinel/org.toml
+```
+
+When the daemon is configured with `[reporting] intent = "official"`, it refuses to start unless the org-config TOML can produce a publishable disclosure, surfacing every missing field in one pass. Reports below 75% runtime-calibration coverage (e.g. during a daemon migration mid-period) are rejected from official intent automatically.
+
+The schema is versioned (`perf-sentinel-report/v1.0`) and aligned with the Software Carbon Intensity v1.0 specification (ISO/IEC 21031:2024).
 
 See [docs/REPORTING.md](docs/REPORTING.md) for the CLI usage guide, [docs/METHODOLOGY.md](docs/METHODOLOGY.md) for the calculation chain, and [docs/SCHEMA.md](docs/SCHEMA.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) for the wire format.
 
