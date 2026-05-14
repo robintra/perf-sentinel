@@ -53,7 +53,7 @@ For an `intent = "official"` disclosure, the operator workflow is:
    v1 statement whose `subject.digest.sha256` pins the SHA-256 of the
    report file on disk (not the canonical hash, which blanks one
    field).
-3. **Sign**: the operator runs `cosign attest --type custom
+3. **Sign**: the operator runs `cosign attest-blob --type custom
    --predicate attestation.intoto.jsonl --bundle bundle.sig
    report.json` against Sigstore public. The signature is uploaded
    to Rekor automatically (the project rejects bundles without a
@@ -128,7 +128,7 @@ For Sigstore public signing with keyless OIDC, the recommended
 command for operators is:
 
 ```bash
-cosign attest \
+cosign attest-blob \
     --type custom \
     --predicate attestation.intoto.jsonl \
     --bundle bundle.sig \
@@ -152,7 +152,7 @@ the format, not an optional opt-in.
 1. **Content hash** (pure Rust, always runs). Recomputes the
    canonical SHA-256 of the report and compares to
    `integrity.content_hash`.
-2. **Signature** (delegated to `cosign verify-attestation`). Runs
+2. **Signature** (delegated to `cosign verify-blob-attestation`). Runs
    when `integrity.signature` is present in the report and the
    operator passes `--attestation` and `--bundle` (or `--url` mode
    pulls them automatically).

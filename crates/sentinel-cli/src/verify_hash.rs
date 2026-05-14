@@ -281,14 +281,18 @@ fn run_cosign_verify(
     attestation_path: &Path,
     bundle_path: &Path,
 ) -> Status {
+    // cosign verify-blob-attestation is the blob/file variant of
+    // verify-attestation. The OCI variant rejects local files as
+    // unparseable image references. `--predicate` carries the in-toto
+    // statement, the trailing positional is the signed blob (the
+    // report file).
+    let _ = attestation_path;
     let output = Command::new("cosign")
-        .arg("verify-attestation")
+        .arg("verify-blob-attestation")
         .arg("--type")
         .arg("custom")
         .arg("--bundle")
         .arg(bundle_path)
-        .arg("--attachment")
-        .arg(attestation_path)
         .arg("--certificate-identity")
         .arg(&sig.signer_identity)
         .arg("--certificate-oidc-issuer")

@@ -126,7 +126,7 @@ perf-sentinel disclose \
 #    L'issuer OIDC (flow navigateur ou token GitHub Actions)
 #    enregistre l'identité signataire. Le bundle inclut la preuve
 #    d'inclusion Rekor.
-cosign attest \
+cosign attest-blob \
     --type custom \
     --predicate attestation.intoto.jsonl \
     --bundle bundle.sig \

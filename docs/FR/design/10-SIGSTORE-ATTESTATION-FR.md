@@ -58,7 +58,7 @@ est :
    in-toto v1 dont le `subject.digest.sha256` pin le SHA-256 du
    fichier rapport sur disque (pas le hash canonique, qui blank un
    champ).
-3. **Signer** : l'opérateur lance `cosign attest --type custom
+3. **Signer** : l'opérateur lance `cosign attest-blob --type custom
    --predicate attestation.intoto.jsonl --bundle bundle.sig
    report.json` contre Sigstore public. La signature est uploadée
    automatiquement dans Rekor (le projet refuse les bundles sans
@@ -135,7 +135,7 @@ Pour la signature Sigstore publique en keyless OIDC, la commande
 recommandée pour les opérateurs est :
 
 ```bash
-cosign attest \
+cosign attest-blob \
     --type custom \
     --predicate attestation.intoto.jsonl \
     --bundle bundle.sig \
@@ -160,7 +160,7 @@ propriété du format, pas un opt-in optionnel.
 1. **Content hash** (Rust pur, toujours lancé). Recompute le
    SHA-256 canonique du rapport et compare à
    `integrity.content_hash`.
-2. **Signature** (déléguée à `cosign verify-attestation`). Lancée
+2. **Signature** (déléguée à `cosign verify-blob-attestation`). Lancée
    quand `integrity.signature` est présent dans le rapport et que
    l'opérateur passe `--attestation` et `--bundle` (ou que le mode
    `--url` les fetch automatiquement).

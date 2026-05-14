@@ -124,7 +124,7 @@ perf-sentinel disclose \
 # 2. Sign the attestation with cosign against Sigstore public. The
 #    OIDC issuer (browser flow or GitHub Actions token) records the
 #    signer identity. The bundle includes the Rekor inclusion proof.
-cosign attest \
+cosign attest-blob \
     --type custom \
     --predicate attestation.intoto.jsonl \
     --bundle bundle.sig \
