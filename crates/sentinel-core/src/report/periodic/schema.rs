@@ -4,7 +4,7 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.0";
@@ -179,6 +179,13 @@ pub struct CalibrationInputs {
     pub carbon_intensity_source: String,
     pub specpower_table_version: String,
     pub scaphandre_used: bool,
+    /// Energy source models observed in the archived windows for the
+    /// period. Sourced from each window's `GreenSummary.energy_model`
+    /// (e.g. `"scaphandre_rapl"`, `"cloud_specpower"`, `"io_proxy_v3"`)
+    /// with the optional `+cal` suffix stripped. Empty when every
+    /// archived window predates per-service carbon attribution.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub energy_source_models: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -331,6 +338,7 @@ mod tests {
                 carbon_intensity_source: "electricity_maps".to_string(),
                 specpower_table_version: "2024-2026".to_string(),
                 scaphandre_used: false,
+                energy_source_models: BTreeSet::new(),
             },
         }
     }

@@ -258,7 +258,19 @@
         },
         "carbon_intensity_source": { "$ref": "#/$defs/CarbonIntensitySource" },
         "specpower_table_version": { "type": "string", "minLength": 1 },
-        "scaphandre_used": { "type": "boolean" }
+        "scaphandre_used": { "type": "boolean" },
+        "energy_source_models": {
+          "type": "array",
+          "description": "Distinct energy_model strings observed across the archived windows feeding this disclosure. Sorted set in the wire form. Empty when every window predates per-service carbon attribution.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9_+-]+$"
+          },
+          "uniqueItems": true,
+          "maxItems": 64
+        }
       }
     },
     "Aggregate": {

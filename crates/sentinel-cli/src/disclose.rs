@@ -209,6 +209,8 @@ fn build_report(
             carbon_intensity_source: org.methodology.calibration.carbon_intensity_source.clone(),
             specpower_table_version: org.methodology.calibration.specpower_table_version.clone(),
             scaphandre_used: org.methodology.calibration.scaphandre_used,
+            // Populated by step 7 from aggregate.energy_source_models.
+            energy_source_models: std::collections::BTreeSet::new(),
         },
     };
 
