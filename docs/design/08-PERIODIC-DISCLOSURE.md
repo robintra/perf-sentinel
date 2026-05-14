@@ -153,10 +153,9 @@ Both sections are optional. Their absence leaves perf-sentinel in its prior beha
 
 ## v1.0 limitations carried as disclaimers
 
-- **Energy is proxy-recomputed.** `Builder::process_window` derives `window_energy_kwh = total_io_ops * ENERGY_PER_IO_OP_KWH` regardless of the source window's energy model (Scaphandre RAPL, cloud SPECpower, `+cal` calibration). The carbon `total.mid` from the source window IS preserved, so a Scaphandre-backed deployment publishes measured CO2 with proxy-energy. Acceptable for v1.0; a future revision will carry an `energy_source_models` vector.
-- **Per-service CO2 is region-blind.** The proportional I/O share distribution ignores `green_summary.regions`. Two services in regions with different grid intensities are mis-attributed. Surface the regional rows in a future schema revision.
+- **Runtime-calibrated energy + per-service carbon when present.** `Builder::process_window` reads the source window's `green_summary.energy_kwh` and `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` maps when they are populated, and falls back to the I/O proxy + share distribution when they are not (sprint-1 archives). The aggregator surfaces the observed `energy_model` tags under `methodology.calibration_inputs.energy_source_models`. See `docs/design/09-CARBON-ATTRIBUTION.md`.
 - **Optimization potential excludes embodied.** `estimated_optimization_potential_kgco2eq` sums `co2.avoidable.mid` only. `total_carbon_kgco2eq` is the full `co2.total.mid` (operational + embodied). The default disclaimers spell this out.
-- **`_unattributed` co-routes findings.** A window with no `per_endpoint_io_ops` lands its energy/carbon AND its findings under `_unattributed`. Without this routing, a service with N+1 findings could publish at `efficiency_score = 100` when its `total_io_ops` happened to be zero in the same window.
+- **`_unattributed` co-routes findings.** A window with no `per_endpoint_io_ops` and no runtime per-service maps lands its energy/carbon AND its findings under `_unattributed`. Without this routing, a service with N+1 findings could publish at `efficiency_score = 100` when its `total_io_ops` happened to be zero in the same window.
 
 ## Future revisions
 

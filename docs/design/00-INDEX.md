@@ -22,46 +22,47 @@ For user-facing documentation, see the parent `docs/` directory:
 | [06: Ingestion and Daemon](06-INGESTION-AND-DAEMON.md)           | OTLP conversion, daemon event loop, sampling, security hardening, query API, Prometheus pg_stat                                                                                                    |
 | [07: CLI, Config and Release](07-CLI-CONFIG-RELEASE.md)          | Bench, query, report, diff subcommands. HTML dashboard sink, CSV export, deep-link hash, cheatsheet modal, vim-style tab shortcuts. Config parsing, release profile, distribution, source location |
 | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)             | Schema v1.0 determinism, G1/G2 granularity, collect-all validator, per-service attribution, daemon archive writer, `disclose` CLI dispatcher                                                       |
+| [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)               | Per-service energy + carbon at scoring time, region attribution, model precedence, aggregator runtime-vs-proxy branching                                                                           |
 
 ## Source file mapping
 
-| Source File                 | Design Doc                                         |
-|-----------------------------|----------------------------------------------------|
-| `lib.rs`                    | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
-| `event.rs`                  | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
-| `pipeline.rs`               | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
-| `quality_gate.rs`           | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
-| `normalize/sql.rs`          | [02: Normalization](02-NORMALIZATION.md)           |
-| `normalize/http.rs`         | [02: Normalization](02-NORMALIZATION.md)           |
-| `normalize/mod.rs`          | [02: Normalization](02-NORMALIZATION.md)           |
-| `correlate/mod.rs`          | [03: Correlation](03-CORRELATION-AND-STREAMING.md) |
-| `correlate/window.rs`       | [03: Correlation](03-CORRELATION-AND-STREAMING.md) |
-| `detect/mod.rs`             | [04: Detection](04-DETECTION.md)                   |
-| `detect/n_plus_one.rs`      | [04: Detection](04-DETECTION.md)                   |
-| `detect/redundant.rs`       | [04: Detection](04-DETECTION.md)                   |
-| `detect/slow.rs`            | [04: Detection](04-DETECTION.md)                   |
-| `detect/correlate_cross.rs` | [04: Detection](04-DETECTION.md)                   |
-| `score/mod.rs`              | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
-| `score/carbon.rs`           | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
-| `score/carbon_compute.rs`   | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
-| `score/region_breakdown.rs` | [05: GreenOps](05-GREENOPS-AND-CARBON.md)          |
-| `ingest/mod.rs`             | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `ingest/json.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `ingest/otlp.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `ingest/pg_stat.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/mod.rs`             | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/event_loop.rs`      | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/listeners.rs`       | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/tls.rs`             | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/json_socket.rs`     | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/sampling.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/findings_store.rs`  | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `daemon/query_api.rs`       | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `config.rs`                 | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md), [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
-| `report/mod.rs`, `json.rs`  | [01: Pipeline](01-PIPELINE-AND-TYPES.md)           |
-| `report/metrics.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)        |
-| `report/periodic/*`         | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
-| `daemon/archive.rs`         | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
-| `sentinel-cli/src/main.rs`  | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
-| `sentinel-cli/src/disclose.rs` | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
-| `sentinel-cli/src/tui.rs`   | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)         |
+| Source File                    | Design Doc                                                                                       |
+|--------------------------------|--------------------------------------------------------------------------------------------------|
+| `lib.rs`                       | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `event.rs`                     | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `pipeline.rs`                  | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `quality_gate.rs`              | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `normalize/sql.rs`             | [02: Normalization](02-NORMALIZATION.md)                                                         |
+| `normalize/http.rs`            | [02: Normalization](02-NORMALIZATION.md)                                                         |
+| `normalize/mod.rs`             | [02: Normalization](02-NORMALIZATION.md)                                                         |
+| `correlate/mod.rs`             | [03: Correlation](03-CORRELATION-AND-STREAMING.md)                                               |
+| `correlate/window.rs`          | [03: Correlation](03-CORRELATION-AND-STREAMING.md)                                               |
+| `detect/mod.rs`                | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/n_plus_one.rs`         | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/redundant.rs`          | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/slow.rs`               | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/correlate_cross.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
+| `score/mod.rs`                 | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
+| `score/carbon.rs`              | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
+| `score/carbon_compute.rs`      | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
+| `score/region_breakdown.rs`    | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
+| `ingest/mod.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/json.rs`               | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/otlp.rs`               | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `ingest/pg_stat.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/mod.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/event_loop.rs`         | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/listeners.rs`          | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/tls.rs`                | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/json_socket.rs`        | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/sampling.rs`           | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/findings_store.rs`     | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `daemon/query_api.rs`          | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `config.rs`                    | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md), [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md) |
+| `report/mod.rs`, `json.rs`     | [01: Pipeline](01-PIPELINE-AND-TYPES.md)                                                         |
+| `report/metrics.rs`            | [06: Ingestion](06-INGESTION-AND-DAEMON.md)                                                      |
+| `report/periodic/*`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
+| `daemon/archive.rs`            | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
+| `sentinel-cli/src/main.rs`     | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |
+| `sentinel-cli/src/disclose.rs` | [08: Periodic Disclosure](08-PERIODIC-DISCLOSURE.md)                                             |
+| `sentinel-cli/src/tui.rs`      | [07: CLI/Config](07-CLI-CONFIG-RELEASE.md)                                                       |

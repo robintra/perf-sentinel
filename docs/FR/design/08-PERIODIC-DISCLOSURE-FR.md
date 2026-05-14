@@ -153,10 +153,9 @@ Les deux sections sont optionnelles. Leur absence laisse perf-sentinel dans son 
 
 ## Limitations v1.0 portées en disclaimers
 
-- **L'énergie est recomputée par le proxy.** `Builder::process_window` dérive `window_energy_kwh = total_io_ops * ENERGY_PER_IO_OP_KWH` quel que soit le modèle d'énergie de la fenêtre source (Scaphandre RAPL, cloud SPECpower, calibration `+cal`). Le carbone `total.mid` de la fenêtre source EST préservé, donc un déploiement Scaphandre publie un CO2 mesuré avec une énergie proxy. Acceptable pour v1.0, une révision future portera un vecteur `energy_source_models`.
-- **Le CO2 par service est aveugle à la région.** La distribution proportionnelle à la part d'I/O ignore `green_summary.regions`. Deux services dans des régions aux intensités réseau très différentes sont mal attribués. Surfacer les lignes par région dans une révision future.
+- **Énergie + carbone par service runtime-calibrated quand l'archive les porte.** `Builder::process_window` lit `green_summary.energy_kwh` et les maps `per_service_carbon_kgco2eq` / `per_service_energy_kwh` / `per_service_region` de la fenêtre source quand elles sont peuplées, et tombe sur le proxy I/O + part proportionnelle quand elles ne le sont pas (archives sprint-1). L'aggregator expose les tags `energy_model` observés sous `methodology.calibration_inputs.energy_source_models`. Voir `docs/FR/design/09-CARBON-ATTRIBUTION-FR.md`.
 - **Le potentiel d'optimisation exclut l'embarqué.** `estimated_optimization_potential_kgco2eq` ne somme que `co2.avoidable.mid`. `total_carbon_kgco2eq` est le `co2.total.mid` complet (opérationnel + embarqué). Les disclaimers par défaut le précisent.
-- **`_unattributed` co-route les findings.** Une fenêtre sans `per_endpoint_io_ops` range son énergie/carbone ET ses findings sous `_unattributed`. Sans ce routage, un service avec des findings N+1 pourrait être publié à `efficiency_score = 100` si son `total_io_ops` se trouve à zéro dans la même fenêtre.
+- **`_unattributed` co-route les findings.** Une fenêtre sans `per_endpoint_io_ops` et sans maps runtime per-service range son énergie/carbone ET ses findings sous `_unattributed`. Sans ce routage, un service avec des findings N+1 pourrait être publié à `efficiency_score = 100` si son `total_io_ops` se trouve à zéro dans la même fenêtre.
 
 ## Révisions futures
 
