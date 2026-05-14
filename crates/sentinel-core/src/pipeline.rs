@@ -84,6 +84,7 @@ pub fn analyze_with_traces(
         warnings: vec![],
         warning_details: vec![],
         acknowledged_findings: vec![],
+        binary_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
     (report, traces)

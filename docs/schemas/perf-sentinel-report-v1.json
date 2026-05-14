@@ -309,6 +309,18 @@
           "maximum": 1,
           "default": 1.0,
           "description": "Fraction of the period's scoring windows that used runtime-calibrated energy attribution. 1.0 means every window provided runtime energy, 0.0 means every window fell back to the proxy. Absence is treated as 1.0 for backward compatibility with archives produced before this field shipped."
+        },
+        "binary_versions": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._+-]+$"
+          },
+          "description": "Set of distinct perf-sentinel binary versions observed across the period's windows. Empty if every window predates the field."
         }
       }
     },

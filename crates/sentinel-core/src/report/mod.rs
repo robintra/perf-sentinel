@@ -91,6 +91,10 @@ pub struct Report {
     /// stays opt-in. Additive on pre-0.5.17 baselines via `serde(default)`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub acknowledged_findings: Vec<AcknowledgedFinding>,
+    /// `CARGO_PKG_VERSION` of the binary that wrote this report. Empty
+    /// on reports written by binaries that predate this field.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub binary_version: String,
 }
 
 /// A finding paired with the acknowledgment that suppressed it.

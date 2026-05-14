@@ -145,6 +145,7 @@ pub(super) fn sample_report(
             anti_patterns_detected_count: 3,
             estimated_optimization_potential_kgco2eq: 0.01,
             period_coverage: 1.0,
+            binary_versions: BTreeSet::new(),
         },
         applications,
         integrity: sample_integrity(),

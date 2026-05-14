@@ -516,6 +516,7 @@ async fn process_traces(
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
         };
         let archive = super::archive::OwnedArchive {
             ts: chrono::Utc::now(),

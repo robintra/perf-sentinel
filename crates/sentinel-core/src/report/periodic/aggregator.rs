@@ -32,6 +32,13 @@ const MAX_ENERGY_MODELS: usize = 64;
 /// archive lines. Longer values are rejected (dropped, never inserted).
 const MAX_ENERGY_MODEL_LEN: usize = 64;
 
+/// Cardinality cap on distinct `binary_version` strings tracked in
+/// `Builder.binary_versions`. Overflow entries are silently dropped.
+const MAX_BINARY_VERSIONS: usize = 16;
+
+/// Per-string length cap on `binary_version` entries.
+const MAX_BINARY_VERSION_LEN: usize = 64;
+
 #[derive(Debug, Default)]
 pub struct AggregateInputs {
     pub aggregate: Aggregate,
@@ -139,6 +146,9 @@ struct Builder {
     /// Windows that fell back to the I/O proxy path. Used by tests and
     /// surfaced via [`AggregateInputs`] for operator diagnostics.
     fallback_windows: u64,
+    /// Distinct `binary_version` values observed across the folded
+    /// windows. Empty when every window predates the field.
+    binary_versions: BTreeSet<String>,
 }
 
 impl Builder {
@@ -233,6 +243,14 @@ impl Builder {
         self.avoidable_io_ops += window_avoidable_io;
         self.total_carbon_kgco2eq += window_carbon_kg;
         self.avoidable_carbon_kgco2eq += window_avoidable_kg;
+        let bv = &report.binary_version;
+        if !bv.is_empty()
+            && bv.len() <= MAX_BINARY_VERSION_LEN
+            && (self.binary_versions.len() < MAX_BINARY_VERSIONS
+                || self.binary_versions.contains(bv))
+        {
+            self.binary_versions.insert(bv.clone());
+        }
         // Guard the runtime energy total against `+Inf` from tampered
         // archives. NaN/-Inf/negative inputs are already filtered by the
         // `> 0.0` branch above (which falls through to the proxy path),
@@ -408,6 +426,7 @@ impl Builder {
                 anti_patterns_detected_count: anti_patterns_count,
                 estimated_optimization_potential_kgco2eq: self.avoidable_carbon_kgco2eq,
                 period_coverage,
+                binary_versions: self.binary_versions,
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -662,6 +681,7 @@ mod tests {
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
+            binary_version: String::new(),
         }
     }
 
@@ -1058,5 +1078,71 @@ mod tests {
         let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
         // Fed 84 distinct models, cap is 64. Set must saturate at the cap.
         assert_eq!(out.energy_source_models.len(), MAX_ENERGY_MODELS);
+    }
+
+    #[test]
+    fn aggregator_collects_single_binary_version() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        r.binary_version = "0.6.2".to_string();
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.aggregate.binary_versions.len(), 1);
+        assert!(out.aggregate.binary_versions.contains("0.6.2"));
+    }
+
+    #[test]
+    fn aggregator_collects_distinct_binary_versions_in_mixed_archive() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 10, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let mut r1 = make_report(10, 100, 5, &[("svc-a", "/", 100)], vec![]);
+        r1.binary_version = "0.6.2".to_string();
+        let mut r2 = make_report(10, 100, 5, &[("svc-b", "/", 50)], vec![]);
+        r2.binary_version = "0.6.3".to_string();
+        let (_dir, path) = write_archive(&[(ts1, r1), (ts2, r2)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.aggregate.binary_versions.len(), 2);
+        assert!(out.aggregate.binary_versions.contains("0.6.2"));
+        assert!(out.aggregate.binary_versions.contains("0.6.3"));
+    }
+
+    #[test]
+    fn aggregator_skips_empty_binary_version_from_legacy_archive() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        // make_report leaves binary_version as String::new()
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.aggregate.binary_versions.is_empty());
+    }
+
+    #[test]
+    fn aggregator_rejects_oversize_binary_version_strings() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        r.binary_version = "x".repeat(MAX_BINARY_VERSION_LEN + 1);
+        let (_dir, path) = write_archive(&[(ts, r)]);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert!(out.aggregate.binary_versions.is_empty());
+    }
+
+    #[test]
+    fn aggregator_caps_distinct_binary_versions() {
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let mut reports = Vec::new();
+        for i in 0..(MAX_BINARY_VERSIONS + 5) {
+            let mut r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+            r.binary_version = format!("0.6.{i}");
+            let offset = i64::try_from(i).expect("test bound");
+            reports.push((ts + chrono::Duration::seconds(offset), r));
+        }
+        let (_dir, path) = write_archive(&reports);
+
+        let out = aggregate_from_paths(&[path], &q1_2026(), false).unwrap();
+        assert_eq!(out.aggregate.binary_versions.len(), MAX_BINARY_VERSIONS);
     }
 }

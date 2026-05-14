@@ -87,6 +87,7 @@ mod tests {
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
+            binary_version: String::new(),
         };
 
         let json = serde_json::to_string_pretty(&report).unwrap();

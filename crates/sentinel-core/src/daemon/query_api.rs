@@ -468,6 +468,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
                 "daemon has not yet processed any events",
             )],
             acknowledged_findings: Vec::new(),
+            binary_version: env!("CARGO_PKG_VERSION").to_string(),
         });
     }
 
@@ -553,6 +554,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         warnings: vec![],
         warning_details,
         acknowledged_findings: vec![],
+        binary_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
     Json(report)

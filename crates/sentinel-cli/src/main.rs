@@ -2204,6 +2204,7 @@ mod tests {
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
+            binary_version: String::new(),
         }
     }
 
@@ -2387,6 +2388,7 @@ mod tests {
             warnings: vec![],
             warning_details: vec![],
             acknowledged_findings: vec![],
+            binary_version: String::new(),
         };
         render::format_colored_report(&report, "report", false);
     }

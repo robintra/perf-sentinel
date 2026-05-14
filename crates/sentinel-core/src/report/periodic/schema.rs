@@ -209,6 +209,10 @@ pub struct Aggregate {
     /// quality of legacy reports.
     #[serde(default = "default_period_coverage")]
     pub period_coverage: f64,
+    /// Set of distinct perf-sentinel binary versions observed across
+    /// the period's windows. Empty if every window predates the field.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub binary_versions: BTreeSet<String>,
 }
 
 #[inline]
@@ -370,6 +374,7 @@ mod tests {
             anti_patterns_detected_count: 47,
             estimated_optimization_potential_kgco2eq: 0.25,
             period_coverage: 1.0,
+            binary_versions: BTreeSet::new(),
         }
     }
 

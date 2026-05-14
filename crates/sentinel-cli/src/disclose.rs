@@ -270,6 +270,8 @@ fn build_report(
         intent,
         aggregate.aggregate.period_coverage,
     );
+    let disclaimers =
+        augment_disclaimers_for_binary_versions(disclaimers, &aggregate.aggregate.binary_versions);
 
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
@@ -311,6 +313,27 @@ fn build_report(
             reference_urls: org.notes.reference_urls.clone(),
         },
     }
+}
+
+/// Append a disclaimer when the period spans more than one
+/// perf-sentinel binary version. Single-version periods emit nothing.
+fn augment_disclaimers_for_binary_versions(
+    mut disclaimers: Vec<String>,
+    binary_versions: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    if binary_versions.len() > 1 {
+        let list = binary_versions
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        disclaimers.push(format!(
+            "This period spans multiple perf-sentinel binary versions ({list}). \
+             Verify version compatibility if comparing this report against \
+             historical baselines."
+        ));
+    }
+    disclaimers
 }
 
 /// Append the runtime-calibration coverage disclaimer when an internal
@@ -516,5 +539,35 @@ mod tests {
         let base = vec!["existing".to_string()];
         let out = augment_disclaimers_for_coverage(base.clone(), ReportIntent::Official, 0.5);
         assert_eq!(out, base);
+    }
+
+    #[test]
+    fn binary_versions_disclaimer_omitted_for_single_version() {
+        let base = vec!["existing".to_string()];
+        let mut versions = std::collections::BTreeSet::new();
+        versions.insert("0.6.2".to_string());
+        let out = augment_disclaimers_for_binary_versions(base.clone(), &versions);
+        assert_eq!(out, base);
+    }
+
+    #[test]
+    fn binary_versions_disclaimer_omitted_for_empty_set() {
+        let base = vec!["existing".to_string()];
+        let versions = std::collections::BTreeSet::new();
+        let out = augment_disclaimers_for_binary_versions(base.clone(), &versions);
+        assert_eq!(out, base);
+    }
+
+    #[test]
+    fn binary_versions_disclaimer_added_for_multiple_versions() {
+        let base = vec!["existing".to_string()];
+        let mut versions = std::collections::BTreeSet::new();
+        versions.insert("0.6.2".to_string());
+        versions.insert("0.6.3".to_string());
+        let out = augment_disclaimers_for_binary_versions(base, &versions);
+        assert_eq!(out.len(), 2);
+        assert!(out[1].contains("0.6.2"));
+        assert!(out[1].contains("0.6.3"));
+        assert!(out[1].contains("multiple perf-sentinel binary versions"));
     }
 }
