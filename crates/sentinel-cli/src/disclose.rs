@@ -665,7 +665,7 @@ mod tests {
         };
         use sentinel_core::report::periodic::compute_file_sha256_hex;
 
-        let example = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        let example = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("..")
             .join("..")
             .join("docs/schemas/examples/example-official-public-G2.json");

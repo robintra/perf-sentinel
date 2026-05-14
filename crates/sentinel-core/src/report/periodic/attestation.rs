@@ -30,7 +30,11 @@ pub const PERF_SENTINEL_PREDICATE_TYPE: &str = "https://perf-sentinel.io/attesta
 /// does not pass an explicit name to [`build_in_toto_statement`].
 pub const DEFAULT_SUBJECT_NAME: &str = "perf-sentinel-report.json";
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Only `PartialEq` (no `Eq`) on the statement, predicate, and methodology
+// summary: `MethodologySummary.period_coverage: f64` is not `Eq` because
+// NaN breaks reflexivity. `PartialEq` is sufficient for `assert_eq!` and
+// the serde round-trip tests, and matches Rust's stdlib stance on f64.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct InTotoStatement {
     #[serde(rename = "_type")]
     pub statement_type: String,
@@ -46,7 +50,7 @@ pub struct InTotoSubject {
     pub digest: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PerfSentinelPredicate {
     pub perf_sentinel_version: String,
     pub report_uuid: String,
@@ -103,8 +107,6 @@ pub struct MethodologySummary {
     /// `core_patterns_required()` slice in that version.
     pub core_patterns_hash: String,
 }
-
-impl Eq for MethodologySummary {}
 
 /// Build an in-toto v1 statement that pins `report_file_sha256` as the
 /// hash of the report file and folds in a lean projection of the
