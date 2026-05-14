@@ -91,6 +91,7 @@ pub fn cmd_disclose(
     output: &Path,
     org_config_path: &Path,
     strict_attribution: bool,
+    emit_attestation: Option<&Path>,
 ) -> i32 {
     if matches!(intent, ReportIntentCli::Audited) {
         eprintln!("Error: audited intent is not yet implemented");
@@ -174,6 +175,21 @@ pub fn cmd_disclose(
         return 1;
     }
 
+    if let Some(att_path) = emit_attestation {
+        let subject_name = output
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("perf-sentinel-report.json");
+        if let Err(err) = write_attestation(&report, output, att_path, subject_name) {
+            eprintln!(
+                "Error: failed to write attestation {}: {err}",
+                att_path.display()
+            );
+            return 1;
+        }
+        eprintln!("Wrote attestation {}", att_path.display());
+    }
+
     eprintln!(
         "Wrote {} ({} windows aggregated, {} services)",
         output.display(),
@@ -181,6 +197,22 @@ pub fn cmd_disclose(
         report.applications.len()
     );
     0
+}
+
+fn write_attestation(
+    report: &PeriodicReport,
+    report_path: &Path,
+    attestation_path: &Path,
+    subject_name: &str,
+) -> std::io::Result<()> {
+    use sentinel_core::report::periodic::attestation::build_in_toto_statement_named;
+    use sentinel_core::report::periodic::compute_file_sha256_hex;
+
+    let digest = compute_file_sha256_hex(report_path)?;
+    let statement = build_in_toto_statement_named(report, &digest, subject_name);
+    let json = serde_json::to_string_pretty(&statement)
+        .map_err(|e| std::io::Error::other(format!("serialise attestation: {e}")))?;
+    std::fs::write(attestation_path, json)
 }
 
 fn build_report(
@@ -607,5 +639,43 @@ mod tests {
         assert!(out[1].contains("0.6.2"));
         assert!(out[1].contains("0.6.3"));
         assert!(out[1].contains("multiple perf-sentinel binary versions"));
+    }
+
+    #[test]
+    fn emit_attestation_produces_statement_with_matching_digest() {
+        use sentinel_core::report::periodic::attestation::{
+            IN_TOTO_STATEMENT_TYPE, InTotoStatement, PERF_SENTINEL_PREDICATE_TYPE,
+        };
+        use sentinel_core::report::periodic::compute_file_sha256_hex;
+
+        let example = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("docs/schemas/examples/example-official-public-G2.json");
+        let report: PeriodicReport =
+            serde_json::from_str(&std::fs::read_to_string(&example).unwrap()).unwrap();
+
+        let tmp = std::env::temp_dir().join(format!(
+            "perf-sentinel-attestation-test-{}.json",
+            std::process::id()
+        ));
+        let att = tmp.with_extension("intoto.jsonl");
+        std::fs::write(&tmp, std::fs::read(&example).unwrap()).unwrap();
+
+        write_attestation(&report, &tmp, &att, "subject.json").expect("write attestation");
+
+        let statement_json = std::fs::read_to_string(&att).unwrap();
+        let statement: InTotoStatement = serde_json::from_str(&statement_json).unwrap();
+        assert_eq!(statement.statement_type, IN_TOTO_STATEMENT_TYPE);
+        assert_eq!(statement.predicate_type, PERF_SENTINEL_PREDICATE_TYPE);
+        assert_eq!(statement.subject[0].name, "subject.json");
+        let expected_digest = compute_file_sha256_hex(&tmp).unwrap();
+        assert_eq!(
+            statement.subject[0].digest.get("sha256").unwrap(),
+            &expected_digest
+        );
+
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(&att);
     }
 }

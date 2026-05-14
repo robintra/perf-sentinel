@@ -512,6 +512,12 @@ enum Commands {
         /// Default is to bucket them under `_unattributed`.
         #[arg(long)]
         strict_attribution: bool,
+        /// Optional path for a sidecar in-toto v1 attestation that pins
+        /// the report's SHA-256 digest. When set, `disclose` writes a
+        /// second JSON file at this path. Designed to feed `cosign
+        /// attest` for signed disclosures.
+        #[arg(long, value_name = "PATH")]
+        emit_attestation: Option<PathBuf>,
     },
 }
 
@@ -839,6 +845,7 @@ async fn dispatch_command(command: Commands) {
             output,
             org_config,
             strict_attribution,
+            emit_attestation,
         } => {
             let code = disclose::cmd_disclose(
                 intent,
@@ -850,6 +857,7 @@ async fn dispatch_command(command: Commands) {
                 &output,
                 &org_config,
                 strict_attribution,
+                emit_attestation.as_deref(),
             );
             std::process::exit(code);
         }

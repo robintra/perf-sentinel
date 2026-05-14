@@ -29,7 +29,7 @@ pub use attestation::{
     build_in_toto_statement, build_in_toto_statement_named,
 };
 pub use errors::{AggregationError, HashError, ValidationError};
-pub use hasher::{binary_hash, compute_content_hash};
+pub use hasher::{binary_hash, compute_content_hash, compute_file_sha256_hex};
 pub use schema::{
     Aggregate, AntiPatternDetail, Application, ApplicationG1, ApplicationG2,
     BinaryAttestationMetadata, CalibrationInputs, Confidentiality, Conformance, DisabledPattern,

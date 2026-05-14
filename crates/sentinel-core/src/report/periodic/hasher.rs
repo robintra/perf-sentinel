@@ -119,6 +119,47 @@ pub fn binary_hash() -> std::io::Result<String> {
     Ok(out)
 }
 
+/// Hash an arbitrary file by path and return the 64-hex SHA-256 digest
+/// (without the `sha256:` prefix, to match the in-toto v1 subject digest
+/// convention). Streams via the same `BUF` size and `BINARY_HASH_MAX_BYTES`
+/// cap as [`binary_hash`].
+///
+/// # Errors
+///
+/// Returns the I/O error from opening or reading the file, or
+/// `InvalidData` if the file exceeds the safety cap.
+pub fn compute_file_sha256_hex(path: &std::path::Path) -> std::io::Result<String> {
+    let file = std::fs::File::open(path)?;
+    let total_len = file.metadata().map_or(0, |m| m.len());
+    if total_len > BINARY_HASH_MAX_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!(
+                "file at {} exceeds {} byte cap ({} bytes)",
+                path.display(),
+                BINARY_HASH_MAX_BYTES,
+                total_len
+            ),
+        ));
+    }
+    let mut reader = std::io::BufReader::new(file).take(BINARY_HASH_MAX_BYTES);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let digest = hasher.finalize();
+    let mut out = String::with_capacity(64);
+    for byte in digest {
+        let _ = write!(out, "{byte:02x}");
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
