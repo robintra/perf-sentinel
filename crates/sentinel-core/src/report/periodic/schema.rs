@@ -213,6 +213,14 @@ pub struct Aggregate {
     /// the period's windows. Empty if every window predates the field.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub binary_versions: BTreeSet<String>,
+    /// Number of scoring windows in the period that used
+    /// runtime-calibrated attribution.
+    #[serde(default)]
+    pub runtime_windows_count: u64,
+    /// Number of scoring windows in the period that fell back to the
+    /// proxy attribution path.
+    #[serde(default)]
+    pub fallback_windows_count: u64,
 }
 
 #[inline]
@@ -375,6 +383,8 @@ mod tests {
             estimated_optimization_potential_kgco2eq: 0.25,
             period_coverage: 1.0,
             binary_versions: BTreeSet::new(),
+            runtime_windows_count: 0,
+            fallback_windows_count: 0,
         }
     }
 
@@ -569,5 +579,8 @@ mod tests {
         });
         let agg: Aggregate = serde_json::from_value(legacy).unwrap();
         assert!((agg.period_coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(agg.runtime_windows_count, 0);
+        assert_eq!(agg.fallback_windows_count, 0);
+        assert!(agg.binary_versions.is_empty());
     }
 }

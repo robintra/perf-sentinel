@@ -427,6 +427,8 @@ impl Builder {
                 estimated_optimization_potential_kgco2eq: self.avoidable_carbon_kgco2eq,
                 period_coverage,
                 binary_versions: self.binary_versions,
+                runtime_windows_count: self.runtime_windows,
+                fallback_windows_count: self.fallback_windows,
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -910,6 +912,8 @@ mod tests {
             "runtime energy must replace the proxy"
         );
         assert!((out.aggregate.period_coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(out.aggregate.runtime_windows_count, 1);
+        assert_eq!(out.aggregate.fallback_windows_count, 0);
         let low = out.per_service.get("svc-low").expect("svc-low");
         let high = out.per_service.get("svc-high").expect("svc-high");
         assert!((low.carbon_kgco2eq - 0.005).abs() < 1e-12);
@@ -932,6 +936,8 @@ mod tests {
         // Proxy energy = 100 ops * 1e-7 kWh.
         assert!((out.aggregate.total_energy_kwh - 100.0 * 1e-7).abs() < 1e-12);
         assert!(out.aggregate.period_coverage.abs() < f64::EPSILON);
+        assert_eq!(out.aggregate.runtime_windows_count, 0);
+        assert_eq!(out.aggregate.fallback_windows_count, 1);
     }
 
     #[test]
@@ -956,6 +962,16 @@ mod tests {
         assert!(out.energy_source_models.contains("cloud_specpower"));
         assert!(!out.energy_source_models.iter().any(|m| m.ends_with("+cal")));
         assert!((out.aggregate.period_coverage - 0.5).abs() < f64::EPSILON);
+        assert_eq!(out.aggregate.runtime_windows_count, 1);
+        assert_eq!(out.aggregate.fallback_windows_count, 1);
+        // Invariant: coverage × total ≈ runtime count.
+        let total = out.aggregate.runtime_windows_count + out.aggregate.fallback_windows_count;
+        let derived = out.aggregate.period_coverage * total as f64;
+        assert!(
+            (derived - out.aggregate.runtime_windows_count as f64).abs() < f64::EPSILON,
+            "period_coverage × total = {derived} should match runtime count {}",
+            out.aggregate.runtime_windows_count
+        );
     }
 
     #[test]

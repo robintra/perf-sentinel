@@ -321,6 +321,16 @@
             "pattern": "^[A-Za-z0-9._+-]+$"
           },
           "description": "Set of distinct perf-sentinel binary versions observed across the period's windows. Empty if every window predates the field."
+        },
+        "runtime_windows_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of scoring windows that used runtime-calibrated attribution. Combined with fallback_windows_count, gives the absolute volume behind period_coverage."
+        },
+        "fallback_windows_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of scoring windows that fell back to the proxy attribution path."
         }
       }
     },

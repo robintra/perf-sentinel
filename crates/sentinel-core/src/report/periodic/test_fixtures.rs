@@ -146,6 +146,8 @@ pub(super) fn sample_report(
             estimated_optimization_potential_kgco2eq: 0.01,
             period_coverage: 1.0,
             binary_versions: BTreeSet::new(),
+            runtime_windows_count: 0,
+            fallback_windows_count: 0,
         },
         applications,
         integrity: sample_integrity(),
