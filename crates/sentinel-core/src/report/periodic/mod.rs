@@ -12,6 +12,7 @@
 pub mod errors;
 pub mod hasher;
 pub mod schema;
+pub mod validator;
 
 pub use errors::{AggregationError, HashError, ValidationError};
 pub use hasher::compute_content_hash;
@@ -22,3 +23,4 @@ pub use schema::{
     PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest,
     core_patterns_required,
 };
+pub use validator::{validate_content_hash, validate_official};
