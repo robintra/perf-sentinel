@@ -144,6 +144,7 @@ pub(super) fn sample_report(
             aggregate_waste_ratio: 0.1,
             anti_patterns_detected_count: 3,
             estimated_optimization_potential_kgco2eq: 0.01,
+            period_coverage: 1.0,
         },
         applications,
         integrity: sample_integrity(),

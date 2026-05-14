@@ -197,6 +197,23 @@ pub struct Aggregate {
     pub aggregate_waste_ratio: f64,
     pub anti_patterns_detected_count: u64,
     pub estimated_optimization_potential_kgco2eq: f64,
+    /// Fraction of the period's scoring windows that used runtime-calibrated
+    /// energy attribution. `1.0` when every window provided runtime energy,
+    /// `0.0` when every window fell back to the proxy. Defined as
+    /// `runtime_windows / (runtime_windows + fallback_windows)`, pinned to
+    /// `1.0` when no windows were aggregated. The aggregator always emits
+    /// the computed value, so `1.0` only surfaces through `serde(default)`
+    /// when re-reading a periodic report that was produced before this
+    /// field shipped. This default is permissive (it grants the maximum
+    /// quality score) and is meant for type safety, not for assessing the
+    /// quality of legacy reports.
+    #[serde(default = "default_period_coverage")]
+    pub period_coverage: f64,
+}
+
+#[inline]
+const fn default_period_coverage() -> f64 {
+    1.0
 }
 
 /// G1 carries per-anti-pattern detail, G2 carries only a count.
@@ -352,6 +369,7 @@ mod tests {
             aggregate_waste_ratio: 0.18,
             anti_patterns_detected_count: 47,
             estimated_optimization_potential_kgco2eq: 0.25,
+            period_coverage: 1.0,
         }
     }
 
@@ -528,5 +546,23 @@ mod tests {
             .unwrap()
             .insert("future_field".to_string(), serde_json::json!("ignore me"));
         let _: PeriodicReport = serde_json::from_value(v).unwrap();
+    }
+
+    #[test]
+    fn aggregate_period_coverage_defaults_to_one_when_missing() {
+        // Periodic reports produced before this field shipped omit it.
+        // Default must be 1.0 (permissive type-safety value, not a quality
+        // signal; see the field doc-comment).
+        let legacy = serde_json::json!({
+            "total_requests": 0,
+            "total_energy_kwh": 0.0,
+            "total_carbon_kgco2eq": 0.0,
+            "aggregate_efficiency_score": 100.0,
+            "aggregate_waste_ratio": 0.0,
+            "anti_patterns_detected_count": 0,
+            "estimated_optimization_potential_kgco2eq": 0.0
+        });
+        let agg: Aggregate = serde_json::from_value(legacy).unwrap();
+        assert!((agg.period_coverage - 1.0).abs() < f64::EPSILON);
     }
 }

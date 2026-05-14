@@ -391,6 +391,13 @@ impl Builder {
             .map(|ap| ap.occurrences)
             .sum();
 
+        let total_windows = self.runtime_windows + self.fallback_windows;
+        let period_coverage = if total_windows == 0 {
+            1.0
+        } else {
+            self.runtime_windows as f64 / total_windows as f64
+        };
+
         AggregateInputs {
             aggregate: Aggregate {
                 total_requests,
@@ -400,6 +407,7 @@ impl Builder {
                 aggregate_waste_ratio: waste_ratio.clamp(0.0, 1.0),
                 anti_patterns_detected_count: anti_patterns_count,
                 estimated_optimization_potential_kgco2eq: self.avoidable_carbon_kgco2eq,
+                period_coverage,
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -881,6 +889,7 @@ mod tests {
             (out.aggregate.total_energy_kwh - 0.002).abs() < 1e-12,
             "runtime energy must replace the proxy"
         );
+        assert!((out.aggregate.period_coverage - 1.0).abs() < f64::EPSILON);
         let low = out.per_service.get("svc-low").expect("svc-low");
         let high = out.per_service.get("svc-high").expect("svc-high");
         assert!((low.carbon_kgco2eq - 0.005).abs() < 1e-12);
@@ -902,6 +911,7 @@ mod tests {
         assert!(out.energy_source_models.is_empty());
         // Proxy energy = 100 ops * 1e-7 kWh.
         assert!((out.aggregate.total_energy_kwh - 100.0 * 1e-7).abs() < 1e-12);
+        assert!(out.aggregate.period_coverage.abs() < f64::EPSILON);
     }
 
     #[test]
@@ -925,6 +935,7 @@ mod tests {
         // `+cal` suffix is stripped in the collected set.
         assert!(out.energy_source_models.contains("cloud_specpower"));
         assert!(!out.energy_source_models.iter().any(|m| m.ends_with("+cal")));
+        assert!((out.aggregate.period_coverage - 0.5).abs() < f64::EPSILON);
     }
 
     #[test]
