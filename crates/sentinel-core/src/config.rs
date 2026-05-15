@@ -1492,6 +1492,18 @@ impl Config {
                 "[reporting] org_config_path is required when intent = \"official\"".to_string(),
             );
         }
+        if self
+            .reporting
+            .disclose_output_path
+            .as_deref()
+            .is_some_and(|p| !p.is_empty())
+        {
+            tracing::warn!(
+                "[reporting] disclose_output_path is set but currently unused. \
+                 Reserved for daemon-triggered periodic disclosures (planned for 0.8.0). \
+                 Reports today are produced exclusively via `perf-sentinel disclose --output`."
+            );
+        }
         Ok(())
     }
 
@@ -4596,6 +4608,26 @@ intent = "official"
 "#;
         let err = load_from_str(toml).expect_err("missing org_config_path must be rejected");
         assert!(err.to_string().contains("org_config_path"));
+    }
+
+    #[test]
+    fn reporting_disclose_output_path_accepted_but_unused() {
+        // disclose_output_path is reserved for daemon-triggered
+        // periodic disclosures (planned for 0.8.0). Today it is
+        // accepted by the parser but unused at runtime, and the
+        // validator logs a tracing::warn so operators do not silently
+        // depend on a no-op. The test confirms the field survives
+        // round-trip parsing without error; the warning itself is
+        // surfaced as an effect at validate time.
+        let toml = r#"
+[reporting]
+disclose_output_path = "/var/lib/perf-sentinel/last.json"
+"#;
+        let cfg = load_from_str(toml).expect("disclose_output_path must parse without error");
+        assert_eq!(
+            cfg.reporting.disclose_output_path.as_deref(),
+            Some("/var/lib/perf-sentinel/last.json")
+        );
     }
 
     #[test]
