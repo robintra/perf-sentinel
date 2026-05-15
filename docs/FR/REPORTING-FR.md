@@ -137,9 +137,10 @@ cosign sign-blob \
     --new-bundle-format \
     attestation.intoto.jsonl
 
-# 3. Ajouter le locator signature dans integrity.signature de
-#    report.json pour que les vérifieurs trouvent le bundle et
-#    l'entrée Rekor, puis bumper report_metadata.integrity_level
+# 3. Patcher integrity.signature dans report.json pour que les
+#    vérifieurs trouvent le bundle et l'entrée Rekor (voir
+#    "Édition de integrity.signature" plus bas pour le schéma et
+#    le helper jq). Puis bumper report_metadata.integrity_level
 #    de "hash-only" à "signed" (ou "signed-with-attestation" si le
 #    binaire producteur porte une provenance SLSA). Une future
 #    subcommand `perf-sentinel sign` automatisera cette étape.
@@ -147,6 +148,139 @@ cosign sign-blob \
 # 4. Publier report.json, attestation.intoto.jsonl, bundle.sig à
 #    votre URL de transparence.
 ```
+
+### Édition de integrity.signature
+
+Après que l'étape 2 réussit, `report.json` a toujours
+`integrity.signature = null`. Un consommateur qui lance
+`verify-hash` verrait "Signature: not provided" et traiterait le
+rapport comme PARTIAL. L'étape 3 remplit les champs de locator
+pour que le consommateur trouve le bundle et le vérifie.
+
+Les sept champs et la source de chaque valeur :
+
+| Champ | Où lire la valeur |
+|-------|-------------------|
+| `format` | constante `"sigstore-cosign-intoto-v1"` pour ce schéma |
+| `bundle_url` | URL où vous publierez `bundle.sig` à l'étape 4 |
+| `signer_identity` | sortie cosign à l'étape 2, ligne `Successfully verified SCT...` ou `tlog entry... signed by`. Aussi lisible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_issuer` | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté |
+| `rekor_url` | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée) |
+| `rekor_log_index` | sortie cosign à l'étape 2, ligne `tlog entry created with index: X`. Ou via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer |
+| `signed_at` | timestamp de l'entrée Rekor, ISO 8601 UTC |
+
+Exemple before / after sur une divulgation fraîche :
+
+```json
+// Avant l'étape 2 (état immédiatement après disclose --emit-attestation)
+"integrity": {
+  "content_hash": "sha256:abc123...",
+  "binary_hash": "sha256:def456...",
+  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
+  "trace_integrity_chain": null,
+  "signature": null,
+  "binary_attestation": null
+}
+```
+
+```json
+// Après l'étape 3 (après cosign sign-blob réussi et locators collés)
+"integrity": {
+  "content_hash": "sha256:abc123...",
+  "binary_hash": "sha256:def456...",
+  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
+  "trace_integrity_chain": null,
+  "signature": {
+    "format": "sigstore-cosign-intoto-v1",
+    "bundle_url": "https://transparency.example.fr/bundle.sig",
+    "signer_identity": "robin.trassard@example.fr",
+    "signer_issuer": "https://accounts.google.com",
+    "rekor_url": "https://rekor.sigstore.dev",
+    "rekor_log_index": 123456789,
+    "signed_at": "2026-05-15T09:00:00Z"
+  },
+  "binary_attestation": null
+}
+```
+
+Et dans `report_metadata` :
+
+```diff
+-  "integrity_level": "hash-only"
++  "integrity_level": "signed"
+```
+
+(Utiliser `"signed-with-attestation"` au lieu de `"signed"` quand
+le binaire producteur porte aussi une provenance SLSA.)
+
+### Le content hash reste valide
+
+Le `content_hash` n'a **pas** besoin d'être recalculé après
+l'étape 3. La forme canonique utilisée par `compute_content_hash`
+blank quatre champs avant le hash : `integrity.content_hash`,
+`integrity.signature`, `integrity.binary_attestation`, et
+`report_metadata.integrity_level`. La liste vit dans
+`POST_SIGN_FIELDS`
+(`crates/sentinel-core/src/report/periodic/hasher.rs`) et
+l'invariance est garantie par le test
+`hash_is_invariant_under_post_sign_locator_addition`. Donc un
+consommateur qui recompute le hash sur le rapport post-étape-3
+obtient la même valeur que l'opérateur à l'étape 1.
+
+**Ne pas recompute** `content_hash` après édition. Le faire
+produit un hash frais, casse la forme canonique, et un vérifieur
+verra un mismatch.
+
+### Helper jq
+
+Le pattern est répétitif et facile à scripter. En attendant que
+`perf-sentinel sign` arrive (prévu 0.7.x), ce workflow jq capture
+les champs depuis la sortie cosign et patche le rapport en une
+passe :
+
+```bash
+# Signer et capturer la sortie cosign pour parsing
+cosign sign-blob \
+    --bundle bundle.sig \
+    --new-bundle-format \
+    attestation.intoto.jsonl 2>&1 | tee cosign.log
+
+# Extraire l'index tlog depuis la sortie cosign. Format :
+# "tlog entry created with index: 123456789"
+LOG_INDEX=$(grep "tlog entry created with index" cosign.log \
+            | awk '{print $NF}')
+
+# Extraire l'identité signataire depuis le log cosign. Format
+# dépend de l'issuer : email pour OIDC Google, URL de workflow
+# pour GitHub Actions.
+SIGNER=$(grep "Successfully signed" cosign.log \
+         | sed 's/.*by //' | tr -d '"')
+
+# Choisir l'issuer qui matche votre provider OIDC.
+ISSUER="https://accounts.google.com"  # ou token.actions.githubusercontent.com
+
+# Patcher report.json avec les sept champs de locator et bumper
+# integrity_level. Ajuster bundle_url à votre host de transparence.
+jq --arg url "https://transparency.example.fr/bundle.sig" \
+   --arg sig "$SIGNER" \
+   --arg issuer "$ISSUER" \
+   --arg idx "$LOG_INDEX" \
+   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.integrity.signature = {
+     format: "sigstore-cosign-intoto-v1",
+     bundle_url: $url,
+     signer_identity: $sig,
+     signer_issuer: $issuer,
+     rekor_url: "https://rekor.sigstore.dev",
+     rekor_log_index: ($idx | tonumber),
+     signed_at: $ts
+   } | .report_metadata.integrity_level = "signed"' \
+   report.json > report-signed.json && mv report-signed.json report.json
+```
+
+C'est un workaround intérimaire. `perf-sentinel sign` remplacera
+la combinaison bash + jq par une seule subcommand quand elle
+shippera.
 
 Les opérateurs qui font tourner une instance Rekor privée fixent
 `[reporting.sigstore] rekor_url = "..."` dans leur config

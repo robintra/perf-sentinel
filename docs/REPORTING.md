@@ -135,9 +135,10 @@ cosign sign-blob \
     --new-bundle-format \
     attestation.intoto.jsonl
 
-# 3. Add the signature locator metadata to integrity.signature in
-#    report.json so verifiers can find the bundle and Rekor entry,
-#    then bump report_metadata.integrity_level from "hash-only" to
+# 3. Patch integrity.signature into report.json so verifiers can
+#    locate the bundle and the Rekor entry (see "Editing
+#    integrity.signature" below for the schema and a jq helper).
+#    Then bump report_metadata.integrity_level from "hash-only" to
 #    "signed" (or "signed-with-attestation" if the producing binary
 #    carries SLSA provenance). A future `perf-sentinel sign`
 #    subcommand will automate this step.
@@ -145,6 +146,136 @@ cosign sign-blob \
 # 4. Publish report.json, attestation.intoto.jsonl, bundle.sig at
 #    your transparency URL.
 ```
+
+### Editing integrity.signature
+
+After step 2 succeeds, `report.json` still has `integrity.signature =
+null`. A consumer running `verify-hash` would see "Signature: not
+provided" and treat the report as PARTIAL. Step 3 fills the locator
+fields so the consumer can find the bundle and verify it.
+
+The seven fields and where each value comes from:
+
+| Field | Where to read |
+|-------|---------------|
+| `format` | constant `"sigstore-cosign-intoto-v1"` for this schema |
+| `bundle_url` | URL where you will publish `bundle.sig` at step 4 |
+| `signer_identity` | cosign stdout/stderr at step 2, line `Successfully verified SCT...` or `tlog entry... signed by`. Also visible in the cert via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
+| `signer_issuer` | same source as `signer_identity`, the OIDC issuer URL recorded next to it |
+| `rekor_url` | the Rekor instance used (`https://rekor.sigstore.dev` for Sigstore public, or the value from `[reporting.sigstore] rekor_url` for a private instance) |
+| `rekor_log_index` | cosign stdout at step 2, line `tlog entry created with index: X`. Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm |
+| `signed_at` | timestamp from the Rekor entry, ISO 8601 UTC |
+
+Example before / after on a fresh disclosure:
+
+```json
+// Before step 2 (state immediately after disclose --emit-attestation)
+"integrity": {
+  "content_hash": "sha256:abc123...",
+  "binary_hash": "sha256:def456...",
+  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
+  "trace_integrity_chain": null,
+  "signature": null,
+  "binary_attestation": null
+}
+```
+
+```json
+// After step 3 (after cosign sign-blob succeeds and the operator pastes locators)
+"integrity": {
+  "content_hash": "sha256:abc123...",
+  "binary_hash": "sha256:def456...",
+  "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
+  "trace_integrity_chain": null,
+  "signature": {
+    "format": "sigstore-cosign-intoto-v1",
+    "bundle_url": "https://transparency.example.fr/bundle.sig",
+    "signer_identity": "robin.trassard@example.fr",
+    "signer_issuer": "https://accounts.google.com",
+    "rekor_url": "https://rekor.sigstore.dev",
+    "rekor_log_index": 123456789,
+    "signed_at": "2026-05-15T09:00:00Z"
+  },
+  "binary_attestation": null
+}
+```
+
+And in `report_metadata`:
+
+```diff
+-  "integrity_level": "hash-only"
++  "integrity_level": "signed"
+```
+
+(Use `"signed-with-attestation"` instead of `"signed"` when the
+producing binary also carries SLSA provenance.)
+
+### Content hash stays valid
+
+The `content_hash` does **not** need to be recomputed after step 3.
+The canonical form used by `compute_content_hash` blanks four
+fields before hashing: `integrity.content_hash`,
+`integrity.signature`, `integrity.binary_attestation`, and
+`report_metadata.integrity_level`. The list lives in
+`POST_SIGN_FIELDS` (`crates/sentinel-core/src/report/periodic/hasher.rs`)
+and the invariance is enforced by the test
+`hash_is_invariant_under_post_sign_locator_addition`. So a consumer
+re-running the hash on the post-step-3 report gets the same value
+as the operator did at step 1.
+
+**Do not recompute** `content_hash` after editing. Doing so
+produces a fresh hash, breaks the canonical form, and a verifier
+will see a hash mismatch.
+
+### jq helper
+
+The pattern is repetitive and easy to script. Until
+`perf-sentinel sign` lands (planned for 0.7.x), this jq workflow
+captures the fields from cosign output and patches the report in
+one shot:
+
+```bash
+# Sign and capture cosign output for parsing
+cosign sign-blob \
+    --bundle bundle.sig \
+    --new-bundle-format \
+    attestation.intoto.jsonl 2>&1 | tee cosign.log
+
+# Extract tlog index from cosign output. Format:
+# "tlog entry created with index: 123456789"
+LOG_INDEX=$(grep "tlog entry created with index" cosign.log \
+            | awk '{print $NF}')
+
+# Extract signer identity from the cosign log. Format depends on
+# issuer: for Google OIDC it's an email, for GitHub Actions it is
+# the workflow URL.
+SIGNER=$(grep "Successfully signed" cosign.log \
+         | sed 's/.*by //' | tr -d '"')
+
+# Pick the issuer that matches your OIDC provider.
+ISSUER="https://accounts.google.com"  # or token.actions.githubusercontent.com
+
+# Patch report.json with the seven locator fields and bump
+# integrity_level. Adjust bundle_url to your transparency host.
+jq --arg url "https://transparency.example.fr/bundle.sig" \
+   --arg sig "$SIGNER" \
+   --arg issuer "$ISSUER" \
+   --arg idx "$LOG_INDEX" \
+   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+   '.integrity.signature = {
+     format: "sigstore-cosign-intoto-v1",
+     bundle_url: $url,
+     signer_identity: $sig,
+     signer_issuer: $issuer,
+     rekor_url: "https://rekor.sigstore.dev",
+     rekor_log_index: ($idx | tonumber),
+     signed_at: $ts
+   } | .report_metadata.integrity_level = "signed"' \
+   report.json > report-signed.json && mv report-signed.json report.json
+```
+
+This is an interim workaround. `perf-sentinel sign` will replace
+the bash + jq combo with a single subcommand once it ships.
 
 Operators who run a private Rekor instance set
 `[reporting.sigstore] rekor_url = "..."` in their perf-sentinel
