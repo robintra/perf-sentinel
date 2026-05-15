@@ -122,15 +122,20 @@ perf-sentinel disclose \
     --emit-attestation attestation.intoto.jsonl \
     --org-config org.toml
 
-# 2. Signer l'attestation avec cosign contre Sigstore public.
+# 2. Signer l'attestation avec cosign contre Sigstore public. Le
+#    fichier produit à l'étape 1 est déjà un Statement in-toto v1
+#    complet, donc on le signe directement avec `cosign sign-blob`.
 #    L'issuer OIDC (flow navigateur ou token GitHub Actions)
 #    enregistre l'identité signataire. Le bundle inclut la preuve
 #    d'inclusion Rekor.
-cosign attest-blob \
-    --type custom \
-    --predicate attestation.intoto.jsonl \
+#    Ne PAS utiliser `cosign attest-blob --predicate attestation.intoto.jsonl` :
+#    cette commande traite son entrée comme un predicate brut et la
+#    wrappe dans un nouveau Statement, produisant une entrée
+#    double-wrappée permanente dans le journal Rekor public.
+cosign sign-blob \
     --bundle bundle.sig \
-    report.json
+    --new-bundle-format \
+    attestation.intoto.jsonl
 
 # 3. Ajouter le locator signature dans integrity.signature de
 #    report.json pour que les vérifieurs trouvent le bundle et
@@ -180,7 +185,7 @@ perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 
 `verify-hash` chaîne trois vérifications : recompute déterministe
 du content hash (Rust pur, toujours lancé), signature Sigstore
-(`cosign verify-blob-attestation`), et provenance SLSA du binaire
+(`cosign verify-blob`), et provenance SLSA du binaire
 (résumé métadonnée plus une commande `slsa-verifier` qui pointe
 vers le binaire dans `integrity.binary_verification_url`).
 

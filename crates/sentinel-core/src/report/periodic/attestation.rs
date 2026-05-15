@@ -1,9 +1,14 @@
 //! In-toto v1 statement builder for periodic disclosure reports.
 //!
 //! Produces a sidecar attestation document that pins the report's
-//! SHA-256 digest and a lean methodology summary. The signing step
-//! itself happens outside the binary, typically via `cosign attest`
-//! against this statement.
+//! SHA-256 digest and a lean methodology summary. The output is a
+//! complete in-toto v1 Statement (`_type`, `predicateType`, `subject`,
+//! `predicate`), not just a predicate. Operators sign it with
+//! `cosign sign-blob <statement> --bundle <bundle.sig>
+//! --new-bundle-format`. Do not pass the statement to
+//! `cosign attest-blob --predicate`: that would wrap it in another
+//! statement and produce a permanent double-wrapped entry in the
+//! Rekor public log.
 //!
 //! Wire format reference: `docs/design/10-SIGSTORE-ATTESTATION.md`
 //! and <https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md>.

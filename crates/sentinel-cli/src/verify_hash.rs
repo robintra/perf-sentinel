@@ -101,7 +101,7 @@ pub fn cmd_verify_hash(
     format: VerifyHashFormat,
     identity: &IdentityOptions,
 ) -> i32 {
-    let (report, report_bytes, display_path, fetched_paths) = match load_report(report_path, url) {
+    let (report, _report_bytes, display_path, fetched_paths) = match load_report(report_path, url) {
         Ok(v) => v,
         Err(code) => return code,
     };
@@ -110,7 +110,6 @@ pub fn cmd_verify_hash(
     let core_patterns = verify_core_patterns(&report);
     let signature = verify_signature(
         &report,
-        &report_bytes,
         fetched_paths.attestation.as_deref().or(attestation_path),
         fetched_paths.bundle.as_deref().or(bundle_path),
         identity,
@@ -353,7 +352,6 @@ enum IdentityCheck {
 
 fn verify_signature(
     report: &PeriodicReport,
-    report_bytes: &[u8],
     attestation_path: Option<&Path>,
     bundle_path: Option<&Path>,
     identity: &IdentityOptions,
@@ -386,13 +384,7 @@ fn verify_signature(
             "cosign not found in PATH (install from https://docs.sigstore.dev/system_config/installation)".to_string(),
         );
     }
-    let report_tmp = match write_temp_for_cosign(report_bytes) {
-        Ok(p) => p,
-        Err(e) => return Status::Fail(format!("temp file: {e}")),
-    };
-    let result = run_cosign_verify(sig, &report_tmp, att_path, b_path, &check);
-    let _ = std::fs::remove_file(&report_tmp);
-    result
+    run_cosign_verify(sig, att_path, b_path, &check)
 }
 
 /// Translate user-facing flags into an identity-check decision. The
@@ -432,41 +424,33 @@ fn resolve_identity_check(identity: &IdentityOptions) -> Result<IdentityCheck, S
     }
 }
 
-fn write_temp_for_cosign(bytes: &[u8]) -> std::io::Result<PathBuf> {
-    let path = std::env::temp_dir().join(format!(
-        "perf-sentinel-verify-report-{}.json",
-        std::process::id()
-    ));
-    std::fs::write(&path, bytes)?;
-    Ok(path)
-}
-
 fn run_cosign_verify(
     sig: &SignatureMetadata,
-    report_path: &Path,
     attestation_path: &Path,
     bundle_path: &Path,
     check: &IdentityCheck,
 ) -> Status {
-    // cosign verify-blob-attestation is the blob/file variant of
-    // verify-attestation. The OCI variant rejects local files as
-    // unparseable image references. `--predicate` carries the in-toto
-    // statement, the trailing positional is the signed blob (the
-    // report file).
-    let _ = attestation_path;
+    // The disclose pipeline emits a complete in-toto v1 Statement
+    // (see attestation.rs). Operators sign it with `cosign sign-blob
+    // <statement> --bundle <bundle.sig> --new-bundle-format`, so the
+    // bundle pins the statement file itself, not the report. The
+    // matching verify command is `cosign verify-blob`, with the
+    // statement as the positional. Using `verify-blob-attestation`
+    // here, or `attest-blob --predicate <statement>` on the sign
+    // side, would wrap the statement in another statement and
+    // produce a permanent double-wrapped entry in Rekor.
     let mut cmd = Command::new("cosign");
-    cmd.arg("verify-blob-attestation")
-        .arg("--type")
-        .arg("custom")
+    cmd.arg("verify-blob")
         .arg("--bundle")
-        .arg(bundle_path);
+        .arg(bundle_path)
+        .arg("--new-bundle-format");
     if let IdentityCheck::Constrain { identity, issuer } = check {
         cmd.arg("--certificate-identity")
             .arg(identity)
             .arg("--certificate-oidc-issuer")
             .arg(issuer);
     }
-    cmd.arg(report_path);
+    cmd.arg(attestation_path);
     let output = cmd.output();
     match output {
         Ok(out) if out.status.success() => match check {
@@ -774,7 +758,7 @@ mod tests {
     fn signature_check_returns_not_provided_when_absent() {
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
-        let s = verify_signature(&report, &[], None, None, &IdentityOptions::default());
+        let s = verify_signature(&report, None, None, &IdentityOptions::default());
         assert!(matches!(s, Status::NotProvided));
     }
 
@@ -800,7 +784,7 @@ mod tests {
         // not see TRUSTED on a bundle whose identity comes only from
         // the report itself.
         let report = report_with_signature();
-        let s = verify_signature(&report, &[], None, None, &IdentityOptions::default());
+        let s = verify_signature(&report, None, None, &IdentityOptions::default());
         match s {
             Status::Fail(detail) => assert!(detail.contains("expected identity"), "{detail}"),
             _ => panic!("expected Fail without identity flags, got display"),
@@ -812,7 +796,6 @@ mod tests {
         let report = report_with_signature();
         let s = verify_signature(
             &report,
-            &[],
             None,
             None,
             &IdentityOptions {
@@ -838,7 +821,6 @@ mod tests {
         let report = report_with_signature();
         let s = verify_signature(
             &report,
-            &[],
             None,
             None,
             &IdentityOptions {
@@ -858,7 +840,6 @@ mod tests {
         let report = report_with_signature();
         let s = verify_signature(
             &report,
-            &[],
             None,
             None,
             &IdentityOptions {

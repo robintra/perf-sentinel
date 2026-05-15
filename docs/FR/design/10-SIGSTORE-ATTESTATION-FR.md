@@ -58,11 +58,15 @@ est :
    in-toto v1 dont le `subject.digest.sha256` pin le SHA-256 du
    fichier rapport sur disque (pas le hash canonique, qui blank un
    champ).
-3. **Signer** : l'opérateur lance `cosign attest-blob --type custom
-   --predicate attestation.intoto.jsonl --bundle bundle.sig
-   report.json` contre Sigstore public. La signature est uploadée
-   automatiquement dans Rekor (le projet refuse les bundles sans
-   preuve d'inclusion Rekor au moment de la vérification).
+3. **Signer** : l'opérateur lance `cosign sign-blob --bundle
+   bundle.sig --new-bundle-format attestation.intoto.jsonl` contre
+   Sigstore public. La signature est uploadée automatiquement dans
+   Rekor (le projet refuse les bundles sans preuve d'inclusion
+   Rekor au moment de la vérification). Le Statement est signé
+   tel quel, sans wrapping supplémentaire. Utiliser
+   `cosign attest-blob --predicate` ici wrapperait le Statement
+   déjà formé dans un nouveau predicate-of-Statement, produisant
+   une entrée malformée permanente dans le journal Rekor public.
 4. **Mettre à jour le locator signature du rapport** : l'opérateur
    édite `report.json` pour ajouter `integrity.signature` avec
    les métadonnées qui permettent aux vérifieurs de localiser le
@@ -172,11 +176,10 @@ Pour la signature Sigstore publique en keyless OIDC, la commande
 recommandée pour les opérateurs est :
 
 ```bash
-cosign attest-blob \
-    --type custom \
-    --predicate attestation.intoto.jsonl \
+cosign sign-blob \
     --bundle bundle.sig \
-    report.json
+    --new-bundle-format \
+    attestation.intoto.jsonl
 ```
 
 L'issuer OIDC (flow navigateur ou token GitHub Actions) enregistre
@@ -184,6 +187,22 @@ l'identité du signataire dans le bundle. Les opérateurs qui
 utilisent une instance Rekor privée passent
 `--rekor-url https://rekor.internal.example.fr` qui matche leur
 config `[reporting.sigstore].rekor_url`.
+
+**Piège à éviter.** Ne pas utiliser `cosign attest-blob --predicate
+attestation.intoto.jsonl ...` ici. `attest-blob --predicate` traite
+son argument comme un predicate brut et le wrappe dans un nouveau
+Statement in-toto v1 à la volée. Comme le pipeline disclose émet
+déjà un Statement complet, le résultat est un Statement-of-Statement
+que Rekor enregistre de façon permanente dans le journal public.
+Utiliser `sign-blob` pour signer le Statement déjà formé tel quel,
+avec `--new-bundle-format` correspondant pour que le bundle porte
+la preuve d'inclusion Rekor dans le format que `verify-blob`
+attend.
+
+cosign 2.4+ est requis pour le flag `--new-bundle-format`. Les
+versions cosign antérieures émettent un bundle legacy que
+`cosign verify-blob` refuse. Les opérateurs sur cosign <2.4
+doivent upgrader avant de signer pour la transparence.
 
 Le flag `--no-tlog-upload` est délibérément non supporté par
 verify-hash : un bundle sans preuve d'inclusion Rekor est refusé
@@ -197,7 +216,7 @@ propriété du format, pas un opt-in optionnel.
 1. **Content hash** (Rust pur, toujours lancé). Recompute le
    SHA-256 canonique du rapport et compare à
    `integrity.content_hash`.
-2. **Signature** (déléguée à `cosign verify-blob-attestation`). Lancée
+2. **Signature** (déléguée à `cosign verify-blob`). Lancée
    quand `integrity.signature` est présent dans le rapport et que
    l'opérateur passe `--attestation` et `--bundle` (ou que le mode
    `--url` les fetch automatiquement).

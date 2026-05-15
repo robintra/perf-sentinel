@@ -53,11 +53,14 @@ For an `intent = "official"` disclosure, the operator workflow is:
    v1 statement whose `subject.digest.sha256` pins the SHA-256 of the
    report file on disk (not the canonical hash, which blanks one
    field).
-3. **Sign**: the operator runs `cosign attest-blob --type custom
-   --predicate attestation.intoto.jsonl --bundle bundle.sig
-   report.json` against Sigstore public. The signature is uploaded
-   to Rekor automatically (the project rejects bundles without a
-   Rekor inclusion proof at verification time).
+3. **Sign**: the operator runs `cosign sign-blob --bundle bundle.sig
+   --new-bundle-format attestation.intoto.jsonl` against Sigstore
+   public. The signature is uploaded to Rekor automatically (the
+   project rejects bundles without a Rekor inclusion proof at
+   verification time). The statement is signed as-is, no extra
+   wrapping. Using `cosign attest-blob --predicate` here would wrap
+   the already-formed statement in a fresh predicate-of-statement,
+   producing a permanent malformed entry in the Rekor public log.
 4. **Update the report's signature locator**: the operator edits
    `report.json` to add `integrity.signature` with the metadata
    that lets verifiers locate the bundle and Rekor entry, then
@@ -163,17 +166,31 @@ For Sigstore public signing with keyless OIDC, the recommended
 command for operators is:
 
 ```bash
-cosign attest-blob \
-    --type custom \
-    --predicate attestation.intoto.jsonl \
+cosign sign-blob \
     --bundle bundle.sig \
-    report.json
+    --new-bundle-format \
+    attestation.intoto.jsonl
 ```
 
 The OIDC issuer (browser flow or GitHub Actions token) records the
 signer identity in the bundle. Operators using a private Rekor
 instance pass `--rekor-url https://rekor.internal.example.fr`
 matching their `[reporting.sigstore].rekor_url` config.
+
+**Pitfall to avoid.** Do not use `cosign attest-blob --predicate
+attestation.intoto.jsonl ...` here. `attest-blob --predicate` treats
+its argument as a raw predicate and wraps it inside a fresh in-toto
+v1 Statement on the fly. Since the disclose pipeline already emits
+a complete Statement, the result is a Statement-of-Statement that
+Rekor records permanently in the public transparency log. Use
+`sign-blob` to sign the already-formed Statement as-is, with the
+matching `--new-bundle-format` so the bundle carries the Rekor
+inclusion proof in the form `verify-blob` expects.
+
+cosign 2.4+ is required for the `--new-bundle-format` flag. Older
+cosign versions emit a legacy bundle that `cosign verify-blob`
+will reject; operators on cosign <2.4 should upgrade before
+signing for transparency.
 
 We deliberately do not support the `--no-tlog-upload` flag in the
 verify path: a bundle without a Rekor inclusion proof is rejected
@@ -187,7 +204,7 @@ the format, not an optional opt-in.
 1. **Content hash** (pure Rust, always runs). Recomputes the
    canonical SHA-256 of the report and compares to
    `integrity.content_hash`.
-2. **Signature** (delegated to `cosign verify-blob-attestation`). Runs
+2. **Signature** (delegated to `cosign verify-blob`). Runs
    when `integrity.signature` is present in the report and the
    operator passes `--attestation` and `--bundle` (or `--url` mode
    pulls them automatically).
