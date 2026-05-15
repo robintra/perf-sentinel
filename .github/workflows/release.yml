@@ -156,7 +156,12 @@ jobs:
       actions: read
       id-token: write
       contents: write
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # Tag pin instead of SHA pin: the generator's `builder-fetch.sh`
+    # script in v2.1.0 fails to download the prebuilt binary when the
+    # reusable workflow is invoked by SHA, producing
+    # `slsa-generator-generic-linux-amd64: No such file or directory`.
+    # Upstream issue: slsa-framework/slsa-github-generator#4216.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.compute-subjects.outputs.hashes }}
       upload-assets: true
