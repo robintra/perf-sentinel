@@ -101,7 +101,7 @@ pub fn cmd_verify_hash(
     format: VerifyHashFormat,
     identity: &IdentityOptions,
 ) -> i32 {
-    let (report, _report_bytes, display_path, fetched_paths) = match load_report(report_path, url) {
+    let (report, display_path, fetched_paths) = match load_report(report_path, url) {
         Ok(v) => v,
         Err(code) => return code,
     };
@@ -141,7 +141,7 @@ struct FetchedPaths {
 fn load_report(
     report_path: Option<&Path>,
     url: Option<&str>,
-) -> Result<(PeriodicReport, Vec<u8>, String, FetchedPaths), i32> {
+) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
     if let Some(path) = report_path {
         let bytes = std::fs::read(path).map_err(|e| {
             eprintln!("Error: read {}: {e}", path.display());
@@ -156,7 +156,7 @@ fn load_report(
             attestation: None,
             bundle: None,
         };
-        return Ok((report, bytes, display, fetched));
+        return Ok((report, display, fetched));
     }
     if let Some(url) = url {
         return fetch_from_url(url);
@@ -169,15 +169,18 @@ fn parse_report(bytes: &[u8]) -> Result<PeriodicReport, serde_json::Error> {
     serde_json::from_slice(bytes)
 }
 
-fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, FetchedPaths), i32> {
-    let bytes = http_get(url).map_err(|e| {
-        eprintln!("Error: fetch {url}: {e}");
-        EXIT_NETWORK_ERROR
-    })?;
-    let report = parse_report(&bytes).map_err(|e| {
-        eprintln!("Error: parse {url}: {e}");
-        EXIT_INPUT_ERROR
-    })?;
+fn fetch_from_url(url: &str) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
+    let report = http_get(url)
+        .map_err(|e| {
+            eprintln!("Error: fetch {url}: {e}");
+            EXIT_NETWORK_ERROR
+        })
+        .and_then(|bytes| {
+            parse_report(&bytes).map_err(|e| {
+                eprintln!("Error: parse {url}: {e}");
+                EXIT_INPUT_ERROR
+            })
+        })?;
     let attestation_url = derive_sidecar_url(url, "attestation.intoto.jsonl");
     let bundle_url = derive_sidecar_url(url, "bundle.sig");
     let mut fetched = FetchedPaths {
@@ -210,7 +213,7 @@ fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, Fetched
             Err(e) => eprintln!("Note: could not fetch signature bundle: {e}"),
         }
     }
-    Ok((report, bytes, url.to_string(), fetched))
+    Ok((report, url.to_string(), fetched))
 }
 
 /// Write `data` to `path` while refusing to follow a pre-existing
