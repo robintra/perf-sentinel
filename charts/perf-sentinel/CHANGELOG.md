@@ -6,6 +6,24 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.37]
+
+### Added
+
+- `appVersion` bumped to `0.7.2`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.2`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.7.2 binary adds the `hash-bake` subcommand: it reads a periodic
+  disclosure report, computes the canonical `content_hash` applying
+  the `POST_SIGN_FIELDS` blanching, writes the hash into
+  `integrity.content_hash`, and saves the result via an atomic
+  temp+rename. Intended for test fixture generation and debugging
+  workflows where a report needs a hash matching what perf-sentinel
+  itself would write. Signed reports (those carrying
+  `integrity.signature`) are rejected by default with exit 1, opt-in
+  via `--allow-signed`. Exit codes: 0 success, 1 refused, 3 input
+  error.
+
 ## [0.2.36]
 
 ### Changed

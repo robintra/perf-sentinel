@@ -3,20 +3,27 @@
 
 use std::borrow::Cow;
 
-/// Replace ASCII control characters with `?` so an attacker-controlled
-/// string in a JSON `Report` cannot inject ANSI escape sequences,
-/// OSC 8 hyperlinks, cursor controls or other terminal payloads.
+/// True for the control ranges that a terminal can act on: C0 (`0x00..0x20`),
+/// DEL (`0x7f`), and C1 (`0x80..=0x9F`). The C1 set includes the single-byte
+/// CSI (`U+009B`), ST (`U+009C`) and OSC (`U+009D`) introducers honoured by
+/// xterm and other VT-family terminals when 8-bit controls are enabled.
+fn is_dangerous_control(c: char) -> bool {
+    let code = c as u32;
+    code < 0x20 || code == 0x7f || (0x80..=0x9F).contains(&code)
+}
+
+/// Replace control characters with `?` so an attacker-controlled string in a
+/// JSON `Report` cannot inject ANSI escape sequences, OSC 8 hyperlinks, cursor
+/// controls or other terminal payloads. Covers C0, DEL and C1 ranges (see
+/// [`is_dangerous_control`]).
 #[must_use]
 pub fn sanitize_for_terminal(input: &str) -> Cow<'_, str> {
-    if !input.bytes().any(|b| b < 0x20 || b == 0x7f) {
+    if !input.chars().any(is_dangerous_control) {
         return Cow::Borrowed(input);
     }
     let cleaned: String = input
         .chars()
-        .map(|c| {
-            let code = c as u32;
-            if code < 0x20 || code == 0x7f { '?' } else { c }
-        })
+        .map(|c| if is_dangerous_control(c) { '?' } else { c })
         .collect();
     Cow::Owned(cleaned)
 }
@@ -26,7 +33,7 @@ pub fn sanitize_for_terminal(input: &str) -> Cow<'_, str> {
 /// `suggested_fix.reference_url` values planted in a deserialized report.
 #[must_use]
 pub fn safe_url(url: &str) -> Option<&str> {
-    if url.starts_with("https://") && !url.bytes().any(|b| b < 0x20 || b == 0x7f) {
+    if url.starts_with("https://") && !url.chars().any(is_dangerous_control) {
         Some(url)
     } else {
         None
@@ -50,6 +57,21 @@ mod tests {
         let dirty = "a\x1bb\x07c\x00d\x7fe\nf";
         let cleaned = sanitize_for_terminal(dirty);
         assert_eq!(cleaned.as_ref(), "a?b?c?d?e?f");
+    }
+
+    #[test]
+    fn sanitize_replaces_c1_control_range() {
+        // U+0080..=U+009F encodes as `0xC2 0x80..0x9F` in UTF-8 and survives
+        // a byte-level filter that only checks `< 0x20`. xterm with 8-bit
+        // controls enabled honours U+009B (CSI), U+009C (ST), U+009D (OSC).
+        let dirty = "a\u{009b}[31mb\u{009d}OSC\u{009c}c";
+        let cleaned = sanitize_for_terminal(dirty);
+        assert_eq!(cleaned.as_ref(), "a?[31mb?OSC?c");
+    }
+
+    #[test]
+    fn safe_url_rejects_c1_control_chars() {
+        assert_eq!(safe_url("https://a.com/\u{009b}[0m"), None);
     }
 
     #[test]

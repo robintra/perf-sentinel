@@ -302,6 +302,10 @@ Le verdict global apparaît comme `TRUSTED` (content hash +
 signature OK), `PARTIAL` (content hash OK mais signature
 NotProvided ou Skip), ou `UNTRUSTED` (un FAIL).
 
+## Outillage : `hash-bake`
+
+La sous-commande `hash-bake` (0.7.2+) calcule le `content_hash` canonique d'un rapport et l'écrit dans `integrity.content_hash` sans passer par le pipeline `disclose` complet. Elle existe pour la génération de fixtures de test et pour le debug des rapports dont le hash a divergé du canonique après des édits manuels. Par défaut elle refuse d'opérer sur un rapport portant déjà une `integrity.signature` pour ne pas masquer une erreur de workflow. Voir `docs/FR/REPORTING-FR.md` § "Calculer un content hash canonique avec `hash-bake`" pour la référence côté opérateur.
+
 ## Renvois
 
 - `docs/FR/SCHEMA-FR.md` documente la forme wire de

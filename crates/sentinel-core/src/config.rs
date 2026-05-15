@@ -1333,9 +1333,17 @@ fn warn_outside_comfort_zone<T>(
     }
 }
 
-/// `true` if `s` contains any ASCII control character (< 0x20 or DEL).
+/// `true` if `s` contains any terminal control character: C0 (`< 0x20`),
+/// DEL (`0x7F`), or C1 (`0x80..=0x9F`). The C1 range carries the single-byte
+/// CSI (`U+009B`), ST (`U+009C`) and OSC (`U+009D`) introducers honoured by
+/// VT-family terminals when 8-bit controls are enabled, so a TOML field that
+/// reaches `tracing::warn!` on stderr must reject them at load time the same
+/// way [`crate::text_safety::sanitize_for_terminal`] rejects them at render.
 pub(crate) fn has_control_char(s: &str) -> bool {
-    s.bytes().any(|b| b < 0x20 || b == 0x7F)
+    s.chars().any(|c| {
+        let code = c as u32;
+        code < 0x20 || code == 0x7F || (0x80..=0x9F).contains(&code)
+    })
 }
 
 /// Validate the wildcard-mode interactions of `[daemon.cors] allowed_origins`.
@@ -3910,6 +3918,22 @@ network_energy_per_byte_kwh = 0.00000000008
         // Embed a tab (0x09) in the host.
         let err = validate_http_authority("http://bad\thost/", "test").unwrap_err();
         assert!(err.contains("control"));
+    }
+
+    #[test]
+    fn has_control_char_rejects_c1_range() {
+        // U+0080..=U+009F survive a byte-level `< 0x20` filter because they
+        // encode as `0xC2 0x80..0x9F` in UTF-8. They carry CSI/ST/OSC in
+        // VT-family terminals, so any TOML field that ends up in stderr
+        // must reject them at load time.
+        assert!(has_control_char("path\u{009b}[31m"));
+        assert!(has_control_char("path\u{009c}suffix"));
+        assert!(has_control_char("path\u{009d}OSC"));
+        // Boundary checks: U+0080 and U+009F are the inclusive endpoints.
+        assert!(has_control_char("\u{0080}"));
+        assert!(has_control_char("\u{009f}"));
+        // U+00A0 (NBSP) sits one past the C1 range and stays allowed.
+        assert!(!has_control_char("\u{00a0}plain"));
     }
 
     #[test]
