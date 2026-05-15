@@ -468,7 +468,7 @@ Pour les fixtures de test et les workflows de debug où vous avez besoin d'un ra
 perf-sentinel hash-bake --report input.json --output output.json
 ```
 
-`hash-bake` lit le rapport à `--report`, calcule le `content_hash` canonique (en appliquant le blanching `POST_SIGN_FIELDS` défini pour la version du schema), écrit le hash dans `integrity.content_hash`, et sauvegarde le résultat à `--output`. Le même chemin que `--report` est accepté pour un baking en place, avec un temp+rename atomique qui évite toute corruption partielle.
+`hash-bake` lit le rapport à `--report`, calcule le `content_hash` canonique (en appliquant le blanchiment `POST_SIGN_FIELDS` défini pour la version du schéma), écrit le hash dans `integrity.content_hash`, et sauvegarde le résultat à `--output`. Le même chemin que `--report` est accepté pour un baking en place, avec un temp+rename atomique qui évite toute corruption partielle.
 
 Cette commande est destinée à :
 
@@ -483,7 +483,7 @@ Codes de sortie :
 
 | Code | Signification                                                                                                 |
 |------|---------------------------------------------------------------------------------------------------------------|
-| 0    | Hash baked, fichier écrit.                                                                                    |
+| 0    | Hash canonique calculé, fichier écrit.                                                                        |
 | 1    | Refusé : le rapport porte une signature et `--allow-signed` n'a pas été passé. Aucun fichier de sortie écrit. |
 | 3    | Erreur d'entrée : rapport illisible, JSON invalide, ou écriture impossible.                                   |
 

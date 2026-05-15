@@ -114,7 +114,7 @@ pub fn cmd_hash_bake(report_path: &Path, output_path: &Path, allow_signed: bool)
 }
 
 // Write `report` to `output` atomically via a sibling `.tmp` file and
-// `rename`. Cleans up the temp on rename failure (best effort).
+// `rename`. Each post-open failure removes the temp best-effort.
 fn write_atomic_pretty(report: &PeriodicReport, output: &Path) -> Result<(), i32> {
     // Append `.tmp` instead of replacing the extension so a path like
     // `report.tmp` (whose extension is already `tmp`) does not collide
@@ -293,9 +293,9 @@ mod tests {
         let code = cmd_hash_bake(&in_path, &out_path, true);
         assert_eq!(code, EXIT_OK);
         let baked: PeriodicReport = serde_json::from_slice(&fs::read(&out_path).unwrap()).unwrap();
-        // POST_SIGN_FIELDS blanching means the signature does not affect
-        // the canonical hash, so the written value must match the
-        // pre-bake computation.
+        // The signature-stable canonicalization blanks integrity.signature,
+        // so the canonical hash is identical before and after baking a
+        // signed report.
         assert_eq!(baked.integrity.content_hash, expected_hash);
         assert!(baked.integrity.signature.is_some());
     }
