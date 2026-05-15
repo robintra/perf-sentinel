@@ -316,16 +316,14 @@ fn verify_core_patterns(report: &PeriodicReport) -> Status {
         ));
     }
 
-    let only_in_declared: Vec<&str> = declared
-        .iter()
-        .filter(|d| !local_canonical.iter().any(|c| c == *d))
-        .map(String::as_str)
-        .collect();
-    let only_in_canonical: Vec<&str> = local_canonical
-        .iter()
-        .filter(|c| !declared.iter().any(|d| d == *c))
-        .map(String::as_str)
-        .collect();
+    fn set_difference<'a>(a: &'a [String], b: &[String]) -> Vec<&'a str> {
+        a.iter()
+            .filter(|x| !b.iter().any(|y| y == *x))
+            .map(String::as_str)
+            .collect()
+    }
+    let only_in_declared = set_difference(declared, &local_canonical);
+    let only_in_canonical = set_difference(&local_canonical, declared);
     // Cite the report-declared producing binary so an auditor on a
     // mismatched version knows exactly which perf-sentinel to download
     // and re-run against. Falls back to perf_sentinel_version when
