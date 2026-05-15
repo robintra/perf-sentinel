@@ -10,18 +10,32 @@ The subcommand is added in v0.6.x and supersedes earlier ad-hoc disclosure recip
 |-------------|------------------|-------------|---------------------------------|
 | `internal`  | none             | no          | development drafts, dry runs    |
 | `official`  | strict           | yes         | quarterly transparency post     |
-| `audited`   | reserved         | not yet     | future revision                 |
+| `audited`   | reserved         | not yet     | reserved for a future release   |
 
-`audited` is accepted by the JSON schema for forward compatibility but the CLI returns `Error: audited intent is not yet implemented` and exits with code 2.
+`audited` is reserved for a future release. The JSON schema accepts the value for forward compatibility, but the CLI exits with code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") and the daemon refuses to start with `intent = "audited"` configured.
 
-For `official` intent, the validator also rejects reports below 75% runtime-calibration coverage (see [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md#the-75-runtime-calibration-threshold) for the rationale).
+For `official` intent, the validator also rejects reports below 75% runtime-calibration coverage. The denominator is `runtime_windows_count + fallback_windows_count`: each scoring window the daemon archived in the requested period is classified as runtime (per-service energy attribution present) or fallback (proxy I/O share used as a substitute). A coverage below 75% means more than a quarter of the period's windows did not carry per-service attribution, which is the limit below which "official" stops being honest. See [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md#the-75-runtime-calibration-threshold) for the empirical rationale.
 
 ## Granularity
 
-- `--confidentiality internal` produces G1 entries per application: the per-anti-pattern breakdown (`anti_patterns: [...]`) is included.
-- `--confidentiality public` produces G2 entries: the aggregate per service, plus a single `anti_patterns_detected_count`, but no per-pattern detail.
+perf-sentinel publishes reports at two granularity levels, controlled by `--confidentiality`. The validator refuses to publish a `confidentiality = public` disclosure that carries G1 entries, and vice versa.
 
-The validator refuses to publish a `confidentiality = public` disclosure that carries G1 entries.
+- **G1** (Granularity level 1, "internal detail"). Activated by `--confidentiality internal`. Each `applications[*]` entry carries a full `anti_patterns: [...]` array breaking down every anti-pattern type detected on that service with occurrences, estimated waste energy, and waste carbon. Use for internal optimization decisions, not for public publication: the per-pattern detail exposes internal performance signals an operator may not want broadcast.
+- **G2** (Granularity level 2, "public aggregate"). Activated by `--confidentiality public`. Each `applications[*]` entry carries the same service-level totals (energy, carbon, efficiency score) but replaces the array with a single `anti_patterns_detected_count` integer. Suitable for publication on an organization's transparency URL.
+
+## CLI flags
+
+`perf-sentinel disclose` accepts the following flags:
+
+- `--intent <internal|official|audited>` (required). `audited` is reserved for a future release, the CLI refuses it today with exit code 2.
+- `--confidentiality <internal|public>` (required). Drives G1 vs G2 granularity, see above.
+- `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (required). Hints the period semantics for downstream consumers. `custom` uses `--from` and `--to` as-is and is the right choice for non-aligned windows (e.g. a 6-week pilot).
+- `--from <YYYY-MM-DD>` and `--to <YYYY-MM-DD>` (required, inclusive). UTC calendar dates.
+- `--input <PATH>` (required, repeatable). Each path can be a single `.ndjson` file, a directory whose `*.ndjson` files are unioned (sorted by name), or a shell-expanded glob. perf-sentinel itself does not expand globs, so `--input archive/2026Q1/*.ndjson` works in a shell but fails when called via direct `exec` without shell expansion. In CI runners that exec the binary directly, prefer a directory or a single file.
+- `--output <PATH>` (required). Where to write `perf-sentinel-report.json`.
+- `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the previous section.
+- `--emit-attestation <PATH>` (optional). When set, also writes the in-toto v1 statement sidecar at this path. Needed for the signing workflow.
+- `--strict-attribution` (optional). By default, perf-sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
 
 ## Inputs
 
@@ -279,9 +293,11 @@ the bash + jq combo with a single subcommand once it ships.
 
 Operators who run a private Rekor instance set
 `[reporting.sigstore] rekor_url = "..."` in their perf-sentinel
-config and pass the same URL to `cosign --rekor-url`. Reports
-produced without `--no-tlog-upload` only: `verify-hash` rejects
-bundles without a Rekor inclusion proof.
+config and pass the same URL to `cosign --rekor-url`.
+`verify-hash` rejects bundles signed with
+`cosign sign-blob --no-tlog-upload`, because such bundles lack a
+Rekor inclusion proof. Always sign without that flag for reports
+intended for public transparency.
 
 `verify-hash` itself reads `integrity.signature.rekor_url` from
 the report being verified, so a consumer fetching a publicly
@@ -333,9 +349,63 @@ and so still rejects PARTIAL, but a wrapper that distinguishes
 PARTIAL (2) from UNTRUSTED (1) can tell a missing tool from a tamper
 attempt.
 
+### Sidecar URL convention in `--url` mode
+
+`verify-hash --url <REPORT_URL>` fetches three files from the same
+directory, with **fixed filenames**:
+
+```
+https://example.fr/<report-filename>            (the report)
+https://example.fr/attestation.intoto.jsonl     (in-toto statement sidecar)
+https://example.fr/bundle.sig                   (cosign bundle sidecar)
+```
+
+The sidecar names are not derived from the report filename: they are
+literally `attestation.intoto.jsonl` and `bundle.sig`. An operator
+publishing a report must use these filenames at the same URL prefix
+for `verify-hash --url` to find them automatically. A future
+revision may surface the URLs in `integrity.signature.bundle_url`
+so the convention becomes explicit per report, but that is not the
+current behaviour.
+
+### Identity verification
+
+`verify-hash` requires the consumer to declare which identity should
+have signed the report. Three modes:
+
+- `--expected-identity <ID> --expected-issuer <URL>`: cosign verifies
+  that the bundle was issued by exactly this OIDC identity. The
+  values come from the auditor's prior knowledge of the publishing
+  organization (the report itself declares them in
+  `integrity.signature.signer_identity` / `.signer_issuer`, but
+  treating those as authoritative is autosigning — any GitHub or
+  Google account holder can publish a bundle claiming an identity).
+- `--no-identity-check`: cosign verifies the cryptographic integrity
+  without checking the identity. Useful for an internal self-check
+  before publication, but explicitly logged as PARTIAL because the
+  signer is not verified.
+- Neither flag passed: `verify-hash` refuses to invoke cosign and
+  returns `Status::Fail` on the signature slot. This is the safe
+  default and forces an external consumer to declare intent.
+
+### Binary build provenance
+
+`integrity.binary_hash` is the SHA-256 of the perf-sentinel binary
+that produced the report. For an official disclosure, the value
+should match an official release binary published on the project's
+GitHub releases. Operators who build perf-sentinel from source can
+still produce official reports, but their `binary_hash` will not
+match any published release. In that case
+`integrity.binary_attestation` is absent (no SLSA provenance for a
+local build) and `verify-hash` reports `[--] Binary attestation:
+not provided`. The `integrity_level` is `signed`, not
+`signed-with-attestation`. For maximum trust on a publication, use
+the released binary matching the tag declared in
+`integrity.binary_verification_url`.
+
 ## Common errors
 
-- `Error: audited intent is not yet implemented`: switch `--intent` to `internal` or `official`.
+- `Error: audited intent is reserved for a future release, use 'internal' or 'official' instead`: switch `--intent` to `internal` or `official`.
 - `no archived reports fell within the requested period`: the archive contains lines but none match the `--from`/`--to` window. Check timestamps, especially around DST and timezone boundaries (the aggregator filters on UTC dates).
 - `Error: report validation failed` followed by a bullet list: every line names the offending field. Fix in the org-config TOML or in the source archive.
 - `strict_attribution` enabled and a window with no offenders: drop the flag or fix the per-service instrumentation that's hiding the offenders.

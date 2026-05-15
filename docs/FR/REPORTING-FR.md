@@ -10,18 +10,32 @@ La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad h
 |------------|------------|------------|-------------------------------------------|
 | `internal` | aucune     | non        | brouillons de dev, tests à blanc          |
 | `official` | stricte    | oui        | publication trimestrielle de transparence |
-| `audited`  | réservé    | pas encore | révision future                           |
+| `audited`  | réservé    | pas encore | réservé pour une release future           |
 
-`audited` est accepté par le schéma JSON pour la compatibilité ascendante, mais la CLI retourne `Error: audited intent is not yet implemented` et sort avec le code 2.
+`audited` est réservé pour une release future. Le schéma JSON accepte la valeur pour la compatibilité ascendante, mais la CLI sort avec le code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") et le daemon refuse de démarrer avec `intent = "audited"` configuré.
 
-Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated (voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime) pour la justification).
+Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution énergie per-service présente) ou fallback (proxy I/O share comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution per-service, soit la limite en-dessous de laquelle "official" cesse d'être honnête. Voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime) pour la justification empirique.
 
 ## Granularité
 
-- `--confidentiality internal` produit des entrées G1 par application : le détail par anti-pattern (`anti_patterns: [...]`) est inclus.
-- `--confidentiality public` produit des entrées G2 : l'agrégat par service plus un seul `anti_patterns_detected_count`, sans le détail par pattern.
+perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés par `--confidentiality`. Le validator refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1, et inversement.
 
-Le validator refuse de publier un rapport `confidentiality = public` qui contiendrait des entrées G1.
+- **G1** (Granularity level 1, "détail interne"). Activé par `--confidentiality internal`. Chaque entrée `applications[*]` porte un tableau `anti_patterns: [...]` complet ventilant chaque type d'anti-pattern détecté sur ce service avec occurrences, énergie gaspillée estimée et carbone gaspillé. À utiliser pour les décisions d'optimisation internes, pas pour la publication publique : le détail par pattern expose des signaux de performance internes qu'un opérateur peut ne pas vouloir diffuser.
+- **G2** (Granularity level 2, "agrégat public"). Activé par `--confidentiality public`. Chaque entrée `applications[*]` porte les mêmes totaux service-level (énergie, carbone, score d'efficacité) mais remplace le tableau par un seul entier `anti_patterns_detected_count`. Adapté à la publication sur l'URL de transparence d'une organisation.
+
+## Flags CLI
+
+`perf-sentinel disclose` accepte les flags suivants :
+
+- `--intent <internal|official|audited>` (requis). `audited` est réservé pour une release future, la CLI le refuse aujourd'hui avec exit code 2.
+- `--confidentiality <internal|public>` (requis). Pilote G1 vs G2 granularité, voir ci-dessus.
+- `--period-type <calendar-quarter|calendar-month|calendar-year|custom>` (requis). Hint sur la sémantique période pour les consommateurs downstream. `custom` utilise `--from` et `--to` tel quel, choix correct pour des fenêtres non-alignées (par exemple un pilote de 6 semaines).
+- `--from <YYYY-MM-DD>` et `--to <YYYY-MM-DD>` (requis, inclusifs). Dates calendaires UTC.
+- `--input <PATH>` (requis, répétable). Chaque chemin peut être un fichier `.ndjson` unique, un répertoire dont les fichiers `*.ndjson` sont unionés (triés par nom), ou un glob expansé par le shell. perf-sentinel n'expanse pas les globs lui-même, donc `--input archive/2026Q1/*.ndjson` marche en shell mais échoue en `exec` direct sans expansion shell. Dans les runners CI qui execent le binaire directement, préférer un répertoire ou un fichier unique.
+- `--output <PATH>` (requis). Où écrire `perf-sentinel-report.json`.
+- `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit dans la section précédente.
+- `--emit-attestation <PATH>` (optionnel). Quand fixé, écrit aussi le sidecar statement in-toto v1 à ce chemin. Nécessaire pour le workflow de signature.
+- `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce bucket contribue aux totaux agrégés mais est exclu de la ventilation per-service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, listant les timestamps offendants dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut asserter que 100% des opérations mesurées ont été correctement attribuées.
 
 ## Entrées
 
@@ -285,8 +299,10 @@ shippera.
 Les opérateurs qui font tourner une instance Rekor privée fixent
 `[reporting.sigstore] rekor_url = "..."` dans leur config
 perf-sentinel et passent la même URL à `cosign --rekor-url`.
-Rapports produits sans `--no-tlog-upload` uniquement :
-`verify-hash` refuse les bundles sans preuve d'inclusion Rekor.
+`verify-hash` refuse les bundles signés avec
+`cosign sign-blob --no-tlog-upload`, parce que de tels bundles
+n'ont pas de preuve d'inclusion Rekor. Toujours signer sans ce
+flag pour les rapports destinés à la transparence publique.
 
 `verify-hash` lit lui-même `integrity.signature.rekor_url` dans
 le rapport vérifié, donc un consommateur qui télécharge une
@@ -338,9 +354,67 @@ non-zéro et rejette donc PARTIAL aussi. Une enveloppe qui
 distingue PARTIAL (2) de UNTRUSTED (1) peut différencier un
 outil manquant d'une tentative de tamper.
 
+### Convention URL des sidecars en mode `--url`
+
+`verify-hash --url <REPORT_URL>` fetch trois fichiers depuis le
+même répertoire, avec des **noms fixes** :
+
+```
+https://example.fr/<nom-du-rapport>             (le rapport)
+https://example.fr/attestation.intoto.jsonl     (sidecar statement in-toto)
+https://example.fr/bundle.sig                   (sidecar bundle cosign)
+```
+
+Les noms de sidecars ne sont pas dérivés du nom de fichier du
+rapport : ils sont littéralement `attestation.intoto.jsonl` et
+`bundle.sig`. Un opérateur qui publie un rapport doit utiliser
+ces noms exacts au même URL prefix pour que `verify-hash --url`
+les trouve automatiquement. Une révision future pourrait surfacer
+les URLs dans `integrity.signature.bundle_url` pour rendre la
+convention explicite par rapport, mais ce n'est pas le
+comportement actuel.
+
+### Vérification d'identité
+
+`verify-hash` exige du consommateur qu'il déclare quelle identité
+aurait dû signer le rapport. Trois modes :
+
+- `--expected-identity <ID> --expected-issuer <URL>` : cosign
+  vérifie que le bundle a été émis par exactement cette identité
+  OIDC. Les valeurs viennent de la connaissance préalable de
+  l'auditeur de l'organisation publiante (le rapport déclare ces
+  valeurs dans `integrity.signature.signer_identity` /
+  `.signer_issuer` mais traiter ces déclarations comme
+  authoritatives serait de l'autosigning : n'importe quel
+  détenteur d'un compte GitHub ou Google peut publier un bundle
+  revendiquant une identité).
+- `--no-identity-check` : cosign vérifie l'intégrité
+  cryptographique sans vérifier l'identité. Utile pour un
+  self-check interne avant publication, mais explicitement loggé
+  comme PARTIAL parce que le signataire n'est pas vérifié.
+- Aucun flag passé : `verify-hash` refuse d'invoquer cosign et
+  retourne `Status::Fail` sur le slot signature. C'est le défaut
+  safe et force un consommateur externe à déclarer son intention.
+
+### Provenance build du binaire
+
+`integrity.binary_hash` est le SHA-256 du binaire perf-sentinel
+qui a produit le rapport. Pour une divulgation officielle, la
+valeur devrait matcher un binaire de release officiel publié sur
+les GitHub releases du projet. Les opérateurs qui buildent
+perf-sentinel depuis les sources peuvent quand même produire des
+rapports officiels, mais leur `binary_hash` ne matchera aucune
+release publiée. Dans ce cas `integrity.binary_attestation` est
+absent (pas de provenance SLSA pour un build local) et
+`verify-hash` reporte `[--] Binary attestation: not provided`.
+L'`integrity_level` est `signed`, pas `signed-with-attestation`.
+Pour un maximum de confiance sur une publication, utiliser le
+binaire de release qui matche le tag déclaré dans
+`integrity.binary_verification_url`.
+
 ## Erreurs courantes
 
-- `Error: audited intent is not yet implemented` : basculer `--intent` sur `internal` ou `official`.
+- `Error: audited intent is reserved for a future release, use 'internal' or 'official' instead` : basculer `--intent` sur `internal` ou `official`.
 - `no archived reports fell within the requested period` : l'archive contient des lignes mais aucune ne correspond à la fenêtre `--from`/`--to`. Vérifier les timestamps, en particulier autour des changements DST et des frontières de fuseau (l'aggregator filtre sur dates UTC).
 - `Error: report validation failed` suivi d'une liste à puces : chaque ligne nomme le champ fautif. Corriger dans le TOML org-config ou dans l'archive source.
 - `strict_attribution` activé et une fenêtre sans offenders : retirer le flag ou corriger l'instrumentation par service qui masque les offenders.

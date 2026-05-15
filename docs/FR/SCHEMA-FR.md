@@ -21,7 +21,7 @@ Le schéma ne fixe pas `additionalProperties: false` ; de nouveaux champs peuven
 
 ## Métadonnées de rapport
 
-`intent` vaut `internal | official | audited`. `audited` est réservé (la CLI le refuse aujourd'hui). `confidentiality_level` vaut `internal | public`. `integrity_level` vaut `none | hash-only | signed | audited`. Le schéma v1.0 produit `hash-only`. `generated_at` est un timestamp UTC RFC 3339. `generated_by` vaut `daemon | cli-batch | ci`. `perf_sentinel_version` est la chaîne SemVer du binaire qui a écrit le fichier. `report_uuid` est un UUID v4 estampillé par run.
+`intent` vaut `internal | official | audited`. `audited` est réservé pour une release future : le schéma JSON accepte la valeur pour la compatibilité ascendante, mais la CLI le refuse aujourd'hui avec le code de sortie 2. `confidentiality_level` vaut `internal | public`. `integrity_level` vaut `none | hash-only | signed | audited`. Le schéma v1.0 produit `hash-only`. `generated_at` est un timestamp UTC RFC 3339. `generated_by` vaut `daemon | cli-batch | ci`. `perf_sentinel_version` est la chaîne SemVer du binaire qui a écrit le fichier. `report_uuid` est un UUID v4 estampillé par run.
 
 ## Organisation
 

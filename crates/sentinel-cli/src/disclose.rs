@@ -94,7 +94,9 @@ pub fn cmd_disclose(
     emit_attestation: Option<&Path>,
 ) -> i32 {
     if matches!(intent, ReportIntentCli::Audited) {
-        eprintln!("Error: audited intent is not yet implemented");
+        eprintln!(
+            "Error: audited intent is reserved for a future release, use 'internal' or 'official' instead"
+        );
         return 2;
     }
 
