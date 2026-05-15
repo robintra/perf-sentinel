@@ -109,6 +109,9 @@ When the daemon is configured with `[reporting] intent = "official"`, it refuses
 intent = "official"
 confidentiality_level = "public"
 org_config_path = "/etc/perf-sentinel/org.toml"
+# Reserved for 0.8.0 (daemon-triggered periodic disclosures), currently
+# a no-op. Setting it today logs a warning at startup. Reports are
+# produced exclusively via `perf-sentinel disclose --output`.
 disclose_output_path = "/var/lib/perf-sentinel/last-disclosure.json"
 disclose_period = "calendar-quarter"
 ```
