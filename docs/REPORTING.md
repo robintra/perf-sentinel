@@ -246,6 +246,36 @@ will see a hash mismatch.
 
 ### jq helper
 
+**Caveat.** The snippet below is indicative, not canonical. It diverges
+from the schema in [Editing integrity.signature](#editing-integritysignature)
+on four fields:
+
+- `signer_identity`: parses `Successfully signed by ...` from cosign
+  stdout, which is the wording emitted by `cosign sign` for container
+  images but not always by `cosign sign-blob` (3.0+ omits it). The
+  canonical value is the OIDC subject embedded in the signing
+  certificate (read it via `cosign verify-blob --certificate-identity-regexp '.*'`,
+  or inspect `bundle.sig` directly with
+  `jq -r '.verificationMaterial.certificate.rawBytes' bundle.sig | base64 -d | openssl x509 -inform DER -noout -ext subjectAltName`).
+- `signer_issuer`: hardcoded to `https://accounts.google.com`. The
+  canonical value is the OIDC issuer URL in the signing certificate,
+  which the operator must align with their provider (Google, GitHub
+  Actions, custom OIDC).
+- `rekor_log_index`: parses `tlog entry created with index` from cosign
+  stdout, which `cosign sign-blob` 3.0+ no longer emits, so `LOG_INDEX`
+  is empty and the snippet falls through to `rekor_log_index: 0`. The
+  canonical value is in `bundle.sig` itself at
+  `.verificationMaterial.tlogEntries[0].logIndex`, no API call needed.
+- `signed_at`: filled with the local clock at jq-run time. The canonical
+  value is the `integratedTime` of the Rekor entry, fetched via
+  `https://rekor.sigstore.dev/api/v1/log/entries?logIndex=<idx>` and
+  formatted as ISO 8601 UTC.
+
+For a publication intended for third-party audit, prefer reading these
+four fields from the bundle and from the Rekor entry rather than from
+local state. The helper remains useful for an internal dry-run where
+the four values are inspected for plausibility, not provenance.
+
 The pattern is repetitive and easy to script. Until
 `perf-sentinel sign` lands (planned for 0.7.x), this jq workflow
 captures the fields from cosign output and patches the report in

@@ -251,6 +251,38 @@ verra un mismatch.
 
 ### Helper jq
 
+**Avertissement.** Le snippet ci-dessous est indicatif, pas canonique.
+Il diverge du schéma de [Édition de integrity.signature](#édition-de-integritysignature)
+sur quatre champs :
+
+- `signer_identity` : parse `Successfully signed by ...` depuis la
+  stdout cosign, qui est le wording émis par `cosign sign` pour les
+  images conteneur mais pas toujours par `cosign sign-blob` (3.0+
+  l'omet). La valeur canonique est le sujet OIDC embarqué dans le
+  certificat de signature (lire via
+  `cosign verify-blob --certificate-identity-regexp '.*'`, ou inspecter
+  `bundle.sig` directement avec
+  `jq -r '.verificationMaterial.certificate.rawBytes' bundle.sig | base64 -d | openssl x509 -inform DER -noout -ext subjectAltName`).
+- `signer_issuer` : codé en dur à `https://accounts.google.com`. La
+  valeur canonique est l'URL de l'issuer OIDC inscrite dans le
+  certificat de signature, à aligner avec votre provider (Google,
+  GitHub Actions, OIDC custom).
+- `rekor_log_index` : parse `tlog entry created with index` depuis la
+  stdout cosign, que `cosign sign-blob` 3.0+ n'émet plus. `LOG_INDEX`
+  est donc vide et le snippet retombe sur `rekor_log_index: 0`. La
+  valeur canonique est dans `bundle.sig` lui-même à
+  `.verificationMaterial.tlogEntries[0].logIndex`, sans appel API.
+- `signed_at` : rempli avec l'horloge locale au moment de l'exécution
+  jq. La valeur canonique est l'`integratedTime` de l'entrée Rekor,
+  obtenue via `https://rekor.sigstore.dev/api/v1/log/entries?logIndex=<idx>`
+  et formatée en ISO 8601 UTC.
+
+Pour une publication destinée à un audit tiers, privilégiez la lecture
+de ces quatre champs depuis le bundle et depuis l'entrée Rekor plutôt
+que depuis l'état local. Le helper reste utile pour un essai à blanc
+interne où les quatre valeurs sont inspectées pour leur plausibilité,
+pas leur provenance.
+
 Le pattern est répétitif et facile à scripter. En attendant que
 `perf-sentinel sign` arrive (prévu 0.7.x), ce workflow jq capture
 les champs depuis la sortie cosign et patche le rapport en une
