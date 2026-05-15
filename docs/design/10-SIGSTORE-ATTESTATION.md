@@ -220,13 +220,13 @@ the format, not an optional opt-in.
 
 Exit codes:
 
-| Code | Meaning |
-|------|---------|
-| `0` | TRUSTED |
-| `1` | UNTRUSTED (a check returned a hard failure) |
-| `2` | PARTIAL (no hard failure, at least one check could not complete) |
-| `3` | INPUT_ERROR |
-| `4` | NETWORK_ERROR (`--url` mode only) |
+| Code | Meaning                                                          |
+|------|------------------------------------------------------------------|
+| `0`  | TRUSTED                                                          |
+| `1`  | UNTRUSTED (a check returned a hard failure)                      |
+| `2`  | PARTIAL (no hard failure, at least one check could not complete) |
+| `3`  | INPUT_ERROR                                                      |
+| `4`  | NETWORK_ERROR (`--url` mode only)                                |
 
 The split between UNTRUSTED (1) and PARTIAL (2) lets a wrapper
 script tell a tamper attempt from a missing tool. A naive

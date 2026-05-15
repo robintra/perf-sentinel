@@ -233,13 +233,13 @@ propriété du format, pas un opt-in optionnel.
 
 Codes de sortie :
 
-| Code | Signification |
-|------|---------------|
-| `0` | TRUSTED |
-| `1` | UNTRUSTED (un check a retourné un échec dur) |
-| `2` | PARTIAL (pas d'échec dur, au moins un check n'a pas pu se compléter) |
-| `3` | INPUT_ERROR |
-| `4` | NETWORK_ERROR (mode `--url` uniquement) |
+| Code | Signification                                                        |
+|------|----------------------------------------------------------------------|
+| `0`  | TRUSTED                                                              |
+| `1`  | UNTRUSTED (un check a retourné un échec dur)                         |
+| `2`  | PARTIAL (pas d'échec dur, au moins un check n'a pas pu se compléter) |
+| `3`  | INPUT_ERROR                                                          |
+| `4`  | NETWORK_ERROR (mode `--url` uniquement)                              |
 
 La séparation entre UNTRUSTED (1) et PARTIAL (2) permet à une
 enveloppe de scripts de différencier une tentative de tamper d'un
