@@ -131,7 +131,7 @@
   "integrity": {
     "content_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "binary_hash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
-    "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.0",
+    "binary_verification_url": "https://github.com/robintra/perf-sentinel/releases/tag/v0.7.1",
     "trace_integrity_chain": null,
     "signature": null
   },
