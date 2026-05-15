@@ -448,6 +448,33 @@ not provided`. The `integrity_level` is `signed`, not
 the released binary matching the tag declared in
 `integrity.binary_verification_url`.
 
+## Computing a canonical content hash with `hash-bake` (0.7.2+)
+
+For test fixtures and debugging workflows where you need a report whose `content_hash` already matches what perf-sentinel itself would write, use `hash-bake`:
+
+```bash
+perf-sentinel hash-bake --report input.json --output output.json
+```
+
+`hash-bake` reads the report at `--report`, computes the canonical `content_hash` (applying the `POST_SIGN_FIELDS` blanching defined for the schema version), writes the hash into `integrity.content_hash`, and saves the result to `--output`. The same path as `--report` is allowed for in-place baking, with an atomic temp+rename that prevents partial corruption.
+
+This command is intended for:
+
+- Generating test fixtures with valid canonical hashes (for example, test suites that exercise `verify-hash` with TRUSTED or PARTIAL outcomes).
+- Debugging a report whose hash has drifted from canonical (typically after manual edits to fields outside `POST_SIGN_FIELDS`).
+
+Signed reports (where `integrity.signature` is non-null) are rejected by default. Re-baking does not invalidate the signature, since the canonical form blanches the signature anyway, but the operator should confirm intent with `--allow-signed`.
+
+`hash-bake` does not modify `integrity.signature`, does not modify `integrity.binary_attestation`, and does not modify `report_metadata.integrity_level`. It only writes `integrity.content_hash`.
+
+Exit codes:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Hash baked, file written. |
+| 1 | Refused: report carries a signature and `--allow-signed` was not passed. No output written. |
+| 3 | Input error: report unreadable, JSON invalid, or output cannot be written. |
+
 ## Common errors
 
 - `Error: audited intent is reserved for a future release, use 'internal' or 'official' instead`: switch `--intent` to `internal` or `official`.

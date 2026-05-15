@@ -285,6 +285,10 @@ The overall verdict surfaces as one of `TRUSTED` (content hash +
 signature both OK), `PARTIAL` (content hash OK but signature
 NotProvided or Skip), or `UNTRUSTED` (any FAIL).
 
+## Tooling: `hash-bake`
+
+The `hash-bake` subcommand (0.7.2+) computes the canonical `content_hash` of a report and writes it back into `integrity.content_hash` without going through the full `disclose` pipeline. It exists for test fixture generation and for debugging reports whose hash has drifted from canonical after manual edits. By default it refuses to operate on reports that already carry an `integrity.signature` to avoid masking workflow errors. See `docs/REPORTING.md` § "Computing a canonical content hash with `hash-bake`" for the operator-facing reference.
+
 ## Cross-references
 
 - `docs/SCHEMA.md` documents the on-the-wire shape of

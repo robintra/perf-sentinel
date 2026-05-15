@@ -460,6 +460,33 @@ Pour un maximum de confiance sur une publication, utiliser le
 binaire de release qui matche le tag déclaré dans
 `integrity.binary_verification_url`.
 
+## Calculer un content hash canonique avec `hash-bake` (0.7.2+)
+
+Pour les fixtures de test et les workflows de debug où vous avez besoin d'un rapport dont le `content_hash` correspond déjà à ce que perf-sentinel produirait, utilisez `hash-bake` :
+
+```bash
+perf-sentinel hash-bake --report input.json --output output.json
+```
+
+`hash-bake` lit le rapport à `--report`, calcule le `content_hash` canonique (en appliquant le blanching `POST_SIGN_FIELDS` défini pour la version du schema), écrit le hash dans `integrity.content_hash`, et sauvegarde le résultat à `--output`. Le même chemin que `--report` est accepté pour un baking en place, avec un temp+rename atomique qui évite toute corruption partielle.
+
+Cette commande est destinée à :
+
+- Générer des fixtures de test avec un hash canonique valide (par exemple pour des suites qui exercent `verify-hash` en sortie TRUSTED ou PARTIAL).
+- Déboguer un rapport dont le hash a divergé du canonique (typiquement après des édits manuels sur des champs hors `POST_SIGN_FIELDS`).
+
+Les rapports signés (`integrity.signature` non-null) sont rejetés par défaut. Le re-baking n'invalide pas la signature, puisque la forme canonique blanchit la signature de toute façon, mais l'opérateur doit confirmer l'intention via `--allow-signed`.
+
+`hash-bake` ne modifie pas `integrity.signature`, ne modifie pas `integrity.binary_attestation`, et ne modifie pas `report_metadata.integrity_level`. Il n'écrit que `integrity.content_hash`.
+
+Codes de sortie :
+
+| Code | Signification |
+|------|---------------|
+| 0 | Hash baked, fichier écrit. |
+| 1 | Refusé : le rapport porte une signature et `--allow-signed` n'a pas été passé. Aucun fichier de sortie écrit. |
+| 3 | Erreur d'entrée : rapport illisible, JSON invalide, ou écriture impossible. |
+
 ## Erreurs courantes
 
 - `Error: audited intent is reserved for a future release, use 'internal' or 'official' instead` : basculer `--intent` sur `internal` ou `official`.
