@@ -61,17 +61,18 @@ fn write_example_with_fixed_hash(dir: &std::path::Path) -> PathBuf {
 }
 
 #[test]
-fn verify_hash_returns_partial_with_exit_1_when_signature_absent() {
+fn verify_hash_returns_partial_with_exit_2_when_signature_absent() {
     // A hash-only report (no Sigstore signature) yields PARTIAL.
-    // verify-hash MUST exit non-zero so a script using
-    // `verify-hash && deploy` cannot treat an unsigned report as
-    // trusted. Content hash matches, but signature was never verified.
+    // Exit code 2 distinguishes PARTIAL (verification could not
+    // complete) from UNTRUSTED (exit 1, a check actively failed).
+    // A scripted `verify-hash && deploy` still blocks because exit is
+    // non-zero. Content hash matches, signature was never verified.
     let tmp = tempfile::tempdir().expect("tempdir");
     let report_path = write_example_with_fixed_hash(tmp.path());
     let v = run_verify(&["--report", report_path.to_str().unwrap()]);
     assert_eq!(
         v.status.code(),
-        Some(1),
+        Some(2),
         "stdout: {}\nstderr: {}",
         String::from_utf8_lossy(&v.stdout),
         String::from_utf8_lossy(&v.stderr)
@@ -95,9 +96,12 @@ fn verify_hash_after_content_tamper_fails() {
 }
 
 #[test]
-fn verify_hash_missing_report_returns_file_error() {
+fn verify_hash_missing_report_returns_input_error() {
+    // Missing file is exit 3 (INPUT_ERROR), distinct from UNTRUSTED
+    // (1) and PARTIAL (2) so a wrapper script can react differently
+    // to a wrong path than to a tamper attempt.
     let v = run_verify(&["--report", "/nonexistent/path/to/missing.json"]);
-    assert_eq!(v.status.code(), Some(2));
+    assert_eq!(v.status.code(), Some(3));
 }
 
 #[test]
@@ -117,7 +121,8 @@ fn verify_hash_json_format_emits_structured_output() {
 #[test]
 fn verify_hash_url_mode_rejects_http_scheme() {
     // Hardening: only HTTPS is accepted. http:// must fail with a
-    // clear error and a network-class exit code.
+    // network-class exit code 4 (NETWORK_ERROR), distinct from
+    // INPUT_ERROR (3, e.g. file missing) and UNTRUSTED (1).
     let v = run_verify(&["--url", "http://example.fr/report.json"]);
-    assert_eq!(v.status.code(), Some(3));
+    assert_eq!(v.status.code(), Some(4));
 }

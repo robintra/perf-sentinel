@@ -208,11 +208,20 @@ propriété du format, pas un opt-in optionnel.
    `integrity.binary_verification_url`. Le fetch binaire + verify
    en une seule commande est un travail futur.
 
-Codes de sortie : `0` TRUSTED (content hash matché ET signature
-vérifiée ok), `1` tout le reste (UNTRUSTED ou PARTIAL), `2`
-erreur fichier, `3` erreur réseau. PARTIAL retombe sur `1` à
-dessein : un script doit exiger content hash ET signature pour
-traiter le rapport comme trusted.
+Codes de sortie :
+
+| Code | Signification |
+|------|---------------|
+| `0` | TRUSTED |
+| `1` | UNTRUSTED (un check a retourné un échec dur) |
+| `2` | PARTIAL (pas d'échec dur, au moins un check n'a pas pu se compléter) |
+| `3` | INPUT_ERROR |
+| `4` | NETWORK_ERROR (mode `--url` uniquement) |
+
+La séparation entre UNTRUSTED (1) et PARTIAL (2) permet à une
+enveloppe de scripts de différencier une tentative de tamper d'un
+outil manquant. Un gate naïf `verify-hash && deploy` rejette
+toujours PARTIAL parce que le code de sortie est non-zéro.
 
 ## Privacy sur Rekor public
 

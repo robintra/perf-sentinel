@@ -6,16 +6,20 @@
 //! SLSA build provenance for the producing binary (delegated to
 //! `slsa-verifier`). Exit codes:
 //!
-//! - `0` TRUSTED (content hash matched and signature verified ok)
-//! - `1` UNTRUSTED or PARTIAL (a check failed, was skipped, or the
-//!   metadata was absent and a downstream script must not assume
-//!   integrity)
-//! - `2` file error
-//! - `3` network error
-//!
-//! PARTIAL collapses into `1` on purpose: a script doing
-//! `verify-hash && deploy` must require the cryptographic primitives,
-//! not just the local content hash.
+//! - `0` `TRUSTED` (content hash matched AND signature verified ok)
+//! - `1` `UNTRUSTED` (at least one check returned a hard failure: hash
+//!   mismatch, signature invalid, attestation invalid, identity
+//!   mismatch)
+//! - `2` `PARTIAL` (no hard failure but at least one check could not
+//!   complete: cosign absent, `slsa-verifier` absent, signature
+//!   metadata absent, sidecars missing). A scripted gate
+//!   `verify-hash && deploy` still blocks on 2, but distinguishing
+//!   `PARTIAL` from `UNTRUSTED` lets the operator tell a tamper
+//!   attempt from a missing tool.
+//! - `3` `INPUT_ERROR` (report file unreadable, JSON invalid, missing
+//!   `--report` / `--url`)
+//! - `4` `NETWORK_ERROR` (only `--url` mode: fetch of report or sidecar
+//!   failed)
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -31,6 +35,22 @@ const MAX_REMOTE_BYTES: usize = 10 * 1024 * 1024;
 
 /// Per-request timeout for `--url` fetches.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Exit code: every verification check returned Ok.
+pub const EXIT_TRUSTED: i32 = 0;
+/// Exit code: at least one check returned a hard failure (hash mismatch,
+/// signature invalid, attestation invalid, identity mismatch).
+pub const EXIT_UNTRUSTED: i32 = 1;
+/// Exit code: no hard failure but at least one check could not complete
+/// (cosign absent, slsa-verifier absent, signature metadata absent,
+/// sidecars missing).
+pub const EXIT_PARTIAL: i32 = 2;
+/// Exit code: report file unreadable, JSON invalid, or required flag
+/// missing.
+pub const EXIT_INPUT_ERROR: i32 = 3;
+/// Exit code: `--url` fetch failed (HTTP error, scheme rejected, body
+/// over the size cap).
+pub const EXIT_NETWORK_ERROR: i32 = 4;
 
 #[derive(Clone, Copy, clap::ValueEnum)]
 pub enum VerifyHashFormat {
@@ -126,11 +146,11 @@ fn load_report(
     if let Some(path) = report_path {
         let bytes = std::fs::read(path).map_err(|e| {
             eprintln!("Error: read {}: {e}", path.display());
-            2
+            EXIT_INPUT_ERROR
         })?;
         let report = parse_report(&bytes).map_err(|e| {
             eprintln!("Error: parse {}: {e}", path.display());
-            2
+            EXIT_INPUT_ERROR
         })?;
         let display = path.display().to_string();
         let fetched = FetchedPaths {
@@ -143,7 +163,7 @@ fn load_report(
         return fetch_from_url(url);
     }
     eprintln!("Error: one of --report or --url is required");
-    Err(2)
+    Err(EXIT_INPUT_ERROR)
 }
 
 fn parse_report(bytes: &[u8]) -> Result<PeriodicReport, serde_json::Error> {
@@ -153,11 +173,11 @@ fn parse_report(bytes: &[u8]) -> Result<PeriodicReport, serde_json::Error> {
 fn fetch_from_url(url: &str) -> Result<(PeriodicReport, Vec<u8>, String, FetchedPaths), i32> {
     let bytes = http_get(url).map_err(|e| {
         eprintln!("Error: fetch {url}: {e}");
-        3
+        EXIT_NETWORK_ERROR
     })?;
     let report = parse_report(&bytes).map_err(|e| {
         eprintln!("Error: parse {url}: {e}");
-        2
+        EXIT_INPUT_ERROR
     })?;
     let attestation_url = derive_sidecar_url(url, "attestation.intoto.jsonl");
     let bundle_url = derive_sidecar_url(url, "bundle.sig");
@@ -534,8 +554,9 @@ fn sanitise_for_terminal(s: &str) -> String {
 
 fn exit_code(outcome: &Outcome) -> i32 {
     match overall_label(outcome) {
-        "TRUSTED" => 0,
-        _ => 1,
+        "TRUSTED" => EXIT_TRUSTED,
+        "UNTRUSTED" => EXIT_UNTRUSTED,
+        _ => EXIT_PARTIAL,
     }
 }
 

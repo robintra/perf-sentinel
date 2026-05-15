@@ -198,11 +198,20 @@ the format, not an optional opt-in.
    `integrity.binary_verification_url`; binary fetch + verify in
    a single command is future work.
 
-Exit codes: `0` TRUSTED (content hash matched AND signature
-verified ok), `1` anything else (UNTRUSTED or PARTIAL), `2` file
-error, `3` network error. PARTIAL collapses into `1` on purpose:
-a script must require both content hash AND signature to treat
-the report as trusted.
+Exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | TRUSTED |
+| `1` | UNTRUSTED (a check returned a hard failure) |
+| `2` | PARTIAL (no hard failure, at least one check could not complete) |
+| `3` | INPUT_ERROR |
+| `4` | NETWORK_ERROR (`--url` mode only) |
+
+The split between UNTRUSTED (1) and PARTIAL (2) lets a wrapper
+script tell a tamper attempt from a missing tool. A naive
+`verify-hash && deploy` gate still rejects PARTIAL because the
+exit is non-zero.
 
 ## Privacy on Rekor public
 

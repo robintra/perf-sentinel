@@ -180,12 +180,22 @@ perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 recompute (pure Rust, always run), Sigstore signature
 (`cosign verify-blob-attestation`), and SLSA binary provenance
 (metadata summary plus an `slsa-verifier` command pointing at the
-binary in `integrity.binary_verification_url`). Exit codes: `0`
-TRUSTED (content hash matched AND signature verified ok), `1`
-anything else including PARTIAL (signature skipped because
-`cosign` is absent or sidecars were not provided), `2` file
-error, `3` network error. A scripted `verify-hash && deploy`
-gate therefore requires both layers, not just the local hash.
+binary in `integrity.binary_verification_url`).
+
+Exit codes:
+
+| Code | Meaning |
+|------|---------|
+| `0` | TRUSTED (content hash matched AND signature verified ok) |
+| `1` | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch) |
+| `2` | PARTIAL (no hard failure but at least one check could not complete: cosign absent, slsa-verifier absent, signature metadata absent, sidecars missing) |
+| `3` | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`) |
+| `4` | NETWORK_ERROR (only `--url` mode: HTTP fetch failed, scheme rejected, body over the size cap) |
+
+A scripted `verify-hash && deploy` gate blocks on any non-zero code
+and so still rejects PARTIAL, but a wrapper that distinguishes
+PARTIAL (2) from UNTRUSTED (1) can tell a missing tool from a tamper
+attempt.
 
 ## Common errors
 

@@ -182,13 +182,22 @@ perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 du content hash (Rust pur, toujours lancé), signature Sigstore
 (`cosign verify-blob-attestation`), et provenance SLSA du binaire
 (résumé métadonnée plus une commande `slsa-verifier` qui pointe
-vers le binaire dans `integrity.binary_verification_url`). Codes
-de sortie : `0` TRUSTED (content hash matché ET signature
-vérifiée ok), `1` tout le reste y compris PARTIAL (signature
-skippée parce que `cosign` est absent ou les sidecars n'ont pas
-été fournis), `2` erreur fichier, `3` erreur réseau. Un gate
-scripté `verify-hash && deploy` exige donc les deux couches, pas
-juste le hash local.
+vers le binaire dans `integrity.binary_verification_url`).
+
+Codes de sortie :
+
+| Code | Signification |
+|------|---------------|
+| `0` | TRUSTED (content hash matché ET signature vérifiée ok) |
+| `1` | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme) |
+| `2` | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, slsa-verifier absent, métadonnée de signature absente, sidecars manquants) |
+| `3` | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant) |
+| `4` | NETWORK_ERROR (mode `--url` uniquement : fetch HTTP échoué, schéma refusé, body au-dessus du cap de taille) |
+
+Un gate scripté `verify-hash && deploy` bloque sur tout code
+non-zéro et rejette donc PARTIAL aussi. Une enveloppe qui
+distingue PARTIAL (2) de UNTRUSTED (1) peut différencier un
+outil manquant d'une tentative de tamper.
 
 ## Erreurs courantes
 
