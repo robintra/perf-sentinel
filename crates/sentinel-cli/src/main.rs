@@ -13,6 +13,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 #[cfg(feature = "daemon")]
 mod ack;
 mod disclose;
+mod hash_bake;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;
@@ -566,6 +567,30 @@ enum Commands {
         #[arg(long)]
         no_identity_check: bool,
     },
+    /// Compute and bake the canonical `content_hash` into a periodic report.
+    ///
+    /// Reads `--report`, recomputes the canonical SHA-256 `content_hash`
+    /// (applying the `POST_SIGN_FIELDS` blanching that defines the
+    /// signature-stable form), writes it into `integrity.content_hash`,
+    /// and saves the result to `--output`. The same path as `--report`
+    /// is allowed and bakes in place via an atomic temp+rename.
+    /// Intended for test fixture generation and debugging.
+    HashBake {
+        /// Local report file to read.
+        #[arg(long, value_name = "PATH")]
+        report: PathBuf,
+        /// Path to write the report with baked `content_hash`. May
+        /// equal `--report` for in-place baking.
+        #[arg(long, value_name = "PATH")]
+        output: PathBuf,
+        /// Allow re-baking a report whose `integrity.signature` is
+        /// already populated. Re-baking does not invalidate the
+        /// signature (`content_hash` blanches signature in canonical
+        /// form), but the default refusal guards against unintended
+        /// rewrites of signed reports.
+        #[arg(long)]
+        allow_signed: bool,
+    },
 }
 
 /// Output format for query sub-actions.
@@ -931,6 +956,14 @@ async fn dispatch_command(command: Commands) {
                 format,
                 &identity,
             );
+            std::process::exit(code);
+        }
+        Commands::HashBake {
+            report,
+            output,
+            allow_signed,
+        } => {
+            let code = hash_bake::cmd_hash_bake(&report, &output, allow_signed);
             std::process::exit(code);
         }
     }
