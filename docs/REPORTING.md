@@ -325,11 +325,23 @@ A third party verifies a published file with one command:
 perf-sentinel verify-hash \
     --report report.json \
     --attestation attestation.intoto.jsonl \
-    --bundle bundle.sig
+    --bundle bundle.sig \
+    --expected-identity release@example.fr \
+    --expected-issuer https://accounts.google.com
 
 # Remote mode: fetch the report and sidecars by HTTPS convention.
-perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
+perf-sentinel verify-hash \
+    --url https://example.fr/perf-sentinel-report.json \
+    --expected-identity release@example.fr \
+    --expected-issuer https://accounts.google.com
 ```
+
+Both examples pass `--expected-identity` and `--expected-issuer` because
+that is the safe default: without these flags `verify-hash` refuses to
+invoke cosign and returns `Status::Fail` on the signature slot. See
+[Identity verification](#identity-verification) below for the three
+modes and their semantics. Reuse `--no-identity-check` only for an
+internal self-check before publication.
 
 `verify-hash` chains three checks: deterministic content hash
 recompute (pure Rust, always run), Sigstore signature
