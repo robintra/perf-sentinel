@@ -661,7 +661,7 @@ Les divulgations peuvent être signées cryptographiquement via Sigstore pour qu
 perf-sentinel verify-hash --url https://example.fr/perf-sentinel-report.json
 ```
 
-La chaîne complète `source -> SLSA -> binaire -> rapport -> signature Sigstore` est ancrée dans Rekor public. Voir [docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md](docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md) pour le flow cryptographique et [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md) pour l'attestation SLSA L2 du binaire.
+La chaîne complète `source -> SLSA -> binaire -> rapport -> signature Sigstore` est ancrée dans Rekor public. Voir [docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md](docs/FR/design/10-SIGSTORE-ATTESTATION-FR.md) pour le flow cryptographique et [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md) pour l'attestation SLSA Build L3 du binaire.
 
 Voir [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md) pour le guide d'utilisation CLI, [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md) pour la chaîne de calcul, et [docs/FR/SCHEMA-FR.md](docs/FR/SCHEMA-FR.md) plus [docs/schemas/perf-sentinel-report-v1.json](docs/schemas/perf-sentinel-report-v1.json) pour le format de wire.
 
