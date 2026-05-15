@@ -525,8 +525,8 @@ enum Commands {
     /// Recomputes the canonical `content_hash` and, when the report
     /// carries signature/attestation metadata and the operator points
     /// at the matching sidecar files, delegates signature verification
-    /// to `cosign verify-attestation` and SLSA verification to
-    /// `slsa-verifier verify-artifact`.
+    /// to `cosign verify-blob` and SLSA verification to
+    /// `gh attestation verify`.
     VerifyHash {
         /// Local report file to verify. Required unless `--url` is set.
         #[arg(long, value_name = "PATH", conflicts_with = "url")]

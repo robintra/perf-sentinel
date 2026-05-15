@@ -3,16 +3,16 @@
 //! Chains up to three checks against a periodic disclosure report:
 //! deterministic content hash recompute (pure Rust, always run),
 //! Sigstore cosign attestation (delegated to the `cosign` binary), and
-//! SLSA build provenance for the producing binary (delegated to
-//! `slsa-verifier`). Exit codes:
+//! SLSA build provenance for the producing binary (verified via the
+//! `gh attestation verify` GitHub CLI command). Exit codes:
 //!
 //! - `0` `TRUSTED` (content hash matched AND signature verified ok)
 //! - `1` `UNTRUSTED` (at least one check returned a hard failure: hash
 //!   mismatch, signature invalid, attestation invalid, identity
 //!   mismatch)
 //! - `2` `PARTIAL` (no hard failure but at least one check could not
-//!   complete: cosign absent, `slsa-verifier` absent, signature
-//!   metadata absent, sidecars missing). A scripted gate
+//!   complete: cosign absent, `gh` CLI absent, signature metadata
+//!   absent, sidecars missing). A scripted gate
 //!   `verify-hash && deploy` still blocks on 2, but distinguishing
 //!   `PARTIAL` from `UNTRUSTED` lets the operator tell a tamper
 //!   attempt from a missing tool.
@@ -42,7 +42,7 @@ pub const EXIT_TRUSTED: i32 = 0;
 /// signature invalid, attestation invalid, identity mismatch).
 pub const EXIT_UNTRUSTED: i32 = 1;
 /// Exit code: no hard failure but at least one check could not complete
-/// (cosign absent, slsa-verifier absent, signature metadata absent,
+/// (cosign absent, `gh` CLI absent, signature metadata absent,
 /// sidecars missing).
 pub const EXIT_PARTIAL: i32 = 2;
 /// Exit code: report file unreadable, JSON invalid, or required flag
@@ -482,12 +482,11 @@ fn verify_binary_attestation(report: &PeriodicReport) -> Status {
     match report.integrity.binary_attestation.as_ref() {
         None => Status::NotProvided,
         Some(att) => Status::Skip(format!(
-            "binary attestation metadata present (built from {} at {}, builder {}); verify the binary at {} with `slsa-verifier verify-artifact --provenance-path ... --source-uri github.com/robintra/perf-sentinel --source-tag {} <binary>`",
+            "binary attestation metadata present (built from {} at {}, builder {}, attestation indexed at {}). Verify the binary with `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.",
             sanitise_for_terminal(&att.git_tag),
             sanitise_for_terminal(&att.git_commit),
             sanitise_for_terminal(&att.builder_id),
             sanitise_for_terminal(&att.attestation_url),
-            sanitise_for_terminal(&att.git_tag)
         )),
     }
 }
@@ -868,11 +867,11 @@ mod tests {
             builder_id: "https://github.com/actions/runner".to_string(),
             git_tag: "v0.7.0".to_string(),
             git_commit: "a47be9d".to_string(),
-            slsa_level: "L2".to_string(),
+            slsa_level: "L3".to_string(),
         });
         let s = verify_binary_attestation(&report);
         match s {
-            Status::Skip(d) => assert!(d.contains("slsa-verifier")),
+            Status::Skip(d) => assert!(d.contains("gh attestation")),
             other => panic!(
                 "expected Skip, got {}",
                 match other {

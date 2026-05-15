@@ -225,9 +225,9 @@ fn write_attestation(
     let digest = compute_file_sha256_hex(report_path)?;
     let statement = build_in_toto_statement_named(report, &digest, subject_name);
     // Compact single-line JSON matches the `.intoto.jsonl` convention
-    // (one self-contained JSON value per line) used by cosign and
-    // slsa-verifier tooling, with a trailing newline so concatenating
-    // multiple statements stays valid JSONL.
+    // (one self-contained JSON value per line) used by cosign tooling,
+    // with a trailing newline so concatenating multiple statements
+    // stays valid JSONL.
     let mut json = serde_json::to_string(&statement)
         .map_err(|e| std::io::Error::other(format!("serialise attestation: {e}")))?;
     json.push('\n');
