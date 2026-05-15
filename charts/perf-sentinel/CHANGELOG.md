@@ -6,6 +6,36 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.36]
+
+### Changed
+
+- `appVersion` bumped to `0.7.1`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.1`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.7.1 binary migrates the SLSA build provenance tooling from
+  `slsa-framework/slsa-github-generator@v2.1.0` (in de-facto
+  maintenance since 2025-02, internal actions stuck on Node.js 20
+  while GitHub-hosted runners switch to Node 24 default on
+  2 June 2026) to GitHub-native `actions/attest-build-provenance`.
+  The new pipeline stores the attestation in the GitHub attestations
+  API instead of the previous release asset
+  `multiple.intoto.jsonl`, and the SLSA level claim moves from L2 to
+  L3 because the new action produces a level-3 attestation by
+  construction. The daemon advisory warning on
+  `[reporting] disclose_output_path` is now emitted exactly once at
+  startup, fixing the double-emit observed on 0.7.0 when CLI listen
+  overrides re-ran `Config::validate()`.
+
+### Breaking
+
+- **Consumer-side SLSA verification changes**. A script that did
+  `curl ... multiple.intoto.jsonl && slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl ...`
+  no longer works on 0.7.1+ binaries (the release asset is gone).
+  Migration: `gh attestation verify <binary> --owner robintra --repo perf-sentinel`
+  (requires `gh` CLI 2.49+). The v0.7.0 release retains its legacy
+  attestation asset, the breaking change applies only to v0.7.1+.
+
 ## [0.2.35]
 
 ### Changed
