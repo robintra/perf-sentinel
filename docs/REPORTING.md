@@ -469,11 +469,11 @@ Signed reports (where `integrity.signature` is non-null) are rejected by default
 
 Exit codes:
 
-| Code | Meaning |
-|------|---------|
-| 0 | Hash baked, file written. |
-| 1 | Refused: report carries a signature and `--allow-signed` was not passed. No output written. |
-| 3 | Input error: report unreadable, JSON invalid, or output cannot be written. |
+| Code | Meaning                                                                                     |
+|------|---------------------------------------------------------------------------------------------|
+| 0    | Hash baked, file written.                                                                   |
+| 1    | Refused: report carries a signature and `--allow-signed` was not passed. No output written. |
+| 3    | Input error: report unreadable, JSON invalid, or output cannot be written.                  |
 
 ## Common errors
 

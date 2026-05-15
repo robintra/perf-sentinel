@@ -6,16 +6,22 @@
 //! atomically. Intended for test fixture generation and debugging when a
 //! report's hash has drifted from canonical.
 //!
+//! The input file is capped at 64 MiB. The temp file is created
+//! with `create_new` (and `O_NOFOLLOW` on unix) so a stale
+//! `<output>.tmp` or a hostile symlink at that path triggers an exit
+//! 3 instead of silently clobbering the target.
+//!
 //! Exit codes:
 //!
 //! - `0` success
 //! - `1` refused (`integrity.signature` already populated and
 //!   `--allow-signed` not passed)
-//! - `3` `INPUT_ERROR` (read failure, JSON parse error, write failure)
+//! - `3` `INPUT_ERROR` (file unreadable, JSON parse error, file over
+//!   the size cap, temp file path collision, write failure)
 
-use std::fs;
+use std::fs::{self, OpenOptions};
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sentinel_core::report::periodic::{compute_content_hash, schema::PeriodicReport};
 use sentinel_core::text_safety::sanitize_for_terminal;
@@ -24,8 +30,36 @@ pub const EXIT_OK: i32 = 0;
 pub const EXIT_REFUSED: i32 = 1;
 pub const EXIT_INPUT_ERROR: i32 = 3;
 
+// Hard cap on the input report size. Legitimate periodic disclosures
+// are well under 10 MB, 64 MiB leaves room for outliers (deep G1
+// archives, large per-service breakdowns) while bounding the
+// allocation a single CLI invocation will perform.
+const MAX_REPORT_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Entry point invoked from `main.rs` dispatch.
 pub fn cmd_hash_bake(report_path: &Path, output_path: &Path, allow_signed: bool) -> i32 {
+    // Refuse oversized inputs before allocating to bound the worst
+    // case (poisoned mirror feeding a multi-GB JSON to a CI runner).
+    match fs::metadata(report_path) {
+        Ok(meta) if meta.len() > MAX_REPORT_BYTES => {
+            eprintln!(
+                "Error: report at {} is {} bytes, exceeds the {}-byte cap.",
+                sanitize_for_terminal(&report_path.display().to_string()),
+                meta.len(),
+                MAX_REPORT_BYTES
+            );
+            return EXIT_INPUT_ERROR;
+        }
+        Err(err) => {
+            eprintln!(
+                "Error: failed to stat report at {}: {err}",
+                sanitize_for_terminal(&report_path.display().to_string())
+            );
+            return EXIT_INPUT_ERROR;
+        }
+        Ok(_) => {}
+    }
+
     let bytes = match fs::read(report_path) {
         Ok(b) => b,
         Err(err) => {
@@ -50,13 +84,11 @@ pub fn cmd_hash_bake(report_path: &Path, output_path: &Path, allow_signed: bool)
 
     if report.integrity.signature.is_some() && !allow_signed {
         eprintln!(
-            "Error: report at {} already has integrity.signature populated.",
+            "Error: report at {} already has integrity.signature populated.\n\
+             The canonical content_hash excludes integrity.signature, so re-baking does not invalidate an existing signature.\n\
+             This refusal guards against accidental overwrites of signed reports. Pass --allow-signed to proceed.",
             sanitize_for_terminal(&report_path.display().to_string())
         );
-        eprintln!(
-            "Re-baking would not invalidate the signature (content_hash blanches signature in canonical form), but you should confirm the intent."
-        );
-        eprintln!("Pass --allow-signed to proceed.");
         return EXIT_REFUSED;
     }
 
@@ -84,8 +116,26 @@ pub fn cmd_hash_bake(report_path: &Path, output_path: &Path, allow_signed: bool)
 // Write `report` to `output` atomically via a sibling `.tmp` file and
 // `rename`. Cleans up the temp on rename failure (best effort).
 fn write_atomic_pretty(report: &PeriodicReport, output: &Path) -> Result<(), i32> {
-    let tmp = output.with_extension("tmp");
-    let file = match fs::File::create(&tmp) {
+    // Append `.tmp` instead of replacing the extension so a path like
+    // `report.tmp` (whose extension is already `tmp`) does not collide
+    // with itself, which would defeat the atomic guarantee.
+    let tmp = {
+        let mut buf = output.as_os_str().to_owned();
+        buf.push(".tmp");
+        PathBuf::from(buf)
+    };
+    // `create_new` fails if the temp already exists, and `O_NOFOLLOW`
+    // refuses to follow a symlink at that path. Together they defeat
+    // the symlink-clobber attack a co-located process could attempt
+    // on a shared CI workspace.
+    let mut opts = OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = match opts.open(&tmp) {
         Ok(f) => f,
         Err(err) => {
             eprintln!(
@@ -169,6 +219,34 @@ mod tests {
         assert_eq!(baked.integrity.content_hash, recomputed);
         let zero_placeholder = format!("sha256:{}", "0".repeat(64));
         assert_ne!(baked.integrity.content_hash, zero_placeholder);
+        // The temp file must not survive a successful bake.
+        let leaked_tmp = tmp.path().join("out.json.tmp");
+        assert!(
+            !leaked_tmp.exists(),
+            "temp file leaked after successful rename: {}",
+            leaked_tmp.display()
+        );
+    }
+
+    #[test]
+    fn hash_bake_handles_output_already_named_dot_tmp() {
+        // Regression: `with_extension("tmp")` would have collided here,
+        // since the output path already ends in `.tmp`. Appending `.tmp`
+        // produces `out.tmp.tmp`, which is distinct and preserves the
+        // atomic guarantee.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let in_path = tmp.path().join("in.json");
+        let out_path = tmp.path().join("out.tmp");
+        fs::write(&in_path, placeholder_g2_bytes()).unwrap();
+
+        let code = cmd_hash_bake(&in_path, &out_path, false);
+        assert_eq!(code, EXIT_OK);
+        assert!(out_path.exists(), "output not created");
+        let baked: PeriodicReport = serde_json::from_slice(&fs::read(&out_path).unwrap()).unwrap();
+        assert_eq!(
+            baked.integrity.content_hash,
+            compute_content_hash(&baked).unwrap()
+        );
     }
 
     #[test]
@@ -226,11 +304,8 @@ mod tests {
     fn hash_bake_input_error_on_missing_file() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let out_path = tmp.path().join("out.json");
-        let code = cmd_hash_bake(
-            Path::new("/nonexistent/path/to/missing.json"),
-            &out_path,
-            false,
-        );
+        let missing = tmp.path().join("does-not-exist.json");
+        let code = cmd_hash_bake(&missing, &out_path, false);
         assert_eq!(code, EXIT_INPUT_ERROR);
     }
 
@@ -243,5 +318,42 @@ mod tests {
 
         let code = cmd_hash_bake(&in_path, &out_path, false);
         assert_eq!(code, EXIT_INPUT_ERROR);
+    }
+
+    #[test]
+    fn hash_bake_input_error_on_oversized_report() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let in_path = tmp.path().join("huge.json");
+        let out_path = tmp.path().join("out.json");
+        // Reserve a virtual file just over the cap. `set_len` extends
+        // sparsely on every supported filesystem, so the bytes are not
+        // actually written.
+        let file = fs::File::create(&in_path).unwrap();
+        file.set_len(MAX_REPORT_BYTES + 1).unwrap();
+        drop(file);
+
+        let code = cmd_hash_bake(&in_path, &out_path, false);
+        assert_eq!(code, EXIT_INPUT_ERROR);
+        assert!(!out_path.exists());
+    }
+
+    #[test]
+    fn hash_bake_input_error_when_temp_path_already_exists() {
+        // Pre-existing `<output>.tmp` (stale or hostile) must abort the
+        // bake instead of being silently truncated. Guards against the
+        // symlink-clobber attack on shared workspaces.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let in_path = tmp.path().join("in.json");
+        let out_path = tmp.path().join("out.json");
+        let collision = tmp.path().join("out.json.tmp");
+        fs::write(&in_path, placeholder_g2_bytes()).unwrap();
+        fs::write(&collision, b"stale").unwrap();
+
+        let code = cmd_hash_bake(&in_path, &out_path, false);
+        assert_eq!(code, EXIT_INPUT_ERROR);
+        assert!(!out_path.exists(), "output must not be created");
+        // The collision file is untouched; the operator can inspect or
+        // remove it themselves.
+        assert_eq!(fs::read(&collision).unwrap(), b"stale");
     }
 }

@@ -481,11 +481,11 @@ Les rapports signés (`integrity.signature` non-null) sont rejetés par défaut.
 
 Codes de sortie :
 
-| Code | Signification |
-|------|---------------|
-| 0 | Hash baked, fichier écrit. |
-| 1 | Refusé : le rapport porte une signature et `--allow-signed` n'a pas été passé. Aucun fichier de sortie écrit. |
-| 3 | Erreur d'entrée : rapport illisible, JSON invalide, ou écriture impossible. |
+| Code | Signification                                                                                                 |
+|------|---------------------------------------------------------------------------------------------------------------|
+| 0    | Hash baked, fichier écrit.                                                                                    |
+| 1    | Refusé : le rapport porte une signature et `--allow-signed` n'a pas été passé. Aucun fichier de sortie écrit. |
+| 3    | Erreur d'entrée : rapport illisible, JSON invalide, ou écriture impossible.                                   |
 
 ## Erreurs courantes
 

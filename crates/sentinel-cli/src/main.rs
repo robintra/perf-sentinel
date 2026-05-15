@@ -570,11 +570,11 @@ enum Commands {
     /// Compute and bake the canonical `content_hash` into a periodic report.
     ///
     /// Reads `--report`, recomputes the canonical SHA-256 `content_hash`
-    /// (applying the `POST_SIGN_FIELDS` blanching that defines the
-    /// signature-stable form), writes it into `integrity.content_hash`,
-    /// and saves the result to `--output`. The same path as `--report`
-    /// is allowed and bakes in place via an atomic temp+rename.
-    /// Intended for test fixture generation and debugging.
+    /// using the same signature-stable canonicalization rules that
+    /// `disclose` applies, writes it into `integrity.content_hash`, and
+    /// saves the result to `--output`. The same path as `--report` is
+    /// allowed and bakes in place via an atomic temp+rename. Intended
+    /// for test fixture generation and debugging.
     HashBake {
         /// Local report file to read.
         #[arg(long, value_name = "PATH")]
