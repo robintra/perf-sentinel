@@ -85,6 +85,13 @@ pub const DEFAULT_REKOR_URL: &str = "https://rekor.sigstore.dev";
 /// Public Sigstore Fulcio certificate authority.
 pub const DEFAULT_FULCIO_URL: &str = "https://fulcio.sigstore.dev";
 
+/// Workspace version that turns `[reporting] disclose_output_path`
+/// into a functional field (daemon-triggered periodic disclosures).
+/// Bump here when the timeline slips. The same value appears as a
+/// TOML comment in `docs/REPORTING.md` and `docs/FR/REPORTING-FR.md`,
+/// kept in sync by grep at release time.
+const RESERVED_DISCLOSE_OUTPUT_PATH_VERSION: &str = "0.8.0";
+
 /// Maps to `[daemon.archive]` in TOML. When `Some`, the daemon writes
 /// each per-window `Report` as one NDJSON line to `path`, with
 /// size-triggered rotation and `max_files` count-based pruning.
@@ -1446,7 +1453,6 @@ impl Config {
         self.validate_daemon_limits()?;
         self.validate_detection_params()?;
         self.validate_rates()?;
-        self.validate_listen_addr()?;
         self.validate_tls()?;
         self.validate_green()?;
         self.validate_daemon_ack()?;
@@ -1455,6 +1461,31 @@ impl Config {
         self.validate_reporting()?;
         self.validate_cross_section_consistency()?;
         Ok(())
+    }
+
+    /// Emit the non-loopback security advisory if applicable.
+    ///
+    /// The default is `127.0.0.1` (loopback). Advanced users may override
+    /// to `0.0.0.0` for container deployments behind a reverse proxy. We
+    /// warn loudly rather than rejecting, because the user's intent is
+    /// explicit (they changed the config) and a hard reject would force
+    /// workarounds (e.g., iptables) that are harder to audit.
+    ///
+    /// Kept separate from `validate()` because it is the only check
+    /// that depends on CLI overrides (`--listen-address`), so the daemon
+    /// entrypoint calls it a second time after applying the overrides.
+    /// The other advisory warnings inside `validate()` are config-only
+    /// and must be emitted exactly once, at load time, to avoid making
+    /// an operator believe the daemon validates the same config twice.
+    pub fn warn_listen_addr_if_non_loopback(&self) {
+        if self.daemon.listen_addr != "127.0.0.1" && self.daemon.listen_addr != "::1" {
+            tracing::warn!(
+                "Daemon configured to listen on non-loopback address: {}. \
+                 Endpoints have no authentication, use a reverse proxy or \
+                 network policy for security.",
+                self.daemon.listen_addr
+            );
+        }
     }
 
     /// Validate `[reporting]` settings. Rejects unknown intent /
@@ -1492,6 +1523,17 @@ impl Config {
                 "[reporting] org_config_path is required when intent = \"official\"".to_string(),
             );
         }
+        Ok(())
+    }
+
+    /// Reporting-section advisory warnings emitted at load time only.
+    /// Kept separate from `validate_reporting` because the daemon
+    /// entrypoint re-runs `validate()` after applying CLI overrides
+    /// (`--listen-address`, ports), and an advisory not affected by
+    /// those overrides must not be re-emitted, otherwise an operator
+    /// upgrading 0.6.2 -> 0.7.0 sees the same warning twice and
+    /// suspects two daemon instances or a duplicated config layer.
+    fn warn_reporting_advisory(&self) {
         if self
             .reporting
             .disclose_output_path
@@ -1500,11 +1542,11 @@ impl Config {
         {
             tracing::warn!(
                 "[reporting] disclose_output_path is set but currently unused. \
-                 Reserved for daemon-triggered periodic disclosures (planned for 0.8.0). \
-                 Reports today are produced exclusively via `perf-sentinel disclose --output`."
+                 Reserved for daemon-triggered periodic disclosures (planned for {}). \
+                 Reports today are produced exclusively via `perf-sentinel disclose --output`.",
+                RESERVED_DISCLOSE_OUTPUT_PATH_VERSION
             );
         }
-        Ok(())
     }
 
     /// Validate `[daemon.archive]` settings when present.
@@ -2251,26 +2293,6 @@ impl Config {
         }
         Ok(())
     }
-
-    /// Warn (but do not reject) non-loopback listen addresses.
-    ///
-    /// The default is `127.0.0.1` (loopback). Advanced users may override
-    /// to `0.0.0.0` for container deployments behind a reverse proxy.
-    /// We warn loudly rather than rejecting, because the user's intent is
-    /// explicit (they changed the config) and a hard reject would force
-    /// workarounds (e.g., iptables) that are harder to audit.
-    #[allow(clippy::unnecessary_wraps)]
-    fn validate_listen_addr(&self) -> Result<(), String> {
-        if self.daemon.listen_addr != "127.0.0.1" && self.daemon.listen_addr != "::1" {
-            tracing::warn!(
-                "Daemon configured to listen on non-loopback address: {}. \
-                 Endpoints have no authentication, use a reverse proxy or \
-                 network policy for security.",
-                self.daemon.listen_addr
-            );
-        }
-        Ok(())
-    }
 }
 
 /// Top-level TOML keys that perf-sentinel accepted in 0.5.x as legacy
@@ -2362,6 +2384,8 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
     }
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
+    config.warn_listen_addr_if_non_loopback();
+    config.warn_reporting_advisory();
     Ok(config)
 }
 

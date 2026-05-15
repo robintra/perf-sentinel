@@ -1876,12 +1876,15 @@ async fn cmd_watch(
     if let Some(port) = listen_port_grpc {
         config.daemon.listen_port_grpc = port;
     }
-    // Re-run validation so a CLI override to a non-loopback address still
-    // emits the security warning from `validate_listen_addr`.
+    // Re-run strict validation so CLI overrides on listen_addr / ports
+    // are checked. Advisory warnings are NOT re-emitted here (they were
+    // emitted once at load), only the non-loopback security advisory
+    // is re-checked because it is the only one affected by overrides.
     if let Err(e) = config.validate() {
         eprintln!("Error: invalid daemon configuration after CLI overrides: {e}");
         std::process::exit(1);
     }
+    config.warn_listen_addr_if_non_loopback();
     info!(
         "Starting daemon: gRPC={}:{}, HTTP={}:{}",
         config.daemon.listen_addr,
