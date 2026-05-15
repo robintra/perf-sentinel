@@ -384,8 +384,8 @@ une auto-vérification interne avant publication.
 `verify-hash` chaîne trois vérifications : recompute déterministe
 du content hash (Rust pur, toujours lancé), signature Sigstore
 (`cosign verify-blob`), et provenance SLSA du binaire
-(résumé métadonnée plus une commande `slsa-verifier` qui pointe
-vers le binaire dans `integrity.binary_verification_url`).
+(résumé métadonnée plus une commande `gh attestation verify` qui
+pointe vers le binaire dans `integrity.binary_verification_url`).
 
 Codes de sortie :
 
@@ -393,7 +393,7 @@ Codes de sortie :
 |------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `0`  | TRUSTED (content hash matché ET signature vérifiée ok)                                                                                                              |
 | `1`  | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme)                                    |
-| `2`  | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, slsa-verifier absent, métadonnée de signature absente, sidecars manquants) |
+| `2`  | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, `gh` CLI absent, métadonnée de signature absente, sidecars manquants)      |
 | `3`  | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant)                                                                            |
 | `4`  | NETWORK_ERROR (mode `--url` uniquement : fetch HTTP échoué, schéma refusé, body au-dessus du cap de taille)                                                         |
 

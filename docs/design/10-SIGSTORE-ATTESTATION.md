@@ -208,11 +208,14 @@ the format, not an optional opt-in.
    when `integrity.signature` is present in the report and the
    operator passes `--attestation` and `--bundle` (or `--url` mode
    pulls them automatically).
-3. **Binary attestation** (delegated to `slsa-verifier
-   verify-artifact`). Today the verify-hash output prints a
-   metadata summary and the exact `slsa-verifier` command to run
-   against the binary downloaded from
-   `integrity.binary_verification_url`; binary fetch + verify in
+3. **Binary attestation** (delegated to `gh attestation verify`
+   from v0.7.1 onward, `slsa-verifier verify-artifact` on the
+   legacy v0.7.0 release). The verify-hash output prints a metadata
+   summary and the exact verification command to run against the
+   binary downloaded from `integrity.binary_verification_url`. The
+   0.7.1 migration moved the attestation storage from a release
+   asset (`multiple.intoto.jsonl`) to the GitHub attestations API
+   via `actions/attest-build-provenance`. Binary fetch + verify in
    a single command is future work.
 
 Exit codes:

@@ -208,35 +208,51 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 ## Provenance SLSA des binaires
 
-Depuis v0.7.0, chaque binaire de release officiel perf-sentinel porte
-une attestation SLSA niveau L2. L'attestation est générée par GitHub
-Actions via `slsa-framework/slsa-github-generator` (pinné par SHA,
-tag en commentaire) et publiée comme asset du Release GitHub à
-côté du binaire sous le nom `multiple.intoto.jsonl`.
+Depuis v0.7.1, chaque binaire de release officiel perf-sentinel porte
+une attestation SLSA Build L3. L'attestation est générée par GitHub
+Actions via `actions/attest-build-provenance` (maintenu sous l'org
+GitHub `actions/`) et stockée dans l'API attestations GitHub
+associée à ce dépôt. Elle **n'est plus** publiée comme asset du
+Release GitHub.
 
-Pourquoi L2 et pas L3 : le générateur reusable peut atteindre L3
-s'il tourne sur un runner durci et audité. perf-sentinel utilise
-les runners partagés `ubuntu-latest` avec des permissions réduites
-au niveau du job, pas un runner isolé. L2 est la revendication
-honnête, et c'est la valeur portée par
-`integrity.binary_attestation.slsa_level` dans chaque rapport
-périodique produit par un tel binaire.
+La 0.7.1 migre depuis l'outillage précédent,
+`slsa-framework/slsa-github-generator@v2.1.0`, en maintenance de facto
+depuis le 24 février 2025 (15 mois sans release au moment de la
+migration, toutes les actions internes encore sur Node.js 20 alors
+que les runners GitHub-hosted basculent sur Node 24 par défaut le
+2 juin 2026). La nouvelle pipeline préserve le contrat SLSA Build
+Provenance, supprime l'asset release `multiple.intoto.jsonl` (les
+attestations vivent désormais dans l'API attestations), et fait
+passer le niveau revendiqué de L2 à L3, puisque
+`actions/attest-build-provenance` produit une attestation niveau 3
+par construction (provenance signée via OIDC Sigstore, isolation du
+builder sur runner GitHub-hosted).
 
 Vérifier un binaire téléchargé :
 
 ```bash
-slsa-verifier verify-artifact \
-  --provenance-path multiple.intoto.jsonl \
-  --source-uri github.com/robintra/perf-sentinel \
-  --source-tag v0.7.0 \
-  perf-sentinel-linux-amd64
+gh attestation verify perf-sentinel-linux-amd64 \
+  --owner robintra \
+  --repo perf-sentinel
 ```
 
-Une vérification réussie confirme que le binaire vient du tag
-spécifié de ce repo, construit par GitHub Actions, pas par un
-tiers. Combiner avec la subcommand `verify-hash` sur un rapport
-périodique pour vérifier la chaîne complète :
+Une vérification réussie confirme que le binaire vient d'un tag de
+release de ce dépôt, construit par GitHub Actions, pas par un tiers.
+Combiner avec la subcommand `verify-hash` sur un rapport périodique
+pour vérifier la chaîne complète :
 `source -> SLSA -> binaire -> rapport -> signature Sigstore`.
+
+**Prérequis** : `gh` CLI 2.49+ côté consommateur (les versions
+antérieures n'implémentent pas `gh attestation verify`). La même
+vérification peut être réalisée via les SDK clients Sigstore
+directement contre l'API attestations GitHub pour les outils qui
+ne peuvent pas dépendre de `gh`.
+
+**Note de migration consommateur** : un binaire 0.6.x ou 0.7.0
+embarque toujours le `multiple.intoto.jsonl` legacy et se vérifie
+via `slsa-verifier verify-artifact`. Le chemin de vérification
+legacy est conservé sur ces tags existants, seul 0.7.1+ requiert la
+nouvelle commande.
 
 ## Checklist de relecture PR
 

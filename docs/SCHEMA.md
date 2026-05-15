@@ -80,7 +80,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 `signature` (0.7.0+) is either `null` (hash-only report) or a typed object with `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, and `signed_at`. The fields collectively let a verifier locate the cosign bundle and the Rekor inclusion proof.
 
-`binary_attestation` (0.7.0+) is optional and, when present, carries a `format` (`"slsa-provenance-v1"`), `attestation_url`, `builder_id`, `git_tag`, `git_commit`, and `slsa_level` (`"L2"` for the current GitHub Actions release workflow). Consumers pass `attestation_url` to `slsa-verifier verify-artifact` against the binary downloaded from `binary_verification_url`.
+`binary_attestation` (0.7.0+) is optional and, when present, carries a `format` (`"slsa-provenance-v1"`), `attestation_url`, `builder_id`, `git_tag`, `git_commit`, and `slsa_level` (`"L2"` for v0.7.0, `"L3"` from v0.7.1 onward since the release workflow moved to `actions/attest-build-provenance` which produces a level-3 attestation by construction). Consumers verify the binary downloaded from `binary_verification_url` with `gh attestation verify <binary> --owner robintra --repo perf-sentinel` for 0.7.1+ releases, or with `slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl ...` for the legacy 0.7.0 release.
 
 `integrity_level` in `report_metadata` is one of `none`, `hash-only`, `signed`, `signed-with-attestation` (0.7.0+), `audited`. The reader can use it as a fast filter before parsing the integrity block.
 

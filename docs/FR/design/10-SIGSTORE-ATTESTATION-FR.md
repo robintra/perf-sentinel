@@ -220,12 +220,16 @@ propriété du format, pas un opt-in optionnel.
    quand `integrity.signature` est présent dans le rapport et que
    l'opérateur passe `--attestation` et `--bundle` (ou que le mode
    `--url` les fetch automatiquement).
-3. **Attestation binaire** (déléguée à `slsa-verifier
-   verify-artifact`). Aujourd'hui la sortie verify-hash imprime un
-   résumé métadonnée et la commande `slsa-verifier` exacte à
-   lancer contre le binaire téléchargé depuis
-   `integrity.binary_verification_url`. Le fetch binaire + verify
-   en une seule commande est un travail futur.
+3. **Attestation binaire** (déléguée à `gh attestation verify` à
+   partir de 0.7.1, `slsa-verifier verify-artifact` sur la 0.7.0
+   legacy). La sortie verify-hash imprime un résumé métadonnée et
+   la commande de vérification exacte à lancer contre le binaire
+   téléchargé depuis `integrity.binary_verification_url`. La
+   migration 0.7.1 a déplacé le stockage de l'attestation d'un
+   asset de release (`multiple.intoto.jsonl`) vers l'API
+   attestations GitHub via `actions/attest-build-provenance`. Le
+   fetch binaire + verify en une seule commande est un travail
+   futur.
 
 Codes de sortie :
 
