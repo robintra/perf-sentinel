@@ -283,7 +283,7 @@ impl Builder {
     fn compute_window_metrics(
         &mut self,
         report: &Report,
-        ts: chrono::DateTime<chrono::Utc>,
+        ts: DateTime<Utc>,
     ) -> Option<WindowMetrics> {
         let carbon_kg = report
             .green_summary
@@ -492,12 +492,7 @@ impl Builder {
         collect_endpoints_seen(&mut self.per_service, &report.per_endpoint_io_ops);
     }
 
-    fn route_findings(
-        &mut self,
-        findings: &[Finding],
-        ts: chrono::DateTime<chrono::Utc>,
-        unattributed: bool,
-    ) {
+    fn route_findings(&mut self, findings: &[Finding], ts: DateTime<Utc>, unattributed: bool) {
         for finding in findings {
             // Route findings to the unattributed bucket when the window
             // had no per-service offenders or runtime maps, so a service
@@ -525,12 +520,7 @@ impl Builder {
         }
     }
 
-    fn update_seen_timestamps(
-        &mut self,
-        service_key: &str,
-        pattern: &str,
-        ts: chrono::DateTime<chrono::Utc>,
-    ) {
+    fn update_seen_timestamps(&mut self, service_key: &str, pattern: &str, ts: DateTime<Utc>) {
         let key = (service_key.to_string(), pattern.to_string());
         self.first_seen
             .entry(key.clone())
