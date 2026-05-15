@@ -14,7 +14,7 @@ La subcommand est ajoutée en v0.6.x et remplace les recettes de disclosure ad h
 
 `audited` est réservé pour une release future. Le schéma JSON accepte la valeur pour la compatibilité ascendante, mais la CLI sort avec le code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") et le daemon refuse de démarrer avec `intent = "audited"` configuré.
 
-Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution énergie per-service présente) ou fallback (proxy I/O share comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution per-service, soit la limite en-dessous de laquelle "official" cesse d'être honnête. Voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime) pour la justification empirique.
+Pour l'intent `official`, le validator refuse également les rapports sous 75% de couverture runtime-calibrated. Le dénominateur est `runtime_windows_count + fallback_windows_count` : chaque fenêtre de scoring archivée par le daemon dans la période demandée est classée runtime (attribution énergie per-service présente) ou fallback (proxy I/O share comme substitut). Une couverture sous 75% signifie qu'au-delà du quart des fenêtres de la période ne portait pas d'attribution per-service, donc la part proxy commence à dominer les totaux et la revendication "official" perd une couverture per-service significative. La justification empirique du seuil exact 75% (versus 50% ou 90%) est documentée dans [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md#le-seuil-de-75-de-calibration-runtime).
 
 ## Granularité
 
@@ -173,15 +173,15 @@ pour que le consommateur trouve le bundle et le vérifie.
 
 Les sept champs et la source de chaque valeur :
 
-| Champ | Où lire la valeur |
-|-------|-------------------|
-| `format` | constante `"sigstore-cosign-intoto-v1"` pour ce schéma |
-| `bundle_url` | URL où vous publierez `bundle.sig` à l'étape 4 |
+| Champ             | Où lire la valeur                                                                                                                                                                                 |
+|-------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `format`          | constante `"sigstore-cosign-intoto-v1"` pour ce schéma                                                                                                                                            |
+| `bundle_url`      | URL où vous publierez `bundle.sig` à l'étape 4                                                                                                                                                    |
 | `signer_identity` | sortie cosign à l'étape 2, ligne `Successfully verified SCT...` ou `tlog entry... signed by`. Aussi lisible via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
-| `signer_issuer` | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté |
-| `rekor_url` | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée) |
-| `rekor_log_index` | sortie cosign à l'étape 2, ligne `tlog entry created with index: X`. Ou via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer |
-| `signed_at` | timestamp de l'entrée Rekor, ISO 8601 UTC |
+| `signer_issuer`   | même source que `signer_identity`, l'URL OIDC issuer enregistrée à côté                                                                                                                           |
+| `rekor_url`       | l'instance Rekor utilisée (`https://rekor.sigstore.dev` pour Sigstore public, ou la valeur de `[reporting.sigstore] rekor_url` pour une instance privée)                                          |
+| `rekor_log_index` | sortie cosign à l'étape 2, ligne `tlog entry created with index: X`. Ou via `curl <rekor_url>/api/v1/log/entries?logIndex=X` pour confirmer                                                       |
+| `signed_at`       | timestamp de l'entrée Rekor, ISO 8601 UTC                                                                                                                                                         |
 
 Exemple before / after sur une divulgation fraîche :
 
@@ -341,13 +341,13 @@ vers le binaire dans `integrity.binary_verification_url`).
 
 Codes de sortie :
 
-| Code | Signification |
-|------|---------------|
-| `0` | TRUSTED (content hash matché ET signature vérifiée ok) |
-| `1` | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme) |
-| `2` | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, slsa-verifier absent, métadonnée de signature absente, sidecars manquants) |
-| `3` | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant) |
-| `4` | NETWORK_ERROR (mode `--url` uniquement : fetch HTTP échoué, schéma refusé, body au-dessus du cap de taille) |
+| Code | Signification                                                                                                                                                       |
+|------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `0`  | TRUSTED (content hash matché ET signature vérifiée ok)                                                                                                              |
+| `1`  | UNTRUSTED (un check a retourné un échec dur : mismatch de hash, signature invalide, attestation invalide, identité non-conforme)                                    |
+| `2`  | PARTIAL (pas d'échec dur mais au moins un check n'a pas pu se compléter : cosign absent, slsa-verifier absent, métadonnée de signature absente, sidecars manquants) |
+| `3`  | INPUT_ERROR (fichier rapport illisible, JSON invalide, ou `--report` / `--url` manquant)                                                                            |
+| `4`  | NETWORK_ERROR (mode `--url` uniquement : fetch HTTP échoué, schéma refusé, body au-dessus du cap de taille)                                                         |
 
 Un gate scripté `verify-hash && deploy` bloque sur tout code
 non-zéro et rejette donc PARTIAL aussi. Une enveloppe qui

@@ -14,7 +14,7 @@ The subcommand is added in v0.6.x and supersedes earlier ad-hoc disclosure recip
 
 `audited` is reserved for a future release. The JSON schema accepts the value for forward compatibility, but the CLI exits with code 2 ("audited intent is reserved for a future release, use 'internal' or 'official' instead") and the daemon refuses to start with `intent = "audited"` configured.
 
-For `official` intent, the validator also rejects reports below 75% runtime-calibration coverage. The denominator is `runtime_windows_count + fallback_windows_count`: each scoring window the daemon archived in the requested period is classified as runtime (per-service energy attribution present) or fallback (proxy I/O share used as a substitute). A coverage below 75% means more than a quarter of the period's windows did not carry per-service attribution, which is the limit below which "official" stops being honest. See [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md#the-75-runtime-calibration-threshold) for the empirical rationale.
+For `official` intent, the validator also rejects reports below 75% runtime-calibration coverage. The denominator is `runtime_windows_count + fallback_windows_count`: each scoring window the daemon archived in the requested period is classified as runtime (per-service energy attribution present) or fallback (proxy I/O share used as a substitute). A coverage below 75% means more than a quarter of the period's windows did not carry per-service attribution, so the proxy share starts dominating the totals and the "official" claim loses meaningful per-service coverage. The empirical rationale for the exact 75% bar (versus 50% or 90%) is documented in [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md#the-75-runtime-calibration-threshold).
 
 ## Granularity
 
@@ -170,15 +170,15 @@ fields so the consumer can find the bundle and verify it.
 
 The seven fields and where each value comes from:
 
-| Field | Where to read |
-|-------|---------------|
-| `format` | constant `"sigstore-cosign-intoto-v1"` for this schema |
-| `bundle_url` | URL where you will publish `bundle.sig` at step 4 |
+| Field             | Where to read                                                                                                                                                                                                    |
+|-------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `format`          | constant `"sigstore-cosign-intoto-v1"` for this schema                                                                                                                                                           |
+| `bundle_url`      | URL where you will publish `bundle.sig` at step 4                                                                                                                                                                |
 | `signer_identity` | cosign stdout/stderr at step 2, line `Successfully verified SCT...` or `tlog entry... signed by`. Also visible in the cert via `cosign verify-blob --certificate-identity-regexp '.*' ... 2>&1 \| grep identity` |
-| `signer_issuer` | same source as `signer_identity`, the OIDC issuer URL recorded next to it |
-| `rekor_url` | the Rekor instance used (`https://rekor.sigstore.dev` for Sigstore public, or the value from `[reporting.sigstore] rekor_url` for a private instance) |
-| `rekor_log_index` | cosign stdout at step 2, line `tlog entry created with index: X`. Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm |
-| `signed_at` | timestamp from the Rekor entry, ISO 8601 UTC |
+| `signer_issuer`   | same source as `signer_identity`, the OIDC issuer URL recorded next to it                                                                                                                                        |
+| `rekor_url`       | the Rekor instance used (`https://rekor.sigstore.dev` for Sigstore public, or the value from `[reporting.sigstore] rekor_url` for a private instance)                                                            |
+| `rekor_log_index` | cosign stdout at step 2, line `tlog entry created with index: X`. Or fetch via `curl <rekor_url>/api/v1/log/entries?logIndex=X` to confirm                                                                       |
+| `signed_at`       | timestamp from the Rekor entry, ISO 8601 UTC                                                                                                                                                                     |
 
 Example before / after on a fresh disclosure:
 
@@ -336,13 +336,13 @@ binary in `integrity.binary_verification_url`).
 
 Exit codes:
 
-| Code | Meaning |
-|------|---------|
-| `0` | TRUSTED (content hash matched AND signature verified ok) |
-| `1` | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch) |
-| `2` | PARTIAL (no hard failure but at least one check could not complete: cosign absent, slsa-verifier absent, signature metadata absent, sidecars missing) |
-| `3` | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`) |
-| `4` | NETWORK_ERROR (only `--url` mode: HTTP fetch failed, scheme rejected, body over the size cap) |
+| Code | Meaning                                                                                                                                               |
+|------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `0`  | TRUSTED (content hash matched AND signature verified ok)                                                                                              |
+| `1`  | UNTRUSTED (a check returned a hard failure: hash mismatch, signature invalid, attestation invalid, identity mismatch)                                 |
+| `2`  | PARTIAL (no hard failure but at least one check could not complete: cosign absent, slsa-verifier absent, signature metadata absent, sidecars missing) |
+| `3`  | INPUT_ERROR (report file unreadable, JSON invalid, missing `--report` or `--url`)                                                                     |
+| `4`  | NETWORK_ERROR (only `--url` mode: HTTP fetch failed, scheme rejected, body over the size cap)                                                         |
 
 A scripted `verify-hash && deploy` gate blocks on any non-zero code
 and so still rejects PARTIAL, but a wrapper that distinguishes
