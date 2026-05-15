@@ -41,7 +41,7 @@ jobs:
     name: Publish trunk baseline to gh-pages
     runs-on: ubuntu-latest
     env:
-      PERF_SENTINEL_VERSION: "0.7.0"
+      PERF_SENTINEL_VERSION: "0.7.1"
       PERF_SENTINEL_TRACES: "test-traces.json"
       PERF_SENTINEL_CONFIG: ".perf-sentinel.toml"
 
