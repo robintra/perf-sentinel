@@ -33,6 +33,12 @@ use sentinel_core::report::periodic::schema::{IntegrityLevel, PeriodicReport, Si
 /// realistic report file size and guards against pathological responses.
 const MAX_REMOTE_BYTES: usize = 10 * 1024 * 1024;
 
+/// Hard cap on `--report` local file size. Looser than `MAX_REMOTE_BYTES`
+/// since the operator chose the path, but bounded so a poisoned mirror or a
+/// runaway artefact does not OOM the host through a single `fs::read`
+/// allocation. Mirrors the cap applied by `hash-bake`.
+const MAX_LOCAL_REPORT_BYTES: u64 = 64 * 1024 * 1024;
+
 /// Per-request timeout for `--url` fetches.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -143,6 +149,19 @@ fn load_report(
     url: Option<&str>,
 ) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
     if let Some(path) = report_path {
+        let meta = std::fs::metadata(path).map_err(|e| {
+            eprintln!("Error: stat {}: {e}", path.display());
+            EXIT_INPUT_ERROR
+        })?;
+        if meta.len() > MAX_LOCAL_REPORT_BYTES {
+            eprintln!(
+                "Error: report at {} is {} bytes, exceeds the {}-byte cap",
+                path.display(),
+                meta.len(),
+                MAX_LOCAL_REPORT_BYTES
+            );
+            return Err(EXIT_INPUT_ERROR);
+        }
         let bytes = std::fs::read(path).map_err(|e| {
             eprintln!("Error: read {}: {e}", path.display());
             EXIT_INPUT_ERROR
