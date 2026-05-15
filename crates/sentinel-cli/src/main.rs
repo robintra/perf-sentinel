@@ -14,6 +14,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod ack;
 mod disclose;
 mod hash_bake;
+mod limits;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;

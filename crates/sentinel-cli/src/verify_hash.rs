@@ -29,15 +29,11 @@ use std::time::Duration;
 use sentinel_core::report::periodic::compute_content_hash;
 use sentinel_core::report::periodic::schema::{IntegrityLevel, PeriodicReport, SignatureMetadata};
 
+use crate::limits::MAX_LOCAL_REPORT_BYTES;
+
 /// Hard cap on remote payloads pulled by `--url`. 10 MB is well above any
 /// realistic report file size and guards against pathological responses.
 const MAX_REMOTE_BYTES: usize = 10 * 1024 * 1024;
-
-/// Hard cap on `--report` local file size. Looser than `MAX_REMOTE_BYTES`
-/// since the operator chose the path, but bounded so a poisoned mirror or a
-/// runaway artefact does not OOM the host through a single `fs::read`
-/// allocation. Mirrors the cap applied by `hash-bake`.
-const MAX_LOCAL_REPORT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Per-request timeout for `--url` fetches.
 const REMOTE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -150,24 +146,33 @@ fn load_report(
 ) -> Result<(PeriodicReport, String, FetchedPaths), i32> {
     if let Some(path) = report_path {
         let meta = std::fs::metadata(path).map_err(|e| {
-            eprintln!("Error: stat {}: {e}", path.display());
+            eprintln!(
+                "Error: stat {}: {e}",
+                sanitise_for_terminal(&path.display().to_string())
+            );
             EXIT_INPUT_ERROR
         })?;
         if meta.len() > MAX_LOCAL_REPORT_BYTES {
             eprintln!(
-                "Error: report at {} is {} bytes, exceeds the {}-byte cap",
-                path.display(),
+                "Error: report at {} is {} bytes, exceeds the {}-byte cap.",
+                sanitise_for_terminal(&path.display().to_string()),
                 meta.len(),
                 MAX_LOCAL_REPORT_BYTES
             );
             return Err(EXIT_INPUT_ERROR);
         }
         let bytes = std::fs::read(path).map_err(|e| {
-            eprintln!("Error: read {}: {e}", path.display());
+            eprintln!(
+                "Error: read {}: {e}",
+                sanitise_for_terminal(&path.display().to_string())
+            );
             EXIT_INPUT_ERROR
         })?;
         let report = parse_report(&bytes).map_err(|e| {
-            eprintln!("Error: parse {}: {e}", path.display());
+            eprintln!(
+                "Error: parse {}: {e}",
+                sanitise_for_terminal(&path.display().to_string())
+            );
             EXIT_INPUT_ERROR
         })?;
         let display = path.display().to_string();

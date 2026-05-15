@@ -26,27 +26,23 @@ use std::path::{Path, PathBuf};
 use sentinel_core::report::periodic::{compute_content_hash, schema::PeriodicReport};
 use sentinel_core::text_safety::sanitize_for_terminal;
 
+use crate::limits::MAX_LOCAL_REPORT_BYTES;
+
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_REFUSED: i32 = 1;
 pub const EXIT_INPUT_ERROR: i32 = 3;
-
-// Hard cap on the input report size. Legitimate periodic disclosures
-// are well under 10 MB, 64 MiB leaves room for outliers (deep G1
-// archives, large per-service breakdowns) while bounding the
-// allocation a single CLI invocation will perform.
-const MAX_REPORT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Entry point invoked from `main.rs` dispatch.
 pub fn cmd_hash_bake(report_path: &Path, output_path: &Path, allow_signed: bool) -> i32 {
     // Refuse oversized inputs before allocating to bound the worst
     // case (poisoned mirror feeding a multi-GB JSON to a CI runner).
     match fs::metadata(report_path) {
-        Ok(meta) if meta.len() > MAX_REPORT_BYTES => {
+        Ok(meta) if meta.len() > MAX_LOCAL_REPORT_BYTES => {
             eprintln!(
                 "Error: report at {} is {} bytes, exceeds the {}-byte cap.",
                 sanitize_for_terminal(&report_path.display().to_string()),
                 meta.len(),
-                MAX_REPORT_BYTES
+                MAX_LOCAL_REPORT_BYTES
             );
             return EXIT_INPUT_ERROR;
         }
@@ -329,7 +325,7 @@ mod tests {
         // sparsely on every supported filesystem, so the bytes are not
         // actually written.
         let file = fs::File::create(&in_path).unwrap();
-        file.set_len(MAX_REPORT_BYTES + 1).unwrap();
+        file.set_len(MAX_LOCAL_REPORT_BYTES + 1).unwrap();
         drop(file);
 
         let code = cmd_hash_bake(&in_path, &out_path, false);

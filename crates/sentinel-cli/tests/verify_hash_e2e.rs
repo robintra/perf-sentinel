@@ -131,6 +131,10 @@ fn verify_hash_url_mode_rejects_http_scheme() {
 fn verify_hash_local_report_over_size_cap_returns_input_error() {
     // 64 MiB cap on `--report <local>`. Sparse `set_len` extends without
     // writing the bytes so the test runs fast on every filesystem.
+    // Source of truth: `crates/sentinel-cli/src/limits.rs::MAX_LOCAL_REPORT_BYTES`.
+    // Kept as a literal here because `perf-sentinel` is a pure binary
+    // crate without a `lib.rs` re-export. Bump in lockstep when the cap
+    // changes.
     let tmp = tempfile::tempdir().expect("tempdir");
     let huge = tmp.path().join("huge.json");
     let file = fs::File::create(&huge).unwrap();
