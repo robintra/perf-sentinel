@@ -517,6 +517,7 @@ fn command_exists(name: &str) -> bool {
 /// past terminal sanitisation. `Command::arg()` does not invoke a
 /// shell so quoting / `;` / `$(...)` are inert, but flag values are
 /// still parsed by cosign itself.
+#[must_use]
 fn is_safe_cosign_argument(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('-') && !s.chars().any(|c| c.is_control() || c == '\0')
 }
