@@ -119,64 +119,20 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
-  # Collect the SHA-256 of every produced binary into a single
-  # base64-encoded subjects list. Consumed by the SLSA L2 provenance
-  # generator below. The output format is the one expected by
-  # `slsa-framework/slsa-github-generator`: `<hex> <name>` per line,
-  # the whole file base64-encoded.
-  compute-subjects:
-    name: Compute SLSA subjects
+  # SLSA Build L3 provenance attestation for every release binary.
+  # Stored in the GitHub attestations API (no release asset), queryable
+  # via `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.
+  # Migrated in 0.7.1 from `slsa-framework/slsa-github-generator` (in
+  # de-facto maintenance since v2.1.0, 2025-02-24) to the GitHub-native
+  # `actions/attest-build-provenance` (maintained under the actions/ org).
+  release:
+    name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-    outputs:
-      hashes: ${{ steps.hash.outputs.hashes }}
-    steps:
-      - name: Download all binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          path: bins
-          merge-multiple: true
-      - id: hash
-        run: |
-          cd bins
-          sha256sum * > /tmp/subjects.txt
-          echo "hashes=$(base64 -w0 /tmp/subjects.txt)" >> "$GITHUB_OUTPUT"
-
-  # SLSA L2 build provenance attestation for every release binary.
-  # Produces `multiple.intoto.jsonl` and uploads it to the GitHub
-  # Release alongside the binaries. Consumers verify with
-  # `slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl
-  # --source-uri github.com/robintra/perf-sentinel --source-tag <tag>`.
-  # SHA pin on the reusable workflow, tag-style ref kept in the comment.
-  provenance:
-    needs: [build, compute-subjects, release]
-    permissions:
-      actions: read
-      id-token: write
-      contents: write
-    # Tag pin instead of SHA pin: the generator's `builder-fetch.sh`
-    # script in v2.1.0 fails to download the prebuilt binary when the
-    # reusable workflow is invoked by SHA, producing
-    # `slsa-generator-generic-linux-amd64: No such file or directory`.
-    # Upstream issue: slsa-framework/slsa-github-generator#4216.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: ${{ needs.compute-subjects.outputs.hashes }}
-      upload-assets: true
-
-  release:
-    name: Create GitHub Release
-    # Gate the public release on compute-subjects too: if SLSA subject
-    # collection fails, the provenance job is skipped, but without this
-    # extra dependency the release would still get published, leaving a
-    # tagged binary without the attestation v0.7.0+ advertises as load-
-    # bearing in `docs/SUPPLY-CHAIN.md`.
-    needs: [build, compute-subjects]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write # required for softprops/action-gh-release to upload assets
+      contents: write     # softprops/action-gh-release uploads release assets
+      id-token: write     # OIDC token for Sigstore signing of the attestation
+      attestations: write # store the attestation on the repo
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
@@ -190,6 +146,11 @@ jobs:
         run: |
           cd artifacts
           sha256sum * > SHA256SUMS.txt
+
+      - name: Attest binaries
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: 'artifacts/perf-sentinel-*'
 
       - name: Create release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
