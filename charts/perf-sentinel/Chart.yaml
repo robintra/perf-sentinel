@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.34
-appVersion: "0.6.2"
+version: 0.2.35
+appVersion: "0.7.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -38,10 +38,10 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: changed
-      description: "appVersion 0.6.2: HTML dashboard visual polish — the Explain trace_id breadcrumb renders as a chip and the .ps-drill banner used on the pg_stat and Explain panels carries a 12px bottom margin, both no longer sit flush against the content immediately below."
+      description: "appVersion 0.7.0: public periodic disclosure pipeline ships. `perf-sentinel disclose` produces a JSON report from archived NDJSON windows, in-toto v1 attestation sidecar, and `perf-sentinel verify-hash` validates content hash, Sigstore signature and SLSA binary provenance. Closing the autosigning gap: verify-hash refuses to invoke cosign without `--expected-identity` / `--expected-issuer` (or explicit `--no-identity-check`), so a third-party auditor declares the expected signer rather than trusting whatever the report claims."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.6.2
+      image: ghcr.io/robintra/perf-sentinel:0.7.0
       platforms:
         - linux/amd64
         - linux/arm64

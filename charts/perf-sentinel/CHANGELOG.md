@@ -6,6 +6,29 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.35]
+
+### Changed
+
+- `appVersion` bumped to `0.7.0`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.0`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.7.0 binary ships the public periodic disclosure pipeline: a new
+  `disclose` subcommand produces a single JSON report from archived
+  NDJSON windows with an in-toto v1 attestation sidecar, and a new
+  `verify-hash` subcommand validates content hash, Sigstore
+  signature and SLSA binary provenance with five distinct exit
+  codes (TRUSTED, UNTRUSTED, PARTIAL, INPUT_ERROR, NETWORK_ERROR).
+  Breaking change: `verify-hash` now refuses to invoke cosign
+  without `--expected-identity` / `--expected-issuer` (or explicit
+  `--no-identity-check`), closing the autosigning gap where any
+  GitHub or Google account holder could forge a bundle claiming an
+  identity. Cosign commands migrated from `attest-blob` to
+  `sign-blob --new-bundle-format`, requires cosign 2.4+ in the
+  signing pipeline. A new `[reporting] disclose_output_path`
+  configuration field is reserved for 0.8.0 daemon-triggered
+  disclosures and logs an advisory at startup when set today.
+
 ## [0.2.33]
 
 ### Changed
