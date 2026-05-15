@@ -546,6 +546,25 @@ enum Commands {
         /// Output format. Defaults to human-readable text.
         #[arg(long, value_enum, default_value = "text")]
         format: verify_hash::VerifyHashFormat,
+        /// Expected OIDC identity that should have signed the report,
+        /// e.g. `user@example.com` or
+        /// `https://github.com/org/repo/.github/workflows/release.yml@refs/heads/main`.
+        /// Required for signature verification unless
+        /// `--no-identity-check` is passed.
+        #[arg(long, value_name = "ID", conflicts_with = "no_identity_check")]
+        expected_identity: Option<String>,
+        /// Expected OIDC issuer URL, e.g. `https://accounts.google.com`
+        /// or `https://token.actions.githubusercontent.com`. Required
+        /// for signature verification unless `--no-identity-check` is
+        /// passed.
+        #[arg(long, value_name = "URL", conflicts_with = "no_identity_check")]
+        expected_issuer: Option<String>,
+        /// Opt out of identity verification. Signature is still
+        /// cryptographically validated but no constraint is placed on
+        /// the signer identity, so a forged bundle can still pass the
+        /// check. Use only for internal self-checks.
+        #[arg(long)]
+        no_identity_check: bool,
     },
 }
 
@@ -895,13 +914,22 @@ async fn dispatch_command(command: Commands) {
             attestation,
             bundle,
             format,
+            expected_identity,
+            expected_issuer,
+            no_identity_check,
         } => {
+            let identity = verify_hash::IdentityOptions {
+                expected_identity,
+                expected_issuer,
+                no_identity_check,
+            };
             let code = verify_hash::cmd_verify_hash(
                 report.as_deref(),
                 url.as_deref(),
                 attestation.as_deref(),
                 bundle.as_deref(),
                 format,
+                &identity,
             );
             std::process::exit(code);
         }

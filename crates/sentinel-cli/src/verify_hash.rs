@@ -60,6 +60,18 @@ struct Outcome {
     binary_attestation: Status,
 }
 
+/// Signer identity expectation, fed by the CLI flags
+/// `--expected-identity`, `--expected-issuer`, `--no-identity-check`.
+/// A consumer who does not assert one of these cannot tell a legitimate
+/// signature from a forged one (a Sigstore bundle without identity
+/// constraint can be issued by any GitHub or Google account holder).
+#[derive(Default, Debug, Clone)]
+pub struct IdentityOptions {
+    pub expected_identity: Option<String>,
+    pub expected_issuer: Option<String>,
+    pub no_identity_check: bool,
+}
+
 /// Entry point invoked from `main.rs` dispatch.
 pub fn cmd_verify_hash(
     report_path: Option<&Path>,
@@ -67,6 +79,7 @@ pub fn cmd_verify_hash(
     attestation_path: Option<&Path>,
     bundle_path: Option<&Path>,
     format: VerifyHashFormat,
+    identity: &IdentityOptions,
 ) -> i32 {
     let (report, report_bytes, display_path, fetched_paths) = match load_report(report_path, url) {
         Ok(v) => v,
@@ -80,6 +93,7 @@ pub fn cmd_verify_hash(
         &report_bytes,
         fetched_paths.attestation.as_deref().or(attestation_path),
         fetched_paths.bundle.as_deref().or(bundle_path),
+        identity,
     );
     let binary_attestation = verify_binary_attestation(&report);
 
@@ -308,14 +322,28 @@ fn verify_core_patterns(report: &PeriodicReport) -> Status {
     ))
 }
 
+/// What identity constraint cosign should enforce. Constrain enforces
+/// the operator-supplied identity (the safe default for a third-party
+/// auditor). Skip runs cosign without identity flags (cryptographic
+/// integrity only, signer not verified).
+enum IdentityCheck {
+    Constrain { identity: String, issuer: String },
+    Skip,
+}
+
 fn verify_signature(
     report: &PeriodicReport,
     report_bytes: &[u8],
     attestation_path: Option<&Path>,
     bundle_path: Option<&Path>,
+    identity: &IdentityOptions,
 ) -> Status {
     let Some(sig) = report.integrity.signature.as_ref() else {
         return Status::NotProvided;
+    };
+    let check = match resolve_identity_check(identity) {
+        Ok(c) => c,
+        Err(s) => return s,
     };
     let Some(att_path) = attestation_path else {
         return Status::Skip(
@@ -327,15 +355,11 @@ fn verify_signature(
             "signature metadata present, pass --bundle <path> to verify".to_string(),
         );
     };
-    if !is_safe_cosign_argument(&sig.signer_identity) {
-        return Status::Fail(
-            "signer_identity rejected: starts with '-' or contains control chars".to_string(),
-        );
+    if let Some(s) = reject_unsafe_cosign_flag("signer_identity", &sig.signer_identity) {
+        return s;
     }
-    if !is_safe_cosign_argument(&sig.signer_issuer) {
-        return Status::Fail(
-            "signer_issuer rejected: starts with '-' or contains control chars".to_string(),
-        );
+    if let Some(s) = reject_unsafe_cosign_flag("signer_issuer", &sig.signer_issuer) {
+        return s;
     }
     if !command_exists("cosign") {
         return Status::Skip(
@@ -346,9 +370,46 @@ fn verify_signature(
         Ok(p) => p,
         Err(e) => return Status::Fail(format!("temp file: {e}")),
     };
-    let result = run_cosign_verify(sig, &report_tmp, att_path, b_path);
+    let result = run_cosign_verify(sig, &report_tmp, att_path, b_path, &check);
     let _ = std::fs::remove_file(&report_tmp);
     result
+}
+
+/// Translate user-facing flags into an identity-check decision. The
+/// "no flag at all" branch returns Fail with an explicit message so a
+/// scripted gate does not silently treat an unverified signer as
+/// trusted. Both flags must be present together: a partial pair is a
+/// configuration error rather than a security failure, but it still
+/// blocks verification because cosign cannot run with only one of the
+/// pair.
+fn resolve_identity_check(identity: &IdentityOptions) -> Result<IdentityCheck, Status> {
+    if identity.no_identity_check {
+        return Ok(IdentityCheck::Skip);
+    }
+    match (&identity.expected_identity, &identity.expected_issuer) {
+        (Some(id), Some(issuer)) => {
+            if let Some(s) = reject_unsafe_cosign_flag("--expected-identity", id) {
+                return Err(s);
+            }
+            if let Some(s) = reject_unsafe_cosign_flag("--expected-issuer", issuer) {
+                return Err(s);
+            }
+            Ok(IdentityCheck::Constrain {
+                identity: id.clone(),
+                issuer: issuer.clone(),
+            })
+        }
+        (Some(_), None) | (None, Some(_)) => Err(Status::Fail(
+            "both --expected-identity and --expected-issuer must be passed together".to_string(),
+        )),
+        (None, None) => Err(Status::Fail(
+            "cannot verify without expected identity. Pass --expected-identity \
+             and --expected-issuer to constrain the signer, or --no-identity-check \
+             to verify cryptographic integrity only. A Sigstore bundle without an \
+             identity constraint can be forged by any GitHub or Google account holder."
+                .to_string(),
+        )),
+    }
 }
 
 fn write_temp_for_cosign(bytes: &[u8]) -> std::io::Result<PathBuf> {
@@ -365,6 +426,7 @@ fn run_cosign_verify(
     report_path: &Path,
     attestation_path: &Path,
     bundle_path: &Path,
+    check: &IdentityCheck,
 ) -> Status {
     // cosign verify-blob-attestation is the blob/file variant of
     // verify-attestation. The OCI variant rejects local files as
@@ -372,24 +434,34 @@ fn run_cosign_verify(
     // statement, the trailing positional is the signed blob (the
     // report file).
     let _ = attestation_path;
-    let output = Command::new("cosign")
-        .arg("verify-blob-attestation")
+    let mut cmd = Command::new("cosign");
+    cmd.arg("verify-blob-attestation")
         .arg("--type")
         .arg("custom")
         .arg("--bundle")
-        .arg(bundle_path)
-        .arg("--certificate-identity")
-        .arg(&sig.signer_identity)
-        .arg("--certificate-oidc-issuer")
-        .arg(&sig.signer_issuer)
-        .arg(report_path)
-        .output();
+        .arg(bundle_path);
+    if let IdentityCheck::Constrain { identity, issuer } = check {
+        cmd.arg("--certificate-identity")
+            .arg(identity)
+            .arg("--certificate-oidc-issuer")
+            .arg(issuer);
+    }
+    cmd.arg(report_path);
+    let output = cmd.output();
     match output {
-        Ok(out) if out.status.success() => Status::Ok(format!(
-            "valid (signed by {} via {})",
-            sanitise_for_terminal(&sig.signer_identity),
-            sanitise_for_terminal(&sig.signer_issuer)
-        )),
+        Ok(out) if out.status.success() => match check {
+            IdentityCheck::Constrain { identity, issuer } => Status::Ok(format!(
+                "valid (signed by {} via {})",
+                sanitise_for_terminal(identity),
+                sanitise_for_terminal(issuer)
+            )),
+            IdentityCheck::Skip => Status::Skip(format!(
+                "identity check skipped via --no-identity-check, cryptographic integrity OK \
+                 but signer ({} via {}) not verified",
+                sanitise_for_terminal(&sig.signer_identity),
+                sanitise_for_terminal(&sig.signer_issuer)
+            )),
+        },
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             Status::Fail(format!(
@@ -440,6 +512,20 @@ fn command_exists(name: &str) -> bool {
 /// still parsed by cosign itself.
 fn is_safe_cosign_argument(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('-') && !s.chars().any(|c| c.is_control() || c == '\0')
+}
+
+/// Wraps `is_safe_cosign_argument` with the canonical rejection
+/// message, returning `None` when the value is safe and `Some(Fail)`
+/// otherwise. Centralises the message so signer fields and operator
+/// flags surface the same wording.
+fn reject_unsafe_cosign_flag(label: &str, value: &str) -> Option<Status> {
+    if is_safe_cosign_argument(value) {
+        None
+    } else {
+        Some(Status::Fail(format!(
+            "{label} rejected: starts with '-' or contains control chars"
+        )))
+    }
 }
 
 fn sanitise_for_terminal(s: &str) -> String {
@@ -667,25 +753,105 @@ mod tests {
     fn signature_check_returns_not_provided_when_absent() {
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
-        let s = verify_signature(&report, &[], None, None);
+        let s = verify_signature(&report, &[], None, None, &IdentityOptions::default());
         assert!(matches!(s, Status::NotProvided));
     }
 
-    #[test]
-    fn signature_check_skips_when_metadata_present_but_paths_absent() {
+    fn report_with_signature() -> PeriodicReport {
         let mut report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
         report.integrity.signature = Some(SignatureMetadata {
             format: "sigstore-cosign-intoto-v1".to_string(),
             bundle_url: "https://example.fr/x.sig".to_string(),
-            signer_identity: "u".to_string(),
-            signer_issuer: "https://x".to_string(),
+            signer_identity: "user@example.fr".to_string(),
+            signer_issuer: "https://accounts.google.com".to_string(),
             rekor_url: "https://rekor.sigstore.dev".to_string(),
             rekor_log_index: 1,
             signed_at: "2026-01-01T00:00:00Z".to_string(),
         });
-        let s = verify_signature(&report, &[], None, None);
-        assert!(matches!(s, Status::Skip(_)));
+        report
+    }
+
+    #[test]
+    fn signature_check_fails_without_identity_flags() {
+        // Closes the autosigning hole: a third-party auditor running
+        // verify-hash without --expected-identity (the default) must
+        // not see TRUSTED on a bundle whose identity comes only from
+        // the report itself.
+        let report = report_with_signature();
+        let s = verify_signature(&report, &[], None, None, &IdentityOptions::default());
+        match s {
+            Status::Fail(detail) => assert!(detail.contains("expected identity"), "{detail}"),
+            _ => panic!("expected Fail without identity flags, got display"),
+        }
+    }
+
+    #[test]
+    fn signature_check_fails_when_only_one_identity_flag_set() {
+        let report = report_with_signature();
+        let s = verify_signature(
+            &report,
+            &[],
+            None,
+            None,
+            &IdentityOptions {
+                expected_identity: Some("user@example.fr".to_string()),
+                expected_issuer: None,
+                no_identity_check: false,
+            },
+        );
+        match s {
+            Status::Fail(detail) => {
+                assert!(detail.contains("must be passed together"), "{detail}");
+            }
+            _ => panic!("expected Fail on half-pair, got display"),
+        }
+    }
+
+    #[test]
+    fn signature_check_skips_with_no_identity_check_and_paths_absent() {
+        // Operator opts out explicitly. The check still reaches the
+        // paths-absent branch and returns Skip on that, which is the
+        // legacy behaviour (cryptographic integrity only, signer not
+        // verified).
+        let report = report_with_signature();
+        let s = verify_signature(
+            &report,
+            &[],
+            None,
+            None,
+            &IdentityOptions {
+                expected_identity: None,
+                expected_issuer: None,
+                no_identity_check: true,
+            },
+        );
+        match s {
+            Status::Skip(detail) => assert!(detail.contains("pass --attestation"), "{detail}"),
+            _ => panic!("expected Skip on missing paths under --no-identity-check"),
+        }
+    }
+
+    #[test]
+    fn signature_check_rejects_dash_prefix_in_expected_identity() {
+        let report = report_with_signature();
+        let s = verify_signature(
+            &report,
+            &[],
+            None,
+            None,
+            &IdentityOptions {
+                expected_identity: Some("--certificate-github-workflow-ref=evil".to_string()),
+                expected_issuer: Some("https://attacker".to_string()),
+                no_identity_check: false,
+            },
+        );
+        match s {
+            Status::Fail(detail) => {
+                assert!(detail.contains("expected-identity rejected"), "{detail}");
+            }
+            _ => panic!("expected Fail on dash-prefixed identity, got display"),
+        }
     }
 
     #[test]
