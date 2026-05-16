@@ -1,0 +1,6 @@
+# perf-sentinel lab validation ledger
+# format: <version>\t<lab_commit_sha>\t<YYYY-MM-DD>\t<PASS|FAIL>
+# Append-only. Lines are produced by `scripts/record-validation.sh vX.Y.Z PASS` in the perf-sentinel-simulation-lab repo.
+v0.6.1	5c041bb	2026-05-09	PASS
+v0.7.1	0eeceb4	2026-05-15	PASS
+v0.7.2	1cdb2d0	2026-05-15	PASS
