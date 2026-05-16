@@ -41,7 +41,9 @@ pub(crate) const SPECPOWER_VINTAGE: &str = "2024 Q1 - 2026 Q2";
 static INSTANCE_POWER: LazyLock<HashMap<&'static str, (f64, f64)>> = LazyLock::new(|| {
     let entries: &[(&str, f64, f64)] = &[
         // ================================================================
-        // AWS instances (direct from CCF aws-instances.csv)
+        // AWS instances (direct from CCF aws-instances.csv as published
+        // 2023-05-01; the active successor is coefficients-aws-use.csv
+        // in the ccf-coefficients repo)
         // ================================================================
 
         // --- t3 (Nitro, Cascade Lake / Skylake, burstable) ---
