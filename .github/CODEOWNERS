@@ -3,7 +3,11 @@
 
 # Release-gate apparatus: ledger and pre-flight script. Reviewing these
 # in isolation from a release version bump forces a second pair of eyes
-# when the project opens to external contributions.
+# when the project opens to external contributions. Procedure docs are
+# in scope too, since a PR weakening the documented step 2.5 freshness
+# check could bypass the gate without touching the script itself.
 /release-gate/                                    @robintra
 /scripts/test/check-lab-validation-test.sh        @robintra
 /.github/workflows/release-gate-ci.yml            @robintra
+/docs/RELEASE-PROCEDURE.md                        @robintra
+/docs/FR/RELEASE-PROCEDURE-FR.md                  @robintra
