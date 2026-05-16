@@ -316,12 +316,12 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 
 | Provider | PUE   | Source                                                                                                                                                    |
 |----------|-------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| AWS      | 1.135 | [AWS Sustainability](https://sustainability.aboutamazon.com/)                                                                                             |
-| GCP      | 1.10  | [Google Environmental Report](https://sustainability.google/reports/)                                                                                     |
-| Azure    | 1.185 | [Microsoft Sustainability Report](https://www.microsoft.com/en-us/corporate-responsibility/sustainability)                                                |
-| Generic  | 1.2   | [Uptime Institute Global Survey 2023](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2023) |
+| AWS      | 1.15  | [AWS Cloud sustainability](https://sustainability.aboutamazon.com/products-services/aws-cloud) (2024 global fleet)                                        |
+| GCP      | 1.09  | [Google data centers efficiency](https://datacenters.google/efficiency/) (2024 annual fleet average)                                                      |
+| Azure    | 1.17  | [Microsoft datacenter efficiency](https://datacenters.microsoft.com/sustainability/efficiency/) (FY25, July 2024 to June 2025 owned-and-controlled)       |
+| Generic  | 1.2   | [Uptime Institute Global Survey 2023](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2023) (newer 2024 and 2025 editions show a similar plateau in the 1.5 to 1.6 industry-average range) |
 
-PUE (Power Usage Effectiveness) measures the ratio of total datacenter energy to IT equipment energy. A PUE of 1.10 means 10% overhead for cooling, lighting and infrastructure. The industry average is ~1.58, but hyperscale cloud providers achieve significantly lower values.
+PUE (Power Usage Effectiveness) measures the ratio of total datacenter energy to IT equipment energy. A PUE of 1.15 means 15% overhead for cooling, lighting and infrastructure. The industry average is ~1.58 (Uptime Institute), and hyperscale cloud providers achieve significantly lower values, GCP's 1.09 being below the symbolic 10% overhead floor.
 
 ### Carbon intensity data
 

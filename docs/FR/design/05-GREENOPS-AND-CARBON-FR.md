@@ -312,12 +312,12 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 
 | Fournisseur | PUE   | Source                                                                                                                                                    |
 |-------------|-------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| AWS         | 1,135 | [AWS Sustainability](https://sustainability.aboutamazon.com/)                                                                                             |
-| GCP         | 1,10  | [Google Environmental Report](https://sustainability.google/reports/)                                                                                     |
-| Azure       | 1,185 | [Microsoft Sustainability Report](https://www.microsoft.com/en-us/corporate-responsibility/sustainability)                                                |
-| Générique   | 1,2   | [Uptime Institute Global Survey 2023](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2023) |
+| AWS         | 1,15  | [AWS Cloud sustainability](https://sustainability.aboutamazon.com/products-services/aws-cloud) (flotte mondiale 2024)                                     |
+| GCP         | 1,09  | [Google data centers efficiency](https://datacenters.google/efficiency/) (moyenne annuelle flotte 2024)                                                   |
+| Azure       | 1,17  | [Microsoft datacenter efficiency](https://datacenters.microsoft.com/sustainability/efficiency/) (FY25, juillet 2024 à juin 2025, owned-and-controlled)    |
+| Générique   | 1,2   | [Uptime Institute Global Survey 2023](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2023) (les éditions 2024 et 2025 montrent un plateau similaire dans la fourchette 1,5 à 1,6 de moyenne industrie) |
 
-Le PUE (Power Usage Effectiveness) mesure le ratio entre l'énergie totale du datacenter et l'énergie de l'équipement IT. Un PUE de 1,10 signifie 10% de surcoût pour le refroidissement, l'éclairage et l'infrastructure. La moyenne de l'industrie est ~1,58, mais les fournisseurs cloud hyperscale atteignent des valeurs significativement plus basses.
+Le PUE (Power Usage Effectiveness) mesure le ratio entre l'énergie totale du datacenter et l'énergie de l'équipement IT. Un PUE de 1,15 signifie 15% de surcoût pour le refroidissement, l'éclairage et l'infrastructure. La moyenne de l'industrie est ~1,58 (Uptime Institute), et les fournisseurs cloud hyperscale atteignent des valeurs significativement plus basses, le 1,09 de GCP passant sous le plancher symbolique des 10% de surcoût.
 
 ### Données d'intensité carbone
 

@@ -290,7 +290,7 @@ Caveats partagés par les deux flags :
 perf-sentinel utilise un **modèle proxy I/O → énergie → CO₂** pour estimer l'empreinte carbone des charges de travail analysées. La chaîne comporte trois étapes, chacune introduisant une marge d'erreur :
 
 1. **Opérations I/O → énergie** : chaque opération I/O détectée (requête SQL, appel HTTP) est multipliée par une constante fixe `ENERGY_PER_IO_OP_KWH` de `0,0000001 kWh` (~0,1 µWh). Cette valeur n'est **pas mesurée**, c'est une approximation d'ordre de grandeur.
-2. **Énergie → CO₂** : l'énergie est multipliée par une intensité carbone réseau par région (gCO₂eq/kWh) issue d'Electricity Maps et Cloud Carbon Footprint (moyennes annuelles 2023-2024), avec un PUE par fournisseur (AWS 1,135, GCP 1,10, Azure 1,185, Generic 1,2).
+2. **Énergie → CO₂** : l'énergie est multipliée par une intensité carbone réseau par région (gCO₂eq/kWh) issue d'Electricity Maps et Cloud Carbon Footprint (moyennes annuelles 2023-2024), avec un PUE par fournisseur (AWS 1,15, GCP 1,09, Azure 1,17, Generic 1,2). Les trois PUE fournisseurs ne sont pas strictement comparables en périmètre : AWS publie une moyenne flotte mondiale pour l'année calendaire 2024, GCP une moyenne TTM (trailing-twelve-month) sur la flotte mondiale en 2024, Azure une valeur FY25 (juillet 2024 à juin 2025) pour ses seuls datacenters owned-and-controlled (le leased et le colocation sont exclus). L'écart de fenêtre est d'environ 12 mois et l'écart de périmètre est de l'ordre de quelques pourcents de la flotte.
 3. **Carbone embodié (`M` dans SCI v1.0)** : émissions de fabrication matérielle amorties à un défaut configurable de `0,001 gCO₂/requête`. Indépendant de la région.
 
 ### Incertitude : multiplicative 2×, pas ±50%
