@@ -370,7 +370,7 @@ conformance = "partial"
 
 [methodology.calibration]
 carbon_intensity_source = "electricity_maps"
-specpower_table_version = "2024-2026"
+specpower_table_version = "2026-04-24"
 
 [scope_manifest]
 total_applications_declared = 1

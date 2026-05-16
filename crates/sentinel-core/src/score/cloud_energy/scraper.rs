@@ -628,8 +628,10 @@ mod tests {
         };
         let cfg = make_test_config();
         let (idle, max) = resolve_power(&svc, &cfg);
-        assert!((idle - 21.3).abs() < 0.01);
-        assert!((max - 143.7).abs() < 0.1);
+        // c5.4xlarge (16 vCPU, Cascade Lake) at CCF 2026-04-24:
+        // 16 * 0.690 = 11.0 idle, 16 * 4.063 = 65.0 max.
+        assert!((idle - 11.0).abs() < 0.01);
+        assert!((max - 65.0).abs() < 0.1);
     }
 
     // ------------------------------------------------------------------
@@ -883,8 +885,9 @@ mod tests {
         let mut cfg = make_test_config();
         cfg.default_instance_type = Some("c5.4xlarge".into());
         let (idle, max) = resolve_power(&svc, &cfg);
-        assert!((idle - 21.3).abs() < 0.01);
-        assert!((max - 143.7).abs() < 0.1);
+        // c5.4xlarge per CCF 2026-04-24 Cascade Lake coefficient.
+        assert!((idle - 11.0).abs() < 0.01);
+        assert!((max - 65.0).abs() < 0.1);
     }
 
     // ------------------------------------------------------------------
