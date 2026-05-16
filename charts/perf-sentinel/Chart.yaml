@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.37
-appVersion: "0.7.2"
+version: 0.2.38
+appVersion: "0.7.3"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,11 +37,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: added
-      description: "appVersion 0.7.2: new `perf-sentinel hash-bake` subcommand. Reads a periodic disclosure report, computes the canonical `content_hash` (applying the `POST_SIGN_FIELDS` blanching), writes it into `integrity.content_hash`, and saves the result via an atomic temp+rename. Intended for test fixture generation and debugging workflows that need a report whose hash matches what perf-sentinel itself would produce. Refuses signed reports by default to guard against unintended rewrites, opt in with `--allow-signed`. Exit codes 0 (success), 1 (refused signed without flag), 3 (input error)."
+    - kind: changed
+      description: "appVersion 0.7.3: refresh GreenOps reference data. Per-provider PUE constants aligned with the latest sustainability reports (AWS 1.135 to 1.15, GCP 1.10 to 1.09, Azure 1.185 to 1.17, generic unchanged at 1.2). Cloud instance coefficients aligned with the ccf-coefficients 2026-04-24 snapshot across AWS, GCP, and Azure (about 390 instance types). New AWS families: m8a, c8a (EPYC Turin), m8i, c8i (Emerald Rapids), r7a (Genoa memory-optimized). New GCP family: c4a (Axion ARM). Memory-optimized SKUs now carry an additive DRAM premium (0.02 W/GB idle, 0.05 W/GB max). The binary SPECpower vintage is now surfaced in periodic disclosure reports under methodology.calibration_inputs.binary_specpower_vintage and cross-checked against the operator-declared specpower_table_version for Official intent reports."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.7.2
+      image: ghcr.io/robintra/perf-sentinel:0.7.3
       platforms:
         - linux/amd64
         - linux/arm64
