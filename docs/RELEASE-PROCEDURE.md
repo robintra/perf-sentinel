@@ -54,7 +54,7 @@ The two clippy invocations cover the default feature set and the no-default-feat
 
 This is an operator-driven audit, no script enforces it. Embedded reference data drives the carbon scoring pipeline and ships as Rust source (so it is exercised by `cargo test --workspace` in step 2). Test passes guarantee correctness, not freshness. Before tagging, confirm the vintages declared in:
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs`: SPECpower / CCF coefficients, refreshed quarterly. Vintage exposed as `SPECPOWER_VINTAGE`.
+- `crates/sentinel-core/src/score/cloud_energy/table.rs`: two distinct data vintages live in this file. `SPECPOWER_VINTAGE` covers the modern Sapphire Rapids and beyond entries, refreshed quarterly. `CCF_LEGACY_VINTAGE` covers the legacy AWS / GCP / Azure block imported from the original `cloud-carbon-coefficients` repo on 2023-05-01. The successor `ccf-coefficients` repo publishes refreshed per-architecture coefficients that drift up to roughly 10 percent on Cascade Lake and Ice Lake. Refreshing the legacy block is a separate sprint, not a per-release step.
 - `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually. Vintage exposed as `CARBON_PROFILES_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon.rs`: per-provider PUE constants (AWS, GCP, Azure, generic), refreshed when any provider publishes a new sustainability report. Vintage exposed as `PUE_VINTAGE`.
 

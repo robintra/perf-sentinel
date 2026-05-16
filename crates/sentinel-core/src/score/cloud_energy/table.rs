@@ -33,6 +33,17 @@ use std::sync::LazyLock;
 #[allow(dead_code)]
 pub(crate) const SPECPOWER_VINTAGE: &str = "2024 Q1 - 2026 Q2";
 
+/// Vintage of the legacy AWS / GCP / Azure entries computed against
+/// the original `cloud-carbon-coefficients` repo (now archived). The
+/// active successor `ccf-coefficients` published a refreshed run on
+/// 2026-04-24 with per-architecture drift up to roughly +/-10 percent
+/// on Cascade Lake and Ice Lake. Refreshing the legacy block is a
+/// dedicated sprint because per-instance values require either the
+/// `ccfcoef` CLI or a per-architecture coefficient-times-vCPU pass
+/// with AWS baseboard overhead reconstruction.
+#[allow(dead_code)]
+pub(crate) const CCF_LEGACY_VINTAGE: &str = "2023-05-01";
+
 /// `(idle_watts, max_watts)` per instance type.
 ///
 /// Idle watts represent power at near-zero CPU load. Max watts represent

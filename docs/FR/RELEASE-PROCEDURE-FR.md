@@ -54,7 +54,7 @@ Les deux invocations de clippy couvrent le feature set par défaut et le build n
 
 C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` en step 2). Les tests garantissent la correction, pas la fraîcheur. Avant de taguer, confirmer les millésimes déclarés dans :
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs` : coefficients SPECpower / CCF, rafraîchis trimestriellement. Millésime exposé via `SPECPOWER_VINTAGE`.
+- `crates/sentinel-core/src/score/cloud_energy/table.rs` : deux millésimes coexistent dans ce fichier. `SPECPOWER_VINTAGE` couvre les entrées modernes Sapphire Rapids et au-delà, rafraîchies trimestriellement. `CCF_LEGACY_VINTAGE` couvre le bloc legacy AWS / GCP / Azure importé du repo `cloud-carbon-coefficients` (archivé) à la date du 2023-05-01. Le repo successeur `ccf-coefficients` publie des coefficients par architecture rafraîchis qui dérivent jusqu'à environ 10 pourcent sur Cascade Lake et Ice Lake. Le refresh du bloc legacy est un sprint dédié, pas une étape par release.
 - `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, générique), rafraîchies quand un fournisseur publie un nouveau rapport sustainability. Millésime exposé via `PUE_VINTAGE`.
 
