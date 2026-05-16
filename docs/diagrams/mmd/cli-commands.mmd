@@ -15,8 +15,12 @@ flowchart LR
     jaeger_query["jaeger-query ⚙ jaeger-query<br/><i>Jaeger or Victoria Traces<br/>--endpoint URL<br/>--service name | --trace-id ID<br/>--lookback 1h --max-traces N</i>"]
     calibrate["calibrate<br/><i>--traces file<br/>--measured-energy csv<br/>--output toml</i>"]
     query["query<br/><i>--daemon URL<br/>(subcommand)</i>"]
+    ack["ack ⚙ daemon<br/><i>--daemon URL<br/>(subcommand: create|revoke|list)<br/>auth: env / --api-key-file / TTY prompt</i>"]
     report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
     diff["diff<br/><i>--before file --after file<br/>--format text|json|sarif</i>"]
+    disclose["disclose<br/><i>--intent internal|official|audited<br/>--confidentiality internal|public<br/>--period-type calendar-*|custom<br/>--from --to YYYY-MM-DD<br/>--input ndjson archive(s)<br/>--org-config toml<br/>--emit-attestation (optional)</i>"]
+    verify_hash["verify-hash<br/><i>--report file | --url URL<br/>--attestation in-toto v1<br/>--bundle cosign<br/>--expected-identity --expected-issuer<br/>--format text|json</i>"]
+    hash_bake["hash-bake<br/><i>--report file --output file<br/>--allow-signed<br/>recompute canonical content_hash</i>"]
 
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
     tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
@@ -30,6 +34,9 @@ flowchart LR
     daemon["daemon::run()<br/><i>OTLP + streaming</i>"]
     ranking["rank_entries()<br/><i>top-N hotspots</i>"]
     cal_engine["calibrate()<br/><i>correlate ops + energy</i>"]
+    disclose_engine["periodic::aggregate()<br/><i>filter window NDJSON<br/>+ official-intent validator<br/>+ canonical content_hash<br/>+ optional in-toto attestation</i>"]
+    verify_engine["verify_hash::verify()<br/><i>recompute content_hash<br/>+ cosign verify-blob<br/>+ gh attestation verify</i>"]
+    hashbake_engine["hash_bake::bake()<br/><i>recompute canonical hash<br/>atomic temp+rename</i>"]
 
     subgraph pgstat_sources["pg-stat data sources"]
         pg_file["CSV / JSON file<br/><i>--input path</i>"]
@@ -44,6 +51,12 @@ flowchart LR
         q_status["status<br/><i>--format text|json</i>"]
     end
 
+    subgraph ack_actions["ack sub-actions"]
+        a_create["create<br/><i>--signature --reason<br/>--expires --by<br/>POST /api/findings/{sig}/ack</i>"]
+        a_revoke["revoke<br/><i>--signature<br/>DELETE /api/findings/{sig}/ack</i>"]
+        a_list["list<br/><i>--output text|json<br/>GET /api/acks</i>"]
+    end
+
     daemon_api["Daemon HTTP API<br/><i>:4318 /api/*</i>"]
 
     report_text["Colored<br/>terminal"]
@@ -54,8 +67,11 @@ flowchart LR
     report_toml["Calibration<br/>TOML"]
     report_bench["JSON<br/>perf metrics"]
     report_html["HTML<br/>dashboard<br/><i>single file, offline</i>"]
+    report_disclose["Disclosure<br/>JSON v1.0<br/><i>perf-sentinel-report.json<br/>+ optional in-toto attestation</i>"]
+    report_verify["Verification<br/>result<br/><i>text or JSON</i>"]
+    report_baked["Report<br/>with baked<br/>content_hash"]
 
-    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & jaeger_query & calibrate & query & report & diff
+    cli --> analyze & explain & inspect & watch & demo & bench & pgstat & tempo & jaeger_query & calibrate & query & ack & report & diff & disclose & verify_hash & hash_bake
 
     analyze --> analyze_pipeline
     analyze_pipeline --> report_text
@@ -104,6 +120,11 @@ flowchart LR
     daemon_api --> report_json
     q_inspect --> inspect_pipeline
 
+    ack --> ack_actions
+    a_create --> daemon_api
+    a_revoke --> daemon_api
+    a_list --> daemon_api
+
     report --> report_pipeline
     report_pipeline --> report_html
 
@@ -111,6 +132,10 @@ flowchart LR
     diff_engine --> report_text
     diff_engine --> report_json
     diff_engine --> report_sarif
+
+    disclose --> disclose_engine --> report_disclose
+    verify_hash --> verify_engine --> report_verify
+    hash_bake --> hashbake_engine --> report_baked
 
     style analyze_pipeline fill:#2d4a3e,stroke:#4ade80
     style tempo_pipeline fill:#2d4a3e,stroke:#4ade80
@@ -123,5 +148,9 @@ flowchart LR
     style cal_engine fill:#4a3b2d,stroke:#fbbf24
     style daemon fill:#3b2d4a,stroke:#a78bfa
     style query_actions fill:#2d3b4a,stroke:#60a5fa
+    style ack_actions fill:#2d3b4a,stroke:#60a5fa
     style pgstat_sources fill:#4a3b2d,stroke:#fbbf24
     style daemon_api fill:#3b2d4a,stroke:#a78bfa
+    style disclose_engine fill:#4a3b2d,stroke:#fbbf24
+    style verify_engine fill:#4a3b2d,stroke:#fbbf24
+    style hashbake_engine fill:#4a3b2d,stroke:#fbbf24

@@ -51,6 +51,13 @@ flowchart TB
         api_explain["GET /api/explain/{trace_id}"]
         api_correlations["GET /api/correlations"]
         api_status["GET /api/status"]
+        api_export_report["GET /api/export/report<br/><i>Report snapshot, 503 cold-start</i>"]
+        api_ack["POST/DELETE /api/findings/{sig}/ack<br/><i>auth: [daemon.ack] api_key</i>"]
+        api_acks_list["GET /api/acks"]
+    end
+
+    subgraph ack_store["AckStore"]
+        ack_jsonl["JSONL append-only<br/><i>+ in-memory cache<br/>MAX_ACTIVE_ACKS = 10_000<br/>RwLock</i>"]
     end
 
     grpc --> channel
@@ -85,6 +92,9 @@ flowchart TB
     window -. "peek_clone()" .-> api_explain
     correlator -. "active_correlations()" .-> api_correlations
     metrics_state -. "read" .-> api_status
+    findings_ring -. "query + correlations + counters" .-> api_export_report
+    ack_jsonl -. "create / revoke" .-> api_ack
+    ack_jsonl -. "list active" .-> api_acks_list
 
     style eventloop fill:#2d3b4a,stroke:#60a5fa
     style window fill:#3b2d4a,stroke:#a78bfa
@@ -92,3 +102,4 @@ flowchart TB
     style findings_ring fill:#4a3b2d,stroke:#fbbf24
     style query_api fill:#2d4a3e,stroke:#4ade80
     style correlator fill:#4a3b2d,stroke:#fbbf24
+    style ack_store fill:#4a3b2d,stroke:#fbbf24
