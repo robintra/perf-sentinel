@@ -56,8 +56,9 @@ This is an operator-driven audit, no script enforces it. Embedded reference data
 
 - `crates/sentinel-core/src/score/cloud_energy/table.rs`: SPECpower / CCF coefficients, refreshed quarterly. Vintage exposed as `SPECPOWER_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually. Vintage exposed as `CARBON_PROFILES_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs`: per-provider PUE constants (AWS, GCP, Azure, generic), refreshed when any provider publishes a new sustainability report. Vintage exposed as `PUE_VINTAGE`.
 
-Surface both vintages in one command:
+Surface all three vintages in one command:
 
 ```bash
 grep -rn 'VINTAGE' crates/sentinel-core/src/score/

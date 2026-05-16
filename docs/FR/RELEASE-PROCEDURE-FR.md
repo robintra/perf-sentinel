@@ -56,8 +56,9 @@ C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les donn
 
 - `crates/sentinel-core/src/score/cloud_energy/table.rs` : coefficients SPECpower / CCF, rafraîchis trimestriellement. Millésime exposé via `SPECPOWER_VINTAGE`.
 - `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs` : constantes PUE par fournisseur (AWS, GCP, Azure, générique), rafraîchies quand un fournisseur publie un nouveau rapport sustainability. Millésime exposé via `PUE_VINTAGE`.
 
-Afficher les deux millésimes en une commande :
+Afficher les trois millésimes en une commande :
 
 ```bash
 grep -rn 'VINTAGE' crates/sentinel-core/src/score/

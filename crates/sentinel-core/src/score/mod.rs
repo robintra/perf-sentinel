@@ -798,7 +798,7 @@ mod tests {
             .copied()
             .expect("svc-high");
         // True ratio ~13.2x: pl is 700 g/kWh with Generic PUE 1.2 (840),
-        // eu-west-3 is 56 g/kWh with AWS PUE 1.135 (~63.6). A buggy
+        // eu-west-3 is 56 g/kWh with AWS PUE 1.15 (~64.4). A buggy
         // "average across regions" path would give ~6x. Future intensity
         // or PUE table refreshes that drift the ratio will surface here.
         assert!(
@@ -1162,7 +1162,7 @@ mod tests {
 
     #[test]
     fn co2_includes_embodied_term() {
-        // 6 spans in eu-west-3 (intensity 56 g/kWh, AWS PUE 1.135).
+        // 6 spans in eu-west-3 (intensity 56 g/kWh, AWS PUE 1.15).
         // disable hourly profiles so the expected_op
         // calculation below (using the flat 56 g/kWh) stays exact.
         // The hourly path is exercised by dedicated tests below.
@@ -1179,8 +1179,8 @@ mod tests {
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
 
-        // Operational: 6 ops × 1e-7 kWh × 56 × 1.135 = 3.8136e-5 g
-        let expected_op = 6.0 * 0.000_000_1 * 56.0 * 1.135;
+        // Operational: 6 ops × 1e-7 kWh × 56 × 1.15 = 3.864e-5 g
+        let expected_op = 6.0 * 0.000_000_1 * 56.0 * 1.15;
         assert!((co2.operational_gco2 - expected_op).abs() < 1e-12);
         // Embodied: 1 trace × 0.001 = 0.001
         assert!((co2.embodied_gco2 - 0.001).abs() < f64::EPSILON);
@@ -1244,8 +1244,8 @@ mod tests {
     fn multi_region_bucketing_distinct_per_region() {
         // 3 spans in eu-west-3 + 2 spans in us-east-1 = 2 region buckets.
         // Regions are sorted by co2_gco2 DESC:
-        // us-east-1 (2 ops × 379 × 1.135 × 1e-7 ≈ 8.6e-5)
-        //  vs eu-west-3 (3 ops × 56 × 1.135 × 1e-7 ≈ 1.9e-5)
+        // us-east-1 (2 ops × 379 × 1.15 × 1e-7 ≈ 8.7e-5)
+        //  vs eu-west-3 (3 ops × 56 × 1.15 × 1e-7 ≈ 1.9e-5)
         // → us-east-1 appears first despite having fewer ops.
         let trace_eu = make_trace_with_region("t1", "eu-west-3", 3);
         let trace_us = make_trace_with_region("t2", "us-east-1", 2);
@@ -1340,9 +1340,9 @@ mod tests {
         // is purely cosmetic ordering.
         //
         // 1 op per region, intensity values from CARBON_TABLE:
-        //   ap-south-1: 708 gCO₂/kWh × 1.135 PUE ≈ 803 → 8.04e-5 g
-        //   us-east-1:  379 gCO₂/kWh × 1.135 PUE ≈ 430 → 4.30e-5 g
-        //   eu-west-3:   56 gCO₂/kWh × 1.135 PUE ≈ 63.6 → 6.36e-6 g
+        //   ap-south-1: 708 gCO₂/kWh × 1.15 PUE ≈ 814 → 8.14e-5 g
+        //   us-east-1:  379 gCO₂/kWh × 1.15 PUE ≈ 436 → 4.36e-5 g
+        //   eu-west-3:   56 gCO₂/kWh × 1.15 PUE ≈ 64.4 → 6.44e-6 g
         // Expected DESC order: ap-south-1 → us-east-1 → eu-west-3.
         let trace_us = make_trace_with_region("t1", "us-east-1", 1);
         let trace_eu = make_trace_with_region("t2", "eu-west-3", 1);
@@ -1842,8 +1842,8 @@ mod tests {
         // produce wrong numbers here. Pin the flat-annual model
         // explicitly and assert the closed-form formula.
         //
-        // Formula: 6 ops × ENERGY_PER_IO_OP_KWH × 338 × 1.135
-        //        = 6 × 1e-7 × 338 × 1.135
+        // Formula: 6 ops × ENERGY_PER_IO_OP_KWH × 338 × 1.15
+        //        = 6 × 1e-7 × 338 × 1.15
         //        = 2.30178e-4
         //
         // NOTE: if CARBON_TABLE[eu-central-1] is ever recalibrated, this
@@ -1865,8 +1865,8 @@ mod tests {
         // Model tag must stay v1 when hourly is disabled, even for a
         // region that has a hourly profile.
         assert_eq!(co2.total.model, "io_proxy_v1");
-        // Exact CO₂ from the flat annual intensity (338) and AWS PUE (1.135).
-        let expected = 6.0 * 1e-7 * 338.0 * 1.135;
+        // Exact CO₂ from the flat annual intensity (338) and AWS PUE (1.15).
+        let expected = 6.0 * 1e-7 * 338.0 * 1.15;
         assert!(
             (co2.operational_gco2 - expected).abs() < 1e-12,
             "DE flat-annual math drifted: expected {expected}, got {}",
@@ -2079,8 +2079,8 @@ mod tests {
         let co2 = summary.co2.as_ref().unwrap();
         // Top-level model is scaphandre_rapl (takes precedence over v1/v2).
         assert_eq!(co2.total.model, "scaphandre_rapl");
-        // Operational CO₂ = 6 ops × 5e-7 kWh × 56 g/kWh × 1.135 PUE.
-        let expected = 6.0 * 5e-7 * 56.0 * 1.135;
+        // Operational CO₂ = 6 ops × 5e-7 kWh × 56 g/kWh × 1.15 PUE.
+        let expected = 6.0 * 5e-7 * 56.0 * 1.15;
         assert!(
             (co2.operational_gco2 - expected).abs() < 1e-12,
             "expected {expected}, got {}",
@@ -2158,8 +2158,8 @@ mod tests {
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
         assert_eq!(co2.total.model, "cloud_specpower");
-        // Operational CO2 = 6 ops * 5e-7 kWh * 56 g/kWh * 1.135 PUE.
-        let expected = 6.0 * 5e-7 * 56.0 * 1.135;
+        // Operational CO2 = 6 ops * 5e-7 kWh * 56 g/kWh * 1.15 PUE.
+        let expected = 6.0 * 5e-7 * 56.0 * 1.15;
         assert!(
             (co2.operational_gco2 - expected).abs() < 1e-12,
             "expected {expected}, got {}",
@@ -2541,8 +2541,8 @@ mod tests {
         let co2 = summary.co2.as_ref().unwrap();
 
         // With Scaphandre, energy is measured_energy, not ENERGY_PER_IO_OP_KWH * coeff.
-        // 6 ops × 5e-7 kWh × 56 g/kWh × 1.135 PUE
-        let expected = 6.0 * measured_energy * 56.0 * 1.135;
+        // 6 ops × 5e-7 kWh × 56 g/kWh × 1.15 PUE
+        let expected = 6.0 * measured_energy * 56.0 * 1.15;
         assert!(
             (co2.operational_gco2 - expected).abs() < 1e-12,
             "expected {expected}, got {}",
@@ -2723,7 +2723,7 @@ mod tests {
     fn transport_co2_numerical_value() {
         use crate::test_helpers::make_http_event_with_size;
         // Verify the exact transport CO2 value, not just > 0.
-        // 100_000 bytes * 4e-11 kWh/byte * 56.0 gCO2/kWh * 1.135 PUE
+        // 100_000 bytes * 4e-11 kWh/byte * 56.0 gCO2/kWh * 1.15 PUE
         let response_bytes: u64 = 100_000;
         let mut event = make_http_event_with_size(
             "t1",
@@ -2749,9 +2749,9 @@ mod tests {
 
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
         let transport = summary.transport_gco2.unwrap();
-        // eu-west-3: intensity=56.0, PUE=1.135
+        // eu-west-3: intensity=56.0, PUE=1.15
         let expected =
-            response_bytes as f64 * carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH * 56.0 * 1.135;
+            response_bytes as f64 * carbon::DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH * 56.0 * 1.15;
         assert!(
             (transport - expected).abs() < 1e-18,
             "expected {expected}, got {transport}"
@@ -2918,7 +2918,25 @@ mod tests {
         );
 
         let round_tripped: RegionBreakdown = serde_json::from_str(&json).unwrap();
-        assert_eq!(&round_tripped, row);
+        // serde_json f64 round-trip drifts by 1 ULP on some computed
+        // values (the parser does not always recover the exact bit
+        // pattern that ryu emitted). The wire-format invariant the test
+        // guards is "every field is present and decoded to its semantic
+        // value", which an epsilon on the float payload preserves.
+        assert_eq!(round_tripped.status, row.status);
+        assert_eq!(round_tripped.region, row.region);
+        assert!(
+            (round_tripped.grid_intensity_gco2_kwh - row.grid_intensity_gco2_kwh).abs() < 1e-12
+        );
+        assert!((round_tripped.pue - row.pue).abs() < 1e-12);
+        assert_eq!(round_tripped.io_ops, row.io_ops);
+        assert!((round_tripped.co2_gco2 - row.co2_gco2).abs() < 1e-12);
+        assert_eq!(round_tripped.intensity_source, row.intensity_source);
+        assert_eq!(round_tripped.intensity_estimated, row.intensity_estimated);
+        assert_eq!(
+            round_tripped.intensity_estimation_method,
+            row.intensity_estimation_method
+        );
     }
 
     #[test]

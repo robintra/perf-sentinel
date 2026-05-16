@@ -378,8 +378,8 @@
       {
         "status": "known",
         "region": "us-east-1",
-        "grid_intensity_gco2_kwh": 410.0,
-        "pue": 1.135,
+        "grid_intensity_gco2_kwh": 379.0,
+        "pue": 1.15,
         "io_ops": 12,
         "co2_gco2": 0.000789,
         "intensity_source": "annual"
