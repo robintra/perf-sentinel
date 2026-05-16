@@ -27,6 +27,12 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+/// Vintage of the modern `SPECpower` entries (Sapphire Rapids and beyond)
+/// in this table. Release procedure step 2.5 surfaces this string via
+/// `grep`. Bump when the `SPECpower` quarterly results are refreshed.
+#[allow(dead_code)]
+pub(crate) const SPECPOWER_VINTAGE: &str = "2024 Q1 - 2026 Q2";
+
 /// `(idle_watts, max_watts)` per instance type.
 ///
 /// Idle watts represent power at near-zero CPU load. Max watts represent

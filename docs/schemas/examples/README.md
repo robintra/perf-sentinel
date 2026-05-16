@@ -2,8 +2,8 @@
 
 This directory contains two illustrative outputs of `perf-sentinel disclose`:
 
-- `example-internal-G1.json` — gate G1 (internal disclosure, audience: own organization).
-- `example-official-public-G2.json` — gate G2 (official public disclosure, audience: world).
+- `example-internal-G1.json`: gate G1 (internal disclosure, audience: own organization).
+- `example-official-public-G2.json`: gate G2 (official public disclosure, audience: world).
 
 Both files are checked into the repository and serve as living references for the schema documented in [`docs/SCHEMA.md`](../../SCHEMA.md). They are also surfaced from the public reporting docs (`docs/REPORTING.md`).
 

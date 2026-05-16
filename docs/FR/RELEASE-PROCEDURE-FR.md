@@ -54,10 +54,16 @@ Les deux invocations de clippy couvrent le feature set par défaut et le build n
 
 C'est un audit opérateur, aucun script ne le vérifie automatiquement. Les données de référence embarquées alimentent le pipeline de scoring carbone et sont livrées comme source Rust (donc couvertes par `cargo test --workspace` en step 2). Les tests garantissent la correction, pas la fraîcheur. Avant de taguer, confirmer les millésimes déclarés dans :
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs` : coefficients SPECpower / CCF, rafraîchis trimestriellement.
-- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement.
+- `crates/sentinel-core/src/score/cloud_energy/table.rs` : coefficients SPECpower / CCF, rafraîchis trimestriellement. Millésime exposé via `SPECPOWER_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon_profiles.rs` : profils horaires de réseau ENTSO-E / EIA / AEMO / Electricity Maps, rafraîchis au moins annuellement. Millésime exposé via `CARBON_PROFILES_VINTAGE`.
 
-Si la fenêtre de données ne couvre pas la date de release avec une marge confortable (typiquement : table SPECpower dans les 2 derniers trimestres, profils de réseau dans l'année en cours), soit rafraîchir les données dans cette release, soit documenter le report dans `CHANGELOG.md` pour que la péremption soit explicite pour les utilisateurs en aval.
+Afficher les deux millésimes en une commande :
+
+```bash
+grep -rn 'VINTAGE' crates/sentinel-core/src/score/
+```
+
+Si la fenêtre de données ne couvre pas la date de release avec une marge confortable (typiquement : table SPECpower dans les 2 derniers trimestres, profils de réseau dans l'année en cours), soit rafraîchir les données dans cette release (en bumpant aussi la constante `_VINTAGE` correspondante), soit documenter le report dans `CHANGELOG.md` pour que la péremption soit explicite pour les utilisateurs en aval.
 
 ### 3. Bumper le chart Helm en lockstep
 

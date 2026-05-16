@@ -13,6 +13,15 @@
 //! - Electricity Maps: annual reports with diurnal patterns (2023-2024)
 //! - Cloud Carbon Footprint (CCF): annual grid intensities cross-reference
 
+/// Temporal range covered by the embedded grid carbon-intensity
+/// profiles. Most regions (ENTSO-E, EIA, AEMO, Hydro-Quebec) span
+/// `2022-2024`; the Electricity Maps subset (Japan, Singapore, India,
+/// generic fallback) is on `2023-2024`. The constant reports the
+/// dominant range. Release procedure step 2.5 surfaces this string
+/// via `grep`. Bump when any source is refreshed beyond the range.
+#[allow(dead_code)]
+pub(crate) const CARBON_PROFILES_VINTAGE: &str = "2022-2024";
+
 /// Hourly carbon intensity profile.
 ///
 /// `FlatYear` uses the same 24-hour UTC profile for all months.

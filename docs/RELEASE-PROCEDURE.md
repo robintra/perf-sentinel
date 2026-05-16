@@ -54,10 +54,16 @@ The two clippy invocations cover the default feature set and the no-default-feat
 
 This is an operator-driven audit, no script enforces it. Embedded reference data drives the carbon scoring pipeline and ships as Rust source (so it is exercised by `cargo test --workspace` in step 2). Test passes guarantee correctness, not freshness. Before tagging, confirm the vintages declared in:
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs`: SPECpower / CCF coefficients, refreshed quarterly.
-- `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually.
+- `crates/sentinel-core/src/score/cloud_energy/table.rs`: SPECpower / CCF coefficients, refreshed quarterly. Vintage exposed as `SPECPOWER_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually. Vintage exposed as `CARBON_PROFILES_VINTAGE`.
 
-If the data window does not cover the release date with comfortable margin (typically: SPECpower table within the last 2 quarters, grid profiles within the current year), either refresh the data inside this release or document the deferral in `CHANGELOG.md` so the staleness is explicit to downstream users.
+Surface both vintages in one command:
+
+```bash
+grep -rn 'VINTAGE' crates/sentinel-core/src/score/
+```
+
+If the data window does not cover the release date with comfortable margin (typically: SPECpower table within the last 2 quarters, grid profiles within the current year), either refresh the data inside this release (also bumping the corresponding `_VINTAGE` constant) or document the deferral in `CHANGELOG.md` so the staleness is explicit to downstream users.
 
 ### 3. Bump the Helm chart in lockstep
 
