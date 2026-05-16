@@ -41,28 +41,52 @@ write_line_crlf() {
   printf '%s\t%s\t%s\t%s\r\n' "${ver}" "${sha}" "${date_iso}" "${verdict}" >> "${ledger}"
 }
 
-# Run one scenario in a throwaway dir and assert exit code.
+# Run one scenario in a throwaway dir and assert exit code. If a 4th
+# argument is given, also assert that the gate's stdout contains that
+# substring (useful when the exit code alone does not pin the behavior
+# being tested, e.g. tie-break selection).
 run_scenario() {
   local name="$1"
-  local expected="$2"
+  local expected_exit="$2"
   local setup_func="$3"
+  local expected_substr="${4:-}"
 
   local tmpdir
   tmpdir=$(mktemp -d) || { echo "harness error: mktemp -d failed" >&2; exit 1; }
-  local actual
-  actual=$(
+  local actual_exit
+  actual_exit=$(
     cd "${tmpdir}" || exit 1
     TEST_ARGS=()
     "${setup_func}"
-    "${SCRIPT_UNDER_TEST}" "${TEST_ARGS[@]}" > /dev/null 2>&1
+    "${SCRIPT_UNDER_TEST}" "${TEST_ARGS[@]}" > stdout.txt 2>/dev/null
     echo "$?"
   )
 
-  if [ "${actual}" = "${expected}" ]; then
-    echo "PASS: ${name} (exit ${actual})"
+  local actual_out=""
+  if [ -f "${tmpdir}/stdout.txt" ]; then
+    actual_out=$(cat "${tmpdir}/stdout.txt")
+  fi
+
+  local exit_ok=1
+  local substr_ok=1
+  [ "${actual_exit}" = "${expected_exit}" ] || exit_ok=0
+  if [ -n "${expected_substr}" ]; then
+    printf '%s' "${actual_out}" | grep -qF -- "${expected_substr}" || substr_ok=0
+  fi
+
+  if [ "${exit_ok}" = 1 ] && [ "${substr_ok}" = 1 ]; then
+    echo "PASS: ${name} (exit ${actual_exit})"
     PASS=$((PASS + 1))
   else
-    echo "FAIL: ${name} (expected ${expected}, got ${actual})"
+    local detail=""
+    if [ "${exit_ok}" = 0 ]; then
+      detail="expected exit ${expected_exit}, got ${actual_exit}"
+    fi
+    if [ "${substr_ok}" = 0 ]; then
+      [ -n "${detail}" ] && detail="${detail}; "
+      detail="${detail}stdout missing substring '${expected_substr}'"
+    fi
+    echo "FAIL: ${name} (${detail})"
     FAIL=$((FAIL + 1))
   fi
   rm -rf "${tmpdir}"
@@ -130,9 +154,9 @@ scenario_malformed_line_skipped() {
 
 scenario_duplicate_tie_break() {
   # Same version, same date, two different shas. Gate must exit 0
-  # deterministically (sort -k3,3 -k2,2 picks the lexicographically
-  # larger sha on the tie). Only the exit code is asserted, so a
-  # regression that picks `aaaaaaa` over `fffffff` would still pass.
+  # deterministically and pick `fffffff` (sort -k3,3 -k2,2 chooses the
+  # lexicographically larger sha on the tie). The success-line stdout
+  # substring assertion in the driver pins this behavior.
   write_line ledger.txt v0.1.0 aaaaaaa "${TODAY_ISO}" PASS
   write_line ledger.txt v0.1.0 fffffff "${TODAY_ISO}" PASS
   TEST_ARGS=(--version v0.1.0 --ledger "${PWD}/ledger.txt")
@@ -176,7 +200,7 @@ run_scenario "--max-age-days abc rejected"              2 scenario_max_age_non_n
 run_scenario "--max-age-days 999999999 rejected"        2 scenario_max_age_too_large_rejected
 run_scenario "CRLF line handled"                        0 scenario_crlf_line
 run_scenario "malformed 3-col line skipped"             0 scenario_malformed_line_skipped
-run_scenario "duplicate same-date tie-break"            0 scenario_duplicate_tie_break
+run_scenario "duplicate same-date tie-break"            0 scenario_duplicate_tie_break "lab commit fffffff"
 run_scenario "future date refused"                      1 scenario_future_date_refused
 run_scenario "forged sha with space rejected"           1 scenario_forged_sha_with_space
 run_scenario "forged date 'now' rejected"               1 scenario_forged_date_now
