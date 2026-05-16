@@ -778,6 +778,12 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 
 Les entrées CI sont pinnées pour la reproductibilité : chaque GitHub Action est référencée par un commit SHA de 40 caractères (avec le tag semver en commentaire trailing), l'image de production est `FROM scratch`, `Cargo.lock` est commité et audité quotidiennement par `cargo audit`, et les permissions `GITHUB_TOKEN` des workflows ont par défaut `contents: read` avec des scopes plus larges opt-in par job. Dependabot ouvre des PRs groupées hebdomadaires pour les bumps d'actions. La politique complète et les commandes de vérification sont dans [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
 
+## Publication d'une release
+
+Les releases suivent une procédure documentée avec un gate de validation lab obligatoire. La procédure complète, du bump de version aux checks locaux, à la validation lab, au pre-flight, au tag et à la release du chart Helm, est documentée dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md) ([EN](docs/RELEASE-PROCEDURE.md)).
+
+Avant de taguer `vX.Y.Z`, l'opérateur doit lancer `release-gate/check-lab-validation.sh --version vX.Y.Z`. Le gate échoue si [`release-gate/lab-validations.txt`](release-gate/lab-validations.txt) n'a pas d'entrée PASS pour la version, ou si la dernière entrée PASS a plus de 30 jours. Les lignes du ledger sont produites par le helper `scripts/record-validation.sh` du repo `perf-sentinel-simulation-lab` après chaque run du lab.
+
 ## Licence
 
 Ce projet est sous licence [GNU Affero General Public License v3.0](LICENSE).

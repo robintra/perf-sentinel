@@ -780,6 +780,12 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 
 CI inputs are pinned for reproducibility: every GitHub Action is referenced by a 40-character commit SHA (with the semver tag in a trailing comment), the production image is `FROM scratch`, `Cargo.lock` is committed and audited daily by `cargo audit`, and workflow `GITHUB_TOKEN` permissions default to `contents: read` with broader scopes opted into per job. Dependabot opens weekly grouped PRs for action bumps. The full policy and verification commands are in [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
+## Releasing
+
+Releases follow a documented procedure with a mandatory simulation-lab validation gate. The full step-by-step, including version bumps, local gates, lab validation, pre-flight check, tag, and Helm chart release, lives in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md) ([FR](docs/FR/RELEASE-PROCEDURE-FR.md)).
+
+Before tagging `vX.Y.Z`, the operator must run `release-gate/check-lab-validation.sh --version vX.Y.Z`. The gate fails the pre-flight if [`release-gate/lab-validations.txt`](release-gate/lab-validations.txt) has no PASS entry for the version, or if the latest PASS entry is older than 30 days. Ledger lines are produced by the `scripts/record-validation.sh` helper in the `perf-sentinel-simulation-lab` repository after each lab run.
+
 ## License
 
 This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
