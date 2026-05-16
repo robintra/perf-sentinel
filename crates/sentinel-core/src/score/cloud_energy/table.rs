@@ -22,7 +22,7 @@
 //! Full methodology, uncertainty bounds, and per-architecture caveats
 //! are in `docs/LIMITATIONS.md` "Cloud `SPECpower` precision bounds".
 //!
-//! [Cloud Carbon Footprint coefficients]: https://github.com/cloud-carbon-footprint/cloud-carbon-coefficients
+//! [Cloud Carbon Footprint coefficients]: https://github.com/cloud-carbon-footprint/ccf-coefficients
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
