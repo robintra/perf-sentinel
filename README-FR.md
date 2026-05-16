@@ -527,7 +527,7 @@ Le knob `default_region` mappe chaque span sans attribut `cloud_region` à `eu-w
         "status": "known",
         "region": "eu-west-3",
         "grid_intensity_gco2_kwh": 42.0,
-        "pue": 1.135,
+        "pue": 1.15,
         "io_ops": 78,
         "co2_gco2": 0.000293,
         "intensity_source": "monthly_hourly"
@@ -758,7 +758,7 @@ Les estimations carbone de perf-sentinel reposent sur une chaîne auditable de n
 
 ### Jeux de données de référence
 
-- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/) : intensité carbone annuelle par région cloud, valeurs PUE par fournisseur (AWS 1,135, GCP 1,10, Azure 1,185, générique 1,2) et les tables de coefficients SPECpower (~180 types d'instances) qui alimentent le backend énergie `cloud_specpower`.
+- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/) : intensité carbone annuelle par région cloud, valeurs PUE par fournisseur reprises des rapports sustainability de chaque fournisseur (AWS 1,15, GCP 1,09, Azure 1,17, générique 1,2) et les coefficients par architecture `ccf-coefficients` 2026-04-24 (~390 types d'instances couvrant AWS, GCP, Azure) qui alimentent le backend énergie `cloud_specpower`.
 - [Electricity Maps](https://www.electricitymaps.com/) : intensités annuelles moyennes pour plus de 30 régions (2023-2024) utilisées comme référence `io_proxy_v1`, plus l'API temps réel (backend `electricity_maps_api`, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/) : données horaires de production et de consommation utilisées pour dériver les profils mois x heure des zones de marché européennes (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
 - Gestionnaires de réseau nationaux : [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=fr&c=DE) (Allemagne), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (Royaume-Uni), [EIA Open Data API](https://www.eia.gov/opendata/) pour les balancing authorities américaines (PJM, CAISO, BPA), [rapports annuels Hydro-Québec](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australie).

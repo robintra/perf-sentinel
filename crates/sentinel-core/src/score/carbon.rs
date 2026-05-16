@@ -112,6 +112,13 @@ pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 /// regions that have a custom hourly profile.
 pub const GENERIC_PUE: f64 = 1.2;
 
+/// Vintage of the per-provider PUE constants embedded in `Provider::pue`.
+/// Release procedure step 2.5 surfaces this string via `grep`. Bump when
+/// any provider's published sustainability report supersedes the value
+/// in the table.
+#[allow(dead_code)]
+pub(crate) const PUE_VINTAGE: &str = "2026 refresh (AWS 2024 global, GCP 2024 fleet, Azure FY25)";
+
 /// Synthetic region label for events with no resolved region.
 pub const UNKNOWN_REGION: &str = "unknown";
 
@@ -448,9 +455,9 @@ impl Provider {
     /// Power Usage Effectiveness for this provider.
     const fn pue(self) -> f64 {
         match self {
-            Self::Aws => 1.135,
-            Self::Gcp => 1.10,
-            Self::Azure => 1.185,
+            Self::Aws => 1.15,
+            Self::Gcp => 1.09,
+            Self::Azure => 1.17,
             Self::Generic => 1.2,
         }
     }
@@ -459,11 +466,16 @@ impl Provider {
 /// Static carbon intensity table: (`region_key`, gCO₂eq/kWh, provider).
 ///
 /// Region keys are lowercase for case-insensitive matching.
-/// Data from Cloud Carbon Footprint (CCF) and Electricity Maps
-/// (2023-2024 annual averages, consumption-based with imports). PUE
-/// values from CCF per provider. The Paris value (~56 g) tracks
-/// Electricity Maps consumption-based-with-imports, not RTE's lower
-/// production-based figure, so the table stays internally consistent.
+/// Intensity values come from Cloud Carbon Footprint (CCF) and
+/// Electricity Maps (2023-2024 annual averages, consumption-based
+/// with imports). PUE values are sourced from each provider's most
+/// recent sustainability report (AWS 2024 global, GCP 2024 fleet TTM,
+/// Azure FY25 owned-and-controlled), refreshed in the 2026 cycle.
+///
+/// Methodology note on Paris (eu-west-3, ~56 g): tracks Electricity
+/// Maps consumption-based-with-imports rather than RTE's lower
+/// production-based figure, keeping the table internally consistent
+/// with the other European regions.
 static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
@@ -1381,7 +1393,7 @@ mod tests {
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
         assert!((intensity - 56.0).abs() < f64::EPSILON);
-        assert!((pue - 1.135).abs() < f64::EPSILON);
+        assert!((pue - 1.15).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1390,7 +1402,7 @@ mod tests {
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
         assert!((intensity - 56.0).abs() < f64::EPSILON);
-        assert!((pue - 1.10).abs() < f64::EPSILON);
+        assert!((pue - 1.09).abs() < f64::EPSILON);
     }
 
     #[test]
@@ -1421,8 +1433,8 @@ mod tests {
         let co2 = io_ops_to_co2_grams(1000, "eu-west-3");
         assert!(co2.is_some());
         let val = co2.unwrap();
-        // 1000 * 0.0000001 * 56.0 * 1.135 = 0.006356
-        assert!((val - 0.006_356).abs() < 1e-9);
+        // 1000 * 0.0000001 * 56.0 * 1.15 = 0.006440
+        assert!((val - 0.006_440).abs() < 1e-9);
     }
 
     #[test]
@@ -1450,8 +1462,8 @@ mod tests {
         assert!(result.is_some());
         let (_, pue) = result.unwrap();
         assert!(
-            (pue - 1.185).abs() < f64::EPSILON,
-            "Azure PUE should be 1.185"
+            (pue - 1.17).abs() < f64::EPSILON,
+            "Azure PUE should be 1.17"
         );
     }
 
@@ -1548,14 +1560,14 @@ mod tests {
 
     #[test]
     fn compute_operational_gco2_matches_expected() {
-        // Hand-computed: 1000 ops × 1e-7 kWh × 56 gCO₂/kWh × 1.135 PUE = 6.356e-3 g
-        let result = compute_operational_gco2(1000, 56.0, 1.135);
-        assert!((result - 0.006_356).abs() < 1e-9);
+        // Hand-computed: 1000 ops × 1e-7 kWh × 56 gCO₂/kWh × 1.15 PUE = 6.440e-3 g
+        let result = compute_operational_gco2(1000, 56.0, 1.15);
+        assert!((result - 0.006_440).abs() < 1e-9);
     }
 
     #[test]
     fn compute_operational_gco2_zero_ops() {
-        assert!((compute_operational_gco2(0, 56.0, 1.135) - 0.0).abs() < f64::EPSILON);
+        assert!((compute_operational_gco2(0, 56.0, 1.15) - 0.0).abs() < f64::EPSILON);
     }
 
     #[test]

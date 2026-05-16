@@ -185,6 +185,15 @@ pub struct CalibrationInputs {
     pub cloud_regions: Vec<String>,
     pub carbon_intensity_source: String,
     pub specpower_table_version: String,
+    /// Vintage of the `SPECpower` / CCF coefficient table that the
+    /// running binary embedded at build time. Independent from the
+    /// operator-declared `specpower_table_version` above. Consumers can
+    /// compare both strings to detect drift between the operator's
+    /// disclosure and the embedded data. Always populated by the
+    /// `disclose` command from
+    /// [`crate::score::cloud_energy::embedded_specpower_vintage`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_specpower_vintage: Option<String>,
     pub scaphandre_used: bool,
     /// Energy source models observed in the archived windows for the
     /// period. Sourced from each window's `GreenSummary.energy_model`
@@ -441,14 +450,7 @@ mod tests {
             disabled_patterns: vec![],
             core_patterns_required: core_patterns_required(),
             conformance: Conformance::CoreRequired,
-            calibration_inputs: CalibrationInputs {
-                cloud_regions: vec!["eu-west-3".to_string()],
-                carbon_intensity_source: "electricity_maps".to_string(),
-                specpower_table_version: "2024-2026".to_string(),
-                scaphandre_used: false,
-                calibration_applied: false,
-                energy_source_models: BTreeSet::new(),
-            },
+            calibration_inputs: super::super::test_fixtures::sample_calibration_inputs(),
         }
     }
 

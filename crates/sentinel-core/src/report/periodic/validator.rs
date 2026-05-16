@@ -266,16 +266,29 @@ fn validate_calibration_inputs(meth: &Methodology, errors: &mut Vec<ValidationEr
             ),
         });
     }
-    if meth
-        .calibration_inputs
-        .specpower_table_version
-        .trim()
-        .is_empty()
-    {
+    let declared_vintage = meth.calibration_inputs.specpower_table_version.trim();
+    if declared_vintage.is_empty() {
         errors.push(ValidationError::Methodology {
             field: "calibration_inputs.specpower_table_version",
             reason: "must not be empty".to_string(),
         });
+    } else if let Some(binary_vintage) = meth.calibration_inputs.binary_specpower_vintage.as_deref()
+    {
+        // For Official intent, the operator-declared vintage must equal
+        // the first whitespace-delimited token of the binary vintage.
+        // The binary may carry an annotated suffix (e.g.
+        // "2026-04-24 (CCF aligned)") but the operator declares the bare
+        // date string. Substring match would accept "2026" or "CCF" and
+        // miss the drift the audit is meant to catch.
+        let binary_date_prefix = binary_vintage.split_whitespace().next().unwrap_or("");
+        if declared_vintage != binary_date_prefix {
+            errors.push(ValidationError::Methodology {
+                field: "calibration_inputs.specpower_table_version",
+                reason: format!(
+                    "declared vintage {declared_vintage:?} does not match the running binary {binary_vintage:?}; update the org config to align, or downgrade intent to 'internal' for this report window"
+                ),
+            });
+        }
     }
 }
 
@@ -575,6 +588,63 @@ mod tests {
                     if *field == "calibration_inputs.carbon_intensity_source")),
             "got {errors:?}"
         );
+    }
+
+    #[test]
+    fn declared_specpower_vintage_drift_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.methodology.calibration_inputs.specpower_table_version = "2023-05-01".to_string();
+        r.methodology.calibration_inputs.binary_specpower_vintage =
+            Some("2026-04-24 (CCF aligned)".to_string());
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, ValidationError::Methodology { field, reason }
+                    if *field == "calibration_inputs.specpower_table_version"
+                        && reason.contains("does not match the running binary"))
+            ),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn declared_specpower_vintage_date_prefix_match_accepted() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.methodology.calibration_inputs.specpower_table_version = "2026-04-24".to_string();
+        r.methodology.calibration_inputs.binary_specpower_vintage =
+            Some("2026-04-24 (CCF aligned)".to_string());
+        // Operator declares the bare date prefix; the binary annotates it.
+        validate_official(&r).expect("date prefix vintage must validate");
+    }
+
+    #[test]
+    fn declared_specpower_vintage_trivial_substring_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        // Operator declares a permissive substring that the previous
+        // contains-based rule would have accepted ("2026" sits inside
+        // "2026-04-24"). Prefix exact match must reject it as drift.
+        r.methodology.calibration_inputs.specpower_table_version = "2026".to_string();
+        r.methodology.calibration_inputs.binary_specpower_vintage =
+            Some("2026-04-24 (CCF aligned)".to_string());
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Methodology { field, .. }
+                    if *field == "calibration_inputs.specpower_table_version")),
+            "trivial substring should be rejected, got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn declared_specpower_vintage_without_binary_field_accepted() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        // When the binary vintage field is absent (older binary or
+        // intentionally skipped), the drift rule cannot fire and the
+        // operator's declaration is accepted as-is.
+        r.methodology.calibration_inputs.specpower_table_version = "anything-2099".to_string();
+        r.methodology.calibration_inputs.binary_specpower_vintage = None;
+        validate_official(&r).expect("absent binary vintage must not gate the validator");
     }
 
     #[test]

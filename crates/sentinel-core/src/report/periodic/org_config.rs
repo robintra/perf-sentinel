@@ -204,7 +204,7 @@ conformance = "core-required"
 [methodology.calibration]
 cloud_regions = ["eu-west-3"]
 carbon_intensity_source = "electricity_maps"
-specpower_table_version = "2024-2026"
+specpower_table_version = "2026-04-24"
 scaphandre_used = false
 
 [scope_manifest]

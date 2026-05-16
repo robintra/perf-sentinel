@@ -75,6 +75,20 @@ pub(super) fn sample_q1_period() -> Period {
     }
 }
 
+pub(super) fn sample_calibration_inputs() -> CalibrationInputs {
+    CalibrationInputs {
+        cloud_regions: vec!["eu-west-3".to_string()],
+        carbon_intensity_source: "electricity_maps".to_string(),
+        specpower_table_version: "2026-04-24".to_string(),
+        binary_specpower_vintage: Some(
+            crate::score::cloud_energy::embedded_specpower_vintage().to_string(),
+        ),
+        scaphandre_used: false,
+        calibration_applied: false,
+        energy_source_models: BTreeSet::new(),
+    }
+}
+
 pub(super) fn sample_methodology() -> Methodology {
     Methodology {
         sci_specification: "ISO/IEC 21031:2024".to_string(),
@@ -88,14 +102,7 @@ pub(super) fn sample_methodology() -> Methodology {
         disabled_patterns: vec![],
         core_patterns_required: core_patterns_required(),
         conformance: Conformance::CoreRequired,
-        calibration_inputs: CalibrationInputs {
-            cloud_regions: vec!["eu-west-3".to_string()],
-            carbon_intensity_source: "electricity_maps".to_string(),
-            specpower_table_version: "2024-2026".to_string(),
-            scaphandre_used: false,
-            calibration_applied: false,
-            energy_source_models: BTreeSet::new(),
-        },
+        calibration_inputs: sample_calibration_inputs(),
     }
 }
 

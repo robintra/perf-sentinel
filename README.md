@@ -529,7 +529,7 @@ The `default_region` knob maps every span without a `cloud_region` attribute to 
         "status": "known",
         "region": "eu-west-3",
         "grid_intensity_gco2_kwh": 42.0,
-        "pue": 1.135,
+        "pue": 1.15,
         "io_ops": 78,
         "co2_gco2": 0.000293,
         "intensity_source": "monthly_hourly"
@@ -760,7 +760,7 @@ perf-sentinel's carbon estimates rest on an auditable chain of public standards,
 
 ### Reference datasets
 
-- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values (AWS 1.135, GCP 1.10, Azure 1.185, generic 1.2) and the SPECpower coefficient tables (~180 instance types) that feed the `cloud_specpower` energy backend.
+- [Cloud Carbon Footprint (CCF)](https://www.cloudcarbonfootprint.org/): annual grid intensity per cloud region, per-provider PUE values sourced from each provider's own sustainability reports (AWS 1.15, GCP 1.09, Azure 1.17, generic 1.2) and the `ccf-coefficients` 2026-04-24 per-architecture coefficients (~390 instance types across AWS, GCP, Azure) that feed the `cloud_specpower` energy backend.
 - [Electricity Maps](https://www.electricitymaps.com/): annual average intensities for 30+ regions (2023-2024) used as the `io_proxy_v1` baseline, plus the real-time API (`electricity_maps_api` backend, opt-in via `[green.electricity_maps]`).
 - [ENTSO-E Transparency Platform](https://transparency.entsoe.eu/): hourly generation and load data used to derive the monthly x hourly profiles for European bidding zones (FR, DE, GB, IE, NL, SE, BE, FI, IT, ES, PL, NO).
 - National TSOs and grid operators: [RTE eCO2mix](https://www.rte-france.com/en/eco2mix) (France), [Fraunhofer ISE energy-charts.info](https://www.energy-charts.info/?l=en&c=DE) (Germany), [National Grid ESO Carbon Intensity API](https://carbonintensity.org.uk/) (UK), [EIA Open Data API](https://www.eia.gov/opendata/) for US balancing authorities (PJM, CAISO, BPA), [Hydro-Quebec annual reports](https://www.hydroquebec.com/sustainable-development/) (Canada), [AEMO NEM](https://www.aemo.com.au/) / [OpenNEM](https://opennem.org.au/) (Australia).

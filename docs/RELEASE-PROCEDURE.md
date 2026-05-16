@@ -54,10 +54,11 @@ The two clippy invocations cover the default feature set and the no-default-feat
 
 This is an operator-driven audit, no script enforces it. Embedded reference data drives the carbon scoring pipeline and ships as Rust source (so it is exercised by `cargo test --workspace` in step 2). Test passes guarantee correctness, not freshness. Before tagging, confirm the vintages declared in:
 
-- `crates/sentinel-core/src/score/cloud_energy/table.rs`: SPECpower / CCF coefficients, refreshed quarterly. Vintage exposed as `SPECPOWER_VINTAGE`.
+- `crates/sentinel-core/src/score/cloud_energy/table.rs`: two `_VINTAGE` constants live in this file after the 2026-04-24 CCF refresh, both pointing to the same `ccf-coefficients` 2026-04-24 snapshot. `CCF_LEGACY_VINTAGE` tracks the per-architecture coefficients imported from `coefficients-{aws,gcp,azure}-use.csv`. `SPECPOWER_VINTAGE` tracks the modern entries kept on direct `SPECpower_ssj 2008` compute (within 5 percent of CCF or absent from the provider CSV). Bump `CCF_LEGACY_VINTAGE` when the CCF repo publishes a new dated snapshot. Bump `SPECPOWER_VINTAGE` when the SPECpower quarterly window is extended or when more than 50 percent of the modern entries are re-aligned to a new CCF snapshot.
 - `crates/sentinel-core/src/score/carbon_profiles.rs`: ENTSO-E / EIA / AEMO / Electricity Maps hourly grid profiles, refreshed at least annually. Vintage exposed as `CARBON_PROFILES_VINTAGE`.
+- `crates/sentinel-core/src/score/carbon.rs`: per-provider PUE constants (AWS, GCP, Azure, generic), refreshed when any provider publishes a new sustainability report. Vintage exposed as `PUE_VINTAGE`.
 
-Surface both vintages in one command:
+Surface all three vintages in one command:
 
 ```bash
 grep -rn 'VINTAGE' crates/sentinel-core/src/score/

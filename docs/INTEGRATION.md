@@ -421,7 +421,7 @@ region = "westeurope"
 instance_type = "Standard_D8s_v6"  # Emerald Rapids
 ```
 
-The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using SPECpower data embedded in the binary (~320 instance types across AWS, GCP, Azure, including modern architectures Sapphire Rapids, Emerald Rapids, Granite Rapids, Genoa, Turin, Graviton 3/4 and Cobalt 100). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
+The daemon interpolates power consumption as `watts = idle_watts + (max_watts - idle_watts) * (cpu% / 100)` using CCF 2026-04-24 per-vCPU coefficients embedded in the binary (~390 instance types across AWS, GCP, Azure, including modern architectures Sapphire Rapids, Emerald Rapids, Genoa, Turin, Graviton 3/4 and Cobalt 100). The model tag is `"cloud_specpower"`. Like Scaphandre, this is a daemon-only feature.
 
 **Energy source precedence.** When both Scaphandre and cloud energy are configured for the same service, Scaphandre wins (direct RAPL measurement is more precise than CPU% interpolation). The full chain: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 

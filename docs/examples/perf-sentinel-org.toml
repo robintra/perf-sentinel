@@ -65,7 +65,7 @@ cloud_regions = ["eu-west-3"]
 carbon_intensity_source = "electricity_maps"
 # Version of the embedded SPECpower table that produced the cloud CPU%
 # energy proxy. perf-sentinel ships the only authoritative copy.
-specpower_table_version = "2024-2026"
+specpower_table_version = "2026-04-24"
 # True when the operator's deployment is wired to Scaphandre RAPL.
 scaphandre_used = false
 

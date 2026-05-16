@@ -6,6 +6,29 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.38]
+
+### Changed
+
+- `appVersion` bumped to `0.7.3`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.3`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.7.3 binary refreshes the GreenOps reference data shipped with
+  the chart: per-provider PUE constants aligned with the latest
+  sustainability reports (AWS 1.135 to 1.15, GCP 1.10 to 1.09,
+  Azure 1.185 to 1.17, generic unchanged at 1.2), and cloud instance
+  coefficients aligned with the `ccf-coefficients` 2026-04-24
+  snapshot across AWS, GCP, and Azure (about 390 instance types).
+  New AWS families covered: `m8a` / `c8a` (EPYC Turin, proxied to
+  Genoa pending an upstream CCF correction), `m8i` / `c8i` (Emerald
+  Rapids), `r7a` (Genoa memory-optimized). New GCP family: `c4a`
+  (Axion ARM). Memory-optimized SKUs now carry an additive DRAM
+  premium (0.02 W/GB idle, 0.05 W/GB max). The binary `SPECpower`
+  vintage is surfaced in periodic disclosure reports under
+  `methodology.calibration_inputs.binary_specpower_vintage` and
+  cross-checked against the operator-declared
+  `specpower_table_version` for Official intent reports.
+
 ## [0.2.37]
 
 ### Added

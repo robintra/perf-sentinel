@@ -67,7 +67,8 @@
     "calibration_inputs": {
       "cloud_regions": ["eu-west-3"],
       "carbon_intensity_source": "electricity_maps",
-      "specpower_table_version": "2024-2026",
+      "specpower_table_version": "2026-04-24",
+      "binary_specpower_vintage": "2026-04-24 (CCF aligned)",
       "scaphandre_used": false,
       "energy_source_models": ["cloud_specpower", "io_proxy_v3"],
       "calibration_applied": false

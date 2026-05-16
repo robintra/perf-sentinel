@@ -263,7 +263,13 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "carbon_intensity_source": { "$ref": "#/$defs/CarbonIntensitySource" },
-        "specpower_table_version": { "type": "string", "minLength": 1 },
+        "specpower_table_version": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "binary_specpower_vintage": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Vintage string of the SPECpower / CCF coefficient table embedded in the running binary. Independent of the operator-declared specpower_table_version above. Consumers may compare both strings to detect drift between operator disclosure and embedded data."
+        },
         "scaphandre_used": { "type": "boolean" },
         "energy_source_models": {
           "type": "array",

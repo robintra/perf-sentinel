@@ -261,6 +261,9 @@ fn build_report(
             cloud_regions: org.methodology.calibration.cloud_regions.clone(),
             carbon_intensity_source: org.methodology.calibration.carbon_intensity_source.clone(),
             specpower_table_version: org.methodology.calibration.specpower_table_version.clone(),
+            binary_specpower_vintage: Some(
+                sentinel_core::score::cloud_energy::embedded_specpower_vintage().to_string(),
+            ),
             scaphandre_used: org.methodology.calibration.scaphandre_used,
             energy_source_models: aggregate.energy_source_models.clone(),
             calibration_applied: aggregate.calibration_applied,
