@@ -1,2 +1,9 @@
 # Default owner for everything in the repo
 * @robintra
+
+# Release-gate apparatus: ledger and pre-flight script. Reviewing these
+# in isolation from a release version bump forces a second pair of eyes
+# when the project opens to external contributions.
+/release-gate/                                    @robintra
+/scripts/test/check-lab-validation-test.sh        @robintra
+/.github/workflows/release-gate-ci.yml            @robintra
