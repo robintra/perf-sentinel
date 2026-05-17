@@ -47,9 +47,40 @@ perf-sentinel report --input traces.json --output report.html
 
 Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path.
 
-Existing tools each solve part of the problem: Hypersistence Utils covers JPA only; Datadog and New Relic are heavy proprietary agents you may not want in every pipeline; Sentry's detectors are solid but tied to its SDK and backend. None of them give you a **protocol-level CI gate you can self-host**.
+Existing tools each solve part of the problem: Hypersistence Utils covers JPA only, Datadog and New Relic are heavy proprietary agents you may not want in every pipeline, Sentry's detectors are solid but tied to its SDK and backend. None of them give you a **protocol-level CI gate you can self-host**.
 
 perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
+
+## What it detects
+
+Ten finding types, plus cross-trace correlations in daemon mode:
+
+| Pattern             | Trigger                                                          |
+|---------------------|------------------------------------------------------------------|
+| N+1 SQL             | Same query template fired ≥ N times in a single trace            |
+| N+1 HTTP            | Same URL template called ≥ N times in a single trace             |
+| Redundant SQL       | Identical query with identical params, same trace                |
+| Redundant HTTP      | Identical call with identical params, same trace                 |
+| Slow SQL            | Query duration above configured threshold                        |
+| Slow HTTP           | Request duration above configured threshold                      |
+| Excessive fanout    | One span starts ≥ N children in parallel                         |
+| Chatty service      | Service A → B repeatedly within one user request                 |
+| Pool saturation     | Concurrent in-flight queries exceed configured pool size         |
+| Serialized calls    | Sequential I/O that could be parallelized                        |
+
+Each finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when OTel spans carry `code.*` attributes), and GreenOps impact (see below). For per-detector severity rules and tunable thresholds, see [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
+
+## Output formats
+
+- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
+- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
+- **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
+- **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
+- **Interactive TUI**: 3-panel keyboard-driven view from `perf-sentinel inspect` (or `query inspect` for live daemon data). See [docs/INSPECT.md](docs/INSPECT.md).
+- **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
+- **Periodic disclosure (optional)**: hash-verifiable `perf-sentinel-report/v1.0` JSON from `perf-sentinel disclose`, signable via Sigstore. See [docs/REPORTING.md](docs/REPORTING.md).
+
+The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions, numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
 ## Install
 
@@ -70,7 +101,7 @@ Linux binaries target musl (fully static, run on any distro and `FROM scratch` i
 
 ## Deployment
 
-Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md); CI recipes in [docs/CI.md](docs/CI.md); Prometheus metrics in [docs/METRICS.md](docs/METRICS.md); sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md), CI recipes in [docs/CI.md](docs/CI.md), Prometheus metrics in [docs/METRICS.md](docs/METRICS.md), sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
 Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging).
 
@@ -171,31 +202,6 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 ```
 
 </details>
-
-## What it detects
-
-Nine pattern families, plus cross-trace correlations in daemon mode:
-
-| Pattern             | Trigger                                                      |
-|---------------------|--------------------------------------------------------------|
-| N+1 SQL             | Same query template fired ≥ N times in a single trace        |
-| N+1 HTTP            | Same URL template called ≥ N times in a single trace         |
-| Redundant SQL/HTTP  | Identical query/call with identical params, same trace       |
-| Slow SQL / HTTP     | Span duration above configured threshold                     |
-| Excessive fanout    | One span starts ≥ N children in parallel                     |
-| Chatty service      | Service A → B repeatedly within one user request             |
-| Pool saturation     | Concurrent in-flight queries exceed configured pool size     |
-| Serialized calls    | Sequential I/O that could be parallelized                    |
-
-Each finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when OTel spans carry `code.*` attributes), and GreenOps impact (see below). For per-detector severity rules and tunable thresholds, see [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
-
-## Output formats
-
-- **`text`** (default): colored terminal output, severity-grouped.
-- **`json`**: structured report, full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
-- **`sarif`**: GitHub/GitLab code scanning, inline PR annotations with `physicalLocations`. See [docs/SARIF.md](docs/SARIF.md).
-
-The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions; numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
 ## GreenOps: I/O intensity score (directional)
 

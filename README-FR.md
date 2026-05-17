@@ -51,6 +51,37 @@ Les outils existants résolvent chacun une partie du problème : Hypersistence U
 
 perf-sentinel observe les traces que votre application émet déjà (requêtes SQL, appels HTTP), quel que soit le langage ou l'ORM. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
+## Ce qui est détecté
+
+Dix types de findings, plus la corrélation cross-trace en mode daemon :
+
+| Pattern            | Déclencheur                                                         |
+|--------------------|---------------------------------------------------------------------|
+| N+1 SQL            | Même template de requête tiré ≥ N fois dans une trace               |
+| N+1 HTTP           | Même template d'URL appelé ≥ N fois dans une trace                  |
+| SQL redondant      | Requête identique avec paramètres identiques, même trace            |
+| HTTP redondant     | Appel identique avec paramètres identiques, même trace              |
+| SQL lent           | Durée de requête au-dessus du seuil configuré                       |
+| HTTP lent          | Durée de requête au-dessus du seuil configuré                       |
+| Fanout excessif    | Un span démarre ≥ N enfants en parallèle                            |
+| Service bavard     | Service A → B de manière répétée dans une seule requête utilisateur |
+| Saturation de pool | Requêtes concurrentes en vol au-dessus de la taille du pool         |
+| Appels sérialisés  | I/O séquentiels qui pourraient être parallélisés                    |
+
+Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans OTel portent les attributs `code.*`) et impact GreenOps (voir plus bas). Pour les règles de sévérité et seuils ajustables, voir [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
+
+## Formats de sortie
+
+- **`text`** (défaut) : sortie terminal colorée, regroupée par sévérité. Disponible sur `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
+- **`json`** : rapport structuré. Disponible sur `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Schéma complet dans [docs/SCHEMA.md](docs/SCHEMA.md), exemples dans [docs/schemas/examples/](docs/schemas/examples/).
+- **`sarif`** (SARIF v2.1.0) : code scanning GitHub/GitLab, annotations PR inline via `physicalLocations`. Disponible sur `analyze` et `diff`. Voir [docs/SARIF.md](docs/SARIF.md).
+- **Dashboard HTML** : rapport offline en un seul fichier depuis `perf-sentinel report`, navigation dans les arbres de traces, thème clair/sombre, export CSV sur les onglets Findings / pg_stat / Diff / Correlations. Voir [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
+- **TUI interactif** : vue 3 panneaux pilotée au clavier depuis `perf-sentinel inspect` (ou `query inspect` pour données live du daemon). Voir [docs/INSPECT.md](docs/INSPECT.md).
+- **Daemon live** : findings NDJSON sur stdout, `/metrics` Prometheus avec Grafana Exemplars, sonde `/health`, API HTTP de query. Voir [docs/METRICS.md](docs/METRICS.md) et [docs/QUERY-API.md](docs/QUERY-API.md).
+- **Disclosure périodique (optionnel)** : JSON `perf-sentinel-report/v1.0` vérifiable par hash depuis `perf-sentinel disclose`, signable via Sigstore. Voir [docs/REPORTING.md](docs/REPORTING.md).
+
+Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions, les seuils numériques sous-jacents peuvent évoluer. Tableau de référence et explication dans [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
+
 ## Installation
 
 ```bash
@@ -171,31 +202,6 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 ```
 
 </details>
-
-## Ce qui est détecté
-
-Neuf familles de patterns, plus la corrélation cross-trace en mode daemon :
-
-| Pattern            | Déclencheur                                                         |
-|--------------------|---------------------------------------------------------------------|
-| N+1 SQL            | Même template de requête tiré ≥ N fois dans une trace               |
-| N+1 HTTP           | Même template d'URL appelé ≥ N fois dans une trace                  |
-| SQL/HTTP redondant | Requête/appel identique avec paramètres identiques, même trace      |
-| SQL / HTTP lent    | Durée du span au-dessus du seuil configuré                          |
-| Fanout excessif    | Un span démarre ≥ N enfants en parallèle                            |
-| Service bavard     | Service A → B de manière répétée dans une seule requête utilisateur |
-| Saturation de pool | Requêtes concurrentes en vol au-dessus de la taille du pool         |
-| Appels sérialisés  | I/O séquentiels qui pourraient être parallélisés                    |
-
-Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans OTel portent les attributs `code.*`) et impact GreenOps (voir plus bas). Pour les règles de sévérité et seuils ajustables, voir [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
-
-## Formats de sortie
-
-- **`text`** (défaut) : sortie terminal colorée, regroupée par sévérité.
-- **`json`** : rapport structuré, schéma complet dans [docs/SCHEMA.md](docs/SCHEMA.md), exemples dans [docs/schemas/examples/](docs/schemas/examples/).
-- **`sarif`** : code scanning GitHub/GitLab, annotations PR inline via `physicalLocations`. Voir [docs/SARIF.md](docs/SARIF.md).
-
-Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions ; les seuils numériques sous-jacents peuvent évoluer. Tableau de référence et explication dans [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
 ## GreenOps : score d'intensité I/O (directionnel)
 
