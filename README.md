@@ -99,6 +99,13 @@ slow_query_threshold_ms = 500
 Full subcommand reference: `perf-sentinel <cmd> --help`, or [docs/CLI.md](docs/CLI.md).
 
 <details>
+<summary>Map of the perf-sentinel subcommands and the artifacts they consume or produce</summary>
+
+<img alt="CLI commands overview" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
+
+</details>
+
+<details>
 <summary>One-liner cheat sheet for the rest of the surface</summary>
 
 ```bash
@@ -182,11 +189,51 @@ A fair comparison requires naming what perf-sentinel does **not** do:
 
 ## Deployment
 
-Three supported topologies, full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md):
+Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md); CI recipes in [docs/CI.md](docs/CI.md); Prometheus metrics in [docs/METRICS.md](docs/METRICS.md); sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
-1. **CI batch (recommended starting point):** `analyze --ci` on pre-collected trace files, exits 1 on threshold breach. CI recipes (GitHub Actions, GitLab CI, Jenkins) in [docs/CI.md](docs/CI.md).
-2. **Central collector (production):** OTel Collector forwards traces to `perf-sentinel watch`; Prometheus metrics on `/metrics`, `/health` probe, NDJSON findings on stdout. See [docs/METRICS.md](docs/METRICS.md).
-3. **Sidecar (per-service diagnostics):** runs alongside one service for isolated debugging. See [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging).
+
+<details>
+<summary><b>Local dev</b></summary>
+
+![Local dev zoom-in: batch on captured trace, local daemon at 127.0.0.1, inspect TUI, report HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
+
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
+
+![CI zoom-in: perf integration tests + analyze --ci quality gate, SARIF for code scanning, optional Tempo / jaeger-query nightly](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
+
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
+
+![Staging zoom-in: focus-service pod with sidecar daemon, /api/findings polled by QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
+
+</details>
+
+<details>
+<summary><b>Production</b></summary>
+
+![Production zoom-in: centralized daemon ingesting via OTel Collector and direct OTLP, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
+
+</details>
+
+<details>
+<summary><b>GreenOps (cross-cutting)</b></summary>
+
+![GreenOps integration: external real-time sources (Scaphandre kWh, Electricity Maps gCO2/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO2e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding perf-sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
+
+<details>
+<summary>End-to-end view: how the four environments fit together</summary>
+
+![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+
+</details>
 
 The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
 

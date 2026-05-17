@@ -99,6 +99,13 @@ slow_query_threshold_ms = 500
 Référence complète des sous-commandes : `perf-sentinel <cmd> --help`, ou [docs/CLI.md](docs/CLI.md).
 
 <details>
+<summary>Carte des sous-commandes perf-sentinel et des artefacts consommés ou produits</summary>
+
+<img alt="Vue d'ensemble des commandes CLI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
+
+</details>
+
+<details>
 <summary>Cheat sheet en une ligne pour le reste de la surface</summary>
 
 ```bash
@@ -182,11 +189,51 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 
 ## Déploiement
 
-Trois topologies supportées, mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md) :
+Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md) ; recettes CI dans [docs/CI.md](docs/CI.md) ; métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md) ; exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
-1. **Batch CI (point de départ recommandé) :** `analyze --ci` sur des fichiers de traces pré-collectés, exit 1 sur dépassement de seuil. Recettes CI (GitHub Actions, GitLab CI, Jenkins) dans [docs/CI.md](docs/CI.md).
-2. **Collector central (production) :** un OTel Collector route les traces vers `perf-sentinel watch` ; métriques Prometheus sur `/metrics`, sonde `/health`, findings NDJSON sur stdout. Voir [docs/METRICS.md](docs/METRICS.md).
-3. **Sidecar (diagnostics par service) :** tourne à côté d'un seul service pour du debug isolé. Voir [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé).
+
+<details>
+<summary><b>Dev local</b></summary>
+
+![Zoom dev local : batch sur trace capturée, daemon local sur 127.0.0.1, TUI inspect, rapport HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
+
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
+
+![Zoom CI : tests d'intégration perf + quality gate analyze --ci, SARIF pour code scanning, Tempo / jaeger-query nightly optionnel](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
+
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
+
+![Zoom staging : pod focus-service avec daemon sidecar, /api/findings interrogé par QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
+
+</details>
+
+<details>
+<summary><b>Production</b></summary>
+
+![Zoom production : daemon centralisé ingérant via OTel Collector et OTLP direct, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
+
+</details>
+
+<details>
+<summary><b>GreenOps (transversal)</b></summary>
+
+![Intégration GreenOps : sources externes temps réel (Scaphandre en kWh, Electricity Maps en gCO2/kWh) plus sources internes froides (Cloud SPECpower en kWh, carbone embarqué en gCO2e/req via Boavizta + HotCarbon 2024, transport réseau en kWh/GB via Mytton 2024) alimentant perf-sentinel en mode batch ou daemon, émettant énergie et carbone en parallèle des traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
+
+<details>
+<summary>Vue d'ensemble : comment les quatre environnements s'articulent</summary>
+
+![Intégration globale de perf-sentinel à travers dev local, CI, staging et prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+
+</details>
 
 Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
 
