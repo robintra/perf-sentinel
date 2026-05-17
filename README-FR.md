@@ -18,7 +18,7 @@
 > **À lire en premier**
 > - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) pour la mise en place (Java/Quarkus/.NET/Rust).
 > - **Ce que c'est :** un détecteur d'anti-patterns auto-hébergé, mono-binaire (`<15 Mo RSS`), utilisable en batch sur traces capturées (exploration locale, post-mortem, ou quality gate CI avec exit 1 sur dépassement de seuil) ou en mode daemon long-running (ingestion OTLP, API de query, dashboard live, métriques Prometheus).
-> - **Ce que ce n'est *pas* :** un APM complet, un profiler continu, ni un outil de comptabilité carbone réglementaire. Voir [Ce que perf-sentinel n'est pas](#ce-que-perf-sentinel-nest-pas).
+> - **Ce que ce n'est *pas* :** un APM complet, un profiler continu, ni une plateforme de comptabilité carbone réglementaire standalone. Voir [Ce que perf-sentinel n'est pas](#ce-que-perf-sentinel-nest-pas).
 
 ---
 
@@ -244,7 +244,7 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 - **Pas un remplacement d'APM complet.** Pas de dashboards, pas d'UI d'alerting, pas de RUM, pas d'agrégation de logs, pas de profiling distribué. Si vous avez besoin de ça, Datadog, New Relic et Sentry restent les bons outils.
 - **Pas un profiler continu.** L'outil observe les patterns d'I/O au niveau protocole ; il ne fait pas de sampling on-CPU, d'allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) est l'équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, perf-sentinel dit quels patterns d'I/O le déclenchent.
 - **Pas une solution de monitoring temps réel.** Le mode daemon stream les findings, mais le centre de gravité du projet ce sont les quality gates CI et l'analyse post-hoc, pas l'observabilité prod live.
-- **Pas un outil de comptabilité carbone réglementaire.** À utiliser pour identifier les gaspillages, pas pour produire un reporting CSRD ou GHG Protocol Scope 3.
+- **Pas une plateforme de comptabilité carbone réglementaire standalone.** perf-sentinel calcule des émissions logicielles activity-based à partir de sources audit-grade, mais un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et l'intégration des scopes non-IT qu'il ne couvre pas. À coupler à une plateforme carbone horizontale (Watershed, Sweep, Greenly, Persefoni, ...) ou à utiliser directement pour la conformité RGESN et les KPI d'émissions logicielles internes.
 - **Pas un substitut à la mesure énergétique.** Le modèle I/O-vers-énergie est une approximation. Pour une puissance précise par process, utiliser Scaphandre (supporté en entrée) ou les APIs énergie du cloud provider.
 - **Pas zéro-config.** La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n'émet pas de traces, perf-sentinel n'a rien à analyser.
 - **Pas un plugin IDE.** Pour du feedback in-IDE en JVM/.NET au fil de la frappe, [Digma](https://digma.ai/) offre une expérience JetBrains bien intégrée.
