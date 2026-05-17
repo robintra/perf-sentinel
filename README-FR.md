@@ -13,7 +13,7 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-**Un CLI léger et polyglotte qui transforme vos traces OpenTelemetry en un quality gate CI contre les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout excessif, ...), avec un score d'intensité I/O qui sert aussi de signal GreenOps *directionnel*.**
+**Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry. S'utilise comme quality gate CI sur traces capturées, ou comme daemon OTLP long-running avec métriques Prometheus et API de query.**
 
 > **À lire en premier**
 > - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) pour la mise en place (Java/Quarkus/.NET/Rust).
