@@ -46,25 +46,42 @@ perf-sentinel analyze --input traces.json
 
 Un outil, 2 modes, 4 topologies de déploiement :
 
-**Dev local**
+<details>
+<summary><b>Dev local</b></summary>
 
 ![Zoom dev local : batch sur trace capturée, daemon local sur 127.0.0.1, TUI inspect, rapport HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
 
-**CI/CD**
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
 
 ![Zoom CI : tests d'intégration perf + quality gate analyze --ci, SARIF pour code scanning, Tempo / jaeger-query nightly optionnel](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
 
-**Staging**
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
 
 ![Zoom staging : pod focus-service avec daemon sidecar, /api/findings interrogé par QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
 
-**Production**
+</details>
+
+<details>
+<summary><b>Production</b></summary>
 
 ![Zoom production : daemon centralisé ingérant via OTel Collector et OTLP direct, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
 
+</details>
+
 Plus un angle transversal : GreenOps (estimation énergie et carbone à partir de sources externes temps réel et de données internes en dur, en mode batch ou daemon).
 
+<details>
+<summary><b>GreenOps</b></summary>
+
 ![Intégration GreenOps : sources externes temps réel (Scaphandre en kWh, Electricity Maps en gCO2/kWh) plus sources internes froides (Cloud SPECpower en kWh, carbone embarqué en gCO2e/req via Boavizta + HotCarbon 2024, transport réseau en kWh/GB via Mytton 2024) alimentant perf-sentinel en mode batch ou daemon, émettant énergie et carbone en parallèle des traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
 
 <details>
 <summary>Vue d'ensemble : comment les quatre environnements s'articulent</summary>
@@ -76,6 +93,13 @@ Plus un angle transversal : GreenOps (estimation énergie et carbone à partir d
 Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes (daemon hybride vers batch HTML, batch sur Tempo, daemon OTLP direct, multi-format Jaeger/Zipkin, calibrate, sidecar, corrélation cross-trace, intégration `pg_stat_statements`). **Chaque scénario fournit un diagramme d'architecture Mermaid, les entrées et sorties exactes, la configuration requise et les pièges rencontrés lors de la validation.**
 
 ## Démarrage rapide
+
+<details>
+<summary>Carte des sous-commandes perf-sentinel et des artefacts consommés ou produits</summary>
+
+<img alt="Vue d'ensemble des commandes CLI" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
+
+</details>
 
 ### Installation depuis crates.io
 
@@ -168,6 +192,18 @@ perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
 perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
 ```
 
+### Ingestion Jaeger query API
+
+```bash
+# Récupérer et analyser une trace depuis un backend Jaeger ou Victoria Traces
+perf-sentinel jaeger-query --endpoint http://localhost:16686 --trace-id abc123
+
+# Rechercher et analyser les traces par service
+perf-sentinel jaeger-query --endpoint http://localhost:16686 --service order-svc --lookback 1h
+```
+
+Les en-têtes d'authentification se passent via `--auth-header "Authorization: Bearer ..."` ou, pour garder le token hors de `ps`, via `--auth-header-env <ENV_VAR>` (la valeur de la variable doit déjà être au format curl `Name: Value`).
+
 ### Calibration des coefficients
 
 ```bash
@@ -239,6 +275,13 @@ perf-sentinel query status --format json
 
 ```bash
 perf-sentinel watch
+```
+
+### Complétion shell
+
+```bash
+# Générer un script de complétion pour votre shell (bash, zsh, fish, powershell, elvish)
+perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel
 ```
 
 ## GreenOps : scoring éco-conception intégré

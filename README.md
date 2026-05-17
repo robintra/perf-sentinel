@@ -48,25 +48,42 @@ perf-sentinel analyze --input traces.json
 
 One tool, 2 modes, 4 deployment topologies:
 
-**Local dev**
+<details>
+<summary><b>Local dev</b></summary>
 
 ![Local dev zoom-in: batch on captured trace, local daemon at 127.0.0.1, inspect TUI, report HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
 
-**CI/CD**
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
 
 ![CI zoom-in: perf integration tests + analyze --ci quality gate, SARIF for code scanning, optional Tempo / jaeger-query nightly](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
 
-**Staging**
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
 
 ![Staging zoom-in: focus-service pod with sidecar daemon, /api/findings polled by QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
 
-**Production**
+</details>
+
+<details>
+<summary><b>Production</b></summary>
 
 ![Production zoom-in: centralized daemon ingesting via OTel Collector and direct OTLP, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
 
+</details>
+
 Plus a cross-cutting angle: GreenOps (energy and carbon estimation from external real-time sources and internal cold tables, in batch or daemon mode).
 
+<details>
+<summary><b>GreenOps</b></summary>
+
 ![GreenOps integration: external real-time sources (Scaphandre kWh, Electricity Maps gCO2/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO2e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding perf-sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
 
 <details>
 <summary>End-to-end view: how the four environments fit together</summary>
@@ -78,6 +95,13 @@ Plus a cross-cutting angle: GreenOps (energy and carbon estimation from external
 The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster (hybrid daemon to batch HTML, batch over Tempo, daemon OTLP direct, multi-format Jaeger/Zipkin, calibrate, sidecar, cross-trace correlation, `pg_stat_statements` integration). **Each scenario ships a Mermaid architecture diagram, the exact inputs and outputs, the required configuration, and the gotchas that bit us during validation.**
 
 ## Getting Started
+
+<details>
+<summary>Map of the perf-sentinel subcommands and the artifacts they consume or produce</summary>
+
+<img alt="CLI commands overview" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/cli-commands.svg">
+
+</details>
 
 ### Install from crates.io
 
@@ -170,6 +194,18 @@ perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123
 perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 1h
 ```
 
+### Jaeger query API ingestion
+
+```bash
+# Fetch and analyze a single trace from a Jaeger or Victoria Traces backend
+perf-sentinel jaeger-query --endpoint http://localhost:16686 --trace-id abc123
+
+# Search and analyze recent traces by service name
+perf-sentinel jaeger-query --endpoint http://localhost:16686 --service order-svc --lookback 1h
+```
+
+Auth headers can be passed via `--auth-header "Authorization: Bearer ..."` or, to keep the token out of `ps`, via `--auth-header-env <ENV_VAR>` (the env var value must already be in `Name: Value` curl format).
+
 ### Calibrate energy coefficients
 
 ```bash
@@ -241,6 +277,13 @@ perf-sentinel query status --format json
 
 ```bash
 perf-sentinel watch
+```
+
+### Shell completions
+
+```bash
+# Generate a completion script for your shell (bash, zsh, fish, powershell, elvish)
+perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel
 ```
 
 ## GreenOps: built-in carbon-aware scoring
