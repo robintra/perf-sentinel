@@ -68,6 +68,56 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 
 Les binaires Linux ciblent musl (statiques, fonctionnent sur n'importe quelle distribution et dans les images `FROM scratch`). Un chart Helm est disponible sous [`charts/perf-sentinel/`](charts/perf-sentinel/). Voir [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md).
 
+## Déploiement
+
+Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md) ; recettes CI dans [docs/CI.md](docs/CI.md) ; métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md) ; exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+
+Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé).
+
+<details>
+<summary><b>Dev local</b></summary>
+
+![Zoom dev local : batch sur trace capturée, daemon local sur 127.0.0.1, TUI inspect, rapport HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
+
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
+
+![Zoom CI : tests d'intégration perf + quality gate analyze --ci, SARIF pour code scanning, Tempo / jaeger-query nightly optionnel](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
+
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
+
+![Zoom staging : pod focus-service avec daemon sidecar, /api/findings interrogé par QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
+
+</details>
+
+<details>
+<summary><b>Production</b></summary>
+
+![Zoom production : daemon centralisé ingérant via OTel Collector et OTLP direct, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
+
+</details>
+
+<details>
+<summary><b>GreenOps (transversal)</b></summary>
+
+![Intégration GreenOps : sources externes temps réel (Scaphandre en kWh, Electricity Maps en gCO2/kWh) plus sources internes froides (Cloud SPECpower en kWh, carbone embarqué en gCO2e/req via Boavizta + HotCarbon 2024, transport réseau en kWh/GB via Mytton 2024) alimentant perf-sentinel en mode batch ou daemon, émettant énergie et carbone en parallèle des traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
+
+<details>
+<summary>Vue d'ensemble : comment les quatre environnements s'articulent</summary>
+
+![Intégration globale de perf-sentinel à travers dev local, CI, staging et prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+
+</details>
+
+Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
+
 ## Démarrage rapide
 
 ```bash
@@ -187,57 +237,7 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 - **Pas zéro-config.** La détection au niveau protocole exige une instrumentation OTel dans vos apps. Si votre stack n'émet pas de traces, perf-sentinel n'a rien à analyser.
 - **Pas un plugin IDE.** Pour du feedback in-IDE en JVM/.NET au fil de la frappe, [Digma](https://digma.ai/) offre une expérience JetBrains bien intégrée.
 
-## Déploiement
-
-Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md) ; recettes CI dans [docs/CI.md](docs/CI.md) ; métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md) ; exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
-
-Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé).
-
-<details>
-<summary><b>Dev local</b></summary>
-
-![Zoom dev local : batch sur trace capturée, daemon local sur 127.0.0.1, TUI inspect, rapport HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
-
-</details>
-
-<details>
-<summary><b>CI/CD</b></summary>
-
-![Zoom CI : tests d'intégration perf + quality gate analyze --ci, SARIF pour code scanning, Tempo / jaeger-query nightly optionnel](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
-
-</details>
-
-<details>
-<summary><b>Staging</b></summary>
-
-![Zoom staging : pod focus-service avec daemon sidecar, /api/findings interrogé par QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
-
-</details>
-
-<details>
-<summary><b>Production</b></summary>
-
-![Zoom production : daemon centralisé ingérant via OTel Collector et OTLP direct, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
-
-</details>
-
-<details>
-<summary><b>GreenOps (transversal)</b></summary>
-
-![Intégration GreenOps : sources externes temps réel (Scaphandre en kWh, Electricity Maps en gCO2/kWh) plus sources internes froides (Cloud SPECpower en kWh, carbone embarqué en gCO2e/req via Boavizta + HotCarbon 2024, transport réseau en kWh/GB via Mytton 2024) alimentant perf-sentinel en mode batch ou daemon, émettant énergie et carbone en parallèle des traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
-
-</details>
-
-<details>
-<summary>Vue d'ensemble : comment les quatre environnements s'articulent</summary>
-
-![Intégration globale de perf-sentinel à travers dev local, CI, staging et prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
-
-</details>
-
-Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
-
-### Acquittement de findings connus
+## Acquittement de findings connus
 
 Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés ; ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) et [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
 
