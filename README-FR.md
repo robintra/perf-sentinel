@@ -211,6 +211,8 @@ Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d
 
 > **perf-sentinel est un compteur de gaspillage, pas un outil de comptabilité carbone.** Les chiffres CO₂ sont directionnels uniquement et portent un encadrement multiplicatif `~2×`. **Ne pas utiliser pour du reporting CSRD ou GHG Protocol Scope 3.** Méthodologie, sources et bornes d'incertitude : [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) et [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
+Ce que perf-sentinel *peut* faire pour les usages de conformité : les comptes I/O bruts et estimations énergie par région qui alimentent ces chiffres CO₂ ont une valeur propre. Ils peuvent servir de **source primaire d'activity data** pour une plateforme de comptabilité carbone qualifiée (Watershed, Sweep, Greenly, Persefoni, ...) qui leur applique ses propres facteurs d'émission audit-grade. Ils correspondent aussi directement aux critères d'optimisation logicielle du **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) : détection de N+1, appels redondants, caching, réduction du fanout correspondent tous aux critères concernés.
+
 Pour les organisations qui souhaitent malgré tout publier une *disclosure périodique non-réglementaire* d'efficacité logicielle (JSON trimestriel/annuel, signature Sigstore optionnelle), le workflow optionnel `perf-sentinel disclose` est documenté dans [docs/REPORTING.md](docs/REPORTING.md). Il est volontairement écarté du chemin de démarrage principal.
 
 ## Comment ça se compare ?

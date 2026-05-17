@@ -211,6 +211,8 @@ Every finding carries an **I/O intensity score (IIS)**, total I/O ops for an end
 
 > **perf-sentinel is a waste counter, not a carbon accounting tool.** CO₂ figures are directional only and carry a `~2×` multiplicative uncertainty bracket. **Do not use for CSRD or GHG Protocol Scope 3 reporting.** Methodology, data sources and uncertainty bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
+What perf-sentinel *can* do for compliance use cases: the raw I/O counts and per-region energy estimates that feed those CO₂ numbers have value in their own right. They can serve as **primary activity data** for a qualified carbon accounting platform (Watershed, Sweep, Greenly, Persefoni, ...) which then applies its own audit-grade emission factors. They also map directly onto the software-optimization criteria of the **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024): N+1 detection, redundant calls, caching, fanout reduction all line up with the relevant criteria.
+
 For organisations who still want to publish a *non-regulatory* periodic efficiency disclosure (quarterly/yearly JSON, optional Sigstore signature), the optional `perf-sentinel disclose` workflow is documented in [docs/REPORTING.md](docs/REPORTING.md). It is intentionally kept off the main quickstart path.
 
 ## How does it compare?
