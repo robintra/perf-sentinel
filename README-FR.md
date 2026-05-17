@@ -82,6 +82,18 @@ Chaque finding embarque : type, sévérité, template normalisé, occurrences, e
 
 Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions, les seuils numériques sous-jacents peuvent évoluer. Tableau de référence et explication dans [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
+## Performance
+
+| Métrique                                | Résultat (v0.6.1)              |
+|-----------------------------------------|--------------------------------|
+| Débit pic pipeline                      | **> 1,8 M évènements / sec**   |
+| Débit soutenu end-to-end                | **≈ 960 k évènements / sec**   |
+| Mémoire résidente sous charge soutenue  | **< 250 Mo**                   |
+
+Le chiffre `<15 Mo RSS` cité dans le TL;DR et le tableau comparatif correspond à l'**empreinte daemon stationnaire à faible trafic** (apples-to-apples avec les chiffres "agent idle" listés pour les autres outils). Sous la charge soutenue de ~960 k évts/s ci-dessus, le même daemon reste **sous 250 Mo**.
+
+Mesuré sur un Mac Mini M4 Pro (12 cœurs, 24 Go de mémoire unifiée, macOS 26.4.1), build release `aarch64-unknown-linux-musl` avec `mimalloc`, dans un conteneur Docker Desktop `linux/arm64` (VM 15,6 Go). Édition Rust 2024, rustc 1.95.0 stable. Reproduire avec `perf-sentinel bench --help`.
+
 ## Installation
 
 ```bash

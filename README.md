@@ -82,6 +82,18 @@ Each finding carries: type, severity, normalized template, occurrences, source e
 
 The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions, numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
 
+## Performance
+
+| Metric                                 | Result (v0.6.1)            |
+|----------------------------------------|----------------------------|
+| Peak pipeline throughput               | **> 1.8 M events / sec**   |
+| Sustained end-to-end throughput        | **≈ 960 k events / sec**   |
+| Resident memory at sustained peak load | **< 250 MB**               |
+
+The `<15 MB RSS` figure quoted in the TL;DR and the comparison table is the **steady-state daemon footprint at low traffic** (apples-to-apples with the idle-agent figures listed for the other tools). Under the sustained ~960 k events / sec load above, the same daemon stays **under 250 MB**.
+
+Measured on a Mac Mini M4 Pro (12 cores, 24 GB unified memory, macOS 26.4.1), release build `aarch64-unknown-linux-musl` with `mimalloc`, running inside a Docker Desktop `linux/arm64` VM provisioned with 15.6 GB. Rust 2024 edition, rustc 1.95.0 stable. Reproduce with `perf-sentinel bench --help`.
+
 ## Install
 
 ```bash
