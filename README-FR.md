@@ -265,6 +265,100 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 
 Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés ; ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) et [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
 
+## Captures
+
+La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs animés. Les images figées ci-dessous permettent de zoomer sur chaque panneau pour en lire les détails.
+
+<details>
+<summary>Captures (analyze, explain, inspect, pg-stat, calibrate, report)</summary>
+
+**Configuration** (`.perf-sentinel.toml`) :
+
+![config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/config.png)
+
+**Rapport d'analyse** (`perf-sentinel analyze`) page par page, avec un léger recouvrement pour que chaque finding apparaisse en entier sur au moins une page :
+
+![page 1 : N+1 SQL, N+1 HTTP, SQL redondant](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-1.png)
+
+![page 2 : HTTP redondant, SQL lent, HTTP lent](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-2.png)
+
+![page 3 : fanout excessif, service bavard, saturation du pool](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-3.png)
+
+![page 4 : appels sérialisés, résumé GreenOps, quality gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-4.png)
+
+**Mode explain** (`perf-sentinel explain --trace-id <id>`). Les findings rattachés à un span (N+1, redondant, lent, fanout) sont affichés inline à côté du span concerné, les findings de niveau trace (service bavard, saturation du pool, appels sérialisés) sont remontés dans une section dédiée au-dessus de l'arbre :
+
+![vue en arbre explain avec annotation de fanout excessif sur le span parent](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/tree.png)
+
+![header trace-level explain avec warning de service bavard](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
+
+**Mode inspect** (`perf-sentinel inspect`). Le header du panneau findings colore chaque finding selon sa sévérité, les cinq images ci-dessous parcourent la fixture démo à travers les trois niveaux de sévérité plus une vue du panneau détail avec sa fonction de scroll :
+
+![TUI inspect, vue initiale : service bavard warning (jaune)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
+
+![TUI inspect, panneau détail actif : haut de l'arbre de spans fanout excessif](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
+
+![TUI inspect, panneau détail scrollé : moitié basse de l'arbre fanout](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
+
+![TUI inspect, N+1 SQL critical (rouge) : 10 occurrences, suggestion de batch](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
+
+![TUI inspect, HTTP redondant info (cyan) : 3 validations de token identiques](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
+
+`inspect --input` accepte aussi un Report JSON pré-calculé (par exemple un snapshot daemon issu de `/api/export/report`). Les panels Findings et Correlations s'allument complètement, le panel Detail affiche un message qui pointe vers les deux chemins qui portent les vrais spans :
+
+![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et message Detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+
+**Mode pg-stat** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`) : classe les requêtes SQL par temps d'exécution total, par nombre d'appels, par latence moyenne. Cross-référence avec tes traces via `--traces` pour repérer les requêtes qui dominent la DB sans apparaître dans ton instrumentation :
+
+![pg-stat : top hotspots par temps total, appels et latence moyenne](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)
+
+**Mode calibrate** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`) :
+
+![entrée calibrate : CSV avec mesures de puissance par service](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/csv.png)
+
+![exécution calibrate : warnings et facteurs par service affichés](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
+
+![sortie calibrate : TOML généré avec les facteurs de calibration](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
+
+**Dashboard report** (`perf-sentinel report`), une capture par onglet. Chaque `<picture>` sert la variante sombre quand le navigateur annonce `prefers-color-scheme: dark` :
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings-dark.png">
+  <img alt="dashboard report : Findings avec chips Warning + order-svc actifs" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain-dark.png">
+  <img alt="dashboard report : arbre de trace Explain avec cinq SELECT N+1 surlignés et une suggestion Java JPA" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat-dark.png">
+  <img alt="dashboard report : classement pg_stat par Calls, 15 lignes" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff-dark.png">
+  <img alt="dashboard report : onglet Diff, un finding flaggé en régression" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations-dark.png">
+  <img alt="dashboard report : onglet Correlations, trois paires cross-trace avec confiance et lag médian" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops-dark.png">
+  <img alt="dashboard report : onglet GreenOps avec breakdown CO2 multi-région sur eu-west-3, us-east-1 et eu-central-1" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet-dark.png">
+  <img alt="dashboard report : modal cheatsheet listant la table complète des raccourcis clavier" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
+</picture>
+
+</details>
+
 ## Documentation
 
 | Sujet                                            | Document                                                                               |
