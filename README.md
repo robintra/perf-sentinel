@@ -47,7 +47,7 @@ perf-sentinel report --input traces.json --output report.html
 
 Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures, a single user request cascades across multiple services, each with its own I/O, and nobody has visibility on the full path.
 
-Existing tools each solve part of the problem: Hypersistence Utils covers JPA only, Datadog and New Relic are heavy proprietary agents you may not want in every pipeline, Sentry's detectors are solid but tied to its SDK and backend. None of them give you a **protocol-level CI gate you can self-host**.
+Existing tools each solve part of the problem. Hypersistence Utils covers JPA only, Datadog and New Relic are heavy proprietary agents you may not want in every pipeline, Sentry's detectors are solid but tied to its SDK and backend. None of them gives you a **protocol-level anti-pattern detector you can self-host**, runnable either as a CI quality gate on captured traces (exit 1 on threshold breach, SARIF for code scanning) **or** as a long-running OTLP daemon (gRPC + HTTP ingestion, Prometheus `/metrics`, live HTML dashboard, query API, runtime ack workflow) you place alongside or in front of your existing tracing backend.
 
 perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
 
@@ -264,6 +264,100 @@ A fair comparison requires naming what perf-sentinel does **not** do:
 ## Acknowledging known findings
 
 Drop `.perf-sentinel-acknowledgments.toml` at your repo root to suppress findings the team has accepted; they are filtered from `analyze` / `report` / `inspect` / `diff` and do not count toward the quality gate. Runtime acks against a live daemon are exposed via the `ack` CLI, the live HTML dashboard, and the TUI. Full reference: [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) and [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
+
+## Still frames
+
+The [Quick look](#quick-look) section at the top shows live GIFs. The frozen frames below let you zoom in on individual panels for readability.
+
+<details>
+<summary>Still frames (analyze, explain, inspect, pg-stat, calibrate, report)</summary>
+
+**Configuration** (`.perf-sentinel.toml`):
+
+![config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/config.png)
+
+**Analysis report** (`perf-sentinel analyze`) page by page, with a small overlap so every finding appears fully on at least one page:
+
+![page 1: N+1 SQL, N+1 HTTP, redundant SQL](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-1.png)
+
+![page 2: redundant HTTP, slow SQL, slow HTTP](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-2.png)
+
+![page 3: excessive fanout, chatty service, pool saturation](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-3.png)
+
+![page 4: serialized calls, GreenOps summary, quality gate](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/report-4.png)
+
+**Explain mode** (`perf-sentinel explain --trace-id <id>`). Span-anchored findings (N+1, redundant, slow, fanout) are rendered inline next to the offending spans; trace-level findings (chatty service, pool saturation, serialized calls) are surfaced in a dedicated header above the tree:
+
+![explain tree view with excessive fanout annotation on the parent span](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/tree.png)
+
+![explain trace-level header with chatty service warning](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/trace-level.png)
+
+**Inspect mode** (`perf-sentinel inspect`). The findings panel header colors findings by severity, below are five frames walking the demo fixture across the three severity levels plus a detail-panel view with its scroll feature:
+
+![inspect TUI, initial view: chatty service warning (yellow)](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/main.png)
+
+![inspect TUI, detail panel active: top of the excessive fanout span tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail.png)
+
+![inspect TUI, detail panel scrolled down: bottom half of the fanout tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/detail-scrolled.png)
+
+![inspect TUI, N+1 SQL critical (red): 10 occurrences, batch suggestion](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/critical.png)
+
+![inspect TUI, redundant HTTP info (cyan): 3 identical token validations](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/info.png)
+
+`inspect --input` also auto-detects a pre-computed Report JSON (e.g. a daemon snapshot from `/api/export/report`). Findings and Correlations panels light up fully, the Detail panel surfaces a span-tree-unavailable hint that points at the two paths which do carry raw spans:
+
+![inspect TUI, Report-mode input: 4 panels with cross-trace correlations and the span-tree hint](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+
+**pg-stat mode** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`): ranks SQL queries by total execution time, by call count, by mean latency. Cross-reference with your traces via `--traces` to spot queries that dominate the DB without showing up in instrumentation:
+
+![pg-stat: top hotspots by total time, calls and mean latency](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/hotspots.png)
+
+**Calibrate mode** (`perf-sentinel calibrate --traces <traces.json> --measured-energy <energy.csv>`):
+
+![calibrate input: CSV with per-service power readings](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/csv.png)
+
+![calibrate run: warnings and per-service factors printed](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
+
+![calibrate output: generated TOML with calibration factors](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
+
+**Report dashboard** (`perf-sentinel report`), one still per tab. Each `<picture>` serves the dark variant when your browser advertises `prefers-color-scheme: dark`:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings-dark.png">
+  <img alt="report dashboard: Findings with Warning + order-svc chips active" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/findings.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain-dark.png">
+  <img alt="report dashboard: Explain trace tree with five highlighted N+1 SELECTs and a Java JPA suggested fix" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/explain.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat-dark.png">
+  <img alt="report dashboard: pg_stat Calls ranking, 15 rows" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/pg-stat.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff-dark.png">
+  <img alt="report dashboard: Diff tab, one new finding flagged as a regression" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/diff.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations-dark.png">
+  <img alt="report dashboard: Correlations tab, three cross-trace pairs with confidence and median lag" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/correlations.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops-dark.png">
+  <img alt="report dashboard: GreenOps tab with multi-region CO2 breakdown across eu-west-3, us-east-1 and eu-central-1" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/greenops.png">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet-dark.png">
+  <img alt="report dashboard: cheatsheet modal listing the full keyboard shortcut table" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/cheatsheet.png">
+</picture>
+
+</details>
 
 ## Documentation
 

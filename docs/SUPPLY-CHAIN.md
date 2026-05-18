@@ -201,6 +201,39 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 ## SLSA build provenance
 
+### Background: Sigstore primer
+
+If you have not used Sigstore before, this short primer is a prerequisite for the SLSA, Cosign, Rekor and in-toto references that follow. Other perf-sentinel docs link back here for canonical definitions, see [docs/REPORTING.md](REPORTING.md#background-sigstore-primer), [docs/METHODOLOGY.md](METHODOLOGY.md#cryptographic-integrity-070), [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#software-supply-chain), [docs/SCHEMA.md](SCHEMA.md#integrity).
+
+**Why Sigstore.** Sigstore is an open-source toolkit hosted by the Open Source Security Foundation (OpenSSF) and maintained by Google, Red Hat, Chainguard, GitHub and the Linux Foundation. It is the de-facto standard for verifiable artefact signatures in the cloud-native ecosystem (Kubernetes, Helm, npm provenance and PyPI attestations all rely on it). perf-sentinel uses it in three places: signing official release binaries (SLSA Build L3 attestation), signing the Helm chart (Cosign signature verifiable via `cosign verify`), and signing periodic disclosure reports (`integrity.signature` with a Rekor inclusion proof). Three properties drive the choice:
+
+1. **Keyless signing**, no long-lived private key for the signer to manage or leak.
+2. **A public, tamper-evident log** (Rekor), so a third party can independently verify that a signature existed at a given point in time.
+3. **Free, open-source, self-hostable**, no proprietary lock-in or per-signature billing.
+
+**The three components.**
+
+- **Cosign** is the client CLI you run locally (or that GitHub Actions runs in CI). It opens an OIDC flow in your browser, signs the artefact, and ships the signature to Sigstore.
+- **Fulcio** is the certificate authority. It consumes the OIDC token cosign obtained (proof of identity: email, GitHub workflow URL, ...) and issues a short-lived X.509 certificate (10 minutes) bound to that identity. Fulcio never sees the signer's private key.
+- **Rekor** is the public transparency log. It records the signature next to the Fulcio certificate, returns an inclusion proof, and exposes the entry at a stable log index. Past entries cannot be silently rewritten.
+
+**Who signs with which key.** Cosign generates a brand-new ephemeral keypair just before signing. Fulcio issues a 10-minute certificate that binds the *public* half of that keypair to the OIDC identity. Once the signature is uploaded to Rekor the keypair is discarded. What survives is the signature, the certificate, and the Rekor entry, which is exactly what a verifier needs.
+
+**The OIDC identity** is the subject of the Fulcio certificate, surfaced as `signer_identity` + `signer_issuer` in any document that records the signature. For a GitHub Actions release workflow the identity is the workflow URL (`https://github.com/robintra/perf-sentinel/.github/workflows/release.yml@refs/tags/...`) and the issuer is `https://token.actions.githubusercontent.com`. For an individual signing locally with a Google account, the identity is the email address and the issuer is `https://accounts.google.com`. Consumers should pin the expected identity regex and issuer in their verification policy.
+
+**Known limitation: OIDC issuer migration.** The issuer URL is recorded inside the certificate and therefore in Rekor. If the producing organisation migrates between identity providers later, past signatures remain valid but new signatures will carry a different `signer_issuer`. Verifier policies that pin a specific issuer must be updated, otherwise they reject the new signatures as untrusted. Plan the pinning policy with provider migrations in mind.
+
+**Related terms you will see in perf-sentinel supply-chain commands.** One-liners only, full definitions in the linked specs.
+
+- **OIDC (OpenID Connect)** is an identity protocol layered on OAuth 2.0. In this workflow it is how cosign proves "this signer is `user@example.org`" (or "this is the perf-sentinel release workflow on tag v0.7.1") to Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
+- **in-toto v1 statement** is an open OpenSSF specification for software-supply-chain attestations. A JSON envelope that pairs an artefact hash with a typed *claim* about it. SLSA provenance and the periodic disclosure attestation are both in-toto statements internally. Cosign signs the statement, not the raw artefact, so verifiers can chain the trust from artefact hash to in-toto statement to cosign signature to Fulcio cert. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
+- **Bundle (`bundle.sig`)** is the JSON file cosign writes at sign time. It packs the signature, the Fulcio certificate, and the Rekor inclusion proof into a single artefact, which is what enables fully offline verification later (a consumer validates against Rekor's public key without re-querying Rekor live).
+- **SLSA (Supply-chain Levels for Software Artifacts)** is a separate OpenSSF framework that describes *how* an artefact was built (source commit, builder, workflow). perf-sentinel binaries and Helm charts carry SLSA Build L3 attestations produced by `actions/attest-build-provenance`. Level L3 requires Sigstore OIDC signing plus builder isolation, both of which a GitHub-hosted runner provides. [Spec](https://slsa.dev/spec/v1.0/).
+- **SBOM (Software Bill of Materials)** is a structured inventory of an artefact's dependencies. perf-sentinel ships an SPDX-format SBOM attested under the SPDX in-toto predicate, so consumers verify it the same way they verify the Cosign signature. [SPDX spec](https://spdx.dev/specifications/), [SPDX in-toto predicate](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
+- **CT log (Certificate Transparency)** is the broader pattern Rekor implements. Sigstore's Rekor public instance is at `rekor.sigstore.dev`. Operators with stricter requirements can run a private instance.
+
+### Workflow
+
 Starting with v0.7.1, every official perf-sentinel release binary
 carries a SLSA Build L3 provenance attestation. The attestation is
 generated by GitHub Actions through `actions/attest-build-provenance`

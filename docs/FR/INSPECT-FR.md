@@ -122,7 +122,7 @@ Les deux sont équivalents. Le path supporte le refus de symlink via
 l'alternate screen sont incompatibles avec l'input TTY de
 `rpassword`. Si le daemon répond 401 sans clé env ou file, la modale
 affiche "API key required: set PERF_SENTINEL_DAEMON_API_KEY or pass
---api-key-file when launching `query inspect`." Quitter, set la clé,
+--api-key-file when launching `query inspect`." Quitter, définir la clé,
 relancer.
 
 Quand le daemon n'a pas de `[daemon.ack] api_key` configuré (default

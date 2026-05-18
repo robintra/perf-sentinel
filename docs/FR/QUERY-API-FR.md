@@ -53,7 +53,8 @@ n'est joignable que depuis l'hôte qui exécute le daemon, sauf si vous
 - Pour les sondes Kubernetes ou load-balancer, préférer `GET /health` à
   `GET /api/status` : `/health` est toujours actif, ne prend aucun lock
   et reste réactif sous toute charge d'ingestion.
-- La taille du ring buffer des findings est bornée par
+- La taille du **ring buffer** (un buffer circulaire à taille fixe qui
+  évince les plus anciennes entrées une fois plein) des findings est bornée par
   `[daemon] max_retained_findings` (défaut `10000`). Les findings plus
   anciens sont évincés en FIFO.
 

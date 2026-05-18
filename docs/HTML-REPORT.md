@@ -25,7 +25,9 @@ open report.html
 
 That is the artifact every CI job can produce. Without `--daemon-url`,
 the generated HTML is byte-equivalent to the 0.5.22 output for the
-same input. CSP stays strict (`default-src 'none'`), there is no
+same input. CSP (Content-Security-Policy, the browser header that
+declares which scripts and resources the page is allowed to load)
+stays strict (`default-src 'none'`), there is no
 `fetch()` call against any host.
 
 ## Live mode
@@ -49,8 +51,9 @@ The daemon must:
 
 The first time the user clicks `Ack` or `Revoke` on a 401-protected
 daemon, the report opens an authentication modal and asks for the
-`X-API-Key`. The key is held in `sessionStorage`, scoped to the tab,
-and cleared when the tab closes.
+`X-API-Key`. The key is held in `sessionStorage` (a browser API that
+stores key-value data scoped to the current tab and cleared when the
+tab closes), so it never persists to disk and never leaks across tabs.
 
 ### CSP under live mode
 

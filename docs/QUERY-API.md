@@ -50,7 +50,7 @@ running the daemon unless you explicitly widen the bind address.
 - For Kubernetes or load-balancer probes, prefer `GET /health` over
   `GET /api/status`: `/health` is always on, holds no locks and stays
   responsive under any ingestion load.
-- The findings ring buffer size is bounded by
+- The findings **ring buffer** (a fixed-size circular store that evicts oldest entries when full) is bounded by
   `[daemon] max_retained_findings` (default `10000`). Older findings are
   evicted FIFO.
 
