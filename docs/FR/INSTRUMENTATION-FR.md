@@ -10,6 +10,25 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
 - [Attributs de span requis](#attributs-de-span-requis) : les conventions sémantiques OTel legacy et stables que perf-sentinel lit.
 - [Dev/staging : instrumentation par langage](#devstaging--instrumentation-par-langage) : mise en place pas à pas pour Java, Quarkus, .NET, Rust.
 
+## Introduction à OpenTelemetry
+
+Si vous n'avez jamais utilisé OpenTelemetry, cette introduction courte est un préalable pour la suite du guide. Elle suppose que vous savez ce qu'est une requête HTTP et une requête en base de données. Elle ne suppose pas que vous avez déjà instrumenté une application ni déployé un backend de tracing. Les autres docs perf-sentinel renvoient ici pour les concepts OTel, voir [docs/FR/INTEGRATION-FR.md](INTEGRATION-FR.md) et [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#observabilité).
+
+**Qu'est-ce qu'OpenTelemetry.** OpenTelemetry (abrégé "OTel") est un projet de la Cloud Native Computing Foundation (CNCF) qui définit un standard ouvert pour collecter les données de télémétrie (traces, métriques, logs) depuis n'importe quel logiciel. C'est la fusion de deux projets antérieurs (OpenTracing et OpenCensus) consolidée en 2019, gouvernée sous la CNCF depuis. Les deux apports pratiques d'OTel :
+
+- **Un protocole** (OTLP, OpenTelemetry Protocol) qu'une application peut utiliser pour envoyer traces et métriques vers n'importe quel backend qui le parle. OTLP est stable en format wire, existe en variantes gRPC et HTTP+protobuf, et c'est ce que perf-sentinel ingère sur les ports 4317 (gRPC) et 4318 (HTTP).
+- **Des SDK** (Java, Python, Go, .NET, Rust, JavaScript, ...) qui gèrent les parties ennuyeuses : capturer chaque appel HTTP/SQL comme un *span*, propager le trace ID entre services, batcher, retry, envoyer en OTLP. La plupart des SDK incluent une auto-instrumentation pour les frameworks populaires (Spring, Quarkus, ASP.NET Core, Django, Express) donc le code applicatif change rarement.
+
+**Concepts clés.**
+
+- Un **span** est une unité de travail, typiquement une requête HTTP ou une requête SQL. Il porte une durée, un statut, un nom (`GET /api/orders`) et un sac d'attributs structurés.
+- Une **trace** est l'arbre de spans qui partagent un `trace_id`. Une requête utilisateur traverse typiquement plusieurs services, chacun produisant plusieurs spans, tous liés par le même `trace_id`.
+- Les **conventions sémantiques** sont les noms d'attributs définis par OTel pour que tous les SDK émettent le même champ pour le même concept. `http.request.method` est toujours le verbe HTTP, `db.system` est toujours le nom du moteur de base de données, et ainsi de suite. perf-sentinel lit un petit sous-ensemble de ces attributs pour détecter les anti-patterns. La liste fermée des attributs lus par perf-sentinel est dans [Attributs de span requis](#attributs-de-span-requis) ci-dessous.
+
+**Le Collector.** Un processus séparé, l'**OpenTelemetry Collector**, est la forme de déploiement recommandée entre les applications et les backends. Il reçoit l'OTLP venant d'une flotte d'applications, applique un sampling et un traitement d'attributs optionnels, et forwarde vers un ou plusieurs backends en parallèle (perf-sentinel, plus Tempo ou Jaeger pour le stockage, plus Prometheus pour les exemplars). Faire tourner un Collector central découple les applications des particularités de chaque backend et permet aux opérateurs de changer la politique de sampling sans toucher au code applicatif. Les formes de déploiement pertinentes sont couvertes dans [Production : via OpenTelemetry Collector](#production--via-opentelemetry-collector) ci-dessous.
+
+**Pour aller plus loin.** [opentelemetry.io](https://opentelemetry.io/), [spec OTLP](https://github.com/open-telemetry/opentelemetry-proto), [conventions sémantiques](https://opentelemetry.io/docs/specs/semconv/).
+
 ## Déploiement Kubernetes
 
 Un chart Helm packagé est disponible sous [`charts/perf-sentinel/`](../../charts/perf-sentinel/). Voir [HELM-DEPLOYMENT-FR.md](./HELM-DEPLOYMENT-FR.md) pour le guide d'installation complet et [`examples/helm/`](../../examples/helm/) pour un exemple complet qui compose le chart avec le chart upstream OpenTelemetry Collector. Les manifests bruts ci-dessous restent utiles aux utilisateurs qui préfèrent déployer sans Helm.
@@ -312,10 +331,10 @@ service:
 La détection d'anti-patterns repose sur du comptage d'événements. Le sampling qui supprime des événements affecte directement les patterns que perf-sentinel peut signaler.
 
 - **Dans une trace conservée, tous les spans sont préservés**. OTel et Jaeger samplent par-trace, pas par-span, donc une boucle N+1, un hop vers un service bavard ou un fanout à l'intérieur d'une seule requête se détectent proprement tant que la trace parente est conservée.
-- **Le head-sampling casse les détections count-based**. Une politique head-sampling à 1% drop 99% des traces avant qu'elles n'arrivent au collector, donc une boucle N+1 de 50 appels est observée comme 3 appels, bien sous tout seuil raisonnable. Pareil pour les services bavards, le fanout, les parallélisables sérialisés, la saturation de pool. Tout ce qui est piloté par seuil est silencieusement sous-reporté.
+- **Le head-sampling casse les détections count-based**. Une politique head-sampling à 1% écarte 99% des traces avant qu'elles n'arrivent au collector, donc une boucle N+1 de 50 appels est observée comme 3 appels, bien sous tout seuil raisonnable. Pareil pour les services bavards, le fanout, les parallélisables sérialisés, la saturation de pool. Tout ce qui est piloté par seuil est silencieusement sous-reporté.
 - **Le tail-sampling reste compatible avec la détection** parce que les politiques qu'on écrirait pour la revue d'incident (garder les erreurs, garder les traces lentes, garder certains services) sont exactement celles qui font remonter les anti-patterns. L'exemple [`tail_sampling`](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/tailsamplingprocessor) ci-dessus garde tout sous ces politiques plus un échantillonnage probabiliste de 10% du reste.
 - **Les runs CI doivent garder 100% des traces**. Le volume est bas (un run de tests d'intégration), le coût de l'instrumentation complète est négligeable, et louper une régression à cause du sampling annule l'intérêt du gate CI. Les sections Quick start ci-dessus supposent un sampling à 100%.
-- **Le mode `pg-stat` est immunisé contre le sampling**. `pg_stat_statements` agrège les compteurs de requêtes côté serveur dans PostgreSQL, indépendamment de ce que le tracer applicatif a capturé. Une requête qui s'exécute 10 000 fois apparaît comme 10 000 appels même si 99% des traces parentes ont été dropées au head. Utiliser `perf-sentinel pg-stat ...` (ou passer `--pg-stat` à `analyze` et `report`) comme fallback quand on ne peut pas faire confiance au volume de traces, ou comme signal principal pour les chemins de code que le tracer ne couvre même pas.
+- **Le mode `pg-stat` est immunisé contre le sampling**. `pg_stat_statements` agrège les compteurs de requêtes côté serveur dans PostgreSQL, indépendamment de ce que le tracer applicatif a capturé. Une requête qui s'exécute 10 000 fois apparaît comme 10 000 appels même si 99% des traces parentes ont été écartées au head. Utiliser `perf-sentinel pg-stat ...` (ou passer `--pg-stat` à `analyze` et `report`) comme fallback quand on ne peut pas faire confiance au volume de traces, ou comme signal principal pour les chemins de code que le tracer ne couvre même pas.
 
 > **Note :** le sampling tail-based nécessite l'image `otel/opentelemetry-collector-contrib` (pas l'image core).
 

@@ -95,6 +95,8 @@ the field.
 
 ### `[green]`
 
+> **See also.** The [Energy and SCI primer](METHODOLOGY.md#background-energy-and-sci-primer) in the methodology doc defines SCI v1.0 (E + I + M terms), RAPL, Scaphandre, SPECpower, Boavizta and the Electricity Maps API used by the config sections below. Read it once if any term feels unfamiliar.
+
 GreenOps scoring configuration aligned with [SCI v1.0](https://github.com/Green-Software-Foundation/sci) (operational + embodied terms, confidence intervals, multi-region).
 
 | Field                              | Type    | Default  | Description                                                                                                                                                                                                                                                                                                                                                                                |

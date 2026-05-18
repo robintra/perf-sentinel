@@ -1,11 +1,22 @@
 # Workflow d'acquittement
 
 perf-sentinel supporte deux mécanismes d'acquittement complémentaires :
-TOML in-repo (CI ack, depuis 0.5.17) et JSONL via l'API HTTP du
-daemon (daemon ack, depuis 0.5.20). Ils couvrent des scénarios
-opérationnels différents et peuvent cohabiter. Cette page explique
-comment chacun fonctionne, quand choisir lequel, et comment le helper
-CLI introduit en 0.5.22 s'intègre côté daemon.
+TOML in-repo (CI ack, depuis 0.5.17) et JSONL (JSON Lines, un format
+de journal en mode append où chaque ligne est un objet JSON autonome)
+via l'API HTTP du daemon (daemon ack, depuis 0.5.20). Ils couvrent
+des scénarios opérationnels différents et peuvent cohabiter. Cette
+page explique comment chacun fonctionne, quand choisir lequel, et
+comment le helper CLI introduit en 0.5.22 s'intègre côté daemon.
+
+> **Qu'est-ce qu'une signature de finding.** Une signature est un
+> identifiant stable pour un finding, construit en hashant `(type de
+> finding, service, template d'endpoint normalisé, template SQL/HTTP
+> normalisé)` avec SHA-256 et en gardant un préfixe de 32 caractères
+> hex. Le même finding produit par deux redémarrages du daemon donne
+> la même signature, donc un ack écrit une fois reste attaché à sa
+> cible à travers les redémarrages et à travers les analyseurs. La
+> règle de sérialisation exacte et les 11 tests qui la verrouillent
+> vivent dans `docs/FR/ACKNOWLEDGMENTS-FR.md`.
 
 ## CI ack : TOML dans le repo
 

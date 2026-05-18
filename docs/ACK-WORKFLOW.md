@@ -1,11 +1,21 @@
 # Acknowledgment workflow
 
 perf-sentinel supports two complementary acknowledgment mechanisms:
-TOML in-repo (CI ack, since 0.5.17) and JSONL via the daemon HTTP API
-(daemon ack, since 0.5.20). They cover different operational
-scenarios and can be used side-by-side. This page explains how each
-works, when to pick which, and how the CLI helper introduced in
-0.5.22 plugs into the daemon side.
+TOML in-repo (CI ack, since 0.5.17) and JSONL (JSON Lines, an
+append-only log format where each line is a standalone JSON object)
+via the daemon HTTP API (daemon ack, since 0.5.20). They cover
+different operational scenarios and can be used side-by-side. This
+page explains how each works, when to pick which, and how the CLI
+helper introduced in 0.5.22 plugs into the daemon side.
+
+> **What is a finding signature.** A signature is a stable identifier
+> for a finding, built by hashing `(finding_type, service, normalised
+> endpoint template, normalised SQL/HTTP query template)` with SHA-256
+> and keeping a 32-hex prefix. The same finding produced by two daemon
+> restarts yields the same signature, so an ack written once stays
+> attached to its target across restarts and across analyzers. The
+> exact serialisation rule and the 11 tests that lock it lives in
+> `docs/ACKNOWLEDGMENTS.md`.
 
 ## CI ack: TOML in repo
 

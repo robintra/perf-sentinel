@@ -16,7 +16,7 @@ For CI pipelines, use batch mode instead of daemon mode:
 perf-sentinel analyze --ci --input traces.json
 ```
 
-Exit code is non-zero if the quality gate fails. Configure thresholds in `.perf-sentinel.toml`:
+Exit code is non-zero if the **quality gate** (a configurable set of pass/fail thresholds, the same idea as a SonarQube quality gate or a coverage gate) fails. Configure thresholds in `.perf-sentinel.toml`:
 
 ```toml
 [thresholds]
@@ -34,6 +34,8 @@ Ready-to-copy templates for the three major CI providers live in
 provider, drop it into your repository, adapt the three variables called out
 in the template's leading comment block (version pin, trace path, config
 path) and you are done.
+
+The "What it surfaces" column below references three CI-side formats: **SARIF** (Static Analysis Results Interchange Format, the OASIS-standard JSON schema GitHub and GitLab use for inline PR annotations, [spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)), **GitHub Code Scanning** (the surface where GitHub renders SARIF findings on PRs, formerly the "Security" tab), and **Warnings Next Generation** (a Jenkins plugin that aggregates static-analysis findings across plugins into a unified issue tree and a trend chart, [project](https://plugins.jenkins.io/warnings-ng/)).
 
 | Provider       | Template                                                  | What it surfaces                                  |
 |----------------|-----------------------------------------------------------|---------------------------------------------------|

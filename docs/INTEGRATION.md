@@ -2,6 +2,8 @@
 
 perf-sentinel accepts OpenTelemetry traces via OTLP (gRPC on 4317, HTTP on 4318). This guide walks you from zero to your first finding for each deployment topology.
 
+> **See also.** New to OpenTelemetry? The [OpenTelemetry primer](INSTRUMENTATION.md#background-opentelemetry-primer) defines OTLP, the Collector, spans and traces in a few paragraphs. Read it first if any of those terms feels unfamiliar.
+
 ## Contents
 
 - [Choose your topology](#choose-your-topology): comparison table for the four supported deployment modes.
@@ -255,6 +257,8 @@ perf-sentinel explain --input traces.json --trace-id abc123-def456
 This produces a tree view of the trace with findings annotated inline. Use `--format json` for structured output.
 
 ## SARIF export
+
+**What is SARIF.** The Static Analysis Results Interchange Format is an OASIS-standard JSON schema (v2.1.0 since 2020) that static-analysis tools use to publish their findings in a tool-agnostic shape. Both GitHub Advanced Security and GitLab Ultimate accept SARIF uploads and surface each finding inline on pull requests, the same way ESLint or Semgrep results appear today. perf-sentinel emits SARIF so anti-pattern findings show up alongside the security findings in the same code-scanning dashboard. [Spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html).
 
 For GitHub or GitLab code scanning integration, export findings as SARIF v2.1.0:
 

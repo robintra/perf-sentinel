@@ -7,6 +7,25 @@ This document lists all metrics exposed by the perf-sentinel daemon on
 negotiation, and emits exemplars when finding-level traces are
 available.
 
+## Background: Prometheus and OpenMetrics primer
+
+If you have not used Prometheus before, this short primer is a prerequisite for the rest of this document. It assumes you know what HTTP is and what a metric is. It does not assume familiarity with the Prometheus query language or operator. Other perf-sentinel docs cross-reference this primer for Prometheus concepts, see [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability) and [docs/QUERY-API.md](QUERY-API.md).
+
+**What is Prometheus.** Prometheus is a Cloud Native Computing Foundation (CNCF) project, the most widely deployed open-source metrics system in the cloud-native ecosystem. It works by *scraping*: every 15-60 seconds the Prometheus server makes an HTTP GET to each target's `/metrics` endpoint, parses the response, and stores the values as time series. perf-sentinel exposes such a `/metrics` endpoint when running as a daemon. Operators who already run Prometheus add perf-sentinel to their `scrape_configs`, and the daemon's metrics show up alongside the rest of their infrastructure.
+
+**Two text formats served by perf-sentinel.** Content negotiation selects which one the scraper gets.
+
+- `text/plain; version=0.0.4` is the original Prometheus exposition format. Stable since 2014.
+- `application/openmetrics-text; version=1.0.0` is **OpenMetrics**, the standardised evolution of the Prometheus format published by the CNCF in 2020. It is mostly a superset, with two practical additions perf-sentinel uses: `# UNIT` headers on each metric, and **exemplars** (per-point trace references that let a Grafana panel jump from a metric spike to the exact trace that produced it).
+
+**Metric types.** Every metric below carries one of three types.
+
+- **Counter**, a value that only goes up (for example the number of OTLP spans ingested). Reset to zero only on restart. Always read as `rate(metric[5m])` to get a per-second rate, never as the raw value.
+- **Gauge**, a value that goes up and down (for example the number of in-flight findings, or resident memory). Read as-is.
+- **Histogram**, a distribution of observations bucketed by value (for example detection latency). Exposed as several time series: `_bucket{le=...}` per bucket, plus `_sum` and `_count`. Read with `histogram_quantile(0.99, ...)` to get latency percentiles.
+
+**Where to learn more.** [prometheus.io](https://prometheus.io/), [OpenMetrics spec](https://github.com/prometheus/OpenMetrics/blob/main/specification/OpenMetrics.md), [exemplars in OpenMetrics](https://github.com/prometheus/OpenMetrics/blob/main/specification/OpenMetrics.md#exemplars).
+
 ## Process metrics (since 0.5.19, Linux only)
 
 Standard process collector metrics from the `prometheus` crate's

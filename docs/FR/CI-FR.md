@@ -16,7 +16,7 @@ Pour les pipelines CI, utilisez le mode batch au lieu du mode daemon :
 perf-sentinel analyze --ci --input traces.json
 ```
 
-Le code de sortie est non-zero si le quality gate echoue. Configurez les seuils dans `.perf-sentinel.toml` :
+Le code de sortie est non-zéro si le **quality gate** (un ensemble configurable de seuils pass/fail, la même idée qu'un quality gate SonarQube ou un gate de couverture) échoue. Configurez les seuils dans `.perf-sentinel.toml` :
 
 ```toml
 [thresholds]
@@ -35,6 +35,8 @@ qui correspond à votre fournisseur, déposez-le dans votre dépôt, adaptez
 les trois variables identifiées dans le bloc de commentaire en tête du
 template (version pinnée, chemin du fichier de traces, chemin de la
 config) et c'est terminé.
+
+La colonne "Ce qui apparaît" ci-dessous référence trois formats côté CI : **SARIF** (Static Analysis Results Interchange Format, le schéma JSON standard OASIS que GitHub et GitLab utilisent pour les annotations inline sur les PR, [spec](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html)), **GitHub Code Scanning** (la surface où GitHub affiche les findings SARIF sur les PR, anciennement l'onglet "Security"), et **Warnings Next Generation** (un plugin Jenkins qui agrège les findings d'analyse statique de plusieurs plugins dans un arbre unifié et une courbe de tendance, [projet](https://plugins.jenkins.io/warnings-ng/)).
 
 | Fournisseur    | Template                                                   | Ce qui apparaît                                                 |
 |----------------|------------------------------------------------------------|-----------------------------------------------------------------|

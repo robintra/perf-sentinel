@@ -10,6 +10,25 @@ This guide covers the parts of the data pipeline that turn an application's runt
 - [Required span attributes](#required-span-attributes): the legacy and stable OTel semantic conventions perf-sentinel reads.
 - [Dev/staging: per-language instrumentation](#devstaging-per-language-instrumentation): step-by-step setup for Java, Quarkus, .NET, Rust.
 
+## Background: OpenTelemetry primer
+
+If you have not used OpenTelemetry before, this short primer is a prerequisite for the rest of this guide. It assumes you know what an HTTP request and a database query are. It does not assume you have ever instrumented an application or run a tracing backend. Other perf-sentinel docs cross-reference this primer for OTel concepts, see [docs/INTEGRATION.md](INTEGRATION.md) and [docs/HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#observability).
+
+**What is OpenTelemetry.** OpenTelemetry (often shortened to "OTel") is a Cloud Native Computing Foundation (CNCF) project that defines an open standard for collecting telemetry data (traces, metrics, logs) from any kind of software. It is the merger of two earlier projects (OpenTracing and OpenCensus) consolidated in 2019, governed under CNCF since. The two practical things OTel gives you:
+
+- **A protocol** (OTLP, OpenTelemetry Protocol) that any application can use to ship traces and metrics to any backend that speaks it. OTLP is wire-format-stable, ships in both gRPC and HTTP+protobuf variants, and is what perf-sentinel ingests on ports 4317 (gRPC) and 4318 (HTTP).
+- **SDKs** (Java, Python, Go, .NET, Rust, JavaScript, ...) that handle the boring parts: capturing each HTTP/SQL call as a *span*, propagating the trace ID across services, batching, retrying, and sending OTLP. Most language SDKs include auto-instrumentation for popular frameworks (Spring, Quarkus, ASP.NET Core, Django, Express) so the application code itself rarely changes.
+
+**Key concepts.**
+
+- A **span** is a unit of work, typically one HTTP request or one SQL query. It carries a duration, a status, a name (`GET /api/orders`), and a structured attribute bag.
+- A **trace** is the tree of spans that share a `trace_id`. A single user request typically crosses several services, each producing several spans, all linked by the same `trace_id`.
+- **Semantic conventions** are the OTel-defined attribute names so different SDKs all emit the same field for the same concept. `http.request.method` is always the HTTP verb, `db.system` is always the database engine name, and so on. perf-sentinel reads a small subset of these attributes to detect anti-patterns. The closed list of attributes perf-sentinel reads is in [Required span attributes](#required-span-attributes) below.
+
+**The Collector.** A separate process, the **OpenTelemetry Collector**, is the recommended deployment shape between applications and backends. It receives OTLP from a fleet of applications, applies optional sampling and attribute processing, and forwards to one or more backends in parallel (perf-sentinel, plus Tempo or Jaeger for storage, plus Prometheus exemplars). Running a central Collector decouples the applications from each backend's quirks and lets operators change sampling policy without touching application code. The relevant deployment shapes are covered in [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector) below.
+
+**Where to learn more.** [opentelemetry.io](https://opentelemetry.io/), [OTLP spec](https://github.com/open-telemetry/opentelemetry-proto), [semantic conventions](https://opentelemetry.io/docs/specs/semconv/).
+
 ## Kubernetes deployment
 
 A packaged Helm chart is available under [`charts/perf-sentinel/`](../charts/perf-sentinel/). See [HELM-DEPLOYMENT.md](./HELM-DEPLOYMENT.md) for the full install guide and [`examples/helm/`](../examples/helm/) for a worked example composing the chart with the upstream OpenTelemetry Collector chart. The raw manifests below remain for users who prefer to deploy without Helm.

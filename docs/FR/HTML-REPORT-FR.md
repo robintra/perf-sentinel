@@ -1,7 +1,7 @@
 # Rapport HTML
 
 `perf-sentinel report` produit un dashboard HTML self-contained pour
-l'exploration post-mortem d'un trace set. Il fonctionne dans deux modes :
+l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes :
 
 - **Statique** (par défaut, depuis 0.5.0) : le fichier HTML embarque
   tous les panels et tous les arbres de traces en JSON. Pas d'egress
@@ -26,7 +26,9 @@ open report.html
 
 C'est l'artefact que toute pipeline CI peut produire. Sans
 `--daemon-url`, le HTML généré est byte-équivalent à la sortie 0.5.22
-pour la même entrée. La CSP reste stricte (`default-src 'none'`),
+pour la même entrée. La CSP (Content-Security-Policy, l'en-tête
+navigateur qui déclare quels scripts et ressources la page a le
+droit de charger) reste stricte (`default-src 'none'`),
 aucun `fetch()` n'est émis vers un host quelconque.
 
 ## Mode live
@@ -45,14 +47,16 @@ Le daemon doit :
    host que le navigateur peut atteindre.
 2. Avoir `[daemon.cors] allowed_origins` configuré pour inclure
    l'origine du document. Voir [`CONFIGURATION-FR.md`](./CONFIGURATION-FR.md)
-   pour la référence de la section. Sans ça, le navigateur drop la
+   pour la référence de la section. Sans ça, le navigateur rejette la
    réponse.
 3. Avoir `[daemon.ack] enabled = true` (par défaut).
 
 La première fois que l'utilisateur clique sur `Ack` ou `Revoke` sur un
 daemon protégé par 401, le rapport ouvre une modale d'authentification
-et demande la `X-API-Key`. La clé est stockée en `sessionStorage`,
-scopée à l'onglet, et purgée à la fermeture de l'onglet.
+et demande la `X-API-Key`. La clé est stockée en `sessionStorage`
+(une API navigateur qui stocke des paires clé-valeur scopées à
+l'onglet courant et purgées à sa fermeture), donc elle ne persiste
+jamais sur disque et ne fuit jamais vers un autre onglet.
 
 ### CSP en mode live
 
@@ -110,7 +114,7 @@ tourner le daemon en HTTP en clair de manière intentionnelle.
    `sessionStorage` sous `perf-sentinel.daemon.api-key` et la requête
    échouée est retentée.
 3. Appels suivants : chaque requête authentifiée lit la clé depuis
-   `sessionStorage` et set `X-API-Key`.
+   `sessionStorage` et fixe l'en-tête `X-API-Key`.
 4. Fermeture de l'onglet : `sessionStorage` est purgé, le prochain
    reload re-prompte au premier appel authentifié.
 
@@ -130,7 +134,7 @@ tourner le daemon en HTTP en clair de manière intentionnelle.
 
 - La liste des findings côté daemon n'est pas refetchée au toggle :
   le rapport statique est la source de vérité pour la liste des
-  findings, et le toggle filtre seulement contre le set d'acks live.
+  findings, et le toggle filtre seulement contre l'ensemble d'acks live.
   Pour voir les findings que le daemon a retenus au-delà du snapshot
   statique, utilisez `perf-sentinel query findings --include-acked`
   ou l'API HTTP daemon directement.

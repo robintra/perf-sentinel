@@ -208,6 +208,39 @@ docker buildx imagetools inspect <image>:<tag> --format '{{.Manifest.Digest}}'
 
 ## Provenance SLSA des binaires
 
+### Introduction à Sigstore
+
+Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour les références à SLSA, Cosign, Rekor et in-toto qui suivent. Les autres docs perf-sentinel ramènent ici pour les définitions canoniques, voir [docs/FR/REPORTING-FR.md](REPORTING-FR.md#introduction-à-sigstore), [docs/FR/METHODOLOGY-FR.md](METHODOLOGY-FR.md#intégrité-cryptographique-070), [docs/FR/HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md#chaîne-dapprovisionnement-logicielle), [docs/FR/SCHEMA-FR.md](SCHEMA-FR.md#intégrité).
+
+**Pourquoi Sigstore.** Sigstore est un toolkit open source hébergé par l'Open Source Security Foundation (OpenSSF), maintenu par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). perf-sentinel l'utilise à trois endroits : signature des binaires de release officiels (attestation SLSA Build L3), signature du chart Helm (signature Cosign vérifiable via `cosign verify`), signature des rapports de divulgation périodiques (`integrity.signature` avec preuve d'inclusion Rekor). Trois propriétés motivent ce choix :
+
+1. **Signature sans clé permanente**, aucune clé privée longue durée à gérer ou risquer de divulguer côté signataire.
+2. **Un journal public infalsifiable** (Rekor), un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
+3. **Libre, open source, auto-hébergeable**, pas de verrouillage propriétaire ni de facturation à la signature.
+
+**Les trois composants.**
+
+- **Cosign** est l'outil CLI exécuté localement (ou par GitHub Actions en CI). Il ouvre un flow OIDC dans le navigateur, signe l'artefact, et envoie la signature à Sigstore.
+- **Fulcio** est l'autorité de certification. Il consomme le token OIDC obtenu par cosign (preuve d'identité : email, URL d'un workflow GitHub, ...) et émet un certificat X.509 à durée courte (10 minutes) lié à cette identité. Fulcio ne voit jamais la clé privée du signataire.
+- **Rekor** est le journal de transparence public. Il enregistre la signature à côté du certificat Fulcio, retourne une preuve d'inclusion, et expose l'entrée à un log index stable. Les entrées passées ne peuvent pas être réécrites silencieusement.
+
+**Qui signe avec quelle clé.** Cosign génère un nouveau couple de clés éphémère juste avant la signature. Fulcio émet un certificat de 10 minutes qui lie la moitié *publique* de ce couple à l'identité OIDC. Une fois la signature uploadée vers Rekor, le couple de clés est détruit. Il ne reste que la signature, le certificat et l'entrée Rekor, ce dont un vérifieur a exactement besoin.
+
+**L'identité OIDC** est le sujet du certificat Fulcio, remonté comme `signer_identity` + `signer_issuer` dans tout document qui enregistre la signature. Pour un workflow GitHub Actions de release, l'identité est l'URL du workflow (`https://github.com/robintra/perf-sentinel/.github/workflows/release.yml@refs/tags/...`) et l'issuer est `https://token.actions.githubusercontent.com`. Pour un individu qui signe localement avec un compte Google, l'identité est l'email et l'issuer est `https://accounts.google.com`. Les consommateurs doivent épingler la regex d'identité attendue et l'issuer dans leur politique de vérification.
+
+**Limite connue : migration de provider OIDC.** L'URL de l'issuer est inscrite dans le certificat, donc enregistrée dans Rekor. Si l'organisation productrice change plus tard de provider d'identité, les signatures passées restent valides mais les nouvelles signatures porteront une valeur `signer_issuer` différente. Les politiques de vérification qui épinglent un issuer spécifique devront être mises à jour, sinon elles rejetteront les nouvelles signatures comme non fiables. Anticiper la politique d'épinglage en prévision des migrations de provider.
+
+**Termes connexes que vous rencontrerez dans les commandes supply-chain de perf-sentinel.** Des one-liners seulement, les définitions complètes sont dans les specs liées.
+
+- **OIDC (OpenID Connect)** est un protocole d'identité posé sur OAuth 2.0. Dans ce workflow, c'est la manière dont cosign prouve "ce signataire est `user@example.org`" (ou "c'est le workflow release perf-sentinel sur le tag v0.7.1") à Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
+- **in-toto v1 statement** est une spécification OpenSSF ouverte pour les attestations de chaîne d'approvisionnement logicielle. Une enveloppe JSON qui apparie le hash d'un artefact avec une *claim* typée sur celui-ci. La provenance SLSA et l'attestation de divulgation périodique sont toutes deux des statements in-toto en interne. Cosign signe le statement, pas l'artefact brut, ce qui permet aux vérifieurs de chaîner la confiance depuis le hash de l'artefact vers le statement in-toto, puis vers la signature cosign, puis vers le certificat Fulcio. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
+- **Bundle (`bundle.sig`)** est le fichier JSON que cosign écrit au moment de la signature. Il rassemble la signature, le certificat Fulcio et la preuve d'inclusion Rekor dans un seul artefact, ce qui permet une vérification totalement hors ligne plus tard (un consommateur valide contre la clé publique Rekor sans avoir à réinterroger Rekor en direct).
+- **SLSA (Supply-chain Levels for Software Artifacts)** est un framework OpenSSF séparé qui décrit *comment* un artefact a été construit (commit source, builder, workflow). Les binaires et charts Helm perf-sentinel portent des attestations SLSA Build L3 produites par `actions/attest-build-provenance`. Le niveau L3 demande une signature Sigstore OIDC plus une isolation du builder, deux propriétés qu'un runner GitHub-hosted fournit. [Spec](https://slsa.dev/spec/v1.0/).
+- **SBOM (Software Bill of Materials)** est un inventaire structuré des dépendances d'un artefact. perf-sentinel publie un SBOM au format SPDX attesté sous le prédicat in-toto SPDX, donc les consommateurs le vérifient de la même manière qu'ils vérifient la signature Cosign. [Spec SPDX](https://spdx.dev/specifications/), [prédicat in-toto SPDX](https://github.com/in-toto/attestation/blob/main/spec/predicates/spdx.md).
+- **CT log (Certificate Transparency)** est le pattern plus large dont Rekor s'inspire. L'instance Rekor publique Sigstore est sur `rekor.sigstore.dev`. Les opérateurs aux exigences plus strictes peuvent faire tourner une instance privée.
+
+### Workflow
+
 Depuis v0.7.1, chaque binaire de release officiel perf-sentinel porte
 une attestation SLSA Build L3. L'attestation est générée par GitHub
 Actions via `actions/attest-build-provenance` (maintenu sous l'org

@@ -100,6 +100,8 @@ Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :
 
 ## Chaîne d'approvisionnement logicielle
 
+> **Voir aussi.** L'[introduction à Sigstore](SUPPLY-CHAIN-FR.md#introduction-à-sigstore) dans la doc supply-chain définit Cosign, Fulcio, Rekor, in-toto, OIDC, SLSA et SBOM utilisés dans cette section.
+
 Chaque release publiée est signée Cosign en mode keyless, livrée
 avec une attestation de provenance de build SLSA v1.0, et livrée
 avec un SBOM SPDX attesté sous le prédicat SPDX. Vérifiez au minimum
@@ -356,6 +358,8 @@ config:
 Voir `docs/FR/QUERY-API-FR.md` et `docs/FR/CONFIGURATION-FR.md` pour la référence complète des endpoints et le catalogue des champs `[daemon.ack]`.
 
 ## Observabilité
+
+> **Voir aussi.** L'[introduction à Prometheus et OpenMetrics](METRICS-FR.md#introduction-à-prometheus-et-openmetrics) définit le scraping, les exemplars et les types Counter/Gauge/Histogram référencés ci-dessous.
 
 ### ServiceMonitor Prometheus
 

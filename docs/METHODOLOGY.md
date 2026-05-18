@@ -10,6 +10,39 @@ events -> normalize -> correlate -> detect -> score -> report
 
 Each stage is a pure function over data, with traits only at the I/O borders (`IngestSource`, `ReportSink`). A finding produced by `detect` is paired with a green-impact estimate produced by `score`, then aggregated by the periodic-disclosure aggregator over a calendar period.
 
+## Background: Energy and SCI primer
+
+If you have not implemented carbon scoring for software workloads before, this short primer is a prerequisite for the formulas in the rest of this document. It does not assume prior familiarity with the regulatory standards (CSRD, GHG Protocol, RGESN) nor with the energy-tooling stack (SCI v1.0, RAPL, Scaphandre, SPECpower, Boavizta, Electricity Maps API). Each is glossed in one line on first mention. Other perf-sentinel docs cross-reference this primer for green-scoring concepts, see [docs/CONFIGURATION.md](CONFIGURATION.md#green) and [docs/SCHEMA.md](SCHEMA.md#aggregate).
+
+**The regulatory frameworks in scope.** perf-sentinel aligns its carbon model with three frameworks readers may have heard of, none of which is required to follow the rest of this document.
+
+- **CSRD (Corporate Sustainability Reporting Directive)** is the mandatory EU 2024 sustainability-reporting regime. Large EU companies must publish audited emissions inventories along three scopes (direct, energy-purchased, value-chain). perf-sentinel can feed activity data into a CSRD pipeline but is not itself a CSRD reporting tool.
+- **GHG Protocol (Greenhouse Gas Protocol)** is the international corporate-emissions accounting standard published by the WRI/WBCSD, the de-facto reference behind CSRD and most national regulations. Scope 2 covers purchased electricity, Scope 3 covers everything else upstream/downstream including software-purchased compute.
+- **RGESN (Référentiel Général d'Écoconception de Services Numériques)** is the French eco-design framework for digital services published by ARCEP/Ademe/DINUM in 2024. It checks 78 criteria across architecture, content, hosting and lifecycle. perf-sentinel maps onto its anti-pattern and software-optimisation criteria.
+
+**Why SCI v1.0.** Software Carbon Intensity is the ISO/IEC 21031:2024 standard published by the Green Software Foundation. It defines a per-functional-unit carbon score for software, `SCI = (E * I) + M`, expressed in gCO2eq per request (or per any functional unit you choose). The three terms map to three different physical phenomena and each is measured by a different toolchain. perf-sentinel uses SCI v1.0 because (a) it is the most widely-adopted methodology for comparing software-driven emissions across organisations, (b) it cleanly separates marginal/avoidable optimisation from total inventory accounting, (c) it is referenced by RGESN and aligns with GHG Protocol Scope 2/3 boundaries.
+
+**The three SCI terms.**
+
+- **E (Energy)** is the per-operation electricity, in kWh. perf-sentinel substitutes one of four measurement sources at runtime: an I/O proxy (`io_proxy_v3`, around `1e-7` kWh per I/O op, directional only), Scaphandre RAPL readings, cloud-provider CPU% mapped against SPECpower tables, or operator-supplied calibration coefficients via `[green] calibration_file`. The selected source is surfaced in `methodology.calibration.energy_source_models` so an auditor can verify which path produced E.
+- **I (Grid intensity)** is the carbon emitted per kWh by the local electrical grid, in gCO2eq/kWh. perf-sentinel ships a static annually-refreshed table (covering all major cloud regions and key national grids) and accepts a live override via the Electricity Maps API when `[green.electricity_maps]` is configured. The source is surfaced in `methodology.calibration.carbon_intensity_source` as one of `static_tables`, `electricity_maps`, or `mixed`.
+- **M (Embodied carbon)** is the manufacturing emissions of the underlying silicon (CPU, RAM, networking, datacentre construction), amortised per request. perf-sentinel uses a default coefficient derived from Boavizta plus the HotCarbon 2024 paper, overridable via `[green] embodied_carbon_per_request_gco2`. M is region-independent and is added after `E * I`.
+
+**Who reads which value.** A *sustainability auditor* preparing a CSRD scope-2 submission cares about `total_carbon_kgco2eq` and the `methodology.*` block proving the source of each term. An *SRE optimising the system* cares about `estimated_optimization_potential_kgco2eq`, which is the avoidable operational term (`avoidable_io_ops * ENERGY_PER_IO_OP_KWH * I`) and excludes M because you cannot un-manufacture silicon by fixing an N+1 query. The `efficiency_score` (0-100) is the operator-friendly summary derived from `io_waste_ratio` only, not from absolute emissions.
+
+**Known limitation: 2x uncertainty bracket.** The carbon estimate ships with an explicit `2x` multiplicative bracket. This is a deliberate signal that the directional model (especially the I/O proxy and the static grid tables) is unsuitable for regulatory-grade emissions reporting. Tightening the bracket requires Scaphandre RAPL or cloud SPECpower for the E term and live Electricity Maps for the I term. The full uncertainty discussion lives in [docs/LIMITATIONS.md](LIMITATIONS.md).
+
+**Related terms you will see in the sections below.** One-liners only, full definitions in the linked references.
+
+- **RAPL (Running Average Power Limit)** is an Intel CPU feature that exposes a hardware energy counter readable via `/sys/class/powercap/intel-rapl/`. It gives per-package electricity consumption at millisecond granularity, with no instrumentation required in the application. AMD CPUs expose a similar interface under a different MSR. RAPL is what Scaphandre reads.
+- **Scaphandre** is an open-source energy profiler that polls RAPL counters and exposes per-process power readings as a Prometheus endpoint. perf-sentinel scrapes Scaphandre and attributes the readings back to OTel-instrumented services via PID matching. [Project](https://github.com/hubblo-org/scaphandre).
+- **SPECpower (`SPECpower_ssj2008`)** is a benchmark suite that maps CPU utilisation percentage to electricity draw for a published server SKU. The Cloud Carbon Footprint methodology uses SPECpower curves as a proxy when direct measurement is unavailable. perf-sentinel ships an embedded SPECpower table for the major cloud SKUs. [Benchmark](https://www.spec.org/power_ssj2008/).
+- **CCF (Cloud Carbon Footprint)** is the open-source methodology Etsy published in 2020 that combines SPECpower tables, cloud-region grid intensities, and embodied amortisation. perf-sentinel's cloud-energy path is CCF-compatible, the same inputs and coefficients. [Project](https://www.cloudcarbonfootprint.org/).
+- **Boavizta** is the French association that publishes open methodologies and reference data for digital-equipment lifecycle assessment, in particular the embodied-carbon coefficients for CPUs and servers. The default M term in perf-sentinel is derived from Boavizta plus the HotCarbon 2024 paper. [Project](https://boavizta.org/).
+- **Electricity Maps API** is the commercial service (with a free API tier) that publishes hourly per-zone grid intensity in gCO2eq/kWh for 250+ zones worldwide. perf-sentinel calls it on-demand when `[green.electricity_maps]` is configured. Each request returns either a `direct` factor (operational generation only) or a `lifecycle` factor (operational plus manufacturing of generation assets). perf-sentinel records which one was used. [API docs](https://api-portal.electricitymaps.com/).
+- **gCO2eq / kgCO2eq** is "grams (or kilograms) of CO2 equivalent". Equivalent because greenhouse gases other than CO2 (methane, nitrous oxide, ...) are weighted by their global-warming potential to a CO2 baseline. Standard unit across CSRD, GHG Protocol, SCI.
+- **Marginal vs average emissions.** Average emissions is the grid-wide mean intensity over a window (what static tables and most Electricity Maps responses give). Marginal emissions is the intensity of the next kWh consumed (often a fossil-fired peaker), which matters for *demand-shifting* decisions but not for inventory reporting. perf-sentinel reports the average for compliance accuracy, marginal-mode scoring is a future enhancement.
+
 ## I/O Intensity Score (IIS)
 
 The base proxy for energy is the I/O operation count per `(service, endpoint)` pair. perf-sentinel counts SQL and outbound HTTP spans as I/O operations.
@@ -84,6 +117,8 @@ A disclosure carries:
 The hash chain in `integrity.trace_integrity_chain` is reserved for a future revision and is always `null` in schema v1.0.
 
 ## Cryptographic integrity (0.7.0+)
+
+> **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC and SLSA used throughout this section.
 
 Two optional primitives layered on top of the content hash anchor a published disclosure in public infrastructure.
 

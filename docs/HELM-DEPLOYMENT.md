@@ -123,6 +123,8 @@ Registration flow (done by the maintainer once per chart):
 
 ## Software supply chain
 
+> **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC, SLSA and SBOM used throughout this section.
+
 Every published release is Cosign-keyless-signed, ships with a SLSA
 v1.0 build provenance attestation, and ships with an SPDX SBOM
 attested under the SPDX predicate. Users should check at least the
@@ -454,6 +456,8 @@ See `docs/QUERY-API.md` and `docs/CONFIGURATION.md` for the full
 endpoint reference and the `[daemon.ack]` field catalog.
 
 ## Observability
+
+> **See also.** The [Prometheus and OpenMetrics primer](METRICS.md#background-prometheus-and-openmetrics-primer) defines scraping, exemplars and the Counter/Gauge/Histogram types referenced below.
 
 ### Prometheus ServiceMonitor
 
