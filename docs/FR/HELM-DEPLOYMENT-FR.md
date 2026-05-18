@@ -100,6 +100,8 @@ Flow d'enregistrement (réalisé une fois par le mainteneur du chart) :
 
 ## Chaîne d'approvisionnement logicielle
 
+> **Voir aussi.** L'[introduction à Sigstore](SUPPLY-CHAIN-FR.md#introduction-à-sigstore) dans la doc supply-chain définit Cosign, Fulcio, Rekor, in-toto, OIDC, SLSA et SBOM utilisés dans cette section.
+
 Chaque release publiée est signée Cosign en mode keyless, livrée
 avec une attestation de provenance de build SLSA v1.0, et livrée
 avec un SBOM SPDX attesté sous le prédicat SPDX. Vérifiez au minimum

@@ -123,6 +123,8 @@ Registration flow (done by the maintainer once per chart):
 
 ## Software supply chain
 
+> **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC, SLSA and SBOM used throughout this section.
+
 Every published release is Cosign-keyless-signed, ships with a SLSA
 v1.0 build provenance attestation, and ships with an SPDX SBOM
 attested under the SPDX predicate. Users should check at least the

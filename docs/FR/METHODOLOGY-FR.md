@@ -85,6 +85,8 @@ La chaîne d'intégrité de traces dans `integrity.trace_integrity_chain` est r�
 
 ## Intégrité cryptographique (0.7.0+)
 
+> **Voir aussi.** L'[introduction à Sigstore](SUPPLY-CHAIN-FR.md#introduction-à-sigstore) dans la doc supply-chain définit Cosign, Fulcio, Rekor, in-toto, OIDC et SLSA utilisés dans cette section.
+
 Deux primitives optionnelles s'ajoutent au content hash pour ancrer un rapport publié dans une infrastructure publique.
 
 - **Signature Sigstore** (`integrity.signature`). Quand l'opérateur signe l'attestation in-toto v1 du rapport via `cosign attest`, le rapport porte des métadonnées (`bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, `signed_at`) qui permettent à un consommateur de récupérer le bundle et de le vérifier via Rekor public. `verify-hash` refuse les bundles sans preuve d'inclusion Rekor, la transparence est une propriété du format, pas un opt-in.

@@ -121,6 +121,39 @@ disclose_period = "calendar-quarter"
 
 ## Signer votre divulgation
 
+### Introduction à Sigstore
+
+Si vous n'avez jamais utilisé Sigstore, cette introduction courte est un préalable pour comprendre les commandes qui suivent.
+
+**Pourquoi Sigstore.** Sigstore est un toolkit open source hébergé par l'Open Source Security Foundation (OpenSSF), maintenu par Google, Red Hat, Chainguard, GitHub et la Linux Foundation. C'est le standard de facto pour les signatures d'artefacts vérifiables dans l'écosystème cloud-native (Kubernetes, Helm, la provenance npm, les attestations PyPI s'appuient toutes dessus). Le choix retenu pour les divulgations perf-sentinel tient à trois propriétés :
+
+1. **Signature sans clé permanente**, aucune clé privée longue durée à gérer ou risquer de divulguer côté signataire.
+2. **Un journal public infalsifiable** (Rekor), un tiers peut vérifier de façon indépendante qu'une signature existait à un instant donné.
+3. **Libre, open source, auto-hébergeable**, pas de verrouillage propriétaire ni de facturation à la signature.
+
+**Les trois composants.**
+
+- **Cosign** est l'outil CLI exécuté localement. Il ouvre un flow OIDC dans le navigateur (ou consomme un token de workflow en CI), signe le fichier, et envoie la signature à Sigstore.
+- **Fulcio** est l'autorité de certification. Il consomme le token OIDC obtenu par cosign (preuve d'identité : email, URL d'un workflow GitHub, ...) et émet un certificat X.509 à durée courte (10 minutes) lié à cette identité. Fulcio ne voit jamais la clé privée du signataire.
+- **Rekor** est le journal de transparence public. Il enregistre la signature à côté du certificat Fulcio, retourne une preuve d'inclusion, et expose l'entrée à un log index stable. Les entrées passées ne peuvent pas être réécrites silencieusement.
+
+**Qui signe avec quelle clé.** Cosign génère un nouveau couple de clés éphémère juste avant la signature. Fulcio émet un certificat de 10 minutes qui lie la moitié *publique* de ce couple à l'identité OIDC. Une fois la signature uploadée vers Rekor, le couple de clés est détruit. Il ne reste que la signature, le certificat et l'entrée Rekor, ce dont un vérifieur a exactement besoin.
+
+**L'identité OIDC** est le sujet du certificat Fulcio (et finit comme `integrity.signature.signer_identity` + `signer_issuer` dans la divulgation). Pour un individu qui signe avec un compte Google, l'identité est l'adresse email et l'issuer est `https://accounts.google.com`. Pour un workflow GitHub Actions, l'identité est l'URL du workflow et l'issuer est `https://token.actions.githubusercontent.com`.
+
+**Limite connue : migration de provider OIDC.** L'URL de l'issuer est inscrite dans le certificat, donc enregistrée dans Rekor et dans la divulgation. Si l'organisation change plus tard de provider d'identité (Google Workspace vers Keycloak auto-hébergé, Entra ID vers Okta, ...), les signatures passées restent valides mais les nouvelles signatures porteront une valeur `signer_issuer` différente. Les vérifieurs qui épinglent un issuer spécifique dans leur politique de vérification devront être mis à jour, sinon ils rejetteront les nouvelles signatures comme non fiables. Anticiper la politique d'épinglage en prévision des migrations de provider.
+
+**Termes connexes que vous rencontrerez dans le workflow.** Des one-liners seulement, les définitions complètes sont dans les specs liées.
+
+- **OIDC (OpenID Connect)** est un protocole d'identité posé sur OAuth 2.0. Dans ce workflow, c'est la manière dont cosign prouve "ce signataire est `user@example.org`" à Fulcio. Cosign ouvre un onglet navigateur, vous vous connectez à votre IdP (Google, GitHub, ...), l'IdP retourne un token signé, cosign le transmet à Fulcio. [Spec](https://openid.net/specs/openid-connect-core-1_0.html).
+- **in-toto v1 statement** est une spécification OpenSSF ouverte pour les attestations de chaîne d'approvisionnement logicielle. Une enveloppe JSON qui apparie le hash d'un artefact avec une *claim* typée sur celui-ci. `--emit-attestation` produit un statement de ce type, où l'artefact est votre `report.json` et le type de claim est `perf-sentinel-disclosure/v1`. Cosign signe le statement, pas le rapport directement, ce qui permet aux vérifieurs de chaîner la confiance depuis le hash du rapport, vers le statement in-toto qui déclare "ceci est une divulgation perf-sentinel", puis vers la signature cosign sur ce statement, et enfin vers le certificat Fulcio liant la signature à une identité OIDC. [Spec](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md).
+- **Bundle (`bundle.sig`)** est le fichier que cosign écrit au moment de la signature. Il rassemble la signature, le certificat Fulcio et la preuve d'inclusion Rekor dans un seul JSON. Publier ce bundle à côté du rapport permet une vérification totalement hors ligne : un consommateur valide la signature contre la clé publique Rekor sans avoir à réinterroger Rekor en direct.
+- **Provenance SLSA** est un framework OpenSSF séparé (Supply-chain Levels for Software Artifacts) qui décrit *comment* un artefact a été construit (quel commit source, quel builder, quel workflow). Les binaires de release perf-sentinel portent une provenance SLSA Build L3 produite pendant le workflow GitHub Actions de release. Le champ `integrity.binary_attestation` de la divulgation est rempli avec cette provenance quand elle est présente, et `report_metadata.integrity_level` passe de `signed` à `signed-with-attestation`. [Spec](https://slsa.dev/spec/v1.0/).
+
+La même introduction est mise en miroir dans [SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#introduction-à-sigstore), qui est la localisation canonique pour la stack supply-chain couvrant binaire, chart Helm et signature de divulgation.
+
+### Workflow
+
 Les divulgations `intent = "official"` doivent être signées via
 Sigstore pour qu'un consommateur puisse vérifier que le fichier a
 été publié par votre organisation et n'a pas été modifié. Le
