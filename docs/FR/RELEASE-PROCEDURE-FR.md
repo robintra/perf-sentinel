@@ -48,7 +48,7 @@ cargo test --workspace
 scripts/check-tag-version.sh vX.Y.Z
 ```
 
-Les deux invocations de clippy couvrent le feature set par défaut et le build no-default-features, puisque plusieurs modules sont derrière `#[cfg(feature = "...")]`. La CI exécute la même matrice.
+Les deux invocations de clippy couvrent l'ensemble des features par défaut et le build no-default-features, puisque plusieurs modules sont derrière `#[cfg(feature = "...")]`. La CI exécute la même matrice.
 
 ### 2.5 Fraîcheur des données de référence GreenOps
 

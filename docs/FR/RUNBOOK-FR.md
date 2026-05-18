@@ -49,7 +49,7 @@ Logs du daemon avec verbosité ciblée (le daemon utilise la variable d'env `RUS
 
 ```bash
 RUST_LOG=sentinel_core::daemon=info     # cycle de vie, bind, shutdown
-RUST_LOG=sentinel_core::ingest=debug    # chemin de réception OTLP, events droppés
+RUST_LOG=sentinel_core::ingest=debug    # chemin de réception OTLP, events rejetés
 RUST_LOG=sentinel_core::detect=debug    # pipeline de détection
 RUST_LOG=sentinel_core::score=debug     # scoring green, scrapers d'énergie
 ```
@@ -112,7 +112,7 @@ perf-sentinel analyze --input traces-dump.json
 **Prérequis.**
 
 - **Rétention Tempo couvrant la fenêtre de l'incident.** `block_retention` par défaut est de 14 jours mais varie selon le déploiement.
-- **Sampling.** Si la trace a été droppée à l'ingestion par un head- ou tail-based sampling, elle a disparu de Tempo aussi. Envisagez un sampling 100 % sur les traces en erreur.
+- **Sampling.** Si la trace a été écartée à l'ingestion par un head- ou tail-based sampling, elle a disparu de Tempo aussi. Envisagez un sampling 100 % sur les traces en erreur.
 - **Propagation du `trace_id`.** Alertes et logs doivent porter le label. Les exemplars OpenMetrics sur `perf_sentinel_findings_total` et `perf_sentinel_io_waste_ratio` en sont la source la plus directe.
 
 **Option : élargir la fenêtre live.** Si les post-mortems dans le TTL sont fréquents, on échange de la RAM contre du contexte :
@@ -152,7 +152,7 @@ docker logs perf-sentinel 2>&1 | grep 'Starting daemon'
 1. **Daemon bindé sur `127.0.0.1` (défaut).** Le listener bind sur l'interface loopback pour des raisons de sécurité. À l'intérieur d'un container, la loopback n'est joignable que *depuis le même container* : un `docker run -p 4318:4318` publie un port au niveau host mais le listener dans le container n'accepte pas la connexion forwardée. Même pattern sur une VM accédée via SSH port-forward ou sur un pod Kubernetes derrière un Service ClusterIP.
 2. **`--network host` combiné à des flags `-p`.** En mode host network, le container partage le namespace réseau de l'hôte ; les `-p` sont ignorés et Docker émet `WARNING: Published ports are discarded when using host network mode`. Le daemon n'est joignable que sur l'IP sur laquelle sa config le bind.
 3. **Mapping de port inversé ou incomplet.** `docker ps --format '{{.Ports}}'` montre le mapping effectif. Pattern attendu sur un run local de dev : `0.0.0.0:4317-4318->4317-4318/tcp`.
-4. **Firewall host, NetworkPolicy ou Security Group cloud qui drop le trafic.** Le `curl` depuis l'intérieur du namespace réseau réussit mais celui de l'extérieur timeout. Si la bind address est `0.0.0.0` et que les logs du daemon n'indiquent pas d'erreur, le delta est environnemental.
+4. **Firewall host, NetworkPolicy ou Security Group cloud qui rejette le trafic.** Le `curl` depuis l'intérieur du namespace réseau réussit mais celui de l'extérieur timeout. Si la bind address est `0.0.0.0` et que les logs du daemon n'indiquent pas d'erreur, le delta est environnemental.
 
 **Correctif.**
 
@@ -213,7 +213,7 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 1. **Trafic amont effondré.** Le trafic réel vers vos services a chuté ; perf-sentinel reflète fidèlement la réalité. Recoupez avec les métriques de votre load balancer ou HTTP.
 2. **OTel collector down.** Si un collector central est entre les services et perf-sentinel, vérifiez d'abord sa santé et ses métriques de réception.
 3. **Changement de sampling.** Un bump de config a baissé le taux de sampling. Auditez les commits récents dans le repo de config OTel.
-4. **Backpressure du daemon.** Si le canal OTLP de réception est plein, les events sont droppés silencieusement. Cherchez `channel full` dans les logs avec `RUST_LOG=sentinel_core::ingest=debug`. Déclencheurs fréquents : pipeline de détection bloqué sur une trace pathologique ; `max_active_traces` trop bas pour le débit courant.
+4. **Backpressure du daemon.** Si le canal OTLP de réception est plein, les events sont rejetés silencieusement. Cherchez `channel full` dans les logs avec `RUST_LOG=sentinel_core::ingest=debug`. Déclencheurs fréquents : pipeline de détection bloqué sur une trace pathologique, ou `max_active_traces` trop bas pour le débit courant.
 
 Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande majorité.
 

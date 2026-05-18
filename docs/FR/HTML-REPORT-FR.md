@@ -1,7 +1,7 @@
 # Rapport HTML
 
 `perf-sentinel report` produit un dashboard HTML self-contained pour
-l'exploration post-mortem d'un trace set. Il fonctionne dans deux modes :
+l'exploration post-mortem d'un ensemble de traces. Il fonctionne dans deux modes :
 
 - **Statique** (par défaut, depuis 0.5.0) : le fichier HTML embarque
   tous les panels et tous les arbres de traces en JSON. Pas d'egress
@@ -47,7 +47,7 @@ Le daemon doit :
    host que le navigateur peut atteindre.
 2. Avoir `[daemon.cors] allowed_origins` configuré pour inclure
    l'origine du document. Voir [`CONFIGURATION-FR.md`](./CONFIGURATION-FR.md)
-   pour la référence de la section. Sans ça, le navigateur drop la
+   pour la référence de la section. Sans ça, le navigateur rejette la
    réponse.
 3. Avoir `[daemon.ack] enabled = true` (par défaut).
 
@@ -114,7 +114,7 @@ tourner le daemon en HTTP en clair de manière intentionnelle.
    `sessionStorage` sous `perf-sentinel.daemon.api-key` et la requête
    échouée est retentée.
 3. Appels suivants : chaque requête authentifiée lit la clé depuis
-   `sessionStorage` et set `X-API-Key`.
+   `sessionStorage` et fixe l'en-tête `X-API-Key`.
 4. Fermeture de l'onglet : `sessionStorage` est purgé, le prochain
    reload re-prompte au premier appel authentifié.
 
@@ -134,7 +134,7 @@ tourner le daemon en HTTP en clair de manière intentionnelle.
 
 - La liste des findings côté daemon n'est pas refetchée au toggle :
   le rapport statique est la source de vérité pour la liste des
-  findings, et le toggle filtre seulement contre le set d'acks live.
+  findings, et le toggle filtre seulement contre l'ensemble d'acks live.
   Pour voir les findings que le daemon a retenus au-delà du snapshot
   statique, utilisez `perf-sentinel query findings --include-acked`
   ou l'API HTTP daemon directement.

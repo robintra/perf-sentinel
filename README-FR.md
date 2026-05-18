@@ -113,7 +113,7 @@ Les binaires Linux ciblent musl (statiques, fonctionnent sur n'importe quelle di
 
 ## Déploiement
 
-Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md) ; recettes CI dans [docs/CI.md](docs/CI.md) ; métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md) ; exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md), recettes CI dans [docs/CI.md](docs/CI.md), métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md), exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
 Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé).
 
@@ -217,7 +217,7 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 
 ## GreenOps : score d'intensité I/O (directionnel)
 
-Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d'un endpoint divisé par le nombre d'invocations, et un **ratio de gaspillage I/O** (ops évitables / ops totales). Réduire les N+1 et appels redondants améliore les temps de réponse *et* la consommation d'énergie ; ces deux objectifs ne s'opposent pas.
+Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d'un endpoint divisé par le nombre d'invocations, et un **ratio de gaspillage I/O** (ops évitables / ops totales). Réduire les N+1 et appels redondants améliore les temps de réponse *et* la consommation d'énergie. Ces deux objectifs ne s'opposent pas.
 
 `co2.total` est reporté comme le numérateur [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) `(E × I) + M`, sommé sur les traces analysées. Le scoring multi-régions est automatique quand les spans OTel portent l'attribut `cloud.region`. En mode daemon, l'estimation énergie peut être affinée via Scaphandre RAPL ou CPU% + SPECpower cloud-natif, et l'intensité du réseau électrique récupérée en temps réel via Electricity Maps.
 
@@ -227,7 +227,7 @@ Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d
 >
 > Il n'est **pas encore vérifié par tiers-partie** pour un reporting CSRD / GHG Protocol Scope 2/3 standalone, qui exige un audit par un organisme qualifié et l'intégration des scopes non-IT. Les chiffres CO₂ portent un encadrement `~2×` en mode proxy par défaut (plus serré avec Scaphandre RAPL ou SPECpower cloud + calibration). Méthodologie, sources et bornes : [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) et [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
-Couplages concrets : passer les comptes I/O et estimations énergie par région à **Watershed**, **Sweep**, **Greenly** ou **Persefoni** comme activity data ; ou utiliser perf-sentinel directement pour démontrer la conformité **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) sur les critères d'optimisation logicielle, où détection de N+1, appels redondants, caching et réduction du fanout correspondent aux critères concernés.
+Couplages concrets : passer les comptes I/O et estimations énergie par région à **Watershed**, **Sweep**, **Greenly** ou **Persefoni** comme activity data, ou utiliser perf-sentinel directement pour démontrer la conformité **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) sur les critères d'optimisation logicielle, où détection de N+1, appels redondants, caching et réduction du fanout correspondent aux critères concernés.
 
 Pour les organisations qui souhaitent malgré tout publier une *disclosure périodique non-réglementaire* d'efficacité logicielle (JSON trimestriel/annuel, signature Sigstore optionnelle), le workflow optionnel `perf-sentinel disclose` est documenté dans [docs/REPORTING.md](docs/REPORTING.md). Il est volontairement écarté du chemin de démarrage principal.
 
@@ -247,14 +247,14 @@ La niche de perf-sentinel : être **léger, agnostique du protocole, natif CI/CD
 | Licence                         | Commerciale (Optimizer)                                                      | SaaS propriétaire                                           | SaaS propriétaire                                                     | FSL (devient Apache-2 après 2 ans)           | Freemium, propriétaire      | AGPL-3.0                                                | AGPL-3.0                                 |
 | Tarification / auto-hébergeable | Licence one-time                                                             | SaaS à l'usage (pas d'auto-hébergement)                     | SaaS à l'usage (pas d'auto-hébergement)                               | Free tier + SaaS (pas d'auto-hébergement)    | SaaS freemium (idem)        | Gratuit, entièrement auto-hébergeable                   | Gratuit, entièrement auto-hébergeable    |
 
-Les empreintes d'agent des APMs commerciaux sont des estimations d'ordre de grandeur tirées de retours de déploiements publics ; l'overhead réel dépend du périmètre d'instrumentation.
+Les empreintes d'agent des APMs commerciaux sont des estimations d'ordre de grandeur tirées de retours de déploiements publics. L'overhead réel dépend du périmètre d'instrumentation.
 
 ### Ce que perf-sentinel n'est pas
 
 Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas** :
 
 - **Pas un remplacement d'APM complet.** Pas de dashboards, pas d'UI d'alerting, pas de RUM, pas d'agrégation de logs, pas de profiling distribué. Si vous avez besoin de ça, Datadog, New Relic et Sentry restent les bons outils.
-- **Pas un profiler continu.** L'outil observe les patterns d'I/O au niveau protocole ; il ne fait pas de sampling on-CPU, d'allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) est l'équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, perf-sentinel dit quels patterns d'I/O le déclenchent.
+- **Pas un profiler continu.** L'outil observe les patterns d'I/O au niveau protocole, il ne fait pas de sampling on-CPU, d'allocations ni de stack traces. Pour les flame graphs et le profiling CPU/mémoire par langage, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) est l'équivalent open-source et se marie bien : pyroscope dit où passe le temps CPU, perf-sentinel dit quels patterns d'I/O le déclenchent.
 - **Pas une solution de monitoring temps réel.** Le mode daemon stream les findings, mais le centre de gravité du projet ce sont les quality gates CI et l'analyse post-hoc, pas l'observabilité prod live.
 - **Pas une plateforme de comptabilité carbone réglementaire standalone.** perf-sentinel calcule des émissions logicielles activity-based à partir de sources audit-grade, mais un reporting CSRD ou GHG Protocol Scope 2/3 standalone exige une vérification tiers-partie et l'intégration des scopes non-IT qu'il ne couvre pas. À coupler à une plateforme carbone horizontale (Watershed, Sweep, Greenly, Persefoni, ...) ou à utiliser directement pour la conformité RGESN et les KPI d'émissions logicielles internes.
 - **Pas un substitut à la mesure énergétique.** Le modèle I/O-vers-énergie est une approximation. Pour une puissance précise par process, utiliser Scaphandre (supporté en entrée) ou les APIs énergie du cloud provider.
@@ -263,7 +263,7 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 
 ## Acquittement de findings connus
 
-Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés ; ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) et [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
+Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés. Ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) et [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
 
 ## Captures
 
@@ -384,7 +384,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 ## Supply chain
 
-Chaque GitHub Action est figée sur un SHA de commit de 40 caractères ; l'image de prod est `FROM scratch` ; `Cargo.lock` est committé et audité quotidiennement par `cargo audit` ; les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor). Politique complète et commandes de vérification : [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor). Politique complète et commandes de vérification : [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
 ## Releasing
 

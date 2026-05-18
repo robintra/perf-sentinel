@@ -87,7 +87,7 @@ reason = "Agrégation longue, accepté par le produit."
 | `reason`          | oui    | Texte libre. Court, avec lien vers ADR / Jira / thread Slack.                      |
 | `expires_at`      | non    | Date ISO 8601 `YYYY-MM-DD`. Validée au chargement. Omettre pour un ack permanent.  |
 
-Un champ requis manquant fait échouer le run avec une erreur claire, donc une coquille n'élargit pas silencieusement le set acquitté.
+Un champ requis manquant fait échouer le run avec une erreur claire, donc une coquille n'élargit pas silencieusement l'ensemble acquitté.
 
 ## Format de signature
 

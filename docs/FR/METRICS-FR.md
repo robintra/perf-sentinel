@@ -176,56 +176,57 @@ pré-chauffées pour éviter de fausses séries.
 
 ## Compteurs de scrape Scaphandre (depuis 0.5.25)
 
-Issue par tick du scraper Scaphandre cote daemon (la tache qui
-recupere `scaph_process_power_consumption_microwatts` depuis
-l'endpoint `[green.scaphandre]` configure, toutes les
-`scrape_interval_secs`). Enregistres uniquement quand le daemon est
-compile avec la feature `daemon`.
+Émis par tick du scraper Scaphandre côté daemon (la tâche qui
+récupère `scaph_process_power_consumption_microwatts` depuis
+l'endpoint `[green.scaphandre]` configuré, toutes les
+`scrape_interval_secs`). Enregistrés uniquement quand le daemon est
+compilé avec la feature `daemon`.
 
-| Metric                                          | Type    | Labels    | Description                                                                                       |
-|-------------------------------------------------|---------|-----------|---------------------------------------------------------------------------------------------------|
-| `perf_sentinel_scaphandre_scrape_total`         | counter | `status`  | Total des tentatives de scrape Scaphandre depuis le demarrage, partitionne par issue.             |
-| `perf_sentinel_scaphandre_scrape_failed_total`  | counter | `reason`  | Total des scrapes Scaphandre en echec depuis le demarrage, partitionne par cause.                 |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge | (aucun)   | Secondes depuis le dernier scrape reussi (remis a 0 sur succes). Canari pour scraper bloque.      |
+| Metric                                          | Type    | Labels    | Description                                                                                         |
+|-------------------------------------------------|---------|-----------|-----------------------------------------------------------------------------------------------------|
+| `perf_sentinel_scaphandre_scrape_total`         | counter | `status`  | Total des tentatives de scrape Scaphandre depuis le démarrage, partitionné par issue.               |
+| `perf_sentinel_scaphandre_scrape_failed_total`  | counter | `reason`  | Total des scrapes Scaphandre en échec depuis le démarrage, partitionné par cause.                   |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge | (aucun)   | Secondes depuis le dernier scrape réussi (remis à 0 sur succès). Canari pour scraper bloqué.        |
 
-Valeurs du label `status` : `success`, `failed`. Pre-chauffes a zero
-pour que les dashboards plotent un taux nul avant le premier scrape.
+Valeurs du label `status` : `success`, `failed`. Pré-chauffés à zéro
+pour que les dashboards tracent un taux nul avant le premier scrape.
 
 Valeurs du label `reason` :
 
-- `unreachable` : echec transport bas niveau (connexion refusee, echec
-  DNS, erreur TLS handshake, host down). L'endpoint n'est pas
+- `unreachable` : échec transport bas niveau (connexion refusée,
+  échec DNS, erreur TLS handshake, host down). L'endpoint n'est pas
   joignable depuis le pod du daemon.
 - `timeout` : la deadline de 3 secondes sur l'appel HTTP par scrape a
-  expire avant la reponse.
-- `http_error` : l'endpoint a repondu avec un statut non-2xx.
+  expiré avant la réponse.
+- `http_error` : l'endpoint a répondu avec un statut non-2xx.
 - `body_read_error` : erreur transport pendant le streaming du corps
-  de reponse, apres une lecture de statut reussie.
-- `request_error` : hyper n'a pas reussi a construire la requete HTTP
+  de réponse, après une lecture de statut réussie.
+- `request_error` : hyper n'a pas réussi à construire la requête HTTP
   depuis l'URI (post-validation). Rare, indique un cas-limite de
-  configuration que le parser d'URI a manque.
-- `invalid_utf8` : le corps de reponse n'est pas de l'UTF-8 valide.
-  Scaphandre emet toujours du texte Prometheus ASCII-safe, donc
+  configuration que le parser d'URI a manqué.
+- `invalid_utf8` : le corps de réponse n'est pas de l'UTF-8 valide.
+  Scaphandre émet toujours du texte Prometheus ASCII-safe, donc
   presque toujours signe que l'endpoint n'est pas Scaphandre.
 
-**Pre-chauffage**. Les deux compteurs emettent zero pour chaque
-valeur de label documentee avant le premier scrape, donc les
-requetes `rate()` n'ont pas besoin de garde `absent()`. L'ensemble
-pre-chauffe est de 2 series `status` plus 6 series `reason`. Les
-echecs de parsing de configuration (URI d'endpoint invalide) abortent
-la tache scraper au demarrage avant que le compteur soit touche, ils
-ne sont visibles que dans les logs daemon au niveau `error`.
+**Pré-chauffage**. Les deux compteurs émettent zéro pour chaque
+valeur de label documentée avant le premier scrape, donc les
+requêtes `rate()` n'ont pas besoin de garde `absent()`. L'ensemble
+pré-chauffé est de 2 séries `status` plus 6 séries `reason`. Les
+échecs de parsing de configuration (URI d'endpoint invalide)
+abortent la tâche scraper au démarrage avant que le compteur soit
+touché, ils ne sont visibles que dans les logs daemon au niveau
+`error`.
 
-**Exemples de requetes**.
+**Exemples de requêtes**.
 
 - `rate(perf_sentinel_scaphandre_scrape_total{status="success"}[5m])`
-  divise par `rate(perf_sentinel_scaphandre_scrape_total[5m])` :
-  ratio de succes des scrapes sur 5 minutes. Utile pour un panel SLO
-  ou une alerte (`< 0.95` sur 15 minutes signale un scraper degrade).
+  divisé par `rate(perf_sentinel_scaphandre_scrape_total[5m])` :
+  ratio de succès des scrapes sur 5 minutes. Utile pour un panel SLO
+  ou une alerte (`< 0.95` sur 15 minutes signale un scraper dégradé).
 - `topk(1, increase(perf_sentinel_scaphandre_scrape_failed_total[1h]))` :
-  raison d'echec dominante sur l'heure ecoulee. Un `unreachable`
+  raison d'échec dominante sur l'heure écoulée. Un `unreachable`
   persistant pointe typiquement vers un exporteur Scaphandre absent
-  du host, un `http_error` persistant vers un exporteur derriere un
+  du host, un `http_error` persistant vers un exporteur derrière un
   reverse proxy qui renvoie le mauvais statut, un `invalid_utf8`
   persistant vers un endpoint qui n'est pas Scaphandre du tout.
 

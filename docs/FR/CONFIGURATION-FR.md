@@ -587,7 +587,7 @@ Règles de chargement :
 - Le chemin par défaut est `./.perf-sentinel-acknowledgments.toml` dans le répertoire courant. Override avec `--acknowledgments <chemin>`.
 - Si le fichier n'existe pas, le run est un no-op (pas d'erreur, pas de bruit en sortie).
 - `--no-acknowledgments` ignore le fichier complètement (vue d'audit).
-- Une coquille dans `signature`, un champ requis manquant, ou un `expires_at` mal formé fait échouer le run de façon visible plutôt que d'élargir silencieusement le set acquitté.
+- Une coquille dans `signature`, un champ requis manquant, ou un `expires_at` mal formé fait échouer le run de façon visible plutôt que d'élargir silencieusement l'ensemble acquitté.
 
 Entry minimale :
 
