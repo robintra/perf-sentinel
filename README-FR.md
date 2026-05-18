@@ -47,7 +47,7 @@ perf-sentinel report --input traces.json --output report.html
 
 Les anti-patterns de performance comme les N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n'a de visibilité sur le chemin complet.
 
-Les outils existants résolvent chacun une partie du problème : Hypersistence Utils ne couvre que JPA ; Datadog et New Relic sont des agents propriétaires lourds qu'on ne veut pas forcément déployer dans tous les pipelines ; les détecteurs de Sentry sont solides mais liés à son SDK et son backend. Aucun ne propose un **quality gate CI au niveau protocole, auto-hébergeable**.
+Les outils existants résolvent chacun une partie du problème. Hypersistence Utils ne couvre que JPA, Datadog et New Relic sont des agents propriétaires lourds qu'on ne veut pas forcément déployer dans tous les pipelines, les détecteurs de Sentry sont solides mais liés à son SDK et son backend. Aucun ne propose un **détecteur d'anti-patterns au niveau protocole, auto-hébergeable**, exécutable soit comme quality gate CI sur des traces capturées (exit 1 si seuil dépassé, SARIF pour le code scanning) **soit** comme daemon OTLP long-running (ingestion gRPC + HTTP, Prometheus `/metrics`, dashboard HTML live, query API, workflow d'ack runtime) à poser à côté ou devant votre backend de tracing existant.
 
 perf-sentinel observe les traces que votre application émet déjà (requêtes SQL, appels HTTP), quel que soit le langage ou l'ORM. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
