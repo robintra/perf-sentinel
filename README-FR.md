@@ -16,7 +16,7 @@
 **Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry. S'utilise comme quality gate CI sur traces capturées, ou comme daemon OTLP long-running avec métriques Prometheus et API de query.**
 
 > **À lire en premier**
-> - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) pour la mise en place (Java/Quarkus/.NET/Rust).
+> - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md) pour la mise en place (Java/Quarkus/.NET/Rust).
 > - **Ce que c'est :** un détecteur d'anti-patterns auto-hébergé, mono-binaire (`<15 Mo RSS`), utilisable en batch sur traces capturées (exploration locale, post-mortem, ou quality gate CI avec exit 1 sur dépassement de seuil) ou en mode daemon long-running (ingestion OTLP, API de query, dashboard live, métriques Prometheus).
 > - **Ce que ce n'est *pas* :** un APM complet, un profiler continu, ni une plateforme de comptabilité carbone réglementaire standalone. Voir [Ce que perf-sentinel n'est pas](#ce-que-perf-sentinel-nest-pas).
 
@@ -73,14 +73,14 @@ Chaque finding embarque : type, sévérité, template normalisé, occurrences, e
 ## Formats de sortie
 
 - **`text`** (défaut) : sortie terminal colorée, regroupée par sévérité. Disponible sur `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
-- **`json`** : rapport structuré. Disponible sur `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Schéma complet dans [docs/SCHEMA.md](docs/SCHEMA.md), exemples dans [docs/schemas/examples/](docs/schemas/examples/).
-- **`sarif`** (SARIF v2.1.0) : code scanning GitHub/GitLab, annotations PR inline via `physicalLocations`. Disponible sur `analyze` et `diff`. Voir [docs/SARIF.md](docs/SARIF.md).
-- **Dashboard HTML** : rapport offline en un seul fichier depuis `perf-sentinel report`, navigation dans les arbres de traces, thème clair/sombre, export CSV sur les onglets Findings / pg_stat / Diff / Correlations. Voir [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
-- **TUI interactif** : vue 3 panneaux pilotée au clavier depuis `perf-sentinel inspect` (ou `query inspect` pour données live du daemon). Voir [docs/INSPECT.md](docs/INSPECT.md).
-- **Daemon live** : findings NDJSON sur stdout, `/metrics` Prometheus avec Grafana Exemplars, sonde `/health`, API HTTP de query. Voir [docs/METRICS.md](docs/METRICS.md) et [docs/QUERY-API.md](docs/QUERY-API.md).
-- **Disclosure périodique (optionnel)** : JSON `perf-sentinel-report/v1.0` vérifiable par hash depuis `perf-sentinel disclose`, signable via Sigstore. Voir [docs/REPORTING.md](docs/REPORTING.md).
+- **`json`** : rapport structuré. Disponible sur `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Schéma complet dans [docs/FR/SCHEMA-FR.md](docs/FR/SCHEMA-FR.md), exemples dans [docs/schemas/examples/](docs/schemas/examples/).
+- **`sarif`** (SARIF v2.1.0) : code scanning GitHub/GitLab, annotations PR inline via `physicalLocations`. Disponible sur `analyze` et `diff`. Voir [docs/FR/SARIF-FR.md](docs/FR/SARIF-FR.md).
+- **Dashboard HTML** : rapport offline en un seul fichier depuis `perf-sentinel report`, navigation dans les arbres de traces, thème clair/sombre, export CSV sur les onglets Findings / pg_stat / Diff / Correlations. Voir [docs/FR/HTML-REPORT-FR.md](docs/FR/HTML-REPORT-FR.md).
+- **TUI interactif** : vue 3 panneaux pilotée au clavier depuis `perf-sentinel inspect` (ou `query inspect` pour données live du daemon). Voir [docs/FR/INSPECT-FR.md](docs/FR/INSPECT-FR.md).
+- **Daemon live** : findings NDJSON sur stdout, `/metrics` Prometheus avec Grafana Exemplars, sonde `/health`, API HTTP de query. Voir [docs/FR/METRICS-FR.md](docs/FR/METRICS-FR.md) et [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md).
+- **Disclosure périodique (optionnel)** : JSON `perf-sentinel-report/v1.0` vérifiable par hash depuis `perf-sentinel disclose`, signable via Sigstore. Voir [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md).
 
-Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions, les seuils numériques sous-jacents peuvent évoluer. Tableau de référence et explication dans [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
+Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `moderate` / `high` / `critical`) sont stables entre versions, les seuils numériques sous-jacents peuvent évoluer. Tableau de référence et explication dans [docs/FR/LIMITATIONS-FR.md#interprétation-des-scores](docs/FR/LIMITATIONS-FR.md#interprétation-des-scores).
 
 ## Performance
 
@@ -109,11 +109,11 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
   ghcr.io/robintra/perf-sentinel:latest watch --listen-address 0.0.0.0
 ```
 
-Les binaires Linux ciblent musl (statiques, fonctionnent sur n'importe quelle distribution et dans les images `FROM scratch`). Un chart Helm est disponible sous [`charts/perf-sentinel/`](charts/perf-sentinel/). Voir [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md).
+Les binaires Linux ciblent musl (statiques, fonctionnent sur n'importe quelle distribution et dans les images `FROM scratch`). Un chart Helm est disponible sous [`charts/perf-sentinel/`](charts/perf-sentinel/). Voir [docs/FR/HELM-DEPLOYMENT-FR.md](docs/FR/HELM-DEPLOYMENT-FR.md).
 
 ## Déploiement
 
-Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/INTEGRATION.md](docs/INTEGRATION.md), recettes CI dans [docs/CI.md](docs/CI.md), métriques Prometheus dans [docs/METRICS.md](docs/METRICS.md), exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+Quatre environnements, trois modèles de déploiement. Mise en place complète dans [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md), recettes CI dans [docs/FR/CI-FR.md](docs/FR/CI-FR.md), métriques Prometheus dans [docs/FR/METRICS-FR.md](docs/FR/METRICS-FR.md), exemple sidecar dans [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
 
 Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé).
 
@@ -189,7 +189,7 @@ n_plus_one_min_occurrences = 5
 slow_query_threshold_ms = 500
 ```
 
-Référence complète des sous-commandes : `perf-sentinel <cmd> --help`, ou [docs/CLI.md](docs/CLI.md).
+Référence complète des sous-commandes : `perf-sentinel <cmd> --help`, ou [docs/FR/CLI-FR.md](docs/FR/CLI-FR.md).
 
 <details>
 <summary>Carte des sous-commandes perf-sentinel et des artefacts consommés ou produits</summary>
@@ -225,11 +225,11 @@ Chaque finding embarque un **score d'intensité I/O (IIS)**, total des ops I/O d
 >
 > Il convient comme **source primaire de données** pour une plateforme de comptabilité carbone horizontale, ou comme **outil de contrôle interne** pour les KPI d'émissions logicielles et la conformité RGESN.
 >
-> Il n'est **pas encore vérifié par tiers-partie** pour un reporting CSRD / GHG Protocol Scope 2/3 standalone, qui exige un audit par un organisme qualifié et l'intégration des scopes non-IT. Les chiffres CO₂ portent un encadrement `~2×` en mode proxy par défaut (plus serré avec Scaphandre RAPL ou SPECpower cloud + calibration). Méthodologie, sources et bornes : [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) et [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
+> Il n'est **pas encore vérifié par tiers-partie** pour un reporting CSRD / GHG Protocol Scope 2/3 standalone, qui exige un audit par un organisme qualifié et l'intégration des scopes non-IT. Les chiffres CO₂ portent un encadrement `~2×` en mode proxy par défaut (plus serré avec Scaphandre RAPL ou SPECpower cloud + calibration). Méthodologie, sources et bornes : [docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone](docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone) et [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md).
 
 Couplages concrets : passer les comptes I/O et estimations énergie par région à **Watershed**, **Sweep**, **Greenly** ou **Persefoni** comme activity data, ou utiliser perf-sentinel directement pour démontrer la conformité **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) sur les critères d'optimisation logicielle, où détection de N+1, appels redondants, caching et réduction du fanout correspondent aux critères concernés.
 
-Pour les organisations qui souhaitent malgré tout publier une *disclosure périodique non-réglementaire* d'efficacité logicielle (JSON trimestriel/annuel, signature Sigstore optionnelle), le workflow optionnel `perf-sentinel disclose` est documenté dans [docs/REPORTING.md](docs/REPORTING.md). Il est volontairement écarté du chemin de démarrage principal.
+Pour les organisations qui souhaitent malgré tout publier une *disclosure périodique non-réglementaire* d'efficacité logicielle (JSON trimestriel/annuel, signature Sigstore optionnelle), le workflow optionnel `perf-sentinel disclose` est documenté dans [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md). Il est volontairement écarté du chemin de démarrage principal.
 
 ## Comment ça se compare ?
 
@@ -263,7 +263,7 @@ Une comparaison honnête nécessite de nommer ce que perf-sentinel **ne fait pas
 
 ## Acquittement de findings connus
 
-Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés. Ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) et [docs/ACK-WORKFLOW.md](docs/ACK-WORKFLOW.md).
+Déposer `.perf-sentinel-acknowledgments.toml` à la racine du repo pour supprimer les findings que l'équipe a acceptés. Ils sont filtrés de `analyze` / `report` / `inspect` / `diff` et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI `ack`, le dashboard HTML live et le TUI. Référence complète : [docs/FR/ACKNOWLEDGMENTS-FR.md](docs/FR/ACKNOWLEDGMENTS-FR.md) et [docs/FR/ACK-WORKFLOW-FR.md](docs/FR/ACK-WORKFLOW-FR.md).
 
 ## Captures
 
@@ -363,22 +363,22 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 | Sujet                                            | Document                                                                               |
 |--------------------------------------------------|----------------------------------------------------------------------------------------|
-| Référence des sous-commandes CLI                 | [docs/CLI.md](docs/CLI.md)                                                             |
-| Architecture et pipeline                         | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                           |
-| Topologies d'intégration (CI / prod / sidecar)   | [docs/INTEGRATION.md](docs/INTEGRATION.md)                                             |
-| Instrumentation OTel par langage                 | [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md)                                     |
-| Recettes CI et diff de régression PR             | [docs/CI.md](docs/CI.md)                                                               |
-| Référence complète de configuration              | [docs/CONFIGURATION.md](docs/CONFIGURATION.md)                                         |
-| Schéma JSON du rapport                           | [docs/SCHEMA.md](docs/SCHEMA.md)                                                       |
-| Sortie SARIF                                     | [docs/SARIF.md](docs/SARIF.md)                                                         |
-| Dashboard HTML                                   | [docs/HTML-REPORT.md](docs/HTML-REPORT.md)                                             |
-| TUI interactif                                   | [docs/INSPECT.md](docs/INSPECT.md)                                                     |
-| API HTTP de query du daemon                      | [docs/QUERY-API.md](docs/QUERY-API.md)                                                 |
-| Workflow d'acquittement                          | [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md)                                     |
-| Méthodologie et limites GreenOps                 | [docs/METHODOLOGY.md](docs/METHODOLOGY.md), [docs/LIMITATIONS.md](docs/LIMITATIONS.md) |
-| Disclosures périodiques d'efficacité (optionnel) | [docs/REPORTING.md](docs/REPORTING.md)                                                 |
-| Déploiement Helm                                 | [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md)                                     |
-| Runbook opérationnel                             | [docs/RUNBOOK.md](docs/RUNBOOK.md)                                                     |
+| Référence des sous-commandes CLI                 | [docs/FR/CLI-FR.md](docs/FR/CLI-FR.md)                                                             |
+| Architecture et pipeline                         | [docs/FR/ARCHITECTURE-FR.md](docs/FR/ARCHITECTURE-FR.md)                                           |
+| Topologies d'intégration (CI / prod / sidecar)   | [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md)                                             |
+| Instrumentation OTel par langage                 | [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md)                                     |
+| Recettes CI et diff de régression PR             | [docs/FR/CI-FR.md](docs/FR/CI-FR.md)                                                               |
+| Référence complète de configuration              | [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md)                                         |
+| Schéma JSON du rapport                           | [docs/FR/SCHEMA-FR.md](docs/FR/SCHEMA-FR.md)                                                       |
+| Sortie SARIF                                     | [docs/FR/SARIF-FR.md](docs/FR/SARIF-FR.md)                                                         |
+| Dashboard HTML                                   | [docs/FR/HTML-REPORT-FR.md](docs/FR/HTML-REPORT-FR.md)                                             |
+| TUI interactif                                   | [docs/FR/INSPECT-FR.md](docs/FR/INSPECT-FR.md)                                                     |
+| API HTTP de query du daemon                      | [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md)                                                 |
+| Workflow d'acquittement                          | [docs/FR/ACKNOWLEDGMENTS-FR.md](docs/FR/ACKNOWLEDGMENTS-FR.md)                                     |
+| Méthodologie et limites GreenOps                 | [docs/FR/METHODOLOGY-FR.md](docs/FR/METHODOLOGY-FR.md), [docs/FR/LIMITATIONS-FR.md](docs/FR/LIMITATIONS-FR.md) |
+| Disclosures périodiques d'efficacité (optionnel) | [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md)                                                 |
+| Déploiement Helm                                 | [docs/FR/HELM-DEPLOYMENT-FR.md](docs/FR/HELM-DEPLOYMENT-FR.md)                                     |
+| Runbook opérationnel                             | [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md)                                                     |
 | Provenance supply-chain (SLSA, Sigstore)         | [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md)                                           |
 | Notes de design (deep dive)                      | [docs/design/](docs/design/00-INDEX.md)                                                |
 
