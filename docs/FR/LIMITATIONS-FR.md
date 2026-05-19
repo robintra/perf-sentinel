@@ -408,6 +408,14 @@ Contrairement à la France, au Royaume-Uni et aux US-East, dont les profils hora
 
 La divergence est documentée inline dans `score/carbon.rs` pour que les futurs refreshs de données restent honnêtes sur le décalage. Un test de régression (`de_flat_annual_numerical_regression`) épingle la valeur annuelle plate pour qu'une édition accidentelle du profil DE ne puisse pas la corrompre silencieusement.
 
+### Ce que couvre une attribution purement logicielle
+
+perf-sentinel est un outil d'attribution purement logiciel. Cette classe regroupe les lecteurs RAPL (`intel-rapl` via Powercap) et les estimateurs basés sur un modèle qui dérivent l'énergie de l'utilisation CPU (Cloud SPECpower, coefficients SPECpower épinglés par SKU). Sur un serveur typique, ni l'un ni l'autre ne voit la puissance totale prise au wattmètre. RAPL rapporte les packages CPU et DRAM et manque le contrôleur de stockage, les SSD, les cartes réseau, les ventilateurs, le BMC, ainsi que les pertes de conversion de l'alimentation. Les estimateurs basés sur un modèle héritent du même périmètre par construction, puisque leurs coefficients sont calibrés sur la puissance CPU et DRAM.
+
+Les mesures publiées varient selon le matériel et la charge, mais l'ordre de grandeur est cohérent : sur les CPU serveurs Intel courants, RAPL capte environ la moitié à deux tiers de la puissance prise au wattmètre, le reste étant la périphérie. perf-sentinel appartient à la même classe et se situe dans la même plage. Pour l'énergie totale serveur sur un SKU connu, il faut le coupler à un wattmètre externe (PDU SNMP, smart plug) ou à une lecture matérielle. Pour l'énergie compute et DRAM attribuable par trace, le modèle est ce qu'il est, et la discussion de précision se trouve dans les sections [Limites de précision Scaphandre](#limites-de-précision-scaphandre) et [Limites de précision du cloud SPECpower](#limites-de-précision-du-cloud-specpower) ci-dessous.
+
+Quand vous lisez des benchmarks qui comparent ces outils à un wattmètre externe, gardez deux grandeurs séparées. Premièrement, la périphérie qu'aucun signal purement logiciel ne peut couvrir. Deuxièmement, à quel point un outil donné attribue correctement la fraction qu'il voit à un container, un processus ou un span. Seule la deuxième est une propriété de l'outil. La première est une propriété du signal.
+
 ### Limites de précision Scaphandre
 
 perf-sentinel embarque une intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par processus via les compteurs Intel RAPL. Quand `[green.scaphandre]` est configuré, le daemon `watch` scrape l'endpoint Prometheus Scaphandre toutes les quelques secondes et utilise les lectures de puissance mesurées pour remplacer la constante proxy `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.

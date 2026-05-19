@@ -344,6 +344,14 @@ Unlike France, UK and US-East, whose hourly profiles stay within ±5% of their c
 
 The divergence is documented inline in `score/carbon.rs` so future data refreshes stay honest about the mismatch. A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual value so accidental edits to the DE profile cannot silently corrupt it.
 
+### What software-only attribution covers
+
+perf-sentinel is a software-only attribution tool. The class includes RAPL readers (`intel-rapl` via Powercap) and model-based estimators that derive energy from CPU utilization (Cloud SPECpower, SPECpower coefficients pinned per SKU). On a typical server, neither kind sees the full wall-plug draw. RAPL reports CPU and DRAM packages and misses the storage controller, SSDs, NICs, fans, BMC, and the PSU conversion losses. Model-based estimators inherit the same scope by construction, since their coefficients are calibrated against CPU and DRAM power.
+
+Independent published measurements vary by hardware and load, but the order of magnitude is consistent: on common Intel server parts, RAPL captures roughly half to two thirds of the wall-plug power, with the periphery making up the rest. perf-sentinel is in the same class and the same range. For total server energy on a known SKU, pair it with an external power meter (PDU SNMP, smart plug) or a hardware-level reading. For trace-attributable compute and DRAM energy, the model is what the model is, and the precision discussion is in [Scaphandre precision bounds](#scaphandre-precision-bounds) and [Cloud SPECpower precision bounds](#cloud-specpower-precision-bounds) below.
+
+When reading benchmarks that compare these tools to an external meter, keep two quantities separate. First, the periphery that no software-only signal can cover. Second, how well a given tool attributes the fraction it does see to a container, a process, or a span. Only the second is a property of the tool. The first is a property of the signal.
+
 ### Scaphandre precision bounds
 
 perf-sentinel ships an opt-in integration with [Scaphandre](https://github.com/hubblo-org/scaphandre) for per-process energy measurement via Intel RAPL counters. When `[green.scaphandre]` is configured, the `watch` daemon scrapes the Scaphandre Prometheus endpoint every few seconds and uses the measured power readings to replace the fixed `ENERGY_PER_IO_OP_KWH` proxy constant for each mapped service.
