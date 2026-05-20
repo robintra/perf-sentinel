@@ -2234,6 +2234,221 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
+    // Kepler / Redfish measured-source precedence tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn kepler_snapshot_flips_model_to_kepler_ebpf() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::kepler(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "kepler_ebpf");
+        let expected = 6.0 * 5e-7 * 56.0 * 1.15;
+        assert!((co2.operational_gco2 - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn redfish_snapshot_flips_model_to_redfish_bmc() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::redfish(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "redfish_bmc");
+    }
+
+    #[test]
+    fn scaphandre_takes_precedence_over_kepler_in_model_tag() {
+        // Scaphandre on the trace's service, Kepler on a different
+        // service. Scaphandre wins for the top-level model tag.
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert(
+            "order-svc".to_string(),
+            carbon::EnergyEntry::scaphandre(5e-7),
+        );
+        snapshot.insert("other-svc".to_string(), carbon::EnergyEntry::kepler(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "scaphandre_rapl");
+    }
+
+    #[test]
+    fn kepler_takes_precedence_over_redfish_in_model_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::kepler(5e-7));
+        snapshot.insert("other-svc".to_string(), carbon::EnergyEntry::redfish(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "kepler_ebpf");
+    }
+
+    #[test]
+    fn kepler_takes_precedence_over_cloud_specpower_in_model_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::kepler(5e-7));
+        snapshot.insert("other-svc".to_string(), carbon::EnergyEntry::cloud(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "kepler_ebpf");
+    }
+
+    #[test]
+    fn redfish_takes_precedence_over_cloud_specpower_in_model_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::redfish(5e-7));
+        snapshot.insert("other-svc".to_string(), carbon::EnergyEntry::cloud(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "redfish_bmc");
+    }
+
+    #[test]
+    fn kepler_takes_precedence_over_hourly_in_model_tag() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 3, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::kepler(3e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: true,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "kepler_ebpf");
+    }
+
+    /// Build a `CalibrationData` with one service entry.
+    fn calibration_with_one_service(
+        service: &str,
+        factor: f64,
+    ) -> crate::calibrate::CalibrationData {
+        let mut services = HashMap::new();
+        services.insert(
+            service.to_string(),
+            crate::calibrate::ServiceCalibration {
+                factor,
+                measured_energy_per_op_kwh: ENERGY_PER_IO_OP_KWH * factor,
+            },
+        );
+        crate::calibrate::CalibrationData {
+            calibration: crate::calibrate::CalibrationSection {
+                base_energy_per_io_op_kwh: ENERGY_PER_IO_OP_KWH,
+                services,
+            },
+        }
+    }
+
+    #[test]
+    fn kepler_active_suppresses_cal_suffix_when_calibration_present() {
+        // The `+cal` suffix is gated on the proxy-only path. When any
+        // measured source is active (here Kepler), the suffix must not
+        // appear even if a calibration factor is configured for some
+        // unrelated service.
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::kepler(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            calibration: Some(calibration_with_one_service("some-other-svc", 1.5)),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "kepler_ebpf");
+        assert!(!co2.total.model.contains("+cal"));
+    }
+
+    #[test]
+    fn redfish_active_suppresses_cal_suffix_when_calibration_present() {
+        let trace = make_trace_at_hour("t1", "eu-west-3", 12, 6);
+        let mut snapshot = HashMap::new();
+        snapshot.insert("order-svc".to_string(), carbon::EnergyEntry::redfish(5e-7));
+        let ctx = CarbonContext {
+            default_region: None,
+            service_regions: HashMap::new(),
+            embodied_per_request_gco2: 0.0,
+            use_hourly_profiles: false,
+            energy_snapshot: Some(snapshot),
+            per_operation_coefficients: false,
+            calibration: Some(calibration_with_one_service("some-other-svc", 1.5)),
+            ..CarbonContext::default()
+        };
+        let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
+        let co2 = summary.co2.as_ref().unwrap();
+        assert_eq!(co2.total.model, "redfish_bmc");
+        assert!(!co2.total.model.contains("+cal"));
+    }
+
+    // ------------------------------------------------------------------
     // Per-service energy model tests
     // ------------------------------------------------------------------
 

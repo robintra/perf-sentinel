@@ -161,8 +161,9 @@ pub struct GreenSummary {
     #[serde(default)]
     pub energy_kwh: f64,
     /// Energy model used to compute `energy_kwh`. One of
-    /// `"scaphandre_rapl"`, `"cloud_specpower"`, `"io_proxy_v3"`,
-    /// `"io_proxy_v2"`, `"io_proxy_v1"`, with optional `+cal` suffix
+    /// `"scaphandre_rapl"`, `"kepler_ebpf"`, `"redfish_bmc"`,
+    /// `"cloud_specpower"`, `"io_proxy_v3"`, `"io_proxy_v2"`,
+    /// `"io_proxy_v1"`, with optional `+cal` suffix
     /// when per-service calibration factors are active. Reflects the
     /// highest-fidelity model observed in the window (not weighted by
     /// energy consumption). Empty string on pre-carbon-attribution
@@ -194,10 +195,12 @@ pub struct GreenSummary {
     pub per_service_region: BTreeMap<String, String>,
     /// Per-service energy model tag. Same value set as `energy_model`
     /// (window-level), per-service this time so auditors can verify which
-    /// services benefited from Scaphandre or cloud `SPECpower` during this
-    /// window. Presence of `"scaphandre_rapl"` or `"cloud_specpower"`
-    /// indicates that at least one span of the service hit a measured
-    /// energy source, not that 100% of the service's spans were measured.
+    /// services benefited from Scaphandre, Kepler, Redfish, or cloud
+    /// `SPECpower` during this window. Presence of any measured tag
+    /// (`"scaphandre_rapl"`, `"kepler_ebpf"`, `"redfish_bmc"`,
+    /// `"cloud_specpower"`) indicates that at least one span of the
+    /// service hit a measured energy source, not that 100% of the
+    /// service's spans were measured.
     /// Read together with `per_service_measured_ratio` for the share of
     /// spans that benefited from the measured model. Services without any
     /// measured span inherit the window-level proxy tag; the `+cal` suffix

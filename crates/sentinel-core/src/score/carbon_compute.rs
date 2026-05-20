@@ -65,8 +65,14 @@ pub(super) struct ServiceCarbonAccumulator {
 }
 
 /// Precedence between two measured energy sources observed on different
-/// spans of the same service. Scaphandre RAPL outranks cloud `SPECpower`.
+/// spans of the same service. Scaphandre RAPL outranks Kepler eBPF,
+/// which outranks Redfish BMC, which outranks cloud `SPECpower`.
 /// `None` is the absorbing identity (any `Some` wins).
+///
+/// Note: real-time Electricity Maps intensity is intentionally absent
+/// from this ranking. It lives on the orthogonal intensity axis (`I` in
+/// `E × I`) and is selected at the aggregate report level by
+/// [`super::region_breakdown::select_co2_model_tag`], not per-span.
 #[inline]
 fn higher_fidelity_measured(
     current: Option<&'static str>,
@@ -75,7 +81,9 @@ fn higher_fidelity_measured(
     #[inline]
     fn rank(tag: &str) -> u8 {
         match tag {
-            super::carbon::CO2_MODEL_SCAPHANDRE => 2,
+            super::carbon::CO2_MODEL_SCAPHANDRE => 4,
+            super::carbon::CO2_MODEL_KEPLER => 3,
+            super::carbon::CO2_MODEL_REDFISH => 2,
             super::carbon::CO2_MODEL_CLOUD_SPECPOWER => 1,
             _ => 0,
         }
@@ -524,6 +532,8 @@ fn accumulate_span_into_region(
     }
     match measured_model {
         Some(super::carbon::CO2_MODEL_SCAPHANDRE) => acc.any_scaphandre = true,
+        Some(super::carbon::CO2_MODEL_KEPLER) => acc.any_kepler_ebpf = true,
+        Some(super::carbon::CO2_MODEL_REDFISH) => acc.any_redfish_bmc = true,
         Some(super::carbon::CO2_MODEL_CLOUD_SPECPOWER) => acc.any_cloud_specpower = true,
         _ => {
             if calibrated {

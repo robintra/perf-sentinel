@@ -5,15 +5,21 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use super::carbon::{
-    self, CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_EMAPS, CO2_MODEL_SCAPHANDRE,
-    CO2_MODEL_V2, CO2_MODEL_V3, CarbonEstimate, CarbonReport, GENERIC_PUE, IntensitySource,
-    REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE, REGION_STATUS_UNRESOLVED, RegionBreakdown,
-    UNKNOWN_REGION, lookup_region_lower,
+    self, CO2_MODEL, CO2_MODEL_CLOUD_SPECPOWER, CO2_MODEL_EMAPS, CO2_MODEL_KEPLER,
+    CO2_MODEL_REDFISH, CO2_MODEL_SCAPHANDRE, CO2_MODEL_V2, CO2_MODEL_V3, CarbonEstimate,
+    CarbonReport, GENERIC_PUE, IntensitySource, REGION_STATUS_KNOWN, REGION_STATUS_OUT_OF_TABLE,
+    REGION_STATUS_UNRESOLVED, RegionBreakdown, UNKNOWN_REGION, lookup_region_lower,
 };
 
 /// Per-region CO₂ accumulator. `intensity_sum_per_op / total_ops`
 /// gives the ops-weighted mean intensity for the breakdown row.
+///
+/// The four measured-source bools plus the calibration flag are
+/// independent observations (a single region can mix every source), so a
+/// state machine or enum would not model the domain faithfully. Kept as
+/// a flat flag bag with a targeted `struct_excessive_bools` allow.
 #[derive(Default)]
+#[allow(clippy::struct_excessive_bools)]
 pub(super) struct RegionAccumulator {
     pub(super) co2_gco2: f64,
     pub(super) total_ops: usize,
@@ -22,6 +28,8 @@ pub(super) struct RegionAccumulator {
     /// Highest-fidelity intensity source seen for this region.
     pub(super) max_intensity_source: IntensitySource,
     pub(super) any_scaphandre: bool,
+    pub(super) any_kepler_ebpf: bool,
+    pub(super) any_redfish_bmc: bool,
     pub(super) any_cloud_specpower: bool,
     /// Whether any span in this region used a calibrated proxy energy.
     pub(super) any_calibrated: bool,
@@ -38,7 +46,7 @@ pub(super) struct RegionAccumulator {
 /// the report see?" flags, collected in [`build_region_breakdowns`]
 /// and consumed by [`select_co2_model_tag`].
 ///
-/// The six booleans are independent observations that can freely
+/// The eight booleans are independent observations that can freely
 /// combine (e.g. a single run can see both hourly and cloud `SPECpower`
 /// at the same time), so a state machine or enum would not model the
 /// domain faithfully. Kept as a flat flag bag with a targeted
@@ -49,6 +57,8 @@ pub(super) struct ReportFlags {
     any_hourly: bool,
     any_monthly_hourly: bool,
     any_scaphandre: bool,
+    any_kepler_ebpf: bool,
+    any_redfish_bmc: bool,
     any_cloud_specpower: bool,
     any_calibrated: bool,
     any_realtime: bool,
@@ -110,6 +120,8 @@ fn update_flags_from_accumulator(flags: &mut ReportFlags, acc: &RegionAccumulato
         IntensitySource::Annual => {}
     }
     flags.any_scaphandre |= acc.any_scaphandre;
+    flags.any_kepler_ebpf |= acc.any_kepler_ebpf;
+    flags.any_redfish_bmc |= acc.any_redfish_bmc;
     flags.any_cloud_specpower |= acc.any_cloud_specpower;
     flags.any_calibrated |= acc.any_calibrated;
 }
@@ -226,30 +238,52 @@ fn maybe_warn_eu_central_1_profile(region: &str, intensity_source: IntensitySour
 }
 
 /// Pick the top-level `co2.model` tag given the aggregate flags.
-/// Precedence: real-time > Scaphandre > cloud `SPECpower` > monthly/hourly
-/// proxy > annual proxy. When a calibration factor applied to the proxy
-/// path, the `+cal` variant is returned.
+///
+/// Precedence (most to least precise): real-time, Scaphandre, Kepler,
+/// Redfish, cloud `SPECpower`, monthly/hourly proxy, annual proxy. The
+/// `+cal` suffix only applies to the proxy branches, the measured
+/// branches all short-circuit earlier so the calibration flag is
+/// implicitly suppressed when any measured source is active.
 pub(super) fn select_co2_model_tag(flags: ReportFlags) -> &'static str {
-    let cal = flags.any_calibrated && !flags.any_scaphandre && !flags.any_cloud_specpower;
     if flags.any_realtime {
         CO2_MODEL_EMAPS
     } else if flags.any_scaphandre {
         CO2_MODEL_SCAPHANDRE
+    } else if flags.any_kepler_ebpf {
+        CO2_MODEL_KEPLER
+    } else if flags.any_redfish_bmc {
+        CO2_MODEL_REDFISH
     } else if flags.any_cloud_specpower {
         CO2_MODEL_CLOUD_SPECPOWER
-    } else if flags.any_monthly_hourly {
-        if cal {
+    } else {
+        select_proxy_co2_model_tag(
+            flags.any_monthly_hourly,
+            flags.any_hourly,
+            flags.any_calibrated,
+        )
+    }
+}
+
+/// Resolve the proxy-tier `co2.model` tag once every measured branch
+/// has been ruled out by the caller.
+fn select_proxy_co2_model_tag(
+    monthly_hourly: bool,
+    hourly: bool,
+    calibrated: bool,
+) -> &'static str {
+    if monthly_hourly {
+        if calibrated {
             carbon::CO2_MODEL_V3_CAL
         } else {
             CO2_MODEL_V3
         }
-    } else if flags.any_hourly {
-        if cal {
+    } else if hourly {
+        if calibrated {
             carbon::CO2_MODEL_V2_CAL
         } else {
             CO2_MODEL_V2
         }
-    } else if cal {
+    } else if calibrated {
         carbon::CO2_MODEL_V1_CAL
     } else {
         CO2_MODEL

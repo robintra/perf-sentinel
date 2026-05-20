@@ -197,7 +197,8 @@ pub struct CalibrationInputs {
     pub scaphandre_used: bool,
     /// Energy source models observed in the archived windows for the
     /// period. Sourced from each window's `GreenSummary.energy_model`
-    /// (e.g. `"scaphandre_rapl"`, `"cloud_specpower"`, `"io_proxy_v3"`)
+    /// (e.g. `"scaphandre_rapl"`, `"kepler_ebpf"`, `"redfish_bmc"`,
+    /// `"cloud_specpower"`, `"io_proxy_v3"`)
     /// with the optional `+cal` suffix stripped. Empty when every
     /// archived window predates per-service carbon attribution.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
