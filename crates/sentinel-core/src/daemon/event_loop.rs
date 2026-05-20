@@ -20,6 +20,7 @@ use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::kepler::KeplerState;
+use crate::score::redfish::RedfishState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::findings_store;
@@ -46,6 +47,7 @@ pub(super) struct ShutdownTargets<'a> {
 pub(super) struct EnergyScraperHandles<'a> {
     pub(super) scaphandre: Option<&'a tokio::task::JoinHandle<()>>,
     pub(super) kepler: Option<&'a tokio::task::JoinHandle<()>>,
+    pub(super) redfish: Option<&'a tokio::task::JoinHandle<()>>,
     pub(super) cloud: Option<&'a tokio::task::JoinHandle<()>>,
     pub(super) emaps: Option<&'a tokio::task::JoinHandle<()>>,
 }
@@ -66,6 +68,8 @@ pub(super) struct EnergySources<'a> {
     pub(super) scaphandre_staleness_ms: u64,
     pub(super) kepler_state: Option<&'a KeplerState>,
     pub(super) kepler_staleness_ms: u64,
+    pub(super) redfish_state: Option<&'a RedfishState>,
+    pub(super) redfish_staleness_ms: u64,
     pub(super) cloud_state: Option<&'a CloudEnergyState>,
     pub(super) cloud_staleness_ms: u64,
     pub(super) emaps_state: Option<&'a ElectricityMapsState>,
@@ -249,6 +253,8 @@ async fn flush_evicted(
         sources.scaphandre_staleness_ms,
         sources.kepler_state,
         sources.kepler_staleness_ms,
+        sources.redfish_state,
+        sources.redfish_staleness_ms,
         sources.cloud_state,
         sources.cloud_staleness_ms,
         sources.emaps_state,
@@ -281,6 +287,9 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
     if let Some(handle) = energy.cloud {
         handle.abort();
     }
+    if let Some(handle) = energy.redfish {
+        handle.abort();
+    }
     if let Some(handle) = energy.kepler {
         handle.abort();
     }
@@ -306,9 +315,10 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 /// has a reading to inject. `process_traces` takes `&CarbonContext`
 /// so the Cow is cheap to use at the call site via `&*ctx`.
 ///
-/// Precedence (highest to lowest): Scaphandre RAPL, Kepler eBPF, cloud
-/// `SPECpower`. Inserted in reverse order so the highest-fidelity entry
-/// wins for any service that appears in multiple snapshots.
+/// Precedence (highest to lowest): Scaphandre RAPL, Kepler eBPF,
+/// Redfish BMC, cloud `SPECpower`. Inserted in reverse order so the
+/// highest-fidelity entry wins for any service that appears in
+/// multiple snapshots.
 #[allow(clippy::too_many_arguments)]
 fn build_tick_ctx<'a>(
     base: &'a score::carbon::CarbonContext,
@@ -316,6 +326,8 @@ fn build_tick_ctx<'a>(
     scaphandre_staleness_ms: u64,
     kepler_state: Option<&KeplerState>,
     kepler_staleness_ms: u64,
+    redfish_state: Option<&RedfishState>,
+    redfish_staleness_ms: u64,
     cloud_state: Option<&CloudEnergyState>,
     cloud_staleness_ms: u64,
     emaps_state: Option<&ElectricityMapsState>,
@@ -327,11 +339,15 @@ fn build_tick_ctx<'a>(
     let cloud_snap = cloud_state
         .map(|s| s.snapshot(now, cloud_staleness_ms))
         .unwrap_or_default();
-    // Kepler entries override cloud for the same service.
+    // Redfish entries override cloud for the same service.
+    let redfish_snap = redfish_state
+        .map(|s| s.snapshot(now, redfish_staleness_ms))
+        .unwrap_or_default();
+    // Kepler entries override Redfish and cloud for the same service.
     let kepler_snap = kepler_state
         .map(|s| s.snapshot(now, kepler_staleness_ms))
         .unwrap_or_default();
-    // Scaphandre entries override Kepler and cloud for the same service.
+    // Scaphandre entries override every lower-tier source.
     let scaph_snap = scaphandre_state
         .map(|s| s.snapshot(now, scaphandre_staleness_ms))
         .unwrap_or_default();
@@ -342,6 +358,7 @@ fn build_tick_ctx<'a>(
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
     if cloud_snap.is_empty()
+        && redfish_snap.is_empty()
         && kepler_snap.is_empty()
         && scaph_snap.is_empty()
         && emaps_snap.is_empty()
@@ -352,10 +369,13 @@ fn build_tick_ctx<'a>(
     // Slow path: materialize a merged snapshot and clone base.
     let mut merged: std::collections::HashMap<String, score::carbon::EnergyEntry> =
         std::collections::HashMap::with_capacity(
-            cloud_snap.len() + kepler_snap.len() + scaph_snap.len(),
+            cloud_snap.len() + redfish_snap.len() + kepler_snap.len() + scaph_snap.len(),
         );
     for (service, energy_kwh) in cloud_snap {
         merged.insert(service, score::carbon::EnergyEntry::cloud(energy_kwh));
+    }
+    for (service, energy_kwh) in redfish_snap {
+        merged.insert(service, score::carbon::EnergyEntry::redfish(energy_kwh));
     }
     for (service, energy_kwh) in kepler_snap {
         merged.insert(service, score::carbon::EnergyEntry::kepler(energy_kwh));
@@ -841,7 +861,7 @@ mod tests {
     fn build_tick_ctx_no_scrapers_yields_borrowed_cow() {
         // Fast path: no scrapers → Cow::Borrowed, no clone.
         let base = score::carbon::CarbonContext::default();
-        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, None, 0);
+        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, None, 0, None, 0);
         assert!(matches!(ctx, std::borrow::Cow::Borrowed(_)));
         assert!(ctx.energy_snapshot.is_none());
     }
@@ -851,7 +871,7 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
-        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0, None, 0, None, 0);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0, None, 0, None, 0, None, 0);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
@@ -862,7 +882,7 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-b".into(), 2e-7, 100);
-        let ctx = build_tick_ctx(&base, None, 0, None, 0, Some(&cloud), 500, None, 0);
+        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, Some(&cloud), 500, None, 0);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
@@ -873,10 +893,45 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let kepler = KeplerState::new();
         kepler.insert_for_test("svc-k".into(), 4e-7, 100);
-        let ctx = build_tick_ctx(&base, None, 0, Some(&kepler), 500, None, 0, None, 0);
+        let ctx = build_tick_ctx(
+            &base,
+            None,
+            0,
+            Some(&kepler),
+            500,
+            None,
+            0,
+            None,
+            0,
+            None,
+            0,
+        );
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-k"].model_tag, "kepler_ebpf");
+    }
+
+    #[test]
+    fn build_tick_ctx_redfish_only() {
+        let base = score::carbon::CarbonContext::default();
+        let redfish = RedfishState::new();
+        redfish.insert_for_test("svc-r".into(), 6e-7, 100);
+        let ctx = build_tick_ctx(
+            &base,
+            None,
+            0,
+            None,
+            0,
+            Some(&redfish),
+            500,
+            None,
+            0,
+            None,
+            0,
+        );
+        let snap = ctx.energy_snapshot.as_ref().unwrap();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap["svc-r"].model_tag, "redfish_bmc");
     }
 
     #[test]
@@ -896,6 +951,8 @@ mod tests {
             500,
             Some(&kepler),
             500,
+            None,
+            0,
             Some(&cloud),
             500,
             None,

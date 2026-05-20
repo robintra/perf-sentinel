@@ -24,6 +24,7 @@ use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
 use crate::score::kepler::KeplerState;
+use crate::score::redfish::RedfishState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::DaemonError;
@@ -528,6 +529,29 @@ pub(super) fn setup_kepler_scraper(
     let staleness_ms = kepler_cfg.scrape_interval.as_millis() as u64 * 3;
     let state = KeplerState::new();
     let handle = score::kepler::spawn_scraper(kepler_cfg, state.clone(), metrics.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
+
+/// Spawn the Redfish scraper when `[green.redfish]` is configured.
+/// Same `3x scrape_interval` staleness convention.
+pub(super) fn setup_redfish_scraper(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> ScraperSetup<RedfishState> {
+    let Some(redfish_cfg) = config.green.redfish.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
+        };
+    };
+    let staleness_ms = redfish_cfg.scrape_interval.as_millis() as u64 * 3;
+    let state = RedfishState::new();
+    let handle = score::redfish::spawn_scraper(redfish_cfg, state.clone(), metrics.clone());
     ScraperSetup {
         state: Some(state),
         handle: Some(handle),
