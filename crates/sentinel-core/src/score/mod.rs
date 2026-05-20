@@ -17,6 +17,7 @@ pub(crate) mod energy_state;
 pub mod kepler;
 #[cfg(feature = "daemon")]
 pub(crate) mod ops_snapshot_diff;
+pub mod redfish;
 pub mod scaphandre;
 
 mod carbon_compute;

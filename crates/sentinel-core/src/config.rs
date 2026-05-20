@@ -14,6 +14,7 @@ use crate::detect::Confidence;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
+use crate::score::redfish::RedfishConfig;
 use crate::score::scaphandre::ScaphandreConfig;
 
 /// Top-level configuration for perf-sentinel.
@@ -166,6 +167,8 @@ pub struct GreenConfig {
     pub scaphandre: Option<ScaphandreConfig>,
     /// Kepler eBPF energy scraper config (daemon only).
     pub kepler: Option<KeplerConfig>,
+    /// Redfish BMC wall-plug-power scraper config (daemon only).
+    pub redfish: Option<RedfishConfig>,
     /// Cloud CPU% + `SPECpower` config (daemon only).
     pub cloud_energy: Option<CloudEnergyConfig>,
     /// Whether to use per-operation energy coefficients (SQL verb weighting,
@@ -353,6 +356,7 @@ impl Default for GreenConfig {
             use_hourly_profiles: true,
             scaphandre: None,
             kepler: None,
+            redfish: None,
             cloud_energy: None,
             per_operation_coefficients: true,
             include_network_transport: false,
@@ -521,6 +525,8 @@ struct GreenSection {
     scaphandre: ScaphandreSection,
     /// Kepler scraper section. Absent when Kepler is not configured.
     kepler: KeplerSection,
+    /// Redfish scraper section. Absent when Redfish is not configured.
+    redfish: RedfishSection,
     /// Cloud energy section. Absent when cloud energy is not configured.
     cloud: CloudSection,
     per_operation_coefficients: Option<bool>,
@@ -560,6 +566,21 @@ struct KeplerSection {
     scrape_interval_secs: Option<u64>,
     metric_kind: Option<String>,
     service_mappings: HashMap<String, String>,
+    auth_header: Option<String>,
+}
+
+/// Raw deserialization target for `[green.redfish]`.
+///
+/// Converted to a `RedfishConfig` during `RawConfig → Config` only
+/// when at least one `endpoints` entry is set.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RedfishSection {
+    endpoints: HashMap<String, String>,
+    scrape_interval_secs: Option<u64>,
+    service_mappings: HashMap<String, String>,
+    power_path: Option<String>,
+    ca_bundle_path: Option<String>,
     auth_header: Option<String>,
 }
 
@@ -927,6 +948,7 @@ impl From<RawConfig> for Config {
                     .unwrap_or(green_defaults.use_hourly_profiles),
                 scaphandre: convert_scaphandre_section(&raw.green.scaphandre),
                 kepler: convert_kepler_section(&raw.green.kepler),
+                redfish: convert_redfish_section(&raw.green.redfish),
                 cloud_energy: convert_cloud_section(&raw.green.cloud),
                 per_operation_coefficients: raw
                     .green
@@ -1276,6 +1298,43 @@ fn convert_kepler_section_with_env(
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
         metric_kind,
         service_mappings: raw.service_mappings.clone(),
+        auth_header,
+    })
+}
+
+/// Convert the raw `[green.redfish]` TOML section into a typed config.
+/// Returns `None` when `endpoints` is empty.
+fn convert_redfish_section(raw: &RedfishSection) -> Option<RedfishConfig> {
+    convert_redfish_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_REDFISH_AUTH_HEADER").ok()
+    })
+}
+
+fn convert_redfish_section_with_env(
+    raw: &RedfishSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<RedfishConfig> {
+    if raw.endpoints.is_empty() {
+        return None;
+    }
+    let from_env = env_lookup();
+    let auth_header = from_env.clone().or_else(|| raw.auth_header.clone());
+    if from_env.is_none() && raw.auth_header.is_some() {
+        tracing::warn!(
+            "[green.redfish] auth_header is set in the config file. \
+             Prefer the PERF_SENTINEL_REDFISH_AUTH_HEADER environment variable \
+             to avoid committing secrets to version control."
+        );
+    }
+    Some(RedfishConfig {
+        endpoints: raw.endpoints.clone(),
+        scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(60)),
+        service_mappings: raw.service_mappings.clone(),
+        power_path: raw
+            .power_path
+            .clone()
+            .unwrap_or_else(|| crate::score::redfish::config::DEFAULT_POWER_PATH.to_string()),
+        ca_bundle_path: raw.ca_bundle_path.clone(),
         auth_header,
     })
 }
@@ -1794,6 +1853,9 @@ impl Config {
         if let Some(cfg) = &self.green.kepler {
             Self::validate_kepler(cfg)?;
         }
+        if let Some(cfg) = &self.green.redfish {
+            Self::validate_redfish(cfg)?;
+        }
         if let Some(cfg) = &self.green.cloud_energy {
             Self::validate_cloud_energy(cfg)?;
         }
@@ -2062,6 +2124,108 @@ impl Config {
                 return Err(format!(
                     "[green.kepler] service_mappings label for service '{service}' \
                      contains control characters"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Validate a parsed `[green.redfish]` config section.
+    ///
+    /// Enforces the BMC-specific scrape-interval lower bound
+    /// (`MIN_SCRAPE_INTERVAL_SECS`), checks every endpoint URL, walks
+    /// the service mapping for control chars + length bounds, ensures
+    /// every mapped chassis exists in `endpoints`, and confirms that
+    /// the `ca_bundle_path` file is readable when set.
+    fn validate_redfish(cfg: &RedfishConfig) -> Result<(), String> {
+        use crate::score::redfish::config::{MAX_SCRAPE_INTERVAL_SECS, MIN_SCRAPE_INTERVAL_SECS};
+        if cfg.endpoints.is_empty() {
+            return Err(
+                "[green.redfish] endpoints must contain at least one chassis when the section is present"
+                    .to_string(),
+            );
+        }
+        Self::validate_redfish_endpoints(&cfg.endpoints)?;
+        let secs = cfg.scrape_interval.as_secs();
+        if !(MIN_SCRAPE_INTERVAL_SECS..=MAX_SCRAPE_INTERVAL_SECS).contains(&secs) {
+            return Err(format!(
+                "[green.redfish] scrape_interval_secs must be in [{MIN_SCRAPE_INTERVAL_SECS}, {MAX_SCRAPE_INTERVAL_SECS}], got {secs}. \
+                 The lower bound defends against BMC rate-limit retaliation."
+            ));
+        }
+        Self::validate_redfish_service_mappings(&cfg.service_mappings, &cfg.endpoints)?;
+        if cfg.power_path.is_empty() || !cfg.power_path.starts_with('/') {
+            return Err(format!(
+                "[green.redfish] power_path '{}' must be a non-empty JSON pointer starting with '/'",
+                cfg.power_path
+            ));
+        }
+        if let Some(bundle) = cfg.ca_bundle_path.as_deref()
+            && bundle.is_empty()
+        {
+            return Err("[green.redfish] ca_bundle_path must be non-empty when set".to_string());
+        }
+        // No filesystem probe on `ca_bundle_path`: the scraper task
+        // refuses to start the moment the field is set (see
+        // `score/redfish/scraper.rs`), so a metadata() check here would
+        // only add a path-probe attack surface for no operator benefit
+        // until custom-CA TLS lands.
+        #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.redfish] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Validate each `chassis_id -> endpoint` pair in `[green.redfish.endpoints]`.
+    fn validate_redfish_endpoints(
+        endpoints: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        for (chassis_id, endpoint) in endpoints {
+            if chassis_id.is_empty() || chassis_id.len() > 256 {
+                return Err(format!(
+                    "[green.redfish] endpoints chassis id '{chassis_id}' must be 1-256 chars"
+                ));
+            }
+            if has_control_char(chassis_id) {
+                return Err(format!(
+                    "[green.redfish] endpoints chassis id '{chassis_id}' contains control characters"
+                ));
+            }
+            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+                return Err(format!(
+                    "[green.redfish] endpoint for chassis '{chassis_id}' must start with 'http://' or 'https://', got '{endpoint}'"
+                ));
+            }
+            validate_http_authority(
+                endpoint,
+                &format!("[green.redfish] endpoint for chassis '{chassis_id}'"),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Validate each `service -> chassis_id` pair in `[green.redfish.service_mappings]`.
+    /// Every mapped chassis must already be declared in `endpoints`.
+    fn validate_redfish_service_mappings(
+        service_mappings: &std::collections::HashMap<String, String>,
+        endpoints: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        for (service, chassis_id) in service_mappings {
+            if service.is_empty() || service.len() > 256 {
+                return Err(format!(
+                    "[green.redfish] service_mappings service name '{service}' must be 1-256 chars"
+                ));
+            }
+            if has_control_char(service) {
+                return Err(format!(
+                    "[green.redfish] service_mappings service name '{service}' contains control characters"
+                ));
+            }
+            if !endpoints.contains_key(chassis_id) {
+                return Err(format!(
+                    "[green.redfish] service '{service}' maps to chassis '{chassis_id}' which is not declared in [green.redfish.endpoints]"
                 ));
             }
         }
