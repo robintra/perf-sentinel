@@ -107,6 +107,40 @@ include_network_transport = false
 # scrape_interval_secs = 5
 # process_map = { "account-svc" = "java", "game-svc" = "game", "chat-svc" = "dotnet" }
 
+# --- Kepler eBPF energy scraper (opt-in, no default egress) ----------------
+# Works on ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) where
+# Scaphandre is unavailable. Reads Kepler's cumulative joule counter and
+# computes per-container deltas vs the previous scrape window. Model tag:
+# `kepler_ebpf` (sits between `scaphandre_rapl` and `cloud_specpower` in
+# the precedence chain).
+#
+# Prerequisites: Kepler installed and exposing /metrics. In Kubernetes,
+# point at an upstream Prometheus that scrapes the Kepler DaemonSet rather
+# than a single pod.
+#
+# [green.kepler]
+# endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+# scrape_interval_secs = 5
+# metric_kind = "container"  # or "process_package" / "process_dram"
+# service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }
+
+# --- Redfish BMC wall-plug power scraper (opt-in, no default egress) -------
+# Bare-metal nodes with a BMC supporting Redfish 1.0+ (Dell iDRAC, HPE iLO,
+# Lenovo XCC, Supermicro X11+, OpenBMC). Reads PowerConsumedWatts from the
+# chassis Power resource and distributes the joules across mapped services
+# proportional to their ops. Every service mapped to the same chassis
+# receives the same node-level coefficient. Model tag: `redfish_bmc`.
+#
+# This release does NOT yet support self-signed BMC certificates. Front the
+# BMC with a reverse proxy presenting a publicly-signed cert if needed.
+#
+# [green.redfish]
+# scrape_interval_secs = 60
+# [green.redfish.endpoints]
+# "chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+# [green.redfish.service_mappings]
+# "account-svc" = "chassis-1"
+
 # --- Cloud CPU% + SPECpower (opt-in, no default egress) --------------------
 # Alternative to Scaphandre for AWS/GCP/Azure VMs that don't expose RAPL.
 # Scrapes CPU utilization from your existing Prometheus (cloudwatch_exporter,

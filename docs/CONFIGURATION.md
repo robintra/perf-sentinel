@@ -138,7 +138,7 @@ I/O ops with no resolvable region land in a synthetic `"unknown"` bucket (zero o
 
 When green scoring is enabled and at least one event is analyzed, the JSON report's `green_summary` includes:
 
-- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces or `"sci_v1_numerator+transport"` when network transport energy is included) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`).
+- **`co2`**: structured `{ total, avoidable, operational_gco2, embodied_gco2 }` object. Both `total` and `avoidable` are `{ low, mid, high, model, methodology }` with **2× multiplicative uncertainty** (`low = mid/2`, `high = mid×2`). The `methodology` tag distinguishes `total` (`"sci_v1_numerator"`: `(E × I) + M` summed over traces or `"sci_v1_numerator+transport"` when network transport energy is included) from `avoidable` (`"sci_v1_operational_ratio"`: region-blind global ratio, excludes embodied). `model` values, most precise wins: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended (e.g. `"io_proxy_v2+cal"`). The `+cal` suffix never applies to a measured tag.
 - **`regions[]`**: per-region breakdown with `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **sorted by `co2_gco2` descending** (highest-impact regions first) with alphabetical tiebreak. `intensity_source` is `"annual"`, `"hourly"`, `"monthly_hourly"` or `"real_time"` (Electricity Maps API) depending on which carbon intensity source was used for the region.
 
 Carbon intensity data is embedded in the binary (no network egress). See `docs/design/05-GREENOPS-AND-CARBON.md` for the complete formula and methodology and `docs/LIMITATIONS.md#carbon-estimates-accuracy` for the directional / non-regulatory disclaimer.
@@ -205,6 +205,66 @@ scrape_interval_secs = 5
 **Fallback behaviour.** When the endpoint is unreachable, a service is not present in `process_map` or a service had zero ops in the current scrape window, the scoring stage falls back to the proxy model for those spans. The first failure logs at `warn` level; subsequent failures log at `debug` to avoid spam. The `perf_sentinel_scaphandre_last_scrape_age_seconds` Prometheus gauge lets operators detect a hung scraper.
 
 **Precision bounds (important).** Scaphandre improves the **per-service** energy coefficient but does NOT give per-finding attribution. RAPL is process-level, not span-level: two findings in the same process during the same scrape window share the same coefficient. See `docs/LIMITATIONS.md#scaphandre-precision-bounds` for the full discussion.
+
+#### `[green.kepler]` (optional, opt-in)
+
+Opt-in integration with [Kepler](https://github.com/sustainable-computing-io/kepler) (CNCF sandbox) for per-container or per-process energy measurement via eBPF. Unlike Scaphandre, Kepler works on ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) with degraded precision but a real signal. When configured, the `watch` daemon scrapes Kepler's Prometheus `/metrics` endpoint, computes a per-service joules delta vs the previous scrape, and publishes a measured per-op coefficient tagged `kepler_ebpf`.
+
+| Field                  | Type   | Default       | Description                                                                                                                                                                                                                                         |
+|------------------------|--------|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoint`             | string | *(none)*      | Full URL of the Kepler Prometheus `/metrics` endpoint. Required when the section is present                                                                                                                                                         |
+| `scrape_interval_secs` | int    | `5`           | How often to scrape, in seconds. Valid range: 1-3600                                                                                                                                                                                                |
+| `metric_kind`          | string | `"container"` | Which Kepler counter to read: `"container"` (`kepler_container_joules_total`, keyed by `container_name`), `"process_package"` (`kepler_process_package_joules_total`, keyed by `command`), or `"process_dram"` (`kepler_process_dram_joules_total`) |
+| `service_mappings`     | table  | `{}`          | Maps perf-sentinel service names to the Kepler label value identifying the same workload (container name, command, or pid string depending on `metric_kind`)                                                                                        |
+| `auth_header`          | string | *(none)*      | Optional `"Name: Value"` header. Prefer `PERF_SENTINEL_KEPLER_AUTH_HEADER` env var                                                                                                                                                                  |
+
+```toml
+[green.kepler]
+endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+scrape_interval_secs = 5
+metric_kind = "container"
+
+[green.kepler.service_mappings]
+"order-svc" = "order-svc-deployment"
+"chat-svc" = "chat"
+```
+
+**Ignored in `analyze` batch mode.** Like Scaphandre, only `watch` spawns the scraper.
+
+**Precedence vs Scaphandre.** Scaphandre RAPL outranks Kepler eBPF on x86_64 with RAPL access. The Kepler integration shines on ARM64 where Scaphandre is unavailable. See `docs/LIMITATIONS.md#kepler-precision-bounds` for the ARM eBPF accuracy caveats (Kepler upstream issue #1556).
+
+**Production deployment shape.** Kepler typically runs as a Kubernetes `DaemonSet`, one pod per node. In a multi-node cluster the `endpoint` should point at an upstream Prometheus that scrapes the whole DaemonSet rather than a single pod, otherwise only one node's energy will be visible. Prometheus-mediated mode (PromQL queries) is reserved for a follow-up release.
+
+#### `[green.redfish]` (optional, opt-in)
+
+Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BMC standard for bare-metal wall-plug power readings. Unlike Scaphandre and Kepler (which measure CPU + DRAM only), Redfish reads the actual power supply output via the BMC, so periphery (NIC, drives, fans, PSU overhead) is included. Bare-metal only, no cloud VMs.
+
+| Field                       | Type    | Default                                  | Description                                                                                                                                                                       |
+|-----------------------------|---------|------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoints`                 | table   | *(empty)*                                | Map of `chassis_id → /Power URL`. Required to activate the scraper                                                                                                                |
+| `scrape_interval_secs`      | int     | `60`                                     | How often to scrape each chassis. Valid range: 15-3600 (BMC rate-limit defense, several BMCs throttle below 30s)                                                                  |
+| `service_mappings`          | table   | `{}`                                     | Maps perf-sentinel service names to the chassis hosting them. Every service mapped to the same chassis receives the same chassis-level coefficient                                |
+| `power_path`                | string  | `"/PowerControl/0/PowerConsumedWatts"`   | JSON pointer to the wattage reading. Override per vendor (e.g. `"/Oem/Hpe/PowerSummary/Watts"`)                                                                                   |
+| `ca_bundle_path`            | string  | *(none)*                                 | **Reserved for a follow-up.** Setting this field today causes the scraper to refuse to start with a clear error. Self-signed BMC certs are not supported in this release          |
+| `auth_header`               | string  | *(none)*                                 | Curl-style Basic auth header. Prefer `PERF_SENTINEL_REDFISH_AUTH_HEADER` env var. Session-token auth (POST `/SessionService/Sessions`) is not yet supported                       |
+
+```toml
+[green.redfish]
+scrape_interval_secs = 60
+
+[green.redfish.endpoints]
+"chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+"chassis-2" = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/Power"
+
+[green.redfish.service_mappings]
+"order-svc" = "chassis-1"
+"chat-svc"  = "chassis-1"
+"ledger-svc" = "chassis-2"
+```
+
+**Ignored in `analyze` batch mode.** Like Scaphandre and Kepler, only `watch` integrates Redfish.
+
+**Node-level coefficient.** Every service mapped to the same chassis receives the **same** coefficient. Two services on one chassis will never get distinct measured per-op values via Redfish. See `docs/LIMITATIONS.md#redfish-bmc-precision-bounds` for the full discussion of this trade-off and the vendor-specific JSON response variance.
 
 #### `[green.cloud]` (optional, opt-in)
 

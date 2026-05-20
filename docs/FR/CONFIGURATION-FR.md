@@ -141,7 +141,7 @@ Les ops I/O sans région résolvable atterrissent dans un bucket synthétique `"
 
 Quand le scoring vert est activé et qu'au moins un événement est analysé, le `green_summary` du rapport JSON inclut :
 
-- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces ou `"sci_v1_numerator+transport"` quand l'énergie transport réseau est incluse) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié). Valeurs `model`, le plus précis gagne : `"electricity_maps_api"` → `"scaphandre_rapl"` → `"cloud_specpower"` → `"io_proxy_v3"` → `"io_proxy_v2"` → `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté (ex. `"io_proxy_v2+cal"`).
+- **`co2`** : objet structuré `{ total, avoidable, operational_gco2, embodied_gco2 }`. `total` et `avoidable` sont tous deux `{ low, mid, high, model, methodology }` avec une **incertitude multiplicative 2×** (`low = mid/2`, `high = mid×2`). Le tag `methodology` distingue `total` (`"sci_v1_numerator"` : `(E × I) + M` sommé sur les traces ou `"sci_v1_numerator+transport"` quand l'énergie transport réseau est incluse) de `avoidable` (`"sci_v1_operational_ratio"` : ratio global aveugle à la région, exclut l'embodié). Valeurs `model`, le plus précis gagne : `"electricity_maps_api"` → `"scaphandre_rapl"` → `"kepler_ebpf"` → `"redfish_bmc"` → `"cloud_specpower"` → `"io_proxy_v3"` → `"io_proxy_v2"` → `"io_proxy_v1"`. Quand des facteurs de calibration sont actifs sur les modèles proxy, `+cal` est ajouté (ex. `"io_proxy_v2+cal"`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré.
 - **`regions[]`** : breakdown par région avec `{ region, grid_intensity_gco2_kwh, pue, io_ops, co2_gco2, intensity_source }`, **trié par `co2_gco2` décroissant** (régions à plus fort impact en premier) avec tiebreak alphabétique. `intensity_source` vaut `"annual"`, `"hourly"`, `"monthly_hourly"` ou `"real_time"` (API Electricity Maps) selon quelle source d'intensité carbone a été utilisée pour la région.
 
 Les données d'intensité carbone sont embarquées dans le binaire (aucun appel réseau sortant). Voir `docs/FR/design/05-GREENOPS-AND-CARBON-FR.md` pour la formule complète et la méthodologie et `docs/FR/LIMITATIONS-FR.md#précision-des-estimations-carbone` pour le disclaimer directionnel / non-réglementaire.
@@ -208,6 +208,66 @@ scrape_interval_secs = 5
 **Comportement de fallback.** Quand l'endpoint est inaccessible, qu'un service n'est pas présent dans `process_map` ou qu'un service a eu zéro ops dans la fenêtre de scrape courante, l'étape de scoring retombe sur le modèle proxy pour ces spans. Le premier échec est logué en niveau `warn` ; les échecs suivants en `debug` pour éviter le spam. La jauge Prometheus `perf_sentinel_scaphandre_last_scrape_age_seconds` permet aux opérateurs de détecter un scraper bloqué.
 
 **Limites de précision (important).** Scaphandre améliore le coefficient énergétique **au niveau service** mais ne donne PAS d'attribution par finding. RAPL est au niveau processus, pas au niveau span : deux findings dans le même processus pendant la même fenêtre de scrape partagent le même coefficient. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-scaphandre` pour la discussion complète.
+
+#### `[green.kepler]` (optionnel, opt-in)
+
+Intégration opt-in avec [Kepler](https://github.com/sustainable-computing-io/kepler) (projet CNCF sandbox) pour la mesure d'énergie par conteneur ou par processus via eBPF. Contrairement à Scaphandre, Kepler fonctionne sur ARM64 (Graviton, Ampere, Apple Silicon, Cobalt 100) avec une précision dégradée mais un signal réel. Une fois configuré, le daemon `watch` scrape l'endpoint Prometheus `/metrics` de Kepler, calcule le delta de joules par service par rapport au scrape précédent, et publie un coefficient mesuré par opération taggué `kepler_ebpf`.
+
+| Champ                  | Type   | Défaut        | Description                                                                                                                                                                                                                           |
+|------------------------|--------|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoint`             | chaîne | *(aucun)*     | URL complète de l'endpoint Prometheus `/metrics` de Kepler. Obligatoire quand la section est présente.                                                                                                                                |
+| `scrape_interval_secs` | entier | `5`           | Fréquence de scrape en secondes. Plage valide : 1-3600.                                                                                                                                                                               |
+| `metric_kind`          | chaîne | `"container"` | Compteur Kepler à lire : `"container"` (`kepler_container_joules_total`, clé `container_name`), `"process_package"` (`kepler_process_package_joules_total`, clé `command`), ou `"process_dram"` (`kepler_process_dram_joules_total`). |
+| `service_mappings`     | table  | `{}`          | Mappe les noms de service perf-sentinel vers la valeur du label Kepler identifiant la même charge (nom de conteneur, command ou pid selon `metric_kind`).                                                                             |
+| `auth_header`          | chaîne | *(aucun)*     | Header `"Nom: Valeur"` optionnel. Préférer la variable d'environnement `PERF_SENTINEL_KEPLER_AUTH_HEADER`.                                                                                                                            |
+
+```toml
+[green.kepler]
+endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
+scrape_interval_secs = 5
+metric_kind = "container"
+
+[green.kepler.service_mappings]
+"order-svc" = "order-svc-deployment"
+"chat-svc" = "chat"
+```
+
+**Ignoré en mode batch `analyze`.** Comme Scaphandre, seul `watch` lance le scraper.
+
+**Précédence par rapport à Scaphandre.** Scaphandre RAPL surclasse Kepler eBPF sur x86_64 avec accès RAPL. L'intégration Kepler prend tout son sens sur ARM64 où Scaphandre est indisponible. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-kepler` pour les mises en garde sur la précision du modèle eBPF ARM (issue amont Kepler #1556).
+
+**Forme de déploiement en production.** Kepler s'exécute en général comme `DaemonSet` Kubernetes, un pod par nœud. Dans un cluster multi-nœuds, l'`endpoint` doit pointer vers un Prometheus amont qui scrape l'ensemble du `DaemonSet` plutôt qu'un seul pod, sinon seule l'énergie d'un nœud sera visible. Le mode Prometheus-médié (requêtes PromQL) est réservé à une version ultérieure.
+
+#### `[green.redfish]` (optionnel, opt-in)
+
+Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Contrairement à Scaphandre et Kepler (qui mesurent uniquement CPU + DRAM), Redfish lit la sortie réelle de l'alimentation via le BMC, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse. Bare-metal uniquement, pas de VMs cloud.
+
+| Champ                  | Type   | Défaut                                 | Description                                                                                                                                                                             |
+|------------------------|--------|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `endpoints`            | table  | *(vide)*                               | Table `chassis_id → URL /Power`. Obligatoire pour activer le scraper.                                                                                                                              |
+| `scrape_interval_secs` | entier | `60`                                   | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC, plusieurs BMCs limitent en dessous de 30 s).                                                |
+| `service_mappings`     | table  | `{}`                                   | Associe les noms de service perf-sentinel au châssis qui les héberge. Chaque service mappé au même châssis reçoit le même coefficient.                                                             |
+| `power_path`           | chaîne | `"/PowerControl/0/PowerConsumedWatts"` | Pointeur JSON vers la valeur de puissance. À surcharger selon le fournisseur (ex. `"/Oem/Hpe/PowerSummary/Watts"`).                                                                                |
+| `ca_bundle_path`       | chaîne | *(aucun)*                              | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Les certificats BMC auto-signés ne sont pas supportés dans cette release. |
+| `auth_header`          | chaîne | *(aucun)*                              | Header Basic au format curl. Préférer `PERF_SENTINEL_REDFISH_AUTH_HEADER`. L'authentification Session-token (POST `/SessionService/Sessions`) n'est pas encore supportée.                          |
+
+```toml
+[green.redfish]
+scrape_interval_secs = 60
+
+[green.redfish.endpoints]
+"chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+"chassis-2" = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/Power"
+
+[green.redfish.service_mappings]
+"order-svc" = "chassis-1"
+"chat-svc"  = "chassis-1"
+"ledger-svc" = "chassis-2"
+```
+
+**Ignoré en mode batch `analyze`.** Comme Scaphandre et Kepler, seul `watch` intègre Redfish.
+
+**Coefficient au niveau du nœud.** Chaque service mappé au même châssis reçoit le **même** coefficient. Deux services sur un même châssis n'auront jamais de coefficients mesurés distincts via Redfish. Voir `docs/FR/LIMITATIONS-FR.md#limites-de-précision-redfish-bmc` pour la discussion complète de ce compromis et de la variance JSON entre fournisseurs.
 
 #### `[green.cloud]` (optionnel, opt-in)
 

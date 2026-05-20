@@ -51,7 +51,7 @@ Ce compromis garde la map per-service simple. Une map plus granulaire `BTreeMap<
 Le tag `energy_model` par fenêtre réutilise `select_co2_model_tag` existant dans `score::region_breakdown`, qui implémente déjà la précédence canonique :
 
 ```
-electricity_maps_api > scaphandre_rapl > cloud_specpower > io_proxy_v3 > io_proxy_v2 > io_proxy_v1
+electricity_maps_api > scaphandre_rapl > kepler_ebpf > redfish_bmc > cloud_specpower > io_proxy_v3 > io_proxy_v2 > io_proxy_v1
 ```
 
 avec le suffixe `+cal` optionnel quand les données de calibration sont actives. Le tag reflète le modèle de plus haute fidélité présent dans la fenêtre. Aucune répartition par service des tags n'est exposée : un tag global transparent est plus utile qu'une map par service que les consommateurs devraient fold de toute façon.
