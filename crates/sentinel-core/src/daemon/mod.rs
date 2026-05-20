@@ -33,8 +33,8 @@ use event_loop::{
     run_event_loop,
 };
 use listeners::{
-    setup_cloud_scraper, setup_correlator, setup_emaps_scraper, setup_scaphandre_scraper,
-    spawn_listeners,
+    setup_cloud_scraper, setup_correlator, setup_emaps_scraper, setup_kepler_scraper,
+    setup_scaphandre_scraper, spawn_listeners,
 };
 
 /// Errors that can occur when running the daemon.
@@ -181,6 +181,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     .await?;
 
     let scaphandre = setup_scaphandre_scraper(&config, &metrics);
+    let kepler = setup_kepler_scraper(&config, &metrics);
     let cloud = setup_cloud_scraper(&config, &metrics);
     let emaps = setup_emaps_scraper(&config);
 
@@ -200,6 +201,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         base_carbon_ctx: &base_carbon_ctx,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,
+        kepler_state: kepler.state.as_deref(),
+        kepler_staleness_ms: kepler.staleness_ms,
         cloud_state: cloud.state.as_deref(),
         cloud_staleness_ms: cloud.staleness_ms,
         emaps_state: emaps.state.as_deref(),
@@ -208,6 +211,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     let shutdown = ShutdownTargets {
         energy: EnergyScraperHandles {
             scaphandre: scaphandre.handle.as_ref(),
+            kepler: kepler.handle.as_ref(),
             cloud: cloud.handle.as_ref(),
             emaps: emaps.handle.as_ref(),
         },
