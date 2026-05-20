@@ -426,7 +426,7 @@ perf-sentinel embarque une intégration opt-in avec [Scaphandre](https://github.
 - **CPU x86_64 Intel ou AMD avec support RAPL** : la plupart des puces serveur et desktop récentes, mais notamment **PAS ARM64**. Apple Silicon, Ampere, Graviton et instances cloud ARM similaires ne peuvent pas utiliser cette intégration.
 - **Bare metal ou VMs avec passthrough RAPL.** La plupart des VMs cloud (AWS EC2, GCP GCE, Azure VMs) n'exposent **pas** les compteurs RAPL aux OS invités. Les pods Kubernetes s'exécutant sur des nœuds bare-metal peuvent accéder à RAPL si l'hôte expose `/sys/class/powercap/intel-rapl/` dans le conteneur (nécessite accès privilégié ou mount explicite).
 
-**Pourquoi ARM64 reste non couvert.** L'upstream Scaphandre suit le support ARM dans [l'issue #35](https://github.com/hubblo-org/scaphandre/issues/35), ouverte depuis 2020 sans implémentation. RAPL est une interface Intel reprise par AMD à partir du noyau 5.11. Les CPU ARM n'ont pas d'équivalent qui exposerait des compteurs d'énergie par package via `/sys/class/powercap/`. La feuille de route Scaphandre mentionne un "capteur basé sur l'estimation" qui fonctionnerait sur toute architecture, mais il reste non implémenté (dernière activité upstream sur le sujet : novembre 2023). Sur Graviton, Ampere, Apple Silicon et Raspberry Pi, le binaire Scaphandre se compile pour `aarch64` mais le capteur RAPL échoue au démarrage et perf-sentinel retombe via la chaîne de priorité sur `cloud_specpower` (les coefficients CCF Graviton 2/3/4 et Cobalt 100 s'appliquent, avec une précision de ±40% comme documenté plus bas) puis sur le proxy I/O. Vu la part croissante d'ARM dans le cloud (Graviton représente une fraction significative de la capacité AWS nouvellement provisionnée), il faut s'attendre à ce que la branche RAPL mesurée soit inaccessible sur une part importante des flottes modernes.
+**Pourquoi la branche Scaphandre ne couvre pas ARM64.** L'upstream Scaphandre suit le support ARM dans [l'issue #35](https://github.com/hubblo-org/scaphandre/issues/35), ouverte depuis 2020 sans implémentation. RAPL est une interface Intel reprise par AMD à partir du noyau 5.11. Les CPU ARM n'ont pas d'équivalent qui exposerait des compteurs d'énergie par package via `/sys/class/powercap/`. La feuille de route Scaphandre mentionne un "capteur basé sur l'estimation" qui fonctionnerait sur toute architecture, mais il reste non implémenté (dernière activité upstream sur le sujet : novembre 2023). Sur Graviton, Ampere, Apple Silicon et Raspberry Pi, le binaire Scaphandre se compile pour `aarch64` mais le capteur RAPL échoue au démarrage. perf-sentinel intègre désormais deux sources d'énergie mesurée qui fonctionnent sur ARM : [Limites de précision Kepler](#limites-de-précision-kepler) (énergie mesurée par pod via eBPF) et [Limites de précision Redfish BMC](#limites-de-précision-redfish-bmc) (puissance murale bare-metal). Les deux se placent avant `cloud_specpower` dans la chaîne de priorité, donc les charges ARM obtiennent un vrai signal avant que la pile ne retombe sur les coefficients CCF Graviton/Cobalt (±40%) puis sur le proxy I/O.
 
 Sur les plateformes non supportées, la section `[green.scaphandre]` est parsée et le scraper est lancé, mais il échouera à trouver l'endpoint et retombera silencieusement sur le modèle proxy. Une seule ligne de log au niveau warn est émise au premier échec pour que les opérateurs remarquent la mauvaise configuration.
 
@@ -442,7 +442,7 @@ Ce qui capture :
 - **Les différences entre services** : Java vs .NET vs Node vs Go auront des empreintes énergétiques différentes même pour des charges I/O similaires.
 - **La variance de charge dans le temps** : un service idle et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Quand des facteurs de calibration sont actifs sur les modèles proxy, le suffixe `+cal` est ajouté (ex. `io_proxy_v2+cal`).
+Les rapports où au moins un service a utilisé un coefficient mesuré sont tagués `model = "scaphandre_rapl"`. Chaîne de priorité complète : `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`. Quand des facteurs de calibration sont actifs sur les modèles proxy, le suffixe `+cal` est ajouté (ex. `io_proxy_v2+cal`). Le suffixe `+cal` ne s'applique jamais à un tag mesuré, le multiplicateur de calibration cible le coefficient proxy et n'a plus de sens dès qu'une lecture mesurée le remplace.
 
 **Ce que Scaphandre ne fait PAS.** C'est la limitation critique : **Scaphandre donne des coefficients par service, pas d'attribution par finding**. Spécifiquement :
 
@@ -456,6 +456,58 @@ Les rapports où au moins un service a utilisé un coefficient mesuré sont tagu
 **Gestion de la fraîcheur.** Le daemon jette les entrées plus anciennes que 3× l'intervalle de scrape lors de la construction du snapshot par tick. Un scraper bloqué ou un service qui cesse d'émettre des événements retombera silencieusement sur le modèle proxy après ~3 intervalles de scrape. La jauge Prometheus `perf_sentinel_scaphandre_last_scrape_age_seconds` permet aux opérateurs de configurer des alertes Grafana sur la santé du scraper.
 
 **Mode batch.** Le mode batch `analyze` ne lance jamais le scraper et n'utilise jamais les données Scaphandre. Même si `[green.scaphandre]` est présent dans la config, la commande `analyze` l'ignore entièrement et utilise toujours le modèle proxy. Seul le daemon `watch` intègre Scaphandre.
+
+### Limites de précision Kepler
+
+perf-sentinel embarque une intégration opt-in pour [Kepler](https://github.com/sustainable-computing-io/kepler) (projet CNCF sandbox) qui mesure l'énergie par conteneur ou par processus via eBPF + compteurs de performance CPU. Quand `[green.kepler]` est configuré, le daemon `watch` scrape l'endpoint Prometheus `/metrics` de Kepler, calcule le delta de joules par service par rapport au scrape précédent, et publie un coefficient mesuré par opération taggué `model = "kepler_ebpf"`.
+
+**Exigences plateforme.**
+
+- **Linux uniquement**, toute architecture CPU supportée par Kepler (x86_64 et ARM64).
+- **Kepler installé et exposant `/metrics`.** Les déploiements production exécutent en général Kepler comme `DaemonSet` Kubernetes, un pod par nœud. Dans ce cas, faire pointer l'endpoint vers le pod local au nœud ou, plus robuste, vers un Prometheus amont qui scrape l'ensemble du `DaemonSet` (le mode Prometheus-médié est réservé à une version ultérieure, cette release ne couvre que le scrape direct).
+- **Support kernel eBPF** (noyau 5.4+ en pratique).
+
+**Pourquoi cette branche couvre ARM64 alors que Scaphandre ne le fait pas.** Kepler ne dépend pas de RAPL. Sur x86_64 avec accès RAPL, il utilise les mêmes compteurs que Scaphandre, sur ARM64 il bascule sur un modèle eBPF + compteurs de performance qui produit un vrai signal, à précision dégradée. Le modèle ARM eBPF est moins précis que la voie RAPL x86, voir [l'issue Kepler #1556](https://github.com/sustainable-computing-io/kepler/issues/1556) pour le suivi upstream des limites connues (échecs de tracepoints, modèle DRAM plus faible). Pour les charges ARM, l'alternative était le proxy `cloud_specpower` à ±40%. Kepler à précision dégradée reste une amélioration significative.
+
+**Ce que Kepler améliore vs le proxy.** Même forme que Scaphandre : remplace la constante fixe `ENERGY_PER_IO_OP_KWH` par un coefficient mesuré par service, dérivé de la lecture d'énergie eBPF et du delta d'opérations par service de la fenêtre de scrape courante. La lecture circule dans la chaîne de priorité comme `kepler_ebpf`, entre `scaphandre_rapl` (RAPL x86, plus précis) et `cloud_specpower` (CCF ±40%).
+
+**Ce que Kepler ne fait PAS.**
+
+1. **Granularité conteneur / processus, pas d'attribution par-finding.** Deux findings N+1 dans le même conteneur pendant la même fenêtre de scrape partagent le même coefficient par construction.
+2. **Le modèle eBPF ARM est sensiblement moins précis que la voie RAPL x86.** Considérer les lectures Kepler ARM comme un signal plus fort que le proxy, non comme un substitut à un wattmètre externe.
+3. **Couverture DRAM partielle sur ARM.** Le projet amont Kepler n'expose pas encore les joules DRAM par processus sur tous les SoC ARM. Prévoir une perte de périphérie en plus de la mise en garde habituelle "RAPL capte environ la moitié à deux tiers de la prise murale".
+4. **Pas de partage entre pods via le collecteur de processus.** Les services co-localisés dans le même conteneur partagent un coefficient. Associer chaque service à son propre `container_name` (ou `command` si `metric_kind = "process_package" | "process_dram"`).
+
+**Gestion de la fraîcheur.** Même règle `3 × scrape_interval` que Scaphandre, avec la jauge Prometheus `perf_sentinel_kepler_last_scrape_age_seconds` pour la détection de scraper bloqué. La jauge est initialisée à l'instant de démarrage du scraper, donc un endpoint Kepler cassé dès le boot fait quand même progresser la métrique : les alertes Grafana sur un scraper qui n'a jamais réussi se déclenchent correctement. Une réinitialisation de compteur (redémarrage de l'exporteur Kepler) produit un delta négatif que la garde rejette (filtre `delta > 0.0 && delta.is_finite()`, soustraction `f64` classique puisque `f64` n'a pas de `saturating_sub`), le scrape suivant produit le prochain delta significatif.
+
+**Mode batch.** Même forme que Scaphandre, `analyze` ne lance jamais le scraper Kepler. Seul `watch` intègre Kepler.
+
+### Limites de précision Redfish BMC
+
+perf-sentinel embarque une intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standards/redfish) pour les lectures de puissance murale sur bare-metal. Quand `[green.redfish]` est configuré avec un ou plusieurs endpoints de châssis, le daemon `watch` interroge la ressource `/Power` de chaque châssis pour `PowerConsumedWatts`, distribue les joules au niveau du châssis sur les services mappés proportionnellement à leurs opérations, et publie les coefficients par service taggués `model = "redfish_bmc"`.
+
+**Exigences plateforme.**
+
+- **Nœuds bare-metal avec un BMC supportant Redfish 1.0+.** Dell iDRAC, HPE iLO, Lenovo XCC, Supermicro X11+ conviennent, comme la référence OpenBMC. Les VMs cloud n'exposent pas de BMC et ne peuvent pas utiliser cette intégration.
+- **HTTPS joignable depuis le daemon vers le BMC.** La plupart des BMCs présentent un certificat auto-signé par défaut. **Le support de bundle CA fourni par l'opérateur est réservé à une version ultérieure.** Dans cette release, définir `ca_bundle_path` empêche le scraper de démarrer avec une erreur claire. Les opérateurs avec des certificats BMC auto-signés doivent placer le BMC derrière un reverse proxy qui présente un certificat signé publiquement (ou utiliser HTTP sur un segment réseau de confiance).
+- **Authentification Basic.** L'authentification Session-token Redfish (POST `/SessionService/Sessions`) n'est pas encore supportée. Le champ `auth_header` porte une ligne Basic au format curl.
+
+**Ce que Redfish améliore par rapport au proxy.** Une mesure réelle de puissance murale au niveau du châssis. Contrairement à Scaphandre et Kepler (qui voient CPU + DRAM uniquement via RAPL ou eBPF), le BMC lit la sortie réelle de l'alimentation, donc la périphérie (NIC, disques, ventilateurs, pertes PSU) est incluse par construction.
+
+**Ce que Redfish ne fait PAS.** Limite critique de la puissance au niveau du nœud :
+
+1. **Granularité châssis, pas par service ni par finding.** Chaque service mappé au même châssis reçoit le **même** coefficient (`chassis_joules / somme_des_deltas_ops`) pour une fenêtre de scrape donnée. Deux services sur le même nœud n'auront jamais de coefficients mesurés distincts via Redfish.
+2. **Pas d'attribution au niveau processus.** Les processus inactifs consomment toujours une puissance de base qui se retrouve allouée aux services actifs. Considérer le coefficient par service comme une borne supérieure de ce que ces services ont tiré.
+3. **Pas d'attribution par finding.** Même limite que tous les autres tags mesurés de la chaîne.
+4. **Variance entre fournisseurs dans la réponse JSON.** Certains BMCs retournent `null` ou `0` pour `PowerConsumedWatts` pendant les états transitoires (démarrage, rampe de ventilateurs). perf-sentinel rejette les valeurs null/zéro/négatives/NaN comme invalides et garde le coefficient précédent jusqu'à une lecture valide. Les chemins spécifiques au fournisseur (ex. `Oem.Hpe.PowerSummary.Watts` chez HPE) se configurent via `power_path`.
+
+**Protection contre la limitation de débit.** `scrape_interval_secs` est écrêté à `[15, 3600]` pour Redfish. Plusieurs BMCs (notamment HPE iLO 4/5) limitent les requêtes Redfish en dessous de 30 secondes, et de nombreux fournisseurs maintiennent la valeur en cache interne sur un cycle de mise à jour de 30 s, donc un intervalle plus rapide n'apporte aucune information tout en s'exposant à des erreurs 429. Valeur par défaut : 60 s.
+
+**IPMI hors périmètre.** Redfish est le standard moderne, le chemin IPMI nécessiterait de lier `ipmitool` ou `freeipmi` en C, ce qui sort de la règle "pas de dépendances lourdes". Documenter toute flotte uniquement IPMI comme une lacune connue.
+
+**Gestion de la fraîcheur.** Même règle `3 × scrape_interval` que les autres sources mesurées, avec `perf_sentinel_redfish_last_scrape_age_seconds` initialisée à l'instant de démarrage du scraper, donc la jauge progresse depuis le boot même si aucun châssis n'a encore réussi. La jauge est **agrégée** : elle retombe à zéro dès qu'un châssis réussit son scrape dans un tick. Une flotte multi-châssis avec un BMC sain et plusieurs en échec affiche donc `age = 0`, le signal d'échec par châssis vit dans `perf_sentinel_redfish_scrape_failed_total{reason=...}`. Coupler les deux métriques dans les alertes Grafana qui ont besoin de granularité par châssis.
+
+**Mode batch.** Même forme, `analyze` ne lance jamais le scraper Redfish.
 
 ### Limites de précision du cloud SPECpower
 
@@ -481,7 +533,7 @@ Ce qui capture :
 - **Les caractéristiques de l'instance** : un `c5.4xlarge` (16 vCPUs, 32 GiB) a un profil énergétique différent d'un `m5.xlarge` (4 vCPUs, 16 GiB).
 - **La variance de charge dans le temps** : un service au repos et un service en charge obtiennent des coefficients différents pendant que le daemon tourne.
 
-Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`).
+Les rapports où au moins un service a utilisé l'estimation cloud sont tagués `model = "cloud_specpower"` (priorité : `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`).
 
 **Ce que ça ne fait PAS.** Comme Scaphandre, le modèle cloud SPECpower donne des coefficients par service, pas d'attribution par finding. De plus :
 

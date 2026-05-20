@@ -402,7 +402,7 @@ let (energy_kwh, measured_model) = match &ctx.energy_snapshot {
 let op_co2 = per_op_gco2(energy_kwh, intensity_used, pue);
 ```
 
-The scoring stage tracks per-region flags (`any_scaphandre`, `any_cloud_specpower`, `any_realtime_report`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
+The scoring stage tracks per-region flags (`any_scaphandre`, `any_kepler_ebpf`, `any_redfish_bmc`, `any_cloud_specpower`, `any_realtime_report`) and the top-level `CarbonEstimate.model` reflects the most precise source used: `"electricity_maps_api"` > `"scaphandre_rapl"` > `"kepler_ebpf"` > `"redfish_bmc"` > `"cloud_specpower"` > `"io_proxy_v3"` > `"io_proxy_v2"` > `"io_proxy_v1"`. When calibration factors are active on proxy models, `+cal` is appended. All energy sources compose naturally with hourly profiles: a measured-energy op in eu-west-3 at 3am UTC uses the measured energy AND the hourly intensity simultaneously.
 
 **Per-service op counter as single source of truth.** The scraper reads the per-service op counter from `MetricsState::service_io_ops_total` (a Prometheus `CounterVec` labeled with `service`) via `snapshot_service_io_ops()`. The daemon's event intake path increments this counter on every normalized event. Using the Prometheus counter directly, instead of a parallel counter that would need resetting every scrape window, avoids reset races and gives Grafana users a per-service op rate graph for free.
 
@@ -455,11 +455,39 @@ region = "europe-west1"
 instance_type = "c4d-standard-8"  # AMD Turin (Zen 5), modern entry
 ```
 
-**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, Scaphandre entries take precedence: if both Scaphandre and cloud energy exist for the same service, the Scaphandre entry wins (it measures real power, the cloud entry interpolates). The top-level model tag reflects the most precise source: `electricity_maps_api` > `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+**Model tag and precedence.** The coefficient carries model tag `"cloud_specpower"`. In `build_tick_ctx`, higher-fidelity sources take precedence: Scaphandre overrides Kepler overrides Redfish overrides cloud SPECpower for the same service. The top-level model tag reflects the most precise source: `electricity_maps_api` > `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 
 **Daemon only.** Like Scaphandre, cloud energy estimation is a daemon-only feature. The `analyze` batch command always uses the proxy model.
 
 **What cloud SPECpower does NOT do.** See `docs/LIMITATIONS.md` "Cloud SPECpower precision bounds" for the full discussion. The SPECpower model captures CPU-proportional power but not memory, I/O or network power. Shared tenancy is not corrected. Accuracy is approximately +/-30%.
+
+## Kepler and Redfish attribution notes
+
+The Kepler and Redfish integrations follow the same shared-state pattern as Scaphandre and cloud SPECpower (`ArcSwap`-backed `AgedEnergyMap`, `3 × scrape_interval` staleness gate, per-service `OpsSnapshotDiff`) but each carries its own methodology trade-offs that warrant a dedicated note.
+
+**Kepler counter-delta semantics.** Kepler exports a monotonic cumulative joule counter per container/process, unlike Scaphandre's instantaneous microwatt gauge. The scraper task holds a `HashMap<service, last_raw_joules>` and on every tick computes `delta = current - previous`, then emits the entry only when `delta > 0.0 && delta.is_finite()`. The filter is intentional: when the Kepler exporter restarts, the counter resets to zero and `current < previous` produces a negative delta, the guard drops it. Non-finite readings (`NaN`, `±Inf`) are also dropped. The next scrape produces the next meaningful delta from the fresh baseline. The first observation per service (no `previous`) emits no delta, the raw counter is recorded for the next scrape.
+
+**Kepler scrape mode (direct vs Prometheus-mediated).** Kepler typically runs as a Kubernetes `DaemonSet` (one pod per node). In production, the realistic deployment is to scrape an upstream Prometheus that aggregates the whole DaemonSet rather than a single Kepler pod, otherwise only one node's energy is visible. The current `[green.kepler]` integration ships **direct scrape only** (mirrors Scaphandre's shape with the cumulative-joules-counter delta math added). A future release will add a `source = "prometheus"` mode that issues PromQL queries against an upstream Prometheus, the config surface anticipates this with the `metric_kind` enum already in place.
+
+**Redfish node-level attribution formula.** Redfish exposes one wall-plug wattage reading per chassis, not per service. The scraper turns that into a per-service energy-per-op coefficient via:
+
+```
+chassis_joules = chassis_watts × scrape_interval_secs
+total_ops      = Σ ops_delta(service) for service ∈ mapped(chassis)
+energy_per_op  = (chassis_joules / 3_600_000) / total_ops    (in kWh per op)
+```
+
+Every service mapped to the chassis receives the **same** `energy_per_op` for that scrape window. This is the correct interpretation of node-level power until finer signal is available, and it is documented as a known coarseness in `docs/LIMITATIONS.md` "Redfish BMC precision bounds". Idle chassis (no ops mapped this window) leave every service's previous entry untouched, no division by zero, no flapping. Non-finite, null, zero, or negative wattage readings are rejected as BMC transitional states, the previous coefficient is preserved.
+
+**Redfish TLS limitation.** Most BMCs ship with self-signed certificates by default. perf-sentinel's shared `http_client::build_client` uses `hyper-rustls` with the public webpki root store, which rejects self-signed certs. The `RedfishConfig::ca_bundle_path` field anticipates operator-supplied custom CA bundles, but the actual PEM loading is **deferred to a follow-up release**. Setting `ca_bundle_path` today causes the scraper to log an `ERROR` and refuse to start, this is fail-loud by design so operators with self-signed BMCs see the gap immediately rather than discovering it during a TLS handshake far from the config they set. Workarounds in the current release: front the BMC with a reverse proxy that presents a publicly-signed cert, or use HTTP on a trusted network segment.
+
+**Redfish vendor JSON variance.** Different BMC vendors return slightly different shapes under `/redfish/v1/Chassis/{id}/Power`. The default JSON pointer `/PowerControl/0/PowerConsumedWatts` resolves correctly on Dell iDRAC, HPE iLO, Lenovo XCC, Supermicro X11+, and the OpenBMC reference, but vendor-specific shapes (e.g. HPE's `Oem.Hpe.PowerSummary.Watts`) are overridable via the `power_path` config field. The parser rejects `null`, `0`, negative, and `NaN` as invalid so transitional BMC states (boot, fan ramp) do not poison the coefficient.
+
+**Redfish rate-limit defense.** `scrape_interval_secs` is clamped to `[15, 3600]` for Redfish (compared to `[1, 3600]` for Scaphandre and Kepler). Several BMCs (notably HPE iLO 4/5) rate-limit Redfish polling below 30 seconds, and many vendors cache the wattage internally on a 30-second update cycle anyway, so a faster interval gains no information while risking 429 responses. Default is 60 s.
+
+**SSRF surface acknowledged by design.** The Kepler, Redfish, Scaphandre and cloud-energy scrapers will all happily fetch from a loopback or RFC 1918 URL (`http://127.0.0.1:9102/metrics`, `https://10.0.0.5/redfish/v1/...`). This is by design: Kepler typically runs as a `DaemonSet` on the same node, BMCs live on management networks, Scaphandre exposes a local Prometheus endpoint. Config-load validation refuses URLs with embedded credentials (`@`) or control characters, the body cap inside `http_client::fetch_get` (8 MiB) bounds the per-fetch memory, and the shared `hyper-util` legacy client is built without redirect-following so a malicious endpoint cannot 302 the scraper to `http://169.254.169.254/`. The deployment-time guarantee is that every URL the daemon reaches is operator-supplied via `.perf-sentinel.toml`, never derived from external input (spans, BMC responses, Prometheus query results).
+
+**Two-axis carbon tagging.** Energy fidelity (`E`, ranked by [`carbon_compute::higher_fidelity_measured`]) and grid-intensity fidelity (`I`, surfaced by [`region_breakdown::select_co2_model_tag`]) are independent axes. A single window can carry `co2.model = "electricity_maps_api"` (real-time intensity is the highest-fidelity `I` source) while `per_service_energy_model` reports `"scaphandre_rapl"` for the same service (RAPL is the highest-fidelity `E` source). The asymmetry is intentional: tagging the report by the most precise `I` source while the per-service breakdown tracks `E` lets auditors see both dimensions without folding them into a single tag.
 
 ## Electricity Maps real-time intensity integration
 

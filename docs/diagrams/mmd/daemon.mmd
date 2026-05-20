@@ -25,11 +25,13 @@ flowchart TB
 
     subgraph scrapers["Energy scrapers (background tasks)"]
         scaph["Scaphandre<br/><i>RAPL per-process<br/>scrape_interval_secs</i>"]
+        kepler["Kepler<br/><i>eBPF joules counter<br/>ARM + x86<br/>scrape_interval_secs</i>"]
+        redfish["Redfish BMC<br/><i>chassis wall-plug watts<br/>scrape_interval_secs (15-3600)</i>"]
         cloud["Cloud SPECpower<br/><i>CPU% from Prometheus<br/>scrape_interval_secs</i>"]
         emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]
     end
 
-    tick_ctx["build_tick_ctx()<br/><i>merge energy snapshots<br/>+ real-time intensity</i>"]
+    tick_ctx["build_tick_ctx()<br/><i>merge energy snapshots, precedence:<br/>scaphandre &gt; kepler &gt; redfish &gt; cloud<br/>+ real-time intensity</i>"]
 
     process["process_traces()<br/><i>detect &rarr; score</i>"]
 
@@ -70,6 +72,8 @@ flowchart TB
     ctrlc -- "drain_all()" --> window
 
     scaph --> tick_ctx
+    kepler --> tick_ctx
+    redfish --> tick_ctx
     cloud --> tick_ctx
     emaps --> tick_ctx
 
@@ -83,6 +87,9 @@ flowchart TB
     confidence -- "push_batch()" --> findings_ring
     confidence -- "update" --> metrics_state
     metrics_state -- "render on scrape" --> metrics_endpoint
+
+    metrics_state -. "snapshot_service_io_ops()<br/>(per-tick ops deltas via<br/>OpsSnapshotDiff)" .-> scrapers
+    scrapers -. "publish per-scraper<br/>last_scrape_age_seconds<br/>+ scrape_failed_total{reason}" .-> metrics_state
 
     http -. "serves on same port" .-> metrics_endpoint
     http -. "serves on same port" .-> query_api
