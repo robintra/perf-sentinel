@@ -12,6 +12,10 @@ pub mod electricity_maps;
 // `cargo publish -p perf-sentinel-core` (default features off) green.
 #[cfg(feature = "daemon")]
 pub(crate) mod energy_state;
+// Shared per-service ops-delta tracker used by every measured-energy
+// scraper. Daemon-gated for the same reason as `energy_state`.
+#[cfg(feature = "daemon")]
+pub(crate) mod ops_snapshot_diff;
 pub mod scaphandre;
 
 mod carbon_compute;

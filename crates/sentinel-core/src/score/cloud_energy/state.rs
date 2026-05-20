@@ -5,9 +5,11 @@
 //! daemon's `build_tick_ctx` cannot accidentally confuse cloud-SPECpower
 //! readings with Scaphandre-RAPL readings when it merges the snapshots.
 
-// Reuse the monotonic clock from the Scaphandre module so both
-// scrapers and the scoring path share a single time source.
-pub use crate::score::scaphandre::state::monotonic_ms;
+// Reuse the monotonic clock from the Scaphandre module so every
+// scraper sees the same time source. Visibility matches the kepler
+// and redfish modules: `pub(super)` is enough because the only
+// consumer is the sibling `cloud_energy::scraper`.
+pub(super) use crate::score::scaphandre::state::monotonic_ms;
 
 /// Row type expected by the cloud energy scraper when constructing
 /// fresh entries. Aliased to the shared [`EnergyRow`] so both the

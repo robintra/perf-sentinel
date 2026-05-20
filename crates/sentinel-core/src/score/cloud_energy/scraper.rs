@@ -13,7 +13,7 @@ use std::time::Duration;
 use crate::http_client::{self, HttpClient};
 use crate::ingest::auth_header::{AuthHeader, ScraperAuthOutcome, parse_scraper_auth_header};
 use crate::report::metrics::MetricsState;
-use crate::score::scaphandre::ops::OpsSnapshotDiff;
+use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 
 use super::config::{CloudEnergyConfig, ServiceCloudConfig};
 use super::state::{CloudEnergyState, ServiceEnergy, monotonic_ms};

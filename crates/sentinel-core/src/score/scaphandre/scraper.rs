@@ -16,8 +16,10 @@ use crate::http_client::{self, FetchError, HttpClient};
 use crate::ingest::auth_header::{AuthHeader, ScraperAuthOutcome, parse_scraper_auth_header};
 use crate::report::metrics::{MetricsState, ScaphandreScrapeReason};
 
+use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
+
 use super::config::ScaphandreConfig;
-use super::ops::{OpsSnapshotDiff, apply_scrape};
+use super::ops::apply_scrape;
 use super::parser::parse_scaphandre_metrics;
 use super::state::{ScaphandreState, monotonic_ms};
 

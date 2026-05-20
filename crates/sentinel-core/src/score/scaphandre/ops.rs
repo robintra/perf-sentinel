@@ -1,73 +1,17 @@
-//! Per-service op-delta snapshot + power→energy math + state update.
+//! Scaphandre power→energy math + state update.
 //!
-//! This module holds the "pure" pieces that turn a raw scrape into a
-//! state mutation: [`OpsSnapshotDiff`] tracks the cumulative
-//! per-service counters so we can compute a delta for each scrape
-//! window without resetting the Prometheus counters, and
-//! [`compute_energy_per_op_kwh`] is the arithmetic that turns watts +
-//! seconds + ops into kWh-per-op. [`apply_scrape`] glues them
-//! together by iterating the config's `process_map`, deriving a
-//! coefficient per mapped service, and publishing a fresh state.
+//! Holds the pieces specific to Scaphandre's per-process power gauge:
+//! [`compute_energy_per_op_kwh`] turns `(microwatts, scrape_interval, ops)`
+//! into kWh-per-op, and [`apply_scrape`] glues that together with the
+//! config's `process_map` to publish a fresh [`ScaphandreState`].
+//! The cross-scraper per-service op-delta tracker lives in
+//! [`crate::score::ops_snapshot_diff`].
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use super::config::ScaphandreConfig;
 use super::parser::ProcessPower;
 use super::state::{ScaphandreState, ServiceEnergy};
-
-/// Snapshot diff used by the scraper to compute per-service I/O op
-/// counts over a single scrape window.
-///
-/// The daemon increments `MetricsState::service_io_ops_total` on every
-/// normalized event (see `daemon.rs`). The scraper reads those counters
-/// at each tick and computes `delta = current - last_snapshot` to
-/// derive the "ops in the current scrape window" number needed for the
-/// `energy_per_op = power × interval / ops_in_window` formula.
-///
-/// Using a snapshot diff instead of a parallel counter that gets reset
-/// each scrape avoids counter-reset races with the event intake path
-/// and gives Grafana users a monotonic per-service counter for free.
-///
-/// The previous-snapshot table is stored as `Option<Arc<HashMap>>` and
-/// updated via `Arc::from(current)` on each advance. This is the same
-/// pattern as [`ScaphandreState`]: the scraper owns the
-/// `OpsSnapshotDiff` exclusively so no atomic swap is strictly needed,
-/// but using an `Arc` here means the advance is zero-copy and avoids
-/// a per-tick deep clone of the map keys.
-#[derive(Debug, Default)]
-pub struct OpsSnapshotDiff {
-    last: Option<Arc<HashMap<String, u64>>>,
-}
-
-impl OpsSnapshotDiff {
-    /// Compute the delta for each service vs the previous snapshot.
-    /// Advances the internal "last" table to the passed-in `current`
-    /// via a zero-copy `Arc` promotion.
-    ///
-    /// Services that went backwards (counter reset, restart) produce
-    /// a delta of 0, this is safer than a huge wraparound number.
-    ///
-    /// The returned map only contains services with a strictly
-    /// positive delta, so idle services are omitted and
-    /// [`apply_scrape`] can skip them without extra filtering.
-    pub fn delta_and_advance(&mut self, current: HashMap<String, u64>) -> HashMap<String, u64> {
-        let mut out = HashMap::with_capacity(current.len());
-        let previous = self.last.as_deref();
-        for (service, &now) in &current {
-            let before = previous.and_then(|p| p.get(service)).copied().unwrap_or(0);
-            let delta = now.saturating_sub(before);
-            if delta > 0 {
-                out.insert(service.clone(), delta);
-            }
-        }
-        // Promote `current` into an Arc and replace the previous
-        // snapshot. No deep clone of the keys, the `Arc` just bumps
-        // the refcount of the already-allocated HashMap.
-        self.last = Some(Arc::new(current));
-        out
-    }
-}
 
 /// Convert a per-process power reading + observed op count into an
 /// energy-per-op coefficient (kWh per op).
@@ -108,8 +52,9 @@ pub fn compute_energy_per_op_kwh(
 ///
 /// Takes the already-parsed `power_readings` (from
 /// [`super::parser::parse_scaphandre_metrics`]), the per-service op
-/// delta (from [`OpsSnapshotDiff::delta_and_advance`]), and the
-/// scraper config. Iterates the config's `process_map` to find each
+/// delta (from
+/// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff::delta_and_advance`]),
+/// and the scraper config. Iterates the config's `process_map` to find each
 /// mapped service, looks up its process's current power, and calls
 /// [`compute_energy_per_op_kwh`] to derive the coefficient. If the
 /// op delta is 0 for a service, the existing entry (if any) is left

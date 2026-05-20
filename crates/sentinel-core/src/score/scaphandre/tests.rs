@@ -9,8 +9,10 @@ use std::time::Duration;
 
 use crate::http_client::build_client as build_scraper_client;
 
+use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
+
 use super::config::ScaphandreConfig;
-use super::ops::{OpsSnapshotDiff, apply_scrape, compute_energy_per_op_kwh};
+use super::ops::{apply_scrape, compute_energy_per_op_kwh};
 use super::parser::{ProcessPower, parse_scaphandre_metrics};
 use super::scraper::{ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper};
 use super::state::ScaphandreState;

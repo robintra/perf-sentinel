@@ -234,9 +234,9 @@ pub struct MetricsState {
     /// cumulative I/O ops per service. Labeled with the
     /// `service` attribute from span `service.name`. Exposed so
     /// Grafana dashboards can show per-service throughput, and used
-    /// by the Scaphandre scraper to compute per-service op deltas
+    /// by every measured-energy scraper to compute per-service op deltas
     /// without running a parallel counter (see
-    /// [`crate::score::scaphandre::OpsSnapshotDiff`]).
+    /// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff`]).
     pub service_io_ops_total: CounterVec,
     /// age in seconds since the last successful Scaphandre
     /// scrape. Reset to 0 on each successful scrape and incremented
@@ -677,9 +677,9 @@ impl MetricsState {
     ///
     /// Returns a `HashMap<service_name, cumulative_count>` built by
     /// iterating the Prometheus `CounterVec` metric families via the
-    /// registry's `gather()` method. The Scaphandre scraper calls
+    /// registry's `gather()` method. Each measured-energy scraper calls
     /// this once per tick and feeds it into
-    /// [`crate::score::scaphandre::OpsSnapshotDiff`] to compute the
+    /// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff`] to compute the
     /// per-service op delta for the current window.
     ///
     /// Returns an empty map when no services have been observed yet.

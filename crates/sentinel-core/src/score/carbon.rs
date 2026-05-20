@@ -65,15 +65,25 @@ pub const CO2_MODEL: &str = "io_proxy_v1";
 pub const CO2_MODEL_V2: &str = "io_proxy_v2";
 
 /// Carbon estimation model: monthly x hourly carbon intensity profiles.
-/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+/// Precedence: `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_V3: &str = "io_proxy_v3";
 
 /// Carbon estimation model: Scaphandre per-process RAPL measurement.
-/// Highest precedence.
+/// Highest measured-energy precedence (`x86_64` only, RAPL-dependent).
 pub const CO2_MODEL_SCAPHANDRE: &str = "scaphandre_rapl";
 
+/// Carbon estimation model: Kepler eBPF + perf-counter measurement.
+/// Sits between Scaphandre (RAPL) and the cloud `SPECpower` interpolation.
+/// Works on ARM with degraded precision vs the Scaphandre x86 path.
+pub const CO2_MODEL_KEPLER: &str = "kepler_ebpf";
+
+/// Carbon estimation model: Redfish BMC wall-plug power reading.
+/// Bare-metal only, node-level granularity (single shared coefficient
+/// across services on the same chassis).
+pub const CO2_MODEL_REDFISH: &str = "redfish_bmc";
+
 /// Carbon estimation model: cloud CPU% + `SPECpower` interpolation.
-/// Precedence: `scaphandre_rapl` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
+/// Precedence: `scaphandre_rapl` > `kepler_ebpf` > `redfish_bmc` > `cloud_specpower` > `io_proxy_v3` > `io_proxy_v2` > `io_proxy_v1`.
 pub const CO2_MODEL_CLOUD_SPECPOWER: &str = "cloud_specpower";
 
 /// Carbon intensity source: Electricity Maps real-time API data.
@@ -136,8 +146,9 @@ pub const REGION_STATUS_UNRESOLVED: &str = "unresolved";
 pub struct EnergyEntry {
     /// Energy consumed per I/O operation, in kWh.
     pub energy_per_op_kwh: f64,
-    /// Model tag identifying the measurement source.
-    /// One of [`CO2_MODEL_SCAPHANDRE`] or [`CO2_MODEL_CLOUD_SPECPOWER`].
+    /// Model tag identifying the measurement source. One of
+    /// [`CO2_MODEL_SCAPHANDRE`], [`CO2_MODEL_KEPLER`],
+    /// [`CO2_MODEL_REDFISH`], or [`CO2_MODEL_CLOUD_SPECPOWER`].
     pub model_tag: &'static str,
 }
 
@@ -148,6 +159,24 @@ impl EnergyEntry {
         Self {
             energy_per_op_kwh,
             model_tag: CO2_MODEL_SCAPHANDRE,
+        }
+    }
+
+    /// Build an entry from a Kepler eBPF measurement.
+    #[must_use]
+    pub const fn kepler(energy_per_op_kwh: f64) -> Self {
+        Self {
+            energy_per_op_kwh,
+            model_tag: CO2_MODEL_KEPLER,
+        }
+    }
+
+    /// Build an entry from a Redfish BMC wall-plug measurement.
+    #[must_use]
+    pub const fn redfish(energy_per_op_kwh: f64) -> Self {
+        Self {
+            energy_per_op_kwh,
+            model_tag: CO2_MODEL_REDFISH,
         }
     }
 
