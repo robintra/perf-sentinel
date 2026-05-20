@@ -19,6 +19,7 @@ use crate::report::metrics::MetricsState;
 use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
+use crate::score::kepler::KeplerState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::findings_store;
@@ -44,6 +45,7 @@ pub(super) struct ShutdownTargets<'a> {
 #[derive(Clone, Copy)]
 pub(super) struct EnergyScraperHandles<'a> {
     pub(super) scaphandre: Option<&'a tokio::task::JoinHandle<()>>,
+    pub(super) kepler: Option<&'a tokio::task::JoinHandle<()>>,
     pub(super) cloud: Option<&'a tokio::task::JoinHandle<()>>,
     pub(super) emaps: Option<&'a tokio::task::JoinHandle<()>>,
 }
@@ -62,6 +64,8 @@ pub(super) struct EnergySources<'a> {
     pub(super) base_carbon_ctx: &'a score::carbon::CarbonContext,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
     pub(super) scaphandre_staleness_ms: u64,
+    pub(super) kepler_state: Option<&'a KeplerState>,
+    pub(super) kepler_staleness_ms: u64,
     pub(super) cloud_state: Option<&'a CloudEnergyState>,
     pub(super) cloud_staleness_ms: u64,
     pub(super) emaps_state: Option<&'a ElectricityMapsState>,
@@ -243,6 +247,8 @@ async fn flush_evicted(
         sources.base_carbon_ctx,
         sources.scaphandre_state,
         sources.scaphandre_staleness_ms,
+        sources.kepler_state,
+        sources.kepler_staleness_ms,
         sources.cloud_state,
         sources.cloud_staleness_ms,
         sources.emaps_state,
@@ -275,6 +281,9 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
     if let Some(handle) = energy.cloud {
         handle.abort();
     }
+    if let Some(handle) = energy.kepler {
+        handle.abort();
+    }
     if let Some(handle) = energy.scaphandre {
         handle.abort();
     }
@@ -297,12 +306,16 @@ fn shutdown_listeners(energy: EnergyScraperHandles<'_>, listeners: ListenerHandl
 /// has a reading to inject. `process_traces` takes `&CarbonContext`
 /// so the Cow is cheap to use at the call site via `&*ctx`.
 ///
-/// Scaphandre entries take precedence over cloud entries for the same
-/// service (direct RAPL measurement beats `SPECpower` interpolation).
+/// Precedence (highest to lowest): Scaphandre RAPL, Kepler eBPF, cloud
+/// `SPECpower`. Inserted in reverse order so the highest-fidelity entry
+/// wins for any service that appears in multiple snapshots.
+#[allow(clippy::too_many_arguments)]
 fn build_tick_ctx<'a>(
     base: &'a score::carbon::CarbonContext,
     scaphandre_state: Option<&ScaphandreState>,
     scaphandre_staleness_ms: u64,
+    kepler_state: Option<&KeplerState>,
+    kepler_staleness_ms: u64,
     cloud_state: Option<&CloudEnergyState>,
     cloud_staleness_ms: u64,
     emaps_state: Option<&ElectricityMapsState>,
@@ -310,11 +323,15 @@ fn build_tick_ctx<'a>(
 ) -> std::borrow::Cow<'a, score::carbon::CarbonContext> {
     let now = score::scaphandre::monotonic_ms();
 
-    // Cloud entries first (lower precedence).
+    // Cloud entries first (lowest precedence).
     let cloud_snap = cloud_state
         .map(|s| s.snapshot(now, cloud_staleness_ms))
         .unwrap_or_default();
-    // Scaphandre entries override cloud for the same service.
+    // Kepler entries override cloud for the same service.
+    let kepler_snap = kepler_state
+        .map(|s| s.snapshot(now, kepler_staleness_ms))
+        .unwrap_or_default();
+    // Scaphandre entries override Kepler and cloud for the same service.
     let scaph_snap = scaphandre_state
         .map(|s| s.snapshot(now, scaphandre_staleness_ms))
         .unwrap_or_default();
@@ -324,15 +341,24 @@ fn build_tick_ctx<'a>(
         .unwrap_or_default();
 
     // Fast path: nothing fresh this tick → no clone, just borrow base.
-    if cloud_snap.is_empty() && scaph_snap.is_empty() && emaps_snap.is_empty() {
+    if cloud_snap.is_empty()
+        && kepler_snap.is_empty()
+        && scaph_snap.is_empty()
+        && emaps_snap.is_empty()
+    {
         return std::borrow::Cow::Borrowed(base);
     }
 
     // Slow path: materialize a merged snapshot and clone base.
     let mut merged: std::collections::HashMap<String, score::carbon::EnergyEntry> =
-        std::collections::HashMap::with_capacity(cloud_snap.len() + scaph_snap.len());
+        std::collections::HashMap::with_capacity(
+            cloud_snap.len() + kepler_snap.len() + scaph_snap.len(),
+        );
     for (service, energy_kwh) in cloud_snap {
         merged.insert(service, score::carbon::EnergyEntry::cloud(energy_kwh));
+    }
+    for (service, energy_kwh) in kepler_snap {
+        merged.insert(service, score::carbon::EnergyEntry::kepler(energy_kwh));
     }
     for (service, energy_kwh) in scaph_snap {
         merged.insert(service, score::carbon::EnergyEntry::scaphandre(energy_kwh));
@@ -815,7 +841,7 @@ mod tests {
     fn build_tick_ctx_no_scrapers_yields_borrowed_cow() {
         // Fast path: no scrapers → Cow::Borrowed, no clone.
         let base = score::carbon::CarbonContext::default();
-        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0);
+        let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, None, 0);
         assert!(matches!(ctx, std::borrow::Cow::Borrowed(_)));
         assert!(ctx.energy_snapshot.is_none());
     }
@@ -825,7 +851,7 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
-        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0, None, 0);
+        let ctx = build_tick_ctx(&base, Some(&scaph), 500, None, 0, None, 0, None, 0);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
@@ -836,27 +862,53 @@ mod tests {
         let base = score::carbon::CarbonContext::default();
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-b".into(), 2e-7, 100);
-        let ctx = build_tick_ctx(&base, None, 0, Some(&cloud), 500, None, 0);
+        let ctx = build_tick_ctx(&base, None, 0, None, 0, Some(&cloud), 500, None, 0);
         let snap = ctx.energy_snapshot.as_ref().unwrap();
         assert_eq!(snap.len(), 1);
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
     }
 
     #[test]
-    fn build_tick_ctx_scaphandre_overrides_cloud_for_same_service() {
+    fn build_tick_ctx_kepler_only() {
+        let base = score::carbon::CarbonContext::default();
+        let kepler = KeplerState::new();
+        kepler.insert_for_test("svc-k".into(), 4e-7, 100);
+        let ctx = build_tick_ctx(&base, None, 0, Some(&kepler), 500, None, 0, None, 0);
+        let snap = ctx.energy_snapshot.as_ref().unwrap();
+        assert_eq!(snap.len(), 1);
+        assert_eq!(snap["svc-k"].model_tag, "kepler_ebpf");
+    }
+
+    #[test]
+    fn build_tick_ctx_scaphandre_overrides_kepler_overrides_cloud_for_same_service() {
         let base = score::carbon::CarbonContext::default();
         let scaph = ScaphandreState::new();
         scaph.insert_for_test("svc-a".into(), 1e-7, 100);
+        let kepler = KeplerState::new();
+        kepler.insert_for_test("svc-a".into(), 2e-7, 100);
+        kepler.insert_for_test("svc-k".into(), 4e-7, 100);
         let cloud = CloudEnergyState::new();
         cloud.insert_for_test("svc-a".into(), 5e-7, 100);
         cloud.insert_for_test("svc-b".into(), 3e-7, 100);
-        let ctx = build_tick_ctx(&base, Some(&scaph), 500, Some(&cloud), 500, None, 0);
+        let ctx = build_tick_ctx(
+            &base,
+            Some(&scaph),
+            500,
+            Some(&kepler),
+            500,
+            Some(&cloud),
+            500,
+            None,
+            0,
+        );
         let snap = ctx.energy_snapshot.as_ref().unwrap();
-        assert_eq!(snap.len(), 2);
-        // svc-a: Scaphandre wins (1e-7, not 5e-7)
+        assert_eq!(snap.len(), 3);
+        // svc-a: Scaphandre wins (top of precedence).
         assert_eq!(snap["svc-a"].model_tag, "scaphandre_rapl");
         assert!((snap["svc-a"].energy_per_op_kwh - 1e-7).abs() < 1e-15);
-        // svc-b: cloud only
+        // svc-k: Kepler-only entry survives.
+        assert_eq!(snap["svc-k"].model_tag, "kepler_ebpf");
+        // svc-b: cloud only.
         assert_eq!(snap["svc-b"].model_tag, "cloud_specpower");
     }
 

@@ -13,6 +13,7 @@ use std::time::Duration;
 use crate::detect::Confidence;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
+use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::scaphandre::ScaphandreConfig;
 
 /// Top-level configuration for perf-sentinel.
@@ -163,6 +164,8 @@ pub struct GreenConfig {
     pub use_hourly_profiles: bool,
     /// Scaphandre RAPL scraper config (daemon only).
     pub scaphandre: Option<ScaphandreConfig>,
+    /// Kepler eBPF energy scraper config (daemon only).
+    pub kepler: Option<KeplerConfig>,
     /// Cloud CPU% + `SPECpower` config (daemon only).
     pub cloud_energy: Option<CloudEnergyConfig>,
     /// Whether to use per-operation energy coefficients (SQL verb weighting,
@@ -349,6 +352,7 @@ impl Default for GreenConfig {
             embodied_carbon_per_request_gco2: DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2,
             use_hourly_profiles: true,
             scaphandre: None,
+            kepler: None,
             cloud_energy: None,
             per_operation_coefficients: true,
             include_network_transport: false,
@@ -515,6 +519,8 @@ struct GreenSection {
     /// Scaphandre scraper section. Absent when Scaphandre
     /// is not configured.
     scaphandre: ScaphandreSection,
+    /// Kepler scraper section. Absent when Kepler is not configured.
+    kepler: KeplerSection,
     /// Cloud energy section. Absent when cloud energy is not configured.
     cloud: CloudSection,
     per_operation_coefficients: Option<bool>,
@@ -539,6 +545,21 @@ struct ScaphandreSection {
     endpoint: Option<String>,
     scrape_interval_secs: Option<u64>,
     process_map: HashMap<String, String>,
+    auth_header: Option<String>,
+}
+
+/// Raw deserialization target for `[green.kepler]`.
+///
+/// Converted to a `KeplerConfig` during `RawConfig → Config` only when
+/// `endpoint` is set. The optional `metric_kind` string accepts
+/// `"container"` (default), `"process_package"`, or `"process_dram"`.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct KeplerSection {
+    endpoint: Option<String>,
+    scrape_interval_secs: Option<u64>,
+    metric_kind: Option<String>,
+    service_mappings: HashMap<String, String>,
     auth_header: Option<String>,
 }
 
@@ -905,6 +926,7 @@ impl From<RawConfig> for Config {
                     .use_hourly_profiles
                     .unwrap_or(green_defaults.use_hourly_profiles),
                 scaphandre: convert_scaphandre_section(&raw.green.scaphandre),
+                kepler: convert_kepler_section(&raw.green.kepler),
                 cloud_energy: convert_cloud_section(&raw.green.cloud),
                 per_operation_coefficients: raw
                     .green
@@ -1197,6 +1219,63 @@ fn convert_scaphandre_section_with_env(
         // to the [1, 3600] range.
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
         process_map: raw.process_map.clone(),
+        auth_header,
+    })
+}
+
+/// Parse a `[green.kepler] metric_kind = "..."` string into the typed
+/// enum. Defaults to `Container` when unset. Returns an error string
+/// when the value is set but unrecognized.
+fn parse_kepler_metric_kind(raw: Option<&str>) -> Result<KeplerMetricKind, String> {
+    match raw.map(str::trim) {
+        None | Some("" | "container") => Ok(KeplerMetricKind::Container),
+        Some("process_package") => Ok(KeplerMetricKind::ProcessPackage),
+        Some("process_dram") => Ok(KeplerMetricKind::ProcessDram),
+        Some(other) => Err(format!(
+            "[green.kepler] metric_kind '{other}' is not recognized \
+             (expected 'container', 'process_package', or 'process_dram')"
+        )),
+    }
+}
+
+/// Convert the raw `[green.kepler]` TOML section into a typed config.
+///
+/// Returns `None` when `endpoint` is absent. An invalid `metric_kind`
+/// surfaces a `tracing::error` and yields `None` here, the dedicated
+/// validation pass at config-load time also rejects it loudly via
+/// [`Config::validate_kepler`].
+fn convert_kepler_section(raw: &KeplerSection) -> Option<KeplerConfig> {
+    convert_kepler_section_with_env(raw, || {
+        std::env::var("PERF_SENTINEL_KEPLER_AUTH_HEADER").ok()
+    })
+}
+
+fn convert_kepler_section_with_env(
+    raw: &KeplerSection,
+    env_lookup: impl FnOnce() -> Option<String>,
+) -> Option<KeplerConfig> {
+    let endpoint = raw.endpoint.as_ref()?;
+    let metric_kind = match parse_kepler_metric_kind(raw.metric_kind.as_deref()) {
+        Ok(k) => k,
+        Err(msg) => {
+            tracing::error!("{msg}");
+            return None;
+        }
+    };
+    let from_env = env_lookup();
+    let auth_header = from_env.clone().or_else(|| raw.auth_header.clone());
+    if from_env.is_none() && raw.auth_header.is_some() {
+        tracing::warn!(
+            "[green.kepler] auth_header is set in the config file. \
+             Prefer the PERF_SENTINEL_KEPLER_AUTH_HEADER environment variable \
+             to avoid committing secrets to version control."
+        );
+    }
+    Some(KeplerConfig {
+        endpoint: endpoint.clone(),
+        scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(5)),
+        metric_kind,
+        service_mappings: raw.service_mappings.clone(),
         auth_header,
     })
 }
@@ -1712,6 +1791,9 @@ impl Config {
         if let Some(cfg) = &self.green.scaphandre {
             Self::validate_scaphandre(cfg)?;
         }
+        if let Some(cfg) = &self.green.kepler {
+            Self::validate_kepler(cfg)?;
+        }
         if let Some(cfg) = &self.green.cloud_energy {
             Self::validate_cloud_energy(cfg)?;
         }
@@ -1917,6 +1999,71 @@ impl Config {
         if let Some(auth) = cfg.auth_header.as_deref() {
             crate::ingest::auth_header::AuthHeader::parse(auth)
                 .map_err(|msg| format!("[green.scaphandre] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Validate a parsed `[green.kepler]` config section.
+    ///
+    /// Same shape as [`Self::validate_scaphandre`]: rejects empty
+    /// endpoints, non-`http(s)` schemes, embedded credentials, control
+    /// chars, invalid ports, `scrape_interval_secs` outside [1, 3600],
+    /// and `service_mappings` keys/values outside [1, 256] chars or with
+    /// control chars.
+    fn validate_kepler(cfg: &KeplerConfig) -> Result<(), String> {
+        if cfg.endpoint.is_empty() {
+            return Err(
+                "[green.kepler] endpoint is required when the section is present".to_string(),
+            );
+        }
+        if !cfg.endpoint.starts_with("http://") && !cfg.endpoint.starts_with("https://") {
+            return Err(format!(
+                "[green.kepler] endpoint '{}' must start with 'http://' or 'https://'",
+                cfg.endpoint
+            ));
+        }
+        validate_http_authority(&cfg.endpoint, "[green.kepler] endpoint")?;
+        let secs = cfg.scrape_interval.as_secs();
+        if !(1..=3600).contains(&secs) {
+            return Err(format!(
+                "[green.kepler] scrape_interval_secs must be in [1, 3600], got {secs}"
+            ));
+        }
+        Self::validate_kepler_service_mappings(cfg)?;
+        #[cfg(any(feature = "daemon", feature = "tempo", feature = "jaeger-query"))]
+        if let Some(auth) = cfg.auth_header.as_deref() {
+            crate::ingest::auth_header::AuthHeader::parse(auth)
+                .map_err(|msg| format!("[green.kepler] auth_header: {msg}"))?;
+        }
+        Ok(())
+    }
+
+    /// Validate `[green.kepler].service_mappings` keys and values.
+    fn validate_kepler_service_mappings(cfg: &KeplerConfig) -> Result<(), String> {
+        for (service, label) in &cfg.service_mappings {
+            if service.is_empty() || service.len() > 256 {
+                return Err(format!(
+                    "[green.kepler] service_mappings service name '{service}' must be 1-256 chars"
+                ));
+            }
+            if has_control_char(service) {
+                return Err(format!(
+                    "[green.kepler] service_mappings service name '{service}' \
+                     contains control characters"
+                ));
+            }
+            if label.is_empty() || label.len() > 256 {
+                return Err(format!(
+                    "[green.kepler] service_mappings label for service '{service}' \
+                     must be 1-256 chars, got '{label}'"
+                ));
+            }
+            if has_control_char(label) {
+                return Err(format!(
+                    "[green.kepler] service_mappings label for service '{service}' \
+                     contains control characters"
+                ));
+            }
         }
         Ok(())
     }

@@ -23,6 +23,7 @@ use crate::report::metrics::MetricsState;
 use crate::score;
 use crate::score::cloud_energy::CloudEnergyState;
 use crate::score::electricity_maps::ElectricityMapsState;
+use crate::score::kepler::KeplerState;
 use crate::score::scaphandre::ScaphandreState;
 
 use super::DaemonError;
@@ -504,6 +505,29 @@ pub(super) fn setup_scaphandre_scraper(
     let staleness_ms = scaph_cfg.scrape_interval.as_millis() as u64 * 3;
     let state = ScaphandreState::new();
     let handle = score::scaphandre::spawn_scraper(scaph_cfg, state.clone(), metrics.clone());
+    ScraperSetup {
+        state: Some(state),
+        handle: Some(handle),
+        staleness_ms,
+    }
+}
+
+/// Spawn the Kepler scraper when `[green.kepler]` is configured. Same
+/// staleness convention as Scaphandre (`3x scrape interval`).
+pub(super) fn setup_kepler_scraper(
+    config: &Config,
+    metrics: &Arc<MetricsState>,
+) -> ScraperSetup<KeplerState> {
+    let Some(kepler_cfg) = config.green.kepler.clone() else {
+        return ScraperSetup {
+            state: None,
+            handle: None,
+            staleness_ms: 0,
+        };
+    };
+    let staleness_ms = kepler_cfg.scrape_interval.as_millis() as u64 * 3;
+    let state = KeplerState::new();
+    let handle = score::kepler::spawn_scraper(kepler_cfg, state.clone(), metrics.clone());
     ScraperSetup {
         state: Some(state),
         handle: Some(handle),

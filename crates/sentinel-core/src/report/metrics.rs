@@ -173,6 +173,43 @@ impl ScaphandreScrapeReason {
     }
 }
 
+/// `reason` label of `perf_sentinel_kepler_scrape_failed_total`. Mirrors
+/// [`ScaphandreScrapeReason`] one-for-one so dashboards can build a
+/// single panel that union-rates both sources.
+#[cfg(feature = "daemon")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum KeplerScrapeReason {
+    Unreachable,
+    Timeout,
+    HttpError,
+    BodyReadError,
+    RequestError,
+    InvalidUtf8,
+}
+
+#[cfg(feature = "daemon")]
+impl KeplerScrapeReason {
+    pub(crate) const ALL: [Self; 6] = [
+        Self::Unreachable,
+        Self::Timeout,
+        Self::HttpError,
+        Self::BodyReadError,
+        Self::RequestError,
+        Self::InvalidUtf8,
+    ];
+
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unreachable => "unreachable",
+            Self::Timeout => "timeout",
+            Self::HttpError => "http_error",
+            Self::BodyReadError => "body_read_error",
+            Self::RequestError => "request_error",
+            Self::InvalidUtf8 => "invalid_utf8",
+        }
+    }
+}
+
 /// Build an `IntCounterVec` and register it on the given registry,
 /// failing the daemon at startup on metric creation or registration
 /// failure. Both branches are infallible in practice (label set is
@@ -321,6 +358,24 @@ pub struct MetricsState {
     /// Cached child for `scaphandre_scrape_total{status="failed"}`.
     #[cfg(feature = "daemon")]
     pub scaphandre_scrape_failed: IntCounter,
+    /// Age in seconds since the last successful Kepler scrape. Same
+    /// shape as the Scaphandre counterpart, stays at 0 when Kepler is
+    /// not configured.
+    pub kepler_last_scrape_age_seconds: Gauge,
+    /// Kepler scrape attempts on the daemon-side scraper, labeled by
+    /// `status` (`success` or `failed`).
+    #[cfg(feature = "daemon")]
+    pub kepler_scrape_total: IntCounterVec,
+    /// Failed Kepler scrapes, labeled by failure `reason`. Pre-warmed
+    /// to 0 for the six reachable variants of [`KeplerScrapeReason`].
+    #[cfg(feature = "daemon")]
+    pub kepler_scrape_failed_total: IntCounterVec,
+    /// Cached child for `kepler_scrape_total{status="success"}`.
+    #[cfg(feature = "daemon")]
+    pub kepler_scrape_success: IntCounter,
+    /// Cached child for `kepler_scrape_total{status="failed"}`.
+    #[cfg(feature = "daemon")]
+    pub kepler_scrape_failed: IntCounter,
     /// Worst-case `trace_id` per (`finding_type`, severity) for exemplars.
     worst_finding_trace: Arc<RwLock<HashMap<(&'static str, &'static str), ExemplarData>>>,
     /// Worst-case `trace_id` for io waste ratio.
@@ -462,6 +517,15 @@ impl MetricsState {
             .register(Box::new(cloud_energy_last_scrape_age_seconds.clone()))
             .expect("registration should not fail");
 
+        let kepler_last_scrape_age_seconds = Gauge::new(
+            "perf_sentinel_kepler_last_scrape_age_seconds",
+            "Age in seconds since the last successful Kepler scrape",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(kepler_last_scrape_age_seconds.clone()))
+            .expect("registration should not fail");
+
         let export_report_requests_total = Counter::new(
             "perf_sentinel_export_report_requests_total",
             "Total requests to GET /api/export/report since daemon start",
@@ -587,6 +651,29 @@ impl MetricsState {
             let _ = scaphandre_scrape_failed_total.with_label_values(&[reason.as_str()]);
         }
 
+        #[cfg(feature = "daemon")]
+        let kepler_scrape_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_kepler_scrape_total",
+            "Total Kepler scrape attempts on the daemon scraper, by outcome",
+            &["status"],
+        );
+        #[cfg(feature = "daemon")]
+        let kepler_scrape_failed_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_kepler_scrape_failed_total",
+            "Failed Kepler scrapes on the daemon scraper, by failure reason",
+            &["reason"],
+        );
+        #[cfg(feature = "daemon")]
+        let kepler_scrape_success = kepler_scrape_total.with_label_values(&["success"]);
+        #[cfg(feature = "daemon")]
+        let kepler_scrape_failed = kepler_scrape_total.with_label_values(&["failed"]);
+        #[cfg(feature = "daemon")]
+        for reason in &KeplerScrapeReason::ALL {
+            let _ = kepler_scrape_failed_total.with_label_values(&[reason.as_str()]);
+        }
+
         // Process metrics (RSS, FDs, start_time, CPU). procfs-backed,
         // Linux-only. On macOS/Windows we skip registration so each
         // scrape does not pay for failed reads under the hood.
@@ -632,6 +719,15 @@ impl MetricsState {
             scaphandre_scrape_success,
             #[cfg(feature = "daemon")]
             scaphandre_scrape_failed,
+            kepler_last_scrape_age_seconds,
+            #[cfg(feature = "daemon")]
+            kepler_scrape_total,
+            #[cfg(feature = "daemon")]
+            kepler_scrape_failed_total,
+            #[cfg(feature = "daemon")]
+            kepler_scrape_success,
+            #[cfg(feature = "daemon")]
+            kepler_scrape_failed,
             worst_finding_trace: Arc::new(RwLock::new(HashMap::new())),
             worst_waste_trace: Arc::new(RwLock::new(None)),
         }

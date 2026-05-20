@@ -95,6 +95,21 @@ pub fn redact_endpoint(uri: &Uri) -> String {
     }
 }
 
+/// Strip userinfo from a raw endpoint string when the URI did not parse
+/// (so [`redact_endpoint`] cannot run). Defense in depth, config-load
+/// validation already rejects `@` in the authority for every scraper.
+#[must_use]
+pub fn redact_endpoint_str(raw: &str) -> String {
+    let Some((scheme, rest)) = raw.split_once("://") else {
+        return raw.to_string();
+    };
+    let first_slash = rest.find('/').unwrap_or(rest.len());
+    let authority = &rest[..first_slash];
+    let tail = &rest[first_slash..];
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    format!("{scheme}://{host_port}{tail}")
+}
+
 /// Errors from [`fetch_get`]. Uses the same variants that the individual
 /// scrapers had independently, now unified so callers `.map_err()` into
 /// their domain-specific error type with a one-liner.
@@ -503,5 +518,56 @@ mod tests {
             "request body missing, got:\n{text}"
         );
         server.await.unwrap();
+    }
+
+    // --- redact_endpoint_str (raw-string variant) -------------------
+
+    #[test]
+    fn redact_endpoint_str_strips_userinfo() {
+        assert_eq!(
+            redact_endpoint_str("http://admin:secret@localhost:8080/scrape"),
+            "http://localhost:8080/scrape"
+        );
+    }
+
+    #[test]
+    fn redact_endpoint_str_returns_input_when_no_scheme() {
+        // Without a scheme there is no authority delimiter, so the
+        // helper bails out. Caller-side validation rejects this case
+        // before logs ever reach the helper.
+        assert_eq!(
+            redact_endpoint_str("user:pass@example.com/foo"),
+            "user:pass@example.com/foo"
+        );
+    }
+
+    #[test]
+    fn redact_endpoint_str_keeps_at_in_path() {
+        // `@` inside the path component is valid per RFC 3986 and must
+        // not be confused with userinfo.
+        assert_eq!(redact_endpoint_str("http://host/u@v"), "http://host/u@v");
+    }
+
+    #[test]
+    fn redact_endpoint_str_with_multiple_at_in_userinfo() {
+        // RFC 3986 §3.2.1 says the last `@` in the authority is the
+        // userinfo terminator. `rsplit_once('@')` honors that.
+        assert_eq!(
+            redact_endpoint_str("http://a@b:c@host/path"),
+            "http://host/path"
+        );
+    }
+
+    #[test]
+    fn redact_endpoint_str_handles_empty_input() {
+        assert_eq!(redact_endpoint_str(""), "");
+    }
+
+    #[test]
+    fn redact_endpoint_str_strips_only_userinfo_when_path_also_has_at() {
+        assert_eq!(
+            redact_endpoint_str("http://user:pass@host:8080/x@y"),
+            "http://host:8080/x@y"
+        );
     }
 }
