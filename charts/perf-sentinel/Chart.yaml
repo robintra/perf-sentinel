@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.38
-appVersion: "0.7.3"
+version: 0.2.39
+appVersion: "0.7.4"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -37,11 +37,11 @@ annotations:
     - name: Helm deployment guide
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
-    - kind: changed
-      description: "appVersion 0.7.3: refresh GreenOps reference data. Per-provider PUE constants aligned with the latest sustainability reports (AWS 1.135 to 1.15, GCP 1.10 to 1.09, Azure 1.185 to 1.17, generic unchanged at 1.2). Cloud instance coefficients aligned with the ccf-coefficients 2026-04-24 snapshot across AWS, GCP, and Azure (about 390 instance types). New AWS families: m8a, c8a (EPYC Turin), m8i, c8i (Emerald Rapids), r7a (Genoa memory-optimized). New GCP family: c4a (Axion ARM). Memory-optimized SKUs now carry an additive DRAM premium (0.02 W/GB idle, 0.05 W/GB max). The binary SPECpower vintage is now surfaced in periodic disclosure reports under methodology.calibration_inputs.binary_specpower_vintage and cross-checked against the operator-declared specpower_table_version for Official intent reports."
+    - kind: added
+      description: "appVersion 0.7.4: two new opt-in measured-energy sources extend the carbon attribution stack on ARM64 and bare-metal hosts. Kepler (kepler_ebpf) reads eBPF per-container or per-process joule counters, either directly from a Kepler exporter or through Prometheus when Kepler runs as a DaemonSet. Redfish BMC (redfish_bmc) reads chassis wall-plug watts from the baseboard management controller and attributes them per service proportionally to ops-deltas, with operator-supplied CA bundle support for self-signed certificates. The carbon precedence chain becomes electricity_maps_api > scaphandre_rapl > kepler_ebpf > redfish_bmc > cloud_specpower > io_proxy_v3 > io_proxy_v2 > io_proxy_v1. Two new Prometheus gauges are exposed: perf_sentinel_kepler_last_scrape_age_seconds and perf_sentinel_redfish_last_scrape_age_seconds. Both sources are off by default, the +cal calibration suffix continues to apply to proxy models only."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.7.3
+      image: ghcr.io/robintra/perf-sentinel:0.7.4
       platforms:
         - linux/amd64
         - linux/arm64

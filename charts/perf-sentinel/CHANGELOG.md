@@ -6,6 +6,31 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.39]
+
+### Added
+
+- `appVersion` bumped to `0.7.4`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.4`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The
+  0.7.4 binary adds two opt-in measured-energy sources that extend
+  the carbon attribution stack on ARM64 and bare-metal hosts. Kepler
+  (`kepler_ebpf`) reads eBPF per-container or per-process joule
+  counters, either directly from a Kepler exporter or through
+  Prometheus when Kepler runs as a DaemonSet. Redfish BMC
+  (`redfish_bmc`) reads chassis wall-plug watts from the baseboard
+  management controller and attributes them per service
+  proportionally to ops-deltas, with operator-supplied CA bundle
+  support (`ca_bundle_path`) for self-signed certificates. The
+  carbon precedence chain becomes `electricity_maps_api >
+  scaphandre_rapl > kepler_ebpf > redfish_bmc > cloud_specpower >
+  io_proxy_v3 > io_proxy_v2 > io_proxy_v1`. Two new Prometheus
+  gauges are exposed,
+  `perf_sentinel_kepler_last_scrape_age_seconds` and
+  `perf_sentinel_redfish_last_scrape_age_seconds`. Both sources are
+  off by default, the `+cal` calibration suffix continues to apply
+  to proxy models only.
+
 ## [0.2.38]
 
 ### Changed
