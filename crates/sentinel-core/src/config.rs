@@ -2179,9 +2179,7 @@ impl Config {
     }
 
     /// Validate each `chassis_id -> endpoint` pair in `[green.redfish.endpoints]`.
-    fn validate_redfish_endpoints(
-        endpoints: &std::collections::HashMap<String, String>,
-    ) -> Result<(), String> {
+    fn validate_redfish_endpoints(endpoints: &HashMap<String, String>) -> Result<(), String> {
         for (chassis_id, endpoint) in endpoints {
             if chassis_id.is_empty() || chassis_id.len() > 256 {
                 return Err(format!(
@@ -2209,8 +2207,8 @@ impl Config {
     /// Validate each `service -> chassis_id` pair in `[green.redfish.service_mappings]`.
     /// Every mapped chassis must already be declared in `endpoints`.
     fn validate_redfish_service_mappings(
-        service_mappings: &std::collections::HashMap<String, String>,
-        endpoints: &std::collections::HashMap<String, String>,
+        service_mappings: &HashMap<String, String>,
+        endpoints: &HashMap<String, String>,
     ) -> Result<(), String> {
         for (service, chassis_id) in service_mappings {
             if service.is_empty() || service.len() > 256 {

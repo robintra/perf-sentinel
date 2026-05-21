@@ -173,42 +173,12 @@ impl ScaphandreScrapeReason {
     }
 }
 
-/// `reason` label of `perf_sentinel_kepler_scrape_failed_total`. Mirrors
-/// [`ScaphandreScrapeReason`] one-for-one so dashboards can build a
-/// single panel that union-rates both sources.
+/// `reason` label of `perf_sentinel_kepler_scrape_failed_total`. Aliased
+/// to [`ScaphandreScrapeReason`] because Kepler reuses the same six HTTP
+/// failure modes verbatim, so dashboards can build a single panel that
+/// union-rates both sources.
 #[cfg(feature = "daemon")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum KeplerScrapeReason {
-    Unreachable,
-    Timeout,
-    HttpError,
-    BodyReadError,
-    RequestError,
-    InvalidUtf8,
-}
-
-#[cfg(feature = "daemon")]
-impl KeplerScrapeReason {
-    pub(crate) const ALL: [Self; 6] = [
-        Self::Unreachable,
-        Self::Timeout,
-        Self::HttpError,
-        Self::BodyReadError,
-        Self::RequestError,
-        Self::InvalidUtf8,
-    ];
-
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Unreachable => "unreachable",
-            Self::Timeout => "timeout",
-            Self::HttpError => "http_error",
-            Self::BodyReadError => "body_read_error",
-            Self::RequestError => "request_error",
-            Self::InvalidUtf8 => "invalid_utf8",
-        }
-    }
-}
+pub(crate) type KeplerScrapeReason = ScaphandreScrapeReason;
 
 /// `reason` label of `perf_sentinel_redfish_scrape_failed_total`. Adds
 /// three Redfish-specific variants on top of the shared HTTP set:

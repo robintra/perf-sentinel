@@ -72,7 +72,7 @@ pub(super) struct ServiceCarbonAccumulator {
 /// Note: real-time Electricity Maps intensity is intentionally absent
 /// from this ranking. It lives on the orthogonal intensity axis (`I` in
 /// `E × I`) and is selected at the aggregate report level by
-/// [`super::region_breakdown::select_co2_model_tag`], not per-span.
+/// [`region_breakdown::select_co2_model_tag`], not per-span.
 #[inline]
 fn higher_fidelity_measured(
     current: Option<&'static str>,
