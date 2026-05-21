@@ -361,10 +361,24 @@ async fn fetch_metrics_once_reads_from_fake_server() {
 
 #[test]
 fn scraper_error_reason_maps_fetch_errors() {
+    use crate::http_client::FetchError;
+    use crate::report::metrics::KeplerScrapeReason;
     let utf8_err = ScraperError::Utf8(String::from_utf8(vec![0xff, 0xfe]).unwrap_err());
     assert_eq!(
         scraper_error_reason(&utf8_err),
-        crate::report::metrics::KeplerScrapeReason::InvalidUtf8
+        KeplerScrapeReason::InvalidUtf8
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::Timeout)),
+        KeplerScrapeReason::Timeout
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::HttpStatus(503))),
+        KeplerScrapeReason::HttpError
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::BodyRead("eof".into()))),
+        KeplerScrapeReason::BodyReadError
     );
 }
 

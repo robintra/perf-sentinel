@@ -168,6 +168,7 @@ fn build_chassis_services_groups_by_chassis() {
 
 #[test]
 fn scraper_error_reason_maps_fetch_errors() {
+    use crate::http_client::FetchError;
     use crate::report::metrics::RedfishScrapeReason;
     let utf8_err = ScraperError::Utf8(String::from_utf8(vec![0xff, 0xfe]).unwrap_err());
     assert_eq!(
@@ -185,6 +186,18 @@ fn scraper_error_reason_maps_fetch_errors() {
     assert_eq!(
         scraper_error_reason(&ScraperError::InvalidValue),
         RedfishScrapeReason::InvalidValue
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::Timeout)),
+        RedfishScrapeReason::Timeout
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::HttpStatus(500))),
+        RedfishScrapeReason::HttpError
+    );
+    assert_eq!(
+        scraper_error_reason(&ScraperError::Fetch(FetchError::BodyRead("eof".into()))),
+        RedfishScrapeReason::BodyReadError
     );
 }
 

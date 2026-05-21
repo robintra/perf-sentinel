@@ -5054,4 +5054,427 @@ max_files = 0
         let cfg = load_from_str("").expect("empty config parses");
         assert!(cfg.daemon.archive.is_none());
     }
+
+    // ---- Kepler / Redfish converters --------------------------------------
+
+    #[test]
+    fn parse_kepler_metric_kind_defaults_and_aliases() {
+        use crate::score::kepler::config::KeplerMetricKind;
+        assert_eq!(
+            parse_kepler_metric_kind(None).unwrap(),
+            KeplerMetricKind::Container
+        );
+        assert_eq!(
+            parse_kepler_metric_kind(Some("")).unwrap(),
+            KeplerMetricKind::Container
+        );
+        assert_eq!(
+            parse_kepler_metric_kind(Some("container")).unwrap(),
+            KeplerMetricKind::Container
+        );
+        assert_eq!(
+            parse_kepler_metric_kind(Some("process_package")).unwrap(),
+            KeplerMetricKind::ProcessPackage
+        );
+        assert_eq!(
+            parse_kepler_metric_kind(Some("process_dram")).unwrap(),
+            KeplerMetricKind::ProcessDram
+        );
+        // Surrounding whitespace must be trimmed before matching.
+        assert_eq!(
+            parse_kepler_metric_kind(Some("  process_dram  ")).unwrap(),
+            KeplerMetricKind::ProcessDram
+        );
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_unknown_value_errors() {
+        let err = parse_kepler_metric_kind(Some("rapl")).expect_err("unknown variant must error");
+        assert!(err.contains("metric_kind 'rapl'"));
+        assert!(err.contains("container"));
+    }
+
+    #[test]
+    fn convert_kepler_section_without_endpoint_yields_none() {
+        let raw = KeplerSection::default();
+        assert!(convert_kepler_section_with_env(&raw, || None).is_none());
+    }
+
+    #[test]
+    fn convert_kepler_section_env_overrides_file_auth_header() {
+        let raw = KeplerSection {
+            endpoint: Some("http://kepler:9102/metrics".to_string()),
+            auth_header: Some("Bearer file-token".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_kepler_section_with_env(&raw, || Some("Bearer env-token".to_string()))
+            .expect("endpoint set, expected Some");
+        assert_eq!(cfg.auth_header.as_deref(), Some("Bearer env-token"));
+        assert_eq!(cfg.endpoint, "http://kepler:9102/metrics");
+    }
+
+    #[test]
+    fn convert_kepler_section_file_auth_used_when_env_absent() {
+        let raw = KeplerSection {
+            endpoint: Some("http://kepler:9102/metrics".to_string()),
+            auth_header: Some("Bearer file".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_kepler_section_with_env(&raw, || None).expect("endpoint set");
+        assert_eq!(cfg.auth_header.as_deref(), Some("Bearer file"));
+    }
+
+    #[test]
+    fn convert_kepler_section_unknown_metric_kind_yields_none() {
+        let raw = KeplerSection {
+            endpoint: Some("http://kepler:9102/metrics".to_string()),
+            metric_kind: Some("rapl".to_string()),
+            ..Default::default()
+        };
+        assert!(convert_kepler_section_with_env(&raw, || None).is_none());
+    }
+
+    #[test]
+    fn convert_kepler_section_uses_default_scrape_interval() {
+        let raw = KeplerSection {
+            endpoint: Some("http://kepler:9102/metrics".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_kepler_section_with_env(&raw, || None).expect("endpoint set");
+        assert_eq!(cfg.scrape_interval, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn convert_redfish_section_empty_endpoints_yields_none() {
+        let raw = RedfishSection::default();
+        assert!(convert_redfish_section_with_env(&raw, || None).is_none());
+    }
+
+    #[test]
+    fn convert_redfish_section_env_overrides_file_auth_header() {
+        let mut endpoints = HashMap::new();
+        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        let raw = RedfishSection {
+            endpoints,
+            auth_header: Some("Basic file".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_redfish_section_with_env(&raw, || Some("Basic env".to_string()))
+            .expect("endpoints set, expected Some");
+        assert_eq!(cfg.auth_header.as_deref(), Some("Basic env"));
+        assert_eq!(cfg.endpoints.len(), 1);
+    }
+
+    #[test]
+    fn convert_redfish_section_file_auth_used_when_env_absent() {
+        let mut endpoints = HashMap::new();
+        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        let raw = RedfishSection {
+            endpoints,
+            auth_header: Some("Basic file".to_string()),
+            ..Default::default()
+        };
+        let cfg =
+            convert_redfish_section_with_env(&raw, || None).expect("endpoints set, expected Some");
+        assert_eq!(cfg.auth_header.as_deref(), Some("Basic file"));
+    }
+
+    #[test]
+    fn convert_redfish_section_applies_default_power_path() {
+        let mut endpoints = HashMap::new();
+        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        let raw = RedfishSection {
+            endpoints,
+            ..Default::default()
+        };
+        let cfg =
+            convert_redfish_section_with_env(&raw, || None).expect("endpoints set, expected Some");
+        assert_eq!(
+            cfg.power_path,
+            crate::score::redfish::config::DEFAULT_POWER_PATH
+        );
+        assert_eq!(cfg.scrape_interval, Duration::from_mins(1));
+    }
+
+    #[test]
+    fn convert_redfish_section_preserves_explicit_power_path() {
+        let mut endpoints = HashMap::new();
+        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        let raw = RedfishSection {
+            endpoints,
+            power_path: Some("/Power/Reading/0/Watts".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_redfish_section_with_env(&raw, || None).expect("endpoints set");
+        assert_eq!(cfg.power_path, "/Power/Reading/0/Watts");
+    }
+
+    // ---- validate_kepler ---------------------------------------------------
+
+    fn minimal_kepler_config() -> KeplerConfig {
+        use crate::score::kepler::config::KeplerMetricKind;
+        KeplerConfig {
+            endpoint: "http://kepler:9102/metrics".to_string(),
+            scrape_interval: Duration::from_secs(5),
+            metric_kind: KeplerMetricKind::Container,
+            service_mappings: HashMap::new(),
+            auth_header: None,
+        }
+    }
+
+    #[test]
+    fn validate_kepler_accepts_minimal_config() {
+        let cfg = minimal_kepler_config();
+        assert!(Config::validate_kepler(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_kepler_rejects_empty_endpoint() {
+        let mut cfg = minimal_kepler_config();
+        cfg.endpoint = String::new();
+        let err = Config::validate_kepler(&cfg).expect_err("empty endpoint must error");
+        assert!(err.contains("endpoint is required"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_non_http_scheme() {
+        let mut cfg = minimal_kepler_config();
+        cfg.endpoint = "ftp://kepler/metrics".to_string();
+        let err = Config::validate_kepler(&cfg).expect_err("non-http scheme must error");
+        assert!(err.contains("must start with 'http://' or 'https://'"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_scrape_interval_zero() {
+        let mut cfg = minimal_kepler_config();
+        cfg.scrape_interval = Duration::from_secs(0);
+        let err = Config::validate_kepler(&cfg).expect_err("zero interval must error");
+        assert!(err.contains("scrape_interval_secs must be in [1, 3600]"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_scrape_interval_above_max() {
+        let mut cfg = minimal_kepler_config();
+        cfg.scrape_interval = Duration::from_secs(3601);
+        let err = Config::validate_kepler(&cfg).expect_err("interval above 3600 must error");
+        assert!(err.contains("3601"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_empty_service_name() {
+        let mut cfg = minimal_kepler_config();
+        cfg.service_mappings
+            .insert(String::new(), "label".to_string());
+        let err = Config::validate_kepler(&cfg).expect_err("empty service name must error");
+        assert!(err.contains("service name") && err.contains("1-256"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_control_char_in_service_name() {
+        let mut cfg = minimal_kepler_config();
+        cfg.service_mappings
+            .insert("svc\u{0007}".to_string(), "label".to_string());
+        let err = Config::validate_kepler(&cfg).expect_err("control char must error");
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_empty_label() {
+        let mut cfg = minimal_kepler_config();
+        cfg.service_mappings
+            .insert("svc".to_string(), String::new());
+        let err = Config::validate_kepler(&cfg).expect_err("empty label must error");
+        assert!(err.contains("label for service") && err.contains("1-256"));
+    }
+
+    #[test]
+    fn validate_kepler_rejects_control_char_in_label() {
+        let mut cfg = minimal_kepler_config();
+        cfg.service_mappings
+            .insert("svc".to_string(), "lab\u{0007}el".to_string());
+        let err = Config::validate_kepler(&cfg).expect_err("control char in label must error");
+        assert!(err.contains("control characters"));
+    }
+
+    // ---- validate_redfish --------------------------------------------------
+
+    fn minimal_redfish_config() -> RedfishConfig {
+        let mut endpoints = HashMap::new();
+        endpoints.insert("rack1".to_string(), "https://bmc.local/Power".to_string());
+        RedfishConfig {
+            endpoints,
+            scrape_interval: Duration::from_mins(1),
+            service_mappings: HashMap::new(),
+            power_path: "/PowerControl/0/PowerConsumedWatts".to_string(),
+            ca_bundle_path: None,
+            auth_header: None,
+        }
+    }
+
+    #[test]
+    fn validate_redfish_accepts_minimal_config() {
+        let cfg = minimal_redfish_config();
+        assert!(Config::validate_redfish(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_redfish_rejects_empty_endpoints() {
+        let mut cfg = minimal_redfish_config();
+        cfg.endpoints.clear();
+        let err = Config::validate_redfish(&cfg).expect_err("empty endpoints must error");
+        assert!(err.contains("endpoints must contain at least one chassis"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_empty_chassis_id() {
+        let mut cfg = minimal_redfish_config();
+        cfg.endpoints.clear();
+        cfg.endpoints
+            .insert(String::new(), "https://bmc/Power".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("empty chassis id must error");
+        assert!(err.contains("chassis id") && err.contains("1-256"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_control_char_in_chassis_id() {
+        let mut cfg = minimal_redfish_config();
+        cfg.endpoints.clear();
+        cfg.endpoints
+            .insert("rack\u{0007}".to_string(), "https://bmc/Power".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("control char must error");
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_non_http_endpoint() {
+        let mut cfg = minimal_redfish_config();
+        cfg.endpoints.clear();
+        cfg.endpoints
+            .insert("rack1".to_string(), "ftp://bmc/Power".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("non-http endpoint must error");
+        assert!(err.contains("must start with 'http://' or 'https://'"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_scrape_interval_below_min() {
+        let mut cfg = minimal_redfish_config();
+        cfg.scrape_interval = Duration::from_secs(5);
+        let err = Config::validate_redfish(&cfg).expect_err("scrape_interval below 15 must error");
+        assert!(err.contains("scrape_interval_secs"));
+        assert!(err.contains("rate-limit"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_scrape_interval_above_max() {
+        let mut cfg = minimal_redfish_config();
+        cfg.scrape_interval = Duration::from_secs(4000);
+        let err = Config::validate_redfish(&cfg).expect_err("scrape_interval above MAX must error");
+        assert!(err.contains("4000"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_unknown_chassis_in_mapping() {
+        let mut cfg = minimal_redfish_config();
+        cfg.service_mappings
+            .insert("svc".to_string(), "rack-missing".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("unknown chassis must error");
+        assert!(err.contains("rack-missing"));
+        assert!(err.contains("not declared"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_empty_service_name_in_mapping() {
+        let mut cfg = minimal_redfish_config();
+        cfg.service_mappings
+            .insert(String::new(), "rack1".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("empty service name must error");
+        assert!(err.contains("service name") && err.contains("1-256"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_control_char_in_service_name() {
+        let mut cfg = minimal_redfish_config();
+        cfg.service_mappings
+            .insert("svc\u{0001}".to_string(), "rack1".to_string());
+        let err = Config::validate_redfish(&cfg).expect_err("control char must error");
+        assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_empty_power_path() {
+        let mut cfg = minimal_redfish_config();
+        cfg.power_path = String::new();
+        let err = Config::validate_redfish(&cfg).expect_err("empty power_path must error");
+        assert!(err.contains("power_path"));
+        assert!(err.contains("JSON pointer"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_power_path_without_leading_slash() {
+        let mut cfg = minimal_redfish_config();
+        cfg.power_path = "PowerControl/0/Watts".to_string();
+        let err = Config::validate_redfish(&cfg).expect_err("power_path missing slash must error");
+        assert!(err.contains("starting with '/'"));
+    }
+
+    #[test]
+    fn validate_redfish_rejects_empty_ca_bundle_path() {
+        let mut cfg = minimal_redfish_config();
+        cfg.ca_bundle_path = Some(String::new());
+        let err = Config::validate_redfish(&cfg).expect_err("empty ca_bundle_path must error");
+        assert!(err.contains("ca_bundle_path must be non-empty"));
+    }
+
+    // End-to-end TOML load exercises convert_*_section wrappers and the
+    // validate() dispatch lines for kepler/redfish.
+
+    #[test]
+    fn load_toml_with_kepler_and_redfish_sections() {
+        let toml = r#"
+[green.kepler]
+endpoint = "http://kepler:9102/metrics"
+scrape_interval_secs = 10
+metric_kind = "container"
+
+[green.redfish]
+scrape_interval_secs = 60
+power_path = "/PowerControl/0/PowerConsumedWatts"
+
+[green.redfish.endpoints]
+rack1 = "https://bmc.local/Power"
+"#;
+        let cfg = load_from_str(toml).expect("kepler+redfish toml parses and validates");
+        let kepler = cfg.green.kepler.expect("kepler section produced a config");
+        assert_eq!(kepler.endpoint, "http://kepler:9102/metrics");
+        assert_eq!(kepler.scrape_interval, Duration::from_secs(10));
+        let redfish = cfg
+            .green
+            .redfish
+            .expect("redfish section produced a config");
+        assert_eq!(redfish.endpoints.len(), 1);
+        assert_eq!(redfish.scrape_interval, Duration::from_mins(1));
+    }
+
+    #[test]
+    fn load_toml_rejects_invalid_kepler_endpoint() {
+        let toml = r#"
+[green.kepler]
+endpoint = "ftp://kepler/metrics"
+"#;
+        let err = load_from_str(toml).expect_err("invalid scheme must error at validate()");
+        assert!(err.to_string().contains("[green.kepler]"));
+    }
+
+    #[test]
+    fn load_toml_rejects_invalid_redfish_scrape_interval() {
+        let toml = r#"
+[green.redfish]
+scrape_interval_secs = 5
+
+[green.redfish.endpoints]
+rack1 = "https://bmc/Power"
+"#;
+        let err = load_from_str(toml).expect_err("below-min interval must error at validate()");
+        assert!(err.to_string().contains("[green.redfish]"));
+    }
 }
