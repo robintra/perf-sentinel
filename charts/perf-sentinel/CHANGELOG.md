@@ -6,6 +6,26 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.40]
+
+### Fixed
+
+- `appVersion` bumped to `0.7.5`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.5`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The 0.7.5
+  binary aligns the Kepler scraper to the Kepler v2 upstream metric
+  names: the container variant now reads
+  `kepler_container_cpu_joules_total` (was
+  `kepler_container_joules_total`), and the `metric_kind = "process"`
+  value replaces the previous `process_package` / `process_dram`
+  values that targeted metrics Kepler never published. The Process
+  variant reads `kepler_process_cpu_joules_total` keyed by the `comm`
+  label. Operators with `metric_kind = "process_package"` or
+  `metric_kind = "process_dram"` in their config get a clear error at
+  startup pointing at `metric_kind = "process"`. The Redfish BMC
+  integration is unchanged. No chart-level template diff,
+  `values.yaml` schema is byte-for-byte identical to chart-v0.2.39.
+
 ## [0.2.39]
 
 ### Added
