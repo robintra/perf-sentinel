@@ -7,7 +7,9 @@ use std::time::Duration;
 use super::apply::{apply_scrape, compute_energy_per_op_kwh, joules_deltas, process_scrape};
 use super::config::{KeplerConfig, KeplerMetricKind};
 use super::parser::{KeplerSample, parse_kepler_metrics};
-use super::scraper::{ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper};
+use super::scraper::{
+    ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper, track_zero_sample_streak,
+};
 use super::state::KeplerState;
 
 // --- parser tests -----------------------------------------------------
@@ -386,6 +388,90 @@ fn scraper_error_reason_maps_fetch_errors() {
         scraper_error_reason(&ScraperError::Fetch(FetchError::BodyRead("eof".into()))),
         KeplerScrapeReason::BodyReadError
     );
+}
+
+// --- track_zero_sample_streak --------------------------------------
+
+#[test]
+fn track_zero_sample_streak_does_not_warn_under_threshold() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..2 {
+        track_zero_sample_streak(
+            0,
+            0,
+            "http://redacted/metrics",
+            "kepler_container_cpu_joules_total",
+            "container_name",
+            &mut count,
+            &mut warned,
+        );
+    }
+    assert_eq!(count, 2);
+    assert!(
+        !warned,
+        "warn flag must stay false until the 3rd zero-sample tick"
+    );
+}
+
+#[test]
+fn track_zero_sample_streak_warns_after_three_consecutive_empty_ticks() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..3 {
+        track_zero_sample_streak(
+            0,
+            0,
+            "http://redacted/metrics",
+            "kepler_container_cpu_joules_total",
+            "container_name",
+            &mut count,
+            &mut warned,
+        );
+    }
+    assert_eq!(count, 3);
+    assert!(
+        warned,
+        "3rd consecutive zero-sample tick must trip the warn flag"
+    );
+}
+
+#[test]
+fn track_zero_sample_streak_warns_only_once_per_streak() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..10 {
+        track_zero_sample_streak(
+            0,
+            0,
+            "http://redacted/metrics",
+            "kepler_container_cpu_joules_total",
+            "container_name",
+            &mut count,
+            &mut warned,
+        );
+    }
+    // Flag latches at the first trigger and stays true; the helper is
+    // expected to call `tracing::warn!` exactly once over the streak.
+    assert_eq!(count, 10);
+    assert!(warned);
+}
+
+#[test]
+fn track_zero_sample_streak_resets_on_non_empty_scrape() {
+    let mut count: u32 = 5;
+    let mut warned = true;
+    track_zero_sample_streak(
+        7, // samples_len > 0
+        2,
+        "http://redacted/metrics",
+        "kepler_container_cpu_joules_total",
+        "container_name",
+        &mut count,
+        &mut warned,
+    );
+    assert_eq!(count, 0);
+    assert!(!warned, "non-empty scrape must reset the warn latch");
 }
 
 #[tokio::test]
