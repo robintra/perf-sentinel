@@ -558,7 +558,7 @@ struct ScaphandreSection {
 ///
 /// Converted to a `KeplerConfig` during `RawConfig → Config` only when
 /// `endpoint` is set. The optional `metric_kind` string accepts
-/// `"container"` (default), `"process_package"`, or `"process_dram"`.
+/// `"container"` (default) or `"process"`.
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct KeplerSection {
@@ -1246,26 +1246,59 @@ fn convert_scaphandre_section_with_env(
 }
 
 /// Parse a `[green.kepler] metric_kind = "..."` string into the typed
-/// enum. Defaults to `Container` when unset. Returns an error string
-/// when the value is set but unrecognized.
+/// enum. Returns `Container` when the field is absent. Matching is
+/// case-insensitive after trimming. Returns an error string when the
+/// value is set-but-empty, set-but-unrecognized, or one of the legacy
+/// `process_package` / `process_dram` aliases that targeted metrics
+/// Kepler never published. The raw operator-typed string is preserved
+/// verbatim in error messages so `grep -F` against the source TOML
+/// stays reliable.
 fn parse_kepler_metric_kind(raw: Option<&str>) -> Result<KeplerMetricKind, String> {
-    match raw.map(str::trim) {
-        None | Some("" | "container") => Ok(KeplerMetricKind::Container),
-        Some("process_package") => Ok(KeplerMetricKind::ProcessPackage),
-        Some("process_dram") => Ok(KeplerMetricKind::ProcessDram),
-        Some(other) => Err(format!(
-            "[green.kepler] metric_kind '{other}' is not recognized \
-             (expected 'container', 'process_package', or 'process_dram')"
-        )),
+    let Some(literal) = raw else {
+        return Ok(KeplerMetricKind::Container);
+    };
+    // Reject control chars before any branch interpolates `literal`
+    // into an error: ANSI escapes in TOML would otherwise reach stderr.
+    if has_control_char(literal) {
+        return Err("[green.kepler] metric_kind contains control characters".to_string());
     }
+    let trimmed = literal.trim();
+    if trimmed.is_empty() {
+        return Err(format!(
+            "[green.kepler] metric_kind '{literal}' is empty; \
+             remove the field for the default or set it to 'container' or 'process'"
+        ));
+    }
+    // `eq_ignore_ascii_case` skips the `to_ascii_lowercase` alloc,
+    // matches `parse_daemon_environment` on the same TOML surface.
+    if trimmed.eq_ignore_ascii_case("container") {
+        return Ok(KeplerMetricKind::Container);
+    }
+    if trimmed.eq_ignore_ascii_case("process") {
+        return Ok(KeplerMetricKind::Process);
+    }
+    if trimmed.eq_ignore_ascii_case("process_package")
+        || trimmed.eq_ignore_ascii_case("process_dram")
+    {
+        return Err(format!(
+            "[green.kepler] metric_kind '{literal}' was removed in v0.7.5. \
+             Kepler v2 only exposes per-process CPU joules, use 'process' instead."
+        ));
+    }
+    Err(format!(
+        "[green.kepler] metric_kind '{literal}' is not recognized \
+         (expected 'container' or 'process')"
+    ))
 }
 
 /// Convert the raw `[green.kepler]` TOML section into a typed config.
 ///
 /// Returns `None` when `endpoint` is absent. An invalid `metric_kind`
-/// surfaces a `tracing::error` and yields `None` here, the dedicated
-/// validation pass at config-load time also rejects it loudly via
-/// [`Config::validate_kepler`].
+/// also yields `None` here as a defense-in-depth fallback. The
+/// authoritative rejection happens upstream in [`load_from_str`]
+/// before [`Config::from`] runs, so reaching this branch with a
+/// malformed `metric_kind` means the operator bypassed `load_from_str`
+/// (e.g. constructed a `RawConfig` directly in a test).
 fn convert_kepler_section(raw: &KeplerSection) -> Option<KeplerConfig> {
     convert_kepler_section_with_env(raw, || {
         std::env::var("PERF_SENTINEL_KEPLER_AUTH_HEADER").ok()
@@ -2101,29 +2134,50 @@ impl Config {
     }
 
     /// Validate `[green.kepler].service_mappings` keys and values.
+    /// Label cap depends on `metric_kind`: 256 for `Container` (full
+    /// `container_name`), 15 for `Process` since the kernel truncates
+    /// `comm` at `TASK_COMM_LEN - 1`. The cap is `len()` bytes, not
+    /// chars, matching the kernel's byte-bounded truncation.
     fn validate_kepler_service_mappings(cfg: &KeplerConfig) -> Result<(), String> {
+        /// Memory-footprint cap, mirrors `MAX_SERVICE_REGIONS`.
+        const MAX_KEPLER_SERVICE_MAPPINGS: usize = 1024;
+        if cfg.service_mappings.len() > MAX_KEPLER_SERVICE_MAPPINGS {
+            return Err(format!(
+                "[green.kepler] service_mappings has {} entries; maximum is {MAX_KEPLER_SERVICE_MAPPINGS}",
+                cfg.service_mappings.len()
+            ));
+        }
+        let (max_label_len, label_hint) = match cfg.metric_kind {
+            crate::score::kepler::config::KeplerMetricKind::Container => (256_usize, ""),
+            crate::score::kepler::config::KeplerMetricKind::Process => (
+                15_usize,
+                " (the Linux kernel truncates `comm` to 15 bytes, \
+                  provide the truncated value, not the full binary path)",
+            ),
+        };
         for (service, label) in &cfg.service_mappings {
+            // Reject control chars first so an ANSI-laden label is not
+            // echoed back to stderr via the length-error `format!`.
+            if has_control_char(service) {
+                return Err("[green.kepler] service_mappings has a service name \
+                     that contains control characters"
+                    .to_string());
+            }
+            if has_control_char(label) {
+                return Err(format!(
+                    "[green.kepler] service_mappings has a label \
+                     for service '{service}' that contains control characters"
+                ));
+            }
             if service.is_empty() || service.len() > 256 {
                 return Err(format!(
                     "[green.kepler] service_mappings service name '{service}' must be 1-256 chars"
                 ));
             }
-            if has_control_char(service) {
-                return Err(format!(
-                    "[green.kepler] service_mappings service name '{service}' \
-                     contains control characters"
-                ));
-            }
-            if label.is_empty() || label.len() > 256 {
+            if label.is_empty() || label.len() > max_label_len {
                 return Err(format!(
                     "[green.kepler] service_mappings label for service '{service}' \
-                     must be 1-256 chars, got '{label}'"
-                ));
-            }
-            if has_control_char(label) {
-                return Err(format!(
-                    "[green.kepler] service_mappings label for service '{service}' \
-                     contains control characters"
+                     must be 1-{max_label_len} chars, got '{label}'{label_hint}"
                 ));
             }
         }
@@ -2699,6 +2753,13 @@ pub fn load_from_str(content: &str) -> Result<Config, ConfigError> {
              expected 'staging' or 'production' (case-insensitive)"
         )));
     }
+    // Same pattern for `[green.kepler] metric_kind`: the From conversion
+    // would otherwise downgrade an invalid value to a tracing::error log
+    // and silently drop the whole section, which on a v0.7.4 → v0.7.5
+    // upgrade would translate an operator's `metric_kind = "process_package"`
+    // into a silent Kepler disable instead of the documented loud error.
+    parse_kepler_metric_kind(raw.green.kepler.metric_kind.as_deref())
+        .map_err(ConfigError::Validation)?;
     let config = Config::from(raw);
     config.validate().map_err(ConfigError::Validation)?;
     config.warn_listen_addr_if_non_loopback();
@@ -5063,33 +5124,107 @@ max_files = 0
             KeplerMetricKind::Container
         );
         assert_eq!(
-            parse_kepler_metric_kind(Some("")).unwrap(),
-            KeplerMetricKind::Container
-        );
-        assert_eq!(
             parse_kepler_metric_kind(Some("container")).unwrap(),
             KeplerMetricKind::Container
         );
         assert_eq!(
-            parse_kepler_metric_kind(Some("process_package")).unwrap(),
-            KeplerMetricKind::ProcessPackage
-        );
-        assert_eq!(
-            parse_kepler_metric_kind(Some("process_dram")).unwrap(),
-            KeplerMetricKind::ProcessDram
+            parse_kepler_metric_kind(Some("process")).unwrap(),
+            KeplerMetricKind::Process
         );
         // Surrounding whitespace must be trimmed before matching.
         assert_eq!(
-            parse_kepler_metric_kind(Some("  process_dram  ")).unwrap(),
-            KeplerMetricKind::ProcessDram
+            parse_kepler_metric_kind(Some("  process  ")).unwrap(),
+            KeplerMetricKind::Process
         );
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_is_case_insensitive() {
+        use crate::score::kepler::config::KeplerMetricKind;
+        for raw in ["Container", "CONTAINER", "  Container  "] {
+            assert_eq!(
+                parse_kepler_metric_kind(Some(raw)).unwrap(),
+                KeplerMetricKind::Container,
+                "case-insensitive match expected for {raw:?}"
+            );
+        }
+        for raw in ["Process", "PROCESS", "ProCess"] {
+            assert_eq!(
+                parse_kepler_metric_kind(Some(raw)).unwrap(),
+                KeplerMetricKind::Process,
+                "case-insensitive match expected for {raw:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_empty_string_rejected() {
+        for raw in ["", "   "] {
+            let err = parse_kepler_metric_kind(Some(raw))
+                .expect_err("explicit empty must error, not silently default");
+            assert!(err.contains("is empty"));
+            assert!(err.contains("'container' or 'process'"));
+        }
     }
 
     #[test]
     fn parse_kepler_metric_kind_unknown_value_errors() {
         let err = parse_kepler_metric_kind(Some("rapl")).expect_err("unknown variant must error");
         assert!(err.contains("metric_kind 'rapl'"));
-        assert!(err.contains("container"));
+        assert!(err.contains("'container'"));
+        assert!(err.contains("'process'"));
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_legacy_values_rejected() {
+        for legacy in ["process_package", "process_dram"] {
+            let err = parse_kepler_metric_kind(Some(legacy))
+                .expect_err("legacy variant must error with migration guidance");
+            assert!(err.contains(legacy));
+            assert!(err.contains("removed in v0.7.5"));
+            assert!(err.contains("'process'"));
+        }
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_error_preserves_raw_whitespace() {
+        let err = parse_kepler_metric_kind(Some("  process_package  "))
+            .expect_err("legacy variant must error");
+        // The error preserves the operator's exact literal so `grep -F` on
+        // the source TOML matches the message.
+        assert!(
+            err.contains("'  process_package  '"),
+            "expected raw value in error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn parse_kepler_metric_kind_rejects_control_characters() {
+        // A `.perf-sentinel.toml` with ANSI escapes in metric_kind must
+        // be rejected before the literal lands in the error message, so
+        // stderr stays clean.
+        let raw = "container\u{001b}[31m";
+        let err =
+            parse_kepler_metric_kind(Some(raw)).expect_err("control characters must be rejected");
+        assert!(err.contains("contains control characters"));
+        // The raw payload must NOT be echoed back into the message.
+        assert!(!err.contains('\u{001b}'));
+    }
+
+    #[test]
+    fn load_from_str_rejects_legacy_kepler_metric_kind_loudly() {
+        // Round-trip: a legacy metric_kind in a real TOML must fail at
+        // load time, not silently disable the Kepler section.
+        let toml = r#"
+[green.kepler]
+endpoint = "http://kepler:9102/metrics"
+metric_kind = "process_package"
+"#;
+        let err = load_from_str(toml)
+            .expect_err("load_from_str must surface the migration error, not silently drop");
+        let msg = err.to_string();
+        assert!(msg.contains("process_package"));
+        assert!(msg.contains("removed in v0.7.5"));
     }
 
     #[test]
@@ -5292,6 +5427,59 @@ max_files = 0
             .insert("svc".to_string(), "lab\u{0007}el".to_string());
         let err = Config::validate_kepler(&cfg).expect_err("control char in label must error");
         assert!(err.contains("control characters"));
+    }
+
+    #[test]
+    fn validate_kepler_process_caps_label_at_kernel_truncation() {
+        use crate::score::kepler::config::KeplerMetricKind;
+        // Process metric_kind reads the kernel `comm` label, truncated
+        // to 15 bytes. A 16-char label can never match a real sample.
+        let mut cfg = minimal_kepler_config();
+        cfg.metric_kind = KeplerMetricKind::Process;
+        cfg.service_mappings
+            .insert("svc".to_string(), "my-long-checkout".to_string()); // 16 chars
+        let err = Config::validate_kepler(&cfg)
+            .expect_err("16-char label must be rejected for Process metric_kind");
+        assert!(err.contains("must be 1-15 chars"));
+        assert!(err.contains("kernel truncates"));
+    }
+
+    #[test]
+    fn validate_kepler_process_accepts_15_char_label() {
+        use crate::score::kepler::config::KeplerMetricKind;
+        let mut cfg = minimal_kepler_config();
+        cfg.metric_kind = KeplerMetricKind::Process;
+        cfg.service_mappings
+            .insert("svc".to_string(), "exactly-15char!".to_string()); // 15 chars
+        assert!(Config::validate_kepler(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_kepler_service_mappings_caps_cardinality() {
+        // Bound the config-load memory footprint against fat-finger or
+        // hostile configs. 1025 > MAX_KEPLER_SERVICE_MAPPINGS (1024).
+        let mut cfg = minimal_kepler_config();
+        for i in 0..1025 {
+            cfg.service_mappings
+                .insert(format!("svc-{i}"), format!("label-{i}"));
+        }
+        let err =
+            Config::validate_kepler(&cfg).expect_err("1025 mappings must exceed the 1024 cap");
+        assert!(err.contains("1025 entries"));
+        assert!(err.contains("maximum is 1024"));
+    }
+
+    #[test]
+    fn convert_kepler_section_with_process_metric_kind() {
+        use crate::score::kepler::config::KeplerMetricKind;
+        let raw = KeplerSection {
+            endpoint: Some("http://kepler:9102/metrics".to_string()),
+            metric_kind: Some("process".to_string()),
+            ..Default::default()
+        };
+        let cfg = convert_kepler_section_with_env(&raw, || None)
+            .expect("endpoint set + valid metric_kind, expected Some");
+        assert_eq!(cfg.metric_kind, KeplerMetricKind::Process);
     }
 
     // ---- validate_redfish --------------------------------------------------

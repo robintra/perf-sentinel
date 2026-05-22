@@ -14,23 +14,25 @@ use super::state::KeplerState;
 
 #[test]
 fn parse_empty_body() {
-    assert!(parse_kepler_metrics("", "kepler_container_joules_total", "container_name").is_empty());
+    assert!(
+        parse_kepler_metrics("", "kepler_container_cpu_joules_total", "container_name").is_empty()
+    );
 }
 
 #[test]
 fn parse_comments_only() {
-    let body =
-        "# HELP kepler_container_joules_total ...\n# TYPE kepler_container_joules_total counter\n";
+    let body = "# HELP kepler_container_cpu_joules_total ...\n# TYPE kepler_container_cpu_joules_total counter\n";
     assert!(
-        parse_kepler_metrics(body, "kepler_container_joules_total", "container_name").is_empty()
+        parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name")
+            .is_empty()
     );
 }
 
 #[test]
 fn parse_single_container_sample() {
     let body =
-        "kepler_container_joules_total{container_name=\"order-svc\",pod_name=\"p1\"} 1234.5\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+        "kepler_container_cpu_joules_total{container_name=\"order-svc\",pod_name=\"p1\"} 1234.5\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].label_value, "order-svc");
     assert!((out[0].joules_total - 1234.5).abs() < f64::EPSILON);
@@ -38,10 +40,10 @@ fn parse_single_container_sample() {
 
 #[test]
 fn parse_multiple_containers() {
-    let body = "kepler_container_joules_total{container_name=\"a\"} 100.0\n\
-                kepler_container_joules_total{container_name=\"b\"} 250.5\n\
-                kepler_container_joules_total{container_name=\"c\"} 999.9\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let body = "kepler_container_cpu_joules_total{container_name=\"a\"} 100.0\n\
+                kepler_container_cpu_joules_total{container_name=\"b\"} 250.5\n\
+                kepler_container_cpu_joules_total{container_name=\"c\"} 999.9\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert_eq!(out.len(), 3);
     let names: Vec<&str> = out.iter().map(|s| s.label_value.as_str()).collect();
     assert!(names.contains(&"a"));
@@ -52,47 +54,47 @@ fn parse_multiple_containers() {
 #[test]
 fn parse_skips_unrelated_metrics() {
     let body = "kepler_node_info{name=\"foo\"} 1\n\
-                kepler_container_joules_total{container_name=\"order-svc\"} 42.0\n\
+                kepler_container_cpu_joules_total{container_name=\"order-svc\"} 42.0\n\
                 kepler_host_joules{name=\"bar\"} 7.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].label_value, "order-svc");
 }
 
 #[test]
-fn parse_process_package_with_command_label() {
-    let body = "kepler_process_package_joules_total{command=\"java\",pid=\"42\"} 88.0\n";
-    let out = parse_kepler_metrics(body, "kepler_process_package_joules_total", "command");
+fn parse_process_cpu_with_comm_label() {
+    let body = "kepler_process_cpu_joules_total{comm=\"java\",pid=\"42\"} 88.0\n";
+    let out = parse_kepler_metrics(body, "kepler_process_cpu_joules_total", "comm");
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].label_value, "java");
 }
 
 #[test]
 fn parse_skips_invalid_value() {
-    let body = "kepler_container_joules_total{container_name=\"order-svc\"} not_a_number\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let body = "kepler_container_cpu_joules_total{container_name=\"order-svc\"} not_a_number\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert!(out.is_empty());
 }
 
 #[test]
 fn parse_skips_missing_label() {
-    let body = "kepler_container_joules_total{pod_name=\"only-pod\"} 5.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let body = "kepler_container_cpu_joules_total{pod_name=\"only-pod\"} 5.0\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert!(out.is_empty());
 }
 
 #[test]
 fn parse_handles_escaped_quote_in_label() {
-    let body = "kepler_container_joules_total{container_name=\"with \\\"quotes\\\"\"} 1.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let body = "kepler_container_cpu_joules_total{container_name=\"with \\\"quotes\\\"\"} 1.0\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].label_value, "with \"quotes\"");
 }
 
 #[test]
 fn parse_handles_no_labels() {
-    let body = "kepler_container_joules_total 99.0\n";
-    let out = parse_kepler_metrics(body, "kepler_container_joules_total", "container_name");
+    let body = "kepler_container_cpu_joules_total 99.0\n";
+    let out = parse_kepler_metrics(body, "kepler_container_cpu_joules_total", "container_name");
     // No label block means no label_value, sample is skipped.
     assert!(out.is_empty());
 }
@@ -321,10 +323,10 @@ async fn fetch_metrics_once_reads_from_fake_server() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    let body = "# HELP kepler_container_joules_total Energy consumption in joules\n\
-                # TYPE kepler_container_joules_total counter\n\
-                kepler_container_joules_total{container_name=\"order-svc\",pod_name=\"p1\"} 12345.6\n\
-                kepler_container_joules_total{container_name=\"chat-svc\",pod_name=\"p2\"} 999.9\n";
+    let body = "# HELP kepler_container_cpu_joules_total Energy consumption in joules\n\
+                # TYPE kepler_container_cpu_joules_total counter\n\
+                kepler_container_cpu_joules_total{container_name=\"order-svc\",pod_name=\"p1\"} 12345.6\n\
+                kepler_container_cpu_joules_total{container_name=\"chat-svc\",pod_name=\"p2\"} 999.9\n";
     let response = format!(
         "HTTP/1.1 200 OK\r\n\
          Content-Type: text/plain; version=0.0.4\r\n\
@@ -355,7 +357,11 @@ async fn fetch_metrics_once_reads_from_fake_server() {
         .expect("fake server fetch should succeed");
     server.await.unwrap();
 
-    let samples = parse_kepler_metrics(&fetched, "kepler_container_joules_total", "container_name");
+    let samples = parse_kepler_metrics(
+        &fetched,
+        "kepler_container_cpu_joules_total",
+        "container_name",
+    );
     assert_eq!(samples.len(), 2);
 }
 

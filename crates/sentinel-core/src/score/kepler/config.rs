@@ -5,21 +5,28 @@ use std::time::Duration;
 
 /// Which Kepler metric the scraper reads. Each variant targets a
 /// different metric name and Prometheus label key in the upstream
-/// Kepler exposition. The default (`Container`) is the most natural
-/// fit for Kubernetes deployments where Kepler runs as a `DaemonSet`
-/// and exports a `kepler_container_joules_total` series per pod.
+/// Kepler exposition (Kepler v2 series, Kepler >= 0.10). The default
+/// (`Container`) is the most natural fit for Kubernetes deployments
+/// where Kepler runs as a `DaemonSet` and exports a
+/// `kepler_container_cpu_joules_total` series per pod.
 ///
-/// `ProcessPackage` and `ProcessDram` aggregate at the process level
-/// keyed by the `command` label.
+/// `Process` reads the per-process CPU joules counter
+/// (`kepler_process_cpu_joules_total`) keyed by the `comm` label. The
+/// Linux kernel truncates `comm` to 15 bytes (`TASK_COMM_LEN - 1`),
+/// so `service_mappings` label values longer than 15 chars are
+/// rejected at config-load time.
+///
+/// Kepler v1 / pre-0.10 deployments expose `kepler_container_joules_total`
+/// and have no `_cpu_` infix, perf-sentinel will scrape successfully
+/// against them (HTTP 200) but find zero matching samples. Upgrade
+/// the cluster's Kepler to v0.10+ before enabling this section.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum KeplerMetricKind {
-    /// `kepler_container_joules_total` keyed by `container_name`.
+    /// `kepler_container_cpu_joules_total` keyed by `container_name`.
     #[default]
     Container,
-    /// `kepler_process_package_joules_total` keyed by `command`.
-    ProcessPackage,
-    /// `kepler_process_dram_joules_total` keyed by `command`.
-    ProcessDram,
+    /// `kepler_process_cpu_joules_total` keyed by `comm`.
+    Process,
 }
 
 impl KeplerMetricKind {
@@ -27,9 +34,8 @@ impl KeplerMetricKind {
     #[must_use]
     pub const fn metric_name(self) -> &'static str {
         match self {
-            Self::Container => "kepler_container_joules_total",
-            Self::ProcessPackage => "kepler_process_package_joules_total",
-            Self::ProcessDram => "kepler_process_dram_joules_total",
+            Self::Container => "kepler_container_cpu_joules_total",
+            Self::Process => "kepler_process_cpu_joules_total",
         }
     }
 
@@ -38,7 +44,7 @@ impl KeplerMetricKind {
     pub const fn label_key(self) -> &'static str {
         match self {
             Self::Container => "container_name",
-            Self::ProcessPackage | Self::ProcessDram => "command",
+            Self::Process => "comm",
         }
     }
 }
@@ -70,7 +76,7 @@ pub struct KeplerConfig {
     pub metric_kind: KeplerMetricKind,
     /// Maps perf-sentinel service names (from span `service.name`) to
     /// the Kepler label value identifying the same workload (container
-    /// name, command, or pid string depending on `metric_kind`). A
+    /// name for `Container`, process command name for `Process`). A
     /// service with no entry here falls back through the precedence
     /// chain regardless of whether the Kepler endpoint is reachable.
     pub service_mappings: HashMap<String, String>,
@@ -134,18 +140,13 @@ mod tests {
     fn metric_kind_names_and_labels() {
         assert_eq!(
             KeplerMetricKind::Container.metric_name(),
-            "kepler_container_joules_total"
+            "kepler_container_cpu_joules_total"
         );
         assert_eq!(KeplerMetricKind::Container.label_key(), "container_name");
         assert_eq!(
-            KeplerMetricKind::ProcessPackage.metric_name(),
-            "kepler_process_package_joules_total"
+            KeplerMetricKind::Process.metric_name(),
+            "kepler_process_cpu_joules_total"
         );
-        assert_eq!(KeplerMetricKind::ProcessPackage.label_key(), "command");
-        assert_eq!(
-            KeplerMetricKind::ProcessDram.metric_name(),
-            "kepler_process_dram_joules_total"
-        );
-        assert_eq!(KeplerMetricKind::ProcessDram.label_key(), "command");
+        assert_eq!(KeplerMetricKind::Process.label_key(), "comm");
     }
 }
