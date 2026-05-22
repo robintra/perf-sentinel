@@ -412,7 +412,7 @@ perf-sentinel ships an opt-in integration with [Kepler](https://github.com/susta
 1. **Container / process granularity, not per-finding attribution.** Two N+1 findings in the same container during the same scrape window share the same coefficient by construction.
 2. **The ARM eBPF model is meaningfully less accurate than the x86 RAPL path.** Treat ARM Kepler readings as a stronger signal than the proxy, not as a replacement for an external meter.
 3. **DRAM coverage is partial on ARM.** Upstream Kepler does not yet expose per-process DRAM joules on every ARM SoC. Plan for periphery loss on top of the standard "RAPL captures roughly half to two thirds of wall-plug" caveat.
-4. **No process-collector cross-pod sharing.** Services co-located in the same container share a coefficient. Map each service to its own container_name (or `command` if you select `metric_kind = "process_package" | "process_dram"`).
+4. **No process-collector cross-pod sharing.** Services co-located in the same container share a coefficient. Map each service to its own `container_name` (or its `comm` value if you select `metric_kind = "process"`).
 
 **Staleness handling.** Same `3 × scrape_interval` rule as Scaphandre, with a Prometheus gauge `perf_sentinel_kepler_last_scrape_age_seconds` for hung-scraper detection. The gauge is seeded at scraper-start time so a Kepler endpoint broken from boot still climbs the metric, Grafana alerts on a never-successful scraper fire reliably. A counter-reset (Kepler exporter restart) produces a negative delta which the guard drops (`delta > 0.0 && delta.is_finite()` filter, regular `f64` subtraction since `f64` has no `saturating_sub`), the next scrape produces the next meaningful delta.
 

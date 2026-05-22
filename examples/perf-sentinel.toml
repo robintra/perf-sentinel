@@ -121,7 +121,7 @@ include_network_transport = false
 # [green.kepler]
 # endpoint = "http://kepler.kube-system.svc.cluster.local:9102/metrics"
 # scrape_interval_secs = 5
-# metric_kind = "container"  # or "process_package" / "process_dram"
+# metric_kind = "container"  # or "process" (Kepler v2 series)
 # service_mappings = { "account-svc" = "account-deployment", "game-svc" = "game" }
 
 # --- Redfish BMC wall-plug power scraper (opt-in, no default egress) -------
