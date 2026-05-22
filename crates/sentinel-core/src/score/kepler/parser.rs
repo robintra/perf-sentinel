@@ -3,15 +3,18 @@
 //!
 //! Mirrors `scaphandre::parser` in spirit (forgiving, skips malformed
 //! lines) but is generic over the metric name and the routing label
-//! key, since Kepler exports container, process-package, and
-//! process-dram variants with different labels.
+//! key, since Kepler v2 exports a per-container series
+//! (`kepler_container_cpu_joules_total`, keyed by `container_name`)
+//! and a per-process series (`kepler_process_cpu_joules_total`, keyed
+//! by `comm`).
 
 /// One parsed line of a Kepler counter exposition.
 ///
 /// `label_value` is whatever the configured `label_key` resolved to
-/// (a container name, a command, a pid, etc.). `joules_total` is the
-/// cumulative joule reading at the moment of the scrape, the caller
-/// derives a delta vs the previous scrape window.
+/// (a container name for the container series, a kernel `comm` string
+/// for the process series). `joules_total` is the cumulative joule
+/// reading at the moment of the scrape, the caller derives a delta vs
+/// the previous scrape window.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeplerSample {
     pub label_value: String,
