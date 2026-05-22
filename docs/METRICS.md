@@ -221,6 +221,44 @@ are visible only in daemon logs at `error` level.
   reverse proxy returning the wrong status, persistent `invalid_utf8`
   at an endpoint that is not Scaphandre at all.
 
+## Kepler scrape counters (since 0.7.4)
+
+Per-tick outcome of the daemon-side Kepler scraper (fetches the
+configured `kepler_*_cpu_joules_total` series from `[green.kepler] endpoint`).
+Only registered when the daemon is built with the `daemon` feature.
+The label set mirrors Scaphandre because both sources hit the same six
+HTTP failure modes verbatim.
+
+| Metric                                         | Type    | Labels    | Description                                                                              |
+|------------------------------------------------|---------|-----------|------------------------------------------------------------------------------------------|
+| `perf_sentinel_kepler_scrape_total`            | counter | `status`  | Total Kepler scrape attempts since daemon start, partitioned by outcome.                 |
+| `perf_sentinel_kepler_scrape_failed_total`     | counter | `reason`  | Total failed Kepler scrapes since daemon start, partitioned by failure reason.           |
+| `perf_sentinel_kepler_last_scrape_age_seconds` | gauge   | (none)    | Seconds since the last HTTP-200 (resets to 0 on any HTTP-200, see staleness note below). |
+
+`status` and `reason` labels carry the same six values as the
+Scaphandre counters above (`success`/`failed`, and the same six HTTP
+failure reasons), pre-warmed at zero before the first scrape.
+
+**Zero-sample staleness pitfall**.
+`perf_sentinel_kepler_last_scrape_age_seconds` resets to 0 on every
+HTTP-200 response, *including* an HTTP-200 whose body contains no
+matching Kepler-v2 series (the classic v0.7.4-to-v0.7.5 upgrade case
+where the cluster still runs Kepler < 0.10 with the legacy metric
+names). Alerts driven only by the gauge will not catch this scenario.
+After three consecutive HTTP-200 ticks with zero matching samples,
+the daemon emits a `tracing::warn!` line containing `metric` and
+`label` fields; alert on the log instead, or pair the gauge with
+`rate(perf_sentinel_kepler_scrape_total{status="success"}[5m])` and
+the daemon-side `kepler_ebpf` `co2.model` tag presence.
+
+## Redfish scrape counters (since 0.7.4)
+
+Same shape as the Kepler block above with `kepler` -> `redfish` in
+the metric names. The `reason` label set adds three Redfish-specific
+values on top of the shared HTTP set: `invalid_json`, `path_missing`,
+`invalid_value` for vendor-variance failure modes on the BMC
+`/Power` response.
+
 ## GreenOps metrics
 
 | Metric                                               | Type    | Labels    | Description                                                                                                                        |
@@ -231,6 +269,8 @@ are visible only in daemon logs at `error` level.
 | `perf_sentinel_service_io_ops_total`                 | counter | `service` | Per-service cumulative I/O ops (read by the Scaphandre scraper for per-service energy attribution).                                |
 | `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (none)    | Seconds since the last successful Scaphandre scrape. Stays at 0 when Scaphandre is not configured. Useful for hung-scraper alerts. |
 | `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (none)    | Same pattern for the cloud SPECpower scraper.                                                                                      |
+| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (none)    | Same pattern for the Kepler scraper. See the zero-sample staleness pitfall above.                                                  |
+| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (none)    | Same pattern for the Redfish BMC scraper.                                                                                          |
 
 ## Warning kinds: transient vs sticky
 
