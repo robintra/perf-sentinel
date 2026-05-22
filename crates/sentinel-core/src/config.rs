@@ -2148,8 +2148,8 @@ impl Config {
             ));
         }
         let (max_label_len, label_hint) = match cfg.metric_kind {
-            crate::score::kepler::config::KeplerMetricKind::Container => (256_usize, ""),
-            crate::score::kepler::config::KeplerMetricKind::Process => (
+            KeplerMetricKind::Container => (256_usize, ""),
+            KeplerMetricKind::Process => (
                 15_usize,
                 " (the Linux kernel truncates `comm` to 15 bytes, \
                   provide the truncated value, not the full binary path)",
