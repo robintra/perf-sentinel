@@ -121,6 +121,33 @@ scripts/record-validation.sh vX.Y.Z PASS
 # entries.
 ```
 
+### Canonical path: `scripts/release.sh`
+
+Steps 5 and 6 below are wrapped in a single fail-closed command:
+
+```bash
+scripts/release.sh vX.Y.Z
+```
+
+The script runs every pre-check (branch, working tree, signing
+identity, remote sync, tag absence), then both gates
+(`scripts/check-tag-version.sh` and
+`release-gate/check-lab-validation.sh`), then prompts for
+confirmation, then signs the tag and pushes `main` first, then the
+tag. If any pre-check or gate refuses, nothing is mutated. If the tag
+push fails after `main` has landed, the local tag is rolled back so
+no dangling ref is left on the remote.
+
+This is the recommended path because it makes "forgetting the gate"
+structurally impossible. Use `scripts/release.sh vX.Y.Z --dry-run` to
+verify all gates green before tagging for real. Pass `--yes` to skip
+the interactive confirmation in scripted contexts.
+
+The prose below remains the reference of what the script automates,
+and the fallback when an operator wants to drive the steps by hand.
+The lab run (step 4) is still operator-driven, the script only
+enforces that step 4's PASS line is present and fresh in the ledger.
+
 ### 5. Pre-flight gate
 
 Back in the `perf-sentinel` checkout:
