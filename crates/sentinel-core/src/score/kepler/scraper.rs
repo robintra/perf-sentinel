@@ -22,6 +22,11 @@ use super::state::{KeplerState, monotonic_ms};
 /// rationale as Scaphandre's threshold.
 const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 
+/// Consecutive HTTP-200 ticks with zero matching samples before the
+/// warn-once fires. Catches the Kepler v1 endpoint pitfall (legacy
+/// metric names, no `_cpu_` infix).
+const ZERO_SAMPLE_WARN_THRESHOLD: u32 = 3;
+
 /// Scrape the Kepler endpoint once via the hyper-util client.
 pub(super) async fn fetch_metrics_once(
     client: &HttpClient,
@@ -134,6 +139,10 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
     let mut failure_streak_warned = false;
     let mut consecutive_failures: u32 = 0;
     let mut unsupported_platform_warned = false;
+    // "HTTP 200, samples empty" warn-once latch, reset on HTTP error
+    // so a flapping endpoint does not falsely trip it.
+    let mut consecutive_zero_sample_ticks: u32 = 0;
+    let mut zero_sample_warned = false;
     // Track the last successful scrape so the `last_scrape_age_seconds`
     // gauge advances on every failure tick. Seeded to scraper-start time
     // so a Kepler endpoint broken from boot still climbs the gauge
@@ -168,14 +177,22 @@ async fn run_scraper_loop(cfg: KeplerConfig, state: Arc<KeplerState>, metrics: A
                 last_success_ms = now;
                 metrics.kepler_last_scrape_age_seconds.set(0.0);
                 metrics.kepler_scrape_success.inc();
-                tracing::debug!(
-                    samples = samples.len(),
-                    services_updated = deltas.len(),
-                    "Kepler scrape succeeded"
+                track_zero_sample_streak(
+                    samples.len(),
+                    deltas.len(),
+                    &redacted,
+                    metric_name,
+                    label_key,
+                    &mut consecutive_zero_sample_ticks,
+                    &mut zero_sample_warned,
                 );
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
+                // Reset the empty-sample latch on HTTP failure: the
+                // failure-side warning covers flapping endpoints.
+                consecutive_zero_sample_ticks = 0;
+                zero_sample_warned = false;
                 handle_kepler_failure(
                     &e,
                     &metrics,
@@ -240,4 +257,48 @@ fn handle_kepler_failure(
         );
         *unsupported_platform_warned = true;
     }
+}
+
+/// Success-branch latch: warn once after
+/// [`ZERO_SAMPLE_WARN_THRESHOLD`] consecutive HTTP-200 ticks with
+/// zero matching samples. Extracted for the line-count limit and to
+/// unit-test the warn-once edge.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn track_zero_sample_streak(
+    samples_len: usize,
+    services_updated: usize,
+    redacted: &str,
+    metric_name: &str,
+    label_key: &str,
+    consecutive_zero_sample_ticks: &mut u32,
+    zero_sample_warned: &mut bool,
+) {
+    if samples_len == 0 {
+        *consecutive_zero_sample_ticks = consecutive_zero_sample_ticks.saturating_add(1);
+        if !*zero_sample_warned && *consecutive_zero_sample_ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
+            let ticks = *consecutive_zero_sample_ticks;
+            tracing::warn!(
+                endpoint = %redacted,
+                metric = metric_name,
+                label = label_key,
+                ticks,
+                "Kepler endpoint replied HTTP 200 but no samples matched \
+                 the configured metric across the last {ticks} ticks. \
+                 Most common cause: the cluster runs a Kepler exporter \
+                 older than v0.10 (legacy metric names without the \
+                 '_cpu_' infix). Other causes: metric_kind mismatched \
+                 with the deployment topology, or service_mappings label \
+                 values that do not exist on the wire.",
+            );
+            *zero_sample_warned = true;
+        }
+    } else {
+        *consecutive_zero_sample_ticks = 0;
+        *zero_sample_warned = false;
+    }
+    tracing::debug!(
+        samples = samples_len,
+        services_updated = services_updated,
+        "Kepler scrape succeeded"
+    );
 }
