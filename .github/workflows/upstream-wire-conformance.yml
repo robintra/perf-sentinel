@@ -383,12 +383,15 @@ jobs:
           echo "::notice::First chassis odata id: ${first_chassis}"
 
       - name: Wire assertion - legacy Power path conforms to parser contract
-        # The point of truth: assert the JSON pointer the parser uses by
-        # default (config.rs:10, DEFAULT_POWER_PATH =
-        # /PowerControl/0/PowerConsumedWatts) resolves to a finite
-        # positive number on the upstream-canonical mockup. If DMTF
-        # changes the default mockup schema (drops PowerControl array
-        # at this index, renames PowerConsumedWatts), this step fails.
+        # The point of truth: assert the JSON pointer the parser uses
+        # for the `legacy_power` schema (canonical
+        # `/PowerControl/0/PowerConsumedWatts`, defined in
+        # crates/sentinel-core/src/score/redfish/config.rs) resolves to
+        # a finite positive number on the upstream-canonical mockup. If
+        # DMTF changes the legacy mockup schema (drops PowerControl
+        # array at this index, renames PowerConsumedWatts), this step
+        # fails. The `environment_metrics` schema is asserted in a
+        # sibling step below.
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
           curl -fsS "http://localhost:8000${chassis}/Power" -o /tmp/power.json

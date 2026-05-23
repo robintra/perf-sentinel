@@ -1,11 +1,16 @@
 //! Redfish BMC wall-plug-power scraper (opt-in, daemon only).
 //!
-//! Polls one or more BMC chassis via the Redfish `/Power` resource for
-//! `PowerConsumedWatts`, converts the node-level reading into a
-//! per-service energy-per-op coefficient using the shared
-//! [`ops_snapshot_diff`] tracker (every service mapped to the chassis
-//! receives the same coefficient), and publishes the result to
-//! [`RedfishState`].
+//! Polls one or more BMC chassis via the Redfish power resource and
+//! converts the node-level reading into a per-service energy-per-op
+//! coefficient using the shared [`ops_snapshot_diff`] tracker (every
+//! service mapped to the chassis receives the same coefficient).
+//! Publishes the result to [`RedfishState`].
+//!
+//! Two endpoint schemas are supported, declared per-endpoint via the
+//! [`RedfishSchema`] enum: the legacy `/Power` resource with
+//! `PowerControl[0].PowerConsumedWatts` (still mandatory on BMC
+//! firmware as of 2026), and the modern `EnvironmentMetrics` resource
+//! with `PowerWatts.Reading` (DMTF Release 2020.4+).
 //!
 //! Node-level granularity: two services on the same chassis share a
 //! single coefficient. See `docs/LIMITATIONS.md` "Redfish BMC precision

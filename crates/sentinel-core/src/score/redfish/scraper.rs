@@ -1,8 +1,10 @@
 //! Redfish scraper task, HTTP client, and error types. Iterates the
-//! configured chassis endpoints per tick, parses `PowerConsumedWatts`,
-//! and publishes per-service coefficients via [`apply_chassis_scrape`].
-//! TLS uses the shared webpki client; the `ca_bundle_path` deferral
-//! rationale lives in design doc 05.
+//! configured chassis endpoints per tick, parses the wattage gauge for
+//! whichever schema each endpoint declares (`legacy_power` →
+//! `PowerControl[0].PowerConsumedWatts`, `environment_metrics` →
+//! `PowerWatts.Reading`), and publishes per-service coefficients via
+//! [`apply_chassis_scrape`]. TLS uses the shared webpki client, the
+//! `ca_bundle_path` deferral rationale lives in design doc 05.
 
 use std::sync::Arc;
 use std::time::Duration;
