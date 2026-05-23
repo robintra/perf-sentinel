@@ -140,11 +140,24 @@ jobs:
 
       - name: Push chart
         id: push
+        # Parse the digest directly from helm push output instead of
+        # calling `crane digest` after the fact. Avoids a race window
+        # against GHCR's eventually-consistent tag index (observed on
+        # chart-v0.2.41 where helm push succeeded but the immediate
+        # `crane digest` returned empty), and removes a second auth
+        # round trip with the registry. Falls back to `crane digest` if
+        # the helm output format ever drifts.
         run: |
-          helm push "out/${{ steps.package.outputs.tarball_name }}" oci://ghcr.io/robintra/charts
-          digest=$(crane digest "ghcr.io/robintra/charts/perf-sentinel:${{ needs.check-chart-version.outputs.chart_version }}")
+          set -o pipefail
+          push_output=$(helm push "out/${{ steps.package.outputs.tarball_name }}" oci://ghcr.io/robintra/charts 2>&1)
+          printf '%s\n' "${push_output}"
+          digest=$(printf '%s\n' "${push_output}" | grep -oE 'sha256:[a-f0-9]{64}' | head -n 1 || true)
           if [ -z "${digest}" ]; then
-            echo "::error::crane digest returned empty for the pushed chart"
+            echo "::warning::helm push output did not surface a digest, falling back to crane digest"
+            digest=$(crane digest "ghcr.io/robintra/charts/perf-sentinel:${{ needs.check-chart-version.outputs.chart_version }}" || true)
+          fi
+          if [ -z "${digest}" ]; then
+            echo "::error::could not extract digest for the pushed chart (helm and crane both empty)"
             exit 1
           fi
           echo "oci_digest=${digest}" >> "$GITHUB_OUTPUT"
