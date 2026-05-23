@@ -1,16 +1,17 @@
-# Wire-conformance integration test for the Kepler and Redfish scrapers.
+# Wire-conformance integration test for the Kepler, Redfish and
+# Scaphandre scrapers.
 #
 # This workflow exists to catch upstream renames or schema changes BEFORE
 # they ship a dead-on-arrival perf-sentinel release, the v0.7.4 trap. It
 # is NOT the release gate (`docs/RELEASE-PROCEDURE.md` forbids invoking
 # the lab gate from CI), and it is NOT a measure of energy precision.
-# Each job runs against a real upstream backend in fake-meter / mockup
-# mode: the metric NAMES and LABELS come from real upstream code so
-# parser conformance is asserted for real, but the watt values are
-# synthetic and have no physical meaning.
+# Each job runs against a real upstream backend in fake-meter / mockup /
+# fake-powercap mode: the metric NAMES and LABELS come from real upstream
+# code so parser conformance is asserted for real, but the watt and
+# energy values are synthetic and have no physical meaning.
 #
-# Two independent jobs. No `needs:` chain, so an upstream Kepler rename
-# does not mask a Redfish regression and vice versa.
+# Three independent jobs. No `needs:` chain, so an upstream rename in
+# one source does not mask a regression in another.
 
 name: Upstream wire conformance
 
@@ -21,11 +22,13 @@ on:
     paths:
       - 'crates/sentinel-core/src/score/kepler/**'
       - 'crates/sentinel-core/src/score/redfish/**'
+      - 'crates/sentinel-core/src/score/scaphandre/**'
       - '.github/workflows/upstream-wire-conformance.yml'
   pull_request:
     paths:
       - 'crates/sentinel-core/src/score/kepler/**'
       - 'crates/sentinel-core/src/score/redfish/**'
+      - 'crates/sentinel-core/src/score/scaphandre/**'
       - '.github/workflows/upstream-wire-conformance.yml'
   # Weekly cron catches upstream renames in the absence of any local
   # change. Monday 06:00 UTC keeps it off the busy weekday slots.
@@ -488,3 +491,239 @@ jobs:
           cat /tmp/power.json 2>/dev/null || true
           echo "--- perf-sentinel log"
           tail -200 /tmp/perf-sentinel.log 2>/dev/null || true
+
+  scaphandre-wire-conformance:
+    name: scaphandre-wire-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SCAPHANDRE_VERSION: v1.0.2
+      SCAPHANDRE_DEB_SHA256: 5c15c38e1d2f9380248a265213b4e04ef3816920210023f2f289a7dd6b5bd244
+      SCAPHANDRE_POWERCAP_PATH: /tmp/scaph-powercap
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          shared-key: upstream-wire-conformance
+
+      - name: Build perf-sentinel
+        run: cargo build --release -p perf-sentinel
+
+      - name: Install Scaphandre from upstream .deb
+        # Pinned by SHA256 since hubblo-org publishes no OCI image. The
+        # .deb is the closest equivalent to a digest pin: if upstream
+        # rebuilds and republishes the same tag with a different SHA,
+        # this step fails with a clear message and the pin must be
+        # refreshed deliberately. The 'deb12' variant is the latest
+        # Debian flavour produced by upstream as of v1.0.2 (2025-02-11)
+        # and runs on ubuntu-latest.
+        run: |
+          curl -fsSL -o /tmp/scaphandre.deb \
+            "https://github.com/hubblo-org/scaphandre/releases/download/${SCAPHANDRE_VERSION}/scaphandre_${SCAPHANDRE_VERSION}-deb12_amd64.deb"
+          echo "${SCAPHANDRE_DEB_SHA256}  /tmp/scaphandre.deb" | sha256sum --check
+          sudo dpkg -i /tmp/scaphandre.deb
+          scaphandre --version
+
+      - name: Generate fake powercap tree
+        # Scaphandre in `--vm` mode reads its powercap arborescence
+        # from SCAPHANDRE_POWERCAP_PATH (upstream
+        # src/sensors/powercap_rapl.rs:31-35) instead of
+        # /sys/class/powercap, which is absent on GitHub shared
+        # runners. We build the minimal tree the sensor expects: one
+        # socket directory `intel-rapl:0/` and one domain subdirectory
+        # `intel-rapl:0:0/`, each with `name` + `energy_uj`. This is a
+        # workaround use of `--vm` (officially intended for
+        # qemu-exporter consumers) but the read path is identical to
+        # physical mode, so wire conformance assertions are
+        # meaningful.
+        run: |
+          mkdir -p "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0"
+          echo "package-0" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/name"
+          echo "0"         > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/energy_uj"
+          echo "core"      > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/name"
+          echo "0"         > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/energy_uj"
+          ls -laR "${SCAPHANDRE_POWERCAP_PATH}"
+
+      - name: Start fake-energy ticker in background
+        # Scaphandre computes per-process power as energy_uj delta over
+        # time delta. A constant counter yields zero watts and no
+        # `scaph_process_power_consumption_microwatts` line is emitted,
+        # which would invalidate the wire assertion. The ticker bumps
+        # both counters monotonically every second so the sensor sees
+        # non-zero deltas. Increments are arbitrary, no physical
+        # meaning.
+        run: |
+          ( c1=0; c2=0
+            while true; do
+              c1=$((c1 + 100000))
+              c2=$((c2 +  50000))
+              echo "${c1}" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/energy_uj"
+              echo "${c2}" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/energy_uj"
+              sleep 1
+            done ) &
+          echo $! > /tmp/scaph-ticker.pid
+
+      - name: Start a target process for per-exe attribution
+        # Scaphandre still reads /proc/PID/stat in --vm mode to
+        # attribute power to processes. A long-running shell busy-loop
+        # gives the parser at least one `exe="bash"` entry to emit. The
+        # loop is a fixture, not a workload, not a performance signal.
+        run: |
+          ( while true; do :; done ) &
+          echo $! > /tmp/scaph-target.pid
+
+      - name: Start Scaphandre in VM mode with prometheus exporter
+        # sudo is required for /proc/PID/stat read access across all
+        # users, matching the standard Scaphandre operating mode. The
+        # prometheus exporter binds explicitly to 127.0.0.1:8080,
+        # overriding the upstream default (0.0.0.0) so the test
+        # endpoint is not exposed on the runner's external interfaces.
+        # Port 8080 matches the perf-sentinel scaphandre/config.rs
+        # default endpoint.
+        # The redirect lives inside `sh -c` so it is performed by the
+        # privileged shell (SC2024-clean); the log file ends up owned
+        # by root but world-readable in /tmp, fine for subsequent
+        # inspection by the runner user.
+        run: |
+          sudo -E sh -c 'nohup scaphandre --vm -s powercap_rapl prometheus --address 127.0.0.1 --port 8080 > /tmp/scaphandre.log 2>&1 & echo $! > /tmp/scaph-daemon.pid'
+          sleep 2
+
+      - name: Wait for Scaphandre /metrics reachable
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/metrics >/dev/null 2>&1; then
+              echo "scaphandre /metrics reachable after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/metrics >/dev/null
+
+      - name: Wire assertion - Scaphandre /metrics conforms to parser contract
+        # The point of truth: assert the EXACT metric name and label
+        # crates/sentinel-core/src/score/scaphandre/parser.rs:39,144
+        # expects. If upstream Scaphandre renames the metric or the
+        # `exe` label, this step fails with the offending lines printed
+        # before any parser-side test runs.
+        #
+        # This validates wire conformance ONLY, NOT energy precision.
+        # The energy_uj values are synthetic; only the metric names and
+        # labels come from the real upstream binary.
+        run: |
+          curl -fsS http://localhost:8080/metrics -o /tmp/scaph-metrics.txt
+          echo "--- scaphandre /metrics head (first 40 lines)"
+          head -40 /tmp/scaph-metrics.txt
+          echo "---"
+
+          fail=0
+
+          # The ticker bumps energy_uj at 1 Hz and the scrape window
+          # is ~22s, so any value of n below 3 means either a transient
+          # emission bug or a partial match, both of which are worth
+          # failing on to avoid false positives on the conformance
+          # signal.
+          n=$(grep -cE '^scaph_process_power_consumption_microwatts\{[^}]*exe="' /tmp/scaph-metrics.txt || true)
+          if [ "${n}" -ge 3 ]; then
+            echo "::notice::scaph_process_power_consumption_microwatts present with exe label (${n} samples)"
+          else
+            echo "::error::Expected at least 3 samples of scaph_process_power_consumption_microwatts with label exe in Scaphandre /metrics, got ${n}. Parser contract violated or transient emission."
+            fail=1
+          fi
+
+          exit "${fail}"
+
+      - name: End-to-end assertion - perf-sentinel scrapes Scaphandre cleanly
+        # Run perf-sentinel against the live Scaphandre, give it 4
+        # scrape ticks, then check that the scraper started and no
+        # error or panic was logged.
+        #
+        # Caveat: Scaphandre's scraper has no zero-sample warn-once
+        # equivalent to Kepler (kepler/scraper.rs
+        # track_zero_sample_streak). A silent upstream rename of the
+        # metric or label would not be caught at runtime today, this
+        # job is the only line of defence. Hardening tracked for
+        # v0.7.6.
+        run: |
+          cat > /tmp/perf-sentinel.toml <<'EOF'
+          [daemon]
+          listen_address = "127.0.0.1"
+          listen_port_http = 14318
+          listen_port_grpc = 14317
+          api_enabled = true
+          environment = "staging"
+
+          [green.scaphandre]
+          endpoint = "http://localhost:8080/metrics"
+          scrape_interval_secs = 5
+
+          [green.scaphandre.process_map]
+          "wire-conformance-svc" = "bash"
+          EOF
+
+          ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
+            > /tmp/perf-sentinel.log 2>&1 &
+          PID=$!
+
+          # 4 ticks at 5s + margin.
+          sleep 22
+          kill "${PID}" 2>/dev/null || true
+          wait "${PID}" 2>/dev/null || true
+
+          echo "--- perf-sentinel daemon log (tail)"
+          tail -80 /tmp/perf-sentinel.log
+          echo "---"
+
+          fail=0
+
+          if grep -qF "Scaphandre scraper started" /tmp/perf-sentinel.log; then
+            echo "::notice::Scaphandre scraper started cleanly"
+          else
+            echo "::error::Scaphandre scraper did not start. End-to-end assertion failed."
+            fail=1
+          fi
+
+          if grep -qiE "scaphandre.*(error|panic|fatal)" /tmp/perf-sentinel.log; then
+            echo "::error::Scaphandre scraper logged an error or panic during the test window."
+            grep -iE "scaphandre.*(error|panic|fatal)" /tmp/perf-sentinel.log
+            fail=1
+          fi
+
+          exit "${fail}"
+
+      - name: Debug artefacts (on failure)
+        if: failure()
+        run: |
+          echo "--- scaphandre log"
+          tail -200 /tmp/scaphandre.log 2>/dev/null || true
+          echo "--- scaphandre /metrics full"
+          cat /tmp/scaph-metrics.txt 2>/dev/null || true
+          echo "--- fake powercap tree"
+          ls -laR "${SCAPHANDRE_POWERCAP_PATH}" 2>/dev/null || true
+          echo "--- perf-sentinel log"
+          tail -200 /tmp/perf-sentinel.log 2>/dev/null || true
+
+      - name: Cleanup background processes and artefacts
+        if: always()
+        run: |
+          for pidfile in /tmp/scaph-ticker.pid /tmp/scaph-target.pid; do
+            if [ -f "${pidfile}" ]; then
+              pid=$(cat "${pidfile}")
+              kill "${pid}" 2>/dev/null || true
+            fi
+          done
+          if [ -f /tmp/scaph-daemon.pid ]; then
+            sudo kill "$(cat /tmp/scaph-daemon.pid)" 2>/dev/null || true
+          fi
+          # Belt-and-braces fallback: catch any straggler if the pid
+          # file is missing or the kill above raced with the launcher.
+          sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
+          # Hygiene: root-owned log + powercap tree need sudo to remove.
+          sudo rm -rf /tmp/scaph-powercap /tmp/scaphandre.log /tmp/scaphandre.deb \
+            /tmp/scaph-metrics.txt /tmp/scaph-ticker.pid /tmp/scaph-target.pid \
+            /tmp/scaph-daemon.pid /tmp/perf-sentinel.toml /tmp/perf-sentinel.log 2>/dev/null || true
