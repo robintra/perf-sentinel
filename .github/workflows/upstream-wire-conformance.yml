@@ -1,0 +1,490 @@
+# Wire-conformance integration test for the Kepler and Redfish scrapers.
+#
+# This workflow exists to catch upstream renames or schema changes BEFORE
+# they ship a dead-on-arrival perf-sentinel release, the v0.7.4 trap. It
+# is NOT the release gate (`docs/RELEASE-PROCEDURE.md` forbids invoking
+# the lab gate from CI), and it is NOT a measure of energy precision.
+# Each job runs against a real upstream backend in fake-meter / mockup
+# mode: the metric NAMES and LABELS come from real upstream code so
+# parser conformance is asserted for real, but the watt values are
+# synthetic and have no physical meaning.
+#
+# Two independent jobs. No `needs:` chain, so an upstream Kepler rename
+# does not mask a Redfish regression and vice versa.
+
+name: Upstream wire conformance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'crates/sentinel-core/src/score/kepler/**'
+      - 'crates/sentinel-core/src/score/redfish/**'
+      - '.github/workflows/upstream-wire-conformance.yml'
+  pull_request:
+    paths:
+      - 'crates/sentinel-core/src/score/kepler/**'
+      - 'crates/sentinel-core/src/score/redfish/**'
+      - '.github/workflows/upstream-wire-conformance.yml'
+  # Weekly cron catches upstream renames in the absence of any local
+  # change. Monday 06:00 UTC keeps it off the busy weekday slots.
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: info
+
+jobs:
+
+  kepler-wire-conformance:
+    name: kepler-wire-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          shared-key: upstream-wire-conformance
+
+      - name: Build perf-sentinel
+        run: cargo build --release -p perf-sentinel
+
+      - name: Create kind cluster
+        # Container-mode Kepler metrics require Kubernetes pod
+        # discovery; the kubelet podInformer needs node RBAC k3d/kind
+        # cannot give us cleanly, so we fall back to apiserver mode in
+        # the Kepler config below.
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc  # v1.14.0
+        with:
+          cluster_name: kepler-wire
+          wait: 60s
+
+      - name: Apply Kepler v0.11.4 DaemonSet
+        run: |
+          cat <<'EOF' | kubectl apply -f -
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: kepler
+            labels:
+              pod-security.kubernetes.io/enforce: privileged
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: kepler
+            namespace: kepler
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: kepler
+          rules:
+            - apiGroups: [""]
+              resources: ["nodes", "pods"]
+              verbs: ["get", "list", "watch"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: kepler
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: kepler
+          subjects:
+            - kind: ServiceAccount
+              name: kepler
+              namespace: kepler
+          ---
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: kepler
+            namespace: kepler
+          data:
+            # The actual fake-meter knob is `dev.fake-cpu-meter.enabled`,
+            # not `cpu.meters: ["fake"]` (the latter appears in some
+            # v0.11 release notes but is not in the parsed schema).
+            # Kepler emits synthetic readings without RAPL but the
+            # metric NAMES are the real ones.
+            config.yaml: |
+              log:
+                level: info
+                format: text
+              monitor:
+                interval: 5s
+                staleness: 1000ms
+                maxTerminated: 100
+                minTerminatedEnergyThreshold: 10
+              web:
+                listenAddresses:
+                  - ":28282"
+              kube:
+                podInformer:
+                  mode: apiserver
+                  pollInterval: 15s
+              dev:
+                fake-cpu-meter:
+                  enabled: true
+                  zones: []
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: kepler
+            namespace: kepler
+          spec:
+            type: ClusterIP
+            selector:
+              app.kubernetes.io/name: kepler
+            ports:
+              - name: http
+                port: 28282
+                targetPort: 28282
+                protocol: TCP
+          ---
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            name: kepler
+            namespace: kepler
+          spec:
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: kepler
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: kepler
+              spec:
+                serviceAccountName: kepler
+                hostPID: true
+                tolerations:
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/control-plane
+                  - effect: NoSchedule
+                    key: node-role.kubernetes.io/master
+                containers:
+                  - name: kepler
+                    image: quay.io/sustainable_computing_io/kepler@sha256:45571f233951fb96c3a2900e1d5e4cbb4ade9cd36ed419dcd87661e067168fdf  # v0.11.4 amd64
+                    imagePullPolicy: IfNotPresent
+                    command: ["/usr/bin/kepler"]
+                    args:
+                      - --config.file=/etc/kepler/config.yaml
+                      - --kube.enable
+                      - --kube.node-name=$(NODE_NAME)
+                    env:
+                      - name: NODE_NAME
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: spec.nodeName
+                    ports:
+                      - name: http
+                        containerPort: 28282
+                        protocol: TCP
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - { name: sysfs, mountPath: /host/sys, readOnly: true }
+                      - { name: procfs, mountPath: /host/proc, readOnly: true }
+                      - { name: config, mountPath: /etc/kepler, readOnly: true }
+                volumes:
+                  - { name: sysfs, hostPath: { path: /sys, type: Directory } }
+                  - { name: procfs, hostPath: { path: /proc, type: Directory } }
+                  - { name: config, configMap: { name: kepler } }
+          EOF
+
+      - name: Deploy a workload pod for Kepler to attribute
+        # Without a Pod with a named container, kepler_container_* would
+        # have no targets to label. The pod name is arbitrary, only the
+        # container_name label has to exist on the wire.
+        run: |
+          kubectl create namespace workload
+          kubectl -n workload run sample --image=alpine:3.20 --restart=Never \
+            --command -- sh -c 'while true; do sleep 30; done'
+          kubectl -n workload wait --for=condition=Ready pod/sample --timeout=120s
+
+      - name: Wait for Kepler Ready
+        run: kubectl -n kepler rollout status daemonset/kepler --timeout=240s
+
+      - name: Port-forward Kepler service
+        run: |
+          kubectl -n kepler port-forward svc/kepler 28282:28282 > /tmp/kepler-pf.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:28282/metrics >/dev/null 2>&1; then
+              echo "kepler /metrics reachable after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:28282/metrics >/dev/null
+
+      - name: Wire assertion - Kepler /metrics conforms to parser contract
+        # The point of truth: assert the EXACT names and labels that
+        # crates/sentinel-core/src/score/kepler/config.rs:35-49 expects.
+        # If upstream renames a metric or a label, this step fails with
+        # the offending line printed, before any parser-side test runs.
+        run: |
+          curl -fsS http://localhost:28282/metrics -o /tmp/kepler-metrics.txt
+          echo "--- /metrics head (first 40 lines)"
+          head -40 /tmp/kepler-metrics.txt
+          echo "---"
+
+          fail=0
+
+          if grep -qE '^kepler_container_cpu_joules_total\{[^}]*container_name="' /tmp/kepler-metrics.txt; then
+            n=$(grep -cE '^kepler_container_cpu_joules_total\{[^}]*container_name="' /tmp/kepler-metrics.txt)
+            echo "::notice::kepler_container_cpu_joules_total present with container_name label (${n} samples)"
+          else
+            echo "::error::Expected metric kepler_container_cpu_joules_total with label container_name not found in Kepler /metrics. Parser contract violated."
+            fail=1
+          fi
+
+          if grep -qE '^kepler_process_cpu_joules_total\{[^}]*comm="' /tmp/kepler-metrics.txt; then
+            n=$(grep -cE '^kepler_process_cpu_joules_total\{[^}]*comm="' /tmp/kepler-metrics.txt)
+            echo "::notice::kepler_process_cpu_joules_total present with comm label (${n} samples)"
+          else
+            echo "::error::Expected metric kepler_process_cpu_joules_total with label comm not found in Kepler /metrics. Parser contract violated."
+            fail=1
+          fi
+
+          exit "${fail}"
+
+      - name: End-to-end assertion - perf-sentinel scrapes Kepler cleanly
+        # Run perf-sentinel against the live Kepler, give it 4 scrape
+        # ticks, then check that the scraper started and the zero-sample
+        # warn did NOT fire. Absence of the warn implies the parser
+        # found matching samples (the empty-deltas invariant: no warn
+        # AND no samples is unreachable since the threshold is 3 ticks).
+        run: |
+          # service_mappings keys are arbitrary perf-sentinel service
+          # names; the values must match container_name labels Kepler
+          # emits. The kind cluster has one workload pod whose
+          # container is named `sample`, plus Kepler's own daemonset
+          # container `kepler`. We map both to test pattern matching.
+          cat > /tmp/perf-sentinel.toml <<'EOF'
+          [daemon]
+          listen_address = "127.0.0.1"
+          listen_port_http = 14318
+          listen_port_grpc = 14317
+          api_enabled = true
+          environment = "staging"
+
+          [green.kepler]
+          endpoint = "http://localhost:28282/metrics"
+          scrape_interval_secs = 5
+          metric_kind = "container"
+
+          [green.kepler.service_mappings]
+          "wire-conformance-sample" = "sample"
+          "wire-conformance-kepler" = "kepler"
+          EOF
+
+          ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
+            > /tmp/perf-sentinel.log 2>&1 &
+          PID=$!
+
+          # 4 ticks at 5s + margin. The zero-sample warn fires at 3
+          # ticks if samples never match, so 20s is enough to see it
+          # OR to confirm its absence.
+          sleep 22
+          kill "${PID}" 2>/dev/null || true
+          wait "${PID}" 2>/dev/null || true
+
+          echo "--- perf-sentinel daemon log (tail)"
+          tail -80 /tmp/perf-sentinel.log
+          echo "---"
+
+          fail=0
+
+          if grep -qF "Kepler scraper started" /tmp/perf-sentinel.log; then
+            echo "::notice::Kepler scraper started cleanly"
+          else
+            echo "::error::Kepler scraper did not start. End-to-end assertion failed."
+            fail=1
+          fi
+
+          if grep -qF "no samples matched the configured metric" /tmp/perf-sentinel.log; then
+            echo "::error::Zero-sample warn-once fired. The parser saw HTTP 200 but no samples matched the configured metric. This indicates an upstream rename even though the wire assertion above passed (cardinality limit, label cap, control-char check or other validation in config.rs). Check the daemon log."
+            fail=1
+          else
+            echo "::notice::No zero-sample warn fired (parser found matching samples)"
+          fi
+
+          exit "${fail}"
+
+      - name: Debug artefacts (on failure)
+        if: failure()
+        run: |
+          echo "--- kubectl get pods -A"
+          kubectl get pods -A || true
+          echo "--- kepler logs"
+          kubectl -n kepler logs daemonset/kepler --tail=200 || true
+          echo "--- Kepler /metrics full"
+          cat /tmp/kepler-metrics.txt 2>/dev/null || true
+
+  redfish-wire-conformance:
+    name: redfish-wire-conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      redfish-mockup:
+        image: dmtf/redfish-mockup-server@sha256:6dbfa26272dc506b74a45d7356e31dc65396f7a8faf2b6ef860ee4b428e38d1b  # v1.2.9
+        ports:
+          - 8000:8000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          shared-key: upstream-wire-conformance
+
+      - name: Build perf-sentinel
+        run: cargo build --release -p perf-sentinel
+
+      - name: Wait for Redfish mockup ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/redfish/v1/ >/dev/null 2>&1; then
+              echo "mockup reachable after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8000/redfish/v1/ >/dev/null
+
+      - name: Discover available chassis
+        id: chassis
+        run: |
+          curl -fsS http://localhost:8000/redfish/v1/Chassis -o /tmp/chassis.json
+          jq . /tmp/chassis.json
+          first_chassis=$(jq -r '.Members[0]."@odata.id"' /tmp/chassis.json)
+          echo "first_chassis=${first_chassis}" >> "${GITHUB_OUTPUT}"
+          echo "::notice::First chassis odata id: ${first_chassis}"
+
+      - name: Wire assertion - legacy Power path conforms to parser contract
+        # The point of truth: assert the JSON pointer the parser uses by
+        # default (config.rs:10, DEFAULT_POWER_PATH =
+        # /PowerControl/0/PowerConsumedWatts) resolves to a finite
+        # positive number on the upstream-canonical mockup. If DMTF
+        # changes the default mockup schema (drops PowerControl array
+        # at this index, renames PowerConsumedWatts), this step fails.
+        run: |
+          chassis="${{ steps.chassis.outputs.first_chassis }}"
+          curl -fsS "http://localhost:8000${chassis}/Power" -o /tmp/power.json
+          echo "--- Power resource head"
+          head -40 /tmp/power.json
+          echo "---"
+
+          # jq -e exits non-zero on null/false. The query reaches the
+          # exact path the parser reads (parser.rs:23).
+          if jq -e '.PowerControl[0].PowerConsumedWatts | numbers | select(. > 0)' /tmp/power.json >/dev/null; then
+            value=$(jq -r '.PowerControl[0].PowerConsumedWatts' /tmp/power.json)
+            echo "::notice::PowerControl[0].PowerConsumedWatts = ${value}, matches parser contract"
+          else
+            echo "::error::Default JSON pointer /PowerControl/0/PowerConsumedWatts does not resolve to a positive finite number on the DMTF mockup. Parser contract violated."
+            jq . /tmp/power.json
+            exit 1
+          fi
+
+      - name: Dead-on-arrival probe - PowerSubsystem presence (informational)
+        # The Power resource (1.5+) was deprecated by DMTF Release
+        # 2020.4 in favour of PowerSubsystem + EnvironmentMetrics. The
+        # perf-sentinel parser only reads the legacy path, so a future
+        # BMC firmware migrating to PowerSubsystem would become a
+        # silent dead-on-arrival like the Kepler v0.7.4 bug. We probe
+        # whether the mockup ALSO serves PowerSubsystem and log the
+        # finding as a notice, NOT a failure. The day this notice
+        # starts being a meaningful warning is when at least one major
+        # vendor has migrated.
+        continue-on-error: true
+        run: |
+          chassis="${{ steps.chassis.outputs.first_chassis }}"
+          if curl -fsS "http://localhost:8000${chassis}/PowerSubsystem" -o /tmp/powersubsystem.json 2>/dev/null; then
+            echo "::warning::Mockup serves /PowerSubsystem. Parser still reads the deprecated /Power model. Track BMC firmware migration and consider adding a PowerSubsystem branch to redfish/parser.rs."
+            jq . /tmp/powersubsystem.json | head -30
+          else
+            echo "::notice::Mockup does not serve /PowerSubsystem yet. Legacy Power model still the standard surface."
+          fi
+
+      - name: End-to-end assertion - perf-sentinel scrapes Redfish cleanly
+        # The wire assertion above already proves the parser would
+        # match. Here we confirm the daemon side actually wires the
+        # scrape and does not error at startup.
+        run: |
+          chassis="${{ steps.chassis.outputs.first_chassis }}"
+          cat > /tmp/perf-sentinel.toml <<EOF
+          [daemon]
+          listen_address = "127.0.0.1"
+          listen_port_http = 14318
+          listen_port_grpc = 14317
+          api_enabled = true
+          environment = "staging"
+
+          [green.redfish]
+          scrape_interval_secs = 15
+
+          [green.redfish.endpoints]
+          "chassis-1" = "http://localhost:8000${chassis}/Power"
+
+          [green.redfish.service_mappings]
+          "wire-conformance-svc" = "chassis-1"
+          EOF
+
+          ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
+            > /tmp/perf-sentinel.log 2>&1 &
+          PID=$!
+
+          # 1 tick at 15s (min interval) + margin to see at least one
+          # successful scrape.
+          sleep 22
+          kill "${PID}" 2>/dev/null || true
+          wait "${PID}" 2>/dev/null || true
+
+          echo "--- perf-sentinel daemon log (tail)"
+          tail -80 /tmp/perf-sentinel.log
+          echo "---"
+
+          fail=0
+
+          if grep -qF "Redfish scraper started" /tmp/perf-sentinel.log; then
+            echo "::notice::Redfish scraper started cleanly"
+          else
+            echo "::error::Redfish scraper did not start. End-to-end assertion failed."
+            fail=1
+          fi
+
+          if grep -qiE "redfish.*(error|panic|fatal)" /tmp/perf-sentinel.log; then
+            echo "::error::Redfish scraper logged an error or panic during the test window."
+            grep -iE "redfish.*(error|panic|fatal)" /tmp/perf-sentinel.log
+            fail=1
+          fi
+
+          exit "${fail}"
+
+      - name: Debug artefacts (on failure)
+        if: failure()
+        run: |
+          echo "--- chassis index"
+          cat /tmp/chassis.json 2>/dev/null || true
+          echo "--- Power resource"
+          cat /tmp/power.json 2>/dev/null || true
+          echo "--- perf-sentinel log"
+          tail -200 /tmp/perf-sentinel.log 2>/dev/null || true
