@@ -22,7 +22,7 @@ pub mod scraper;
 #[cfg(feature = "daemon")]
 pub mod state;
 
-pub use config::RedfishConfig;
+pub use config::{RedfishConfig, RedfishEndpoint, RedfishSchema};
 #[cfg(feature = "daemon")]
 pub use scraper::spawn_scraper;
 #[cfg(feature = "daemon")]

@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use super::apply::{apply_chassis_scrape, build_chassis_services};
+use super::config::RedfishSchema;
 use super::parser::{ParseOutcome, parse_redfish_power};
 use super::scraper::{ScraperError, scraper_error_reason};
 use super::state::ServiceEnergy;
@@ -220,7 +221,7 @@ fn parses_dell_idrac_response() {
         ]
     }"#;
     assert_eq!(
-        parse_redfish_power(body, "/PowerControl/0/PowerConsumedWatts"),
+        parse_redfish_power(body, RedfishSchema::LegacyPower),
         ParseOutcome::Ok(287.0)
     );
 }
@@ -247,7 +248,7 @@ fn parses_hpe_ilo_response() {
         }
     }"#;
     assert_eq!(
-        parse_redfish_power(body, "/PowerControl/0/PowerConsumedWatts"),
+        parse_redfish_power(body, RedfishSchema::LegacyPower),
         ParseOutcome::Ok(412.5)
     );
 }
@@ -268,7 +269,7 @@ fn parses_openbmc_reference_response() {
         ]
     }"#;
     assert_eq!(
-        parse_redfish_power(body, "/PowerControl/0/PowerConsumedWatts"),
+        parse_redfish_power(body, RedfishSchema::LegacyPower),
         ParseOutcome::Ok(198.4)
     );
 }
@@ -285,7 +286,7 @@ fn rejects_dell_response_in_transition_state() {
         ]
     }"#;
     assert_eq!(
-        parse_redfish_power(body, "/PowerControl/0/PowerConsumedWatts"),
+        parse_redfish_power(body, RedfishSchema::LegacyPower),
         ParseOutcome::InvalidValue
     );
 }
@@ -294,27 +295,17 @@ fn rejects_dell_response_in_transition_state() {
 fn rejects_empty_power_control_array() {
     let body = r#"{"PowerControl": []}"#;
     assert_eq!(
-        parse_redfish_power(body, "/PowerControl/0/PowerConsumedWatts"),
+        parse_redfish_power(body, RedfishSchema::LegacyPower),
         ParseOutcome::PathMissing
     );
 }
 
-#[test]
-fn custom_power_path_resolves_for_oem_vendors() {
-    let body = r#"{
-        "Oem": {
-            "Lenovo": {
-                "Power": {
-                    "PowerConsumedWatts": 524.7
-                }
-            }
-        }
-    }"#;
-    assert_eq!(
-        parse_redfish_power(body, "/Oem/Lenovo/Power/PowerConsumedWatts"),
-        ParseOutcome::Ok(524.7)
-    );
-}
+// `custom_power_path_resolves_for_oem_vendors` removed in v0.7.6:
+// arbitrary JSON pointers are no longer configurable. An OEM that
+// exposes wattage under a non-standard path is expected to either
+// surface a Redfish-compliant `/Power` or `/EnvironmentMetrics` on
+// its own URL, or be fronted by a reverse proxy that reshapes the
+// payload. See docs/LIMITATIONS.md for the rationale.
 
 // --- multi-chassis attribution --------------------------------------
 
@@ -345,7 +336,7 @@ fn multi_chassis_each_gets_independent_coefficient() {
 
 #[tokio::test]
 async fn spawn_scraper_with_ca_bundle_path_aborts_immediately() {
-    use super::config::{DEFAULT_POWER_PATH, RedfishConfig};
+    use super::config::{RedfishConfig, RedfishEndpoint};
     use super::scraper::spawn_scraper;
     use crate::report::metrics::MetricsState;
     use crate::score::redfish::RedfishState;
@@ -355,7 +346,10 @@ async fn spawn_scraper_with_ca_bundle_path_aborts_immediately() {
     let mut endpoints = HashMap::new();
     endpoints.insert(
         "chassis-1".to_string(),
-        "https://127.0.0.1:12345/redfish/v1/Chassis/1/Power".to_string(),
+        RedfishEndpoint {
+            url: "https://127.0.0.1:12345/redfish/v1/Chassis/1/Power".to_string(),
+            schema: RedfishSchema::LegacyPower,
+        },
     );
     let mut mappings = HashMap::new();
     mappings.insert("svc-a".to_string(), "chassis-1".to_string());
@@ -363,7 +357,6 @@ async fn spawn_scraper_with_ca_bundle_path_aborts_immediately() {
         endpoints,
         scrape_interval: Duration::from_secs(15),
         service_mappings: mappings,
-        power_path: DEFAULT_POWER_PATH.to_string(),
         ca_bundle_path: Some("/tmp/perf-sentinel-fake-ca-bundle.pem".to_string()),
         auth_header: None,
     };
@@ -382,7 +375,7 @@ async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
     // Regression guard: the gauge must climb from boot when every
     // chassis is unreachable. Before the fix, last_success_ms was
     // None at boot and the gauge stayed at 0.0 indefinitely.
-    use super::config::{DEFAULT_POWER_PATH, RedfishConfig};
+    use super::config::{RedfishConfig, RedfishEndpoint};
     use super::scraper::spawn_scraper;
     use crate::report::metrics::MetricsState;
     use crate::score::redfish::RedfishState;
@@ -394,7 +387,13 @@ async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
     drop(listener);
 
     let mut endpoints = HashMap::new();
-    endpoints.insert("chassis-1".to_string(), format!("http://{addr}/Power"));
+    endpoints.insert(
+        "chassis-1".to_string(),
+        RedfishEndpoint {
+            url: format!("http://{addr}/Power"),
+            schema: RedfishSchema::LegacyPower,
+        },
+    );
     let mut mappings = HashMap::new();
     mappings.insert("svc-a".to_string(), "chassis-1".to_string());
     // Sub-second interval lets the test fail several ticks within a
@@ -405,7 +404,6 @@ async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
         endpoints,
         scrape_interval: Duration::from_millis(50),
         service_mappings: mappings,
-        power_path: DEFAULT_POWER_PATH.to_string(),
         ca_bundle_path: None,
         auth_header: None,
     };
