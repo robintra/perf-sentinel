@@ -2,7 +2,7 @@
 //! `EnvironmentMetrics`).
 //!
 //! Resolves the canonical JSON pointer for the configured schema (see
-//! [`super::config::RedfishSchema`]) and validates that the value is a
+//! [`RedfishSchema`]) and validates that the value is a
 //! finite, strictly positive number. Vendor responses with `null`, `0`,
 //! negative or `NaN` wattage are rejected as transitional states, the
 //! caller keeps the previous coefficient in that case.
