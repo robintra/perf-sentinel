@@ -43,6 +43,18 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
+        id: checkout-1
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Checkout (retry 2/3)
+        id: checkout-2
+        if: steps.checkout-1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Checkout (retry 3/3)
+        if: steps.checkout-2.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
       - name: Install Rust toolchain
