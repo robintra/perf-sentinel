@@ -2288,44 +2288,33 @@ impl Config {
     /// contain dots, slashes and similar.
     fn validate_scaphandre_process_map(cfg: &ScaphandreConfig) -> Result<(), String> {
         for (service, matcher) in &cfg.process_map {
-            if service.is_empty() || service.len() > 256 {
-                return Err(format!(
-                    "[green.scaphandre] process_map service name '{service}' must be 1-256 chars"
-                ));
-            }
-            if has_control_char(service) {
-                return Err(format!(
-                    "[green.scaphandre] process_map service name '{service}' \
-                     contains control characters"
-                ));
-            }
-            let exe = &matcher.exe_contains;
-            if exe.is_empty() || exe.len() > 256 {
-                return Err(format!(
-                    "[green.scaphandre] process_map exe_contains for service '{service}' \
-                     must be 1-256 chars, got '{exe}'"
-                ));
-            }
-            if has_control_char(exe) {
-                return Err(format!(
-                    "[green.scaphandre] process_map exe_contains for service '{service}' \
-                     contains control characters"
-                ));
-            }
+            Self::validate_scaphandre_substring(service, "service name", service)?;
+            Self::validate_scaphandre_substring(&matcher.exe_contains, "exe_contains", service)?;
             if let Some(cmdline) = matcher.cmdline_contains.as_deref() {
-                if cmdline.is_empty() || cmdline.len() > 256 {
-                    return Err(format!(
-                        "[green.scaphandre] process_map cmdline_contains for service '{service}' \
-                         must be 1-256 chars when set, got '{cmdline}'"
-                    ));
-                }
-                if has_control_char(cmdline) {
-                    return Err(format!(
-                        "[green.scaphandre] process_map cmdline_contains for service '{service}' \
-                         contains control characters"
-                    ));
-                }
+                Self::validate_scaphandre_substring(cmdline, "cmdline_contains", service)?;
             }
+        }
+        Ok(())
+    }
+
+    /// Length and control-char validation for one `process_map` string
+    /// field. Extracted so [`validate_scaphandre_process_map`] stays
+    /// below the cognitive-complexity ceiling. `kind` is the field
+    /// label inserted into the error message (e.g. `"exe_contains"`),
+    /// `service` is the surrounding service name used for operator
+    /// context.
+    fn validate_scaphandre_substring(value: &str, kind: &str, service: &str) -> Result<(), String> {
+        if value.is_empty() || value.len() > 256 {
+            return Err(format!(
+                "[green.scaphandre] process_map {kind} for service '{service}' \
+                 must be 1-256 chars, got '{value}'"
+            ));
+        }
+        if has_control_char(value) {
+            return Err(format!(
+                "[green.scaphandre] process_map {kind} for service '{service}' \
+                 contains control characters"
+            ));
         }
         Ok(())
     }
