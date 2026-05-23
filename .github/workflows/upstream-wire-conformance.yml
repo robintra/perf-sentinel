@@ -427,6 +427,30 @@ jobs:
             echo "::notice::Mockup does not serve /PowerSubsystem yet. Legacy Power model still the standard surface."
           fi
 
+      - name: Observation probe - EnvironmentMetrics presence (informational)
+        # PowerSubsystem itself does NOT carry instantaneous power
+        # consumption per the DMTF schema (it describes infrastructure:
+        # CapacityWatts, PowerSupplies, Batteries). The modern equivalent
+        # of the legacy `PowerControl[0].PowerConsumedWatts` is
+        # `PowerWatts.Reading` under EnvironmentMetrics (v1.6.0, release
+        # 2026.1). Probe whether the mockup serves
+        # /Chassis/{id}/EnvironmentMetrics and dump the head of the JSON
+        # so a follow-up parser branch can be designed against real
+        # upstream output. Pure observation, no assertion.
+        continue-on-error: true
+        run: |
+          chassis="${{ steps.chassis.outputs.first_chassis }}"
+          if curl -fsS "http://localhost:8000${chassis}/EnvironmentMetrics" -o /tmp/environmentmetrics.json 2>/dev/null; then
+            echo "::notice::Mockup serves /EnvironmentMetrics. Head of payload below for follow-up parser design."
+            jq . /tmp/environmentmetrics.json | head -60
+            powerwatts=$(jq -r '.PowerWatts.Reading // "absent"' /tmp/environmentmetrics.json)
+            echo "::notice::PowerWatts.Reading = ${powerwatts}"
+            energy=$(jq -r '.EnergykWh.Reading // "absent"' /tmp/environmentmetrics.json)
+            echo "::notice::EnergykWh.Reading = ${energy}"
+          else
+            echo "::notice::Mockup does not serve /EnvironmentMetrics at /Chassis/{id}/EnvironmentMetrics."
+          fi
+
       - name: End-to-end assertion - perf-sentinel scrapes Redfish cleanly
         # The wire assertion above already proves the parser would
         # match. Here we confirm the daemon side actually wires the
