@@ -6,6 +6,29 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.42]
+
+### Changed
+
+- Re-publication of chart-v0.2.41 to recover the supply-chain attestations
+  that were skipped on the original release. `appVersion` stays at `0.7.6`,
+  template surface is byte-for-byte identical to chart-v0.2.41, the only
+  diff is this `version:` bump and this CHANGELOG entry. The chart-v0.2.41
+  helm-release workflow run succeeded the `helm push` step but tripped on
+  an empty digest returned by `crane digest` immediately after, which
+  stopped the job and skipped the downstream Cosign keyless signature,
+  SPDX SBOM, and SLSA Build L3 provenance attestation jobs. The chart
+  binary was already on GHCR, but operators verifying provenance with
+  `cosign verify` against chart-v0.2.41 fail. chart-v0.2.42 runs the full
+  pipeline against the same template content so the attestations exist
+  for installs going forward. Operators on chart-v0.2.41 can upgrade
+  to chart-v0.2.42 in place, the rendered manifests are identical, no
+  `helm upgrade` migration is needed beyond the chart bump. The
+  workflow regression is fixed in [#33](https://github.com/robintra/perf-sentinel/pull/33),
+  the digest is now parsed from `helm push` output directly instead of
+  a separate `crane digest` call that races against GHCR's
+  eventually-consistent tag index.
+
 ## [0.2.41]
 
 ### Changed
