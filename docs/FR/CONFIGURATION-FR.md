@@ -285,7 +285,7 @@ schema = "environment_metrics"
 "ledger-svc" = "chassis-modern-1"
 ```
 
-**Quel schema choisir.** `/Power` (legacy_power) a été déprécié par DMTF Release 2020.4 mais reste obligatoire sur les firmwares BMC en 2026, tous les fournisseurs en production l'exposent. `/EnvironmentMetrics` (environment_metrics) est le remplacement moderne qui expose `PowerWatts.Reading` directement, présent en parallèle de `/Power` pendant la transition. Choisir `legacy_power` sauf si la documentation BMC recommande explicitement `EnvironmentMetrics`. Une flotte mixte se déclare en donnant à chaque châssis le schema que sa firmware sert.
+**Quel schema choisir.** `/Power` (legacy_power) a été déprécié par DMTF Release 2020.4 mais reste obligatoire sur les firmwares BMC en 2026, tous les fournisseurs en production l'exposent. `/EnvironmentMetrics` (environment_metrics) est le remplacement moderne qui expose `PowerWatts.Reading` directement, présent en parallèle de `/Power` pendant la transition. Choisir `legacy_power` sauf si la documentation BMC recommande explicitement `EnvironmentMetrics`. Une flotte mixte se déclare en donnant à chaque châssis le schema que son firmware sert.
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre et Kepler, seul `watch` intègre Redfish.
 
