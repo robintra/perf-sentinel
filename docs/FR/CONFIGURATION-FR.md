@@ -190,18 +190,28 @@ Intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) 
 |------------------------|--------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `endpoint`             | chaîne | *(aucun)* | URL complète de l'endpoint Prometheus `/metrics` de Scaphandre. Doit commencer par `http://` ou `https://` (TLS supporté via hyper-rustls). Obligatoire quand la section est présente |
 | `scrape_interval_secs` | entier | `5`       | Fréquence de scrape, en secondes. Plage valide : 1-3600                                                                                                                               |
-| `process_map`          | table  | `{}`      | Mappe les noms de service perf-sentinel (depuis `service.name` du span) aux labels `exe` Scaphandre                                                                                   |
+| `process_map`          | table  | `{}`      | Mappe les noms de service perf-sentinel (depuis `service.name` du span) à un `ProcessMatcher` par service (voir ci-dessous)                                                            |
+
+Chaque entrée `process_map` est une table avec deux champs : `exe_contains` (obligatoire, sous-chaîne comparée au label `exe` de Scaphandre) et `cmdline_contains` (optionnel, sous-chaîne comparée au label `cmdline`). Quand `cmdline_contains` est défini, le matcher exige que les deux sous-chaînes soient présentes. Un seul processus Scaphandre doit matcher par entrée, sinon l'étape de scoring saute ce service pour le tick et émet un log `warn` nommant l'ambiguïté.
 
 ```toml
 [green.scaphandre]
 endpoint = "http://localhost:8080/metrics"
 scrape_interval_secs = 5
 
-[green.scaphandre.process_map]
-"order-svc" = "java"
-"chat-svc" = "dotnet"
-"game-svc" = "game"
+[green.scaphandre.process_map."order-svc"]
+exe_contains = "bin/java"
+cmdline_contains = "order-svc.jar"
+
+[green.scaphandre.process_map."chat-svc"]
+exe_contains = "bin/java"
+cmdline_contains = "chat-svc.jar"
+
+[green.scaphandre.process_map."native-svc"]
+exe_contains = "/opt/native-svc/bin/native-svc"
 ```
+
+**Pourquoi `exe_contains` ET `cmdline_contains`.** Scaphandre émet `exe` comme chemin absolu du runtime (`/usr/lib/jvm/.../bin/java`, `/usr/share/dotnet/dotnet`). Plusieurs services co-localisés partageant un runtime (plusieurs JVMs, plusieurs assemblies .NET) collisionnent sur `exe`, et seul `cmdline` les distingue. Scaphandre concatène en plus argv sans séparateurs : `java -jar /tmp/order-svc.jar` apparaît comme `cmdline="java-jar/tmp/order-svc.jar"`. Configurez `cmdline_contains` avec une sous-chaîne présente dans cette forme concaténée (par exemple le nom du jar ou de la dll), PAS avec une ligne de commande POSIX contenant des espaces.
 
 **Ignoré en mode batch `analyze`.** Seul le daemon `watch` lance le scraper. La commande `analyze` utilise toujours le modèle proxy quelle que soit cette section.
 
