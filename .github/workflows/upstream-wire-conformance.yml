@@ -578,6 +578,39 @@ jobs:
           ( while true; do :; done ) &
           echo $! > /tmp/scaph-target.pid
 
+      - name: Install JDK 25 (Temurin) for cmdline matcher assertion
+        # Two co-located JVMs share /usr/lib/jvm/.../bin/java in `exe`,
+        # only `cmdline` discriminates them. The assertion below runs
+        # perf-sentinel against the real Scaphandre with a cmdline-aware
+        # process_map and verifies no ambiguity warning fires.
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Build and spawn 2 toy JVMs for cmdline matcher assertion
+        run: |
+          mkdir -p /tmp/jbuild
+          for tag in a b; do
+            cat > "/tmp/jbuild/Main_${tag}.java" <<EOF
+          public class Main_${tag} {
+              public static void main(String[] args) throws Exception {
+                  while (true) { Thread.sleep(1000); }
+              }
+          }
+          EOF
+            javac -d /tmp/jbuild "/tmp/jbuild/Main_${tag}.java"
+            cat > "/tmp/jbuild/svc-${tag}.mf" <<EOF
+          Main-Class: Main_${tag}
+
+          EOF
+            (cd /tmp/jbuild && jar cfm "/tmp/svc-${tag}.jar" "svc-${tag}.mf" "Main_${tag}.class")
+            java -jar "/tmp/svc-${tag}.jar" &
+            echo $! > "/tmp/svc-${tag}.pid"
+          done
+          # Give the JVMs a moment to enter /proc before Scaphandre walks it.
+          sleep 10
+
       - name: Start Scaphandre in VM mode with prometheus exporter
         # sudo is required for /proc/PID/stat read access across all
         # users, matching the standard Scaphandre operating mode. The
@@ -652,8 +685,11 @@ jobs:
 
       - name: End-to-end assertion - perf-sentinel scrapes Scaphandre cleanly
         # Run perf-sentinel against the live Scaphandre, give it 4
-        # scrape ticks, then check that the scraper started and no
-        # error or panic was logged.
+        # scrape ticks, then check that the scraper started, no error
+        # or panic was logged, and the cmdline-aware matcher (v0.7.6)
+        # disambiguates the two co-located JVMs without firing the
+        # ambiguity warning. The bash busy-loop is also mapped to
+        # exercise the legacy single-runtime path side-by-side.
         #
         # Caveat: Scaphandre's scraper has no zero-sample warn-once
         # equivalent to Kepler (kepler/scraper.rs
@@ -674,8 +710,16 @@ jobs:
           endpoint = "http://localhost:8080/metrics"
           scrape_interval_secs = 5
 
-          [green.scaphandre.process_map]
-          "wire-conformance-svc" = "bash"
+          [green.scaphandre.process_map."wire-conformance-svc"]
+          exe_contains = "bash"
+
+          [green.scaphandre.process_map."svc-a"]
+          exe_contains = "bin/java"
+          cmdline_contains = "svc-a.jar"
+
+          [green.scaphandre.process_map."svc-b"]
+          exe_contains = "bin/java"
+          cmdline_contains = "svc-b.jar"
           EOF
 
           ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
@@ -688,7 +732,7 @@ jobs:
           wait "${PID}" 2>/dev/null || true
 
           echo "--- perf-sentinel daemon log (tail)"
-          tail -80 /tmp/perf-sentinel.log
+          tail -120 /tmp/perf-sentinel.log
           echo "---"
 
           fail=0
@@ -704,6 +748,14 @@ jobs:
             echo "::error::Scaphandre scraper logged an error or panic during the test window."
             grep -iE "scaphandre.*(error|panic|fatal)" /tmp/perf-sentinel.log
             fail=1
+          fi
+
+          if grep -qF "process_map matcher is ambiguous" /tmp/perf-sentinel.log; then
+            echo "::error::cmdline-aware matcher reported ambiguity with cmdline_contains set per service. The matcher logic in score/scaphandre/ops.rs is not disambiguating co-located JVMs correctly."
+            grep -F "process_map matcher is ambiguous" /tmp/perf-sentinel.log
+            fail=1
+          else
+            echo "::notice::No matcher ambiguity warning. cmdline_contains disambiguated svc-a and svc-b cleanly."
           fi
 
           exit "${fail}"
@@ -723,7 +775,7 @@ jobs:
       - name: Cleanup background processes and artefacts
         if: always()
         run: |
-          for pidfile in /tmp/scaph-ticker.pid /tmp/scaph-target.pid; do
+          for pidfile in /tmp/scaph-ticker.pid /tmp/scaph-target.pid /tmp/svc-a.pid /tmp/svc-b.pid; do
             if [ -f "${pidfile}" ]; then
               pid=$(cat "${pidfile}")
               kill "${pid}" 2>/dev/null || true
@@ -735,7 +787,9 @@ jobs:
           # Belt-and-braces fallback: catch any straggler if the pid
           # file is missing or the kill above raced with the launcher.
           sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
+          pkill -f 'java -jar /tmp/svc-' 2>/dev/null || true
           # Hygiene: root-owned log + powercap tree need sudo to remove.
           sudo rm -rf /tmp/scaph-powercap /tmp/scaphandre.log /tmp/scaphandre.deb \
             /tmp/scaph-metrics.txt /tmp/scaph-ticker.pid /tmp/scaph-target.pid \
-            /tmp/scaph-daemon.pid /tmp/perf-sentinel.toml /tmp/perf-sentinel.log 2>/dev/null || true
+            /tmp/scaph-daemon.pid /tmp/perf-sentinel.toml /tmp/perf-sentinel.log \
+            /tmp/svc-a.jar /tmp/svc-b.jar /tmp/svc-a.pid /tmp/svc-b.pid /tmp/jbuild 2>/dev/null || true
