@@ -15,7 +15,7 @@ use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 use std::collections::HashMap;
 
 use super::apply::{apply_chassis_scrape, build_chassis_services};
-use super::config::RedfishConfig;
+use super::config::{RedfishConfig, RedfishSchema};
 use super::parser::{ParseOutcome, parse_redfish_power};
 use super::state::{RedfishState, ServiceEnergy, monotonic_ms};
 
@@ -94,10 +94,10 @@ async fn scrape_chassis(
     client: &HttpClient,
     uri: &hyper::Uri,
     auth: Option<&AuthHeader>,
-    power_path: &str,
+    schema: RedfishSchema,
 ) -> Result<f64, ScraperError> {
     let body = fetch_chassis_once(client, uri, auth).await?;
-    match parse_redfish_power(&body, power_path) {
+    match parse_redfish_power(&body, schema) {
         ParseOutcome::Ok(w) => Ok(w),
         ParseOutcome::InvalidJson => Err(ScraperError::InvalidJson),
         ParseOutcome::PathMissing => Err(ScraperError::PathMissing),
@@ -105,16 +105,16 @@ async fn scrape_chassis(
     }
 }
 
-/// Pre-parse the configured endpoints into `(chassis_id, Uri)` pairs
-/// once at startup. Invalid URIs are surfaced via an error-level log
-/// and the chassis is dropped from the rotation, so a single malformed
-/// entry does not silently kill the whole scraper.
-fn parse_chassis_uris(cfg: &RedfishConfig) -> Vec<(String, hyper::Uri)> {
+/// Pre-parse the configured endpoints into `(chassis_id, Uri, schema)`
+/// triples once at startup. Invalid URIs are surfaced via an
+/// error-level log and the chassis is dropped from the rotation, so a
+/// single malformed entry does not silently kill the whole scraper.
+fn parse_chassis_uris(cfg: &RedfishConfig) -> Vec<(String, hyper::Uri, RedfishSchema)> {
     use std::str::FromStr;
     let mut out = Vec::with_capacity(cfg.endpoints.len());
     for (id, endpoint) in &cfg.endpoints {
-        match hyper::Uri::from_str(endpoint) {
-            Ok(u) => out.push((id.clone(), u)),
+        match hyper::Uri::from_str(&endpoint.url) {
+            Ok(u) => out.push((id.clone(), u, endpoint.schema)),
             Err(e) => {
                 tracing::error!(
                     chassis = %id,
@@ -167,7 +167,6 @@ fn record_chassis_failure(
 struct TickContext<'a> {
     client: &'a HttpClient,
     auth: Option<&'a AuthHeader>,
-    cfg: &'a RedfishConfig,
     chassis_services: &'a HashMap<String, Vec<String>>,
     deltas: &'a HashMap<String, u64>,
     scrape_interval_secs: f64,
@@ -186,7 +185,7 @@ struct TickOutcome {
 /// Factored out of [`run_scraper_loop`] so the loop body stays under
 /// the line cap.
 async fn run_tick(
-    uris: &[(String, hyper::Uri)],
+    uris: &[(String, hyper::Uri, RedfishSchema)],
     ctx: &TickContext<'_>,
     next: &mut HashMap<String, ServiceEnergy>,
     metrics: &MetricsState,
@@ -196,8 +195,8 @@ async fn run_tick(
         any_success: false,
         any_change: false,
     };
-    for (chassis_id, uri) in uris {
-        match scrape_chassis(ctx.client, uri, ctx.auth, &ctx.cfg.power_path).await {
+    for (chassis_id, uri, schema) in uris {
+        match scrape_chassis(ctx.client, uri, ctx.auth, *schema).await {
             Ok(watts) => {
                 outcome.any_success = true;
                 metrics.redfish_scrape_success.inc();
@@ -308,7 +307,6 @@ async fn run_scraper_loop(
         let ctx = TickContext {
             client: &client,
             auth: parsed_auth.as_ref(),
-            cfg: &cfg,
             chassis_services: &chassis_services,
             deltas: &deltas,
             scrape_interval_secs,

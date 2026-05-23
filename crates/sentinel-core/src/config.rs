@@ -14,7 +14,7 @@ use crate::detect::Confidence;
 use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
-use crate::score::redfish::RedfishConfig;
+use crate::score::redfish::{RedfishConfig, RedfishEndpoint};
 use crate::score::scaphandre::{ProcessMatcher, ScaphandreConfig};
 
 /// Top-level configuration for perf-sentinel.
@@ -574,12 +574,11 @@ struct KeplerSection {
 /// Converted to a `RedfishConfig` during `RawConfig → Config` only
 /// when at least one `endpoints` entry is set.
 #[derive(Deserialize, Default)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct RedfishSection {
-    endpoints: HashMap<String, String>,
+    endpoints: HashMap<String, RedfishEndpoint>,
     scrape_interval_secs: Option<u64>,
     service_mappings: HashMap<String, String>,
-    power_path: Option<String>,
     ca_bundle_path: Option<String>,
     auth_header: Option<String>,
 }
@@ -1363,10 +1362,6 @@ fn convert_redfish_section_with_env(
         endpoints: raw.endpoints.clone(),
         scrape_interval: Duration::from_secs(raw.scrape_interval_secs.unwrap_or(60)),
         service_mappings: raw.service_mappings.clone(),
-        power_path: raw
-            .power_path
-            .clone()
-            .unwrap_or_else(|| crate::score::redfish::config::DEFAULT_POWER_PATH.to_string()),
         ca_bundle_path: raw.ca_bundle_path.clone(),
         auth_header,
     })
@@ -2208,12 +2203,6 @@ impl Config {
             ));
         }
         Self::validate_redfish_service_mappings(&cfg.service_mappings, &cfg.endpoints)?;
-        if cfg.power_path.is_empty() || !cfg.power_path.starts_with('/') {
-            return Err(format!(
-                "[green.redfish] power_path '{}' must be a non-empty JSON pointer starting with '/'",
-                cfg.power_path
-            ));
-        }
         if let Some(bundle) = cfg.ca_bundle_path.as_deref()
             && bundle.is_empty()
         {
@@ -2232,8 +2221,13 @@ impl Config {
         Ok(())
     }
 
-    /// Validate each `chassis_id -> endpoint` pair in `[green.redfish.endpoints]`.
-    fn validate_redfish_endpoints(endpoints: &HashMap<String, String>) -> Result<(), String> {
+    /// Validate each `chassis_id -> RedfishEndpoint` pair in
+    /// `[green.redfish.endpoints]`. The `schema` field is type-checked
+    /// by serde at deserialization, so only the URL needs runtime
+    /// validation here.
+    fn validate_redfish_endpoints(
+        endpoints: &HashMap<String, RedfishEndpoint>,
+    ) -> Result<(), String> {
         for (chassis_id, endpoint) in endpoints {
             if chassis_id.is_empty() || chassis_id.len() > 256 {
                 return Err(format!(
@@ -2245,14 +2239,15 @@ impl Config {
                     "[green.redfish] endpoints chassis id '{chassis_id}' contains control characters"
                 ));
             }
-            if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
+            let url = &endpoint.url;
+            if !url.starts_with("http://") && !url.starts_with("https://") {
                 return Err(format!(
-                    "[green.redfish] endpoint for chassis '{chassis_id}' must start with 'http://' or 'https://', got '{endpoint}'"
+                    "[green.redfish] endpoint URL for chassis '{chassis_id}' must start with 'http://' or 'https://', got '{url}'"
                 ));
             }
             validate_http_authority(
-                endpoint,
-                &format!("[green.redfish] endpoint for chassis '{chassis_id}'"),
+                url,
+                &format!("[green.redfish] endpoint URL for chassis '{chassis_id}'"),
             )?;
         }
         Ok(())
@@ -2262,7 +2257,7 @@ impl Config {
     /// Every mapped chassis must already be declared in `endpoints`.
     fn validate_redfish_service_mappings(
         service_mappings: &HashMap<String, String>,
-        endpoints: &HashMap<String, String>,
+        endpoints: &HashMap<String, RedfishEndpoint>,
     ) -> Result<(), String> {
         for (service, chassis_id) in service_mappings {
             if service.is_empty() || service.len() > 256 {
@@ -5352,10 +5347,18 @@ metric_kind = "process_package"
         assert!(convert_redfish_section_with_env(&raw, || None).is_none());
     }
 
+    fn sample_redfish_endpoint() -> RedfishEndpoint {
+        use crate::score::redfish::RedfishSchema;
+        RedfishEndpoint {
+            url: "https://bmc.local".to_string(),
+            schema: RedfishSchema::LegacyPower,
+        }
+    }
+
     #[test]
     fn convert_redfish_section_env_overrides_file_auth_header() {
         let mut endpoints = HashMap::new();
-        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        endpoints.insert("rack1".to_string(), sample_redfish_endpoint());
         let raw = RedfishSection {
             endpoints,
             auth_header: Some("Basic file".to_string()),
@@ -5370,7 +5373,7 @@ metric_kind = "process_package"
     #[test]
     fn convert_redfish_section_file_auth_used_when_env_absent() {
         let mut endpoints = HashMap::new();
-        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        endpoints.insert("rack1".to_string(), sample_redfish_endpoint());
         let raw = RedfishSection {
             endpoints,
             auth_header: Some("Basic file".to_string()),
@@ -5382,33 +5385,16 @@ metric_kind = "process_package"
     }
 
     #[test]
-    fn convert_redfish_section_applies_default_power_path() {
+    fn convert_redfish_section_applies_default_interval() {
         let mut endpoints = HashMap::new();
-        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
+        endpoints.insert("rack1".to_string(), sample_redfish_endpoint());
         let raw = RedfishSection {
             endpoints,
             ..Default::default()
         };
         let cfg =
             convert_redfish_section_with_env(&raw, || None).expect("endpoints set, expected Some");
-        assert_eq!(
-            cfg.power_path,
-            crate::score::redfish::config::DEFAULT_POWER_PATH
-        );
         assert_eq!(cfg.scrape_interval, Duration::from_mins(1));
-    }
-
-    #[test]
-    fn convert_redfish_section_preserves_explicit_power_path() {
-        let mut endpoints = HashMap::new();
-        endpoints.insert("rack1".to_string(), "https://bmc.local".to_string());
-        let raw = RedfishSection {
-            endpoints,
-            power_path: Some("/Power/Reading/0/Watts".to_string()),
-            ..Default::default()
-        };
-        let cfg = convert_redfish_section_with_env(&raw, || None).expect("endpoints set");
-        assert_eq!(cfg.power_path, "/Power/Reading/0/Watts");
     }
 
     // ---- validate_kepler ---------------------------------------------------
@@ -5553,14 +5539,24 @@ metric_kind = "process_package"
 
     // ---- validate_redfish --------------------------------------------------
 
+    fn redfish_endpoint(url: &str) -> RedfishEndpoint {
+        use crate::score::redfish::RedfishSchema;
+        RedfishEndpoint {
+            url: url.to_string(),
+            schema: RedfishSchema::LegacyPower,
+        }
+    }
+
     fn minimal_redfish_config() -> RedfishConfig {
         let mut endpoints = HashMap::new();
-        endpoints.insert("rack1".to_string(), "https://bmc.local/Power".to_string());
+        endpoints.insert(
+            "rack1".to_string(),
+            redfish_endpoint("https://bmc.local/Power"),
+        );
         RedfishConfig {
             endpoints,
             scrape_interval: Duration::from_mins(1),
             service_mappings: HashMap::new(),
-            power_path: "/PowerControl/0/PowerConsumedWatts".to_string(),
             ca_bundle_path: None,
             auth_header: None,
         }
@@ -5585,7 +5581,7 @@ metric_kind = "process_package"
         let mut cfg = minimal_redfish_config();
         cfg.endpoints.clear();
         cfg.endpoints
-            .insert(String::new(), "https://bmc/Power".to_string());
+            .insert(String::new(), redfish_endpoint("https://bmc/Power"));
         let err = Config::validate_redfish(&cfg).expect_err("empty chassis id must error");
         assert!(err.contains("chassis id") && err.contains("1-256"));
     }
@@ -5594,8 +5590,10 @@ metric_kind = "process_package"
     fn validate_redfish_rejects_control_char_in_chassis_id() {
         let mut cfg = minimal_redfish_config();
         cfg.endpoints.clear();
-        cfg.endpoints
-            .insert("rack\u{0007}".to_string(), "https://bmc/Power".to_string());
+        cfg.endpoints.insert(
+            "rack\u{0007}".to_string(),
+            redfish_endpoint("https://bmc/Power"),
+        );
         let err = Config::validate_redfish(&cfg).expect_err("control char must error");
         assert!(err.contains("control characters"));
     }
@@ -5605,7 +5603,7 @@ metric_kind = "process_package"
         let mut cfg = minimal_redfish_config();
         cfg.endpoints.clear();
         cfg.endpoints
-            .insert("rack1".to_string(), "ftp://bmc/Power".to_string());
+            .insert("rack1".to_string(), redfish_endpoint("ftp://bmc/Power"));
         let err = Config::validate_redfish(&cfg).expect_err("non-http endpoint must error");
         assert!(err.contains("must start with 'http://' or 'https://'"));
     }
@@ -5656,23 +5654,6 @@ metric_kind = "process_package"
     }
 
     #[test]
-    fn validate_redfish_rejects_empty_power_path() {
-        let mut cfg = minimal_redfish_config();
-        cfg.power_path = String::new();
-        let err = Config::validate_redfish(&cfg).expect_err("empty power_path must error");
-        assert!(err.contains("power_path"));
-        assert!(err.contains("JSON pointer"));
-    }
-
-    #[test]
-    fn validate_redfish_rejects_power_path_without_leading_slash() {
-        let mut cfg = minimal_redfish_config();
-        cfg.power_path = "PowerControl/0/Watts".to_string();
-        let err = Config::validate_redfish(&cfg).expect_err("power_path missing slash must error");
-        assert!(err.contains("starting with '/'"));
-    }
-
-    #[test]
     fn validate_redfish_rejects_empty_ca_bundle_path() {
         let mut cfg = minimal_redfish_config();
         cfg.ca_bundle_path = Some(String::new());
@@ -5685,6 +5666,7 @@ metric_kind = "process_package"
 
     #[test]
     fn load_toml_with_kepler_and_redfish_sections() {
+        use crate::score::redfish::RedfishSchema;
         let toml = r#"
 [green.kepler]
 endpoint = "http://kepler:9102/metrics"
@@ -5693,10 +5675,14 @@ metric_kind = "container"
 
 [green.redfish]
 scrape_interval_secs = 60
-power_path = "/PowerControl/0/PowerConsumedWatts"
 
-[green.redfish.endpoints]
-rack1 = "https://bmc.local/Power"
+[green.redfish.endpoints."rack-legacy"]
+url = "https://bmc-legacy.local/redfish/v1/Chassis/1/Power"
+schema = "legacy_power"
+
+[green.redfish.endpoints."rack-modern"]
+url = "https://bmc-modern.local/redfish/v1/Chassis/1/EnvironmentMetrics"
+schema = "environment_metrics"
 "#;
         let cfg = load_from_str(toml).expect("kepler+redfish toml parses and validates");
         let kepler = cfg.green.kepler.expect("kepler section produced a config");
@@ -5706,8 +5692,66 @@ rack1 = "https://bmc.local/Power"
             .green
             .redfish
             .expect("redfish section produced a config");
-        assert_eq!(redfish.endpoints.len(), 1);
-        assert_eq!(redfish.scrape_interval, Duration::from_mins(1));
+        assert_eq!(redfish.endpoints.len(), 2);
+        assert_eq!(
+            redfish.endpoints.get("rack-legacy").unwrap().schema,
+            RedfishSchema::LegacyPower
+        );
+        assert_eq!(
+            redfish.endpoints.get("rack-modern").unwrap().schema,
+            RedfishSchema::EnvironmentMetrics
+        );
+    }
+
+    #[test]
+    fn load_toml_rejects_legacy_flat_endpoint_string() {
+        // Pre-0.7.6 form was `"rack1" = "url"`. The new form requires
+        // a table with `url` + `schema`, serde must reject the string.
+        let toml = r#"
+[green.redfish.endpoints]
+"rack1" = "https://bmc.local/Power"
+"#;
+        let result = load_from_str(toml);
+        assert!(
+            result.is_err(),
+            "legacy flat endpoint form must be rejected"
+        );
+    }
+
+    #[test]
+    fn load_toml_rejects_unknown_redfish_schema() {
+        let toml = r#"
+[green.redfish.endpoints."rack1"]
+url = "https://bmc.local/Power"
+schema = "oem_custom"
+"#;
+        let result = load_from_str(toml);
+        assert!(
+            result.is_err(),
+            "unknown schema variant must be rejected by serde"
+        );
+    }
+
+    #[test]
+    fn load_toml_rejects_legacy_top_level_power_path() {
+        // Pre-0.7.6 had `power_path = "/..."` at the [green.redfish]
+        // top level, the new form moved schema selection to the
+        // endpoint table. `deny_unknown_fields` on RedfishSection makes
+        // a stale top-level `power_path` fail at load with a serde
+        // error, no silent drop.
+        let toml = r#"
+[green.redfish]
+power_path = "/PowerControl/0/PowerConsumedWatts"
+
+[green.redfish.endpoints."rack1"]
+url = "https://bmc.local/Power"
+schema = "legacy_power"
+"#;
+        let result = load_from_str(toml);
+        assert!(
+            result.is_err(),
+            "stale top-level power_path must be rejected"
+        );
     }
 
     #[test]
@@ -5726,8 +5770,9 @@ endpoint = "ftp://kepler/metrics"
 [green.redfish]
 scrape_interval_secs = 5
 
-[green.redfish.endpoints]
-rack1 = "https://bmc/Power"
+[green.redfish.endpoints."rack1"]
+url = "https://bmc/Power"
+schema = "legacy_power"
 "#;
         let err = load_from_str(toml).expect_err("below-min interval must error at validate()");
         assert!(err.to_string().contains("[green.redfish]"));
