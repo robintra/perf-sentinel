@@ -758,6 +758,20 @@ jobs:
             echo "::notice::No matcher ambiguity warning. cmdline_contains disambiguated svc-a and svc-b cleanly."
           fi
 
+          # Zero-sample warn-once net: HTTP 200 + 3+ consecutive ticks
+          # with no parsed ProcessPower entries trips a warn that would
+          # only fire on a silent upstream rename (or a host without
+          # RAPL passthrough). The 22 s window covers 4 ticks, so any
+          # occurrence of the warn here means the parser stopped
+          # extracting samples even though Scaphandre answered 200.
+          if grep -qF "no samples matched the configured metric" /tmp/perf-sentinel.log; then
+            echo "::error::Scaphandre scraper tripped the zero-sample warn. The parser saw HTTP 200 but extracted no ProcessPower entries across 3+ ticks. Likely an upstream rename of scaph_process_power_consumption_microwatts or the exe label, or a RAPL-less host."
+            grep -F "no samples matched the configured metric" /tmp/perf-sentinel.log
+            fail=1
+          else
+            echo "::notice::No zero-sample warn fired. Parser extracted ProcessPower entries cleanly."
+          fi
+
           exit "${fail}"
 
       - name: Debug artefacts (on failure)
