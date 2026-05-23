@@ -13,13 +13,20 @@
 
 /// One parsed line of the Scaphandre `/metrics` exposition.
 ///
-/// Only the `exe` label and the numeric value matter;
-/// other labels (`cmdline`, `pid`, `instance`) are discarded. The
-/// parser below is tolerant of unknown labels so Scaphandre version
-/// upgrades that add new label fields don't break scraping.
+/// Carries `exe` (absolute path emitted by Scaphandre, e.g.
+/// `/usr/lib/jvm/temurin-25-jdk-amd64/bin/java`) and `cmdline` (argv
+/// concatenated without separators, e.g. `java-jar/tmp/svc-a.jar`).
+/// Both are needed because multiple co-located services sharing a
+/// runtime (several JVMs, several .NET assemblies) collide on `exe`
+/// and only `cmdline` discriminates them. `cmdline` may be empty if
+/// the label was absent on the wire.
+///
+/// The `pid` label is intentionally NOT retained: PIDs are unstable
+/// across restarts and serve no purpose for service-level attribution.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcessPower {
     pub exe: String,
+    pub cmdline: String,
     pub power_microwatts: f64,
 }
 
@@ -33,7 +40,10 @@ pub struct ProcessPower {
 /// `#`) are skipped. Label values may contain escaped quotes (`\"`) and
 /// escaped backslashes (`\\`), which are unescaped into the returned
 /// string, this is rare but can occur for JVM processes with quoted
-/// args in their `cmdline` label.
+/// args in their `cmdline` label. Real Scaphandre also concatenates
+/// argv without separators: `java -jar /tmp/svc.jar` is emitted as
+/// `cmdline="java-jar/tmp/svc.jar"`, which downstream matchers must
+/// account for.
 #[must_use]
 pub fn parse_scaphandre_metrics(body: &str) -> Vec<ProcessPower> {
     const METRIC_NAME: &str = "scaph_process_power_consumption_microwatts";
@@ -70,11 +80,13 @@ pub fn parse_scaphandre_metrics(body: &str) -> Vec<ProcessPower> {
         let Ok(value) = value_token.parse::<f64>() else {
             continue;
         };
-        let Some(exe) = extract_exe_label(labels_str) else {
+        let (exe, cmdline) = extract_exe_and_cmdline(labels_str);
+        let Some(exe) = exe else {
             continue;
         };
         out.push(ProcessPower {
             exe,
+            cmdline,
             power_microwatts: value,
         });
     }
@@ -127,30 +139,41 @@ struct ParsedLabel<'a> {
     next_index: usize,
 }
 
-/// Extract the `exe="..."` label value from a labels string (the part
-/// between `{` and `}`, excluding the braces themselves).
+/// Extract `exe` and `cmdline` label values from a labels string in a
+/// single pass (the part between `{` and `}`, excluding the braces).
 ///
-/// Returns `None` if the `exe` label is absent. Unescapes `\"` and
-/// `\\` in the value. Does not allocate unless escapes are present
-/// AND a reallocation is needed beyond the initial capacity reserve.
-fn extract_exe_label(labels: &str) -> Option<String> {
-    // Prometheus labels are comma-separated name="value" pairs. Walk
-    // them one at a time via `parse_next_label` and return the first
-    // `exe` match, unescaping lazily only when required.
+/// Returns `(exe, cmdline)` where `exe` is `Some` when the label is
+/// present (lines without `exe` are dropped upstream) and `cmdline`
+/// defaults to the empty string when absent. Unescapes `\"` and `\\`
+/// in both values lazily. Stops walking labels as soon as both are
+/// found.
+fn extract_exe_and_cmdline(labels: &str) -> (Option<String>, String) {
     let bytes = labels.as_bytes();
     let mut i = 0;
+    let mut exe: Option<String> = None;
+    let mut cmdline: Option<String> = None;
     while i < bytes.len() {
-        let parsed = parse_next_label(labels, bytes, i)?;
-        if parsed.name.trim() == "exe" {
-            return Some(if parsed.needs_unescape {
+        let Some(parsed) = parse_next_label(labels, bytes, i) else {
+            break;
+        };
+        let materialize = || {
+            if parsed.needs_unescape {
                 unescape_prometheus_value(parsed.value)
             } else {
                 parsed.value.to_string()
-            });
+            }
+        };
+        match parsed.name.trim() {
+            "exe" if exe.is_none() => exe = Some(materialize()),
+            "cmdline" if cmdline.is_none() => cmdline = Some(materialize()),
+            _ => {}
+        }
+        if exe.is_some() && cmdline.is_some() {
+            break;
         }
         i = parsed.next_index;
     }
-    None
+    (exe, cmdline.unwrap_or_default())
 }
 
 /// Parse a single `name="value"` label starting at byte offset `i`.

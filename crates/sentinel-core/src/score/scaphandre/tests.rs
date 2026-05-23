@@ -4,14 +4,14 @@
 //! one place makes the test module layout match the pre-split
 //! organization exactly so git blame still works.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use crate::http_client::build_client as build_scraper_client;
 
 use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 
-use super::config::ScaphandreConfig;
+use super::config::{ProcessMatcher, ScaphandreConfig};
 use super::ops::{apply_scrape, compute_energy_per_op_kwh};
 use super::parser::{ProcessPower, parse_scaphandre_metrics};
 use super::scraper::{ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper};
@@ -38,7 +38,32 @@ scaph_process_power_consumption_microwatts{exe="java",cmdline="java -jar app.jar
     let parsed = parse_scaphandre_metrics(body);
     assert_eq!(parsed.len(), 1);
     assert_eq!(parsed[0].exe, "java");
+    assert_eq!(parsed[0].cmdline, "java -jar app.jar");
     assert!((parsed[0].power_microwatts - 12_500_000.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn parse_preserves_cmdline_when_argv_concatenated() {
+    // Real Scaphandre v1.0.2 emits cmdline as argv joined without
+    // separators (observed via the scaphandre-exe-observation
+    // workflow on 2026-05-23): `java -jar /tmp/svc-a.jar` arrives as
+    // `cmdline="java-jar/tmp/svc-a.jar"`. The parser must round-trip
+    // this verbatim so the matcher can substring-match against it.
+    let body = r#"scaph_process_power_consumption_microwatts{pid="3139",cmdline="java-jar/tmp/svc-a.jar",exe="/usr/lib/jvm/temurin-25-jdk-amd64/bin/java"} 0
+"#;
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].exe, "/usr/lib/jvm/temurin-25-jdk-amd64/bin/java");
+    assert_eq!(parsed[0].cmdline, "java-jar/tmp/svc-a.jar");
+}
+
+#[test]
+fn parse_defaults_cmdline_to_empty_when_absent() {
+    let body = "scaph_process_power_consumption_microwatts{exe=\"native\"} 42.0\n";
+    let parsed = parse_scaphandre_metrics(body);
+    assert_eq!(parsed.len(), 1);
+    assert_eq!(parsed[0].exe, "native");
+    assert_eq!(parsed[0].cmdline, "");
 }
 
 #[test]
@@ -190,7 +215,8 @@ fn test_scrape_fixture(
 ) {
     let state = ScaphandreState::default();
     let readings = vec![ProcessPower {
-        exe: "java".to_string(),
+        exe: "/usr/bin/java".to_string(),
+        cmdline: "java-jar/tmp/order-svc.jar".to_string(),
         power_microwatts,
     }];
     let mut deltas = HashMap::new();
@@ -198,7 +224,13 @@ fn test_scrape_fixture(
         deltas.insert("order-svc".to_string(), ops);
     }
     let mut process_map = HashMap::new();
-    process_map.insert("order-svc".to_string(), "java".to_string());
+    process_map.insert(
+        "order-svc".to_string(),
+        ProcessMatcher {
+            exe_contains: "bin/java".to_string(),
+            cmdline_contains: Some("order-svc.jar".to_string()),
+        },
+    );
     let cfg = ScaphandreConfig {
         endpoint: "http://localhost:8080/metrics".to_string(),
         scrape_interval: Duration::from_secs(5),
@@ -209,9 +241,203 @@ fn test_scrape_fixture(
 }
 
 #[test]
+fn apply_scrape_disambiguates_three_jvms_via_cmdline() {
+    // Real-world Codenames topology: 3 JVMs co-located on the same
+    // host, all share /usr/bin/java but each loads a distinct jar.
+    // cmdline_contains discriminates the three services.
+    let state = ScaphandreState::default();
+    let readings = vec![
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/account.jar".to_string(),
+            power_microwatts: 6_000_000.0,
+        },
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/chat.jar".to_string(),
+            power_microwatts: 9_000_000.0,
+        },
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/game.jar".to_string(),
+            power_microwatts: 12_000_000.0,
+        },
+    ];
+    let mut deltas = HashMap::new();
+    deltas.insert("account".to_string(), 1_000u64);
+    deltas.insert("chat".to_string(), 1_000u64);
+    deltas.insert("game".to_string(), 1_000u64);
+    let mut process_map = HashMap::new();
+    for (svc, jar) in [
+        ("account", "account.jar"),
+        ("chat", "chat.jar"),
+        ("game", "game.jar"),
+    ] {
+        process_map.insert(
+            svc.to_string(),
+            ProcessMatcher {
+                exe_contains: "bin/java".to_string(),
+                cmdline_contains: Some(jar.to_string()),
+            },
+        );
+    }
+    let cfg = ScaphandreConfig {
+        endpoint: "http://localhost:8080/metrics".to_string(),
+        scrape_interval: Duration::from_secs(5),
+        process_map,
+        auth_header: None,
+    };
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
+
+    // Each service must receive ITS power reading, not the first one.
+    let snap = state.snapshot(100, 60_000);
+    let account = *snap.get("account").unwrap();
+    let chat = *snap.get("chat").unwrap();
+    let game = *snap.get("game").unwrap();
+    // Power × interval / ops / 3.6e6 → kWh/op; ratios preserve the
+    // 6/9/12 ordering and the three coefficients are distinct.
+    assert!(account < chat, "account {account} should be < chat {chat}");
+    assert!(chat < game, "chat {chat} should be < game {game}");
+}
+
+#[test]
+fn apply_scrape_matches_on_exe_only_when_cmdline_unset() {
+    // Native binary, exe is already unique → no cmdline_contains.
+    let state = ScaphandreState::default();
+    let readings = vec![ProcessPower {
+        exe: "/opt/native-svc/bin/native-svc".to_string(),
+        cmdline: "/opt/native-svc/bin/native-svc".to_string(),
+        power_microwatts: 5_000_000.0,
+    }];
+    let mut deltas = HashMap::new();
+    deltas.insert("native-svc".to_string(), 2_000u64);
+    let mut process_map = HashMap::new();
+    process_map.insert(
+        "native-svc".to_string(),
+        ProcessMatcher {
+            exe_contains: "/opt/native-svc/bin/native-svc".to_string(),
+            cmdline_contains: None,
+        },
+    );
+    let cfg = ScaphandreConfig {
+        endpoint: "http://localhost:8080/metrics".to_string(),
+        scrape_interval: Duration::from_secs(5),
+        process_map,
+        auth_header: None,
+    };
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
+    assert!(state.snapshot(100, 60_000).contains_key("native-svc"));
+}
+
+#[test]
+fn apply_scrape_skips_on_ambiguous_matcher() {
+    // Misconfigured matcher: two JVMs share the runtime AND the
+    // cmdline_contains substring is loose enough to match both
+    // (operator forgot to add jar name). The matcher must refuse to
+    // attribute power, leaving the previous state intact.
+    let state = ScaphandreState::default();
+    let readings = vec![
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/account.jar".to_string(),
+            power_microwatts: 6_000_000.0,
+        },
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/chat.jar".to_string(),
+            power_microwatts: 9_000_000.0,
+        },
+    ];
+    let mut deltas = HashMap::new();
+    deltas.insert("ambiguous-svc".to_string(), 1_000u64);
+    let mut process_map = HashMap::new();
+    process_map.insert(
+        "ambiguous-svc".to_string(),
+        ProcessMatcher {
+            // Matches both JVMs because the substring is the runtime
+            // path itself.
+            exe_contains: "bin/java".to_string(),
+            cmdline_contains: Some("java-jar".to_string()),
+        },
+    );
+    let cfg = ScaphandreConfig {
+        endpoint: "http://localhost:8080/metrics".to_string(),
+        scrape_interval: Duration::from_secs(5),
+        process_map,
+        auth_header: None,
+    };
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
+    assert!(
+        !state.snapshot(100, 60_000).contains_key("ambiguous-svc"),
+        "ambiguous matcher must not publish energy",
+    );
+}
+
+#[test]
+fn apply_scrape_ambiguous_warn_latch_persists_then_clears_on_clean_match() {
+    // The multi_match_warned set carried across ticks turns the
+    // ambiguous warn into warn-once-per-streak. First ambiguous tick
+    // inserts the service. Subsequent ambiguous ticks leave it in the
+    // set (so the scraper logs at debug instead of warn). A clean
+    // match clears the entry so a future flap re-warns.
+    let state = ScaphandreState::default();
+    let ambiguous_readings = vec![
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/a.jar".to_string(),
+            power_microwatts: 6_000_000.0,
+        },
+        ProcessPower {
+            exe: "/usr/bin/java".to_string(),
+            cmdline: "java-jar/tmp/b.jar".to_string(),
+            power_microwatts: 9_000_000.0,
+        },
+    ];
+    let unique_reading = vec![ProcessPower {
+        exe: "/usr/bin/java".to_string(),
+        cmdline: "java-jar/tmp/a.jar".to_string(),
+        power_microwatts: 6_000_000.0,
+    }];
+    let mut deltas = HashMap::new();
+    deltas.insert("svc".to_string(), 1_000u64);
+    let mut process_map = HashMap::new();
+    process_map.insert(
+        "svc".to_string(),
+        ProcessMatcher {
+            exe_contains: "bin/java".to_string(),
+            cmdline_contains: Some("java-jar".to_string()),
+        },
+    );
+    let cfg = ScaphandreConfig {
+        endpoint: "http://localhost:8080/metrics".to_string(),
+        scrape_interval: Duration::from_secs(5),
+        process_map,
+        auth_header: None,
+    };
+    let mut warned: HashSet<String> = HashSet::new();
+
+    // Tick 1: ambiguous → latch inserts "svc".
+    apply_scrape(&state, &ambiguous_readings, &deltas, &cfg, &mut warned, 100);
+    assert!(warned.contains("svc"), "first ambiguous tick must latch");
+
+    // Tick 2: still ambiguous → latch unchanged, no re-insert.
+    apply_scrape(&state, &ambiguous_readings, &deltas, &cfg, &mut warned, 200);
+    assert!(warned.contains("svc"));
+    assert_eq!(warned.len(), 1);
+
+    // Tick 3: config corrected (only one matching process) → latch
+    // cleared so a future flap re-warns.
+    apply_scrape(&state, &unique_reading, &deltas, &cfg, &mut warned, 300);
+    assert!(
+        !warned.contains("svc"),
+        "clean match must clear the latch so a later flap re-warns"
+    );
+}
+
+#[test]
 fn apply_scrape_updates_mapped_service() {
     let (state, readings, deltas, cfg) = test_scrape_fixture(12_000_000.0, 8000);
-    apply_scrape(&state, &readings, &deltas, &cfg, 100);
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
 
     // 12W × 5s / 8000 ops → 7.5e-9 kWh/op
     let snap = state.snapshot(100, 60_000);
@@ -228,12 +454,19 @@ fn apply_scrape_keeps_previous_when_ops_zero() {
     let (state, readings, _, cfg) = test_scrape_fixture(10_000_000.0, 5000);
     let mut deltas = HashMap::new();
     deltas.insert("order-svc".to_string(), 5000u64);
-    apply_scrape(&state, &readings, &deltas, &cfg, 100);
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 100);
     let first = *state.snapshot(100, 60_000).get("order-svc").unwrap();
 
     // Idle window: ops delta is absent from the map (we skip
     // services with 0 delta in OpsSnapshotDiff::delta_and_advance).
-    apply_scrape(&state, &readings, &HashMap::new(), &cfg, 110);
+    apply_scrape(
+        &state,
+        &readings,
+        &HashMap::new(),
+        &cfg,
+        &mut HashSet::new(),
+        110,
+    );
     let second = *state.snapshot(110, 60_000).get("order-svc").unwrap();
     assert!((first - second).abs() < f64::EPSILON);
 }
@@ -331,14 +564,20 @@ async fn fetch_metrics_once_reads_from_fake_server() {
     let mut deltas = HashMap::new();
     deltas.insert("order-svc".to_string(), 10_000u64);
     let mut process_map = HashMap::new();
-    process_map.insert("order-svc".to_string(), "java".to_string());
+    process_map.insert(
+        "order-svc".to_string(),
+        ProcessMatcher {
+            exe_contains: "java".to_string(),
+            cmdline_contains: None,
+        },
+    );
     let cfg = ScaphandreConfig {
         endpoint,
         scrape_interval: Duration::from_secs(5),
         process_map,
         auth_header: None,
     };
-    apply_scrape(&state, &readings, &deltas, &cfg, 1_000);
+    apply_scrape(&state, &readings, &deltas, &cfg, &mut HashSet::new(), 1_000);
     let snap = state.snapshot(1_000, 60_000);
     let got = *snap.get("order-svc").unwrap();
     // 12 W × 5 s / 10_000 ops → 6e-9 kWh/op
@@ -551,7 +790,13 @@ async fn spawn_scraper_happy_path_updates_state() {
     });
 
     let mut process_map = HashMap::new();
-    process_map.insert("order-svc".to_string(), "java".to_string());
+    process_map.insert(
+        "order-svc".to_string(),
+        ProcessMatcher {
+            exe_contains: "java".to_string(),
+            cmdline_contains: None,
+        },
+    );
     let cfg = ScaphandreConfig {
         endpoint,
         scrape_interval: Duration::from_millis(50),

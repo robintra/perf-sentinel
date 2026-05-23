@@ -145,6 +145,11 @@ pub fn spawn_scraper(
 /// Parses the endpoint URI once at startup; if the URI is malformed
 /// the task logs and exits cleanly without retrying, a user-facing
 /// config error should fail loud, not warn-spam every 5 s.
+// Length sits just above the default cap because of the cumulative
+// state (auth, ticker, multiple warn-once latches) the loop has to
+// own. Splitting now would just move the state through more function
+// boundaries without making the control flow clearer.
+#[allow(clippy::too_many_lines)]
 async fn run_scraper_loop(
     cfg: ScaphandreConfig,
     state: Arc<ScaphandreState>,
@@ -199,6 +204,12 @@ async fn run_scraper_loop(
     // why. Reset on the first success.
     let mut consecutive_failures: u32 = 0;
     let mut unsupported_platform_warned = false;
+    // Per-service latch for the ambiguous-matcher warn: warn once on
+    // entering the ambiguous state, debug on subsequent ambiguous
+    // ticks, clear on a clean match so a later flap re-warns. Carried
+    // across loop iterations by the scraper.
+    let mut multi_match_warned: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     tracing::info!(
         endpoint = %redacted,
@@ -222,7 +233,14 @@ async fn run_scraper_loop(
                 consecutive_failures = 0;
                 let readings = parse_scaphandre_metrics(&body);
                 let now = monotonic_ms();
-                apply_scrape(&state, &readings, &deltas, &cfg, now);
+                apply_scrape(
+                    &state,
+                    &readings,
+                    &deltas,
+                    &cfg,
+                    &mut multi_match_warned,
+                    now,
+                );
                 // Update the "last successful scrape age" gauge to 0 ,
                 // Grafana rate() / alerting rules catch hung scrapers
                 // by watching the gauge climb.

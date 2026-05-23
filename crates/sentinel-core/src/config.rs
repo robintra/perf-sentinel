@@ -15,7 +15,7 @@ use crate::score::carbon::DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2;
 use crate::score::cloud_energy::config::{CloudEnergyConfig, ServiceCloudConfig};
 use crate::score::kepler::{KeplerConfig, KeplerMetricKind};
 use crate::score::redfish::RedfishConfig;
-use crate::score::scaphandre::ScaphandreConfig;
+use crate::score::scaphandre::{ProcessMatcher, ScaphandreConfig};
 
 /// Top-level configuration for perf-sentinel.
 ///
@@ -550,7 +550,7 @@ struct GreenSection {
 struct ScaphandreSection {
     endpoint: Option<String>,
     scrape_interval_secs: Option<u64>,
-    process_map: HashMap<String, String>,
+    process_map: HashMap<String, ProcessMatcher>,
     auth_header: Option<String>,
 }
 
@@ -2286,12 +2286,13 @@ impl Config {
 
     /// Validate `[green.scaphandre].process_map` keys and values.
     ///
-    /// Service names (keys) and Scaphandre `exe` labels (values) must be
-    /// 1 to 256 chars and free of control characters. Service names are
-    /// intentionally NOT run through `is_valid_region_id` because they
-    /// may legitimately contain dots, slashes and similar.
+    /// Service names (keys), `exe_contains` substrings and optional
+    /// `cmdline_contains` substrings must be 1 to 256 chars and free
+    /// of control characters. Service names are intentionally NOT run
+    /// through `is_valid_region_id` because they may legitimately
+    /// contain dots, slashes and similar.
     fn validate_scaphandre_process_map(cfg: &ScaphandreConfig) -> Result<(), String> {
-        for (service, exe) in &cfg.process_map {
+        for (service, matcher) in &cfg.process_map {
             if service.is_empty() || service.len() > 256 {
                 return Err(format!(
                     "[green.scaphandre] process_map service name '{service}' must be 1-256 chars"
@@ -2303,17 +2304,32 @@ impl Config {
                      contains control characters"
                 ));
             }
+            let exe = &matcher.exe_contains;
             if exe.is_empty() || exe.len() > 256 {
                 return Err(format!(
-                    "[green.scaphandre] process_map exe for service '{service}' \
+                    "[green.scaphandre] process_map exe_contains for service '{service}' \
                      must be 1-256 chars, got '{exe}'"
                 ));
             }
             if has_control_char(exe) {
                 return Err(format!(
-                    "[green.scaphandre] process_map exe for service '{service}' \
+                    "[green.scaphandre] process_map exe_contains for service '{service}' \
                      contains control characters"
                 ));
+            }
+            if let Some(cmdline) = matcher.cmdline_contains.as_deref() {
+                if cmdline.is_empty() || cmdline.len() > 256 {
+                    return Err(format!(
+                        "[green.scaphandre] process_map cmdline_contains for service '{service}' \
+                         must be 1-256 chars when set, got '{cmdline}'"
+                    ));
+                }
+                if has_control_char(cmdline) {
+                    return Err(format!(
+                        "[green.scaphandre] process_map cmdline_contains for service '{service}' \
+                         contains control characters"
+                    ));
+                }
             }
         }
         Ok(())
@@ -3983,22 +3999,75 @@ hourly_profiles_file = "C:\temp\profiles.json"
 endpoint = "http://localhost:9090/metrics"
 scrape_interval_secs = 10
 
-[green.scaphandre.process_map]
-"order-svc" = "java"
-"chat-svc" = "dotnet"
+[green.scaphandre.process_map."order-svc"]
+exe_contains = "bin/java"
+cmdline_contains = "order-svc.jar"
+
+[green.scaphandre.process_map."chat-svc"]
+exe_contains = "bin/dotnet"
+cmdline_contains = "chat-svc.dll"
 "#;
         let config = load_from_str(toml).unwrap();
         let cfg = config.green.scaphandre.unwrap();
         assert_eq!(cfg.endpoint, "http://localhost:9090/metrics");
         assert_eq!(cfg.scrape_interval.as_secs(), 10);
-        assert_eq!(
-            cfg.process_map.get("order-svc").map(String::as_str),
-            Some("java")
-        );
-        assert_eq!(
-            cfg.process_map.get("chat-svc").map(String::as_str),
-            Some("dotnet")
-        );
+        let order = cfg.process_map.get("order-svc").unwrap();
+        assert_eq!(order.exe_contains, "bin/java");
+        assert_eq!(order.cmdline_contains.as_deref(), Some("order-svc.jar"));
+        let chat = cfg.process_map.get("chat-svc").unwrap();
+        assert_eq!(chat.exe_contains, "bin/dotnet");
+        assert_eq!(chat.cmdline_contains.as_deref(), Some("chat-svc.dll"));
+    }
+
+    #[test]
+    fn scaphandre_rejects_unknown_field_in_process_matcher() {
+        // A typo like `cmdline_containss` (double s) on a matcher would
+        // silently fall through to `None` without `deny_unknown_fields`,
+        // and the matcher would over-attribute power to any process
+        // sharing the runtime. Verify serde rejects the typo at load.
+        let toml = r#"
+[green.scaphandre]
+endpoint = "http://localhost/metrics"
+
+[green.scaphandre.process_map."order-svc"]
+exe_contains = "bin/java"
+cmdline_containss = "order-svc.jar"
+"#;
+        let result = load_from_str(toml);
+        assert!(result.is_err(), "typo in matcher field must be rejected");
+    }
+
+    #[test]
+    fn scaphandre_rejects_legacy_string_form() {
+        // Pre-0.7.6 form was `"order-svc" = "java"`. The new form
+        // requires a table, so serde must reject the old string form.
+        let toml = r#"
+[green.scaphandre]
+endpoint = "http://localhost/metrics"
+
+[green.scaphandre.process_map]
+"order-svc" = "java"
+"#;
+        let result = load_from_str(toml);
+        assert!(result.is_err(), "legacy string form must be rejected");
+    }
+
+    #[test]
+    fn scaphandre_accepts_exe_only_matcher() {
+        // cmdline_contains is optional, for processes whose exe is
+        // already unique (a native binary, a renamed runtime, etc.).
+        let toml = r#"
+[green.scaphandre]
+endpoint = "http://localhost/metrics"
+
+[green.scaphandre.process_map."native-svc"]
+exe_contains = "/opt/native/bin/svc"
+"#;
+        let config = load_from_str(toml).unwrap();
+        let cfg = config.green.scaphandre.unwrap();
+        let native = cfg.process_map.get("native-svc").unwrap();
+        assert_eq!(native.exe_contains, "/opt/native/bin/svc");
+        assert!(native.cmdline_contains.is_none());
     }
 
     #[test]
@@ -4032,8 +4101,8 @@ scrape_interval_secs = 10
 [green.scaphandre]
 endpoint = "http://localhost/metrics"
 
-[green.scaphandre.process_map]
-"order-svc" = ""
+[green.scaphandre.process_map."order-svc"]
+exe_contains = ""
 "#;
         let result = load_from_str(toml);
         assert!(result.is_err());
