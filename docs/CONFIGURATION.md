@@ -251,26 +251,38 @@ Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BM
 
 | Field                       | Type    | Default                                  | Description                                                                                                                                                                       |
 |-----------------------------|---------|------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `endpoints`                 | table   | *(empty)*                                | Map of `chassis_id → /Power URL`. Required to activate the scraper                                                                                                                |
+| `endpoints`                 | table   | *(empty)*                                | Map of `chassis_id` → endpoint table with `url` + `schema`. Required to activate the scraper                                                                                      |
 | `scrape_interval_secs`      | int     | `60`                                     | How often to scrape each chassis. Valid range: 15-3600 (BMC rate-limit defense, several BMCs throttle below 30s)                                                                  |
 | `service_mappings`          | table   | `{}`                                     | Maps perf-sentinel service names to the chassis hosting them. Every service mapped to the same chassis receives the same chassis-level coefficient                                |
-| `power_path`                | string  | `"/PowerControl/0/PowerConsumedWatts"`   | JSON pointer to the wattage reading. Override per vendor (e.g. `"/Oem/Hpe/PowerSummary/Watts"`)                                                                                   |
 | `ca_bundle_path`            | string  | *(none)*                                 | **Reserved for a follow-up.** Setting this field today causes the scraper to refuse to start with a clear error. Self-signed BMC certs are not supported in this release          |
 | `auth_header`               | string  | *(none)*                                 | Curl-style Basic auth header. Prefer `PERF_SENTINEL_REDFISH_AUTH_HEADER` env var. Session-token auth (POST `/SessionService/Sessions`) is not yet supported                       |
+
+Each endpoint table has two fields: `url` (string, full Redfish URL including path) and `schema` (string, either `"legacy_power"` or `"environment_metrics"`). The schema selects the canonical JSON pointer the parser uses, no operator-typed pointer involved:
+
+| `schema`               | Path served by BMC                        | JSON pointer parser reads     |
+|------------------------|-------------------------------------------|-------------------------------|
+| `legacy_power`         | `/redfish/v1/Chassis/{id}/Power`          | `/PowerControl/0/PowerConsumedWatts` |
+| `environment_metrics`  | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`              |
 
 ```toml
 [green.redfish]
 scrape_interval_secs = 60
 
-[green.redfish.endpoints]
-"chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
-"chassis-2" = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/Power"
+[green.redfish.endpoints."chassis-legacy-1"]
+url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+schema = "legacy_power"
+
+[green.redfish.endpoints."chassis-modern-1"]
+url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
+schema = "environment_metrics"
 
 [green.redfish.service_mappings]
-"order-svc" = "chassis-1"
-"chat-svc"  = "chassis-1"
-"ledger-svc" = "chassis-2"
+"order-svc"  = "chassis-legacy-1"
+"chat-svc"   = "chassis-legacy-1"
+"ledger-svc" = "chassis-modern-1"
 ```
+
+**Which schema to choose.** `/Power` (legacy_power) was deprecated by DMTF Release 2020.4 but is still mandatory on BMC firmware as of 2026, every shipping vendor exposes it. `/EnvironmentMetrics` (environment_metrics) is the modern replacement that carries `PowerWatts.Reading` directly, present alongside `/Power` during the transition. Pick `legacy_power` unless your BMC documentation explicitly recommends `EnvironmentMetrics`. A mixed fleet is declared by giving each chassis the schema its firmware serves.
 
 **Ignored in `analyze` batch mode.** Like Scaphandre and Kepler, only `watch` integrates Redfish.
 
