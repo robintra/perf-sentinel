@@ -6,6 +6,34 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.41]
+
+### Changed
+
+- `appVersion` bumped to `0.7.6`, the default daemon image tag now
+  points at `ghcr.io/robintra/perf-sentinel:0.7.6`. The
+  `artifacthub.io/images` annotation is updated in lockstep. The 0.7.6
+  binary ships two breaking changes on the Scaphandre and Redfish
+  energy sources. `[green.scaphandre].process_map` becomes a typed
+  table per service with `exe_contains` plus optional
+  `cmdline_contains` substrings, replacing the previous flat
+  `"service" = "exe"` form. Substring matching on both labels
+  disambiguates co-located JVMs or .NET assemblies sharing a runtime.
+  `[green.redfish].endpoints` becomes a typed table per chassis with
+  `url` plus `schema` enum (`legacy_power` or `environment_metrics`),
+  the top-level `power_path` field is removed. EnvironmentMetrics
+  (`PowerWatts.Reading`) is now natively supported alongside the
+  legacy `/Power` resource. Both new struct shapes deny unknown TOML
+  fields, so a typo or a stale legacy field fails at config load
+  rather than degrading silently. Operators upgrading from 0.7.5 must
+  rewrite the affected sections (only operators who explicitly
+  configured `[green.scaphandre]` or `[green.redfish]` are
+  impacted, default configs are unaffected). The Scaphandre scraper
+  also gains a zero-sample warn-once net mirroring the Kepler net
+  delivered in 0.7.5, and the staleness gauge now climbs from boot on
+  failure for parity with Kepler. No chart-level template diff,
+  `values.yaml` schema is byte-for-byte identical to chart-v0.2.40.
+
 ## [0.2.40]
 
 ### Fixed
