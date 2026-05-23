@@ -14,7 +14,10 @@ use crate::score::ops_snapshot_diff::OpsSnapshotDiff;
 use super::config::{ProcessMatcher, ScaphandreConfig};
 use super::ops::{apply_scrape, compute_energy_per_op_kwh};
 use super::parser::{ProcessPower, parse_scaphandre_metrics};
-use super::scraper::{ScraperError, fetch_metrics_once, scraper_error_reason, spawn_scraper};
+use super::scraper::{
+    ScraperError, ZERO_SAMPLE_WARN_MARKER, fetch_metrics_once, scraper_error_reason, spawn_scraper,
+    track_zero_sample_streak,
+};
 use super::state::ScaphandreState;
 
 #[test]
@@ -1169,5 +1172,77 @@ fn metrics_state_scrape_failed_reason_counter_increments() {
     assert!(
         output.contains("perf_sentinel_scaphandre_scrape_failed_total{reason=\"unreachable\"} 0\n"),
         "other reason counters must remain 0, got: {output}"
+    );
+}
+
+// --- track_zero_sample_streak --------------------------------------
+
+#[test]
+fn track_zero_sample_streak_does_not_warn_under_threshold() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..2 {
+        track_zero_sample_streak(0, 0, "http://redacted/metrics", &mut count, &mut warned);
+    }
+    assert_eq!(count, 2);
+    assert!(
+        !warned,
+        "warn flag must stay false until the 3rd zero-sample tick"
+    );
+}
+
+#[test]
+fn track_zero_sample_streak_warns_after_three_consecutive_empty_ticks() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..3 {
+        track_zero_sample_streak(0, 0, "http://redacted/metrics", &mut count, &mut warned);
+    }
+    assert_eq!(count, 3);
+    assert!(
+        warned,
+        "3rd consecutive zero-sample tick must trip the warn flag"
+    );
+}
+
+#[test]
+fn track_zero_sample_streak_warns_only_once_per_streak() {
+    let mut count: u32 = 0;
+    let mut warned = false;
+    for _ in 0..10 {
+        track_zero_sample_streak(0, 0, "http://redacted/metrics", &mut count, &mut warned);
+    }
+    // Latch stays true after the first trigger so the helper calls
+    // `tracing::warn!` exactly once over the streak.
+    assert_eq!(count, 10);
+    assert!(warned);
+}
+
+#[test]
+fn track_zero_sample_streak_resets_on_non_empty_scrape() {
+    let mut count: u32 = 5;
+    let mut warned = true;
+    track_zero_sample_streak(
+        7, // samples_len > 0
+        2,
+        "http://redacted/metrics",
+        &mut count,
+        &mut warned,
+    );
+    assert_eq!(count, 0);
+    assert!(!warned, "non-empty scrape must reset the warn latch");
+}
+
+#[test]
+fn zero_sample_warn_marker_is_stable() {
+    // The CI gate at .github/workflows/upstream-wire-conformance.yml
+    // greps this exact substring on the daemon log to detect that
+    // the zero-sample warn has fired. Renaming the constant breaks
+    // the gate silently unless the workflow grep is updated in the
+    // same commit. This test anchors the literal value so the renamer
+    // is forced to read this comment and update the workflow.
+    assert_eq!(
+        ZERO_SAMPLE_WARN_MARKER,
+        "no samples matched the configured metric"
     );
 }

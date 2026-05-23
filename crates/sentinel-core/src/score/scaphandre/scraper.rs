@@ -29,6 +29,24 @@ use super::state::{ScaphandreState, monotonic_ms};
 /// without delaying the diagnostic too long on a misconfigured host.
 const UNSUPPORTED_PLATFORM_FAILURE_THRESHOLD: u32 = 3;
 
+/// Number of consecutive HTTP-200 ticks with zero parsed
+/// `ProcessPower` readings before [`run_scraper_loop`] emits the
+/// one-shot "no samples matched" warning. Aimed at silent upstream
+/// renames of `scaph_process_power_consumption_microwatts` or the
+/// `exe` label that the parser would silently filter out, leaving
+/// every mapped service on the proxy model with no operator signal.
+/// Same threshold as Kepler's analogous net.
+const ZERO_SAMPLE_WARN_THRESHOLD: u32 = 3;
+
+/// Substring grep'd by the CI wire-conformance workflow
+/// (`.github/workflows/upstream-wire-conformance.yml`) to detect that
+/// the zero-sample warn has NOT fired on a healthy run. Wired through
+/// the warn's `format_args` capture so a doc-pass rename of the warn
+/// text propagates to the constant. The unit test
+/// `zero_sample_warn_marker_is_stable` anchors the literal value so a
+/// reviewer renaming the constant has to also update the CI workflow.
+pub(super) const ZERO_SAMPLE_WARN_MARKER: &str = "no samples matched the configured metric";
+
 /// Scrape the Scaphandre endpoint once via the hyper-util client.
 /// Returns the response body as a `String` on success.
 ///
@@ -210,6 +228,17 @@ async fn run_scraper_loop(
     // across loop iterations by the scraper.
     let mut multi_match_warned: std::collections::HashSet<String> =
         std::collections::HashSet::new();
+    // "HTTP 200, samples empty" warn-once latch, reset on HTTP error
+    // so a flapping endpoint does not falsely trip it. Detects silent
+    // upstream renames of the metric or the `exe` label.
+    let mut consecutive_zero_sample_ticks: u32 = 0;
+    let mut zero_sample_warned = false;
+    // Wall-clock anchor for the staleness gauge. Seeded at scraper
+    // start so a never-succeeded scraper still climbs the gauge from
+    // boot (the failure branch reads this on every tick to set
+    // `scaphandre_last_scrape_age_seconds`). Mirrors Kepler's idiom
+    // (kepler/scraper.rs::last_success_ms).
+    let mut last_success_ms: u64 = monotonic_ms();
 
     tracing::info!(
         endpoint = %redacted,
@@ -245,15 +274,28 @@ async fn run_scraper_loop(
                 // Grafana rate() / alerting rules catch hung scrapers
                 // by watching the gauge climb.
                 metrics.scaphandre_last_scrape_age_seconds.set(0.0);
+                last_success_ms = now;
                 metrics.scaphandre_scrape_success.inc();
-                tracing::debug!(
-                    readings = readings.len(),
-                    services_updated = deltas.len(),
-                    "Scaphandre scrape succeeded"
+                track_zero_sample_streak(
+                    readings.len(),
+                    deltas.len(),
+                    &redacted,
+                    &mut consecutive_zero_sample_ticks,
+                    &mut zero_sample_warned,
                 );
             }
             Err(e) => {
                 consecutive_failures = consecutive_failures.saturating_add(1);
+                // Advance the staleness gauge so Grafana alerts on a
+                // hung scraper still fire on the failure branch (Kepler
+                // parity, kepler/scraper.rs::handle_kepler_failure).
+                #[allow(clippy::cast_precision_loss)]
+                let age_secs = monotonic_ms().saturating_sub(last_success_ms) as f64 / 1000.0;
+                metrics.scaphandre_last_scrape_age_seconds.set(age_secs);
+                // Reset the empty-sample latch on HTTP failure: the
+                // failure-side warning covers flapping endpoints.
+                consecutive_zero_sample_ticks = 0;
+                zero_sample_warned = false;
                 let reason = scraper_error_reason(&e);
                 // Two counters per failure: status rate (cached) and
                 // reason breakdown (cold lookup). PromQL invariant:
@@ -293,4 +335,53 @@ async fn run_scraper_loop(
             }
         }
     }
+}
+
+/// Success-branch latch: warn once after [`ZERO_SAMPLE_WARN_THRESHOLD`]
+/// consecutive HTTP-200 ticks with zero parsed `ProcessPower` readings.
+/// Always emits a `debug` line summarising the scrape, so a normal run
+/// still produces a trace at `RUST_LOG=debug`.
+///
+/// Mirrors the Kepler analogue (`kepler/scraper.rs::track_zero_sample_streak`).
+/// The Scaphandre variant takes no per-call metric/label arguments
+/// because both are fixed (`scaph_process_power_consumption_microwatts`
+/// + `exe`), the warn message hard-codes them.
+pub(super) fn track_zero_sample_streak(
+    samples_len: usize,
+    services_updated: usize,
+    redacted: &str,
+    consecutive_zero_sample_ticks: &mut u32,
+    zero_sample_warned: &mut bool,
+) {
+    if samples_len == 0 {
+        *consecutive_zero_sample_ticks = consecutive_zero_sample_ticks.saturating_add(1);
+        if !*zero_sample_warned && *consecutive_zero_sample_ticks >= ZERO_SAMPLE_WARN_THRESHOLD {
+            let ticks = *consecutive_zero_sample_ticks;
+            tracing::warn!(
+                endpoint = %redacted,
+                metric = "scaph_process_power_consumption_microwatts",
+                label = "exe",
+                ticks,
+                "Scaphandre endpoint replied HTTP 200 but {ZERO_SAMPLE_WARN_MARKER} \
+                 across the last {ticks} ticks. Most common cause: an upstream \
+                 rename of the metric name or the `exe` label. Other causes: \
+                 Scaphandre started with `--no-procfs`, a host-only build that \
+                 omits the per-process exposition, or a topology refresh that \
+                 has not yet enumerated any process. A host without RAPL is a \
+                 SEPARATE failure mode where per-process lines DO appear with \
+                 `power=0`, that case is not caught by this warn. The daemon \
+                 is falling back to the proxy model for every mapped service. \
+                 See docs/LIMITATIONS.md#scaphandre-precision-bounds."
+            );
+            *zero_sample_warned = true;
+        }
+    } else {
+        *consecutive_zero_sample_ticks = 0;
+        *zero_sample_warned = false;
+    }
+    tracing::debug!(
+        samples = samples_len,
+        services_updated = services_updated,
+        "Scaphandre scrape succeeded"
+    );
 }
