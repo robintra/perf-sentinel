@@ -408,53 +408,57 @@ jobs:
           fi
 
       - name: Dead-on-arrival probe - PowerSubsystem presence (informational)
-        # The Power resource (1.5+) was deprecated by DMTF Release
-        # 2020.4 in favour of PowerSubsystem + EnvironmentMetrics. The
-        # perf-sentinel parser only reads the legacy path, so a future
-        # BMC firmware migrating to PowerSubsystem would become a
-        # silent dead-on-arrival like the Kepler v0.7.4 bug. We probe
-        # whether the mockup ALSO serves PowerSubsystem and log the
-        # finding as a notice, NOT a failure. The day this notice
-        # starts being a meaningful warning is when at least one major
-        # vendor has migrated.
+        # The /Power resource was deprecated by DMTF Release 2020.4 in
+        # favour of PowerSubsystem + EnvironmentMetrics. The perf-sentinel
+        # parser now supports the modern EnvironmentMetrics endpoint
+        # (v0.7.6, see `environment_metrics` schema below). The
+        # PowerSubsystem resource itself does NOT carry instantaneous
+        # wattage per DMTF schema, it describes infrastructure
+        # (CapacityWatts, PowerSupplies, Batteries), so this probe stays
+        # informational: we track its presence on the mockup as a hint
+        # that the BMC has migrated infrastructure surfaces, without
+        # acting on it.
         continue-on-error: true
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
           if curl -fsS "http://localhost:8000${chassis}/PowerSubsystem" -o /tmp/powersubsystem.json 2>/dev/null; then
-            echo "::warning::Mockup serves /PowerSubsystem. Parser still reads the deprecated /Power model. Track BMC firmware migration and consider adding a PowerSubsystem branch to redfish/parser.rs."
+            echo "::notice::Mockup serves /PowerSubsystem (infrastructure metadata). Wattage reading is consumed via /EnvironmentMetrics, see the wire assertion below."
             jq . /tmp/powersubsystem.json | head -30
           else
-            echo "::notice::Mockup does not serve /PowerSubsystem yet. Legacy Power model still the standard surface."
+            echo "::notice::Mockup does not serve /PowerSubsystem yet. Infrastructure surface not migrated."
           fi
 
-      - name: Observation probe - EnvironmentMetrics presence (informational)
-        # PowerSubsystem itself does NOT carry instantaneous power
-        # consumption per the DMTF schema (it describes infrastructure:
-        # CapacityWatts, PowerSupplies, Batteries). The modern equivalent
-        # of the legacy `PowerControl[0].PowerConsumedWatts` is
-        # `PowerWatts.Reading` under EnvironmentMetrics (v1.6.0, release
-        # 2026.1). Probe whether the mockup serves
-        # /Chassis/{id}/EnvironmentMetrics and dump the head of the JSON
-        # so a follow-up parser branch can be designed against real
-        # upstream output. Pure observation, no assertion.
-        continue-on-error: true
+      - name: Wire assertion - /EnvironmentMetrics carries PowerWatts.Reading
+        # The modern equivalent of the legacy
+        # `PowerControl[0].PowerConsumedWatts` is `PowerWatts.Reading`
+        # under /Chassis/{id}/EnvironmentMetrics (DMTF Release 2020.4+,
+        # schema v1.0+). The perf-sentinel parser's `environment_metrics`
+        # schema reads exactly that pointer. If upstream renames the
+        # property or the navigation path, this step fails with the
+        # offending body printed.
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
-          if curl -fsS "http://localhost:8000${chassis}/EnvironmentMetrics" -o /tmp/environmentmetrics.json 2>/dev/null; then
-            echo "::notice::Mockup serves /EnvironmentMetrics. Head of payload below for follow-up parser design."
-            jq . /tmp/environmentmetrics.json | head -60
-            powerwatts=$(jq -r '.PowerWatts.Reading // "absent"' /tmp/environmentmetrics.json)
-            echo "::notice::PowerWatts.Reading = ${powerwatts}"
-            energy=$(jq -r '.EnergykWh.Reading // "absent"' /tmp/environmentmetrics.json)
-            echo "::notice::EnergykWh.Reading = ${energy}"
+          curl -fsS "http://localhost:8000${chassis}/EnvironmentMetrics" -o /tmp/environmentmetrics.json
+          echo "--- EnvironmentMetrics head"
+          jq . /tmp/environmentmetrics.json | head -40
+          echo "---"
+
+          if jq -e '.PowerWatts.Reading | numbers | select(. > 0)' /tmp/environmentmetrics.json >/dev/null; then
+            value=$(jq -r '.PowerWatts.Reading' /tmp/environmentmetrics.json)
+            echo "::notice::PowerWatts.Reading = ${value}, matches environment_metrics parser contract"
           else
-            echo "::notice::Mockup does not serve /EnvironmentMetrics at /Chassis/{id}/EnvironmentMetrics."
+            echo "::error::Modern JSON pointer /PowerWatts/Reading does not resolve to a positive finite number on the DMTF mockup. Parser contract for the environment_metrics schema violated."
+            jq . /tmp/environmentmetrics.json
+            exit 1
           fi
 
       - name: End-to-end assertion - perf-sentinel scrapes Redfish cleanly
         # The wire assertion above already proves the parser would
         # match. Here we confirm the daemon side actually wires the
-        # scrape and does not error at startup.
+        # scrape AND that both schemas (legacy_power + environment_metrics)
+        # parse without error from a single config. Two chassis-ids on
+        # the same mockup, one per schema, exercise the per-endpoint
+        # schema dispatch added in v0.7.6.
         run: |
           chassis="${{ steps.chassis.outputs.first_chassis }}"
           cat > /tmp/perf-sentinel.toml <<EOF
@@ -468,11 +472,17 @@ jobs:
           [green.redfish]
           scrape_interval_secs = 15
 
-          [green.redfish.endpoints]
-          "chassis-1" = "http://localhost:8000${chassis}/Power"
+          [green.redfish.endpoints."chassis-legacy"]
+          url = "http://localhost:8000${chassis}/Power"
+          schema = "legacy_power"
+
+          [green.redfish.endpoints."chassis-modern"]
+          url = "http://localhost:8000${chassis}/EnvironmentMetrics"
+          schema = "environment_metrics"
 
           [green.redfish.service_mappings]
-          "wire-conformance-svc" = "chassis-1"
+          "wire-conformance-svc-legacy" = "chassis-legacy"
+          "wire-conformance-svc-modern" = "chassis-modern"
           EOF
 
           ./target/release/perf-sentinel watch --config /tmp/perf-sentinel.toml \
