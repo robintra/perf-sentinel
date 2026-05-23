@@ -3,6 +3,26 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+/// Per-service rule that picks one Scaphandre `ProcessPower` reading.
+///
+/// `exe_contains` is a substring matched against the `exe` label
+/// (Scaphandre emits an absolute path, so a basename like `"java"` or a
+/// longer fragment like `"temurin-25-jdk-amd64/bin/java"` both work).
+/// `cmdline_contains` is an optional substring matched against the
+/// `cmdline` label, which Scaphandre emits as argv concatenated without
+/// separators (`java -jar /tmp/svc-a.jar` becomes
+/// `cmdline="java-jar/tmp/svc-a.jar"`). The matcher requires both
+/// substrings to be present when `cmdline_contains` is set, exactly one
+/// candidate process otherwise the matcher skips that service for the
+/// tick.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ProcessMatcher {
+    pub exe_contains: String,
+    #[serde(default)]
+    pub cmdline_contains: Option<String>,
+}
+
 /// User-facing configuration for the Scaphandre scraper.
 ///
 /// Parsed from `[green.scaphandre]` in `.perf-sentinel.toml`:
@@ -11,7 +31,17 @@ use std::time::Duration;
 /// [green.scaphandre]
 /// endpoint = "http://localhost:8080/metrics"
 /// scrape_interval_secs = 5
-/// process_map = { "order-svc" = "java", "chat-svc" = "dotnet" }
+///
+/// [green.scaphandre.process_map."order-svc"]
+/// exe_contains = "bin/java"
+/// cmdline_contains = "order-svc.jar"
+///
+/// [green.scaphandre.process_map."chat-svc"]
+/// exe_contains = "bin/java"
+/// cmdline_contains = "chat-svc.jar"
+///
+/// [green.scaphandre.process_map."native-svc"]
+/// exe_contains = "/opt/native-svc/bin/native-svc"
 /// ```
 ///
 /// Absent config → no scraper spawned → all services fall back to the
@@ -27,10 +57,10 @@ pub struct ScaphandreConfig {
     /// config load time.
     pub scrape_interval: Duration,
     /// Maps perf-sentinel service names (from span `service.name`) to
-    /// Scaphandre process `exe` labels. A service with no entry here
+    /// per-service `ProcessMatcher` rules. A service with no entry here
     /// falls back to the proxy model regardless of whether the Scaphandre
     /// endpoint is reachable.
-    pub process_map: HashMap<String, String>,
+    pub process_map: HashMap<String, ProcessMatcher>,
     /// Optional auth header in curl format (`"Name: Value"`) attached
     /// to every Scaphandre request. Required when the exporter sits
     /// behind a reverse proxy with basic auth or bearer-token enforcement.
@@ -63,7 +93,13 @@ mod tests {
 
     fn sample_config() -> ScaphandreConfig {
         let mut process_map = HashMap::new();
-        process_map.insert("order-svc".to_string(), "java".to_string());
+        process_map.insert(
+            "order-svc".to_string(),
+            ProcessMatcher {
+                exe_contains: "bin/java".to_string(),
+                cmdline_contains: Some("order-svc.jar".to_string()),
+            },
+        );
         ScaphandreConfig {
             endpoint: "http://localhost:8080/metrics".to_string(),
             scrape_interval: Duration::from_secs(5),
@@ -87,6 +123,7 @@ mod tests {
         assert!(dbg.contains("endpoint"));
         assert!(dbg.contains("http://localhost:8080/metrics"));
         assert!(dbg.contains("order-svc"));
-        assert!(dbg.contains("java"));
+        assert!(dbg.contains("bin/java"));
+        assert!(dbg.contains("order-svc.jar"));
     }
 }

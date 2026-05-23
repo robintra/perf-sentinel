@@ -14,7 +14,7 @@ pub mod scraper;
 pub mod state;
 
 // Public re-exports for daemon and config code.
-pub use config::ScaphandreConfig;
+pub use config::{ProcessMatcher, ScaphandreConfig};
 #[cfg(feature = "daemon")]
 pub use scraper::spawn_scraper;
 #[cfg(feature = "daemon")]

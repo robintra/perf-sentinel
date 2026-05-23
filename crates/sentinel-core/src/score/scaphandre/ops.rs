@@ -7,7 +7,7 @@
 //! The cross-scraper per-service op-delta tracker lives in
 //! [`crate::score::ops_snapshot_diff`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::config::ScaphandreConfig;
 use super::parser::ProcessPower;
@@ -54,8 +54,12 @@ pub fn compute_energy_per_op_kwh(
 /// [`super::parser::parse_scaphandre_metrics`]), the per-service op
 /// delta (from
 /// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff::delta_and_advance`]),
-/// and the scraper config. Iterates the config's `process_map` to find each
-/// mapped service, looks up its process's current power, and calls
+/// the scraper config, and a `multi_match_warned` set carried by the
+/// caller across ticks so the ambiguous-matcher warning fires at most
+/// once per service per misconfiguration streak (cleared when the
+/// service starts matching cleanly again, so a freshly broken config
+/// re-warns). Iterates the config's `process_map` to find each mapped
+/// service, looks up its process's current power, and calls
 /// [`compute_energy_per_op_kwh`] to derive the coefficient. If the
 /// op delta is 0 for a service, the existing entry (if any) is left
 /// unchanged, see the rationale in [`compute_energy_per_op_kwh`].
@@ -77,17 +81,70 @@ pub fn apply_scrape(
     power_readings: &[ProcessPower],
     op_deltas: &HashMap<String, u64>,
     cfg: &ScaphandreConfig,
+    multi_match_warned: &mut HashSet<String>,
     now_ms: u64,
 ) {
     let interval_secs = cfg.scrape_interval.as_secs_f64();
     let mut next = state.current_owned();
     let mut any_change = false;
-    for (service, exe_name) in &cfg.process_map {
+    for (service, matcher) in &cfg.process_map {
         let Some(ops) = op_deltas.get(service).copied() else {
             continue; // service had no ops this window → keep previous entry
         };
-        let Some(reading) = power_readings.iter().find(|p| &p.exe == exe_name) else {
-            continue; // process not running (or not in Scaphandre output) → keep previous
+        // Scaphandre concatenates argv without separators: `java -jar
+        // /tmp/svc.jar` is emitted as `cmdline="java-jar/tmp/svc.jar"`.
+        // The matcher uses substring containment on both labels, with
+        // cmdline_contains optional for processes whose exe is already
+        // unique (native binaries). Trichotomy via early-bail to avoid
+        // a per-tick Vec allocation.
+        let mut unique: Option<&ProcessPower> = None;
+        let mut ambiguous = false;
+        let mut candidate_count = 0usize;
+        for p in power_readings.iter().filter(|p| {
+            p.exe.contains(&matcher.exe_contains)
+                && matcher
+                    .cmdline_contains
+                    .as_ref()
+                    .is_none_or(|c| p.cmdline.contains(c))
+        }) {
+            candidate_count += 1;
+            if unique.is_some() {
+                ambiguous = true;
+                break;
+            }
+            unique = Some(p);
+        }
+        let reading = match (ambiguous, unique) {
+            (false, None) => continue, // process not running → keep previous
+            (false, Some(p)) => {
+                // Clean match: clear any prior ambiguity warn-latch so
+                // a future flap re-emits the warning rather than going
+                // silent on the second incident.
+                multi_match_warned.remove(service);
+                p
+            }
+            (true, _) => {
+                if multi_match_warned.insert(service.clone()) {
+                    tracing::warn!(
+                        service = %service,
+                        candidates = candidate_count,
+                        exe_contains = %matcher.exe_contains,
+                        cmdline_contains = ?matcher.cmdline_contains,
+                        "[green.scaphandre] process_map matcher is ambiguous: \
+                         several Scaphandre processes match this service. Add or \
+                         tighten cmdline_contains to disambiguate. Skipping this \
+                         tick. Subsequent ambiguous ticks for this service will \
+                         log at debug level until the matcher resolves cleanly."
+                    );
+                } else {
+                    tracing::debug!(
+                        service = %service,
+                        candidates = candidate_count,
+                        "[green.scaphandre] process_map matcher still ambiguous"
+                    );
+                }
+                continue;
+            }
         };
         let Some(energy_per_op) =
             compute_energy_per_op_kwh(reading.power_microwatts, interval_secs, ops)
