@@ -254,26 +254,38 @@ Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standard
 
 | Champ                  | Type   | Défaut                                 | Description                                                                                                                                                                                         |
 |------------------------|--------|----------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `endpoints`            | table  | *(vide)*                               | Table `chassis_id → URL /Power`. Obligatoire pour activer le scraper.                                                                                                                               |
+| `endpoints`            | table  | *(vide)*                               | Table `chassis_id` → table d'endpoint avec `url` + `schema`. Obligatoire pour activer le scraper.                                                                                                   |
 | `scrape_interval_secs` | entier | `60`                                   | Fréquence de scrape par châssis. Plage valide : 15-3600 (protection contre la limitation de débit BMC, plusieurs BMCs limitent en dessous de 30 s).                                                 |
 | `service_mappings`     | table  | `{}`                                   | Associe les noms de service perf-sentinel au châssis qui les héberge. Chaque service mappé au même châssis reçoit le même coefficient.                                                              |
-| `power_path`           | chaîne | `"/PowerControl/0/PowerConsumedWatts"` | Pointeur JSON vers la valeur de puissance. À surcharger selon le fournisseur (ex. `"/Oem/Hpe/PowerSummary/Watts"`).                                                                                 |
 | `ca_bundle_path`       | chaîne | *(aucun)*                              | **Réservé à une version ultérieure.** Définir ce champ aujourd'hui empêche le scraper de démarrer avec une erreur claire. Les certificats BMC auto-signés ne sont pas supportés dans cette release. |
 | `auth_header`          | chaîne | *(aucun)*                              | Header Basic au format curl. Préférer `PERF_SENTINEL_REDFISH_AUTH_HEADER`. L'authentification Session-token (POST `/SessionService/Sessions`) n'est pas encore supportée.                           |
+
+Chaque table d'endpoint a deux champs : `url` (chaîne, URL Redfish complète chemin inclus) et `schema` (chaîne, soit `"legacy_power"` soit `"environment_metrics"`). Le schema sélectionne le pointeur JSON canonique utilisé par le parser, sans pointeur tapé par l'opérateur :
+
+| `schema`               | Chemin servi par le BMC                       | Pointeur JSON lu par le parser     |
+|------------------------|-----------------------------------------------|------------------------------------|
+| `legacy_power`         | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/0/PowerConsumedWatts` |
+| `environment_metrics`  | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                |
 
 ```toml
 [green.redfish]
 scrape_interval_secs = 60
 
-[green.redfish.endpoints]
-"chassis-1" = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
-"chassis-2" = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/Power"
+[green.redfish.endpoints."chassis-legacy-1"]
+url = "https://bmc-rack-01.dc.example/redfish/v1/Chassis/1/Power"
+schema = "legacy_power"
+
+[green.redfish.endpoints."chassis-modern-1"]
+url = "https://bmc-rack-02.dc.example/redfish/v1/Chassis/1/EnvironmentMetrics"
+schema = "environment_metrics"
 
 [green.redfish.service_mappings]
-"order-svc" = "chassis-1"
-"chat-svc"  = "chassis-1"
-"ledger-svc" = "chassis-2"
+"order-svc"  = "chassis-legacy-1"
+"chat-svc"   = "chassis-legacy-1"
+"ledger-svc" = "chassis-modern-1"
 ```
+
+**Quel schema choisir.** `/Power` (legacy_power) a été déprécié par DMTF Release 2020.4 mais reste obligatoire sur les firmwares BMC en 2026, tous les fournisseurs en production l'exposent. `/EnvironmentMetrics` (environment_metrics) est le remplacement moderne qui expose `PowerWatts.Reading` directement, présent en parallèle de `/Power` pendant la transition. Choisir `legacy_power` sauf si la documentation BMC recommande explicitement `EnvironmentMetrics`. Une flotte mixte se déclare en donnant à chaque châssis le schema que sa firmware sert.
 
 **Ignoré en mode batch `analyze`.** Comme Scaphandre et Kepler, seul `watch` intègre Redfish.
 
