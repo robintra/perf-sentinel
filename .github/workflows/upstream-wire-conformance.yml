@@ -615,7 +615,19 @@ jobs:
         # This validates wire conformance ONLY, NOT energy precision.
         # The energy_uj values are synthetic; only the metric names and
         # labels come from the real upstream binary.
+        #
+        # Scaphandre emits `scaph_process_power_consumption_microwatts`
+        # ONLY when at least two energy samples are recorded, because
+        # it is computed as a power delta over time (upstream
+        # src/sensors/mod.rs:817-823, gated on
+        # `get_records_diff_power_microwatts()` returning Some). Each
+        # `/metrics` scrape refreshes the topology and records ONE
+        # energy sample. We therefore do a warmup scrape, sleep long
+        # enough for the ticker to bump the fake counter, then issue
+        # the assertion scrape so a real delta is computable.
         run: |
+          curl -fsS http://localhost:8080/metrics >/dev/null
+          sleep 3
           curl -fsS http://localhost:8080/metrics -o /tmp/scaph-metrics.txt
           echo "--- scaphandre /metrics head (first 40 lines)"
           head -40 /tmp/scaph-metrics.txt
