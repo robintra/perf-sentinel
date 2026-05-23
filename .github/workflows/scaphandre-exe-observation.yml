@@ -1,0 +1,432 @@
+# Observation step for the Scaphandre matcher redesign.
+#
+# This workflow does NOT validate, it OBSERVES. It runs real Scaphandre
+# v1.0.2 in --vm mode against a representative process zoo (3 Java jars,
+# 3 .NET assemblies, 1 native Rust binary) and reports what labels the
+# upstream exporter actually emits per process. The output drives the
+# follow-up matcher design.
+#
+# Why: perf-sentinel's apply_scrape (crates/sentinel-core/src/score/
+# scaphandre/ops.rs) currently does strict `&p.exe == exe_name`. Two
+# established but unverified problems:
+#  - the config example shows basenames ("java", "dotnet") but real
+#    Scaphandre likely emits absolute paths;
+#  - multiple Java services co-located on a host share the same JVM
+#    `exe`, idem for .NET. Strict `exe` equality cannot distinguish
+#    them and would mis-attribute silently.
+#
+# This job answers, empirically, which label(s) actually discriminate.
+# It produces NO assertion, the matcher design is a follow-up commit.
+#
+# Triggered ONLY manually via workflow_dispatch. Not gated, not blocking.
+
+name: Scaphandre exe label observation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_LOG: info
+  SCAPHANDRE_VERSION: v1.0.2
+  SCAPHANDRE_DEB_SHA256: 5c15c38e1d2f9380248a265213b4e04ef3816920210023f2f289a7dd6b5bd244
+  SCAPHANDRE_POWERCAP_PATH: /tmp/scaph-powercap
+
+jobs:
+
+  scaphandre-exe-observation:
+    name: scaphandre-exe-observation
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cargo cache
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4  # v2.9.1
+        with:
+          shared-key: scaphandre-exe-observation
+
+      - name: Install JDK 25 (Temurin)
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654  # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Install .NET SDK 10
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7  # v5.2.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install Scaphandre from upstream .deb
+        # Same pinned .deb as the wire-conformance job. The 'deb12'
+        # variant is the latest Debian flavour produced by upstream as
+        # of v1.0.2 (2025-02-11) and runs on ubuntu-latest.
+        run: |
+          curl -fsSL -o /tmp/scaphandre.deb \
+            "https://github.com/hubblo-org/scaphandre/releases/download/${SCAPHANDRE_VERSION}/scaphandre_${SCAPHANDRE_VERSION}-deb12_amd64.deb"
+          echo "${SCAPHANDRE_DEB_SHA256}  /tmp/scaphandre.deb" | sha256sum --check
+          sudo dpkg -i /tmp/scaphandre.deb
+          scaphandre --version
+
+      - name: Generate fake powercap tree
+        # Minimal arborescence that Scaphandre's powercap_rapl sensor
+        # walks in --vm mode (upstream src/sensors/powercap_rapl.rs):
+        # one socket directory and one domain subdirectory, each with
+        # `name` + `energy_uj`. Same trick as the wire-conformance job.
+        run: |
+          mkdir -p "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0"
+          echo "package-0" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/name"
+          echo "0"         > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/energy_uj"
+          echo "core"      > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/name"
+          echo "0"         > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/energy_uj"
+          ls -laR "${SCAPHANDRE_POWERCAP_PATH}"
+
+      - name: Start fake-energy ticker in background
+        # Scaphandre computes per-process power as energy_uj delta over
+        # time delta. A constant counter yields zero watts and no
+        # `scaph_process_power_consumption_microwatts` line is emitted.
+        # The ticker bumps both counters monotonically every second so
+        # the sensor sees non-zero deltas. Arbitrary increments, no
+        # physical meaning.
+        run: |
+          ( c1=0; c2=0
+            while true; do
+              c1=$((c1 + 100000))
+              c2=$((c2 +  50000))
+              echo "${c1}" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/energy_uj"
+              echo "${c2}" > "${SCAPHANDRE_POWERCAP_PATH}/intel-rapl:0/intel-rapl:0:0/energy_uj"
+              sleep 1
+            done ) &
+          echo $! > /tmp/scaph-ticker.pid
+
+      - name: Build 3 Java toy jars
+        # Three jars with different Main-Class so `java -jar` cmdlines
+        # differ on the jar path. Each main just sleeps in a loop, no
+        # workload signal intended. Class names stay alphanumeric
+        # (Main_a/b/c) while the jars keep the human-readable svc-a/b/c
+        # naming for the report.
+        run: |
+          mkdir -p /tmp/jbuild
+          for tag in a b c; do
+            cat > "/tmp/jbuild/Main_${tag}.java" <<EOF
+          public class Main_${tag} {
+              public static void main(String[] args) throws Exception {
+                  while (true) { Thread.sleep(1000); }
+              }
+          }
+          EOF
+            javac -d /tmp/jbuild "/tmp/jbuild/Main_${tag}.java"
+            cat > "/tmp/jbuild/svc-${tag}.mf" <<EOF
+          Main-Class: Main_${tag}
+
+          EOF
+            (cd /tmp/jbuild && jar cfm "/tmp/svc-${tag}.jar" "svc-${tag}.mf" "Main_${tag}.class")
+          done
+          ls -la /tmp/svc-*.jar
+
+      - name: Build 3 .NET toy assemblies
+        run: |
+          for name in dotnet-a dotnet-b dotnet-c; do
+            dotnet new console -o "/tmp/${name}" -n "${name}" --force >/dev/null
+            cat > "/tmp/${name}/Program.cs" <<EOF
+          using System.Threading;
+          while (true) { Thread.Sleep(1000); }
+          EOF
+            dotnet build -c Release "/tmp/${name}" >/dev/null
+          done
+          ls -la /tmp/dotnet-*/bin/Release/net*/
+
+      - name: Build 1 native Rust toy binary
+        run: |
+          cargo new --bin /tmp/toy-native-svc --quiet
+          cat > /tmp/toy-native-svc/src/main.rs <<'EOF'
+          fn main() {
+              loop {
+                  std::thread::sleep(std::time::Duration::from_secs(1));
+              }
+          }
+          EOF
+          cargo build --release --manifest-path /tmp/toy-native-svc/Cargo.toml --quiet
+          ls -la /tmp/toy-native-svc/target/release/toy-native-svc
+
+      - name: Spawn 7 toy processes
+        # Each background process writes its PID into /tmp/<name>.pid so
+        # the observation step can match metric lines by pid.
+        run: |
+          # 3 Java services, all using the system JVM.
+          for name in svc-a svc-b svc-c; do
+            java -jar "/tmp/${name}.jar" &
+            echo $! > "/tmp/${name}.pid"
+          done
+
+          # 3 .NET services, dotnet-a/b/c.dll under each project's publish dir.
+          for name in dotnet-a dotnet-b dotnet-c; do
+            dll=$(ls "/tmp/${name}"/bin/Release/net*/"${name}.dll" | head -1)
+            dotnet "${dll}" &
+            echo $! > "/tmp/${name}.pid"
+          done
+
+          # 1 native Rust binary.
+          /tmp/toy-native-svc/target/release/toy-native-svc &
+          echo $! > /tmp/toy-native-svc.pid
+
+          # Give the runtimes a moment to actually start before
+          # Scaphandre walks /proc. JVM warmup on shared GitHub runners
+          # routinely exceeds 5s.
+          sleep 10
+
+          echo "--- toy process PIDs"
+          for f in /tmp/svc-*.pid /tmp/dotnet-*.pid /tmp/toy-native-svc.pid; do
+            echo "${f}: $(cat "${f}")"
+          done
+
+      - name: Start Scaphandre in VM mode with prometheus exporter
+        # sudo for /proc/PID/stat read access across all users. The
+        # exporter binds to 127.0.0.1:8080, not the upstream default
+        # 0.0.0.0, so the endpoint stays off the runner's external
+        # interfaces. The redirect lives inside `sh -c` so the
+        # privileged shell performs it (SC2024-clean).
+        run: |
+          sudo -E sh -c 'nohup scaphandre --vm -s powercap_rapl prometheus --address 127.0.0.1 --port 8080 > /tmp/scaphandre.log 2>&1 & echo $! > /tmp/scaph-daemon.pid'
+          sleep 2
+
+      - name: Wait for Scaphandre /metrics reachable
+        run: |
+          for i in $(seq 1 20); do
+            if curl -fsS http://localhost:8080/metrics >/dev/null 2>&1; then
+              echo "scaphandre /metrics reachable after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://localhost:8080/metrics >/dev/null
+
+      - name: Warmup and capture /metrics
+        # Scaphandre needs two energy samples to compute a power delta.
+        # Warmup scrape, sleep so the ticker bumps energy_uj, then
+        # capture the full /metrics for the observation report.
+        run: |
+          curl -fsS http://localhost:8080/metrics >/dev/null
+          sleep 5
+          curl -fsS http://localhost:8080/metrics -o /tmp/scaph-metrics.txt
+          wc -l /tmp/scaph-metrics.txt
+          echo "--- /metrics head (first 30 lines)"
+          head -30 /tmp/scaph-metrics.txt
+          echo "---"
+
+      - name: Observation report
+        # Pure observation step. For each known toy PID, dump the full
+        # scaph_process_power_consumption_microwatts line so the labels
+        # come out raw, then answer the 5 questions from the user
+        # prompt by comparing exe / cmdline strings between siblings.
+        run: |
+          metrics=/tmp/scaph-metrics.txt
+          declare -A PIDS=(
+            [svc-a]="$(cat /tmp/svc-a.pid)"
+            [svc-b]="$(cat /tmp/svc-b.pid)"
+            [svc-c]="$(cat /tmp/svc-c.pid)"
+            [dotnet-a]="$(cat /tmp/dotnet-a.pid)"
+            [dotnet-b]="$(cat /tmp/dotnet-b.pid)"
+            [dotnet-c]="$(cat /tmp/dotnet-c.pid)"
+            [native]="$(cat /tmp/toy-native-svc.pid)"
+          )
+
+          declare -A LINES
+          declare -A EXE
+          declare -A CMDLINE
+
+          extract_label() {
+            # Extract value of label $1 from metric line $2 (best-effort
+            # parse of `name="value"` with any character except `"`).
+            echo "$2" | grep -oE "$1=\"[^\"]*\"" | head -1 | sed -E "s/^$1=\"//;s/\"$//"
+          }
+
+          echo "==========================================================="
+          echo "== Raw scaph_process_power_consumption_microwatts lines  =="
+          echo "==========================================================="
+          for name in svc-a svc-b svc-c dotnet-a dotnet-b dotnet-c native; do
+            pid="${PIDS[$name]}"
+            line=$(grep -E "^scaph_process_power_consumption_microwatts\{[^}]*pid=\"${pid}\"" "${metrics}" | head -1 || true)
+            LINES[$name]="${line}"
+            if [ -z "${line}" ]; then
+              echo "[${name}] pid=${pid}  (no matching metric line)"
+              continue
+            fi
+            echo "[${name}] pid=${pid}"
+            echo "    ${line}"
+            EXE[$name]=$(extract_label exe "${line}")
+            CMDLINE[$name]=$(extract_label cmdline "${line}")
+          done
+
+          echo
+          echo "==========================================================="
+          echo "== Q1. Exact form of exe per technology                  =="
+          echo "==========================================================="
+          for name in svc-a dotnet-a native; do
+            echo "[${name}] exe = '${EXE[$name]}'"
+          done
+
+          echo
+          echo "==========================================================="
+          echo "== Q2. Do siblings share the same exe ?                  =="
+          echo "==========================================================="
+          compare_pair() {
+            local a=$1 b=$2 va vb
+            va="${EXE[$a]}"
+            vb="${EXE[$b]}"
+            if [ -z "${va}" ] || [ -z "${vb}" ]; then
+              echo "[${a} vs ${b}] SKIP (missing line)"
+            elif [ "${va}" = "${vb}" ]; then
+              echo "[${a} vs ${b}] COLLIDE on exe='${va}'"
+            else
+              echo "[${a} vs ${b}] DISTINCT  (${va} | ${vb})"
+            fi
+          }
+          compare_pair svc-a svc-b
+          compare_pair svc-a svc-c
+          compare_pair svc-b svc-c
+          compare_pair dotnet-a dotnet-b
+          compare_pair dotnet-a dotnet-c
+          compare_pair dotnet-b dotnet-c
+
+          echo
+          echo "==========================================================="
+          echo "== Q3. Does cmdline discriminate where exe collides ?    =="
+          echo "==========================================================="
+          for name in svc-a svc-b svc-c dotnet-a dotnet-b dotnet-c native; do
+            echo "[${name}] cmdline = '${CMDLINE[$name]}'"
+          done
+          compare_cmdline_pair() {
+            local a=$1 b=$2 va vb
+            va="${CMDLINE[$a]}"
+            vb="${CMDLINE[$b]}"
+            if [ -z "${va}" ] || [ -z "${vb}" ]; then
+              echo "[${a} vs ${b}] SKIP (missing cmdline)"
+            elif [ "${va}" = "${vb}" ]; then
+              echo "[${a} vs ${b}] cmdline COLLIDE"
+            else
+              echo "[${a} vs ${b}] cmdline DISTINCT"
+            fi
+          }
+          compare_cmdline_pair svc-a svc-b
+          compare_cmdline_pair svc-a svc-c
+          compare_cmdline_pair dotnet-a dotnet-b
+          compare_cmdline_pair dotnet-a dotnet-c
+
+          echo
+          echo "==========================================================="
+          echo "== Q4. Exhaustive label list per process                 =="
+          echo "==========================================================="
+          for name in svc-a dotnet-a native; do
+            line="${LINES[$name]}"
+            [ -z "${line}" ] && { echo "[${name}] (no line)"; continue; }
+            labels=$(echo "${line}" | grep -oE '\{[^}]*\}' | head -1 | tr ',' '\n' | sed -E 's/^\{//;s/\}$//;s/=.*$//' | sort -u | tr '\n' ' ')
+            echo "[${name}] labels: ${labels}"
+          done
+
+          echo
+          echo "==========================================================="
+          echo "== Q5. Observation conclusion                            =="
+          echo "==========================================================="
+          # Templated factual conclusion. Verdict is taken over the
+          # full triplet a/b/c per techno: exe_collide=1 only if all
+          # three siblings share the same exe, cmdline_ok=1 only if
+          # the three cmdlines are pairwise distinct. A single mismatch
+          # demotes the verdict, which is the conservative answer for
+          # downstream matcher design.
+          java_collide=0
+          if [ -n "${EXE[svc-a]:-}" ] && [ -n "${EXE[svc-b]:-}" ] && [ -n "${EXE[svc-c]:-}" ] \
+             && [ "${EXE[svc-a]}" = "${EXE[svc-b]}" ] && [ "${EXE[svc-a]}" = "${EXE[svc-c]}" ]; then
+            java_collide=1
+          fi
+
+          dotnet_collide=0
+          if [ -n "${EXE[dotnet-a]:-}" ] && [ -n "${EXE[dotnet-b]:-}" ] && [ -n "${EXE[dotnet-c]:-}" ] \
+             && [ "${EXE[dotnet-a]}" = "${EXE[dotnet-b]}" ] && [ "${EXE[dotnet-a]}" = "${EXE[dotnet-c]}" ]; then
+            dotnet_collide=1
+          fi
+
+          cmdline_java_ok=0
+          if [ -n "${CMDLINE[svc-a]:-}" ] && [ -n "${CMDLINE[svc-b]:-}" ] && [ -n "${CMDLINE[svc-c]:-}" ] \
+             && [ "${CMDLINE[svc-a]}" != "${CMDLINE[svc-b]}" ] \
+             && [ "${CMDLINE[svc-a]}" != "${CMDLINE[svc-c]}" ] \
+             && [ "${CMDLINE[svc-b]}" != "${CMDLINE[svc-c]}" ]; then
+            cmdline_java_ok=1
+          fi
+
+          cmdline_dotnet_ok=0
+          if [ -n "${CMDLINE[dotnet-a]:-}" ] && [ -n "${CMDLINE[dotnet-b]:-}" ] && [ -n "${CMDLINE[dotnet-c]:-}" ] \
+             && [ "${CMDLINE[dotnet-a]}" != "${CMDLINE[dotnet-b]}" ] \
+             && [ "${CMDLINE[dotnet-a]}" != "${CMDLINE[dotnet-c]}" ] \
+             && [ "${CMDLINE[dotnet-b]}" != "${CMDLINE[dotnet-c]}" ]; then
+            cmdline_dotnet_ok=1
+          fi
+
+          echo "exe collide for Java siblings:    $([ ${java_collide} -eq 1 ] && echo YES || echo NO)"
+          echo "exe collide for .NET siblings:    $([ ${dotnet_collide} -eq 1 ] && echo YES || echo NO)"
+          echo "cmdline discriminates Java siblings: $([ ${cmdline_java_ok} -eq 1 ] && echo YES || echo NO)"
+          echo "cmdline discriminates .NET siblings: $([ ${cmdline_dotnet_ok} -eq 1 ] && echo YES || echo NO)"
+          echo
+          echo "Interpretation guide for the follow-up matcher prompt:"
+          echo " - If both exe-collide YES and cmdline-ok YES, the matcher MUST consult cmdline (or another label) on top of exe."
+          echo " - If exe-collide NO across the board, basename-vs-fullpath is the only remaining axis."
+          echo " - If cmdline-ok NO where exe-collide YES, no label currently discriminates and an upstream change or a per-pid mapping is needed."
+          echo
+          echo "Raw /metrics file is uploaded as workflow artifact for further inspection."
+
+      - name: Upload /metrics artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: scaphandre-metrics-observation-${{ github.run_id }}
+          path: /tmp/scaph-metrics.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Debug artefacts (on failure)
+        if: failure()
+        run: |
+          echo "--- scaphandre log"
+          tail -200 /tmp/scaphandre.log 2>/dev/null || true
+          echo "--- scaphandre /metrics full"
+          cat /tmp/scaph-metrics.txt 2>/dev/null || true
+          echo "--- fake powercap tree"
+          ls -laR "${SCAPHANDRE_POWERCAP_PATH}" 2>/dev/null || true
+          echo "--- toy process status"
+          for f in /tmp/svc-*.pid /tmp/dotnet-*.pid /tmp/toy-native-svc.pid; do
+            [ -f "${f}" ] || continue
+            pid=$(cat "${f}")
+            echo "${f}: pid=${pid} alive=$(kill -0 "${pid}" 2>/dev/null && echo yes || echo no)"
+          done
+
+      - name: Cleanup background processes and artefacts
+        if: always()
+        run: |
+          for pidfile in /tmp/scaph-ticker.pid /tmp/svc-a.pid /tmp/svc-b.pid /tmp/svc-c.pid \
+                         /tmp/dotnet-a.pid /tmp/dotnet-b.pid /tmp/dotnet-c.pid \
+                         /tmp/toy-native-svc.pid; do
+            if [ -f "${pidfile}" ]; then
+              pid=$(cat "${pidfile}")
+              kill "${pid}" 2>/dev/null || true
+            fi
+          done
+          if [ -f /tmp/scaph-daemon.pid ]; then
+            sudo kill "$(cat /tmp/scaph-daemon.pid)" 2>/dev/null || true
+          fi
+          # Belt-and-braces fallbacks in case a pid file is missing or
+          # raced with the launcher.
+          sudo pkill -f 'scaphandre --vm' 2>/dev/null || true
+          pkill -f 'java -jar /tmp/svc-' 2>/dev/null || true
+          pkill -f 'dotnet /tmp/dotnet-' 2>/dev/null || true
+          pkill -f 'toy-native-svc' 2>/dev/null || true
+          # Hygiene: root-owned log + powercap tree need sudo to remove.
+          sudo rm -rf "${SCAPHANDRE_POWERCAP_PATH}" /tmp/scaphandre.log /tmp/scaphandre.deb \
+            /tmp/scaph-metrics.txt /tmp/scaph-ticker.pid /tmp/scaph-daemon.pid \
+            /tmp/svc-*.jar /tmp/svc-*.pid /tmp/dotnet-* /tmp/jbuild \
+            /tmp/toy-native-svc /tmp/toy-native-svc.pid 2>/dev/null || true
