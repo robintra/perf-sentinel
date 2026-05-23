@@ -420,6 +420,8 @@ Quand vous lisez des benchmarks qui comparent ces outils à un wattmètre extern
 
 perf-sentinel embarque une intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) pour la mesure énergétique par processus via les compteurs Intel RAPL. Quand `[green.scaphandre]` est configuré, le daemon `watch` scrape l'endpoint Prometheus Scaphandre toutes les quelques secondes et utilise les lectures de puissance mesurées pour remplacer la constante proxy `ENERGY_PER_IO_OP_KWH` fixe pour chaque service mappé.
 
+**Version upstream.** Le parser est version-agnostic par design : il consomme l'exposition Prometheus standard de `scaph_process_power_consumption_microwatts` avec les labels `exe` et `cmdline`, stable à travers les releases upstream. Le job CI wire-conformance (`.github/workflows/upstream-wire-conformance.yml`) pin **Scaphandre v1.0.2** par SHA256 de l'artefact `.deb` upstream comme version de référence validée. Les autres releases récentes sont attendues comme fonctionnelles, un renommage upstream du métrique ou des labels déclencherait au runtime le filet warn-once "zero-sample" et l'assertion wire-conformance en CI.
+
 **Exigences plateforme.** Scaphandre fonctionne sur :
 
 - **Linux uniquement** (pas Windows, pas macOS, pas BSD).
