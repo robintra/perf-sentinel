@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.42
-appVersion: "0.7.6"
+version: 0.2.43
+appVersion: "0.7.7"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -45,7 +45,7 @@ annotations:
       description: "appVersion 0.7.6: two config breaking changes on Scaphandre and Redfish to eliminate silent over-attribution. Scaphandre `process_map` becomes a typed table per service with `exe_contains` plus optional `cmdline_contains` substrings, replacing the previous flat `\"service\" = \"exe\"` form. Substring matching on both labels disambiguates co-located JVMs or .NET assemblies sharing a runtime. Redfish `endpoints` becomes a typed table per chassis with `url` plus `schema` enum (`legacy_power` or `environment_metrics`), the top-level `power_path` field is removed. EnvironmentMetrics (`PowerWatts.Reading`) is now natively supported alongside the legacy `/Power` resource. Both new struct shapes deny unknown TOML fields. Scaphandre adds a zero-sample warn-once net that catches silent upstream renames of the metric or the `exe` label at runtime, mirroring the Kepler net from 0.7.5, and the staleness gauge now climbs from boot on failure parity with Kepler. Wire-conformance CI extended to assert both Scaphandre cmdline disambiguation and Redfish dual-schema parsing against the real upstream binaries."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.7.6
+      image: ghcr.io/robintra/perf-sentinel:0.7.7
       platforms:
         - linux/amd64
         - linux/arm64
