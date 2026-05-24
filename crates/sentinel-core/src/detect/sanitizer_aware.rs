@@ -30,12 +30,15 @@ pub enum SanitizerAwareMode {
     /// Disable the heuristic entirely. Falls back to the strict
     /// `distinct_params` check.
     Never,
-    /// Reclassify only when two signals fire conjointly: high per-span
-    /// timing variance **plus** either the ORM scope marker or the
-    /// sequential-siblings signal (all spans share one parent and chain
-    /// `end <= start` after sort). The sequential-siblings substitute
-    /// covers bare-driver stacks (Vert.x reactive PG, pgx, asyncpg,
-    /// sqlx, Prisma `queryRaw`) that never emit an ORM scope. See
+    /// Reclassify only when a primary signal (ORM scope marker OR
+    /// sequential-siblings on bare-driver) fires conjointly with a
+    /// corroborating signal (high per-span timing variance OR, on the
+    /// ORM branch only, a high occurrence count that overcomes the
+    /// cache-warm trap where ORM scope is present but per-span timings
+    /// cluster from a warm row cache, e.g. EF Core + Npgsql or
+    /// Hibernate + L2 cache). The sequential-siblings substitute covers
+    /// bare-driver stacks (Vert.x reactive PG, pgx, asyncpg, sqlx,
+    /// Prisma `queryRaw`) that never emit an ORM scope. See
     /// `docs/design/04-DETECTION.md` for the full rationale.
     Strict,
 }
@@ -284,29 +287,41 @@ pub fn classify_sanitized_sql_group(
     }
 }
 
-/// Combined verdict for `Strict` mode: requires high timing variance
-/// **plus** one of two corroborating signals — ORM scope marker (the
-/// classical ORM-induced N+1) or sequential siblings (bare-driver N+1
-/// where no ORM scope is emitted, e.g. Vert.x reactive PG, pgx, asyncpg,
-/// sqlx, Prisma `queryRaw`). Preserves `redundant_sql` precision on cached
-/// identical queries (variance low → inconclusive regardless of the
-/// corroborating signal), at the cost of missing N+1 patterns whose
-/// rows all happen to be cache-warm.
+/// Combined verdict for `Strict` mode: requires a primary signal
+/// (ORM scope marker OR sequential siblings on bare-driver) **plus** a
+/// corroborating signal (high timing variance OR, on the ORM branch
+/// only, high occurrence count that overcomes the cache-warm trap).
+///
+/// The ORM branch accepts `variance || high_occurrence` because a
+/// sanitized group of e.g. 15 sanitized SQL spans under a single
+/// request with an ORM scope marker present is structurally an N+1
+/// regardless of whether per-span timings cluster from a warm row
+/// cache (the lab-observed EF Core / Hibernate cache-warm shape). The
+/// bare-driver branch (sequential without ORM) keeps the stricter
+/// `variance only` requirement because sequential-siblings is a
+/// weaker signal than the explicit ORM marker.
 ///
 /// `sequential` is a lazy closure: it runs only when `has_orm_scope`
 /// has already returned false, so an ORM-scope-bearing Strict-mode
 /// group does not pay the per-trace sibling walk. Variance is computed
-/// last (most expensive of the three signals).
+/// last (most expensive of the signals).
 #[must_use]
 pub fn classify_sanitized_sql_group_strict(
     spans: &[&NormalizedEvent],
     scopes: &[String],
     sequential: impl FnOnce() -> bool,
+    high_occurrence: bool,
 ) -> SanitizerVerdict {
-    if !has_orm_scope(scopes) && !sequential() {
+    let orm = has_orm_scope(scopes);
+    let primary_ok = orm || sequential();
+    if !primary_ok {
         return SanitizerVerdict::Inconclusive;
     }
-    if timing_variance_suggests_n_plus_one(spans) {
+    let variance_ok = timing_variance_suggests_n_plus_one(spans);
+    // ORM branch accepts cache-warm n+1 via high_occurrence; the
+    // bare-driver branch keeps the stricter variance-only requirement.
+    let corroborated = variance_ok || (orm && high_occurrence);
+    if corroborated {
         SanitizerVerdict::LikelyNPlusOne
     } else {
         SanitizerVerdict::Inconclusive
@@ -334,13 +349,17 @@ pub(super) fn classify_sanitized_sql_group_indexed(
     indices: &[usize],
     mode: SanitizerAwareMode,
     sequential_siblings: impl FnOnce() -> bool,
+    high_occurrence: bool,
 ) -> SanitizerVerdict {
     let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
     let scopes = collect_scopes(&group);
     match mode {
-        SanitizerAwareMode::Strict => {
-            classify_sanitized_sql_group_strict(&group, &scopes, sequential_siblings)
-        }
+        SanitizerAwareMode::Strict => classify_sanitized_sql_group_strict(
+            &group,
+            &scopes,
+            sequential_siblings,
+            high_occurrence,
+        ),
         SanitizerAwareMode::Auto | SanitizerAwareMode::Always | SanitizerAwareMode::Never => {
             classify_sanitized_sql_group(&group, &scopes)
         }
@@ -709,7 +728,7 @@ mod tests {
             build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -725,7 +744,7 @@ mod tests {
         );
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -740,7 +759,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -751,7 +770,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -769,7 +788,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || true),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
@@ -782,7 +801,7 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || true),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -796,7 +815,59 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    // --- Strict ORM branch: cache-warm via high_occurrence (lab dotnet-svc) ---
+
+    #[test]
+    fn strict_orm_scope_with_high_occurrence_low_variance_returns_likely_n_plus_one() {
+        // Lab dotnet-svc shape: EF Core emits the OTel scope, 15 sanitized
+        // SQL spans collapse to one template, but per-span timings cluster
+        // tightly because Npgsql holds the rows warm. Strict accepts the
+        // high_occurrence corroborator and fires.
+        let low_variance = [100u64; 15];
+        let (normalized, scopes) = build_sanitized_group_for_strict(
+            Some("OpenTelemetry.Instrumentation.EntityFrameworkCore"),
+            &low_variance,
+        );
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true),
+            SanitizerVerdict::LikelyNPlusOne
+        );
+    }
+
+    #[test]
+    fn strict_bare_driver_high_occurrence_low_variance_returns_inconclusive() {
+        // Bare-driver high-occurrence cluster (15 spans, no ORM scope, low
+        // variance, sequential). The high_occurrence corroborator is
+        // intentionally restricted to the ORM branch: a sequential
+        // bare-driver loop with tight timings is more likely a legitimate
+        // paginated batch than an n+1. Strict declines.
+        let low_variance = [100u64; 15];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true, true),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    #[test]
+    fn strict_orm_scope_with_low_occurrence_low_variance_still_inconclusive() {
+        // Precision guard: 5 sanitized SQL spans on a warm cache under an
+        // ORM scope (the legacy polling loop the Strict mode was designed
+        // to preserve as redundant_sql). high_occurrence is false at this
+        // count, variance is low, Strict correctly declines.
+        let low_variance = [100u64; 5];
+        let (normalized, scopes) =
+            build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::Inconclusive
         );
     }

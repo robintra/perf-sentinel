@@ -118,10 +118,19 @@ fn classify_group(
     if mode == SanitizerAwareMode::Always {
         return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
     }
-    let verdict =
-        sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices, mode, || {
-            sequential_siblings_indexed(&trace.spans, indices)
-        });
+    // Above 3× the n+1 threshold (default 15 spans for threshold=5), a
+    // sanitized group with an ORM scope is structurally an n+1 even when
+    // per-span timings cluster (the cache-warm trap, e.g. EF Core hitting
+    // a warm Npgsql pool). The Strict verdict accepts this as a
+    // corroborating signal on the ORM branch only.
+    let high_occurrence = indices.len() >= threshold.saturating_mul(3);
+    let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(
+        &trace.spans,
+        indices,
+        mode,
+        || sequential_siblings_indexed(&trace.spans, indices),
+        high_occurrence,
+    );
     matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
         .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
 }
@@ -676,14 +685,17 @@ mod tests {
 
     #[test]
     fn strict_mode_keeps_redundant_for_orm_scope_with_low_variance() {
-        // Reproduces the simulation-lab redundant_sql case: 15 identical
+        // Legacy polling loop preserved as redundant_sql: 7 identical
         // queries via Spring Data JPA, all served from the same cached
-        // row. ORM scope present but timing tight. Auto would flip this
-        // to n_plus_one_sql, Strict must let the redundant detector
-        // pick it up.
-        let durations = [100u64; 15];
+        // row. ORM scope present but timing tight, occurrence count
+        // under the `3 * threshold` cache-warm bar so high_occurrence
+        // does not fire. Strict must let the redundant detector pick
+        // it up. Counts above 3*threshold (15 for the default
+        // threshold of 5) flip to n_plus_one_sql; see
+        // `strict_mode_reclassifies_orm_high_occurrence_cache_warm`.
+        let durations = [100u64; 7];
         let events = crate::test_helpers::make_sanitized_n_plus_one_events(
-            15,
+            7,
             Some("io.opentelemetry.hibernate-6.0"),
             Some(&durations),
         );
@@ -691,7 +703,8 @@ mod tests {
         let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
         assert!(
             n_plus_one.is_empty(),
-            "Strict must not reclassify when timing variance is flat: got {:?}",
+            "Strict must not reclassify when timing variance is flat and \
+             occurrence count is below the cache-warm bar: got {:?}",
             n_plus_one
                 .iter()
                 .map(|f| &f.finding_type)
@@ -700,10 +713,35 @@ mod tests {
         let redundant = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
         assert_eq!(redundant.len(), 1);
         assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
-        assert_eq!(redundant[0].pattern.occurrences, 15);
+        assert_eq!(redundant[0].pattern.occurrences, 7);
         // The redundant detector must not stamp the heuristic marker on
         // its own findings, even when Strict declined to reclassify.
         assert_eq!(redundant[0].classification_method, None);
+    }
+
+    #[test]
+    fn strict_mode_reclassifies_orm_high_occurrence_cache_warm() {
+        // Lab dotnet-svc shape: 15 LINQ-by-PK queries on EF Core hitting
+        // a warm Npgsql pool. ORM scope present, per-span timings cluster
+        // tight (no variance), but the occurrence count clears the
+        // `3 * threshold` cache-warm bar — Strict must reclassify rather
+        // than miss a real n+1 just because the rows happen to be in
+        // memory. Quarkus + Hibernate would land on the same path.
+        let durations = [100u64; 15];
+        let events = crate::test_helpers::make_sanitized_n_plus_one_events(
+            15,
+            Some("OpenTelemetry.Instrumentation.EntityFrameworkCore"),
+            Some(&durations),
+        );
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(n_plus_one.len(), 1);
+        assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            n_plus_one[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+        assert_eq!(n_plus_one[0].pattern.occurrences, 15);
     }
 
     #[test]
