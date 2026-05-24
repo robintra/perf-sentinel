@@ -106,6 +106,12 @@ pub enum SanitizerVerdict {
 /// both hit. List intentionally errs on the side of recall: a false
 /// positive only swaps a `redundant_sql` finding for `n_plus_one_sql` on
 /// a sanitized group, which is the harm-reduction direction.
+///
+/// Inclusion criterion: the library emits an `OTel` instrumentation
+/// scope that names an ORM layer (not a bare SQL driver). Bare drivers
+/// like `sqlx`, `pgx`, `asyncpg` and the Vert.x reactive PG client emit
+/// driver-level scopes only and belong on the Strict bare-driver branch
+/// (sequential-siblings signal), not in this list.
 const ORM_SCOPE_MARKERS: &[&str] = &[
     // Java / JVM
     "spring-data",
@@ -119,13 +125,12 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
     "entity-framework",
     // Python
     "sqlalchemy",
-    "django.db",
+    "django",
     // Ruby
     "active-record",
     "activerecord",
     // Go
     "gorm",
-    "sqlx",
     // Node.js
     "sequelize",
     "prisma",
@@ -168,8 +173,8 @@ pub(super) fn looks_sanitized_indexed(spans: &[NormalizedEvent], indices: &[usiz
 /// an ORM marker. Matching is ASCII-case-insensitive and word-bounded:
 /// the marker substring must be preceded and followed by a non-word
 /// byte (anything that is not `[A-Za-z0-9_]`) or by the start/end of the
-/// scope. This prevents `jpa` from firing on `myappjpastats` or `sqlx`
-/// from firing on `mysqlxapackage`. Allocation-free.
+/// scope. This prevents `jpa` from firing on `myappjpastats`.
+/// Allocation-free.
 #[must_use]
 pub fn has_orm_scope(scopes: &[String]) -> bool {
     scopes
@@ -514,11 +519,9 @@ mod tests {
 
     #[test]
     fn has_orm_scope_respects_word_boundary() {
-        // Short markers like `jpa` and `sqlx` must not match arbitrary
-        // substrings: a hostile or coincidental scope like
-        // `mysqlxapackage` or `myappjpastats` must NOT trigger the
-        // heuristic.
-        assert!(!has_orm_scope(&["mysqlxapackage".to_string()]));
+        // Short markers like `jpa` must not match arbitrary substrings:
+        // a hostile or coincidental scope like `myappjpastats` must NOT
+        // trigger the heuristic.
         assert!(!has_orm_scope(&["myappjpastats".to_string()]));
         assert!(!has_orm_scope(&["my-jpastore".to_string()]));
         assert!(!has_orm_scope(&["spring-database".to_string()]));
@@ -527,6 +530,22 @@ mod tests {
             "io.opentelemetry.spring-data-jpa-3.0".to_string()
         ]));
         assert!(has_orm_scope(&["io.opentelemetry.go.gorm.v1".to_string()]));
+    }
+
+    #[test]
+    fn bare_driver_sqlx_scope_does_not_match_orm_marker() {
+        // Rust sqlx and Go jmoiron/sqlx are bare drivers, not ORMs. They
+        // must not trigger the ORM scope signal on a sanitized group.
+        // Bare-driver n+1 detection is the redundant detector's job under
+        // Auto/Always and a separate sequentiality signal under Strict.
+        assert!(!has_orm_scope(&["sqlx::query".to_string()]));
+        assert!(!has_orm_scope(&["sqlx_core::pool::pool_inner".to_string()]));
+        assert!(!has_orm_scope(&["github.com/jmoiron/sqlx".to_string()]));
+        // Positive pinning: a real ORM scope still matches, guarding
+        // against an overzealous future removal from ORM_SCOPE_MARKERS.
+        assert!(has_orm_scope(&[
+            "io.opentelemetry.spring-data-jpa-3.0".to_string()
+        ]));
     }
 
     #[test]
