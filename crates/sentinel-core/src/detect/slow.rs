@@ -92,6 +92,12 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
                 .map(ToString::to_string)
                 .collect(),
             classification_method: None,
+            span_durations_us: Some(
+                indices
+                    .iter()
+                    .map(|&i| trace.spans[i].event.duration_us)
+                    .collect(),
+            ),
         }));
     }
 
@@ -99,7 +105,7 @@ pub fn detect_slow(trace: &Trace, threshold_ms: u64, min_occurrences: u32) -> Ve
 }
 
 /// Nearest-rank percentile index: `ceil(p * n / 100) - 1`, clamped to `[0, n-1]`.
-fn percentile_index(n: usize, p: usize) -> usize {
+pub(super) fn percentile_index(n: usize, p: usize) -> usize {
     let rank = (p * n).div_ceil(100);
     rank.saturating_sub(1).min(n - 1)
 }
@@ -224,6 +230,7 @@ fn build_cross_trace_finding(
             occurrences: n,
             window_ms,
             distinct_params: 0,
+            ..Default::default()
         },
         suggestion,
         first_timestamp: first_ts.to_string(),

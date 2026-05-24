@@ -311,6 +311,7 @@ fn evaluate_sequence(
             occurrences: count,
             window_ms,
             distinct_params: distinct.len(),
+            ..Default::default()
         },
         suggestion: format!(
             "{count} sequential independent calls could potentially be parallelized: \

@@ -75,7 +75,8 @@ pub fn detect_redundant(trace: &Trace, n_plus_one_findings: &[Finding]) -> Vec<F
                 template: (*template).to_string(),
                 occurrences: indices.len(),
                 window_ms,
-                distinct_params: 1, // always 1 for redundant (same params)
+                distinct_params: 1,
+                ..Default::default()
             },
             suggestion: format!(
                 "Identical operation executed {} times: cache result or deduplicate",

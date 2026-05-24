@@ -112,6 +112,7 @@ fn build_saturation_finding(trace: &Trace, service: &str, indices: &[usize], pea
             occurrences: peak as usize, // safe: peak <= indices.len() which is usize
             window_ms,
             distinct_params: total_sql,
+            ..Default::default()
         },
         suggestion: format!(
             "Potential connection pool saturation: service {service} has {peak} concurrent \

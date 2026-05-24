@@ -783,6 +783,7 @@ mod tests {
                 occurrences: 5,
                 window_ms: 100,
                 distinct_params: 3,
+                ..Default::default()
             },
             suggestion: String::new(),
             first_timestamp: "2026-01-01T00:00:00Z".to_string(),
