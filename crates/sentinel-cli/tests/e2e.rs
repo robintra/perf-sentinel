@@ -1642,10 +1642,27 @@ fn cli_report_reads_from_stdin_via_dash() {
     assert!(html.starts_with("<!DOCTYPE html>"));
     let payload = extract_payload_json_from_html(&html);
     assert_eq!(payload["input_label"], "-");
+    // The minimal fixture exercises three patterns under one parent
+    // (5 distinct order_item lookups, 3 identical orders lookups, and the
+    // resulting sequential chain of 8 sibling SQL calls), hence one
+    // `n_plus_one_sql`, one `redundant_sql`, and one `serialized_calls`.
+    let findings = payload["report"]["findings"].as_array().unwrap();
     assert_eq!(
-        payload["report"]["findings"].as_array().unwrap().len(),
-        2,
-        "minimal fixture yields exactly 2 findings"
+        findings.len(),
+        3,
+        "minimal fixture yields exactly 3 findings"
+    );
+    let types: std::collections::BTreeSet<&str> = findings
+        .iter()
+        .map(|f| f["type"].as_str().unwrap_or(""))
+        .collect();
+    let expected: std::collections::BTreeSet<&str> =
+        ["n_plus_one_sql", "redundant_sql", "serialized_calls"]
+            .into_iter()
+            .collect();
+    assert_eq!(
+        types, expected,
+        "minimal fixture must produce one of each type"
     );
 }
 

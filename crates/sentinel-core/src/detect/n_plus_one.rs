@@ -8,6 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::correlate::Trace;
 use crate::event::EventType;
+use crate::normalize::NormalizedEvent;
 
 use super::sanitizer_aware::{self, SanitizerAwareMode, SanitizerVerdict};
 use super::{ClassificationMethod, Finding, FindingType, Severity};
@@ -111,17 +112,74 @@ fn classify_group(
     {
         return None;
     }
-    // `Always` short-circuits the verdict computation entirely: the
-    // mode emits on every sanitized group regardless of signal, so
-    // running `has_orm_scope` and `timing_variance_suggests_n_plus_one`
-    // would only allocate and discard.
+    // `Always` short-circuits: the mode emits on every sanitized group
+    // regardless of signal, so the dispatcher's collect+scope+verdict
+    // work would be discarded.
     if mode == SanitizerAwareMode::Always {
         return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
     }
     let verdict =
-        sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices, mode);
+        sanitizer_aware::classify_sanitized_sql_group_indexed(&trace.spans, indices, mode, || {
+            sequential_siblings_indexed(&trace.spans, indices)
+        });
     matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
         .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
+}
+
+/// Returns `true` when the indexed group has at least 3 spans, all
+/// sharing one non-empty `parent_span_id`, and forming a sequential
+/// chain after sort: every consecutive pair satisfies
+/// `prev.end_us <= next.start_us`. Strict's bare-driver branch uses
+/// this to substitute for the ORM scope marker on stacks like Vert.x
+/// reactive PG, pgx, asyncpg and Prisma `queryRaw`.
+///
+/// Bounds are computed in microseconds (start in ms × 1000 + duration
+/// in µs) so two spans sharing the same millisecond timestamp but with
+/// sub-millisecond durations are correctly identified as overlapping.
+/// A pure-ms check would silently truncate `duration_us / 1000 = 0` and
+/// let true concurrent spans pass the sequentiality gate.
+#[must_use]
+fn sequential_siblings_indexed(spans: &[NormalizedEvent], indices: &[usize]) -> bool {
+    if indices.len() < 3 {
+        return false;
+    }
+    let Some(first_parent) = spans[indices[0]]
+        .event
+        .parent_span_id
+        .as_deref()
+        .filter(|p| !p.is_empty())
+    else {
+        return false;
+    };
+    if indices[1..]
+        .iter()
+        .any(|&i| spans[i].event.parent_span_id.as_deref() != Some(first_parent))
+    {
+        return false;
+    }
+    let mut bounds = Vec::with_capacity(indices.len());
+    for &i in indices {
+        let span = &spans[i];
+        // Skip spans with unparseable timestamps instead of rejecting the
+        // whole group: a single corrupted span (adversarial input or rare
+        // ingest glitch) should not silently disable detection for the
+        // 99 valid siblings around it. Re-test `bounds.len() >= 3` below
+        // so the sequentiality verdict still has a stable variance sample.
+        if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
+            let start_us = start_ms.saturating_mul(1000);
+            let end_us = start_us.saturating_add(span.event.duration_us);
+            bounds.push((start_us, end_us));
+        }
+    }
+    if bounds.len() < 3 {
+        return false;
+    }
+    bounds.sort_unstable_by_key(|(s, _)| *s);
+    // `<=` (not `<`) so a zero-gap handoff (`prev.end_us == next.start_us`,
+    // same microsecond) counts as sequential. Aligned with the boundary
+    // chosen by `serialized.rs::compute_predecessors`, which uses the
+    // same `end <= start` rule for its sweep-line.
+    bounds.windows(2).all(|w| w[0].1 <= w[1].0)
 }
 
 /// Build a finding for a classified group. Returns `None` if the group's
@@ -667,6 +725,187 @@ mod tests {
             n_plus_one[0].classification_method,
             Some(ClassificationMethod::SanitizerHeuristic)
         );
+    }
+
+    /// Build a bare-driver-shaped sanitized N+1: no ORM scope, every
+    /// span under a common parent, timestamps strictly increasing with
+    /// the supplied stride (ms). Used by the Strict bare-driver tests.
+    /// Timestamps roll over to the seconds field when `count * stride_ms`
+    /// exceeds 999, so callers don't silently produce 4-digit fractional
+    /// (invalid ISO 8601) timestamps.
+    fn make_bare_driver_sanitized_events(
+        count: usize,
+        parent_id: &str,
+        stride_ms: usize,
+        durations_us: &[u64],
+    ) -> Vec<SpanEvent> {
+        (0..count)
+            .map(|i| {
+                let duration = durations_us.get(i).copied().unwrap_or(800);
+                let total_ms = i * stride_ms;
+                let secs = 1 + total_ms / 1000;
+                let ms = total_ms % 1000;
+                assert!(secs < 60, "make_bare_driver_sanitized_events: count*stride exceeds one minute, extend the helper to roll minutes");
+                let mut event = crate::test_helpers::make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_items WHERE order_id = ?",
+                    &format!("2025-07-10T14:32:{secs:02}.{ms:03}Z"),
+                    duration,
+                );
+                event.parent_span_id = Some(parent_id.to_string());
+                event
+            })
+            .collect()
+    }
+
+    #[test]
+    fn strict_bare_driver_reclassifies_when_sequential() {
+        // Mutiny / Vert.x reactive PG shape: no ORM scope, 10 sanitized
+        // SQL spans under one parent, 30ms stride, dispersed durations
+        // (CV ~ 0.68). Strict's bare-driver branch must reclassify.
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let events = make_bare_driver_sanitized_events(10, "reactive-root-span", 30, &durations);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+        assert_eq!(findings[0].pattern.occurrences, 10);
+        assert_eq!(findings[0].pattern.distinct_params, 1);
+    }
+
+    #[test]
+    fn strict_bare_driver_does_not_reclassify_when_spans_overlap() {
+        // Concurrent fan-out under a bare driver: 30ms stride but per-span
+        // durations of 100 000µs = 100ms each, so every span overlaps the
+        // next. Strict must decline (no sequentiality + no ORM scope),
+        // leaving the redundant detector to emit `redundant_sql`.
+        let durations = [100_000u64; 10];
+        let events = make_bare_driver_sanitized_events(10, "fanout-root-span", 30, &durations);
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(
+            n_plus_one.is_empty(),
+            "Strict must not reclassify overlapping bare-driver spans, got: {:?}",
+            n_plus_one
+                .iter()
+                .map(|f| &f.finding_type)
+                .collect::<Vec<_>>()
+        );
+        let redundant = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
+        assert_eq!(redundant.len(), 1);
+        assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
+    }
+
+    #[test]
+    fn strict_bare_driver_detects_sub_ms_overlap() {
+        // Two adjacent spans share start_ms = 10 but the first runs 800µs:
+        // a ms-precision check would report `10 <= 10` (sequential), the
+        // µs-precision check correctly rejects the group as overlapping.
+        // Regression test for the silent truncation in
+        // `sequential_siblings_indexed`.
+        let events: Vec<SpanEvent> = (0..10)
+            .map(|i| {
+                let mut event = crate::test_helpers::make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_items WHERE order_id = ?",
+                    "2025-07-10T14:32:01.010Z",
+                    800,
+                );
+                event.parent_span_id = Some("overlap-root-span".to_string());
+                event
+            })
+            .collect();
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(
+            n_plus_one.is_empty(),
+            "sub-ms overlap must not pass the sequentiality gate, got: {:?}",
+            n_plus_one
+                .iter()
+                .map(|f| &f.finding_type)
+                .collect::<Vec<_>>()
+        );
+        // Sequentiality gate rejected the group, but the spans are still
+        // identical sanitized calls: the redundant detector must emit so
+        // the operator still sees the duplicate work.
+        let redundant = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
+        assert_eq!(redundant.len(), 1);
+        assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
+    }
+
+    #[test]
+    fn strict_bare_driver_rejects_cross_parent() {
+        // Half the spans under parent A, half under parent B. Both halves
+        // are individually sequential but the group spans two parents so
+        // the gate must reject.
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let mut events = make_bare_driver_sanitized_events(10, "parent-a", 30, &durations);
+        for event in events.iter_mut().skip(5) {
+            event.parent_span_id = Some("parent-b".to_string());
+        }
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(n_plus_one.is_empty());
+    }
+
+    #[test]
+    fn strict_bare_driver_rejects_missing_parent_span_id() {
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let mut events = make_bare_driver_sanitized_events(10, "any-parent", 30, &durations);
+        events[0].parent_span_id = None;
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(n_plus_one.is_empty());
+    }
+
+    #[test]
+    fn strict_bare_driver_rejects_empty_parent_span_id() {
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let events = make_bare_driver_sanitized_events(10, "", 30, &durations);
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(n_plus_one.is_empty());
+    }
+
+    #[test]
+    fn strict_bare_driver_tolerates_single_unparseable_timestamp() {
+        // A single corrupted timestamp inside a 10-span group must not
+        // wholesale-disable detection on the 9 valid siblings around it.
+        // `sequential_siblings_indexed` skips the bad span and re-checks
+        // `bounds.len() >= 3` so the variance gate still has a stable
+        // sample. The finding still reports occurrences=10 (every span
+        // matched the template) so the operator sees the full call count.
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let mut events = make_bare_driver_sanitized_events(10, "ts-root-span", 30, &durations);
+        events[3].timestamp = "not-a-timestamp".to_string();
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(n_plus_one.len(), 1);
+        assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            n_plus_one[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+    }
+
+    #[test]
+    fn strict_bare_driver_rejects_when_too_few_valid_timestamps() {
+        // If corruption knocks bounds.len() below the 3-span variance
+        // threshold, the gate must reject — no stable signal possible.
+        let durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let mut events = make_bare_driver_sanitized_events(10, "ts-root-span", 30, &durations);
+        for event in events.iter_mut().take(8) {
+            event.timestamp = "bad".to_string();
+        }
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(n_plus_one.is_empty());
     }
 
     #[test]

@@ -30,19 +30,13 @@ pub enum SanitizerAwareMode {
     /// Disable the heuristic entirely. Falls back to the strict
     /// `distinct_params` check.
     Never,
-    /// Reclassify only when **both** signals fire conjointly: ORM scope
-    /// present **and** per-span timing variance high enough to indicate
-    /// distinct row lookups. Preserves `redundant_sql` precision on
-    /// repeated identical queries served from cache, at the cost of
-    /// missing N+1 on stacks where row-level cache makes timings cluster.
-    ///
-    /// The precision gain is most valuable on hot-path identical
-    /// queries that **do** traverse an ORM scope (cache-warming loops,
-    /// polling repositories, unmemoized `findById(sameId)` in legacy
-    /// code), since `Auto` would mislabel those as `n_plus_one_sql`. On
-    /// queries that bypass the ORM (raw JDBC, hand-rolled drivers) the
-    /// scope signal is absent under both modes, so `Strict` and `Auto`
-    /// behave identically (`Auto` falls through to the variance signal).
+    /// Reclassify only when two signals fire conjointly: high per-span
+    /// timing variance **plus** either the ORM scope marker or the
+    /// sequential-siblings signal (all spans share one parent and chain
+    /// `end <= start` after sort). The sequential-siblings substitute
+    /// covers bare-driver stacks (Vert.x reactive PG, pgx, asyncpg,
+    /// sqlx, Prisma `queryRaw`) that never emit an ORM scope. See
+    /// `docs/design/04-DETECTION.md` for the full rationale.
     Strict,
 }
 
@@ -252,15 +246,25 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     if spans.len() < 3 {
         return false;
     }
-    #[allow(clippy::cast_precision_loss)] // duration_us fits in f64 to ~9e15 µs
-    let durations: Vec<f64> = spans.iter().map(|s| s.event.duration_us as f64).collect();
-    #[allow(clippy::cast_precision_loss)]
-    let n = durations.len() as f64;
-    let mean = durations.iter().sum::<f64>() / n;
+    // Welford's online algorithm: single pass, no intermediate Vec<f64>.
+    let mut count: u64 = 0;
+    let mut mean: f64 = 0.0;
+    let mut m2: f64 = 0.0;
+    for span in spans {
+        count += 1;
+        #[allow(clippy::cast_precision_loss)] // duration_us fits in f64 to ~9e15 µs
+        let d = span.event.duration_us as f64;
+        let delta = d - mean;
+        #[allow(clippy::cast_precision_loss)]
+        let count_f = count as f64;
+        mean += delta / count_f;
+        m2 += delta * (d - mean);
+    }
     if mean <= 0.0 {
         return false;
     }
-    let variance = durations.iter().map(|d| (d - mean).powi(2)).sum::<f64>() / n;
+    #[allow(clippy::cast_precision_loss)]
+    let variance = m2 / count as f64;
     let cv = variance.sqrt() / mean;
     cv > 0.5
 }
@@ -280,17 +284,29 @@ pub fn classify_sanitized_sql_group(
     }
 }
 
-/// Combined verdict for `Strict` mode: requires the two signals to fire
-/// **conjointly**. Preserves `redundant_sql` precision on cached
-/// identical queries (where the ORM scope is present but the timing
-/// variance is low), at the cost of missing N+1 patterns whose rows all
-/// happen to be cache-warm.
+/// Combined verdict for `Strict` mode: requires high timing variance
+/// **plus** one of two corroborating signals — ORM scope marker (the
+/// classical ORM-induced N+1) or sequential siblings (bare-driver N+1
+/// where no ORM scope is emitted, e.g. Vert.x reactive PG, pgx, asyncpg,
+/// sqlx, Prisma `queryRaw`). Preserves `redundant_sql` precision on cached
+/// identical queries (variance low → inconclusive regardless of the
+/// corroborating signal), at the cost of missing N+1 patterns whose
+/// rows all happen to be cache-warm.
+///
+/// `sequential` is a lazy closure: it runs only when `has_orm_scope`
+/// has already returned false, so an ORM-scope-bearing Strict-mode
+/// group does not pay the per-trace sibling walk. Variance is computed
+/// last (most expensive of the three signals).
 #[must_use]
 pub fn classify_sanitized_sql_group_strict(
     spans: &[&NormalizedEvent],
     scopes: &[String],
+    sequential: impl FnOnce() -> bool,
 ) -> SanitizerVerdict {
-    if has_orm_scope(scopes) && timing_variance_suggests_n_plus_one(spans) {
+    if !has_orm_scope(scopes) && !sequential() {
+        return SanitizerVerdict::Inconclusive;
+    }
+    if timing_variance_suggests_n_plus_one(spans) {
         SanitizerVerdict::LikelyNPlusOne
     } else {
         SanitizerVerdict::Inconclusive
@@ -303,20 +319,28 @@ pub fn classify_sanitized_sql_group_strict(
 /// (`classify_sanitized_sql_group`) or AND-logic
 /// (`classify_sanitized_sql_group_strict`) entry point based on `mode`.
 ///
-/// `Always` and `Never` are filtered upstream in
-/// [`super::n_plus_one`] so they never reach this dispatcher in
-/// production, but the match stays exhaustive (no `_`) so a future
-/// fifth variant on [`SanitizerAwareMode`] fails to compile here
-/// rather than silently picking the OR fallback.
+/// `sequential_siblings` is a lazy closure consulted only by the Strict
+/// branch (Auto/Always/Never accept variance alone or short-circuit
+/// upstream). Passing a closure rather than a bool lets callers skip the
+/// per-trace sibling walk entirely when the mode does not need it.
+///
+/// `Never` is filtered upstream in [`super::n_plus_one`] before reaching
+/// here, and `Always` short-circuits upstream too, so in production this
+/// dispatcher only sees `Auto` and `Strict`. The match stays exhaustive
+/// (no `_`) so a future fifth variant on [`SanitizerAwareMode`] fails to
+/// compile rather than silently picking the OR fallback.
 pub(super) fn classify_sanitized_sql_group_indexed(
     spans: &[NormalizedEvent],
     indices: &[usize],
     mode: SanitizerAwareMode,
+    sequential_siblings: impl FnOnce() -> bool,
 ) -> SanitizerVerdict {
     let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
     let scopes = collect_scopes(&group);
     match mode {
-        SanitizerAwareMode::Strict => classify_sanitized_sql_group_strict(&group, &scopes),
+        SanitizerAwareMode::Strict => {
+            classify_sanitized_sql_group_strict(&group, &scopes, sequential_siblings)
+        }
         SanitizerAwareMode::Auto | SanitizerAwareMode::Always | SanitizerAwareMode::Never => {
             classify_sanitized_sql_group(&group, &scopes)
         }
@@ -536,8 +560,8 @@ mod tests {
     fn bare_driver_sqlx_scope_does_not_match_orm_marker() {
         // Rust sqlx and Go jmoiron/sqlx are bare drivers, not ORMs. They
         // must not trigger the ORM scope signal on a sanitized group.
-        // Bare-driver n+1 detection is the redundant detector's job under
-        // Auto/Always and a separate sequentiality signal under Strict.
+        // Strict mode reclassifies their n+1 via the sequential-siblings
+        // + variance path instead (see `n_plus_one::sequential_siblings_indexed`).
         assert!(!has_orm_scope(&["sqlx::query".to_string()]));
         assert!(!has_orm_scope(&["sqlx_core::pool::pool_inner".to_string()]));
         assert!(!has_orm_scope(&["github.com/jmoiron/sqlx".to_string()]));
@@ -685,7 +709,7 @@ mod tests {
             build_sanitized_group_for_strict(Some("io.opentelemetry.hibernate-6.0"), &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -701,21 +725,22 @@ mod tests {
         );
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
             SanitizerVerdict::LikelyNPlusOne
         );
     }
 
     #[test]
-    fn strict_no_orm_scope_high_variance_returns_inconclusive() {
-        // Variance alone is not enough under Strict: an N+1 from a
-        // hand-rolled JDBC layer (no ORM marker on the scope chain) stays
-        // unclassified. Auto would emit on the variance signal.
+    fn strict_no_orm_scope_high_variance_returns_inconclusive_when_not_sequential() {
+        // Variance alone is not enough under Strict when the spans are
+        // concurrent (e.g. parallel async fan-out). Without a
+        // corroborating signal (ORM scope or sequential siblings) the
+        // group stays unclassified.
         let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
             SanitizerVerdict::Inconclusive
         );
     }
@@ -726,7 +751,52 @@ mod tests {
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
-            classify_sanitized_sql_group_strict(&refs, &scopes),
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    // --- Strict mode bare-driver path: sequential siblings + high variance ---
+
+    #[test]
+    fn strict_bare_driver_sequential_and_variance_returns_likely_n_plus_one() {
+        // Vert.x reactive PG / pgx / asyncpg shape: no ORM scope on the
+        // spans, but the reactive concat loop emits them sequentially
+        // under one parent and the row-level cache miss spread clears
+        // CV > 0.5. Strict must reclassify on the sequential+variance
+        // path, restoring parity with Auto for bare-driver stacks.
+        let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true),
+            SanitizerVerdict::LikelyNPlusOne
+        );
+    }
+
+    #[test]
+    fn strict_bare_driver_sequential_but_low_variance_returns_inconclusive() {
+        // Sequential cache-warming loop on a bare driver: tight timings,
+        // no real N+1. Strict must not reclassify on sequentiality alone.
+        let low_variance = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || true),
+            SanitizerVerdict::Inconclusive
+        );
+    }
+
+    #[test]
+    fn strict_bare_driver_concurrent_with_high_variance_returns_inconclusive() {
+        // Concurrent fan-out under a bare driver: variance trips but the
+        // spans overlap (computed upstream as `sequential = false`).
+        // Without ORM scope or sequentiality, Strict declines.
+        let high_variance = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &high_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false),
             SanitizerVerdict::Inconclusive
         );
     }

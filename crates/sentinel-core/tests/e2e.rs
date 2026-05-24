@@ -585,9 +585,101 @@ fn sanitizer_aware_heuristic_reclassifies_jpa_n_plus_one_end_to_end() {
 }
 
 #[test]
+fn sanitizer_aware_strict_reclassifies_vertx_reactive_n_plus_one_end_to_end() {
+    use sentinel_core::detect::ClassificationMethod;
+    use sentinel_core::detect::sanitizer_aware::SanitizerAwareMode;
+    use sentinel_core::event::{EventSource, EventType, SpanEvent};
+
+    // Mutiny / Vert.x reactive PG client shape from the simulation lab
+    // upstream report: 15 sanitized SQL spans under one reactive root
+    // span, no Hibernate scope (only `io.opentelemetry.jdbc` and the
+    // Quarkus umbrella), dispersed durations. Strict mode must
+    // reclassify the group as `n_plus_one_sql` via the sequential-
+    // siblings + variance path, restoring parity with the JPA case.
+    let durations = [
+        100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400, 90, 220, 65, 280, 110,
+    ];
+    let events: Vec<SpanEvent> = (0..15)
+        .map(|i| SpanEvent {
+            timestamp: format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+            trace_id: "trace-vertx-sanitized".to_string(),
+            span_id: format!("span-{i}"),
+            parent_span_id: Some("reactive-root-span".to_string()),
+            service: Arc::from("mutiny-svc"),
+            cloud_region: None,
+            event_type: EventType::Sql,
+            operation: "postgresql".to_string(),
+            target: "SELECT count(*) FROM mutiny.order_items WHERE order_id = ?".to_string(),
+            duration_us: durations[i],
+            source: EventSource {
+                endpoint: "POST /api/fault/n-plus-one-sql".to_string(),
+                method: "FaultResource.nPlusOneSql".to_string(),
+            },
+            status_code: None,
+            response_size_bytes: None,
+            code_function: None,
+            code_filepath: None,
+            code_lineno: None,
+            code_namespace: None,
+            instrumentation_scopes: vec![
+                Arc::from("io.opentelemetry.jdbc"),
+                Arc::from("io.quarkus.opentelemetry"),
+            ],
+        })
+        .collect();
+
+    let mut config = Config::default();
+    config.detection.sanitizer_aware_classification = SanitizerAwareMode::Strict;
+    let report = pipeline::analyze(events, &config);
+
+    let n_plus_one: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::NPlusOneSql)
+        .collect();
+    let redundant: Vec<_> = report
+        .findings
+        .iter()
+        .filter(|f| f.finding_type == FindingType::RedundantSql)
+        .collect();
+
+    assert_eq!(
+        n_plus_one.len(),
+        1,
+        "Strict bare-driver path should emit one n_plus_one_sql, got {} (findings: {:?})",
+        n_plus_one.len(),
+        report
+            .findings
+            .iter()
+            .map(|f| &f.finding_type)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        n_plus_one[0].classification_method,
+        Some(ClassificationMethod::SanitizerHeuristic),
+    );
+    assert_eq!(n_plus_one[0].pattern.occurrences, 15);
+    assert!(
+        redundant.is_empty(),
+        "redundant detector should have skipped the reclassified bare-driver group"
+    );
+    // The redundant→n_plus_one swap must not change the green accounting:
+    // both finding types contribute identically to `avoidable_io_ops`
+    // (see `is_avoidable_io` in `detect/mod.rs`), so a 15-occurrence
+    // group still yields 14 avoidable ops.
+    assert_eq!(report.green_summary.avoidable_io_ops, 14);
+    assert!(report.green_summary.io_waste_ratio > 0.0);
+}
+
+#[test]
 fn full_pipeline_runs_on_new_fixtures() {
     let config = Config::default();
-    for fixture in ["jaeger_export.json", "zipkin_export.json", "fanout.json"] {
+    for fixture in [
+        "jaeger_export.json",
+        "zipkin_export.json",
+        "fanout.json",
+        "n_plus_one_sql_java_mutiny_reactive.json",
+    ] {
         let events = load_fixture(fixture);
         let report = pipeline::analyze(events, &config);
         assert!(report.analysis.events_processed > 0, "fixture: {fixture}");

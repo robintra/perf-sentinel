@@ -56,14 +56,21 @@ fn group_sql_indices_by_service(trace: &Trace) -> HashMap<&str, Vec<usize>> {
 /// event. Sort places ends before starts at the same instant
 /// (`false < true`), avoiding overcounting when one span ends as
 /// another begins.
+///
+/// Bounds are kept in microseconds so two sub-millisecond spans starting
+/// at the same `start_ms` are correctly identified as concurrent. A pure
+/// ms-precision check would truncate `duration_us / 1000 = 0` and let
+/// `end_ms == start_ms` slip the `false < true` ordering, undercounting
+/// peak concurrency on hot reactive workloads.
 fn compute_peak_concurrency(trace: &Trace, indices: &[usize]) -> u32 {
     let mut sweep: Vec<(u64, bool)> = Vec::with_capacity(indices.len() * 2);
     for &idx in indices {
         let span = &trace.spans[idx];
         if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
-            let end_ms = start_ms.saturating_add(span.event.duration_us / 1000);
-            sweep.push((start_ms, true)); // span starts
-            sweep.push((end_ms, false)); // span ends
+            let start_us = start_ms.saturating_mul(1000);
+            let end_us = start_us.saturating_add(span.event.duration_us);
+            sweep.push((start_us, true)); // span starts
+            sweep.push((end_us, false)); // span ends
         }
     }
     sweep.sort_unstable();

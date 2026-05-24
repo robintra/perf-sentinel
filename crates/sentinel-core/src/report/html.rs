@@ -708,7 +708,23 @@ mod tests {
             .expect("fixture parses");
         let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
 
-        assert_eq!(report.findings.len(), 2, "fixture must yield 2 findings");
+        assert_eq!(report.findings.len(), 3, "fixture must yield 3 findings");
+        let types: std::collections::BTreeSet<crate::detect::FindingType> = report
+            .findings
+            .iter()
+            .map(|f| f.finding_type.clone())
+            .collect();
+        let expected: std::collections::BTreeSet<crate::detect::FindingType> = [
+            crate::detect::FindingType::NPlusOneSql,
+            crate::detect::FindingType::RedundantSql,
+            crate::detect::FindingType::SerializedCalls,
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            types, expected,
+            "minimal fixture must produce one of each type"
+        );
 
         let (html, _) = render(&report, &traces, &opts("report_minimal.json", None));
         assert!(html.starts_with("<!DOCTYPE html>"));

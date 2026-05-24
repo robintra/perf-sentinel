@@ -13,9 +13,12 @@ use super::n_plus_one::parse_timestamp_ms;
 use super::{Confidence, Finding, FindingType, Pattern, Severity, TraceIndices};
 
 /// A sibling span with parsed timing, used by the DP algorithm.
+/// Bounds are kept in microseconds so two spans sharing the same
+/// millisecond timestamp but with sub-millisecond durations are
+/// correctly identified as overlapping.
 struct TimedSpan<'a> {
-    start_ms: u64,
-    end_ms: u64,
+    start_us: u64,
+    end_us: u64,
     template: &'a str,
     duration_us: u64,
     /// Index into `trace.spans`.
@@ -59,10 +62,10 @@ pub fn detect_serialized(
         for &idx in child_indices {
             let span = &trace.spans[idx];
             if let Some(start_ms) = parse_timestamp_ms(&span.event.timestamp) {
-                let dur_ms = span.event.duration_us / 1000;
+                let start_us = start_ms.saturating_mul(1000);
                 timed.push(TimedSpan {
-                    start_ms,
-                    end_ms: start_ms.saturating_add(dur_ms),
+                    start_us,
+                    end_us: start_us.saturating_add(span.event.duration_us),
                     template: span.template.as_ref(),
                     duration_us: span.event.duration_us,
                     span_idx: idx,
@@ -74,9 +77,9 @@ pub fn detect_serialized(
             continue;
         }
 
-        // Sort by end time for the DP approach. Order between equal-end-ms
+        // Sort by end time for the DP approach. Order between equal-end
         // spans is irrelevant downstream so the unstable variant suffices.
-        timed.sort_unstable_by_key(|s| s.end_ms);
+        timed.sort_unstable_by_key(|s| s.end_us);
 
         // Find the longest non-overlapping subsequence via DP, then
         // pass it to evaluate_sequence for threshold / template checks.
@@ -153,10 +156,10 @@ fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
 fn compute_predecessors(timed: &[TimedSpan<'_>]) -> Vec<Option<usize>> {
     (0..timed.len())
         .map(|i| {
-            let start = timed[i].start_ms;
+            let start = timed[i].start_us;
             // partition_point returns the first index where end > start,
             // so the predecessor candidate is at partition_point - 1.
-            let pos = timed.partition_point(|s| s.end_ms <= start);
+            let pos = timed.partition_point(|s| s.end_us <= start);
             if pos == 0 {
                 return None;
             }
