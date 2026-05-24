@@ -74,13 +74,21 @@ recovers the correct classification:
   variance is high enough to indicate distinct row lookups. Otherwise
   leave the group to the redundant detector. Best recall on production
   Spring Data, EF Core and similar ORM stacks.
-- `"strict"`: reclassify only when **both** signals fire conjointly:
-  ORM scope present **and** timing variance high. Preserves
-  `redundant_sql` precision on cached identical queries (legacy polling
-  loops, unmemoized config lookups served from row cache), at the cost
-  of missing N+1 patterns whose rows happen to be cache-warm. Use this
-  when actionable `redundant_sql` findings are valuable signal that
-  should not be silently absorbed into `n_plus_one_sql`.
+- `"strict"`: reclassify only when a primary signal (ORM scope marker
+  OR sequential-siblings on bare-driver stacks) fires conjointly with
+  a corroborating signal (high timing variance OR, on the ORM branch
+  only, a high occurrence count >= 3 x `n_plus_one_min_occurrences`,
+  default 15). Preserves `redundant_sql` precision on moderate-count
+  cached identical queries (legacy polling loops, unmemoized config
+  lookups served from row cache, typically 5-10 calls per request).
+  Above the high-occurrence bar, ORM-scoped groups fire even with low
+  variance, closing the cache-warm trap observed on EF Core + Npgsql
+  and Hibernate L2 cache. The sequential-siblings signal covers
+  bare-driver stacks (Vert.x reactive PG, pgx, asyncpg, sqlx, Prisma
+  `queryRaw`) that never emit an ORM scope and always requires
+  variance regardless of count. Use this when actionable
+  `redundant_sql` findings are valuable signal that should not be
+  silently absorbed into `n_plus_one_sql`.
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.
@@ -259,10 +267,10 @@ Opt-in integration with the [Redfish](https://www.dmtf.org/standards/redfish) BM
 
 Each endpoint table has two fields: `url` (string, full Redfish URL including path) and `schema` (string, either `"legacy_power"` or `"environment_metrics"`). The schema selects the canonical JSON pointer the parser uses, no operator-typed pointer involved:
 
-| `schema`               | Path served by BMC                        | JSON pointer parser reads     |
-|------------------------|-------------------------------------------|-------------------------------|
-| `legacy_power`         | `/redfish/v1/Chassis/{id}/Power`          | `/PowerControl/0/PowerConsumedWatts` |
-| `environment_metrics`  | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`              |
+| `schema`              | Path served by BMC                            | JSON pointer parser reads            |
+|-----------------------|-----------------------------------------------|--------------------------------------|
+| `legacy_power`        | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/0/PowerConsumedWatts` |
+| `environment_metrics` | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                |
 
 ```toml
 [green.redfish]

@@ -76,14 +76,22 @@ restaure la classification correcte :
   pour indiquer des accès à des lignes distinctes. Sinon, le groupe
   reste à la charge du détecteur de redondance. Meilleur rappel sur les
   stacks production Spring Data, EF Core et similaires.
-- `"strict"` : reclassifie uniquement quand **les deux** signaux fire
-  conjointement : marqueur ORM présent **et** variance temporelle
-  élevée. Préserve la précision de `redundant_sql` sur les requêtes
-  identiques servies depuis le cache (boucles de polling legacy,
-  lookups de config non mémoïsés servis depuis le row cache), au prix
-  de manquer les N+1 dont toutes les lignes se trouvent en cache. À
-  utiliser quand les findings `redundant_sql` sont un signal exploitable
-  qui ne doit pas être absorbé silencieusement par `n_plus_one_sql`.
+- `"strict"` : reclassifie uniquement quand un signal primaire
+  (marqueur ORM OU siblings séquentiels sur piles bare-driver) se
+  déclenche conjointement avec un signal corroboratif (variance
+  temporelle élevée OU, sur la branche ORM uniquement, un nombre
+  d'occurrences >= 3 x `n_plus_one_min_occurrences`, par défaut 15).
+  Préserve la précision de `redundant_sql` sur les requêtes identiques
+  de compte modéré servies depuis le cache (boucles de polling legacy,
+  lookups de config non mémoïsés, typiquement 5-10 appels par requête).
+  Au-dessus de la barre, les groupes avec scope ORM se déclenchent
+  même avec une variance basse, fermant le piège cache-warm observé
+  sur EF Core + Npgsql et Hibernate L2 cache. Le signal "siblings
+  séquentiels" couvre les piles bare-driver (Vert.x reactive PG, pgx,
+  asyncpg, sqlx, Prisma `queryRaw`) et exige toujours la variance
+  quel que soit le nombre d'occurrences. À utiliser quand les findings
+  `redundant_sql` sont un signal exploitable qui ne doit pas être
+  absorbé silencieusement par `n_plus_one_sql`.
 - `"always"` : reclassifie tout groupe sanitisé qui atteint
   `n_plus_one_min_occurrences` spans en `n_plus_one_sql`. Plus agressif,
   peut requalifier une vraie redondance à un seul paramètre.
@@ -190,7 +198,7 @@ Intégration opt-in avec [Scaphandre](https://github.com/hubblo-org/scaphandre) 
 |------------------------|--------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `endpoint`             | chaîne | *(aucun)* | URL complète de l'endpoint Prometheus `/metrics` de Scaphandre. Doit commencer par `http://` ou `https://` (TLS supporté via hyper-rustls). Obligatoire quand la section est présente |
 | `scrape_interval_secs` | entier | `5`       | Fréquence de scrape, en secondes. Plage valide : 1-3600                                                                                                                               |
-| `process_map`          | table  | `{}`      | Mappe les noms de service perf-sentinel (depuis `service.name` du span) à un `ProcessMatcher` par service (voir ci-dessous)                                                            |
+| `process_map`          | table  | `{}`      | Mappe les noms de service perf-sentinel (depuis `service.name` du span) à un `ProcessMatcher` par service (voir ci-dessous)                                                           |
 
 Chaque entrée `process_map` est une table avec deux champs : `exe_contains` (obligatoire, sous-chaîne comparée au label `exe` de Scaphandre) et `cmdline_contains` (optionnel, sous-chaîne comparée au label `cmdline`). Quand `cmdline_contains` est défini, le matcher exige que les deux sous-chaînes soient présentes. Un seul processus Scaphandre doit matcher par entrée, sinon l'étape de scoring saute ce service pour le tick et émet un log `warn` nommant l'ambiguïté.
 
