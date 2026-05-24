@@ -91,6 +91,7 @@ pub fn detect_chatty(trace: &Trace, min_calls: u32) -> Vec<Finding> {
             occurrences: count,
             window_ms,
             distinct_params: distinct_targets,
+            ..Default::default()
         },
         suggestion,
         first_timestamp: first_ts.to_string(),

@@ -234,7 +234,7 @@ pub enum ClassificationMethod {
 }
 
 /// Pattern details for a finding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Pattern {
     /// Normalized query or URL template shared by the matched spans.
     pub template: String,
@@ -244,6 +244,20 @@ pub struct Pattern {
     pub window_ms: u64,
     /// Count of distinct parameter sets observed across occurrences.
     pub distinct_params: usize,
+    /// Median per-span duration in the group (µs). Diagnostic field
+    /// populated by the n+1 and slow detectors. Not used in the
+    /// detection verdict, exposed so downstream consumers can profile
+    /// cache-warm patterns without needing daemon-log access.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_duration_us_p50: Option<u64>,
+    /// 99th-percentile per-span duration in the group (µs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_duration_us_p99: Option<u64>,
+    /// Coefficient of variation of per-span durations, scaled by 1000
+    /// (523 means CV = 0.523). Avoids floating-point fields so
+    /// `Pattern` can keep its `Eq` derive.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_duration_cv_x1000: Option<u32>,
 }
 
 /// `GreenOps` impact for a single finding.
@@ -405,12 +419,55 @@ pub(crate) struct PerTraceFindingArgs<'a> {
     pub code_location: Option<crate::event::CodeLocation>,
     pub instrumentation_scopes: Vec<String>,
     pub classification_method: Option<ClassificationMethod>,
+    pub span_durations_us: Option<Vec<u64>>,
 }
 
-/// Build a [`Finding`] from the common fields shared by per-trace
-/// detectors (N+1, redundant, slow). Avoids duplicating the struct
-/// literal across detection modules.
+// Build a [`Finding`] from the common fields shared by per-trace
+// detectors (N+1, redundant, slow). Avoids duplicating the struct
+// literal across detection modules. (doc kept as non-doc comment to
+// avoid an empty-line-after-doc-comment clippy error with the next fn.)
+
+/// Compute diagnostic timing stats from a mutable slice of per-span
+/// durations (microseconds). Returns `(p50_us, p99_us, cv_x1000)`.
+fn compute_timing_stats(durations: &mut [u64]) -> (u64, u64, u32) {
+    if durations.is_empty() {
+        return (0, 0, 0);
+    }
+    durations.sort_unstable();
+    let n = durations.len();
+    let p50 = durations[slow::percentile_index(n, 50)];
+    let p99 = durations[slow::percentile_index(n, 99)];
+    #[allow(clippy::cast_precision_loss)]
+    let n_f = n as f64;
+    let mut mean = 0.0_f64;
+    let mut m2 = 0.0_f64;
+    let mut count = 0u64;
+    for &d in durations.iter() {
+        count += 1;
+        #[allow(clippy::cast_precision_loss)]
+        let val = d as f64;
+        let delta = val - mean;
+        #[allow(clippy::cast_precision_loss)]
+        let cf = count as f64;
+        mean += delta / cf;
+        m2 += delta * (val - mean);
+    }
+    let cv_x1000 = if mean > 0.0 && n_f > 1.0 {
+        let cv = (m2 / n_f).sqrt() / mean;
+        #[allow(clippy::cast_sign_loss)] // cv * 1000 is always non-negative
+        {
+            (cv * 1000.0).round() as u32
+        }
+    } else {
+        0
+    };
+    (p50, p99, cv_x1000)
+}
+
 pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding {
+    let timing = args
+        .span_durations_us
+        .map(|mut d| compute_timing_stats(&mut d));
     Finding {
         finding_type: args.finding_type,
         severity: args.severity,
@@ -422,6 +479,9 @@ pub(crate) fn build_per_trace_finding(args: PerTraceFindingArgs<'_>) -> Finding 
             occurrences: args.occurrences,
             window_ms: args.window_ms,
             distinct_params: args.distinct_params,
+            span_duration_us_p50: timing.map(|(p50, _, _)| p50),
+            span_duration_us_p99: timing.map(|(_, p99, _)| p99),
+            span_duration_cv_x1000: timing.map(|(_, _, cv)| cv),
         },
         suggestion: args.suggestion,
         first_timestamp: args.first_timestamp.to_string(),
@@ -906,5 +966,50 @@ mod tests {
         assert_eq!(s, Severity::Critical);
         let s: Severity = serde_json::from_str(r#""warning""#).unwrap();
         assert_eq!(s, Severity::Warning);
+    }
+
+    // --- compute_timing_stats ---
+
+    #[test]
+    fn timing_stats_empty_returns_zeroes() {
+        assert_eq!(compute_timing_stats(&mut []), (0, 0, 0));
+    }
+
+    #[test]
+    fn timing_stats_single_element() {
+        let (p50, p99, cv) = compute_timing_stats(&mut [800]);
+        assert_eq!(p50, 800);
+        assert_eq!(p99, 800);
+        assert_eq!(cv, 0);
+    }
+
+    #[test]
+    fn timing_stats_two_elements_p99_is_max() {
+        let (p50, p99, _cv) = compute_timing_stats(&mut [100, 900]);
+        assert_eq!(p50, 100); // n=2, p50 index = 0 (lower value)
+        assert_eq!(p99, 900); // n=2, p99 index = 1 (max)
+    }
+
+    #[test]
+    fn timing_stats_five_elements_p99_is_max() {
+        let (p50, p99, _cv) = compute_timing_stats(&mut [10, 20, 30, 40, 50]);
+        assert_eq!(p50, 30);
+        assert_eq!(p99, 50);
+    }
+
+    #[test]
+    fn timing_stats_identical_durations_cv_zero() {
+        let mut durations = [100u64; 10];
+        let (_p50, _p99, cv) = compute_timing_stats(&mut durations);
+        assert_eq!(cv, 0);
+    }
+
+    #[test]
+    fn timing_stats_dispersed_durations_cv_matches_variance_helper() {
+        let mut durations = [100u64, 50, 200, 60, 250, 80, 300, 70, 150, 400];
+        let (_p50, _p99, cv) = compute_timing_stats(&mut durations);
+        // CV ~ 0.68 on this set → cv_x1000 ~ 680
+        assert!(cv > 500, "CV should be > 0.5, got {cv}");
+        assert!(cv < 800, "CV should be < 0.8, got {cv}");
     }
 }

@@ -65,6 +65,7 @@ mod tests {
                     occurrences: 6,
                     window_ms: 250,
                     distinct_params: 6,
+                    ..Default::default()
                 },
                 suggestion: "Use WHERE ... IN (?) to batch 6 queries into one".to_string(),
                 first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),

@@ -421,6 +421,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -620,6 +621,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -669,6 +671,7 @@ mod tests {
                     occurrences: 6,
                     window_ms: 250,
                     distinct_params: 6,
+                    ..Default::default()
                 },
                 suggestion: "batch".to_string(),
                 first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -692,6 +695,7 @@ mod tests {
                     occurrences: 3,
                     window_ms: 100,
                     distinct_params: 1,
+                    ..Default::default()
                 },
                 suggestion: "cache".to_string(),
                 first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -880,6 +884,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -1029,6 +1034,7 @@ mod tests {
                 occurrences: 3,
                 window_ms: 100,
                 distinct_params: 3,
+                ..Default::default()
             },
             suggestion: "Consider adding an index".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -1090,6 +1096,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -1113,6 +1120,7 @@ mod tests {
                 occurrences: 3,
                 window_ms: 100,
                 distinct_params: 3,
+                ..Default::default()
             },
             suggestion: "Consider adding an index".to_string(),
             first_timestamp: "2025-07-10T14:32:02.050Z".to_string(),
@@ -1211,6 +1219,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 250,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.050Z".to_string(),
@@ -1630,6 +1639,7 @@ mod tests {
                 occurrences: 4, // 4 occurrences → 3 avoidable
                 window_ms: 250,
                 distinct_params: 4,
+                ..Default::default()
             },
             suggestion: "batch".to_string(),
             first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),

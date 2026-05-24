@@ -68,6 +68,7 @@ pub fn detect_fanout(trace: &Trace, indices: &TraceIndices<'_>, max_fanout: u32)
                 occurrences: count,
                 window_ms,
                 distinct_params: count,
+                ..Default::default()
             },
             suggestion: format!(
                 "Parent span has {count} children (threshold: {max_fanout}). \

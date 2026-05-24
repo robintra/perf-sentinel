@@ -437,6 +437,7 @@ mod tests {
                 occurrences: 6,
                 window_ms: 200,
                 distinct_params: 6,
+                ..Default::default()
             },
             suggestion: "Use WHERE order_id IN (?)".to_string(),
             first_timestamp: "2025-07-10T14:32:01.000Z".to_string(),
@@ -579,6 +580,7 @@ mod tests {
                 occurrences: 16,
                 window_ms: 300,
                 distinct_params: 16,
+                ..Default::default()
             },
             suggestion: "Consider aggregating calls with a BFF layer".to_string(),
             first_timestamp: "2025-07-10T14:32:00.000Z".to_string(),

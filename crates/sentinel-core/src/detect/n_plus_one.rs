@@ -249,6 +249,12 @@ fn build_finding(
             .map(ToString::to_string)
             .collect(),
         classification_method,
+        span_durations_us: Some(
+            indices
+                .iter()
+                .map(|&i| trace.spans[i].event.duration_us)
+                .collect(),
+        ),
     }))
 }
 

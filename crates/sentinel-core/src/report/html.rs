@@ -632,6 +632,7 @@ mod tests {
                 occurrences: 12,
                 window_ms: 100,
                 distinct_params: 12,
+                ..Default::default()
             },
             suggestion: "use JOIN FETCH".into(),
             first_timestamp: "2026-04-21T00:00:00Z".into(),
