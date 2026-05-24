@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.43]
+
+### Changed
+
+- `appVersion` bumped to `0.7.7` to track the daemon's bare-driver n+1 sql fix in strict sanitizer-aware mode and the µs-precision fix applied to the `serialized_calls` and `pool_saturation` detectors. Template surface is unchanged, no migration needed beyond the chart bump. Operators with strict `quality_gate` rules should review the upgrade notes in the daemon `CHANGELOG.md` for the recommended re-baseline step on `n_plus_one_sql_critical_max`, `serialized_calls_critical_max` and `pool_saturation_critical_max`.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.7.7` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.42]
 
 ### Changed
