@@ -30,16 +30,12 @@ pub enum SanitizerAwareMode {
     /// Disable the heuristic entirely. Falls back to the strict
     /// `distinct_params` check.
     Never,
-    /// Reclassify only when a primary signal (ORM scope marker OR
-    /// sequential-siblings on bare-driver) fires conjointly with a
-    /// corroborating signal (high per-span timing variance OR, on the
-    /// ORM branch only, a high occurrence count that overcomes the
-    /// cache-warm trap where ORM scope is present but per-span timings
-    /// cluster from a warm row cache, e.g. EF Core + Npgsql or
-    /// Hibernate + L2 cache). The sequential-siblings substitute covers
-    /// bare-driver stacks (Vert.x reactive PG, pgx, asyncpg, sqlx,
-    /// Prisma `queryRaw`) that never emit an ORM scope. See
-    /// `docs/design/04-DETECTION.md` for the full rationale.
+    /// Reclassify when a primary signal (ORM scope, high occurrence
+    /// >= 3x threshold, or sequential siblings) fires conjointly with
+    /// a corroborating signal (timing variance or high occurrence).
+    /// High occurrence serves both roles: 15+ sanitized identical
+    /// templates in one trace is structurally n+1 under the
+    /// `looks_sanitized` guard. See `docs/design/04-DETECTION.md`.
     Strict,
 }
 
@@ -287,24 +283,16 @@ pub fn classify_sanitized_sql_group(
     }
 }
 
-/// Combined verdict for `Strict` mode: requires a primary signal
-/// (ORM scope marker OR sequential siblings on bare-driver) **plus** a
-/// corroborating signal (high timing variance OR, on the ORM branch
-/// only, high occurrence count that overcomes the cache-warm trap).
+/// Combined verdict for `Strict` mode. Two gates, both must pass:
 ///
-/// The ORM branch accepts `variance || high_occurrence` because a
-/// sanitized group of e.g. 15 sanitized SQL spans under a single
-/// request with an ORM scope marker present is structurally an N+1
-/// regardless of whether per-span timings cluster from a warm row
-/// cache (the lab-observed EF Core / Hibernate cache-warm shape). The
-/// bare-driver branch (sequential without ORM) keeps the stricter
-/// `variance only` requirement because sequential-siblings is a
-/// weaker signal than the explicit ORM marker.
+/// 1. **Primary**: `orm || high_occurrence || sequential()`.
+/// 2. **Corroboration**: `variance || high_occurrence`.
 ///
-/// `sequential` is a lazy closure: it runs only when `has_orm_scope`
-/// has already returned false, so an ORM-scope-bearing Strict-mode
-/// group does not pay the per-trace sibling walk. Variance is computed
-/// last (most expensive of the signals).
+/// `high_occurrence` (>= 3x threshold, default 15) is both primary
+/// and corroborator: 15+ sanitized identical templates in one trace
+/// is structurally n+1 under the `looks_sanitized` guard, regardless
+/// of ORM scope, sequential siblings, or variance. `sequential` is a
+/// lazy `FnOnce` skipped when `orm` or `high_occurrence` is true.
 #[must_use]
 pub fn classify_sanitized_sql_group_strict(
     spans: &[&NormalizedEvent],
@@ -313,14 +301,15 @@ pub fn classify_sanitized_sql_group_strict(
     high_occurrence: bool,
 ) -> SanitizerVerdict {
     let orm = has_orm_scope(scopes);
-    let primary_ok = orm || sequential();
+    // high_occurrence is both primary and corroborator: 15+ sanitized
+    // identical templates in one trace is structurally n+1 under the
+    // looks_sanitized guard, even without ORM scope or parent linkage.
+    let primary_ok = orm || high_occurrence || sequential();
     if !primary_ok {
         return SanitizerVerdict::Inconclusive;
     }
     let variance_ok = timing_variance_suggests_n_plus_one(spans);
-    // ORM branch accepts cache-warm n+1 via high_occurrence; the
-    // bare-driver branch keeps the stricter variance-only requirement.
-    let corroborated = variance_ok || (orm && high_occurrence);
+    let corroborated = variance_ok || high_occurrence;
     if corroborated {
         SanitizerVerdict::LikelyNPlusOne
     } else {
@@ -841,18 +830,26 @@ mod tests {
     }
 
     #[test]
-    fn strict_bare_driver_high_occurrence_low_variance_returns_inconclusive() {
-        // Bare-driver high-occurrence cluster (15 spans, no ORM scope, low
-        // variance, sequential). The high_occurrence corroborator is
-        // intentionally restricted to the ORM branch: a sequential
-        // bare-driver loop with tight timings is more likely a legitimate
-        // paginated batch than an n+1. Strict declines.
+    fn strict_bare_driver_high_occurrence_sequential_returns_likely_n_plus_one() {
         let low_variance = [100u64; 15];
         let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
         let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
         assert_eq!(
             classify_sanitized_sql_group_strict(&refs, &scopes, || true, true),
-            SanitizerVerdict::Inconclusive
+            SanitizerVerdict::LikelyNPlusOne
+        );
+    }
+
+    #[test]
+    fn strict_high_occurrence_alone_no_orm_no_sequential_returns_likely_n_plus_one() {
+        // Stand-alone high_occurrence: no ORM scope, not sequential.
+        // The looks_sanitized upstream guard is the safety net.
+        let low_variance = [100u64; 15];
+        let (normalized, scopes) = build_sanitized_group_for_strict(None, &low_variance);
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        assert_eq!(
+            classify_sanitized_sql_group_strict(&refs, &scopes, || false, true),
+            SanitizerVerdict::LikelyNPlusOne
         );
     }
 

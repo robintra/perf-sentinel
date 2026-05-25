@@ -74,21 +74,17 @@ recovers the correct classification:
   variance is high enough to indicate distinct row lookups. Otherwise
   leave the group to the redundant detector. Best recall on production
   Spring Data, EF Core and similar ORM stacks.
-- `"strict"`: reclassify only when a primary signal (ORM scope marker
-  OR sequential-siblings on bare-driver stacks) fires conjointly with
-  a corroborating signal (high timing variance OR, on the ORM branch
-  only, a high occurrence count >= 3 x `n_plus_one_min_occurrences`,
-  default 15). Preserves `redundant_sql` precision on moderate-count
-  cached identical queries (legacy polling loops, unmemoized config
-  lookups served from row cache, typically 5-10 calls per request).
-  Above the high-occurrence bar, ORM-scoped groups fire even with low
-  variance, closing the cache-warm trap observed on EF Core + Npgsql
-  and Hibernate L2 cache. The sequential-siblings signal covers
-  bare-driver stacks (Vert.x reactive PG, pgx, asyncpg, sqlx, Prisma
-  `queryRaw`) that never emit an ORM scope and always requires
-  variance regardless of count. Use this when actionable
-  `redundant_sql` findings are valuable signal that should not be
-  silently absorbed into `n_plus_one_sql`.
+- `"strict"`: reclassify only when a primary signal (ORM scope marker,
+  high occurrence >= 3 x `n_plus_one_min_occurrences`, or sequential
+  siblings) fires conjointly with a corroborating signal (high timing
+  variance or high occurrence). Preserves `redundant_sql` precision on
+  moderate-count cached identical queries (legacy polling loops,
+  unmemoized config lookups, typically 5-10 calls per request). Above
+  the high-occurrence bar (default 15), any sanitized group fires
+  regardless of ORM scope, sequential siblings, or variance, under the
+  `looks_sanitized` guard. Use this when actionable `redundant_sql`
+  findings are valuable signal that should not be silently absorbed
+  into `n_plus_one_sql`.
 - `"always"`: reclassify any sanitized group with at least
   `n_plus_one_min_occurrences` spans as `n_plus_one_sql`. Aggressive,
   may flip a real single-param redundancy.
