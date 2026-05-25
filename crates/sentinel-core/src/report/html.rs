@@ -710,15 +710,15 @@ mod tests {
         let (report, traces) = crate::pipeline::analyze_with_traces(events, &cfg);
 
         assert_eq!(report.findings.len(), 3, "fixture must yield 3 findings");
-        let types: std::collections::BTreeSet<crate::detect::FindingType> = report
+        let types: std::collections::BTreeSet<FindingType> = report
             .findings
             .iter()
             .map(|f| f.finding_type.clone())
             .collect();
-        let expected: std::collections::BTreeSet<crate::detect::FindingType> = [
-            crate::detect::FindingType::NPlusOneSql,
-            crate::detect::FindingType::RedundantSql,
-            crate::detect::FindingType::SerializedCalls,
+        let expected: std::collections::BTreeSet<FindingType> = [
+            FindingType::NPlusOneSql,
+            FindingType::RedundantSql,
+            FindingType::SerializedCalls,
         ]
         .into_iter()
         .collect();
