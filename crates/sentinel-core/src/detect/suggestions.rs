@@ -7,11 +7,15 @@
 //! (this module's current state) broadens coverage to the seven
 //! anti-patterns that previously returned `suggested_fix = None`:
 //! `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`,
-//! `chatty_service`, `pool_saturation`, `serialized_calls`. New entries
-//! lean on the per-language `*Generic` framework tag when the
-//! recommendation is largely framework-agnostic, and reuse a
-//! framework-specific tag (e.g. `JavaQuarkus`, `JavaWebFlux`) when the
-//! ecosystem ships a canonical primitive worth pointing at.
+//! `chatty_service`, `pool_saturation`, `serialized_calls`. v3 also
+//! adds Python support (`PythonDjango`, `PythonSqlAlchemy`,
+//! `PythonGeneric`) with scope detection via the
+//! `opentelemetry.instrumentation.*` prefix and the `django.db` /
+//! `sqlalchemy` namespace hints. New entries lean on the per-language
+//! `*Generic` framework tag when the recommendation is largely
+//! framework-agnostic, and reuse a framework-specific tag (e.g.
+//! `JavaQuarkus`, `JavaWebFlux`, `PythonDjango`) when the ecosystem
+//! ships a canonical primitive worth pointing at.
 //!
 //! The detection is intentionally cheap and deterministic: we only look
 //! at fields already present on [`Finding`] (no span-level

@@ -118,11 +118,9 @@ fn classify_group(
     if mode == SanitizerAwareMode::Always {
         return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
     }
-    // Above 3× the n+1 threshold (default 15 spans for threshold=5), a
-    // sanitized group with an ORM scope is structurally an n+1 even when
-    // per-span timings cluster (the cache-warm trap, e.g. EF Core hitting
-    // a warm Npgsql pool). The Strict verdict accepts this as a
-    // corroborating signal on the ORM branch only.
+    // Above 3x the n+1 threshold (default 15), a sanitized group is
+    // structurally n+1 under the looks_sanitized guard. The Strict
+    // verdict uses this as both primary and corroborating signal.
     let high_occurrence = indices.len() >= threshold.saturating_mul(3);
     let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(
         &trace.spans,
@@ -823,18 +821,17 @@ mod tests {
     }
 
     #[test]
-    fn strict_bare_driver_does_not_reclassify_when_spans_overlap() {
-        // Concurrent fan-out under a bare driver: 30ms stride but per-span
-        // durations of 100 000µs = 100ms each, so every span overlaps the
-        // next. Strict must decline (no sequentiality + no ORM scope),
-        // leaving the redundant detector to emit `redundant_sql`.
+    fn strict_bare_driver_10_overlapping_stays_redundant() {
+        // 10 concurrent overlapping spans (below the 15-span
+        // high_occurrence bar). No ORM scope, no sequentiality, no
+        // variance. Strict declines, redundant picks it up.
         let durations = [100_000u64; 10];
         let events = make_bare_driver_sanitized_events(10, "fanout-root-span", 30, &durations);
         let trace = make_trace(events);
         let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
         assert!(
             n_plus_one.is_empty(),
-            "Strict must not reclassify overlapping bare-driver spans, got: {:?}",
+            "Strict must not reclassify overlapping bare-driver spans below threshold, got: {:?}",
             n_plus_one
                 .iter()
                 .map(|f| &f.finding_type)
@@ -843,6 +840,25 @@ mod tests {
         let redundant = crate::detect::redundant::detect_redundant(&trace, &n_plus_one);
         assert_eq!(redundant.len(), 1);
         assert_eq!(redundant[0].finding_type, FindingType::RedundantSql);
+    }
+
+    #[test]
+    fn strict_bare_driver_15_overlapping_reclassifies_via_high_occurrence() {
+        // 15 concurrent overlapping spans (at the high_occurrence bar).
+        // high_occurrence fires as both primary and corroborator, so
+        // even concurrent fan-out is reclassified as n+1. Under the
+        // looks_sanitized guard, 15 identical parameterized queries in
+        // one request is structurally n+1.
+        let durations = [100_000u64; 15];
+        let events = make_bare_driver_sanitized_events(15, "fanout-root-span", 30, &durations);
+        let trace = make_trace(events);
+        let n_plus_one = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(n_plus_one.len(), 1);
+        assert_eq!(n_plus_one[0].finding_type, FindingType::NPlusOneSql);
+        assert_eq!(
+            n_plus_one[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
     }
 
     #[test]

@@ -77,21 +77,18 @@ restaure la classification correcte :
   reste à la charge du détecteur de redondance. Meilleur rappel sur les
   stacks production Spring Data, EF Core et similaires.
 - `"strict"` : reclassifie uniquement quand un signal primaire
-  (marqueur ORM OU siblings séquentiels sur piles bare-driver) se
-  déclenche conjointement avec un signal corroboratif (variance
-  temporelle élevée OU, sur la branche ORM uniquement, un nombre
-  d'occurrences >= 3 x `n_plus_one_min_occurrences`, par défaut 15).
-  Préserve la précision de `redundant_sql` sur les requêtes identiques
-  de compte modéré servies depuis le cache (boucles de polling legacy,
-  lookups de config non mémoïsés, typiquement 5-10 appels par requête).
-  Au-dessus de la barre, les groupes avec scope ORM se déclenchent
-  même avec une variance basse, fermant le piège cache-warm observé
-  sur EF Core + Npgsql et Hibernate L2 cache. Le signal "siblings
-  séquentiels" couvre les piles bare-driver (Vert.x reactive PG, pgx,
-  asyncpg, sqlx, Prisma `queryRaw`) et exige toujours la variance
-  quel que soit le nombre d'occurrences. À utiliser quand les findings
-  `redundant_sql` sont un signal exploitable qui ne doit pas être
-  absorbé silencieusement par `n_plus_one_sql`.
+  (marqueur ORM, nombre d'occurrences >= 3 x
+  `n_plus_one_min_occurrences`, ou siblings séquentiels) se déclenche
+  conjointement avec un signal corroboratif (variance temporelle
+  élevée ou nombre d'occurrences élevé). Préserve la précision de
+  `redundant_sql` sur les requêtes identiques de compte modéré (boucles
+  de polling legacy, lookups de config non mémoïsés, typiquement 5-10
+  appels par requête). Au-dessus de la barre (par défaut 15), tout
+  groupe sanitisé se déclenche quel que soit le scope ORM, les siblings
+  séquentiels ou la variance, sous la garde `looks_sanitized`. À
+  utiliser quand les findings `redundant_sql` sont un signal
+  exploitable qui ne doit pas être absorbé silencieusement par
+  `n_plus_one_sql`.
 - `"always"` : reclassifie tout groupe sanitisé qui atteint
   `n_plus_one_min_occurrences` spans en `n_plus_one_sql`. Plus agressif,
   peut requalifier une vraie redondance à un seul paramètre.
