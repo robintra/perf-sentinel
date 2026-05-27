@@ -1,7 +1,11 @@
 //! Homemade SQL tokenizer/normalizer.
 //!
-//! Replaces numeric literals, string literals, and UUIDs with `?` placeholders.
-//! Collapses `IN (?, ?, ?)` into `IN (?)`.
+//! Replaces numeric literals, string literals, and UUIDs with `?`
+//! placeholders. `PostgreSQL` positional parameters (`$1`, `$2`) are
+//! recognized as driver placeholders and emitted as `$?` with empty
+//! `params` (not extracted as literals). This keeps `params` empty for
+//! parameterized queries so the sanitizer-aware detection path can
+//! fire. Collapses `IN (?, ?, ?)` into `IN (?)`.
 
 use regex::Regex;
 use std::borrow::Cow;
@@ -100,6 +104,22 @@ fn step_normal(t: &mut Tokenizer<'_>) {
         t.state = State::InDoubleQuote;
         t.i += 1;
         return;
+    } else if b == b'$' && is_dollar_param(t.i, t.bytes) {
+        // PostgreSQL positional parameter: $1, $2, etc. Preserve as
+        // `$?` in the template WITHOUT extracting the index as a
+        // param. The index is a placeholder, not a literal value.
+        // Without this, `$1` → params=["1"] which breaks
+        // `looks_sanitized` (params must be empty for sanitized
+        // queries to enter the sanitizer-aware classification path).
+        flush_normal_run(t);
+        let mut end = t.i + 1; // skip the `$`
+        while end < t.bytes.len() && t.bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        t.template.push_str("$?");
+        t.i = end;
+        t.normal_start = t.i;
+        return;
     } else if b == b'$' && is_dollar_quote_start(t.i, t.bytes) {
         // PostgreSQL dollar-quoted string: $$ or $tag$
         let tag = extract_dollar_tag(t.i, t.bytes);
@@ -184,6 +204,20 @@ fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {
     } else {
         t.i += 1;
     }
+}
+
+/// Check if position `i` starts a `PostgreSQL` positional parameter
+/// (`$1`, `$2`, `$12`): `$` followed by at least one ASCII digit.
+/// The `$$` case (dollar-quoting) is excluded because `$` is not a
+/// digit. `PostgreSQL` forbids digit-starting dollar-quote tags
+/// (tags must follow identifier rules: letter or underscore first),
+/// so `$1$body$1$` is not valid and does not need a trailing-`$`
+/// guard. Must be checked BEFORE `is_dollar_quote_start` in
+/// `step_normal`.
+fn is_dollar_param(i: usize, bytes: &[u8]) -> bool {
+    debug_assert_eq!(bytes[i], b'$');
+    let next = i + 1;
+    next < bytes.len() && bytes[next].is_ascii_digit()
 }
 
 /// Check if position `i` starts a dollar-quote tag (`$$` or `$identifier$`).
@@ -495,6 +529,41 @@ mod tests {
         let r = normalize_sql(r#"SELECT * FROM "table_2" WHERE "col_3" = 'value'"#);
         assert_eq!(r.template, r#"SELECT * FROM "table_2" WHERE "col_3" = ?"#);
         assert_eq!(r.params, vec!["value"]);
+    }
+
+    // -- PostgreSQL positional parameters ($1, $2) --
+
+    #[test]
+    fn dollar_param_single() {
+        let r = normalize_sql("SELECT * FROM order_items WHERE order_id = $1");
+        assert_eq!(r.template, "SELECT * FROM order_items WHERE order_id = $?");
+        assert!(
+            r.params.is_empty(),
+            "positional $1 is a placeholder, not a literal"
+        );
+    }
+
+    #[test]
+    fn dollar_param_multiple() {
+        let r = normalize_sql("SELECT * FROM t WHERE a = $1 AND b = $2");
+        assert_eq!(r.template, "SELECT * FROM t WHERE a = $? AND b = $?");
+        assert!(r.params.is_empty());
+    }
+
+    #[test]
+    fn dollar_param_two_digit_index() {
+        let r = normalize_sql("SELECT * FROM t WHERE id = $12");
+        assert_eq!(r.template, "SELECT * FROM t WHERE id = $?");
+        assert!(r.params.is_empty());
+    }
+
+    #[test]
+    fn dollar_param_does_not_break_dollar_quote() {
+        // $$ is a dollar-quote, not a $param. Ensure the dollar-param
+        // check (which runs first) does not swallow $$...$$.
+        let r = normalize_sql("SELECT $$hello$$");
+        assert_eq!(r.template, "SELECT ?");
+        assert_eq!(r.params, vec!["hello"]);
     }
 
     // -- Dollar-quoted strings (PostgreSQL) --
