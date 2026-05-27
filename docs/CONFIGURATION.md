@@ -46,24 +46,28 @@ Quality gate thresholds. The quality gate fails if any rule is violated.
 
 Detection algorithm parameters.
 
-| Field                                  | Type    | Default  | Description                                                                                                                                                                          |
-|----------------------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `n_plus_one_min_occurrences`           | integer | `5`      | Minimum number of occurrences (with distinct params) to flag an N+1 pattern                                                                                                          |
-| `window_duration_ms`                   | integer | `500`    | Time window in milliseconds within which repeated operations are considered an N+1 pattern                                                                                           |
-| `slow_query_threshold_ms`              | integer | `500`    | Duration threshold in milliseconds above which an operation is considered slow                                                                                                       |
-| `slow_query_min_occurrences`           | integer | `3`      | Minimum number of slow occurrences of the same template to generate a finding                                                                                                        |
-| `max_fanout`                           | integer | `20`     | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)                                                                                                 |
-| `chatty_service_min_calls`             | integer | `15`     | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold.                                                             |
-| `pool_saturation_concurrent_threshold` | integer | `10`     | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps.                                                       |
-| `serialized_min_sequential`            | integer | `3`      | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable.                                              |
-| `sanitizer_aware_classification`       | string  | `"auto"` | How to classify SQL groups whose literals were collapsed to `?` by an OpenTelemetry agent's statement sanitizer. One of `"auto"`, `"strict"`, `"always"`, `"never"`. See note below. |
+| Field                                  | Type    | Default  | Description                                                                                                                                                                                                             |
+|----------------------------------------|---------|----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `n_plus_one_min_occurrences`           | integer | `5`      | Minimum number of occurrences (with distinct params) to flag an N+1 pattern                                                                                                                                             |
+| `window_duration_ms`                   | integer | `500`    | Time window in milliseconds within which repeated operations are considered an N+1 pattern                                                                                                                              |
+| `slow_query_threshold_ms`              | integer | `500`    | Duration threshold in milliseconds above which an operation is considered slow                                                                                                                                          |
+| `slow_query_min_occurrences`           | integer | `3`      | Minimum number of slow occurrences of the same template to generate a finding                                                                                                                                           |
+| `max_fanout`                           | integer | `20`     | Maximum child spans per parent before flagging as excessive fanout (range: 1-100000)                                                                                                                                    |
+| `chatty_service_min_calls`             | integer | `15`     | Minimum HTTP outbound calls per trace to flag as chatty service. Severity: warning > threshold, critical > 3x threshold.                                                                                                |
+| `pool_saturation_concurrent_threshold` | integer | `10`     | Peak concurrent SQL spans per service to flag connection pool saturation risk. Uses a sweep-line algorithm on span timestamps.                                                                                          |
+| `serialized_min_sequential`            | integer | `3`      | Minimum sequential independent sibling calls (same parent, no time overlap, different templates) to flag as potentially parallelizable.                                                                                 |
+| `sanitizer_aware_classification`       | string  | `"auto"` | How to classify SQL groups whose literals were collapsed to a placeholder (`?`, `$?`, `%s`, `@param`, `:name`) by an OTel agent or database driver. One of `"auto"`, `"strict"`, `"always"`, `"never"`. See note below. |
 
 #### `sanitizer_aware_classification`
 
-OpenTelemetry agents ship with their SQL statement sanitizer ON by
-default to keep PII out of trace attributes. When it is on, every span
-of an ORM-induced N+1 reaches perf-sentinel with the same template and
-no extractable parameters, so the standard distinct-params rule rejects
+OpenTelemetry agents and database drivers ship with SQL statement
+sanitization ON by default to keep PII out of trace attributes. The
+placeholder style depends on the stack: JDBC agents produce bare `?`,
+PostgreSQL native drivers (pgx, asyncpg, sqlx) produce `$1`/`$2`
+(normalized to `$?`), Python DB-API drivers produce `%s`, .NET drivers
+produce `@p0`/`@Name`, and Oracle/SQLAlchemy produce `:name`. In all
+cases the spans reach perf-sentinel with the same template and no
+extractable parameters, so the standard distinct-params rule rejects
 the group and the redundant detector picks it up as `redundant_sql`
 instead of `n_plus_one_sql`. This setting controls the heuristic that
 recovers the correct classification:

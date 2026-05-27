@@ -46,23 +46,28 @@ Seuils du quality gate. Le quality gate échoue si une règle est violée.
 
 Paramètres des algorithmes de détection.
 
-| Champ                                  | Type   | Défaut   | Description                                                                                                                                                                                                                 |
-|----------------------------------------|--------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `n_plus_one_min_occurrences`           | entier | `5`      | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                                                                                                                                   |
-| `window_duration_ms`                   | entier | `500`    | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1                                                                                                             |
-| `slow_query_threshold_ms`              | entier | `500`    | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                                                                                                                                   |
-| `slow_query_min_occurrences`           | entier | `3`      | Nombre minimum d'occurrences lentes du même template pour générer un finding                                                                                                                                                |
-| `max_fanout`                           | entier | `20`     | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)                                                                                                                          |
-| `chatty_service_min_calls`             | entier | `15`     | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil.                                                                                           |
-| `pool_saturation_concurrent_threshold` | entier | `10`     | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans.                                            |
-| `serialized_min_sequential`            | entier | `3`      | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.                                                          |
-| `sanitizer_aware_classification`       | chaîne | `"auto"` | Classification des groupes SQL dont les littéraux ont été remplacés par `?` par le sanitizer d'instruction d'un agent OpenTelemetry. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous. |
+| Champ                                  | Type   | Défaut   | Description                                                                                                                                                                                                                                                           |
+|----------------------------------------|--------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `n_plus_one_min_occurrences`           | entier | `5`      | Nombre minimum d'occurrences (avec des paramètres distincts) pour signaler un pattern N+1                                                                                                                                                                             |
+| `window_duration_ms`                   | entier | `500`    | Fenêtre temporelle en millisecondes dans laquelle les opérations répétées sont considérées comme un pattern N+1                                                                                                                                                       |
+| `slow_query_threshold_ms`              | entier | `500`    | Seuil de durée en millisecondes au-dessus duquel une opération est considérée comme lente                                                                                                                                                                             |
+| `slow_query_min_occurrences`           | entier | `3`      | Nombre minimum d'occurrences lentes du même template pour générer un finding                                                                                                                                                                                          |
+| `max_fanout`                           | entier | `20`     | Nombre maximum de spans enfants par parent avant de signaler un fanout excessif (plage : 1-100000)                                                                                                                                                                    |
+| `chatty_service_min_calls`             | entier | `15`     | Nombre minimum d'appels HTTP sortants par trace pour signaler un service bavard. Severite : warning > seuil, critical > 3x seuil.                                                                                                                                     |
+| `pool_saturation_concurrent_threshold` | entier | `10`     | Nombre maximal de spans SQL concurrents par service pour signaler un risque de saturation du pool de connexions. Utilise un algorithme de balayage sur les timestamps des spans.                                                                                      |
+| `serialized_min_sequential`            | entier | `3`      | Nombre minimum d'appels séquentiels indépendants (même parent, sans chevauchement, templates différents) pour signaler des appels potentiellement parallélisables.                                                                                                    |
+| `sanitizer_aware_classification`       | chaîne | `"auto"` | Classification des groupes SQL dont les littéraux ont été remplacés par un placeholder (`?`, `$?`, `%s`, `@param`, `:name`) par un agent OTel ou un driver de base de données. Une valeur parmi `"auto"`, `"strict"`, `"always"`, `"never"`. Voir la note ci-dessous. |
 
 #### `sanitizer_aware_classification`
 
-Les agents OpenTelemetry activent par défaut le sanitizer d'instructions
-SQL pour éviter de laisser fuir des PII dans les attributs de trace.
-Lorsqu'il est actif, chaque span d'un N+1 induit par un ORM arrive dans
+Les agents OpenTelemetry et les drivers de base de données activent par
+défaut la sanitization des instructions SQL pour éviter de laisser
+fuir des PII dans les attributs de trace. Le style de placeholder
+dépend de la stack : les agents JDBC produisent `?`, les drivers
+PostgreSQL natifs (pgx, asyncpg, sqlx) produisent `$1`/`$2`
+(normalisés en `$?`), les drivers Python DB-API produisent `%s`, les
+drivers .NET produisent `@p0`/`@Name`, et Oracle/SQLAlchemy
+produisent `:name`. Dans tous les cas, les spans arrivent dans
 perf-sentinel avec le même template et aucun paramètre extractible. La
 règle standard de paramètres distincts rejette donc le groupe et le
 détecteur de redondance le récupère sous l'étiquette `redundant_sql` au
@@ -267,10 +272,10 @@ Intégration opt-in avec le standard BMC [Redfish](https://www.dmtf.org/standard
 
 Chaque table d'endpoint a deux champs : `url` (chaîne, URL Redfish complète chemin inclus) et `schema` (chaîne, soit `"legacy_power"` soit `"environment_metrics"`). Le schema sélectionne le pointeur JSON canonique utilisé par le parser, sans pointeur tapé par l'opérateur :
 
-| `schema`               | Chemin servi par le BMC                       | Pointeur JSON lu par le parser     |
-|------------------------|-----------------------------------------------|------------------------------------|
-| `legacy_power`         | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/0/PowerConsumedWatts` |
-| `environment_metrics`  | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                |
+| `schema`              | Chemin servi par le BMC                       | Pointeur JSON lu par le parser       |
+|-----------------------|-----------------------------------------------|--------------------------------------|
+| `legacy_power`        | `/redfish/v1/Chassis/{id}/Power`              | `/PowerControl/0/PowerConsumedWatts` |
+| `environment_metrics` | `/redfish/v1/Chassis/{id}/EnvironmentMetrics` | `/PowerWatts/Reading`                |
 
 ```toml
 [green.redfish]
