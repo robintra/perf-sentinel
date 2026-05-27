@@ -11,11 +11,15 @@
 //! adds Python support (`PythonDjango`, `PythonSqlAlchemy`,
 //! `PythonGeneric`) with scope detection via the
 //! `opentelemetry.instrumentation.*` prefix and the `django.db` /
-//! `sqlalchemy` namespace hints. New entries lean on the per-language
-//! `*Generic` framework tag when the recommendation is largely
-//! framework-agnostic, and reuse a framework-specific tag (e.g.
-//! `JavaQuarkus`, `JavaWebFlux`, `PythonDjango`) when the ecosystem
-//! ships a canonical primitive worth pointing at.
+//! `sqlalchemy` namespace hints. v4 adds Go (`GoGorm`, `GoGeneric`)
+//! and Node.js/TypeScript (`NodePrisma`, `NodeGeneric`) with scope
+//! detection via the `@opentelemetry/instrumentation-*` prefix and
+//! language detection via `.go`, `.js`, `.ts` file extensions. New
+//! entries lean on the per-language `*Generic` framework tag when
+//! the recommendation is largely framework-agnostic, and reuse a
+//! framework-specific tag (e.g. `JavaQuarkus`, `JavaWebFlux`,
+//! `PythonDjango`, `GoGorm`, `NodePrisma`) when the ecosystem ships
+//! a canonical primitive worth pointing at.
 //!
 //! The detection is intentionally cheap and deterministic: we only look
 //! at fields already present on [`Finding`] (no span-level
@@ -69,6 +73,10 @@ enum Framework {
     RustDiesel,
     RustSeaOrm,
     RustGeneric,
+    GoGorm,
+    GoGeneric,
+    NodePrisma,
+    NodeGeneric,
 }
 
 impl Framework {
@@ -89,6 +97,10 @@ impl Framework {
             Self::RustDiesel => "rust_diesel",
             Self::RustSeaOrm => "rust_sea_orm",
             Self::RustGeneric => "rust_generic",
+            Self::GoGorm => "go_gorm",
+            Self::GoGeneric => "go_generic",
+            Self::NodePrisma => "node_prisma",
+            Self::NodeGeneric => "node_generic",
         }
     }
 }
@@ -200,6 +212,10 @@ const RUST_RULES: &[(Framework, &[Hint])] = &[
     (Framework::RustSeaOrm, &[Hint::Substring("sea_orm::")]),
 ];
 
+const GO_RULES: &[(Framework, &[Hint])] = &[(Framework::GoGorm, &[Hint::Substring("gorm")])];
+
+const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Substring("prisma")])];
+
 /// OpenTelemetry instrumentation scope rules. The scope name string
 /// (e.g. `io.opentelemetry.spring-data-3.0`) is emitted by the agent
 /// regardless of how the user names their classes, so this is the most
@@ -222,6 +238,13 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaJpa, &["spring-data", "hibernate"]),
     (Framework::PythonDjango, &["django"]),
     (Framework::PythonSqlAlchemy, &["sqlalchemy"]),
+    // Go and Node.js are NOT listed here: their OTel instrumentations
+    // use ecosystem-native scope names (e.g. `gorm.io/plugin/opentelemetry`,
+    // `@prisma/instrumentation`) that do not match the `io.opentelemetry.*`
+    // / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`
+    // prefixes checked by `scope_matches`. Framework detection for Go and
+    // Node falls through to namespace hints (GO_RULES, JS_RULES) and the
+    // language-from-filepath generic fallback.
 ];
 
 /// Match any scope in the chain against any rule. Returns the first
@@ -248,10 +271,12 @@ fn detect_framework_from_scopes(scopes: &[String]) -> Option<Framework> {
 /// would no longer match the `quarkus` rule).
 fn scope_matches(scope: &str, needle: &str) -> bool {
     // Java agents emit `io.opentelemetry.<short>`, Python SDK emits
-    // `opentelemetry.instrumentation.<short>`. Support both prefixes.
+    // `opentelemetry.instrumentation.<short>`, Node.js SDK emits
+    // `@opentelemetry/instrumentation-<short>`. Support all prefixes.
     let Some(rest) = scope
         .strip_prefix("io.opentelemetry.")
         .or_else(|| scope.strip_prefix("opentelemetry.instrumentation."))
+        .or_else(|| scope.strip_prefix("@opentelemetry/instrumentation-"))
     else {
         return false;
     };
@@ -264,6 +289,11 @@ fn scope_matches(scope: &str, needle: &str) -> bool {
     // against `quarkus-resteasy-classic` if we ever decide we want
     // only the reactive variant. Today every entry is a full segment,
     // so end-of-string and `-` are the natural anchors.
+    //
+    // NOTE: the `-` boundary works for Java version suffixes but would
+    // false-positive on Node.js package names (e.g. needle `pg` would
+    // match scope `@opentelemetry/instrumentation-pg-pool`). This is
+    // why Go/Node are excluded from SCOPE_RULES (see comment above).
     after.is_empty() || after.starts_with('-')
 }
 
@@ -273,6 +303,8 @@ enum Language {
     Csharp,
     Python,
     Rust,
+    Go,
+    JavaScript,
 }
 
 impl Language {
@@ -282,6 +314,8 @@ impl Language {
             Self::Csharp => CSHARP_RULES,
             Self::Python => PYTHON_RULES,
             Self::Rust => RUST_RULES,
+            Self::Go => GO_RULES,
+            Self::JavaScript => JS_RULES,
         }
     }
 
@@ -291,6 +325,8 @@ impl Language {
             Self::Csharp => Framework::CsharpGeneric,
             Self::Python => Framework::PythonGeneric,
             Self::Rust => Framework::RustGeneric,
+            Self::Go => Framework::GoGeneric,
+            Self::JavaScript => Framework::NodeGeneric,
         }
     }
 }
@@ -305,6 +341,18 @@ fn language_from_filepath(fp: &str) -> Option<Language> {
         Some(Language::Python)
     } else if ext.eq_ignore_ascii_case("rs") {
         Some(Language::Rust)
+    } else if ext.eq_ignore_ascii_case("go") {
+        Some(Language::Go)
+    } else if ext.eq_ignore_ascii_case("js")
+        || ext.eq_ignore_ascii_case("ts")
+        || ext.eq_ignore_ascii_case("jsx")
+        || ext.eq_ignore_ascii_case("tsx")
+        || ext.eq_ignore_ascii_case("mjs")
+        || ext.eq_ignore_ascii_case("mts")
+        || ext.eq_ignore_ascii_case("cjs")
+        || ext.eq_ignore_ascii_case("cts")
+    {
+        Some(Language::JavaScript)
     } else {
         None
     }
@@ -321,9 +369,9 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         RedundantSql, SerializedCalls, SlowHttp, SlowSql,
     };
     use Framework::{
-        CsharpEfCore, CsharpGeneric, JavaGeneric, JavaHelidonMp, JavaHelidonSe, JavaJpa,
-        JavaQuarkus, JavaQuarkusReactive, JavaWebFlux, PythonDjango, PythonGeneric,
-        PythonSqlAlchemy, RustDiesel, RustGeneric, RustSeaOrm,
+        CsharpEfCore, CsharpGeneric, GoGeneric, GoGorm, JavaGeneric, JavaHelidonMp, JavaHelidonSe,
+        JavaJpa, JavaQuarkus, JavaQuarkusReactive, JavaWebFlux, NodeGeneric, NodePrisma,
+        PythonDjango, PythonGeneric, PythonSqlAlchemy, RustDiesel, RustGeneric, RustSeaOrm,
     };
     let entries: &[((FindingType, Framework), &str, Option<&str>)] = &[
         // ── Java ───────────────────────────────────────────────────
@@ -872,6 +920,188 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
              the next.",
             Some("https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"),
         ),
+        // ── Go ────────────────────────────────────────────────────
+        (
+            (NPlusOneSql, GoGorm),
+            "Use Preload() or Joins() to eager-load the association in a \
+             single query instead of N+1 lazy loads.",
+            Some("https://gorm.io/docs/preload.html"),
+        ),
+        (
+            (NPlusOneSql, GoGeneric),
+            "Rewrite the per-id loop as a single query with a JOIN or WHERE id \
+             IN ($1, $2, ...). With pgx, use pgx.NamedArgs for named parameters \
+             or pass an array via ANY($1::int[]) for bulk lookups.",
+            Some("https://pkg.go.dev/github.com/jackc/pgx/v5"),
+        ),
+        (
+            (RedundantSql, GoGorm),
+            "Cache the result with go-cache, sync.Map, or a request-scoped map \
+             stored in the context via context.WithValue. GORM does not deduplicate \
+             reads automatically, the caching layer must be explicit.",
+            Some("https://pkg.go.dev/github.com/patrickmn/go-cache"),
+        ),
+        (
+            (RedundantSql, GoGeneric),
+            "Cache the result with go-cache or a sync.Map, or pass a \
+             request-scoped map via context.WithValue to deduplicate within \
+             the request.",
+            Some("https://pkg.go.dev/github.com/patrickmn/go-cache"),
+        ),
+        (
+            (NPlusOneHttp, GoGeneric),
+            "Use errgroup.Go for parallel independent calls, or call a batch \
+             endpoint that returns the aggregated result in one round-trip.",
+            Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
+        ),
+        (
+            (RedundantHttp, GoGeneric),
+            "Memoize per-request with singleflight.Do (for concurrent identical \
+             calls) or a sync.Map keyed by request URL stored in the context.",
+            Some("https://pkg.go.dev/golang.org/x/sync/singleflight"),
+        ),
+        (
+            (SlowSql, GoGorm),
+            "Enable GORM's Logger in Info mode, capture the rendered SQL, and \
+             EXPLAIN ANALYZE it. Add an index via AutoMigrate or a raw migration. \
+             Use .Select() to limit fetched columns.",
+            Some("https://gorm.io/docs/performance.html"),
+        ),
+        (
+            (SlowSql, GoGeneric),
+            "Run EXPLAIN ANALYZE on the slow query. Add a composite index \
+             matching the WHERE + ORDER BY columns. With pgx, use \
+             .QueryRow().Scan() with only the needed columns.",
+            Some("https://www.postgresql.org/docs/current/using-explain.html"),
+        ),
+        (
+            (SlowHttp, GoGeneric),
+            "Set a per-request timeout via http.Client.Timeout or \
+             context.WithTimeout. Add a circuit breaker (sony/gobreaker) and \
+             cache the response with go-cache when staleness is acceptable.",
+            Some("https://pkg.go.dev/github.com/sony/gobreaker"),
+        ),
+        (
+            (ExcessiveFanout, GoGeneric),
+            "Bound goroutine count with a semaphore channel (make(chan struct{}, N)) \
+             or errgroup with SetLimit(N). Prefer a batch endpoint when the \
+             downstream supports it.",
+            Some("https://pkg.go.dev/golang.org/x/sync/errgroup#Group.SetLimit"),
+        ),
+        (
+            (ChattyService, GoGeneric),
+            "Coalesce the chatty interactions into a single bulk endpoint, or \
+             fan-in with errgroup and a per-key go-cache. Reduce round-trips by \
+             moving orchestration upstream.",
+            Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
+        ),
+        (
+            (PoolSaturation, GoGeneric),
+            "Inspect slow_sql findings first: pgxpool usually saturates because \
+             connections are held during slow work. Tune MaxConns on \
+             pgxpool.Config only after the slow queries are addressed.",
+            Some("https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool#Config"),
+        ),
+        (
+            (SerializedCalls, GoGeneric),
+            "Replace sequential calls with errgroup.Go for parallel execution. \
+             Keep the sequential form only when one call's output feeds the next.",
+            Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
+        ),
+        // ── Node.js / TypeScript ──────────────────────────────────
+        (
+            (NPlusOneSql, NodePrisma),
+            "Use include:{} for eager loading, or rewrite with a findMany() \
+             that uses a WHERE id IN filter instead of N separate findUnique() \
+             calls.",
+            Some("https://www.prisma.io/docs/orm/prisma-client/queries/relation-queries"),
+        ),
+        (
+            (NPlusOneSql, NodeGeneric),
+            "Rewrite the per-id loop as a single query with a JOIN or WHERE id \
+             IN ($1, $2, ...). With the pg client, use a parameterized query \
+             with ANY($1::int[]).",
+            Some("https://node-postgres.com/features/queries"),
+        ),
+        (
+            (RedundantSql, NodePrisma),
+            "Wrap queries in a request-scoped Map to deduplicate identical reads \
+             within the request, or use a Prisma client extension that memoizes \
+             by query key.",
+            Some("https://www.prisma.io/docs/orm/prisma-client/client-extensions"),
+        ),
+        (
+            (RedundantSql, NodeGeneric),
+            "Cache the result with node-cache or a request-scoped Map stored \
+             in Express/Fastify request locals. For concurrent identical \
+             queries, use p-memoize.",
+            Some("https://www.npmjs.com/package/node-cache"),
+        ),
+        (
+            (NPlusOneHttp, NodeGeneric),
+            "Use Promise.all for parallel independent calls, or call a batch \
+             endpoint that returns the aggregated result in one round-trip.",
+            Some(
+                "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all",
+            ),
+        ),
+        (
+            (RedundantHttp, NodeGeneric),
+            "Memoize per-request with p-memoize or a Map stored in request \
+             locals. For concurrent identical calls, share the in-flight \
+             Promise.",
+            Some("https://www.npmjs.com/package/p-memoize"),
+        ),
+        (
+            (SlowSql, NodePrisma),
+            "Enable Prisma's query logging, capture the rendered SQL, and \
+             EXPLAIN ANALYZE it. Add an @@index in the schema.prisma model. \
+             Use .select() to limit fetched columns.",
+            Some("https://www.prisma.io/docs/orm/prisma-schema/data-model/indexes"),
+        ),
+        (
+            (SlowSql, NodeGeneric),
+            "Run EXPLAIN ANALYZE on the slow query. Add a composite index \
+             matching the WHERE + ORDER BY columns.",
+            Some("https://www.postgresql.org/docs/current/using-explain.html"),
+        ),
+        (
+            (SlowHttp, NodeGeneric),
+            "Set a per-request timeout via AbortController + setTimeout. Add a \
+             circuit breaker (opossum) and cache the response with node-cache \
+             when staleness is acceptable.",
+            Some("https://www.npmjs.com/package/opossum"),
+        ),
+        (
+            (ExcessiveFanout, NodeGeneric),
+            "Use p-limit to cap concurrency (const limit = pLimit(N); \
+             await Promise.all(urls.map(u => limit(() => fetch(u))))). Prefer \
+             a batch endpoint when the downstream supports it.",
+            Some("https://www.npmjs.com/package/p-limit"),
+        ),
+        (
+            (ChattyService, NodeGeneric),
+            "Coalesce the chatty interactions into a single bulk endpoint, or \
+             fan-in with Promise.all and a per-key Map cache. For GraphQL, use \
+             DataLoader to batch and deduplicate.",
+            Some("https://www.npmjs.com/package/dataloader"),
+        ),
+        (
+            (PoolSaturation, NodeGeneric),
+            "Inspect slow_sql findings first: the pg Pool usually saturates \
+             because connections are held during slow work. Tune max on \
+             new Pool({ max: N }) only after the slow queries are addressed.",
+            Some("https://node-postgres.com/apis/pool"),
+        ),
+        (
+            (SerializedCalls, NodeGeneric),
+            "Replace sequential awaits with Promise.all([p1, p2, ...]) when \
+             the calls are independent. Keep the sequential form only when one \
+             call's output feeds the next.",
+            Some(
+                "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all",
+            ),
+        ),
     ];
     let mut m = HashMap::with_capacity(entries.len());
     for ((ft, fw), recommendation, url) in entries {
@@ -914,23 +1144,38 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
     FIXES.get(&(finding.finding_type.clone(), framework))
 }
 
-/// Pure framework detector. Inspects three signals in order:
+/// Pure framework detector. Inspects four signals in order:
 ///
 /// 1. **Instrumentation scope chain** captured at OTLP ingest time
 ///    (`io.opentelemetry.spring-data-3.0`, `io.opentelemetry.hibernate-6.0`,
 ///    etc.). Most reliable, agent-emitted, naming-quirk-immune.
-/// 2. **`code_location` namespace** with filepath-derived language.
+/// 2. **Language from scope prefix.** When the scope-chain framework
+///    check misses (Go/Node scopes use ecosystem-native names, not
+///    the `OTel` convention), the scope prefix still reveals the language
+///    (`github.com/` = Go, `@opentelemetry/instrumentation-` = Node,
+///    etc.). The language
+///    generic fallback fires so even a span without `code.filepath` or
+///    `code.namespace` gets a language-appropriate suggestion.
+/// 3. **`code_location` namespace** with filepath-derived language.
 ///    Returns the language-generic fallback when no namespace rule
 ///    matches but the language is known.
-/// 3. **`code_location` namespace alone** when filepath is absent.
-///    Tries every language's rules in order (Java, C#, Rust) and
-///    returns the first hit. No generic fallback in this path
-///    because we cannot know which language to fall back to.
+/// 4. **`code_location` namespace alone** when filepath is absent.
+///    Tries every language's rules in order and returns the first hit.
+///    No generic fallback in this path because we cannot know which
+///    language to fall back to.
 ///
 /// `None` when no signal is available.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
     if let Some(framework) = detect_framework_from_scopes(&finding.instrumentation_scopes) {
         return Some(framework);
+    }
+    if let Some(language) = language_from_scope_prefix(&finding.instrumentation_scopes) {
+        let ns = finding
+            .code_location
+            .as_ref()
+            .and_then(|loc| loc.namespace.as_deref())
+            .unwrap_or("");
+        return Some(match_namespace_against_language(ns, language).unwrap_or(language.generic()));
     }
     let loc = finding.code_location.as_ref()?;
     let ns = loc.namespace.as_deref().unwrap_or("");
@@ -946,9 +1191,45 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
         Language::Csharp,
         Language::Python,
         Language::Rust,
+        Language::Go,
+        Language::JavaScript,
     ]
     .into_iter()
     .find_map(|language| match_namespace_against_language(ns, language))
+}
+
+/// Deduce the programming language from ecosystem-native scope name
+/// prefixes that `SCOPE_RULES` cannot handle (because the scopes do
+/// not use the `io.opentelemetry.*` / `opentelemetry.instrumentation.*`
+/// convention). This is a lower-confidence signal than `SCOPE_RULES`
+/// and fires only for scope prefixes that unambiguously identify the
+/// language:
+///
+/// - `github.com/` → Go (Go module paths).
+/// - `@opentelemetry/instrumentation-` or `@prisma/` → Node.js (npm).
+/// - `Microsoft.EntityFrameworkCore` → C# (`NuGet` package name).
+///
+/// Java and Python scopes use the `OTel` convention and are handled by
+/// `SCOPE_RULES` + `detect_framework_from_scopes`. Rust scopes are
+/// user-defined and have no reliable prefix convention.
+fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
+    for scope in scopes {
+        if scope.starts_with("github.com/") {
+            return Some(Language::Go);
+        }
+        if scope.starts_with("@opentelemetry/instrumentation-")
+            || scope.starts_with("@prisma/")
+            || scope.starts_with("@nestjs/")
+        {
+            return Some(Language::JavaScript);
+        }
+        if scope == "Microsoft.EntityFrameworkCore"
+            || scope.starts_with("Microsoft.EntityFrameworkCore.")
+        {
+            return Some(Language::Csharp);
+        }
+    }
+    None
 }
 
 /// Try each rule of `language` against `ns`. Returns the first matching
@@ -2024,13 +2305,119 @@ mod tests {
         assert!(fix.recommendation.contains("tokio::join"));
     }
 
+    // ── Language-from-scope-prefix ─────────────────────────────
+
+    #[test]
+    fn go_generic_from_scope_prefix_without_code_location() {
+        // go-svc spans have scope `github.com/exaring/otelpgx` but no
+        // code.filepath or code.namespace. The scope prefix `github.com/`
+        // reveals Go, and the generic fallback fires.
+        let mut f = finding_with_location(FindingType::NPlusOneSql, None);
+        f.instrumentation_scopes = vec!["github.com/exaring/otelpgx".to_string()];
+        let fix = lookup_fix(&f).expect("GoGeneric via scope prefix");
+        assert_eq!(fix.framework, "go_generic");
+    }
+
+    #[test]
+    fn node_generic_from_scope_prefix_without_code_location() {
+        // nest-svc spans have scope `@opentelemetry/instrumentation-pg`
+        // but no code.filepath.
+        let mut f = finding_with_location(FindingType::NPlusOneSql, None);
+        f.instrumentation_scopes = vec!["@opentelemetry/instrumentation-pg".to_string()];
+        let fix = lookup_fix(&f).expect("NodeGeneric via scope prefix");
+        assert_eq!(fix.framework, "node_generic");
+    }
+
+    #[test]
+    fn python_bare_driver_scope_returns_none_without_filepath() {
+        // Python `opentelemetry.instrumentation.psycopg` uses the OTel
+        // convention prefix, handled by SCOPE_RULES. psycopg is not a
+        // listed needle, so SCOPE_RULES miss. The conservative
+        // language_from_scope_prefix does NOT catch OTel-convention
+        // prefixes. Without filepath, detection returns None.
+        let mut f = finding_with_location(FindingType::RedundantSql, None);
+        f.instrumentation_scopes = vec!["opentelemetry.instrumentation.psycopg".to_string()];
+        assert!(lookup_fix(&f).is_none());
+    }
+
+    // ── Go detection ──────────────────────────────────────────
+
+    #[test]
+    fn go_gorm_detected_from_filepath_and_namespace() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("handler.go", Some("gorm.io/gorm"))),
+        );
+        let fix = lookup_fix(&f).expect("(NPlusOneSql, GoGorm) should have a fix");
+        assert_eq!(fix.framework, "go_gorm");
+        assert!(fix.recommendation.contains("Preload"));
+    }
+
+    #[test]
+    fn go_generic_fallback_from_filepath_without_gorm_namespace() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("handler.go", Some("main"))),
+        );
+        let fix = lookup_fix(&f).expect("(NPlusOneSql, GoGeneric) should have a fix");
+        assert_eq!(fix.framework, "go_generic");
+    }
+
+    #[test]
+    fn go_gorm_detected_from_namespace_without_filepath() {
+        let f = finding_with_location(
+            FindingType::RedundantSql,
+            Some(CodeLocation {
+                function: Some("List".to_string()),
+                filepath: None,
+                lineno: None,
+                namespace: Some("gorm.io/gorm".to_string()),
+            }),
+        );
+        let fix = lookup_fix(&f).expect("GORM should be detected from namespace alone");
+        assert_eq!(fix.framework, "go_gorm");
+    }
+
+    // ── Node.js / TypeScript detection ───────────────────────
+
+    #[test]
+    fn node_prisma_detected_from_ts_filepath_and_namespace() {
+        let f = finding_with_location(
+            FindingType::NPlusOneSql,
+            Some(loc("service.ts", Some("prisma"))),
+        );
+        let fix = lookup_fix(&f).expect("(NPlusOneSql, NodePrisma) should have a fix");
+        assert_eq!(fix.framework, "node_prisma");
+        assert!(fix.recommendation.contains("include"));
+    }
+
+    #[test]
+    fn node_generic_from_tsx_filepath() {
+        let f = finding_with_location(
+            FindingType::SlowHttp,
+            Some(loc("OrderList.tsx", Some("components.OrderList"))),
+        );
+        let fix = lookup_fix(&f).expect("(SlowHttp, NodeGeneric) should have a fix");
+        assert_eq!(fix.framework, "node_generic");
+    }
+
+    #[test]
+    fn node_generic_from_mjs_filepath() {
+        let f = finding_with_location(
+            FindingType::NPlusOneHttp,
+            Some(loc("handler.mjs", Some("routes.orders"))),
+        );
+        let fix = lookup_fix(&f).expect("(NPlusOneHttp, NodeGeneric) should have a fix");
+        assert_eq!(fix.framework, "node_generic");
+    }
+
     #[test]
     fn fix_table_cardinality_is_pinned() {
         // Snapshot of the (FindingType, Framework) table size. Bumping
         // this number is fine when an entry is intentionally added or
         // removed; reading the diff makes the change explicit instead
         // of silently growing the public `suggested_fix` surface.
-        assert_eq!(FIXES.len(), 70);
+        assert_eq!(FIXES.len(), 96);
         // Anchor a handful of load-bearing combinations so a swap that
         // preserves the count (drop one entry, add another) still trips
         // the test instead of sliding through silently.
@@ -2041,6 +2428,8 @@ mod tests {
             (FindingType::SlowSql, Framework::JavaJpa),
             (FindingType::SerializedCalls, Framework::RustGeneric),
             (FindingType::PoolSaturation, Framework::JavaQuarkus),
+            (FindingType::NPlusOneSql, Framework::GoGorm),
+            (FindingType::NPlusOneSql, Framework::NodePrisma),
         ] {
             assert!(
                 FIXES.contains_key(&anchor),
@@ -2177,6 +2566,14 @@ mod tests {
             "docs.diesel.rs",
             "sea-ql.org",
             "docs.rs",
+            // Go
+            "pkg.go.dev",
+            "gorm.io",
+            // Node.js
+            "www.npmjs.com",
+            "node-postgres.com",
+            "www.prisma.io",
+            "developer.mozilla.org",
             // Cross-language references (vendor-neutral)
             "www.postgresql.org",
             "martinfowler.com",
@@ -2186,6 +2583,9 @@ mod tests {
         const ALLOWED_GITHUB_PREFIXES: &[&str] = &[
             "github.com/ben-manes/caffeine",
             "github.com/brettwooldridge/HikariCP",
+            "github.com/jackc/pgx",
+            "github.com/patrickmn/go-cache",
+            "github.com/sony/gobreaker",
         ];
         for ((ft, fw), fix) in FIXES.iter() {
             let Some(url) = fix.reference_url.as_deref() else {
