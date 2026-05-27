@@ -8,7 +8,18 @@ Ce guide couvre les parties du pipeline qui transforment l'activité runtime d'u
 - [Intégrations cloud](#intégrations-cloud) : AWS X-Ray, GCP Cloud Trace, Azure Application Insights, Jaeger / Tempo / Zipkin self-hosted.
 - [Production : via OpenTelemetry Collector](#production--via-opentelemetry-collector) : configuration du collector central, sampling et précision de détection.
 - [Attributs de span requis](#attributs-de-span-requis) : les conventions sémantiques OTel legacy et stables que perf-sentinel lit.
-- [Dev/staging : instrumentation par langage](#devstaging--instrumentation-par-langage) : mise en place pas à pas pour Java, Quarkus, .NET, Rust.
+- [Dev/staging : instrumentation par langage](#devstaging--instrumentation-par-langage) :
+  - Java
+    - [Spring Boot, Helidon 4.x](#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)
+    - [Quarkus 3.33 LTS](#java-quarkus-333-lts--quarkus-opentelemetry--otel-agent-v227)
+  - [.NET (ASP.NET Core + Entity Framework Core)](#net-aspnet-core--entity-framework-core--opentelemetry-sdk-115)
+  - [Go (pgx)](#go-otelhttp-068--otelpgx-011-otel-sdk-143)
+  - Python
+    - [Django + psycopg](#python-django-5x--psycopg-otel-sdk-142)
+    - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
+  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
+  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+- [Styles de placeholders SQL et detection](#styles-de-placeholders-sql-et-détection) : comment perf-sentinel mappe les placeholders SQL de chaque instrumentation vers le chemin de detection N+1 sanitizer-aware.
 
 ## Introduction à OpenTelemetry
 
@@ -372,7 +383,7 @@ Les spans qui n'ont ni attribut SQL ni attribut HTTP sont ignorés. Les agents O
 
 Quand aucun OTel Collector n'est disponible, instrumentez les services directement. Les guides ci-dessous sont ordonnes du plus simple au plus complexe.
 
-### Java (OpenTelemetry Java Agent)
+### Java (OpenTelemetry Java Agent v2.27+, Spring Boot, Helidon 4.x)
 
 Le [Java Agent OTel](https://opentelemetry.io/docs/zero-code/java/agent/) instrumente JDBC, R2DBC, les clients HTTP, Spring Web et la plupart des frameworks automatiquement, sans modification de code. C'est l'approche la plus proche du plug and play.
 
@@ -404,6 +415,8 @@ L'agent capture automatiquement :
 
 Validé sur Spring Boot 4 avec WebFlux/R2DBC, Virtual Threads/JPA et MVC/JDBC standard.
 
+**R2DBC et gestion des placeholders SQL.** Les drivers R2DBC utilisent les marqueurs natifs de la base (`$1`, `$2` pour PostgreSQL, `?` pour MySQL/MariaDB). Le sanitizer intégré du Java Agent remplace tous les littéraux par `?` avant de remplir `db.statement`, quel que soit le driver sous-jacent. Cela signifie que perf-sentinel reçoit des templates sanitisés avec `?` et des params vides pour les stacks JDBC comme R2DBC. Sans l'agent (R2DBC SDK seul, sans auto-instrumentation), `db.statement` contiendrait les marqueurs natifs `$1`/`$2`, que perf-sentinel gère aussi (le normalizer SQL reconnaît `$N` comme placeholder depuis v0.7.7). Dans les deux cas, le chemin de detection N+1 sanitizer-aware fonctionne correctement.
+
 #### Limitations connues
 
 **Incompatibilité Project Leyden / AOT cache.** Le flag `-javaagent:` est incompatible avec les AOT caches JEP 483. Désactivez le cache AOT quand l'agent est actif :
@@ -420,7 +433,7 @@ fi
 
 ---
 
-### Java (Quarkus + quarkus-opentelemetry)
+### Java (Quarkus 3.33 LTS + quarkus-opentelemetry + OTel Agent v2.27)
 
 Pour les applications Quarkus (y compris les images natives GraalVM où le Java Agent ne peut pas être utilisé), ajoutez l'extension `quarkus-opentelemetry` :
 
@@ -446,7 +459,7 @@ Activez le tracing en définissant `OTEL_ENABLED=true` et `OTLP_GRPC_ENDPOINT` d
 
 ---
 
-### .NET (ASP.NET Core + OpenTelemetry SDK)
+### .NET (ASP.NET Core + Entity Framework Core + OpenTelemetry SDK 1.15)
 
 Compatible NativeAOT (`PublishAot=true`). Nécessite l'ajout de packages NuGet et ~15 lignes dans `Program.cs`.
 
@@ -487,53 +500,89 @@ Note : Entity Framework Core utilise des paramètres nommés (`@__param_0`). Les
 
 ---
 
-### Rust (tracing + opentelemetry-otlp)
+### Go (otelhttp 0.68 + otelpgx 0.11, OTel SDK 1.43)
 
-Nécessite l'ajout de 4 crates et ~20 lignes de code d'initialisation. Utilisez `provider.tracer()` (pas `global::tracer()`) pour éviter le problème de trait bound `PreSampledTracer`.
+Le SDK Go OTel utilise un wrapping explicite. HTTP et SQL nécessitent chacun une bibliothèque dédiée. `otelpgx` émet `db.statement` avec les paramètres positionnels PostgreSQL natifs (`$1`, `$2`). perf-sentinel les normalise en `$?` avec des `params` vides, ce qui active le chemin de detection N+1 sanitizer-aware. Aucune configuration supplémentaire nécessaire.
 
-```toml
-[dependencies]
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
-tracing-opentelemetry = "0.31"
-opentelemetry = { version = "0.30", features = ["trace"] }
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio", "trace"] }
-opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic"] }
+Les variables d'environnement sont standard :
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_SERVICE_NAME: go-svc
 ```
 
-```rust
-use opentelemetry::trace::TracerProvider as _;
-use opentelemetry_otlp::WithExportConfig;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
+Voir la section anglaise pour les exemples de code complets (Go SDK wrapping, pgx pool configuration).
 
-let exporter = opentelemetry_otlp::SpanExporter::builder()
-    .with_tonic()
-    .with_endpoint("http://127.0.0.1:4317")
-    .build()
-    .expect("failed to create OTLP exporter");
+---
 
-let provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
-    .with_batch_exporter(exporter)
-    .build();
+### Python (Django 5.x + psycopg, OTel SDK 1.42)
 
-let tracer = provider.tracer("mon-service");
-let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+Les applications Django utilisent les packages d'auto-instrumentation. `psycopg` émet `db.statement` avec les placeholders Python DB-API `%s`. perf-sentinel reconnaît `%s` comme placeholder, donc le chemin sanitizer-aware fonctionne sans configuration supplémentaire.
 
-tracing_subscriber::registry()
-    .with(tracing_subscriber::fmt::layer())
-    .with(otel_layer)
-    .init();
 ```
-
-Pour que perf-sentinel détecte les anti-patterns SQL, ajoutez `db.statement` à vos spans de requêtes manuellement :
-
-```rust
-let _span = tracing::info_span!("db.query",
-    db.statement = "SELECT * FROM player WHERE game_id = 42",
-    db.system = "mysql"
-);
+opentelemetry-sdk==1.42.1
+opentelemetry-instrumentation-django==0.63b1
+opentelemetry-instrumentation-psycopg==0.63b1
 ```
 
 ---
+
+### Python (FastAPI + SQLAlchemy 2.x + asyncpg, OTel SDK 1.42)
+
+FastAPI avec SQLAlchemy utilise les packages d'auto-instrumentation. `asyncpg` émet `db.statement` avec les paramètres PostgreSQL natifs (`$1`, `$2`). Le scope `sqlalchemy` est dans la liste des ORM reconnus, donc le chemin sanitizer-aware fire via le chemin ORM.
+
+```
+opentelemetry-sdk==1.42.1
+opentelemetry-instrumentation-fastapi==0.63b1
+opentelemetry-instrumentation-sqlalchemy==0.63b1
+opentelemetry-instrumentation-asyncpg==0.63b1
+```
+
+---
+
+### Node.js (Nest.js + Prisma, OTel SDK 0.218)
+
+Les applications Nest.js utilisent le package `@opentelemetry/sdk-node`. Prisma génère le SQL, le client `pg` l'envoie. Le scope `prisma` est dans la liste des ORM reconnus.
+
+```json
+{
+  "@opentelemetry/sdk-node": "0.218.0",
+  "@opentelemetry/instrumentation-http": "0.218.0",
+  "@opentelemetry/instrumentation-pg": "0.70.0"
+}
+```
+
+---
+
+### Rust (tracing-opentelemetry 0.33, Diesel, SeaORM)
+
+Nécessite l'ajout de 4 crates et ~20 lignes de code d'initialisation. Utilisez `provider.tracer()` (pas `global::tracer()`) pour éviter le problème de trait bound `PreSampledTracer`. Pour les applications Rust utilisant Diesel ou SeaORM, le crate ORM émet le SQL directement dans le span `tracing`. Les scopes `diesel` et `sea-orm` sont dans la liste des ORM reconnus.
+
+```toml
+[dependencies]
+tracing-opentelemetry = "0.33"
+opentelemetry = "0.32"
+opentelemetry_sdk = "0.32"
+opentelemetry-otlp = { version = "0.32", features = ["http-proto", "reqwest-blocking-client"] }
+```
+
+---
+
+## Styles de placeholders SQL et detection
+
+Les différents drivers de base de données émettent des syntaxes de placeholder différentes dans l'attribut `db.statement` du span. Le normalizer SQL de perf-sentinel reconnaît tous les styles courants et les mappe en `$?` ou `?` dans le template normalisé, avec `params` vide pour les requêtes paramétrées. C'est ce qui active le chemin de detection N+1 sanitizer-aware (qui exige `params == []` et un placeholder reconnu dans le template).
+
+| Placeholder    | Produit par                                                                                                            | Normalisé en       | Exemple           |
+|----------------|------------------------------------------------------------------------------------------------------------------------|--------------------|-------------------|
+| `?`            | Agent JDBC (Java), R2DBC via Java Agent, MySQL Connector/J 8.2+ OTel natif, Go `go-sql-driver/mysql`, Node.js `mysql2` | `?`                | `WHERE id = ?`    |
+| `$1`, `$2`     | PostgreSQL natif (pgx, asyncpg, sqlx, node-pg)                                                                         | `$?`               | `WHERE id = $?`   |
+| `%s`           | Python DB-API (psycopg, MySQLdb, PyMySQL, mysql-connector-python)                                                      | `%s` (conservé)    | `WHERE id = %s`   |
+| `@p0`, `@Name` | .NET (Npgsql, SqlClient, MySqlConnector/Pomelo)                                                                        | `@p0` (conservé)   | `WHERE id = @p0`  |
+| `:name`        | Oracle, SQLAlchemy named                                                                                               | `:name` (conservé) | `WHERE id = :oid` |
+
+**Ce que cela signifie pour les opérateurs.** Aucune configuration n'est nécessaire pour activer la detection sur ces stacks. Le normalizer et le check `template_has_placeholder` dans le pipeline de detection gèrent le mapping automatiquement. L'exigence clé est que l'instrumentation OTel émette `db.statement` sur les spans SQL.
+
+**Marqueurs de scope ORM.** Le chemin sanitizer-aware consulte aussi le scope d'instrumentation OTel (le nom de la bibliothèque) pour décider si un groupe de requêtes sanitizées est probablement N+1 ou juste redondant. Les scopes suivants sont reconnus : `spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`, `activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`.
 

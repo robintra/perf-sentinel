@@ -8,7 +8,18 @@ This guide covers the parts of the data pipeline that turn an application's runt
 - [Cloud provider integrations](#cloud-provider-integrations): AWS X-Ray, GCP Cloud Trace, Azure Application Insights, self-hosted Jaeger / Tempo / Zipkin.
 - [Production: via OpenTelemetry Collector](#production-via-opentelemetry-collector): central collector setup, sampling and detection accuracy.
 - [Required span attributes](#required-span-attributes): the legacy and stable OTel semantic conventions perf-sentinel reads.
-- [Dev/staging: per-language instrumentation](#devstaging-per-language-instrumentation): step-by-step setup for Java, Quarkus, .NET, Rust.
+- [Dev/staging: per-language instrumentation](#devstaging-per-language-instrumentation):
+  - Java
+    - [Spring Boot, Helidon 4.x](#java-opentelemetry-java-agent-v227-spring-boot-helidon-4x)
+    - [Quarkus 3.33 LTS](#java-quarkus-333-lts--quarkus-opentelemetry--otel-agent-v227)
+  - [.NET (ASP.NET Core + Entity Framework Core)](#net-aspnet-core--entity-framework-core--opentelemetry-sdk-115)
+  - [Go (pgx)](#go-otelhttp-068--otelpgx-011-otel-sdk-143)
+  - Python
+    - [Django + psycopg](#python-django-5x--psycopg-otel-sdk-142)
+    - [FastAPI + SQLAlchemy + asyncpg](#python-fastapi--sqlalchemy-2x--asyncpg-otel-sdk-142)
+  - [Node.js (Nest.js + Prisma)](#nodejs-nestjs--prisma-otel-sdk-0218)
+  - [Rust (Diesel, SeaORM)](#rust-tracing-opentelemetry-033-diesel-seaorm)
+- [SQL placeholder styles and detection](#sql-placeholder-styles-and-detection): how perf-sentinel maps each instrumentation's SQL placeholder to the sanitizer-aware N+1 detection path.
 
 ## Background: OpenTelemetry primer
 
@@ -371,7 +382,7 @@ Spans that have neither a SQL attribute nor an HTTP attribute are skipped: they 
 
 When no OTel Collector is available, instrument services directly. The guides below are ordered from easiest to most involved.
 
-### Java (OpenTelemetry Java Agent)
+### Java (OpenTelemetry Java Agent v2.27+, Spring Boot, Helidon 4.x)
 
 The [OTel Java Agent](https://opentelemetry.io/docs/zero-code/java/agent/) instruments JDBC, R2DBC, HTTP clients, Spring Web and most frameworks automatically, with zero code changes. This is the closest to plug and play.
 
@@ -402,6 +413,8 @@ The agent automatically captures:
 - Trace context propagation across async boundaries, reactive chains and inter-service calls
 
 This has been validated on Spring Boot 4 with WebFlux/R2DBC, Virtual Threads/JPA and standard MVC/JDBC.
+
+**R2DBC and SQL placeholder handling.** R2DBC drivers use database-native bind markers (`$1`, `$2` for PostgreSQL, `?` for MySQL/MariaDB). The Java Agent's built-in statement sanitizer replaces all literals with bare `?` before setting `db.statement`, regardless of the underlying driver. This means perf-sentinel receives `?`-style sanitized templates with empty params for both JDBC and R2DBC stacks. Without the agent (R2DBC SDK only, no auto-instrumentation), `db.statement` would contain the native `$1`/`$2` markers, which perf-sentinel also handles (the SQL normalizer recognizes `$N` as a placeholder since v0.7.7). Either way, the sanitizer-aware N+1 detection path fires correctly.
 
 #### 3. Docker Compose example
 
@@ -441,7 +454,7 @@ fi
 
 ---
 
-### Java (Quarkus + quarkus-opentelemetry)
+### Java (Quarkus 3.33 LTS + quarkus-opentelemetry + OTel Agent v2.27)
 
 For Quarkus applications (including GraalVM native images where the Java Agent cannot be used), add the `quarkus-opentelemetry` extension:
 
@@ -467,7 +480,7 @@ Set `OTEL_ENABLED=true` and `OTLP_GRPC_ENDPOINT` in your environment to activate
 
 ---
 
-### .NET (ASP.NET Core + OpenTelemetry SDK)
+### .NET (ASP.NET Core + Entity Framework Core + OpenTelemetry SDK 1.15)
 
 Works with NativeAOT (`PublishAot=true`). Requires adding NuGet packages and ~15 lines in `Program.cs`.
 
@@ -508,7 +521,185 @@ Note: Entity Framework Core uses named bind parameters (`@__param_0`). Since the
 
 ---
 
-### Rust (tracing + opentelemetry-otlp)
+### Go (otelhttp 0.68 + otelpgx 0.11, OTel SDK 1.43)
+
+The Go OTel SDK uses explicit wrapping rather than auto-instrumentation. HTTP and SQL each need a dedicated library.
+
+**Dependencies (go.mod):**
+
+```
+go.opentelemetry.io/otel
+go.opentelemetry.io/otel/sdk
+go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
+go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp
+github.com/exaring/otelpgx
+```
+
+**HTTP server instrumentation:**
+
+```go
+mux := http.NewServeMux()
+mux.HandleFunc("/api/orders", handleOrders)
+// Wrap the mux with OTel HTTP middleware
+handler := otelhttp.NewHandler(mux, "server",
+    otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
+        return r.Method + " " + r.URL.Path
+    }),
+)
+http.ListenAndServe(":8080", handler)
+```
+
+**SQL instrumentation with pgx:**
+
+```go
+cfg, _ := pgxpool.ParseConfig(os.Getenv("DB_DSN"))
+cfg.ConnConfig.Tracer = otelpgx.NewTracer()
+pool, _ := pgxpool.NewWithConfig(ctx, cfg)
+```
+
+`otelpgx` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). perf-sentinel normalizes these to `$?` with empty `params`, which enables the sanitizer-aware N+1 detection path. No additional configuration is needed.
+
+**Environment variables (Docker Compose example):**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+  OTEL_SERVICE_NAME: go-svc
+```
+
+---
+
+### Python (Django 5.x + psycopg, OTel SDK 1.42)
+
+Django applications use the auto-instrumentation packages for both HTTP and SQL.
+
+**Dependencies (requirements.txt):**
+
+```
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-django
+opentelemetry-instrumentation-psycopg
+```
+
+**Initialization (manage.py or wsgi.py):**
+
+```python
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.django import DjangoInstrumentor
+from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+
+DjangoInstrumentor().instrument()
+PsycopgInstrumentor().instrument()
+```
+
+`psycopg` emits `db.statement` with Python DB-API `%s` placeholders. perf-sentinel recognizes `%s` as a driver placeholder, so the sanitizer-aware N+1 detection path fires without additional configuration.
+
+**Environment variables:**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: django-svc
+```
+
+---
+
+### Python (FastAPI + SQLAlchemy 2.x + asyncpg, OTel SDK 1.42)
+
+FastAPI with SQLAlchemy uses the auto-instrumentation packages. SQLAlchemy is in the ORM scope allow-list, so the sanitizer-aware detection path recognizes it as an ORM-driven stack.
+
+**Dependencies (requirements.txt):**
+
+```
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlalchemy
+opentelemetry-instrumentation-asyncpg
+```
+
+**Initialization (main.py):**
+
+```python
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+
+FastAPIInstrumentor.instrument_app(app)
+SQLAlchemyInstrumentor().instrument(engine=engine)
+```
+
+`asyncpg` emits `db.statement` with PostgreSQL native positional parameters (`$1`, `$2`). perf-sentinel normalizes these to `$?` with empty `params`. The `sqlalchemy` instrumentation scope is in the ORM scope allow-list, so the sanitizer-aware N+1 detection fires via the ORM path for this stack.
+
+**Environment variables:**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: fastapi-svc
+```
+
+---
+
+### Node.js (Nest.js + Prisma, OTel SDK 0.218)
+
+Nest.js applications use the `@opentelemetry/sdk-node` package with framework-specific instrumentations. Prisma generates SQL, the `pg` client sends it.
+
+**Dependencies (package.json):**
+
+```json
+{
+  "@opentelemetry/sdk-node": "^0.57",
+  "@opentelemetry/exporter-trace-otlp-grpc": "^0.57",
+  "@opentelemetry/instrumentation-http": "^0.57",
+  "@opentelemetry/instrumentation-pg": "^0.44"
+}
+```
+
+**Initialization (tracing.ts, loaded via --require):**
+
+```typescript
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
+import { PgInstrumentation } from '@opentelemetry/instrumentation-pg';
+
+const sdk = new NodeSDK({
+  traceExporter: new OTLPTraceExporter(),
+  instrumentations: [
+    new HttpInstrumentation(),
+    new PgInstrumentation({ enhancedDatabaseReporting: true }),
+  ],
+});
+sdk.start();
+```
+
+`PgInstrumentation` with `enhancedDatabaseReporting: true` emits `db.statement` with the full SQL query, including resolved parameter values. The `prisma` instrumentation scope is in the ORM scope allow-list, so the sanitizer-aware detection fires via the ORM path.
+
+**Environment variables:**
+
+```yaml
+environment:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_SERVICE_NAME: nest-svc
+  NODE_OPTIONS: --require ./tracing.js
+```
+
+---
+
+### Rust (tracing-opentelemetry 0.33, Diesel, SeaORM)
 
 Requires adding 4 crates and ~20 lines of initialization code. Use `provider.tracer()` (not `global::tracer()`) to avoid the `PreSampledTracer` trait bound issue.
 
@@ -547,14 +738,34 @@ tracing_subscriber::registry()
     .init();
 ```
 
-For perf-sentinel to detect SQL anti-patterns, add `db.statement` to your query spans manually:
+For Rust applications using Diesel or SeaORM, the ORM crate emits SQL directly to the `tracing` span. Add `db.statement` and `db.system` to your query spans manually or via the ORM's tracing integration. Both `diesel` and `sea-orm` are in the ORM scope allow-list.
 
 ```rust
 let _span = tracing::info_span!("db.query",
     db.statement = "SELECT * FROM player WHERE game_id = 42",
-    db.system = "mysql"
+    db.system = "postgresql"
 );
 ```
 
 ---
+
+## SQL placeholder styles and detection
+
+Different database drivers emit different placeholder syntax in the `db.statement` span attribute. perf-sentinel's SQL normalizer recognizes all common styles and maps them to `$?` or `?` in the normalized template, with `params` kept empty for parameterized queries. This is what enables the sanitizer-aware N+1 detection path (which requires `params == []` and a recognized placeholder in the template).
+
+| Placeholder    | Produced by                                                                                                             | Normalized to  | Example           |
+|----------------|-------------------------------------------------------------------------------------------------------------------------|----------------|-------------------|
+| `?`            | JDBC agent (Java), R2DBC via Java Agent, MySQL Connector/J 8.2+ native OTel, Go `go-sql-driver/mysql`, Node.js `mysql2` | `?`            | `WHERE id = ?`    |
+| `$1`, `$2`     | PostgreSQL native (pgx, asyncpg, sqlx, node-pg)                                                                         | `$?`           | `WHERE id = $?`   |
+| `%s`           | Python DB-API (psycopg, MySQLdb, PyMySQL, mysql-connector-python)                                                       | `%s` (kept)    | `WHERE id = %s`   |
+| `@p0`, `@Name` | .NET (Npgsql, SqlClient, MySqlConnector/Pomelo)                                                                         | `@p0` (kept)   | `WHERE id = @p0`  |
+| `:name`        | Oracle, SQLAlchemy named                                                                                                | `:name` (kept) | `WHERE id = :oid` |
+
+**What this means for operators.** No configuration is needed to enable detection for any of these stacks. The normalizer and the `template_has_placeholder` check in the detection pipeline handle the mapping automatically. The key requirement is that the OTel instrumentation emits `db.statement` on SQL spans. If `db.statement` is missing (some instrumentations omit it by default for security reasons), perf-sentinel cannot detect SQL anti-patterns. Check your instrumentation library's documentation for how to enable statement capture.
+
+**ORM scope markers.** The sanitizer-aware detection path also consults the OTel instrumentation scope (the library name) to decide whether a group of sanitized queries is likely N+1 or just redundant. The following scopes are recognized as ORM-level instrumentations, which raises the confidence that a repeated parameterized query is a loop iteration rather than a cache-warm pattern:
+
+`spring-data`, `hibernate`, `jpa`, `micronaut-data`, `jdbi`, `r2dbc`, `entityframeworkcore`, `entity-framework`, `sqlalchemy`, `django`, `active-record`, `activerecord`, `gorm`, `sequelize`, `prisma`, `typeorm`, `mongoose`, `sea-orm`, `diesel`.
+
+Stacks without an ORM scope (bare driver: `otelpgx`, `asyncpg`, `node-pg`, `psycopg` without Django/SQLAlchemy) rely on the timing-variance and high-occurrence signals instead. See `docs/design/04-DETECTION.md` for the full classification algorithm.
 
