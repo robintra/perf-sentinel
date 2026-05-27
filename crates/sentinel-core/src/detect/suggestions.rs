@@ -223,12 +223,6 @@ const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Subs
 const SERVICE_NAME_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaHelidonMp, &["helidon-mp", "helidon.mp"]),
     (Framework::JavaHelidonSe, &["helidon"]),
-    (Framework::JavaQuarkusReactive, &["quarkus-reactive"]),
-    (Framework::JavaQuarkus, &["quarkus"]),
-    (Framework::RustDiesel, &["diesel"]),
-    (Framework::RustSeaOrm, &["sea-orm", "seaorm"]),
-    (Framework::GoGorm, &["gorm"]),
-    (Framework::NodePrisma, &["prisma"]),
 ];
 
 /// OpenTelemetry instrumentation scope rules. The scope name string
@@ -251,6 +245,11 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaQuarkus, &["quarkus"]),
     (Framework::JavaWebFlux, &["spring-webflux", "r2dbc"]),
     (Framework::JavaJpa, &["spring-data", "hibernate"]),
+    // Helidon: the Java agent emits `io.opentelemetry.helidon-<version>`.
+    // No MP-specific scope exists today, so both resolve to HelidonSe
+    // (the generic Helidon variant). Namespace hints in JAVA_RULES
+    // disambiguate MP vs SE if code_location is available.
+    (Framework::JavaHelidonSe, &["helidon"]),
     (Framework::PythonDjango, &["django"]),
     (Framework::PythonSqlAlchemy, &["sqlalchemy"]),
     // Go and Node.js are NOT listed here: their OTel instrumentations
@@ -2037,13 +2036,13 @@ mod tests {
     }
 
     #[test]
-    fn service_name_fallback_detects_diesel() {
+    fn service_name_fallback_does_not_match_generic_names() {
         let mut f = make_finding(FindingType::NPlusOneSql, Severity::Warning);
         f.service = "diesel-svc".to_string();
         f.code_location = None;
         f.instrumentation_scopes = vec![];
         f.suggested_fix = None;
-        assert_eq!(detect_framework(&f), Some(Framework::RustDiesel));
+        assert_eq!(detect_framework(&f), None);
     }
 
     #[test]

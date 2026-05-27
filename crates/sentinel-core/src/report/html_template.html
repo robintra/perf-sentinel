@@ -517,7 +517,7 @@
   function safeHttpsHref(url) {
     if (typeof url !== "string") return null;
     if (!url.startsWith("https://")) return null;
-    if (/[\x00-\x1f\x7f]/.test(url)) return null;
+    if (/[\x00-\x1f\x7f-\x9f]/.test(url)) return null;
     return url;
   }
   /// Reusable metric card builder. Hoisted to the outer scope so it is

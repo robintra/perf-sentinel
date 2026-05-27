@@ -1,8 +1,10 @@
-//! Sanitizer-aware classification for SQL N+1 vs redundant.
+//! Sanitizer-aware classification for N+1 vs redundant.
+//!
+//! SQL path: gated on `looks_sanitized`, uses ORM scope + timing variance.
+//! HTTP path: gated on timing variance, optionally uses HTTP placeholders.
 //!
 //! See `docs/design/04-DETECTION.md` § "Sanitizer-aware classification"
-//! for the rationale, the three signals (`looks_sanitized`,
-//! `has_orm_scope`, `timing_variance`), and the JSONB known-limit.
+//! for the rationale and the JSONB known-limit.
 
 use crate::normalize::NormalizedEvent;
 
@@ -395,6 +397,62 @@ pub(super) fn classify_sanitized_sql_group_indexed(
         ),
         SanitizerAwareMode::Auto | SanitizerAwareMode::Always | SanitizerAwareMode::Never => {
             classify_sanitized_sql_group(&group, &scopes)
+        }
+    }
+}
+
+/// Returns `true` when the HTTP template contains a normalizer-generated
+/// placeholder (any `{`-delimited token: `{id}`, `{uuid}`, etc.),
+/// indicating the URL had variable path segments collapsed by the HTTP
+/// normalizer.
+pub(super) fn template_has_http_placeholder(template: &str) -> bool {
+    template.contains('{')
+}
+
+/// Classify an HTTP group that failed the distinct-params rule.
+///
+/// HTTP has no ORM scope concept, so the classification relies on
+/// timing variance, high occurrence, sequential siblings, and the
+/// presence of HTTP placeholders (`{id}`, `{uuid}`).
+///
+/// - `Auto`/`Always`: timing variance alone is sufficient.
+/// - `Strict`: (placeholder OR high occurrence OR sequential) AND
+///   variance.
+/// - `Never`: always inconclusive.
+pub(super) fn classify_http_group_indexed(
+    spans: &[NormalizedEvent],
+    indices: &[usize],
+    mode: SanitizerAwareMode,
+    sequential_siblings: impl FnOnce() -> bool,
+    high_occurrence: bool,
+) -> SanitizerVerdict {
+    let group: Vec<&NormalizedEvent> = indices.iter().map(|&i| &spans[i]).collect();
+    let variance = timing_variance_suggests_n_plus_one(&group);
+    match mode {
+        SanitizerAwareMode::Never => SanitizerVerdict::Inconclusive,
+        SanitizerAwareMode::Auto | SanitizerAwareMode::Always => {
+            if variance {
+                SanitizerVerdict::LikelyNPlusOne
+            } else {
+                SanitizerVerdict::Inconclusive
+            }
+        }
+        SanitizerAwareMode::Strict => {
+            let has_placeholder = indices
+                .iter()
+                .any(|&i| template_has_http_placeholder(&spans[i].template));
+            let primary = has_placeholder || high_occurrence || sequential_siblings();
+            if !primary {
+                return SanitizerVerdict::Inconclusive;
+            }
+            // HTTP has no `looks_sanitized` guard, so high_occurrence
+            // alone is not sufficient as corroboration (unlike SQL where
+            // looks_sanitized already filtered out non-sanitized groups).
+            if variance {
+                SanitizerVerdict::LikelyNPlusOne
+            } else {
+                SanitizerVerdict::Inconclusive
+            }
         }
     }
 }
@@ -970,5 +1028,158 @@ mod tests {
             classify_sanitized_sql_group_strict(&refs, &scopes, || false, false),
             SanitizerVerdict::Inconclusive
         );
+    }
+
+    // ── HTTP placeholder detection ──────────────────────────────
+
+    #[test]
+    fn http_placeholder_recognizes_id() {
+        assert!(template_has_http_placeholder("GET /api/users/{id}"));
+    }
+
+    #[test]
+    fn http_placeholder_recognizes_uuid() {
+        assert!(template_has_http_placeholder(
+            "GET /api/orders/{uuid}/items"
+        ));
+    }
+
+    #[test]
+    fn http_placeholder_rejects_plain_path() {
+        assert!(!template_has_http_placeholder("GET /api/health"));
+        assert!(!template_has_http_placeholder("GET /api/users"));
+    }
+
+    // ── HTTP group classification ───────────────────────────────
+
+    fn http_normalized_with_durations(durations: &[u64]) -> Vec<NormalizedEvent> {
+        durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let e = crate::test_helpers::make_http_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "http://user-svc:5000/api/users/42",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                );
+                normalize_one(e)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn http_auto_reclassifies_on_high_variance() {
+        let spans = http_normalized_with_durations(&[100, 50, 200, 60, 250]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Auto,
+            || false,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
+    }
+
+    #[test]
+    fn http_auto_inconclusive_on_low_variance() {
+        let spans = http_normalized_with_durations(&[100, 100, 100, 100, 100]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Auto,
+            || false,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::Inconclusive);
+    }
+
+    #[test]
+    fn http_never_always_inconclusive() {
+        let spans = http_normalized_with_durations(&[100, 50, 200, 60, 250]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Never,
+            || false,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::Inconclusive);
+    }
+
+    #[test]
+    fn http_strict_placeholder_plus_variance() {
+        let spans = http_normalized_with_durations(&[100, 50, 200, 60, 250]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Strict,
+            || false,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
+    }
+
+    #[test]
+    fn http_strict_high_occurrence_no_variance_stays_inconclusive() {
+        // Unlike SQL, high_occurrence alone is not sufficient for HTTP
+        // because HTTP has no looks_sanitized guard.
+        let spans = http_normalized_with_durations(&[100, 100, 100, 100, 100]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Strict,
+            || false,
+            true,
+        );
+        assert_eq!(verdict, SanitizerVerdict::Inconclusive);
+    }
+
+    #[test]
+    fn http_strict_no_signal_inconclusive() {
+        let durations = [100u64; 5];
+        let spans: Vec<NormalizedEvent> = durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let e = crate::test_helpers::make_http_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "http://svc:5000/api/health",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                );
+                normalize_one(e)
+            })
+            .collect();
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Strict,
+            || false,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::Inconclusive);
+    }
+
+    #[test]
+    fn http_strict_sequential_plus_variance() {
+        let spans = http_normalized_with_durations(&[100, 50, 200, 60, 250]);
+        let indices: Vec<usize> = (0..spans.len()).collect();
+        let verdict = classify_http_group_indexed(
+            &spans,
+            &indices,
+            SanitizerAwareMode::Strict,
+            || true,
+            false,
+        );
+        assert_eq!(verdict, SanitizerVerdict::LikelyNPlusOne);
     }
 }

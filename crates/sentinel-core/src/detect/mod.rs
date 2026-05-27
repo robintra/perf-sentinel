@@ -227,9 +227,10 @@ pub enum ClassificationMethod {
     /// redundant). Equivalent to the absence of the field; emitted
     /// explicitly only when a caller wants to be unambiguous.
     Direct,
-    /// Reclassified via the sanitizer-aware heuristic, because the
-    /// OpenTelemetry agent's SQL sanitizer collapsed every parameter to
-    /// `?`, making the standard distinct-params check unreliable.
+    /// Reclassified via a heuristic path. For SQL: the `OTel` agent's
+    /// sanitizer collapsed parameters to `?`, and the timing/scope
+    /// signals suggest N+1 over redundant. For HTTP: repeated identical
+    /// params with high timing variance suggest N+1 over redundant.
     SanitizerHeuristic,
 }
 

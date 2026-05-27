@@ -84,11 +84,13 @@ pub fn detect_n_plus_one(
 /// under which classification method.
 ///
 /// Returns `Some((distinct_params, classification_method))` to emit a
-/// finding, `None` to skip the group. Two emit paths:
+/// finding, `None` to skip the group. Three emit paths:
 /// - direct rule (`distinct_params >= threshold`): returns
 ///   `(distinct_params, None)`.
-/// - sanitizer heuristic (SQL only, gated on `mode`): returns
-///   `(1, Some(ClassificationMethod::SanitizerHeuristic))`.
+/// - SQL sanitizer heuristic (gated on `mode` + `looks_sanitized`):
+///   returns `(1, Some(ClassificationMethod::SanitizerHeuristic))`.
+/// - HTTP heuristic (gated on `mode` + timing variance): returns
+///   `(distinct_params, Some(ClassificationMethod::SanitizerHeuristic))`.
 fn classify_group(
     trace: &Trace,
     event_type: &EventType,
@@ -106,31 +108,48 @@ fn classify_group(
     if distinct_params.len() >= threshold {
         return Some((distinct_params.len(), None));
     }
-    if mode == SanitizerAwareMode::Never
-        || *event_type != EventType::Sql
-        || !sanitizer_aware::looks_sanitized_indexed(&trace.spans, indices)
-    {
+    if mode == SanitizerAwareMode::Never {
         return None;
     }
-    // `Always` short-circuits: the mode emits on every sanitized group
-    // regardless of signal, so the dispatcher's collect+scope+verdict
-    // work would be discarded.
-    if mode == SanitizerAwareMode::Always {
-        return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
-    }
-    // Above 3x the n+1 threshold (default 15), a sanitized group is
-    // structurally n+1 under the looks_sanitized guard. The Strict
-    // verdict uses this as both primary and corroborating signal.
     let high_occurrence = indices.len() >= threshold.saturating_mul(3);
-    let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(
-        &trace.spans,
-        indices,
-        mode,
-        || sequential_siblings_indexed(&trace.spans, indices),
-        high_occurrence,
-    );
-    matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
-        .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
+    match event_type {
+        EventType::Sql => {
+            if !sanitizer_aware::looks_sanitized_indexed(&trace.spans, indices) {
+                return None;
+            }
+            if mode == SanitizerAwareMode::Always {
+                return Some((1, Some(ClassificationMethod::SanitizerHeuristic)));
+            }
+            let verdict = sanitizer_aware::classify_sanitized_sql_group_indexed(
+                &trace.spans,
+                indices,
+                mode,
+                || sequential_siblings_indexed(&trace.spans, indices),
+                high_occurrence,
+            );
+            matches!(verdict, SanitizerVerdict::LikelyNPlusOne)
+                .then_some((1, Some(ClassificationMethod::SanitizerHeuristic)))
+        }
+        EventType::HttpOut => {
+            if mode == SanitizerAwareMode::Always {
+                return Some((
+                    distinct_params.len(),
+                    Some(ClassificationMethod::SanitizerHeuristic),
+                ));
+            }
+            let verdict = sanitizer_aware::classify_http_group_indexed(
+                &trace.spans,
+                indices,
+                mode,
+                || sequential_siblings_indexed(&trace.spans, indices),
+                high_occurrence,
+            );
+            matches!(verdict, SanitizerVerdict::LikelyNPlusOne).then_some((
+                distinct_params.len(),
+                Some(ClassificationMethod::SanitizerHeuristic),
+            ))
+        }
+    }
 }
 
 /// Returns `true` when the indexed group has at least 3 spans, all
@@ -315,7 +334,9 @@ pub(crate) fn parse_timestamp_ms(ts: &str) -> Option<u64> {
 mod tests {
     use super::*;
     use crate::event::SpanEvent;
-    use crate::test_helpers::{make_http_event, make_sql_event, make_trace};
+    use crate::test_helpers::{
+        make_http_event, make_http_event_with_duration, make_sql_event, make_trace,
+    };
 
     #[test]
     fn detects_n_plus_one_sql() {
@@ -1008,5 +1029,92 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].first_timestamp, "2025-07-10T14:32:01.050Z");
         assert_eq!(findings[0].last_timestamp, "2025-07-10T14:32:01.300Z");
+    }
+
+    // ── HTTP heuristic path ─────────────────────────────────────
+
+    fn http_same_id_events(durations: &[u64]) -> Vec<SpanEvent> {
+        durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                make_http_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "http://user-svc:5000/api/users/42",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn http_heuristic_auto_reclassifies_on_high_variance() {
+        let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+    }
+
+    #[test]
+    fn http_heuristic_auto_low_variance_no_finding() {
+        let events = http_same_id_events(&[100, 100, 100, 100, 100, 100, 100]);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Auto);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn http_heuristic_never_mode_no_finding() {
+        let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Never);
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn http_heuristic_always_mode_reclassifies_unconditionally() {
+        let events = http_same_id_events(&[100, 100, 100, 100, 100, 100, 100]);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Always);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
+        assert_eq!(
+            findings[0].classification_method,
+            Some(ClassificationMethod::SanitizerHeuristic)
+        );
+    }
+
+    #[test]
+    fn http_heuristic_strict_placeholder_plus_variance() {
+        let events = http_same_id_events(&[100, 50, 200, 60, 250, 80, 300]);
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].finding_type, FindingType::NPlusOneHttp);
+    }
+
+    #[test]
+    fn http_heuristic_strict_no_placeholder_no_variance_no_finding() {
+        let events: Vec<SpanEvent> = (0..7)
+            .map(|i| {
+                make_http_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "http://svc:5000/api/health",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    100,
+                )
+            })
+            .collect();
+        let trace = make_trace(events);
+        let findings = detect_n_plus_one(&trace, 5, 500, SanitizerAwareMode::Strict);
+        assert!(findings.is_empty());
     }
 }
