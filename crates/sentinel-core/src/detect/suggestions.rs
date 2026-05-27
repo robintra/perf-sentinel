@@ -216,6 +216,21 @@ const GO_RULES: &[(Framework, &[Hint])] = &[(Framework::GoGorm, &[Hint::Substrin
 
 const JS_RULES: &[(Framework, &[Hint])] = &[(Framework::NodePrisma, &[Hint::Substring("prisma")])];
 
+/// Last-resort service-name rules. Scanned only when all `OTel`-based
+/// signals (scopes, `code_location`, filepath) are absent. Only
+/// framework names distinctive enough to avoid false positives in
+/// arbitrary service names are included. Order: more-specific first.
+const SERVICE_NAME_RULES: &[(Framework, &[&str])] = &[
+    (Framework::JavaHelidonMp, &["helidon-mp", "helidon.mp"]),
+    (Framework::JavaHelidonSe, &["helidon"]),
+    (Framework::JavaQuarkusReactive, &["quarkus-reactive"]),
+    (Framework::JavaQuarkus, &["quarkus"]),
+    (Framework::RustDiesel, &["diesel"]),
+    (Framework::RustSeaOrm, &["sea-orm", "seaorm"]),
+    (Framework::GoGorm, &["gorm"]),
+    (Framework::NodePrisma, &["prisma"]),
+];
+
 /// OpenTelemetry instrumentation scope rules. The scope name string
 /// (e.g. `io.opentelemetry.spring-data-3.0`) is emitted by the agent
 /// regardless of how the user names their classes, so this is the most
@@ -279,6 +294,18 @@ const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
 fn vendor_prefix_matches(scope: &str, prefix: &str) -> bool {
     scope.starts_with(prefix)
         && (scope.len() == prefix.len() || scope.as_bytes()[prefix.len()] == b'.')
+}
+
+/// Last-resort framework detection from the service name. Only reached
+/// when all OTel-based signal paths return `None`.
+fn detect_framework_from_service_name(service: &str) -> Option<Framework> {
+    let lower = service.to_ascii_lowercase();
+    for (framework, needles) in SERVICE_NAME_RULES {
+        if needles.iter().any(|n| lower.contains(n)) {
+            return Some(*framework);
+        }
+    }
+    None
 }
 
 /// Match any scope in the chain against any rule. Returns the first
@@ -1188,7 +1215,7 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
     FIXES.get(&(finding.finding_type.clone(), framework))
 }
 
-/// Pure framework detector. Inspects four signals in order:
+/// Pure framework detector. Inspects five signals in order:
 ///
 /// 1. **Instrumentation scope chain** captured at OTLP ingest time
 ///    (`io.opentelemetry.spring-data-3.0`, `io.opentelemetry.hibernate-6.0`,
@@ -1197,9 +1224,9 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
 ///    check misses (Go/Node scopes use ecosystem-native names, not
 ///    the `OTel` convention), the scope prefix still reveals the language
 ///    (`github.com/` = Go, `@opentelemetry/instrumentation-` = Node,
-///    etc.). The language
-///    generic fallback fires so even a span without `code.filepath` or
-///    `code.namespace` gets a language-appropriate suggestion.
+///    etc.). The language generic fallback fires so even a span without
+///    `code.filepath` or `code.namespace` gets a language-appropriate
+///    suggestion.
 /// 3. **`code_location` namespace** with filepath-derived language.
 ///    Returns the language-generic fallback when no namespace rule
 ///    matches but the language is known.
@@ -1207,6 +1234,10 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
 ///    Tries every language's rules in order and returns the first hit.
 ///    No generic fallback in this path because we cannot know which
 ///    language to fall back to.
+/// 5. **Service name** (`Finding.service`) as a last resort. Known
+///    framework substrings (e.g. `helidon` in `helidon-se-svc`) produce
+///    a framework-specific match. Lowest confidence, only reached when
+///    all `OTel` signals are absent.
 ///
 /// `None` when no signal is available.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
@@ -1221,25 +1252,32 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
             .unwrap_or("");
         return Some(match_namespace_against_language(ns, language).unwrap_or(language.generic()));
     }
-    let loc = finding.code_location.as_ref()?;
-    let ns = loc.namespace.as_deref().unwrap_or("");
-    if let Some(filepath) = loc.filepath.as_deref() {
-        let language = language_from_filepath(filepath)?;
-        return Some(match_namespace_against_language(ns, language).unwrap_or(language.generic()));
+    if let Some(loc) = finding.code_location.as_ref() {
+        let ns = loc.namespace.as_deref().unwrap_or("");
+        if let Some(language) = loc.filepath.as_deref().and_then(language_from_filepath) {
+            return Some(
+                match_namespace_against_language(ns, language).unwrap_or(language.generic()),
+            );
+        }
+        if let Some(fw) = (!ns.is_empty())
+            .then(|| {
+                [
+                    Language::Java,
+                    Language::Csharp,
+                    Language::Python,
+                    Language::Rust,
+                    Language::Go,
+                    Language::JavaScript,
+                ]
+                .into_iter()
+                .find_map(|language| match_namespace_against_language(ns, language))
+            })
+            .flatten()
+        {
+            return Some(fw);
+        }
     }
-    if ns.is_empty() {
-        return None;
-    }
-    [
-        Language::Java,
-        Language::Csharp,
-        Language::Python,
-        Language::Rust,
-        Language::Go,
-        Language::JavaScript,
-    ]
-    .into_iter()
-    .find_map(|language| match_namespace_against_language(ns, language))
+    detect_framework_from_service_name(&finding.service)
 }
 
 /// Deduce the programming language from ecosystem-native scope name
@@ -1984,6 +2022,58 @@ mod tests {
             &["io.quarkus.reactive_streams.vendor"],
         );
         assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkus));
+    }
+
+    // ── Service-name fallback ──────────────────────────────────
+
+    #[test]
+    fn service_name_fallback_detects_helidon_se() {
+        let mut f = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.service = "helidon-se-svc".to_string();
+        f.code_location = None;
+        f.instrumentation_scopes = vec![];
+        f.suggested_fix = None;
+        assert_eq!(detect_framework(&f), Some(Framework::JavaHelidonSe));
+    }
+
+    #[test]
+    fn service_name_fallback_detects_diesel() {
+        let mut f = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.service = "diesel-svc".to_string();
+        f.code_location = None;
+        f.instrumentation_scopes = vec![];
+        f.suggested_fix = None;
+        assert_eq!(detect_framework(&f), Some(Framework::RustDiesel));
+    }
+
+    #[test]
+    fn service_name_fallback_returns_none_for_unknown() {
+        let mut f = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.service = "myapp-svc".to_string();
+        f.code_location = None;
+        f.instrumentation_scopes = vec![];
+        f.suggested_fix = None;
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn service_name_fallback_not_reached_when_scope_matches() {
+        let mut f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.opentelemetry.spring-data-3.0"],
+        );
+        f.service = "diesel-svc".to_string();
+        assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    #[test]
+    fn service_name_fallback_helidon_mp_wins_over_se() {
+        let mut f = make_finding(FindingType::NPlusOneSql, Severity::Warning);
+        f.service = "helidon-mp-svc".to_string();
+        f.code_location = None;
+        f.instrumentation_scopes = vec![];
+        f.suggested_fix = None;
+        assert_eq!(detect_framework(&f), Some(Framework::JavaHelidonMp));
     }
 
     // ── Cross-language fallthrough ───────────────────────────────
