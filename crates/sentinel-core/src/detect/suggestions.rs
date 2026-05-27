@@ -247,9 +247,53 @@ const SCOPE_RULES: &[(Framework, &[&str])] = &[
     // language-from-filepath generic fallback.
 ];
 
+/// Vendor-specific `OTel` integration scopes that do not follow the
+/// standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*`
+/// prefix convention. Checked before `SCOPE_RULES` in
+/// `detect_framework_from_scopes`. Order matters within a vendor:
+/// more-specific entries first (reactive before generic Quarkus).
+const VENDOR_SCOPE_RULES: &[(Framework, &[&str])] = &[
+    // .NET: EF Core via the OTel wrapper or the raw NuGet scope
+    (
+        Framework::CsharpEfCore,
+        &[
+            "OpenTelemetry.Instrumentation.EntityFrameworkCore",
+            "Microsoft.EntityFrameworkCore",
+        ],
+    ),
+    // Quarkus: `io.quarkus.<module>`. Reactive sub-packages first so
+    // they win over the catch-all `io.quarkus` entry.
+    (
+        Framework::JavaQuarkusReactive,
+        &[
+            "io.quarkus.hibernate.reactive",
+            "io.quarkus.panache.reactive",
+            "io.quarkus.reactive",
+        ],
+    ),
+    (Framework::JavaQuarkus, &["io.quarkus"]),
+];
+
+/// Segment-boundary prefix match for vendor scopes. The prefix must
+/// end at a `.` boundary or consume the entire scope string.
+fn vendor_prefix_matches(scope: &str, prefix: &str) -> bool {
+    scope.starts_with(prefix)
+        && (scope.len() == prefix.len() || scope.as_bytes()[prefix.len()] == b'.')
+}
+
 /// Match any scope in the chain against any rule. Returns the first
 /// rule's framework whose substring list intersects the scope chain.
 fn detect_framework_from_scopes(scopes: &[String]) -> Option<Framework> {
+    // Vendor-specific scopes (not io.opentelemetry.* convention)
+    for (framework, prefixes) in VENDOR_SCOPE_RULES {
+        if scopes
+            .iter()
+            .any(|scope| prefixes.iter().any(|p| vendor_prefix_matches(scope, p)))
+        {
+            return Some(*framework);
+        }
+    }
+    // Standard OTel convention scopes
     for (framework, needles) in SCOPE_RULES {
         if scopes
             .iter()
@@ -1208,9 +1252,11 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
 /// - `github.com/` → Go (Go module paths).
 /// - `@opentelemetry/instrumentation-` or `@prisma/` → Node.js (npm).
 /// - `Microsoft.EntityFrameworkCore` → C# (`NuGet` package name).
+/// - `OpenTelemetry.Instrumentation.*` → C# (.NET `OTel` SDK convention).
 ///
-/// Java and Python scopes use the `OTel` convention and are handled by
-/// `SCOPE_RULES` + `detect_framework_from_scopes`. Rust scopes are
+/// Java scopes use the `OTel` convention handled by `SCOPE_RULES`, or
+/// vendor prefixes handled by `VENDOR_SCOPE_RULES` (`io.quarkus.*`).
+/// Python scopes use the `OTel` convention. Rust scopes are
 /// user-defined and have no reliable prefix convention.
 fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
     for scope in scopes {
@@ -1223,8 +1269,11 @@ fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
         {
             return Some(Language::JavaScript);
         }
+        // VENDOR_SCOPE_RULES catches these for CsharpEfCore; this arm
+        // is the fallback that routes other .NET scopes to CsharpGeneric.
         if scope == "Microsoft.EntityFrameworkCore"
             || scope.starts_with("Microsoft.EntityFrameworkCore.")
+            || scope.starts_with("OpenTelemetry.Instrumentation.")
         {
             return Some(Language::Csharp);
         }
@@ -1857,6 +1906,84 @@ mod tests {
         // Bare canonical form (no version) is also accepted.
         let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.opentelemetry.spring-data"]);
         assert_eq!(detect_framework(&f), Some(Framework::JavaJpa));
+    }
+
+    // ── Vendor-specific scope detection ────────────────────────
+
+    #[test]
+    fn vendor_scope_dotnet_ef_core() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["OpenTelemetry.Instrumentation.EntityFrameworkCore"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::CsharpEfCore));
+    }
+
+    #[test]
+    fn vendor_scope_dotnet_ef_core_wins_over_namespace() {
+        let mut f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["OpenTelemetry.Instrumentation.EntityFrameworkCore"],
+        );
+        f.code_location = Some(loc("OrderController.cs", Some("MyApp.Controllers")));
+        assert_eq!(detect_framework(&f), Some(Framework::CsharpEfCore));
+    }
+
+    #[test]
+    fn vendor_scope_quarkus_generic() {
+        let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.quarkus.opentelemetry"]);
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkus));
+    }
+
+    #[test]
+    fn vendor_scope_quarkus_reactive_wins_over_generic() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.quarkus.hibernate.reactive", "io.quarkus.opentelemetry"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkusReactive));
+    }
+
+    #[test]
+    fn vendor_scope_quarkus_panache_reactive() {
+        let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.quarkus.panache.reactive"]);
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkusReactive));
+    }
+
+    #[test]
+    fn vendor_scope_wins_over_standard_scope() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.quarkus.opentelemetry", "io.opentelemetry.hibernate-6.0"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkus));
+    }
+
+    #[test]
+    fn vendor_scope_unknown_dotnet_instrumentation_falls_to_csharp_generic() {
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["OpenTelemetry.Instrumentation.SqlClient"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::CsharpGeneric));
+    }
+
+    #[test]
+    fn vendor_scope_quarkus_prefix_requires_dot_boundary() {
+        let f = finding_with_scopes(FindingType::NPlusOneSql, &["io.quarkusbridge.acme"]);
+        assert_eq!(detect_framework(&f), None);
+    }
+
+    #[test]
+    fn vendor_scope_reactive_prefix_does_not_match_across_underscore() {
+        // io.quarkus.reactive_streams is under io.quarkus.* so the
+        // catch-all JavaQuarkus matches, but the reactive-specific rule
+        // for "io.quarkus.reactive" must NOT fire (next char is '_').
+        let f = finding_with_scopes(
+            FindingType::NPlusOneSql,
+            &["io.quarkus.reactive_streams.vendor"],
+        );
+        assert_eq!(detect_framework(&f), Some(Framework::JavaQuarkus));
     }
 
     // ── Cross-language fallthrough ───────────────────────────────
