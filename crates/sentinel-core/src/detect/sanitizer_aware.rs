@@ -31,10 +31,10 @@ pub enum SanitizerAwareMode {
     /// `distinct_params` check.
     Never,
     /// Reclassify when a primary signal (ORM scope, high occurrence
-    /// >= 3x threshold, or sequential siblings) fires conjointly with
-    /// a corroborating signal (timing variance or high occurrence).
-    /// High occurrence serves both roles: 15+ sanitized identical
-    /// templates in one trace is structurally n+1 under the
+    /// `>= 3x` threshold, or sequential siblings) fires conjointly
+    /// with a corroborating signal (timing variance or high
+    /// occurrence). High occurrence serves both roles: 15+ sanitized
+    /// identical templates in one trace is structurally N+1 under the
     /// `looks_sanitized` guard. See `docs/design/04-DETECTION.md`.
     Strict,
 }
@@ -134,12 +134,15 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
     "diesel",
 ];
 
-/// Returns `true` when every span in the group looks like the OpenTelemetry
-/// SQL sanitizer collapsed its literals: the template carries at least
-/// one `?` placeholder, and `params` is empty (because `normalize_sql`
-/// only extracts literal numbers and strings, not pre-existing `?`
-/// placeholders). A non-sanitized N+1 has `params` populated with one
-/// entry per literal, a sanitized N+1 has `params == []` on every span.
+/// Returns `true` when every span in the group looks like the `OTel`
+/// SQL sanitizer (or native driver) collapsed its literals: the
+/// template carries at least one recognized placeholder (`?`, `%s`,
+/// `@param`, `:name`, `$1`), and `params` is empty (because
+/// `normalize_sql` only extracts literal numbers and strings, not
+/// pre-existing placeholders). A non-sanitized N+1 has `params`
+/// populated with one entry per literal, a sanitized N+1 has
+/// `params == []` on every span. See [`template_has_placeholder`] for
+/// the full list of recognized placeholder styles.
 ///
 /// See the module-level note for the JSONB `?` operator caveat.
 #[must_use]
@@ -147,7 +150,7 @@ pub fn looks_sanitized(spans: &[&NormalizedEvent]) -> bool {
     !spans.is_empty()
         && spans
             .iter()
-            .all(|s| s.params.is_empty() && s.template.contains('?'))
+            .all(|s| s.params.is_empty() && template_has_placeholder(&s.template))
 }
 
 /// Index-based variant of [`looks_sanitized`] for the detection hot path.
@@ -158,8 +161,43 @@ pub(super) fn looks_sanitized_indexed(spans: &[NormalizedEvent], indices: &[usiz
     !indices.is_empty()
         && indices.iter().all(|&i| {
             let s = &spans[i];
-            s.params.is_empty() && s.template.contains('?')
+            s.params.is_empty() && template_has_placeholder(&s.template)
         })
+}
+
+/// Returns `true` when the template contains a recognizable
+/// database-driver placeholder, indicating the `OTel` instrumentation
+/// sanitized (or preserved) parameter bindings. Recognized styles:
+///
+/// - `?` : JDBC agent sanitizer, also catches `$?` (`pgx`/`asyncpg`).
+/// - `%s` : Python DB-API (`psycopg`, `MySQLdb`).
+/// - `@` + alphanumeric : .NET (`Npgsql` `@p0`, `SqlClient` `@Name`).
+/// - `:` + alphanumeric (not `::`) : `Oracle`, `SQLAlchemy` (`:oid`).
+/// - `$` + digit : `PostgreSQL` native unsanitized (`$1`, `$2`).
+fn template_has_placeholder(template: &str) -> bool {
+    if template.contains('?') || template.contains("%s") {
+        return true;
+    }
+    let bytes = template.as_bytes();
+    for i in 0..bytes.len().saturating_sub(1) {
+        let next = bytes[i + 1];
+        match bytes[i] {
+            // Single `@` followed by alpha, NOT preceded by another `@`
+            // (excludes SQL Server system variables like `@@ROWCOUNT`).
+            b'@' if next.is_ascii_alphanumeric() && (i == 0 || bytes[i - 1] != b'@') => {
+                return true;
+            }
+            // Single `:` followed by a letter, NOT preceded by another
+            // `:` (excludes PostgreSQL casts `::int` and array slices
+            // `arr[1:2]` where `:digit` is NOT a placeholder).
+            b':' if next.is_ascii_alphabetic() && (i == 0 || bytes[i - 1] != b':') => {
+                return true;
+            }
+            b'$' if next.is_ascii_digit() => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Returns `true` when any of the supplied instrumentation scopes contains
@@ -268,9 +306,15 @@ pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     cv > 0.5
 }
 
-/// Combined verdict for `Auto` mode: ORM scope wins (high-confidence
-/// reclassification), otherwise fall back to timing variance. Either
-/// signal alone is enough to return `LikelyNPlusOne`.
+/// Combined verdict for `Auto` mode: ORM scope or timing variance.
+/// Either signal alone is enough to return `LikelyNPlusOne`.
+///
+/// `high_occurrence` is deliberately NOT consulted here: Auto is the
+/// precision-first mode, and 15+ identical sanitized queries can be a
+/// legitimate cache-warm pattern (all hitting cache, uniform timing,
+/// no ORM scope) where the correct classification is `redundant_sql`
+/// not `n_plus_one_sql`. Users who need the `high_occurrence` signal
+/// should set `sanitizer_aware_classification = "strict"`.
 #[must_use]
 pub fn classify_sanitized_sql_group(
     spans: &[&NormalizedEvent],
@@ -533,6 +577,65 @@ mod tests {
         let normalized = normalize_one(event);
         let refs = vec![&normalized];
         assert!(!looks_sanitized(&refs));
+    }
+
+    #[test]
+    fn template_has_placeholder_recognizes_all_driver_styles() {
+        // JDBC / generic sanitizer
+        assert!(template_has_placeholder("WHERE id = ?"));
+        // pgx / asyncpg sanitized
+        assert!(template_has_placeholder("WHERE id = $?"));
+        // Python DB-API (psycopg, MySQLdb)
+        assert!(template_has_placeholder("WHERE id = %s"));
+        // .NET Npgsql / SqlClient
+        assert!(template_has_placeholder("WHERE id = @p0"));
+        assert!(template_has_placeholder("WHERE id = @Name"));
+        // Oracle / SQLAlchemy named
+        assert!(template_has_placeholder("WHERE id = :oid"));
+        // PostgreSQL native unsanitized
+        assert!(template_has_placeholder("WHERE id = $1"));
+        // PostgreSQL cast `::int` must NOT trigger
+        assert!(!template_has_placeholder("SELECT count(*)::int FROM t"));
+        // PostgreSQL array slice `arr[1:2]` must NOT trigger
+        assert!(!template_has_placeholder("SELECT arr[1:2] FROM t"));
+        // SQL Server system variables `@@ROWCOUNT` must NOT trigger
+        assert!(!template_has_placeholder("SELECT @@ROWCOUNT"));
+        assert!(!template_has_placeholder("SELECT @@VERSION"));
+        // No placeholder
+        assert!(!template_has_placeholder("SELECT NOW()"));
+        assert!(!template_has_placeholder("SELECT 1"));
+    }
+
+    #[test]
+    fn classify_auto_stays_inconclusive_without_orm_or_variance() {
+        // No ORM scope, uniform timing (variance false). Auto mode
+        // does NOT consult high_occurrence (precision-first), so the
+        // group stays Inconclusive. Users who need the
+        // high_occurrence signal should use Strict mode.
+        let durations = [100u64, 102, 98, 101, 99, 100, 101, 99, 100, 102];
+        let events: Vec<SpanEvent> = durations
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let mut e = make_sql_event_with_duration(
+                    "trace-1",
+                    &format!("span-{i}"),
+                    "SELECT * FROM order_items WHERE order_id = $?",
+                    &format!("2025-07-10T14:32:01.{:03}Z", i * 30),
+                    *d,
+                );
+                e.instrumentation_scopes = Vec::new();
+                e
+            })
+            .collect();
+        let normalized: Vec<NormalizedEvent> = events.into_iter().map(normalize_one).collect();
+        let refs: Vec<&NormalizedEvent> = normalized.iter().collect();
+        let scopes = collect_scopes(&refs);
+        assert_eq!(
+            classify_sanitized_sql_group(&refs, &scopes),
+            SanitizerVerdict::Inconclusive,
+            "Auto must NOT fire on high_occurrence alone (cache-warm precision guard)"
+        );
     }
 
     #[test]
