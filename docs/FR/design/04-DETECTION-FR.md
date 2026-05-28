@@ -128,6 +128,17 @@ Les quatre modes d'émission (`Auto`, `Strict`, `Always`, `Never`) sont document
 
 `looks_sanitized` ne peut pas distinguer un `?` littéral sanitizé d'un opérateur d'existence JSONB PostgreSQL (`data ? 'key'`) quand ce dernier apparaît dans une requête sans autre littéral. La direction du préjudice est asymétrique : un groupe JSONB mal classé bascule de `redundant_sql` vers `n_plus_one_sql`, les deux contribuant à parts égales aux `avoidable_io_ops` GreenOps, seul le texte de la suggestion diffère.
 
+### Extension HTTP (0.7.8+)
+
+Le même aiguillage couvre aussi les groupes HTTP sortants via `classify_http_group_indexed`. HTTP n'a pas d'analogue de `looks_sanitized` (le normaliseur collapse toujours les IDs de path en `{id}`/`{uuid}`, les params ne sont jamais effacés comme un sanitizer SQL les efface) ni de notion de scope ORM. Le chemin HTTP s'appuie donc sur un jeu de signaux plus étroit :
+
+- `Auto`/`Always` : la variance de timing seule (CV `>= 0.5`).
+- `Strict` : un signal primaire (placeholder HTTP dans le template, occurrence élevée, ou siblings séquentiels) corroboré par la variance de timing. Contrairement au chemin SQL, l'occurrence élevée seule n'est **pas** une corroboration suffisante pour HTTP, car sans le filtre `looks_sanitized` une boucle de polling active ou un appel répété servi par un CDN serait promu en `n_plus_one_http`.
+
+#### Limite connue : redaction de la query string
+
+La détection des N+1 HTTP exige que le paramètre variable soit visible dans le span. Une boucle N+1 qui fait varier un segment de path est détectée (params extraits distincts, ou le placeholder `{id}` ancre le primaire Strict). Une boucle N+1 qui fait varier un **paramètre de query** est invisible quand l'instrumentation redacte la query string avant l'export. OpenTelemetry .NET `System.Net.Http` la redacte en `?*` par défaut, donc chaque appel porte un `url.full` identique au byte près, `distinct_params` retombe à 1, et le groupe est correctement classé en `redundant_http`. Le paramètre distinctif a été détruit en amont, donc aucun consommateur de traces ne peut le récupérer. Voir `docs/FR/LIMITATIONS-FR.md` § "Redaction de la query string HTTP et visibilité des N+1" pour les contournements côté opérateur.
+
 ## Détection redondante
 
 ### Clés de slice empruntées

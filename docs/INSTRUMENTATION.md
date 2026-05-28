@@ -519,6 +519,8 @@ The `SetDbStatementForText = true` option is required for perf-sentinel to see t
 
 Note: Entity Framework Core uses named bind parameters (`@__param_0`). Since the actual parameter values are not visible in the query template, perf-sentinel may detect repeated queries as `redundant_sql` (same template, same visible params) rather than `n_plus_one_sql` (same template, different params).
 
+Note: `System.Net.Http` redacts the query string to `?*` by default, so outbound HTTP N+1 loops that vary a query parameter (`?seq=1`, `?seq=2`, ...) reach perf-sentinel as identical URLs and are detected as `redundant_http` rather than `n_plus_one_http`. To get `n_plus_one_http` on these loops, set `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true` so the query survives, or model the varying identifier as a path segment (`/api/resource/{id}`). See [LIMITATIONS.md](./LIMITATIONS.md#http-query-string-redaction-and-n1-visibility) for the full rationale.
+
 ---
 
 ### Go (otelhttp 0.68 + otelpgx 0.11, OTel SDK 1.43)

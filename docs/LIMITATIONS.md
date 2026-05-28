@@ -5,6 +5,7 @@
 - [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
 - [SQL tokenizer](#sql-tokenizer): regex-based normalizer trade-offs.
 - [ORM bind parameters and N+1 vs redundant classification](#orm-bind-parameters-and-n1-vs-redundant-classification): how named bind placeholders affect classification.
+- [HTTP query-string redaction and N+1 visibility](#http-query-string-redaction-and-n1-visibility): why query-parameter N+1 loops are invisible under instrumentations that redact the query string.
 - [Slow findings and waste ratio](#slow-findings-and-waste-ratio): why slow findings do not contribute to the I/O waste ratio.
 - [Score interpretation](#score-interpretation): the healthy / moderate / high / critical bands for `io_intensity_score` and `io_waste_ratio`.
 - [Fanout detection requires `parent_span_id`](#fanout-detection-requires-parent_span_id): instrumentation prerequisite.
@@ -60,6 +61,14 @@ ORMs that use named bind parameters (Entity Framework Core with `@__param_0`, Hi
 This means that N+1 patterns (same query, different values) may be classified as `redundant_sql` (same query, same visible params) instead of `n_plus_one_sql` (same query, different params). Both findings correctly identify the repeated query pattern and the suggestion to batch or cache remains valid.
 
 ORMs that inline literal values (SeaORM with raw statements, JDBC without prepared statements) produce spans with visible parameter values, enabling accurate N+1 vs redundant classification.
+
+## HTTP query-string redaction and N+1 visibility
+
+N+1 HTTP detection depends on the varying request parameter being visible in the span. An N+1 loop that varies a path segment (`GET /api/orders/1`, `/api/orders/2`, ...) normalizes to `GET /api/orders/{id}` with distinct extracted params, and is detected. An N+1 loop that varies a query parameter (`GET /api/mock?seq=1`, `?seq=2`, ...) is only detected if the query string survives to the span.
+
+Some instrumentations redact the query string before export. OpenTelemetry .NET `System.Net.Http` redacts to `?*` by default (disable with `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true`). When the query is redacted, every call in the loop carries a byte-identical `url.full`, so perf-sentinel sees the pattern as `redundant_http` (same URL repeated), not `n_plus_one_http` (same URL, different parameter). The varying parameter was destroyed upstream, so no trace consumer (Jaeger, Tempo, or any OTLP backend) can recover it, not just perf-sentinel.
+
+Both verdicts identify the repeated-call pattern and the suggestion to batch remains valid. To get `n_plus_one_http` on .NET specifically, either disable query redaction via the env var above, or model the varying identifier as a path segment rather than a query parameter.
 
 ## Slow findings and waste ratio
 

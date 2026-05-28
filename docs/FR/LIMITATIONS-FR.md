@@ -5,6 +5,7 @@
 - [Fiabilité de la capture OTLP](#fiabilité-de-la-capture-otlp) : pourquoi perf-sentinel peut manquer des spans en tant qu'écouteur passif.
 - [Tokenizer SQL](#tokenizer-sql) : compromis du normaliseur regex vs un parseur SQL complet.
 - [Paramètres bindés des ORM et classification N+1 vs redundant](#paramètres-bindés-des-orm-et-classification-n1-vs-redundant) : impact des placeholders nommés sur la classification.
+- [Redaction de la query string HTTP et visibilité des N+1](#redaction-de-la-query-string-http-et-visibilité-des-n1) : pourquoi les boucles N+1 sur paramètre de query sont invisibles avec les instrumentations qui redactent la query string.
 - [Findings lents et ratio de gaspillage](#findings-lents-et-ratio-de-gaspillage) : pourquoi les findings lents ne contribuent pas au ratio de gaspillage I/O.
 - [Interprétation des scores](#interprétation-des-scores) : les bandes healthy / moderate / high / critical pour `io_intensity_score` et `io_waste_ratio`.
 - [La détection de fanout nécessite `parent_span_id`](#la-détection-de-fanout-nécessite-parent_span_id) : prérequis d'instrumentation.
@@ -64,6 +65,14 @@ Les ORM qui utilisent des paramètres nommés (Entity Framework Core avec `@__pa
 Cela signifie que les patterns N+1 (même requête, valeurs différentes) peuvent être classifiés comme `redundant_sql` (même requête, mêmes params visibles) au lieu de `n_plus_one_sql` (même requête, params différents). Les deux findings identifient correctement le pattern de requêtes répétées et la suggestion de batcher ou cacher reste valide.
 
 Les ORM qui injectent les valeurs littérales (SeaORM avec des requêtes brutes, JDBC sans prepared statements) produisent des spans avec des valeurs de paramètres visibles, permettant une classification précise N+1 vs redundant.
+
+## Redaction de la query string HTTP et visibilité des N+1
+
+La détection des N+1 HTTP dépend de la visibilité du paramètre variable dans le span. Une boucle N+1 qui fait varier un segment de path (`GET /api/orders/1`, `/api/orders/2`, ...) se normalise en `GET /api/orders/{id}` avec des params extraits distincts, et est détectée. Une boucle N+1 qui fait varier un paramètre de query (`GET /api/mock?seq=1`, `?seq=2`, ...) n'est détectée que si la query string survit jusqu'au span.
+
+Certaines instrumentations redactent la query string avant l'export. OpenTelemetry .NET `System.Net.Http` la redacte en `?*` par défaut (désactivable avec `OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true`). Quand la query est redactée, chaque appel de la boucle porte un `url.full` identique au byte près, donc perf-sentinel voit le pattern comme `redundant_http` (même URL répétée) et non `n_plus_one_http` (même URL, paramètre différent). Le paramètre variable a été détruit en amont, donc aucun consommateur de traces (Jaeger, Tempo, ou n'importe quel backend OTLP) ne peut le récupérer, pas seulement perf-sentinel.
+
+Les deux verdicts identifient le pattern d'appels répétés et la suggestion de batcher reste valide. Pour obtenir `n_plus_one_http` spécifiquement sur .NET, désactivez la redaction de la query via la variable d'environnement ci-dessus, ou modélisez l'identifiant variable comme un segment de path plutôt qu'un paramètre de query.
 
 ## Findings lents et ratio de gaspillage
 

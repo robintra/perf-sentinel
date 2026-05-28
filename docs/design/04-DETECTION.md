@@ -128,6 +128,17 @@ The four emission modes (`Auto`, `Strict`, `Always`, `Never`) are documented in 
 
 `looks_sanitized` cannot tell a sanitized literal `?` apart from a PostgreSQL JSONB existence operator (`data ? 'key'`) when the latter happens to appear in a query with no other literals. The harm direction is asymmetric: a misclassified JSONB group flips from `redundant_sql` to `n_plus_one_sql`, both of which contribute equally to GreenOps `avoidable_io_ops`, only the suggestion text differs.
 
+### HTTP extension (0.7.8+)
+
+The same dispatch also covers HTTP outbound groups via `classify_http_group_indexed`. HTTP has no `looks_sanitized` analogue (the normalizer always collapses path IDs to `{id}`/`{uuid}`, params are never erased to empty the way a SQL sanitizer erases them), and no ORM scope concept. The HTTP path therefore relies on a narrower signal set:
+
+- `Auto`/`Always`: timing variance alone (CV `>= 0.5`).
+- `Strict`: a primary signal (HTTP placeholder in the template, high occurrence, or sequential siblings) corroborated by timing variance. Unlike the SQL path, high occurrence alone is **not** sufficient corroboration for HTTP, because without the `looks_sanitized` gate a busy polling loop or CDN-warmed repeated call would otherwise be promoted to `n_plus_one_http`.
+
+#### Known limit: query-string redaction
+
+N+1 HTTP detection requires the varying parameter to be visible in the span. An N+1 loop that varies a path segment is detected (distinct extracted params, or the `{id}` placeholder anchors the Strict primary). An N+1 loop that varies a **query parameter** is invisible when the instrumentation redacts the query string before export. OpenTelemetry .NET `System.Net.Http` redacts to `?*` by default, so every call carries a byte-identical `url.full`, `distinct_params` collapses to 1, and the group is correctly classified as `redundant_http`. The distinguishing parameter was destroyed upstream, so no trace consumer can recover it. See `docs/LIMITATIONS.md` § "HTTP query-string redaction and N+1 visibility" for the operator-facing workarounds.
+
 ## Redundant detection
 
 ### Borrowed slice keys
