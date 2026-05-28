@@ -118,6 +118,71 @@ disclose_period = "calendar-quarter"
 
 `intent = "internal"` (or omitting the section) leaves the daemon in monitoring mode without the publishable-disclosure gate.
 
+## Restricting who can publish an official disclosure
+
+Producing an official disclosure is an outward-facing, hard-to-reverse
+action: the file lands at a public transparency URL and is signed under
+your organisation's identity. The CLI itself has no authorization layer,
+anyone who can run the binary with the org-config and the input data can
+produce one. So the control belongs in the pipeline that publishes, not
+in `perf-sentinel` itself, the same split as for the daemon write paths
+(see [`docs/QUERY-API.md`](./QUERY-API.md#restricting-writes-in-production-reverse-proxy)).
+
+In CI, gate the job that runs `disclose --intent official` behind a
+**GitHub Environment with required reviewers**. A developer can still
+open the PR or trigger the workflow, but the job pauses until a named
+reviewer (an architect or a DevOps lead) approves. No approval, no
+official report.
+
+Set it up once under `Settings -> Environments -> official-disclosure`:
+
+- **Required reviewers**: the architects or DevOps team that signs off
+  on official reports.
+- **Deployment branches and tags**: restrict to your protected branch or
+  release tags so the job cannot run from an arbitrary branch.
+
+Then target that environment from the workflow:
+
+```yaml
+# .github/workflows/perf-sentinel-disclosure.yml
+name: official disclosure
+
+on:
+  workflow_dispatch:
+    inputs:
+      from: { description: "period start (YYYY-MM-DD)", required: true }
+      to:   { description: "period end (YYYY-MM-DD)",   required: true }
+
+permissions:
+  contents: read
+  id-token: write   # Sigstore keyless signing via the workflow OIDC token
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: official-disclosure   # required reviewers gate this job
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Produce and sign the official disclosure
+        run: |
+          perf-sentinel disclose \
+            --intent official \
+            --confidentiality public \
+            --period-type calendar-quarter \
+            --from "${{ inputs.from }}" --to "${{ inputs.to }}" \
+            --input /var/lib/perf-sentinel/reports.ndjson \
+            --output perf-sentinel-report.json \
+            --org-config /etc/perf-sentinel/org.toml \
+            --emit-attestation attestation.intoto.jsonl
+          # cosign sign-blob ... then publish, see "Signing your disclosure" below.
+```
+
+The `id-token: write` permission is a control in its own right: keyless
+signing binds the disclosure to the workflow identity, recorded in
+`integrity.signature.signer_identity`. A run from an unapproved path
+produces a file whose signer identity does not match the workflow a
+verifier expects, see [Identity verification](#identity-verification).
+
 ## Signing your disclosure
 
 ### Background: Sigstore primer

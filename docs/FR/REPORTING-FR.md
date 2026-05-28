@@ -119,6 +119,75 @@ disclose_period = "calendar-quarter"
 
 `intent = "internal"` (ou l'absence de section) laisse le daemon en mode monitoring sans la barrière de rapport publiable.
 
+## Restreindre qui peut publier un rapport officiel
+
+Produire une divulgation officielle est une action tournée vers
+l'extérieur et difficile à revenir en arrière : le fichier atterrit à
+une URL de transparence publique et est signé sous l'identité de votre
+organisation. La CLI elle-même n'a pas de couche d'autorisation,
+quiconque peut exécuter le binaire avec l'org-config et les données
+d'entrée peut en produire une. Le contrôle appartient donc au pipeline
+qui publie, pas à `perf-sentinel`, le même découpage que pour les
+chemins d'écriture du daemon (voir
+[`docs/FR/QUERY-API-FR.md`](./QUERY-API-FR.md#restreindre-les-écritures-en-production-reverse-proxy)).
+
+En CI, gardez le job qui lance `disclose --intent official` derrière un
+**environnement GitHub avec reviewers requis**. Un dev peut toujours
+ouvrir la PR ou déclencher le workflow, mais le job se met en pause
+jusqu'à ce qu'un reviewer nommé (un architecte ou un responsable DevOps)
+approuve. Pas d'approbation, pas de rapport officiel.
+
+À configurer une fois sous `Settings -> Environments -> official-disclosure` :
+
+- **Required reviewers** : l'équipe d'architectes ou DevOps qui valide
+  les rapports officiels.
+- **Deployment branches and tags** : restreindre à votre branche protégée
+  ou aux tags de release pour que le job ne puisse pas tourner depuis une
+  branche arbitraire.
+
+Puis ciblez cet environnement depuis le workflow :
+
+```yaml
+# .github/workflows/perf-sentinel-disclosure.yml
+name: official disclosure
+
+on:
+  workflow_dispatch:
+    inputs:
+      from: { description: "début de période (YYYY-MM-DD)", required: true }
+      to:   { description: "fin de période (YYYY-MM-DD)",   required: true }
+
+permissions:
+  contents: read
+  id-token: write   # signature keyless Sigstore via le token OIDC du workflow
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: official-disclosure   # les reviewers requis gardent ce job
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      - name: Produire et signer la divulgation officielle
+        run: |
+          perf-sentinel disclose \
+            --intent official \
+            --confidentiality public \
+            --period-type calendar-quarter \
+            --from "${{ inputs.from }}" --to "${{ inputs.to }}" \
+            --input /var/lib/perf-sentinel/reports.ndjson \
+            --output perf-sentinel-report.json \
+            --org-config /etc/perf-sentinel/org.toml \
+            --emit-attestation attestation.intoto.jsonl
+          # cosign sign-blob ... puis publier, voir "Signer votre divulgation" plus bas.
+```
+
+La permission `id-token: write` est un contrôle à part entière : la
+signature keyless lie la divulgation à l'identité du workflow,
+enregistrée dans `integrity.signature.signer_identity`. Un run depuis un
+chemin non approuvé produit un fichier dont l'identité signataire ne
+correspond pas au workflow qu'un vérifieur attend, voir
+[Vérification d'identité](#vérification-didentité).
+
 ## Signer votre divulgation
 
 ### Introduction à Sigstore

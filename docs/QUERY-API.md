@@ -11,6 +11,7 @@ first-class product surface with a stability contract.
 ## Contents
 
 - [Endpoint overview](#endpoint-overview): one-line description per endpoint.
+- [Restricting writes in production](#restricting-writes-in-production-reverse-proxy): reserve acks and report export to a group with a reverse proxy.
 - [Endpoints](#endpoints): full per-endpoint reference with request, response and worked examples.
 - [Error responses](#error-responses): status codes and body shapes.
 - [Use cases](#use-cases): Prometheus alerting, custom Grafana panels, SRE runbooks.
@@ -19,22 +20,25 @@ first-class product surface with a stability contract.
 
 ## Endpoint overview
 
-| Method | Path                              | Purpose                                                                       |
-|--------|-----------------------------------|-------------------------------------------------------------------------------|
-| GET    | `/api/status`                     | Daemon liveness, version, uptime, in-flight counts                            |
-| GET    | `/api/findings`                   | Recent findings from the ring buffer, with service, type and severity filters |
-| GET    | `/api/findings/{trace_id}`        | All findings for one trace                                                    |
-| GET    | `/api/explain/{trace_id}`         | Span tree for a trace still in daemon memory, findings annotated inline       |
-| GET    | `/api/correlations`               | Active cross-trace temporal correlations                                      |
-| GET    | `/api/export/report`              | Snapshot the live state as a Report JSON, pipe-compatible with `report --input -` |
-| POST   | `/api/findings/{signature}/ack`   | Acknowledge a finding at runtime (since 0.5.20)                               |
-| DELETE | `/api/findings/{signature}/ack`   | Revoke a runtime ack                                                          |
-| GET    | `/api/acks`                       | List active runtime acks                                                      |
+| Method | Path                            | Purpose                                                                           |
+|--------|---------------------------------|-----------------------------------------------------------------------------------|
+| GET    | `/api/status`                   | Daemon liveness, version, uptime, in-flight counts                                |
+| GET    | `/api/findings`                 | Recent findings from the ring buffer, with service, type and severity filters     |
+| GET    | `/api/findings/{trace_id}`      | All findings for one trace                                                        |
+| GET    | `/api/explain/{trace_id}`       | Span tree for a trace still in daemon memory, findings annotated inline           |
+| GET    | `/api/correlations`             | Active cross-trace temporal correlations                                          |
+| GET    | `/api/export/report`            | Snapshot the live state as a Report JSON, pipe-compatible with `report --input -` |
+| POST   | `/api/findings/{signature}/ack` | Acknowledge a finding at runtime (since 0.5.20)                                   |
+| DELETE | `/api/findings/{signature}/ack` | Revoke a runtime ack                                                              |
+| GET    | `/api/acks`                     | List active runtime acks                                                          |
 
-All endpoints return `application/json`. No authentication. The daemon
-listens on `127.0.0.1` by default (see `[daemon] listen_address` in
-`docs/CONFIGURATION.md`), so the API is reachable only from the host
-running the daemon unless you explicitly widen the bind address.
+All endpoints return `application/json`. No built-in authentication. The
+daemon listens on `127.0.0.1` by default (see `[daemon] listen_address`
+in `docs/CONFIGURATION.md`), so the API is reachable only from the host
+running the daemon unless you explicitly widen the bind address. To let
+developers read findings while reserving writes (acks) and the official
+report export to architects or DevOps, see
+[Restricting writes in production](#restricting-writes-in-production-reverse-proxy).
 
 ### Deployment notes
 
@@ -53,6 +57,144 @@ running the daemon unless you explicitly widen the bind address.
 - The findings **ring buffer** (a fixed-size circular store that evicts oldest entries when full) is bounded by
   `[daemon] max_retained_findings` (default `10000`). Older findings are
   evicted FIFO.
+
+## Restricting writes in production (reverse proxy)
+
+A common production requirement is to let any developer **read** findings
+while reserving the **write** paths (acknowledge and revoke) and the
+**official report export** to architects or DevOps. This stops a finding
+from being acked without sign-off from the people accountable for the
+production posture.
+
+The daemon does not carry an identity provider or a role model. The
+optional `[daemon.ack] api_key` (see
+[POST /api/findings/{signature}/ack](#post-apifindingssignatureack)) is a
+single shared secret: it gates writes coarsely, but it cannot tell one
+user from another and cannot express "this group may, that group may
+not". For per-identity authorization, put a reverse proxy in front of the
+daemon. The proxy authenticates every caller against your SSO, then
+authorizes by HTTP method and path. The daemon stays a pure analysis
+engine, which matches its design (no implicit network surface, no
+embedded IAM).
+
+The rule the proxy enforces:
+
+| Path                                                                                 | GET                    | POST / DELETE         |
+|--------------------------------------------------------------------------------------|------------------------|-----------------------|
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/acks` | any authenticated user | not applicable        |
+| `/api/findings/{signature}/ack`                                                      | not applicable         | privileged group only |
+| `/api/export/report`                                                                 | privileged group only  | not applicable        |
+
+`/api/export/report` sits in the privileged column because it
+materializes the full report snapshot that feeds the official
+HTML dashboard. Producing an official report is itself a privileged
+action, see [`docs/REPORTING.md`](./REPORTING.md#restricting-who-can-publish-an-official-disclosure)
+for the CI-side counterpart (who may run `disclose --intent official`).
+
+### oauth2-proxy + nginx
+
+[oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) handles the
+OIDC authentication and surfaces the authenticated identity as response
+headers. Its `/oauth2/auth` endpoint also enforces group membership
+per request through the `allowed_groups` query parameter, so the
+authorization decision is made by oauth2-proxy, not by fragile nginx
+`if` logic. nginx routes privileged paths to a group-checked auth
+subrequest and everything else to a plain one.
+
+`oauth2-proxy.cfg` (auth-only mode, nginx does the proxying):
+
+```ini
+provider          = "oidc"
+oidc_issuer_url   = "https://sso.example.com/realms/prod"
+client_id         = "perf-sentinel"
+client_secret     = "${OAUTH2_PROXY_CLIENT_SECRET}"   # from your secret manager, never committed
+cookie_secret     = "${OAUTH2_PROXY_COOKIE_SECRET}"   # 32-byte base64
+email_domains     = ["example.com"]
+upstreams         = ["static://202"]   # auth-only: return 202 on success, nginx proxies the daemon
+reverse_proxy     = true
+set_xauthrequest  = true               # emit X-Auth-Request-User / -Email / -Groups
+oidc_groups_claim = "groups"           # so the group claim reaches nginx
+scope             = "openid email groups"
+```
+
+`nginx.conf` (relevant server block):
+
+```nginx
+upstream perf_sentinel { server 127.0.0.1:4318; }   # daemon, loopback-only
+upstream oauth2_proxy  { server 127.0.0.1:4180; }
+
+server {
+    listen 443 ssl;
+    server_name perf-sentinel.internal;
+    # ssl_certificate / ssl_certificate_key ...
+
+    # oauth2-proxy sign-in and callback routes.
+    location /oauth2/ {
+        proxy_pass        http://oauth2_proxy;
+        proxy_set_header  Host                     $host;
+        proxy_set_header  X-Real-IP                $remote_addr;
+        proxy_set_header  X-Forwarded-Proto        $scheme;
+        proxy_set_header  X-Auth-Request-Redirect  $request_uri;
+    }
+
+    # Plain authentication: any valid SSO session.
+    location = /oauth2/auth {
+        internal;
+        proxy_pass               http://oauth2_proxy;
+        proxy_pass_request_body  off;
+        proxy_set_header         Content-Length "";
+        proxy_set_header         X-Original-URI $request_uri;
+    }
+
+    # Group-checked authentication: oauth2-proxy returns 403 when the
+    # caller is not in the group, which auth_request propagates as 403.
+    location = /oauth2/auth-admin {
+        internal;
+        proxy_pass               http://oauth2_proxy/oauth2/auth?allowed_groups=perf-sentinel-admins;
+        proxy_pass_request_body  off;
+        proxy_set_header         Content-Length "";
+        proxy_set_header         X-Original-URI $request_uri;
+    }
+
+    # Privileged routes: ack create/revoke and the official report export.
+    # A regex location wins over the /api/ prefix, so these never fall
+    # through to the open rule below.
+    location ~ ^/api/(findings/[^/]+/ack|export/report)$ {
+        auth_request /oauth2/auth-admin;
+        error_page 401 = /oauth2/sign_in;
+        auth_request_set $auth_user $upstream_http_x_auth_request_user;
+        proxy_set_header X-User-Id $auth_user;   # overwrites any client-supplied value
+        proxy_pass       http://perf_sentinel;
+        proxy_set_header Host $host;
+    }
+
+    # Everything else under /api/: read access for any authenticated user.
+    location /api/ {
+        auth_request /oauth2/auth;
+        error_page 401 = /oauth2/sign_in;
+        auth_request_set $auth_user $upstream_http_x_auth_request_user;
+        proxy_set_header X-User-Id $auth_user;
+        proxy_pass       http://perf_sentinel;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+### Why this is safe
+
+- **Bind the daemon to loopback** (`[daemon] listen_address = "127.0.0.1"`)
+  or an internal interface the proxy alone can reach. The proxy is the
+  only front door.
+- **Keep `[daemon.ack] api_key` set** as a second factor. If someone
+  reaches the daemon port directly, bypassing the proxy, they still
+  cannot write without the key.
+- **The daemon trusts `X-User-Id`** for the audit `by` field. The nginx
+  block sets it from the authenticated subrequest (`$auth_user`) and so
+  overwrites any value a client supplies, which closes the spoofing gap.
+  The authenticated identity then lands in the JSONL ack store, giving
+  you an audit trail of who acked what.
+- `perf-sentinel-admins` is illustrative. Use whatever group your IdP
+  exposes in the `groups` claim.
 
 ## Endpoints
 
