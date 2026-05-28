@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.44]
+
+### Changed
+
+- `appVersion` bumped to `0.7.8` to track the daemon's `suggested_fix` coverage improvements (vendor-specific OTel scope recognition for .NET EF Core and Quarkus, service-name fallback) and the HTTP N+1 sanitizer-aware classification. Template surface is unchanged, no migration needed beyond the chart bump. All changes are additive, no config, CLI, daemon wire, or report JSON change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.7.8` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.43]
 
 ### Changed

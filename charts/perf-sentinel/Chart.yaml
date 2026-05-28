@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.43
-appVersion: "0.7.7"
+version: 0.2.44
+appVersion: "0.7.8"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -43,9 +43,11 @@ annotations:
       description: "appVersion 0.7.5: align the Kepler scraper to the Kepler v2 upstream metric names (Kepler >= 0.10). The container variant now reads kepler_container_cpu_joules_total (was kepler_container_joules_total). The previous process_package and process_dram metric_kind values targeted metrics that Kepler never published and are removed: use metric_kind = 'process' which reads kepler_process_cpu_joules_total keyed by the comm label. Operators with these legacy values in their .perf-sentinel.toml get a config-load error pointing at the replacement, no silent fallback. The Process variant also caps service_mappings label values at 15 chars to match the kernel's TASK_COMM_LEN truncation. The scraper warns once when an apparently healthy endpoint returns zero matching samples for three consecutive ticks, catching the legacy-Kepler upgrade pitfall. Redfish BMC integration unchanged."
     - kind: changed
       description: "appVersion 0.7.6: two config breaking changes on Scaphandre and Redfish to eliminate silent over-attribution. Scaphandre `process_map` becomes a typed table per service with `exe_contains` plus optional `cmdline_contains` substrings, replacing the previous flat `\"service\" = \"exe\"` form. Substring matching on both labels disambiguates co-located JVMs or .NET assemblies sharing a runtime. Redfish `endpoints` becomes a typed table per chassis with `url` plus `schema` enum (`legacy_power` or `environment_metrics`), the top-level `power_path` field is removed. EnvironmentMetrics (`PowerWatts.Reading`) is now natively supported alongside the legacy `/Power` resource. Both new struct shapes deny unknown TOML fields. Scaphandre adds a zero-sample warn-once net that catches silent upstream renames of the metric or the `exe` label at runtime, mirroring the Kepler net from 0.7.5, and the staleness gauge now climbs from boot on failure parity with Kepler. Wire-conformance CI extended to assert both Scaphandre cmdline disambiguation and Redfish dual-schema parsing against the real upstream binaries."
+    - kind: added
+      description: "appVersion 0.7.8: closes the suggested_fix coverage gaps from the v0.7.7 lab and extends N+1 detection to HTTP. Vendor-specific OTel scope recognition resolves a framework for scopes outside the io.opentelemetry.* convention (.NET EF Core via OpenTelemetry.Instrumentation.EntityFrameworkCore or Microsoft.EntityFrameworkCore, Quarkus via io.quarkus.*). A last-resort service-name fallback infers the framework from a distinctive substring in the service name when scopes and code_location are absent. HTTP N+1 sanitizer-aware classification reclassifies same-URL high-occurrence HTTP groups with timing variance from redundant_http to n_plus_one_http. No config, CLI, daemon wire, or report JSON change. Known limitation documented: OpenTelemetry .NET redacts the query string to ?* by default, so query-parameter HTTP N+1 loops stay redundant_http unless OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true is set."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.7.7
+      image: ghcr.io/robintra/perf-sentinel:0.7.8
       platforms:
         - linux/amd64
         - linux/arm64
