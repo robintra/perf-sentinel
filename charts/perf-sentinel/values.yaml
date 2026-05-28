@@ -83,9 +83,8 @@ securityContext:
     drop:
       - ALL
 
-# Resource requests and limits. Defaults match the raw-manifest baseline in
-# docs/INSTRUMENTATION.md. Tune for throughput: CLAUDE.md documents >100k
-# events/s and <20 MB RSS as targets, so these are generous for most users.
+# Resource requests and limits. Defaults match the raw-manifest baseline
+# in docs/INSTRUMENTATION.md.
 resources:
   requests:
     cpu: 50m
