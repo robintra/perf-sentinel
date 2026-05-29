@@ -36,6 +36,27 @@ perf-sentinel publie les rapports à deux niveaux de granularité, contrôlés p
 - `--org-config <PATH>` (requis pour `intent = "official"`). Le TOML statique organisation / méthodologie / scope décrit dans la section précédente.
 - `--emit-attestation <PATH>` (optionnel). Quand fixé, écrit aussi le sidecar statement in-toto v1 à ce chemin. Nécessaire pour le workflow de signature.
 - `--strict-attribution` (optionnel). Par défaut, perf-sentinel range les spans sans attribution `service.name` dans un service synthétique `_unattributed`. Ce bucket contribue aux totaux agrégés mais est exclu de la ventilation per-service. Avec `--strict-attribution`, l'appel disclose refuse de produire un rapport si une fenêtre porte des spans non-attribués, listant les timestamps offendants dans le message d'erreur. À utiliser pour une divulgation officielle quand on veut asserter que 100% des opérations mesurées ont été correctement attribuées.
+- `--tui` (optionnel, nécessite la feature de build `tui`). Ouvre une prévisualisation en lecture seule au lieu d'écrire un rapport, voir ci-dessous. Elle rend `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to` et `--output` optionnels, puisqu'on les règle dans l'interface. Incompatible avec `--emit-attestation`.
+
+## Prévisualisation interactive (`--tui`)
+
+`perf-sentinel disclose --tui` ouvre une prévisualisation en lecture seule au lieu de produire un rapport. Elle relit la même archive NDJSON froide que la commande canonique, donc les chiffres correspondent exactement, mais elle ne hache et n'écrit jamais rien. Utilisez-la pour régler une période et vérifier la couverture avant de lancer la commande reproductible en CLI ou en CI.
+
+```bash
+perf-sentinel disclose --tui \
+  --input /var/lib/perf-sentinel/reports.ndjson \
+  --org-config /etc/perf-sentinel/org.toml
+```
+
+Seuls `--input` et `--org-config` restent requis. La période, l'intent et la confidentialité se règlent en direct :
+
+- `g` fait défiler la granularité (mois, trimestre, année, custom). Pour les trois premières, `from` et `to` se calent sur les bornes calendaires. `custom` permet d'éditer chaque borne à la main.
+- `←` / `→` (ou `h` / `l`) avancent la période d'une unité. En `custom` elles déplacent la borne active d'un jour, `[` et `]` la déplacent d'un mois, et `Tab` bascule entre la borne `from` et la borne `to`.
+- `i` bascule l'intent (internal ou official), `c` bascule la confidentialité (G1 internal ou G2 public).
+- Le résumé indique le nombre de fenêtres, la couverture de période face au seuil officiel, les services mesurés et exclus, les totaux (requêtes, carbone, énergie, ratio de gaspillage), et le verdict du validateur officiel quand l'intent est official.
+- Le pied de page affiche la commande `disclose` exacte pour les réglages courants. Copiez-la pour produire le rapport haché.
+
+La prévisualisation nécessite un terminal interactif. Rediriger sa sortie (pas de TTY) se termine sur une erreur claire au lieu d'afficher quoi que ce soit.
 
 ## Entrées
 
