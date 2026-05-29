@@ -162,7 +162,7 @@ jobs:
       - name: Install musl-tools
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # `rust-toolchain.toml` pins 1.95.0, which is auto-installed by rustup
+      # `rust-toolchain.toml` pins 1.96.0, which is auto-installed by rustup
       # on the first cargo invocation. Passing `targets:` to the toolchain
       # action would install the target on `stable` (a different version),
       # leaving the pinned toolchain without musl support and causing
