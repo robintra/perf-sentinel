@@ -496,30 +496,62 @@ enum Commands {
     /// transparency, not regulatory-grade.
     Disclose {
         /// `internal`, `official`, or `audited`. `audited` short-circuits
-        /// with exit code 2 in this release.
-        #[arg(long, value_enum)]
-        intent: disclose::ReportIntentCli,
+        /// with exit code 2 in this release. Optional under `--tui` (set
+        /// it live in the preview).
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_enum, required_unless_present = "tui")
+        )]
+        #[cfg_attr(not(feature = "tui"), arg(long, value_enum, required = true))]
+        intent: Option<disclose::ReportIntentCli>,
         /// `internal` (G1: per-anti-pattern detail) or `public` (G2:
-        /// aggregate-only per service).
-        #[arg(long, value_enum)]
-        confidentiality: disclose::ConfidentialityCli,
+        /// aggregate-only per service). Optional under `--tui`.
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_enum, required_unless_present = "tui")
+        )]
+        #[cfg_attr(not(feature = "tui"), arg(long, value_enum, required = true))]
+        confidentiality: Option<disclose::ConfidentialityCli>,
         /// Period selector: `calendar-quarter`, `calendar-month`,
-        /// `calendar-year`, or `custom`.
-        #[arg(long, value_enum)]
-        period_type: disclose::PeriodTypeCli,
-        /// Inclusive period start (UTC), YYYY-MM-DD.
-        #[arg(long, value_name = "YYYY-MM-DD")]
-        from: chrono::NaiveDate,
-        /// Inclusive period end (UTC), YYYY-MM-DD.
-        #[arg(long, value_name = "YYYY-MM-DD")]
-        to: chrono::NaiveDate,
+        /// `calendar-year`, or `custom`. Optional under `--tui`.
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_enum, required_unless_present = "tui")
+        )]
+        #[cfg_attr(not(feature = "tui"), arg(long, value_enum, required = true))]
+        period_type: Option<disclose::PeriodTypeCli>,
+        /// Inclusive period start (UTC), YYYY-MM-DD. Optional under `--tui`.
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_name = "YYYY-MM-DD", required_unless_present = "tui")
+        )]
+        #[cfg_attr(
+            not(feature = "tui"),
+            arg(long, value_name = "YYYY-MM-DD", required = true)
+        )]
+        from: Option<chrono::NaiveDate>,
+        /// Inclusive period end (UTC), YYYY-MM-DD. Optional under `--tui`.
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_name = "YYYY-MM-DD", required_unless_present = "tui")
+        )]
+        #[cfg_attr(
+            not(feature = "tui"),
+            arg(long, value_name = "YYYY-MM-DD", required = true)
+        )]
+        to: Option<chrono::NaiveDate>,
         /// One or more archive paths. Each may be a single `.ndjson`
         /// file or a directory whose `*.ndjson` files are unioned.
         #[arg(long, value_name = "PATH", num_args = 1.., required = true)]
         input: Vec<PathBuf>,
         /// Where to write the produced `perf-sentinel-report.json`.
-        #[arg(long, value_name = "PATH")]
-        output: PathBuf,
+        /// Optional under `--tui` (the preview never writes).
+        #[cfg_attr(
+            feature = "tui",
+            arg(long, value_name = "PATH", required_unless_present = "tui")
+        )]
+        #[cfg_attr(not(feature = "tui"), arg(long, value_name = "PATH", required = true))]
+        output: Option<PathBuf>,
         /// Operator-supplied organisation/scope/methodology TOML.
         #[arg(long, value_name = "PATH")]
         org_config: PathBuf,
@@ -533,6 +565,13 @@ enum Commands {
         /// attest` for signed disclosures.
         #[arg(long, value_name = "PATH")]
         emit_attestation: Option<PathBuf>,
+        /// Launch the read-only preview TUI: tune the period (month /
+        /// quarter / year / custom), intent and confidentiality live, see
+        /// the aggregated summary, and copy the equivalent command. Never
+        /// writes or hashes a report.
+        #[cfg(feature = "tui")]
+        #[arg(long, conflicts_with = "emit_attestation")]
+        tui: bool,
     },
     /// Verify the integrity of a published periodic disclosure report.
     ///
@@ -950,15 +989,25 @@ async fn dispatch_command(command: Commands) {
             org_config,
             strict_attribution,
             emit_attestation,
+            #[cfg(feature = "tui")]
+            tui,
         } => {
+            #[cfg(feature = "tui")]
+            if tui {
+                cmd_disclose_tui(input, &org_config, strict_attribution);
+                std::process::exit(0);
+            }
+            // Canonical path: clap requires these whenever `--tui` is absent.
             let code = disclose::cmd_disclose(
-                intent,
-                confidentiality,
-                period_type,
-                from,
-                to,
+                intent.expect("--intent is required without --tui"),
+                confidentiality.expect("--confidentiality is required without --tui"),
+                period_type.expect("--period-type is required without --tui"),
+                from.expect("--from is required without --tui"),
+                to.expect("--to is required without --tui"),
                 &input,
-                &output,
+                output
+                    .as_deref()
+                    .expect("--output is required without --tui"),
                 &org_config,
                 strict_attribution,
                 emit_attestation.as_deref(),
@@ -2213,6 +2262,61 @@ fn cmd_explain_tui(input: &std::path::Path, trace_id: &str, config_path: Option<
         tui::View::Explain,
         Some(trace_id),
     );
+}
+
+/// `disclose --tui`: read-only preview. Loads the org-config, scans the cold
+/// archive once for its time range (to anchor the default period), then opens
+/// the standalone Disclose tab. The preview re-reads the same cold NDJSON via
+/// `aggregate_from_paths` on each settings change. Never writes or hashes.
+#[cfg(feature = "tui")]
+fn cmd_disclose_tui(input: Vec<PathBuf>, org_config: &std::path::Path, strict_attribution: bool) {
+    use sentinel_core::report::periodic::aggregator::archive_time_range;
+    use sentinel_core::report::periodic::org_config as org_config_loader;
+
+    require_terminal_or_exit();
+
+    let org = match org_config_loader::load_from_path(org_config) {
+        Ok(c) => c,
+        Err(err) => {
+            eprintln!(
+                "Error: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let archive_range = match archive_time_range(&input) {
+        Ok(range) => range,
+        Err(err) => {
+            eprintln!(
+                "Error: {}",
+                sentinel_core::text_safety::sanitize_for_terminal(&err.to_string())
+            );
+            std::process::exit(1);
+        }
+    };
+
+    let state = disclose::DiscloseState::new(
+        input,
+        org,
+        org_config.to_path_buf(),
+        strict_attribution,
+        archive_range,
+        chrono::Utc::now().date_naive(),
+    );
+
+    // The Disclose tab reads only `app.disclose`; findings/traces/detect are
+    // unused, so a default detect config and empty inputs suffice.
+    let config = load_config(None);
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+    let mut app = tui::App::new(Vec::new(), Vec::new(), detect_config)
+        .with_disclose(state)
+        .with_initial_view(tui::View::Disclose);
+    if let Err(e) = tui::run(&mut app) {
+        eprintln!("TUI error: {e}");
+        std::process::exit(1);
+    }
 }
 
 fn cmd_pg_stat(
