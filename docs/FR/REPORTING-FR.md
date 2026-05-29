@@ -48,6 +48,8 @@ perf-sentinel disclose --tui \
   --org-config /etc/perf-sentinel/org.toml
 ```
 
+![prévisualisation disclose : le stepper calendaire élargit la période, le résumé se met à jour, et le validateur officiel rend son verdict](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/demo.gif)
+
 Seuls `--input` et `--org-config` restent requis. La période, l'intent et la confidentialité se règlent en direct :
 
 - `g` fait défiler la granularité (mois, trimestre, année, custom). Pour les trois premières, `from` et `to` se calent sur les bornes calendaires. `custom` permet d'éditer chaque borne à la main.
@@ -57,6 +59,12 @@ Seuls `--input` et `--org-config` restent requis. La période, l'intent et la co
 - Le pied de page affiche la commande `disclose` exacte pour les réglages courants. Copiez-la pour produire le rapport haché.
 
 La prévisualisation nécessite un terminal interactif. Rediriger sa sortie (pas de TTY) se termine sur une erreur claire au lieu d'afficher quoi que ce soit.
+
+![prévisualisation disclose, vue mois : en-tête des réglages, résumé agrégé, et la commande équivalente en pied de page](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
+
+![prévisualisation disclose, vue trimestre : le stepper `g` élargit la période au trimestre entier](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/quarter.png)
+
+![prévisualisation disclose, intent official : le validateur explique pourquoi le rapport n'est pas encore publiable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/official.png)
 
 ## Entrées
 

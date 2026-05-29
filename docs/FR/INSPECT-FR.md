@@ -22,6 +22,8 @@ Points d'entrée :
 En mode live (0.5.24+), le TUI permet aussi à l'opérateur d'acknowledger
 et de révoquer des findings interactivement depuis le terminal.
 
+![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
+
 ## Vues et drill-down
 
 Les trois vues forment un seul drill-down. `Enter` descend, `Esc` remonte :
@@ -44,6 +46,12 @@ Une barre d'onglets en haut met en évidence la vue active. Les arbres de
 spans nécessitent des spans bruts (`inspect --input <events>.json` ou
 `query inspect`). Un Report pré-calculé n'en porte pas, donc Explain
 affiche un indice à la place.
+
+![Vue Analyze : le tableau de bord de synthèse GreenOps sous la barre d'onglets](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
+
+![Vue Inspect : le navigateur à quatre panneaux, traces, findings, corrélations et detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/inspect.png)
+
+![Vue Explain : l'arbre de spans annoté plein écran d'une trace](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/explain.png)
 
 ## Layout
 

@@ -48,6 +48,8 @@ perf-sentinel disclose --tui \
   --org-config /etc/perf-sentinel/org.toml
 ```
 
+![disclose preview: calendar stepper widens the period, the summary updates, and the official validator reports its verdict](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/demo.gif)
+
 Only `--input` and `--org-config` stay required. The period, intent, and confidentiality are set live:
 
 - `g` cycles the granularity (month, quarter, year, custom). For the first three, `from` and `to` snap to calendar boundaries. `custom` lets you edit each edge by hand.
@@ -57,6 +59,12 @@ Only `--input` and `--org-config` stay required. The period, intent, and confide
 - The footer prints the exact `disclose` command for the current settings. Copy it to produce the hashed report.
 
 The preview needs an interactive terminal. Piping its output (no TTY) exits with a clear error rather than rendering.
+
+![disclose preview, month view: settings header, aggregated summary, and the equivalent command in the footer](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
+
+![disclose preview, quarter view: the `g` stepper widens the period to the whole quarter](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/quarter.png)
+
+![disclose preview, official intent: the validator reports why the report is not yet publishable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/official.png)
 
 ## Inputs
 

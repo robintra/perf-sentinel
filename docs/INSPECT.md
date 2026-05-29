@@ -21,6 +21,8 @@ Entry points:
 In live mode (0.5.24+), the TUI also lets the operator acknowledge
 and revoke findings interactively from the terminal.
 
+![all-in-one TUI: Analyze drills into Inspect then Explain, Esc walks back up](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
+
 ## Views and drill-down
 
 The three views form one drill-down. `Enter` descends, `Esc` ascends:
@@ -42,6 +44,12 @@ Analyze  --Enter-->  Inspect  --Enter-->  Explain
 A tab bar at the top highlights the active view. Span trees need raw
 spans (`inspect --input <events>.json` or `query inspect`). A
 pre-computed Report carries none, so Explain shows a hint instead.
+
+![Analyze view: the GreenOps summary dashboard under the view tab bar](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
+
+![Inspect view: the four-panel browser, traces, findings, correlations and detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/inspect.png)
+
+![Explain view: a trace's full-screen annotated span tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/explain.png)
 
 ## Layout
 
