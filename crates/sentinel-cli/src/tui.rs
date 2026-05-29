@@ -1,7 +1,10 @@
 //! Terminal UI for interactive trace and finding inspection.
 //!
-//! Provides a 3-panel layout: traces list, findings for selected trace,
-//! and finding detail with span tree.
+//! Three top-level views form a single drill-down — `Analyze` (summary),
+//! `Inspect` (the multi-panel browser: traces list, findings, correlations
+//! and a detail span tree) and `Explain` (the selected trace's span tree
+//! full screen). Enter descends `Analyze -> Inspect -> Explain`, Esc
+//! ascends back.
 
 use std::collections::HashMap;
 use std::io;
@@ -24,6 +27,8 @@ use sentinel_core::daemon::query_api::AckSource;
 use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
 use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
 use sentinel_core::explain;
+use sentinel_core::report::interpret::InterpretationLevel;
+use sentinel_core::report::{Analysis, GreenSummary, QualityGate};
 use sentinel_core::text_safety::sanitize_for_terminal;
 
 #[cfg(feature = "daemon")]
@@ -39,6 +44,27 @@ pub enum Panel {
     Correlations,
 }
 
+/// Top-level view in the drill-down. Enter descends
+/// `Analyze -> Inspect -> Explain`, Esc ascends back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// Summary dashboard (`GreenOps` waste, top offenders, quality gate).
+    Analyze,
+    /// Multi-panel browser: traces, findings, correlations, detail.
+    Inspect,
+    /// The selected trace's annotated span tree, full screen.
+    Explain,
+}
+
+/// Summary data backing the Analyze view. Supplied by the launcher when
+/// available; `None` degrades the view to a hint (e.g. an older daemon
+/// without `/api/export/report`).
+pub struct AnalyzeSummary {
+    pub green_summary: GreenSummary,
+    pub quality_gate: QualityGate,
+    pub analysis: Analysis,
+}
+
 /// Application state for the TUI.
 pub struct App {
     pub traces: Vec<Trace>,
@@ -49,6 +75,16 @@ pub struct App {
     findings_by_trace: Vec<Vec<usize>>,
     trace_ids: Vec<String>,
     trace_index: HashMap<String, usize>,
+
+    /// Active top-level view. The panel-level `active_panel` only matters
+    /// while `view == View::Inspect`.
+    pub view: View,
+    /// Summary backing the Analyze view. `None` renders a degraded hint.
+    summary: Option<AnalyzeSummary>,
+    /// Rendered line count of the Analyze body, precomputed once in
+    /// `with_summary` (the summary is immutable for the App's lifetime) so
+    /// the per-keypress scroll clamp does not rebuild the line vector.
+    analyze_line_count: u16,
 
     pub selected_trace: usize,
     pub selected_finding: usize,
@@ -137,6 +173,9 @@ impl App {
             findings_by_trace,
             trace_ids,
             trace_index,
+            view: View::Inspect,
+            summary: None,
+            analyze_line_count: 0,
             selected_trace: 0,
             selected_finding: 0,
             active_panel: Panel::Traces,
@@ -188,6 +227,35 @@ impl App {
     /// Correlations panel renders them as a navigable list.
     pub(crate) fn with_correlations(mut self, correlations: Vec<CrossTraceCorrelation>) -> Self {
         self.correlations = correlations;
+        self
+    }
+
+    /// Attach the summary backing the Analyze view (`GreenOps` waste, top
+    /// offenders, quality gate). Without it the view shows a hint.
+    pub(crate) fn with_summary(mut self, summary: AnalyzeSummary) -> Self {
+        self.summary = Some(summary);
+        // Build the body once to cache its line count; the summary and
+        // findings are immutable afterwards, so the count never changes.
+        self.analyze_line_count =
+            u16::try_from(self.build_analyze_lines().len()).unwrap_or(u16::MAX);
+        self
+    }
+
+    /// Set the view the TUI opens on. `analyze --tui` lands on Analyze,
+    /// `explain --tui` on Explain, `inspect` keeps the default Inspect.
+    pub(crate) fn with_initial_view(mut self, view: View) -> Self {
+        self.view = view;
+        self
+    }
+
+    /// Pre-select a trace by id so the opening view (e.g. Explain for
+    /// `explain --tui`) lands on it. No-op when the id is unknown.
+    pub(crate) fn with_focus_trace(mut self, trace_id: &str) -> Self {
+        if let Some(&idx) = self.trace_index.get(trace_id) {
+            self.selected_trace = idx;
+            self.selected_finding = 0;
+            self.cached_detail = None;
+        }
         self
     }
 
@@ -247,6 +315,16 @@ impl App {
         };
         // 6 always-present metadata rows + 1 blank after the type header.
         let mut count: u16 = 7;
+        // +1 for the optional "Source:" row that `draw_detail_panel` inserts
+        // when the finding carries a non-empty code location, else the clamp
+        // under-counts by 1 and the last span-tree line stays unreachable.
+        if finding
+            .code_location
+            .as_ref()
+            .is_some_and(|loc| !loc.display_string().is_empty())
+        {
+            count = count.saturating_add(1);
+        }
         if finding.green_impact.is_some() {
             count = count.saturating_add(1);
         }
@@ -392,7 +470,7 @@ impl App {
     /// - Traces -> Findings (when there are findings)
     /// - Findings -> Detail
     /// - Correlations -> Detail (jumps to `sample_trace_id` if known locally)
-    /// - Detail -> no-op
+    /// - Detail -> Explain view (zooms the span tree full screen)
     pub fn enter(&mut self) {
         match self.active_panel {
             Panel::Traces => {
@@ -407,7 +485,12 @@ impl App {
             Panel::Correlations => {
                 self.jump_to_correlation_sample_trace();
             }
-            Panel::Detail => {}
+            Panel::Detail => {
+                // Deepest panel: zoom the span tree to the full-screen
+                // Explain view.
+                self.view = View::Explain;
+                self.scroll_offset = 0;
+            }
         }
     }
 
@@ -445,10 +528,264 @@ impl App {
     /// back where the drill-down started.
     pub fn escape(&mut self) {
         match self.active_panel {
-            Panel::Traces | Panel::Correlations => {}
+            // Top-level panels (reached by Tab cycling, not drilled into):
+            // ascend to the Analyze view. The active panel is preserved so
+            // descending lands back here, and both honor the tab-bar "Esc up"
+            // hint rather than leaving Correlations a dead end.
+            Panel::Traces | Panel::Correlations => {
+                self.view = View::Analyze;
+                self.scroll_offset = 0;
+            }
             Panel::Findings => self.active_panel = Panel::Traces,
             Panel::Detail => self.active_panel = self.detail_origin,
         }
+    }
+
+    /// Logical line count of the Analyze view body, used to clamp the
+    /// scroll offset. Returns the value cached by `with_summary` so the
+    /// per-keypress clamp does not rebuild the line vector (the degraded
+    /// no-summary hint is short and never needs scrolling, hence 0).
+    fn analyze_content_line_count(&self) -> u16 {
+        self.analyze_line_count
+    }
+
+    /// Logical line count of the Explain view body (the cached span tree
+    /// for the selected trace, or the short unavailability hint).
+    fn explain_content_line_count(&self) -> u16 {
+        match &self.cached_detail {
+            Some((ct, text)) if *ct == self.selected_trace => {
+                u16::try_from(text.lines().count()).unwrap_or(u16::MAX)
+            }
+            _ => 2,
+        }
+    }
+
+    /// Per-severity finding counts `(critical, warning, info)` over all
+    /// findings, for the Analyze view header.
+    fn severity_counts(&self) -> (usize, usize, usize) {
+        let mut counts = (0usize, 0usize, 0usize);
+        for finding in &self.all_findings {
+            match finding.severity {
+                Severity::Critical => counts.0 += 1,
+                Severity::Warning => counts.1 += 1,
+                Severity::Info => counts.2 += 1,
+            }
+        }
+        counts
+    }
+
+    /// Build the Analyze view body as owned ratatui lines. Mirrors the
+    /// sections of the CLI report (`render.rs`) — analysis metadata,
+    /// findings by severity, I/O waste, top offenders, quality gate — but
+    /// as widgets. All externally-sourced strings (endpoint, service) are
+    /// sanitized for the terminal. Falls back to a hint when no summary
+    /// was supplied (e.g. an older daemon without `/api/export/report`).
+    fn build_analyze_lines(&self) -> Vec<Line<'static>> {
+        let dim = Style::default().fg(Color::DarkGray);
+        let Some(summary) = &self.summary else {
+            return vec![
+                Line::from(Span::styled("Summary unavailable.".to_string(), dim)),
+                Line::from(Span::styled(
+                    "No analysis summary was supplied (older daemon without /api/export/report?)."
+                        .to_string(),
+                    dim,
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "Press Enter to inspect traces and findings.".to_string(),
+                    dim,
+                )),
+            ];
+        };
+        let gs = &summary.green_summary;
+        let (crit, warn, info) = self.severity_counts();
+        let total = self.all_findings.len();
+        let mut lines: Vec<Line<'static>> = Vec::new();
+
+        lines.push(Line::from(vec![
+            Span::styled("Traces analyzed: ".to_string(), dim),
+            Span::raw(summary.analysis.traces_analyzed.to_string()),
+            Span::styled("   Events: ".to_string(), dim),
+            Span::raw(summary.analysis.events_processed.to_string()),
+            Span::styled("   Duration: ".to_string(), dim),
+            Span::raw(format!("{} ms", summary.analysis.duration_ms)),
+        ]));
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(vec![
+            Span::styled("Findings: ".to_string(), dim),
+            Span::styled(
+                total.to_string(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("   "),
+            Span::styled(format!("{crit} critical"), Style::default().fg(Color::Red)),
+            Span::raw(", "),
+            Span::styled(
+                format!("{warn} warning"),
+                Style::default().fg(Color::Yellow),
+            ),
+            Span::raw(", "),
+            Span::styled(format!("{info} info"), Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(""));
+
+        let band = gs.io_waste_ratio_band;
+        lines.push(Line::from(vec![
+            Span::styled("I/O waste ratio: ".to_string(), dim),
+            // Percentage form, matching the CLI report (`print_green_summary`)
+            // so the same metric does not read as a bare fraction here.
+            Span::styled(
+                format!("{:.1}%", gs.io_waste_ratio * 100.0),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("({})", band.short_label()),
+                Style::default().fg(interpret_band_color(band)),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Avoidable I/O: ".to_string(), dim),
+            Span::raw(format!(
+                "{} of {} ops",
+                gs.avoidable_io_ops, gs.total_io_ops
+            )),
+        ]));
+        if gs.energy_kwh > 0.0 {
+            lines.push(Line::from(vec![
+                Span::styled("Energy: ".to_string(), dim),
+                Span::raw(format!("{:.6} kWh", gs.energy_kwh)),
+                // `energy_model` is free text on the daemon snapshot path
+                // (`query inspect`), so sanitize like the other daemon-sourced
+                // strings below.
+                Span::styled(
+                    format!("  ({})", sanitize_for_terminal(&gs.energy_model)),
+                    dim,
+                ),
+            ]));
+        }
+        // Structured CO2 report, mirroring the CLI `print_green_summary`
+        // carbon block so the Analyze view does not silently omit the
+        // headline carbon figures in carbon-configured deployments.
+        if let Some(carbon) = gs.co2.as_ref() {
+            // model/methodology are free `String`s on the daemon snapshot path
+            // (`query inspect` reads them from /api/export/report), so sanitize
+            // like the other daemon-sourced strings rendered above.
+            let model = sanitize_for_terminal(&carbon.total.model);
+            let methodology = sanitize_for_terminal(&carbon.total.methodology);
+            lines.push(Line::from(Span::raw(format!(
+                "Est. CO\u{2082}: {:.6} g (low {:.6}, high {:.6}, model {model})",
+                carbon.total.mid, carbon.total.low, carbon.total.high,
+            ))));
+            lines.push(Line::from(Span::raw(format!(
+                "Avoidable CO\u{2082}: {:.6} g (low {:.6}, high {:.6})",
+                carbon.avoidable.mid, carbon.avoidable.low, carbon.avoidable.high,
+            ))));
+            lines.push(Line::from(Span::raw(format!(
+                "Operational: {:.6} g   Embodied: {:.6} g   Methodology: {methodology}",
+                carbon.operational_gco2, carbon.embodied_gco2,
+            ))));
+            if let Some(transport) = carbon.transport_gco2 {
+                lines.push(Line::from(Span::raw(format!(
+                    "Transport: {transport:.6} g (cross-region network bytes)"
+                ))));
+            }
+        }
+        lines.push(Line::from(""));
+
+        if !gs.top_offenders.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "Top offenders:".to_string(),
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            for offender in &gs.top_offenders {
+                let oband = offender.io_intensity_band;
+                let co2 = offender
+                    .co2_grams
+                    .map_or(String::new(), |c| format!(", {c:.6} gCO2"));
+                lines.push(Line::from(vec![
+                    Span::raw("  - ".to_string()),
+                    Span::raw(sanitize_for_terminal(&offender.endpoint).into_owned()),
+                    Span::styled(format!("  IIS {:.1} ", offender.io_intensity_score), dim),
+                    Span::styled(
+                        format!("({})", oband.short_label()),
+                        Style::default().fg(interpret_band_color(oband)),
+                    ),
+                    Span::styled(
+                        format!(
+                            "  service: {}{}",
+                            sanitize_for_terminal(&offender.service),
+                            co2
+                        ),
+                        dim,
+                    ),
+                ]));
+            }
+            lines.push(Line::from(""));
+        }
+
+        let gate = &summary.quality_gate;
+        // An empty rule set means the gate was never evaluated, e.g. a daemon
+        // `/api/export/report` snapshot (which hardcodes passed=true, rules=[]).
+        // Render that honestly rather than a misleading green PASSED sitting
+        // next to live critical findings under `query inspect`.
+        let (gate_label, gate_color) = if gate.rules.is_empty() {
+            ("not evaluated", Color::DarkGray)
+        } else if gate.passed {
+            ("PASSED", Color::Green)
+        } else {
+            ("FAILED", Color::Red)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                "Quality gate: ".to_string(),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                gate_label.to_string(),
+                Style::default().fg(gate_color).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        for rule in &gate.rules {
+            let (rule_label, rule_color) = if rule.passed {
+                ("PASS", Color::Green)
+            } else {
+                ("FAIL", Color::Red)
+            };
+            lines.push(Line::from(vec![
+                Span::raw(format!("  - {}: ", sanitize_for_terminal(&rule.rule))),
+                Span::styled(
+                    format!("{:.2} (actual {:.2}) ", rule.threshold, rule.actual),
+                    dim,
+                ),
+                Span::styled(rule_label.to_string(), Style::default().fg(rule_color)),
+            ]));
+        }
+
+        // Mandatory uncertainty disclaimer whenever CO2 estimates are shown,
+        // matching the CLI report.
+        if gs.co2.is_some() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Note: CO\u{2082} estimates have ~2\u{00d7} multiplicative uncertainty (low = mid/2, high = mid\u{00d7}2). See docs/LIMITATIONS.md.".to_string(),
+                dim,
+            )));
+        }
+        // The bands use fixed heuristic thresholds, not the operator's config,
+        // and the full per-region / scoring-config detail lives in the CLI
+        // report. Flag both so the view is not mistaken for the full report.
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Note: (healthy/moderate/high/critical) bands use fixed heuristic thresholds, independent of your config overrides.".to_string(),
+            dim,
+        )));
+        lines.push(Line::from(Span::styled(
+            "Per-region carbon breakdown and scoring config: run `analyze` for the full report."
+                .to_string(),
+            dim,
+        )));
+        lines
     }
 }
 
@@ -845,8 +1182,12 @@ fn run_loop(
         while let Ok(outcome) = rx_outcome.try_recv() {
             apply_ack_outcome(app, outcome);
         }
-        // Pre-compute detail tree text (requires &mut self) before immutable draw
-        app.detail_tree_text();
+        // Pre-compute detail tree text (requires &mut self) before immutable
+        // draw. Only the Inspect (Detail panel) and Explain views render it,
+        // so skip the detect + build_tree + clone work in the Analyze view.
+        if matches!(app.view, View::Inspect | View::Explain) {
+            app.detail_tree_text();
+        }
         terminal.draw(|f| draw(f, app))?;
 
         // Block on `event::read` when no ack is in flight (0fps idle,
@@ -887,7 +1228,63 @@ fn handle_keystroke(
         dispatch_modal_key(app, code, tx_outcome);
         return KeyOutcome::Continue;
     }
-    dispatch_panel_key(app, code)
+    match app.view {
+        View::Analyze => dispatch_analyze_key(app, code),
+        View::Inspect => dispatch_panel_key(app, code),
+        View::Explain => dispatch_explain_key(app, code),
+    }
+}
+
+/// Keys for the Analyze view: scroll the summary, Enter descends to the
+/// Inspect view (keeping the active panel), Esc is a no-op (top of the
+/// drill-down).
+fn dispatch_analyze_key(app: &mut App, code: KeyCode) -> KeyOutcome {
+    match code {
+        KeyCode::Char('q') => return KeyOutcome::Quit,
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = app.analyze_content_line_count().saturating_sub(1);
+            if app.scroll_offset < max {
+                app.scroll_offset = app.scroll_offset.saturating_add(1);
+            }
+        }
+        KeyCode::Enter => {
+            // Descend to Inspect, keeping active_panel as-is so an
+            // Esc-then-Enter round-trip lands back on the panel ascended from
+            // (Traces or Correlations). A fresh `analyze --tui` launch already
+            // has active_panel == Traces by default.
+            app.view = View::Inspect;
+            app.scroll_offset = 0;
+        }
+        _ => {}
+    }
+    KeyOutcome::Continue
+}
+
+/// Keys for the Explain view: scroll the span tree, Esc ascends back to
+/// the Inspect view's Detail panel.
+fn dispatch_explain_key(app: &mut App, code: KeyCode) -> KeyOutcome {
+    match code {
+        KeyCode::Char('q') => return KeyOutcome::Quit,
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.scroll_offset = app.scroll_offset.saturating_sub(1);
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            let max = app.explain_content_line_count().saturating_sub(1);
+            if app.scroll_offset < max {
+                app.scroll_offset = app.scroll_offset.saturating_add(1);
+            }
+        }
+        KeyCode::Esc => {
+            app.view = View::Inspect;
+            app.active_panel = Panel::Detail;
+            app.scroll_offset = 0;
+        }
+        _ => {}
+    }
+    KeyOutcome::Continue
 }
 
 #[cfg(feature = "daemon")]
@@ -908,8 +1305,8 @@ fn dispatch_panel_key(app: &mut App, code: KeyCode) -> KeyOutcome {
         KeyCode::Char('q') => return KeyOutcome::Quit,
         KeyCode::Up | KeyCode::Char('k') => app.move_up(),
         KeyCode::Down | KeyCode::Char('j') => app.move_down(),
-        KeyCode::Right | KeyCode::Tab => app.next_panel(),
-        KeyCode::Left | KeyCode::BackTab => app.prev_panel(),
+        KeyCode::Right | KeyCode::Tab | KeyCode::Char('l') => app.next_panel(),
+        KeyCode::Left | KeyCode::BackTab | KeyCode::Char('h') => app.prev_panel(),
         KeyCode::Enter => app.enter(),
         KeyCode::Esc => app.escape(),
         #[cfg(feature = "daemon")]
@@ -937,10 +1334,65 @@ fn open_ack_modal_for_current(app: &mut App, revoke: bool) {
 }
 
 fn draw(f: &mut Frame, app: &App) {
+    // One-line tab bar on top, the active view fills the rest.
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .split(f.area());
+
+    draw_tab_bar(f, app, outer[0]);
+    match app.view {
+        View::Analyze => draw_analyze_view(f, app, outer[1]),
+        View::Inspect => draw_inspect_view(f, app, outer[1]),
+        View::Explain => draw_explain_view(f, app, outer[1]),
+    }
+
+    #[cfg(feature = "daemon")]
+    if app.ack_modal.is_visible() {
+        draw_ack_modal(f, app);
+    }
+}
+
+/// Top tab bar: the three views with the active one highlighted, plus the
+/// view-level navigation hint. Purely a visual orientation aid — the keys
+/// that switch views are Enter (down) and Esc (up), bound per view.
+fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
+    let dim = Style::default().fg(Color::DarkGray);
+    let mut spans = vec![Span::raw(" ")];
+    for (i, (view, label)) in [
+        (View::Analyze, "Analyze"),
+        (View::Inspect, "Inspect"),
+        (View::Explain, "Explain"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        if i > 0 {
+            spans.push(Span::styled(" \u{25b8} ", dim));
+        }
+        let style = if app.view == *view {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+        } else {
+            dim
+        };
+        spans.push(Span::styled(format!(" {label} "), style));
+    }
+    spans.push(Span::styled(
+        "    Enter \u{2193} \u{00b7} Esc \u{2191} \u{00b7} q quit".to_string(),
+        dim,
+    ));
+    f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The Inspect view: the 4-panel browser (traces, findings, correlations,
+/// detail). Body of the former top-level `draw`.
+fn draw_inspect_view(f: &mut Frame, app: &App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(f.area());
+        .split(area);
 
     let top = Layout::default()
         .direction(Direction::Horizontal)
@@ -955,10 +1407,71 @@ fn draw(f: &mut Frame, app: &App) {
     draw_findings_panel(f, app, top[1]);
     draw_correlations_panel(f, app, top[2]);
     draw_detail_panel(f, app, chunks[1]);
+}
 
-    #[cfg(feature = "daemon")]
-    if app.ack_modal.is_visible() {
-        draw_ack_modal(f, app);
+/// The Analyze view: `GreenOps` summary dashboard, scrollable.
+fn draw_analyze_view(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" Analyze ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let paragraph = Paragraph::new(app.build_analyze_lines())
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((app.scroll_offset, 0));
+    f.render_widget(paragraph, area);
+}
+
+/// The Explain view: the selected trace's annotated span tree, full
+/// screen and scrollable. Reuses the per-trace tree cached for the Detail
+/// panel (pre-computed before each draw in `run_loop`).
+fn draw_explain_view(f: &mut Frame, app: &App, area: Rect) {
+    let trace_id = app
+        .trace_ids
+        .get(app.selected_trace)
+        .map_or("-", String::as_str);
+    let block = Block::default()
+        .title(format!(
+            " Explain \u{00b7} {} ",
+            sanitize_for_terminal(trace_id)
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    let lines: Vec<Line> = match &app.cached_detail {
+        // Borrow the cached tree lines for the frame instead of allocating a
+        // fresh String per visible line on every repaint.
+        Some((ct, text)) if *ct == app.selected_trace => text.lines().map(Line::from).collect(),
+        _ => vec![
+            Line::from(Span::styled(
+                "Span tree not available for this trace.",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(Span::styled(
+                "Reports do not carry raw spans. Launch `inspect --input <events>.json` or `query inspect`.",
+                Style::default().fg(Color::DarkGray),
+            )),
+        ],
+    };
+
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((app.scroll_offset, 0));
+    f.render_widget(paragraph, area);
+}
+
+/// Map an interpretation band to a terminal color, matching the CLI
+/// report's `interpret_color` (`render.rs`) exactly so the same band reads
+/// the same in `analyze` stdout and the TUI: Critical red, High yellow,
+/// Moderate uncolored (it is a non-empirical rule of thumb, kept neutral so
+/// it does not compete with High), Healthy green.
+fn interpret_band_color(level: InterpretationLevel) -> Color {
+    match level {
+        InterpretationLevel::Healthy => Color::Green,
+        InterpretationLevel::Moderate => Color::Reset,
+        InterpretationLevel::High => Color::Yellow,
+        InterpretationLevel::Critical => Color::Red,
     }
 }
 
@@ -1139,7 +1652,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         .border_style(panel_style(app, Panel::Detail));
 
     let Some(finding) = app.current_finding() else {
-        let help = Paragraph::new("Select a finding to see details.\n\nKeys: ↑↓ navigate, ←→/Tab switch panels, Enter drill in, Esc back, q quit")
+        let help = Paragraph::new("Select a finding to see details.\n\nKeys: ↑↓/jk navigate · ←→/hl/Tab panels · Enter deeper · Esc up · q quit")
             .block(block)
             .wrap(Wrap { trim: false });
         f.render_widget(help, area);
@@ -1840,9 +2353,264 @@ mod tests {
         assert_eq!(app.active_panel, Panel::Findings);
         app.escape();
         assert_eq!(app.active_panel, Panel::Traces);
-        // At traces, escape does nothing
+        // At Traces (top of the inspect drill-down), escape ascends to the
+        // Analyze view; the active panel stays Traces so descending lands
+        // back here.
+        assert_eq!(app.view, View::Inspect);
         app.escape();
         assert_eq!(app.active_panel, Panel::Traces);
+        assert_eq!(app.view, View::Analyze);
+    }
+
+    #[test]
+    fn escape_from_correlations_ascends_to_analyze() {
+        // Correlations is a top-level panel (Tab-reachable); Esc must ascend
+        // to Analyze like Traces, honoring the tab-bar "Esc up" hint rather
+        // than being a dead end.
+        let mut app = make_test_app();
+        app.active_panel = Panel::Correlations;
+        app.escape();
+        assert_eq!(app.view, View::Analyze);
+        assert_eq!(app.active_panel, Panel::Correlations);
+    }
+
+    #[test]
+    fn analyze_enter_descends_to_inspect_traces() {
+        let mut app = make_test_app();
+        app.view = View::Analyze;
+        let out = dispatch_analyze_key(&mut app, KeyCode::Enter);
+        assert!(matches!(out, KeyOutcome::Continue));
+        assert_eq!(app.view, View::Inspect);
+        assert_eq!(app.active_panel, Panel::Traces);
+    }
+
+    #[test]
+    fn detail_enter_zooms_to_explain() {
+        let mut app = make_test_app();
+        app.active_panel = Panel::Detail;
+        app.enter();
+        assert_eq!(app.view, View::Explain);
+    }
+
+    #[test]
+    fn explain_escape_returns_to_inspect_detail() {
+        let mut app = make_test_app();
+        app.view = View::Explain;
+        let out = dispatch_explain_key(&mut app, KeyCode::Esc);
+        assert!(matches!(out, KeyOutcome::Continue));
+        assert_eq!(app.view, View::Inspect);
+        assert_eq!(app.active_panel, Panel::Detail);
+    }
+
+    #[test]
+    fn full_drilldown_round_trip() {
+        // Analyze -> Inspect/Traces -> Findings -> Detail -> Explain, then
+        // all the way back up the same path.
+        let mut app = make_test_app();
+        app.view = View::Analyze;
+
+        dispatch_analyze_key(&mut app, KeyCode::Enter);
+        assert_eq!((app.view, app.active_panel), (View::Inspect, Panel::Traces));
+        app.enter(); // trace-1 has a finding -> Findings
+        assert_eq!(app.active_panel, Panel::Findings);
+        app.enter();
+        assert_eq!(app.active_panel, Panel::Detail);
+        app.enter();
+        assert_eq!(app.view, View::Explain);
+
+        dispatch_explain_key(&mut app, KeyCode::Esc);
+        assert_eq!((app.view, app.active_panel), (View::Inspect, Panel::Detail));
+        app.escape(); // Detail -> origin (Findings)
+        assert_eq!(app.active_panel, Panel::Findings);
+        app.escape(); // Findings -> Traces
+        assert_eq!(app.active_panel, Panel::Traces);
+        app.escape(); // Traces -> Analyze
+        assert_eq!(app.view, View::Analyze);
+    }
+
+    #[test]
+    fn hjkl_parity_with_arrows_for_panels() {
+        let mut app = make_test_app();
+        assert_eq!(app.active_panel, Panel::Traces);
+        dispatch_panel_key(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.active_panel, Panel::Findings);
+        dispatch_panel_key(&mut app, KeyCode::Char('h'));
+        assert_eq!(app.active_panel, Panel::Traces);
+        // Arrows behave identically.
+        dispatch_panel_key(&mut app, KeyCode::Right);
+        assert_eq!(app.active_panel, Panel::Findings);
+        dispatch_panel_key(&mut app, KeyCode::Left);
+        assert_eq!(app.active_panel, Panel::Traces);
+    }
+
+    #[test]
+    fn initial_view_and_focus_trace() {
+        let app = make_test_app()
+            .with_initial_view(View::Explain)
+            .with_focus_trace("trace-2");
+        assert_eq!(app.view, View::Explain);
+        assert_eq!(app.trace_ids[app.selected_trace], "trace-2");
+    }
+
+    fn line_text(lines: &[Line]) -> String {
+        lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn analyze_view_without_summary_shows_hint() {
+        let app = make_test_app();
+        let text = line_text(&app.build_analyze_lines());
+        assert!(text.contains("unavailable"), "got: {text}");
+    }
+
+    #[test]
+    fn analyze_view_renders_gate_and_offenders() {
+        let green_summary: GreenSummary = serde_json::from_str(
+            r#"{"total_io_ops":100,"avoidable_io_ops":42,"io_waste_ratio":0.42,"io_waste_ratio_band":"high","top_offenders":[{"endpoint":"GET /api/x","service":"svc-a","io_intensity_score":7.5,"io_intensity_band":"high"}]}"#,
+        )
+        .unwrap();
+        let quality_gate: QualityGate = serde_json::from_str(
+            r#"{"passed":false,"rules":[{"rule":"io_waste_ratio_max","threshold":0.3,"actual":0.42,"passed":false}]}"#,
+        )
+        .unwrap();
+        let analysis: Analysis =
+            serde_json::from_str(r#"{"duration_ms":12,"events_processed":50,"traces_analyzed":2}"#)
+                .unwrap();
+        let app = make_test_app().with_summary(AnalyzeSummary {
+            green_summary,
+            quality_gate,
+            analysis,
+        });
+        let text = line_text(&app.build_analyze_lines());
+        assert!(text.contains("Quality gate"), "got: {text}");
+        assert!(text.contains("FAILED"), "got: {text}");
+        assert!(text.contains("Top offenders"), "got: {text}");
+        assert!(text.contains("GET /api/x"), "got: {text}");
+        // Waste ratio is shown as a percentage, matching the CLI report.
+        assert!(text.contains("42.0%"), "got: {text}");
+        assert!(
+            !text.contains("0.42 "),
+            "must not show the bare fraction: {text}"
+        );
+        // Heuristic-band disclaimer is always present.
+        assert!(text.contains("fixed heuristic thresholds"), "got: {text}");
+    }
+
+    #[test]
+    fn analyze_view_renders_carbon_block_and_uncertainty_note() {
+        let green_summary: GreenSummary = serde_json::from_str(
+            r#"{"total_io_ops":100,"avoidable_io_ops":42,"io_waste_ratio":0.42,"io_waste_ratio_band":"high","top_offenders":[],"co2":{"total":{"low":0.5,"mid":1.0,"high":2.0,"model":"io_proxy_v3","methodology":"sci_v1"},"avoidable":{"low":0.2,"mid":0.4,"high":0.8,"model":"io_proxy_v3","methodology":"sci_v1"},"operational_gco2":0.9,"embodied_gco2":0.1}}"#,
+        )
+        .unwrap();
+        let quality_gate: QualityGate =
+            serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+        let analysis: Analysis =
+            serde_json::from_str(r#"{"duration_ms":1,"events_processed":1,"traces_analyzed":1}"#)
+                .unwrap();
+        let app = make_test_app().with_summary(AnalyzeSummary {
+            green_summary,
+            quality_gate,
+            analysis,
+        });
+        let text = line_text(&app.build_analyze_lines());
+        assert!(text.contains("Est. CO"), "carbon block missing: {text}");
+        assert!(
+            text.contains("multiplicative uncertainty"),
+            "mandatory uncertainty note missing: {text}"
+        );
+    }
+
+    #[test]
+    fn interpret_band_color_matches_cli_palette() {
+        // Must mirror render.rs `interpret_color`: Critical red, High yellow,
+        // Moderate uncolored (Reset), Healthy green. Guards against the two
+        // surfaces drifting on the band gradient.
+        assert_eq!(
+            interpret_band_color(InterpretationLevel::Critical),
+            Color::Red
+        );
+        assert_eq!(
+            interpret_band_color(InterpretationLevel::High),
+            Color::Yellow
+        );
+        assert_eq!(
+            interpret_band_color(InterpretationLevel::Moderate),
+            Color::Reset
+        );
+        assert_eq!(
+            interpret_band_color(InterpretationLevel::Healthy),
+            Color::Green
+        );
+    }
+
+    #[test]
+    fn analyze_view_gate_not_evaluated_when_rules_empty() {
+        // A daemon `/api/export/report` snapshot carries an empty rule set;
+        // the view must not paint a misleading green PASSED.
+        let green_summary: GreenSummary = serde_json::from_str(
+            r#"{"total_io_ops":10,"avoidable_io_ops":5,"io_waste_ratio":0.5,"io_waste_ratio_band":"critical","top_offenders":[]}"#,
+        )
+        .unwrap();
+        let quality_gate: QualityGate =
+            serde_json::from_str(r#"{"passed":true,"rules":[]}"#).unwrap();
+        let analysis: Analysis =
+            serde_json::from_str(r#"{"duration_ms":1,"events_processed":1,"traces_analyzed":1}"#)
+                .unwrap();
+        let app = make_test_app().with_summary(AnalyzeSummary {
+            green_summary,
+            quality_gate,
+            analysis,
+        });
+        let text = line_text(&app.build_analyze_lines());
+        assert!(text.contains("Quality gate: not evaluated"), "got: {text}");
+        assert!(
+            !text.contains("PASSED"),
+            "must not show a misleading PASSED with no rules: {text}"
+        );
+    }
+
+    #[test]
+    fn analyze_enter_preserves_active_panel_for_round_trip() {
+        // Esc from Correlations ascends to Analyze keeping active_panel;
+        // Enter must descend back to that same panel, not force Traces.
+        let mut app = make_test_app();
+        app.active_panel = Panel::Correlations;
+        app.view = View::Analyze;
+        dispatch_analyze_key(&mut app, KeyCode::Enter);
+        assert_eq!(app.view, View::Inspect);
+        assert_eq!(app.active_panel, Panel::Correlations);
+    }
+
+    #[test]
+    fn detail_line_count_counts_code_location_row() {
+        use sentinel_core::event::CodeLocation;
+        let mut app = make_test_app();
+        app.active_panel = Panel::Detail;
+        let without = app.detail_panel_line_count();
+        // current_finding() resolves to all_findings[0] for the default
+        // selection; give it a code location so draw_detail_panel inserts
+        // the "Source:" row.
+        app.all_findings[0].code_location = Some(CodeLocation {
+            function: Some("load_orders".to_string()),
+            filepath: Some("svc/orders.rs".to_string()),
+            lineno: Some(42),
+            namespace: None,
+        });
+        let with = app.detail_panel_line_count();
+        assert_eq!(
+            with,
+            without + 1,
+            "the inserted Source: row must be counted in the scroll clamp"
+        );
     }
 
     #[test]
@@ -2096,8 +2864,9 @@ mod tests {
             let mut terminal = Terminal::new(backend).unwrap();
             app.detail_tree_text();
             terminal.draw(|f| draw(f, app)).unwrap();
-            // Cell (0, 0) is the top-left corner of the Traces panel border.
-            terminal.backend().buffer()[(0, 0)].style()
+            // Row 0 is the view tab bar; cell (0, 1) is the top-left corner
+            // of the Traces panel border below it.
+            terminal.backend().buffer()[(0, 1)].style()
         };
         let before = render(&mut app);
         app.next_panel();
