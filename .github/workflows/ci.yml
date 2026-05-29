@@ -204,6 +204,9 @@ jobs:
   browser-tests:
     name: Browser tests
     runs-on: ubuntu-latest
+    # Bound the whole job so a stalled Playwright CDN download fails fast
+    # instead of hanging on the 6h default.
+    timeout-minutes: 25
     if: >-
       github.event_name == 'push'
       || github.event_name == 'workflow_dispatch'
@@ -234,9 +237,27 @@ jobs:
         working-directory: crates/sentinel-cli/tests/browser
         run: npm ci
 
-      - name: Install Playwright browser
+      # Split the reliable apt OS deps from the flaky browser download.
+      # The download (chromium + headless shell + ffmpeg, ~350 MB from the
+      # Playwright CDN) is retried with a per-attempt timeout, so a stalled
+      # fetch fails fast and retries instead of hanging the step.
+      - name: Install Playwright system deps
         working-directory: crates/sentinel-cli/tests/browser
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install-deps chromium
+
+      - name: Install Playwright browser (retry on CDN stall)
+        working-directory: crates/sentinel-cli/tests/browser
+        timeout-minutes: 12
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 240 npx playwright install chromium; then
+              exit 0
+            fi
+            echo "::warning::playwright browser install attempt ${attempt} stalled, retrying"
+            sleep 5
+          done
+          echo "::error::playwright browser install failed after 3 attempts"
+          exit 1
 
       - name: Run Playwright suite
         working-directory: crates/sentinel-cli/tests/browser
