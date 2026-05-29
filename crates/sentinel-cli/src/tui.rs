@@ -2424,8 +2424,7 @@ mod tests {
                 green_impact: Some(GreenImpact {
                     estimated_extra_io_ops: 5,
                     io_intensity_score: 6.0,
-                    io_intensity_band:
-                        sentinel_core::report::interpret::InterpretationLevel::for_iis(6.0),
+                    io_intensity_band: InterpretationLevel::for_iis(6.0),
                 }),
                 confidence: Confidence::default(),
                 classification_method: None,

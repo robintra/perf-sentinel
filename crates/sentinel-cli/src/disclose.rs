@@ -753,7 +753,7 @@ pub(crate) mod preview {
         }
 
         fn sample_org() -> OrgConfig {
-            let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../docs/examples/perf-sentinel-org.toml");
             sentinel_core::report::periodic::org_config::load_from_path(path)
                 .expect("load example org config")
@@ -765,7 +765,7 @@ pub(crate) mod preview {
             DiscloseState::new(
                 Vec::new(),
                 sample_org(),
-                std::path::PathBuf::from("org.toml"),
+                PathBuf::from("org.toml"),
                 false,
                 None,
                 anchor,
@@ -880,7 +880,7 @@ pub(crate) mod preview {
             let state = DiscloseState::new(
                 Vec::new(),
                 sample_org(),
-                std::path::PathBuf::from("org.toml"),
+                PathBuf::from("org.toml"),
                 false,
                 Some((min, max)),
                 d(2000, 1, 1),
@@ -951,7 +951,7 @@ pub(crate) mod preview {
             let mut state = DiscloseState::new(
                 Vec::new(),
                 sample_org(),
-                std::path::PathBuf::from("org.toml"),
+                PathBuf::from("org.toml"),
                 false,
                 Some((min, max)),
                 d(2000, 1, 1),
@@ -976,8 +976,8 @@ pub(crate) mod preview {
                 PeriodType::CalendarMonth,
                 d(2026, 3, 1),
                 d(2026, 3, 31),
-                &[std::path::PathBuf::from("archive.ndjson")],
-                std::path::Path::new("org.toml"),
+                &[PathBuf::from("archive.ndjson")],
+                Path::new("org.toml"),
             );
             assert!(cmd.contains("--intent official"));
             assert!(cmd.contains("--confidentiality public"));
