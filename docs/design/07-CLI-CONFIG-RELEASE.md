@@ -470,6 +470,21 @@ Takeaways:
 
 When citing perf-sentinel throughput externally, prefer the end-to-end number (or both, with the conditions). The in-memory microbench is the right number for allocator and pipeline regression tracking, not for capacity planning.
 
+#### v0.8.0 / rustc 1.96.0 re-measurement
+
+Re-run on perf-sentinel **0.8.0** with **rustc 1.96.0** (the MSRV bump) on the same Mac16,11 / Docker Desktop `linux/arm64` setup, to confirm the toolchain bump introduces no throughput or memory regression. The figures reproduce the 0.6.1 numbers within run-to-run noise — the 1.95 → 1.96 bump and the 0.6.1 → 0.8.0 feature work leave the `pipeline::analyze` hot path unchanged.
+
+| Workload | macOS native | musl + mimalloc |
+|---|---|---|
+| In-memory, 78 events, 500 iter | 1.23M events/s | **1.94M events/s** |
+| In-memory, 7 800 events, 30 iter | 1.25M events/s | **1.82M events/s** |
+| In-memory, 31 200 events, 30 iter | 1.10M events/s | **1.29M events/s** |
+| End-to-end JSON socket, 7 800 events | 0.69M events/s | **0.77M events/s** |
+| End-to-end JSON socket, 39 000 events | 0.74M events/s | **0.93M events/s** |
+| End-to-end JSON socket, 156 000 events | 0.78M events/s | **1.01M events/s** |
+
+Daemon RSS on the musl + mimalloc build during the 156 000-event end-to-end run: ~17 MB idle after the listeners come up (the native build idles ~10 MB — mimalloc's preallocated arenas cost the difference), peak ~165–193 MB at sustained ingest (10 000 findings stored), comfortably under the 200 MB ceiling and down from the 237 MB measured on 0.6.1. The in-memory `bench` peak RSS on 31 200 events stays ~641 MB (the harness loads the full vector up front, unchanged from 0.6.1). Figures carry ~3% run-to-run noise and depend on the Docker Desktop VM allocation — use them for regression tracking, not absolute capacity planning. The first invocation in a fresh container reads ~10% low (VM/cache warm-up); the numbers above are warm.
+
 ## Distribution strategy
 
 1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2
