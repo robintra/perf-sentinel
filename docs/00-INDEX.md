@@ -26,13 +26,13 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 ## Features
 
-| Document                                 | Description                                                                                   |
-|------------------------------------------|-----------------------------------------------------------------------------------------------|
-| [HTML-REPORT.md](HTML-REPORT.md)         | Self-contained HTML dashboard, live mode via `--daemon-url`, ack/revoke from the browser      |
-| [INSPECT.md](INSPECT.md)                 | Interactive TUI inspector (`perf-sentinel inspect`), vim-style navigation, ack/revoke         |
-| [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) | `.perf-sentinel-acknowledgments.toml` format, SHA-256 signatures, filtering rules             |
-| [ACK-WORKFLOW.md](ACK-WORKFLOW.md)       | End-to-end acknowledgment workflow across daemon API, CLI, TUI, and HTML report               |
-| [REPORTING.md](REPORTING.md)             | Periodic public disclosure via `perf-sentinel disclose`, schema versioning, hash verification |
+| Document                                 | Description                                                                                                                      |
+|------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| [HTML-REPORT.md](HTML-REPORT.md)         | Self-contained HTML dashboard, live mode via `--daemon-url`, ack/revoke from the browser                                         |
+| [INSPECT.md](INSPECT.md)                 | Interactive TUI: Analyze/Inspect/Explain drill-down (`analyze --tui`, `inspect`, `explain --tui`), arrow or vim keys, ack/revoke |
+| [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md) | `.perf-sentinel-acknowledgments.toml` format, SHA-256 signatures, filtering rules                                                |
+| [ACK-WORKFLOW.md](ACK-WORKFLOW.md)       | End-to-end acknowledgment workflow across daemon API, CLI, TUI, and HTML report                                                  |
+| [REPORTING.md](REPORTING.md)             | Periodic public disclosure via `perf-sentinel disclose`, schema versioning, hash verification                                    |
 
 ## Operations
 

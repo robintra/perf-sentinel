@@ -1,15 +1,47 @@
-# Interactive inspector (TUI)
+# Interactive TUI
 
 `perf-sentinel` ships an interactive terminal UI for exploring
-findings, span trees and cross-trace correlations. Two entry points:
+findings, span trees and cross-trace correlations. It exposes three
+views as a single drill-down: **Analyze** (the summary dashboard),
+**Inspect** (the multi-panel browser) and **Explain** (one trace's
+full-screen span tree). Whichever entry point you use, you move between
+the three views without leaving the TUI.
 
-- `perf-sentinel inspect --input <events.json>`: batch mode, reads a
-  raw events file or a pre-computed Report JSON.
-- `perf-sentinel query --daemon <URL> inspect`: live mode, reads
-  findings and traces from a running daemon over HTTP.
+Entry points:
+
+- `perf-sentinel analyze --tui [--input <events.json>]`: opens on the
+  Analyze view.
+- `perf-sentinel inspect --input <events.json>`: opens on the Inspect
+  view, reads a raw events file or a pre-computed Report JSON.
+- `perf-sentinel explain --tui --trace-id <id> --input <events.json>`:
+  opens on the Explain view, focused on that trace.
+- `perf-sentinel query --daemon <URL> inspect`: live mode, opens on
+  Inspect, reads findings and traces from a running daemon over HTTP.
 
 In live mode (0.5.24+), the TUI also lets the operator acknowledge
 and revoke findings interactively from the terminal.
+
+## Views and drill-down
+
+The three views form one drill-down. `Enter` descends, `Esc` ascends:
+
+```
+Analyze  --Enter-->  Inspect  --Enter-->  Explain
+         <---Esc---           <---Esc---
+```
+
+- **Analyze**: the scrollable summary (GreenOps waste, top offenders,
+  quality gate), the same content as `analyze` stdout. `Enter` descends
+  to Inspect.
+- **Inspect**: the multi-panel browser described below. `Enter` drills
+  through the panels and, from Detail, opens Explain. `Esc` walks back
+  toward Analyze.
+- **Explain**: the selected trace's annotated span tree, full screen
+  and scrollable. `Esc` returns to the Inspect Detail panel.
+
+A tab bar at the top highlights the active view. Span trees need raw
+spans (`inspect --input <events>.json` or `query inspect`). A
+pre-computed Report carries none, so Explain shows a hint instead.
 
 ## Layout
 
@@ -29,20 +61,30 @@ The active panel border highlights cyan, the rest stays gray.
 
 ## Keybindings
 
-| Key            | Action                                        |
-|----------------|-----------------------------------------------|
-| `q`            | Quit                                          |
-| `↑` / `k`      | Move selection up                             |
-| `↓` / `j`      | Move selection down                           |
-| `→` / `Tab`    | Cycle to next panel                           |
-| `←` / `BackTab`| Cycle to previous panel                       |
-| `Enter`        | Drill into next panel (Traces → Findings → Detail) |
-| `Esc`          | Go back one panel                             |
-| `a`            | Acknowledge the selected finding (live mode)  |
-| `u`            | Revoke the existing ack (live mode)           |
+Navigation works with arrow keys throughout. In the Inspect view the vim
+keys `h` / `j` / `k` / `l` also apply, and `j` / `k` scroll the Analyze
+and Explain views.
 
-`a` and `u` are no-op in batch mode (`inspect --input`):
-acknowledgment requires a running daemon to persist.
+| Key                   | Action                                            |
+|-----------------------|---------------------------------------------------|
+| `q`                   | Quit                                              |
+| `↑` / `k`             | Move selection up, or scroll (Analyze, Explain)   |
+| `↓` / `j`             | Move selection down, or scroll (Analyze, Explain) |
+| `→` / `Tab` / `l`     | Cycle to next panel (Inspect)                     |
+| `←` / `BackTab` / `h` | Cycle to previous panel (Inspect)                 |
+| `Enter`               | Drill down one step (see below)                   |
+| `Esc`                 | Walk back up one step                             |
+| `a`                   | Acknowledge the selected finding (live mode)      |
+| `u`                   | Revoke the existing ack (live mode)               |
+
+`Enter` drills down: from Analyze to Inspect, then through the Inspect
+panels (Traces, Findings, Detail), then from Detail to Explain. From the
+Correlations panel it jumps to the Detail of the correlation's sample
+trace. `Esc` reverses each step, ascending from the top Inspect panels
+back to Analyze.
+
+`a` and `u` are no-op in batch mode (`inspect --input`): acknowledgment
+requires a running daemon to persist.
 
 ## Acknowledgment workflow (live mode)
 
@@ -66,15 +108,15 @@ Plus two buttons (`Submit` / `Cancel`).
 
 Modal navigation:
 
-| Key            | Action                                       |
-|----------------|----------------------------------------------|
-| `Tab`          | Move focus to the next field / button        |
-| `BackTab`      | Move focus backwards                         |
-| `Enter` (text) | Advance to the next field                    |
+| Key              | Action                                     |
+|------------------|--------------------------------------------|
+| `Tab`            | Move focus to the next field / button      |
+| `BackTab`        | Move focus backwards                       |
+| `Enter` (text)   | Advance to the next field                  |
 | `Enter` (Submit) | Submit the form                            |
 | `Enter` (Cancel) | Close the modal without submitting         |
-| `Esc`          | Cancel the modal                             |
-| `Backspace`    | Delete the last char of the focused buffer   |
+| `Esc`            | Cancel the modal                           |
+| `Backspace`      | Delete the last char of the focused buffer |
 
 On submit, the TUI posts to `/api/findings/<sig>/ack` and closes the
 modal on 201. On error (4xx/5xx), the modal stays open with the
