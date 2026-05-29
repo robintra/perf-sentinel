@@ -428,17 +428,20 @@ async fn run_inspect_action(
     }
     // Build minimal Trace stubs from distinct trace_ids. The TUI detail
     // panel needs span trees, but `/api/findings` does not ship them.
-    // Fetch them upfront in parallel via `fetch_explain_trees` so the TUI
-    // opens immediately instead of stalling on per-trace round-trips
-    // (100 traces * 50ms RTT = 5s without concurrency; ~300ms with 16).
     let trace_ids: std::collections::BTreeSet<String> =
         findings.iter().map(|f| f.trace_id.clone()).collect();
-    let pre_rendered_trees =
-        fetch_explain_trees(client, base_url.to_string(), timeout, &trace_ids, 16).await;
-    // Fetch correlations once (single endpoint, no per-trace fanout).
-    // Graceful degrade to empty list if the daemon is older or the
-    // endpoint is unreachable, the panel will then show its hint.
-    let correlations = fetch_correlations(client, base_url, timeout).await;
+    // Fetch the three independent endpoints concurrently to minimise
+    // time-to-first-paint: span trees (`fetch_explain_trees` fans out
+    // internally, 100 traces * 50ms RTT = 5s serial vs ~300ms at 16),
+    // cross-trace correlations, and the report snapshot backing the
+    // Analyze view (GreenOps waste, top offenders, quality gate). Each
+    // degrades gracefully (empty / None) on an older or unreachable
+    // daemon, so the corresponding panel shows its hint.
+    let (pre_rendered_trees, correlations, report) = tokio::join!(
+        fetch_explain_trees(client, base_url.to_string(), timeout, &trace_ids, 16),
+        fetch_correlations(client, base_url, timeout),
+        fetch_report(client, base_url, timeout),
+    );
     let traces: Vec<sentinel_core::correlate::Trace> = trace_ids
         .into_iter()
         .map(|tid| sentinel_core::correlate::Trace {
@@ -458,10 +461,18 @@ async fn run_inspect_action(
         sanitizer_aware_classification:
             sentinel_core::detect::sanitizer_aware::SanitizerAwareMode::default(),
     };
-    let mut app = crate::tui::App::new(findings, traces, detect_config)
+    let app = crate::tui::App::new(findings, traces, detect_config)
         .with_pre_rendered_trees(pre_rendered_trees)
-        .with_correlations(correlations)
-        .with_daemon_handle(base_url.to_string(), api_key, acks_by_signature);
+        .with_correlations(correlations);
+    let app = match report {
+        Some(report) => app.with_summary(crate::tui::AnalyzeSummary {
+            green_summary: report.green_summary,
+            quality_gate: report.quality_gate,
+            analysis: report.analysis,
+        }),
+        None => app,
+    };
+    let mut app = app.with_daemon_handle(base_url.to_string(), api_key, acks_by_signature);
     // `block_in_place` lets the synchronous `run_loop` (crossterm's
     // `event::read` is blocking) call `Handle::current().block_on(...)`
     // from inside `submit_ack_modal` without panicking the multi-thread
@@ -492,4 +503,24 @@ async fn fetch_correlations(
         return Vec::new();
     };
     serde_json::from_slice(&body).unwrap_or_default()
+}
+
+/// Fetch the daemon's report snapshot from `/api/export/report` to back
+/// the TUI's Analyze view. Returns `None` (graceful degrade) when the
+/// endpoint is unreachable or the payload does not parse, e.g. an older
+/// daemon, in which case the Analyze view renders its unavailable hint.
+#[cfg(feature = "tui")]
+async fn fetch_report(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    timeout: std::time::Duration,
+) -> Option<sentinel_core::report::Report> {
+    let uri = format!("{base_url}/api/export/report")
+        .parse::<sentinel_core::http_client::Uri>()
+        .ok()?;
+    let body =
+        sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
+            .await
+            .ok()?;
+    serde_json::from_slice(&body).ok()
 }
