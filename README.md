@@ -24,14 +24,6 @@
 
 ## Quick look
 
-Terminal:
-
-```bash
-perf-sentinel analyze --input traces.json
-```
-
-![demo](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
-
 HTML dashboard (single offline file):
 
 ```bash
@@ -42,6 +34,45 @@ perf-sentinel report --input traces.json --output report.html
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_dark.gif">
   <img alt="dashboard tour" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/report/dashboard_light.gif">
 </picture>
+
+...or, if you prefer your terminal, an interactive TUI to drill down through Analyze, Inspect and Explain in a single session:
+
+```bash
+perf-sentinel analyze --tui --input traces.json
+```
+
+![all-in-one TUI: Analyze drills into Inspect then Explain, Esc walks back up](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
+
+Prefer frozen frames you can zoom into panel by panel? Jump to [Still frames](#still-frames). The per-command animated demos are collapsed just below.
+
+<details>
+<summary>More demos (analyze, explain, inspect, pg-stat, calibrate, disclose)</summary>
+
+Terminal report (`perf-sentinel analyze`):
+
+![analyze terminal report](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
+
+Explain a single trace (`perf-sentinel explain --trace-id <id>`):
+
+![explain demo: annotated span tree and trace-level findings](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
+
+Inspect, the standalone four-panel TUI (`perf-sentinel inspect`):
+
+![inspect demo: severity colors and the scrollable detail panel](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
+
+pg_stat_statements hotspots (`perf-sentinel pg-stat`):
+
+![pg-stat demo: SQL ranked by total time, calls and mean latency](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/pg-stat/demo.gif)
+
+Calibrate energy factors (`perf-sentinel calibrate`):
+
+![calibrate demo: per-service factors from measured energy](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/demo.gif)
+
+Periodic disclosure preview (`perf-sentinel disclose --tui`):
+
+![disclose preview: calendar stepper, aggregated summary, official-validator verdict](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/demo.gif)
+
+</details>
 
 ## Why perf-sentinel?
 
@@ -271,11 +302,19 @@ Drop `.perf-sentinel-acknowledgments.toml` at your repo root to suppress finding
 The [Quick look](#quick-look) section at the top shows live GIFs. The frozen frames below let you zoom in on individual panels for readability.
 
 <details>
-<summary>Still frames (analyze, explain, inspect, pg-stat, calibrate, report)</summary>
+<summary>Still frames (TUI, analyze, explain, inspect, pg-stat, calibrate, disclose, report)</summary>
 
 **Configuration** (`.perf-sentinel.toml`):
 
 ![config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/config.png)
+
+**All-in-one TUI** (`perf-sentinel analyze --tui`). One session drills down Analyze, Inspect and Explain via Enter, Esc walks back up, the tab bar tracks the active view:
+
+![Analyze view: the GreenOps summary dashboard under the view tab bar](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/analyze.png)
+
+![Inspect view: the four-panel browser, traces, findings, correlations and detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/inspect.png)
+
+![Explain view: a trace's full-screen annotated span tree](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/explain.png)
 
 **Analysis report** (`perf-sentinel analyze`) page by page, with a small overlap so every finding appears fully on at least one page:
 
@@ -320,6 +359,14 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 ![calibrate run: warnings and per-service factors printed](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/run.png)
 
 ![calibrate output: generated TOML with calibration factors](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/calibrate/output.png)
+
+**Disclose preview** (`perf-sentinel disclose --tui`). A read-only preview of the periodic disclosure: a calendar stepper over the period, live intent and confidentiality toggles, and the equivalent command to copy. It never writes or hashes a report:
+
+![disclose preview, month view: settings header, aggregated summary, equivalent command](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
+
+![disclose preview, quarter view: the g stepper widens the period to the whole quarter](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/quarter.png)
+
+![disclose preview, official intent: the validator reports why the report is not yet publishable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/official.png)
 
 **Report dashboard** (`perf-sentinel report`), one still per tab. Each `<picture>` serves the dark variant when your browser advertises `prefers-color-scheme: dark`:
 
