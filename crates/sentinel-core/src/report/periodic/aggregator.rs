@@ -141,6 +141,52 @@ pub fn aggregate_from_paths(
     Ok(builder.finalize(source_files))
 }
 
+/// Inclusive `(earliest, latest)` window timestamp covered by an archive.
+pub type ArchiveTimeRange = (DateTime<Utc>, DateTime<Utc>);
+
+/// Scan the archive `paths` for the earliest and latest window timestamp,
+/// without folding the (heavy) report bodies. Each NDJSON line is parsed
+/// for its `ts` field only. Returns `None` when no parseable window is
+/// found. Used by the interactive `disclose --tui` preview to pick a
+/// sensible default period and show the archive's covered range; the
+/// canonical aggregation stays in [`aggregate_from_paths`].
+///
+/// # Errors
+///
+/// Same path-resolution and I/O errors as [`aggregate_from_paths`].
+pub fn archive_time_range(paths: &[PathBuf]) -> Result<Option<ArchiveTimeRange>, AggregationError> {
+    #[derive(Deserialize)]
+    struct TsOnly {
+        ts: DateTime<Utc>,
+    }
+    let mut range: Option<ArchiveTimeRange> = None;
+    for path in &resolve_files(paths)? {
+        let file = File::open(path).map_err(|source| AggregationError::Io {
+            path: path.display().to_string(),
+            source,
+        })?;
+        for line in BufReader::new(file).lines() {
+            let line = line.map_err(|source| AggregationError::Io {
+                path: path.display().to_string(),
+                source,
+            })?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            // Malformed lines are silently skipped here (diagnostics are
+            // the aggregation path's job); we only need the time bounds.
+            if let Ok(TsOnly { ts }) = serde_json::from_str::<TsOnly>(trimmed) {
+                range = Some(match range {
+                    None => (ts, ts),
+                    Some((lo, hi)) => (lo.min(ts), hi.max(ts)),
+                });
+            }
+        }
+    }
+    Ok(range)
+}
+
 /// Per-window scalars extracted up front so `process_window` and its
 /// helpers can pass a single value around instead of re-reading the
 /// `Report` everywhere. Fields are derived from `green_summary` and
@@ -941,6 +987,45 @@ mod tests {
         );
         // svc-a saw two endpoints across the windows.
         assert!(svc_a.endpoints_seen.len() >= 2);
+    }
+
+    #[test]
+    fn archive_time_range_reports_min_and_max() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 3, 20, 12, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 2, 10, 0, 0, 0).unwrap();
+        let r = make_report(10, 100, 5, &[("svc", "/", 100)], vec![]);
+        let (_dir, path) = write_archive(&[(ts1, r.clone()), (ts2, r.clone()), (ts3, r)]);
+
+        let range = archive_time_range(&[path])
+            .unwrap()
+            .expect("non-empty archive");
+        assert_eq!(range.0, ts1);
+        assert_eq!(range.1, ts2);
+    }
+
+    #[test]
+    fn archive_time_range_empty_for_no_paths() {
+        assert_eq!(archive_time_range(&[]).unwrap(), None);
+    }
+
+    #[test]
+    fn archive_time_range_skips_malformed_lines() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("archive.ndjson");
+        let mut file = File::create(&path).unwrap();
+        let ts = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap();
+        let r = make_report(10, 100, 0, &[("svc", "/", 100)], vec![]);
+        let envelope = serde_json::json!({ "ts": ts, "report": r });
+        writeln!(file, "{{ not json").unwrap();
+        writeln!(file).unwrap();
+        writeln!(file, "{}", serde_json::to_string(&envelope).unwrap()).unwrap();
+        drop(file);
+
+        let range = archive_time_range(&[path])
+            .unwrap()
+            .expect("one valid window");
+        assert_eq!(range, (ts, ts));
     }
 
     #[test]
