@@ -439,6 +439,21 @@ Le build musl est exécuté dans Docker car c'est la forme effectivement déploy
 
 Pour citer le throughput de perf-sentinel à l'extérieur, privilégier le chiffre end-to-end (ou les deux, avec leurs conditions). Le microbench in-memory est le bon chiffre pour le tracking de régression d'allocateur et de pipeline, pas pour le sizing capacitaire.
 
+#### Re-mesure 0.8.0 / rustc 1.96.0
+
+Re-mesuré sur perf-sentinel **0.8.0** avec **rustc 1.96.0** (le bump de MSRV), sur le même Mac16,11 / Docker Desktop `linux/arm64`, pour confirmer que le bump de toolchain n'introduit aucune régression de débit ni de mémoire. Les chiffres reproduisent ceux de 0.6.1 au bruit de mesure près : le passage 1.95 → 1.96 et le travail de fonctionnalités 0.6.1 → 0.8.0 laissent le chemin chaud `pipeline::analyze` inchangé.
+
+| Charge | macOS natif | musl + mimalloc |
+|---|---|---|
+| In-memory, 78 évts, 500 iter | 1,23M évts/s | **1,94M évts/s** |
+| In-memory, 7 800 évts, 30 iter | 1,25M évts/s | **1,82M évts/s** |
+| In-memory, 31 200 évts, 30 iter | 1,10M évts/s | **1,29M évts/s** |
+| End-to-end JSON socket, 7 800 évts | 0,69M évts/s | **0,77M évts/s** |
+| End-to-end JSON socket, 39 000 évts | 0,74M évts/s | **0,93M évts/s** |
+| End-to-end JSON socket, 156 000 évts | 0,78M évts/s | **1,01M évts/s** |
+
+RSS du daemon sur le build musl + mimalloc pendant le run end-to-end de 156 000 évènements : ~17 Mo au repos une fois les listeners démarrés (le build natif tourne à ~10 Mo — les arènes préallouées de mimalloc coûtent la différence), pic ~165–193 Mo à l'ingest soutenu (10 000 findings stockés), confortablement sous le plafond de 200 Mo et en baisse par rapport aux 237 Mo mesurés sur 0.6.1. Le pic RSS du `bench` in-memory sur 31 200 évènements reste ~641 Mo (le harness charge tout le vecteur en amont, inchangé depuis 0.6.1). Les chiffres portent ~3 % de bruit run-to-run et dépendent de l'allocation de la VM Docker Desktop, à utiliser pour le tracking de régression, pas pour le sizing capacitaire absolu. La première invocation dans un conteneur frais lit ~10 % en dessous (warm-up VM/caches), les chiffres ci-dessus sont à chaud.
+
 ## Stratégie de distribution
 
 1. **GitHub Releases** (principal) : binaires multi-plateformes pour 4 cibles (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) avec checksums SHA256. Les Mac Intel peuvent utiliser le binaire arm64 via Rosetta 2

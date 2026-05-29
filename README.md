@@ -17,7 +17,7 @@
 
 > **Read this first**
 > - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans). If they don't, perf-sentinel has nothing to analyze. See [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) for language-specific setup (Java/Quarkus/.NET/Rust).
-> - **What it is:** a self-hosted, single-binary (`<15 MB RSS`) anti-pattern detector, runnable in batch mode on captured traces (local exploration, post-mortem, or a CI quality gate that exits 1 on threshold breach) or as a long-running daemon (OTLP ingestion, query API, live dashboard, Prometheus metrics).
+> - **What it is:** a self-hosted, single-binary (`<20 MB RSS`) anti-pattern detector, runnable in batch mode on captured traces (local exploration, post-mortem, or a CI quality gate that exits 1 on threshold breach) or as a long-running daemon (OTLP ingestion, query API, live dashboard, Prometheus metrics).
 > - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform. See [What perf-sentinel is not](#what-perf-sentinel-is-not).
 
 ---
@@ -84,15 +84,15 @@ The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `m
 
 ## Performance
 
-| Metric                                 | Result (v0.6.1)            |
+| Metric                                 | Result (v0.8.0)            |
 |----------------------------------------|----------------------------|
 | Peak pipeline throughput               | **> 1.8 M events / sec**   |
-| Sustained end-to-end throughput        | **≈ 960 k events / sec**   |
-| Resident memory at sustained peak load | **< 250 MB**               |
+| Sustained end-to-end throughput        | **≈ 1.0 M events / sec**   |
+| Resident memory at sustained peak load | **≈ 190 MB**               |
 
-The `<15 MB RSS` figure quoted in the TL;DR and the comparison table is the **steady-state daemon footprint at low traffic** (apples-to-apples with the idle-agent figures listed for the other tools). Under the sustained ~960 k events / sec load above, the same daemon stays **under 250 MB**.
+The `<20 MB RSS` figure quoted in the TL;DR and the comparison table is the **steady-state daemon footprint at low traffic** (apples-to-apples with the idle-agent figures listed for the other tools): the musl + mimalloc release binary idles at **~17 MB** (the native build idles at ~10 MB — mimalloc trades a little RSS for allocator speed). Under the sustained ~1.0 M events / sec load above, the same daemon peaks at **≈ 190 MB** (down from the 237 MB measured on 0.6.1, comfortably under the 250 MB ceiling).
 
-Measured on a Mac Mini M4 Pro (12 cores, 24 GB unified memory, macOS 26.4.1), release build `aarch64-unknown-linux-musl` with `mimalloc`, running inside a Docker Desktop `linux/arm64` VM provisioned with 15.6 GB. Rust 2024 edition, rustc 1.95.0 stable. Reproduce with `perf-sentinel bench --help`.
+Measured on a Mac Mini M4 Pro (12 cores, 24 GB unified memory, macOS 26.4.1), release build `aarch64-unknown-linux-musl` with `mimalloc`, running inside a Docker Desktop `linux/arm64` VM provisioned with 15.6 GB. Rust 2024 edition, rustc 1.96.0 stable. Reproduce with `perf-sentinel bench --help`.
 
 ## Install
 
@@ -243,7 +243,7 @@ perf-sentinel's niche is being **lightweight, protocol-agnostic, CI/CD-native an
 | Cross-service correlation           | No                                                                           | Yes                                                         | Yes                                                                   | Yes                                          | Limited (local IDE)          | Trace-to-profile via OTel exemplars                     | In-JVM only, no cross-service attribution documented                | Via trace ID                             |
 | Per-span carbon/energy attribution  | No                                                                           | No                                                          | No                                                                    | No                                           | No                           | No                                                      | Yes, per span and per transaction (CCF methodology)                 | Yes, per span (SCI-aligned, directional) |
 | GreenOps scoring (IIS, waste ratio) | No                                                                           | No                                                          | No                                                                    | No                                           | No                           | No                                                      | No                                                                  | Built-in (directional)                   |
-| Runtime footprint                   | Library (no overhead)                                                        | Agent (~100-150 MB RSS)                                     | Agent (~100-150 MB RSS)                                               | SDK + backend                                | Local backend (Docker)       | Agent + backend (~50-100 MB RSS depending on language)  | JVM agent (overhead not published)                                  | Standalone binary (<15 MB RSS)           |
+| Runtime footprint                   | Library (no overhead)                                                        | Agent (~100-150 MB RSS)                                     | Agent (~100-150 MB RSS)                                               | SDK + backend                                | Local backend (Docker)       | Agent + backend (~50-100 MB RSS depending on language)  | JVM agent (overhead not published)                                  | Standalone binary (<20 MB RSS)           |
 | Native CI/CD quality gate           | Manual test assertions                                                       | Alerts, no build gate                                       | Alerts, no build gate                                                 | Alerts, no build gate                        | No                           | No                                                      | No                                                                  | Yes (exit 1 on threshold breach)         |
 | License                             | Commercial (Optimizer)                                                       | Proprietary SaaS                                            | Proprietary SaaS                                                      | FSL (converts to Apache-2 after 2y)          | Freemium, proprietary        | AGPL-3.0                                                | Apache-2.0                                                          | AGPL-3.0                                 |
 | Pricing / self-hostable             | One-time license fee                                                         | Usage-based SaaS (no self-host)                             | Usage-based SaaS (no self-host)                                       | Free tier + SaaS plans (no self-host)        | Freemium SaaS (no self-host) | Free, fully self-hostable                               | Free, fully self-hostable                                           | Free, fully self-hostable                |
