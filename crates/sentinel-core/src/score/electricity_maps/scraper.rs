@@ -363,6 +363,7 @@ fn sanitize_estimation_method(s: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     /// Test-only wrapper that calls the real `fetch_intensity` with the
     /// API knobs at their defaults. Keeps the per-test call sites
@@ -653,7 +654,7 @@ mod tests {
         let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("malformed JSON must surface as JsonParse");
-        assert!(matches!(err, EmapsScraperError::JsonParse(_)));
+        assert_matches!(err, EmapsScraperError::JsonParse(_));
         server.await.unwrap();
     }
 
@@ -665,7 +666,7 @@ mod tests {
         let err = fetch_intensity_test(&client, &endpoint, "tok", "FR")
             .await
             .expect_err("missing field must surface as JsonParse");
-        assert!(matches!(err, EmapsScraperError::JsonParse(_)));
+        assert_matches!(err, EmapsScraperError::JsonParse(_));
         server.await.unwrap();
     }
 
@@ -703,7 +704,7 @@ mod tests {
         let err = fetch_intensity_test(&client, "not a uri :: bad", "tok", "FR")
             .await
             .expect_err("invalid URI must surface as InvalidUri");
-        assert!(matches!(err, EmapsScraperError::InvalidUri(_)));
+        assert_matches!(err, EmapsScraperError::InvalidUri(_));
     }
 
     #[test]

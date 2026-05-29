@@ -390,6 +390,7 @@ pub struct Notes {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     fn sample_metadata() -> ReportMetadata {
         ReportMetadata {
@@ -567,7 +568,7 @@ mod tests {
         let r = sample_report(vec![Application::G1(sample_g1_app())]);
         let json = serde_json::to_string(&r).unwrap();
         let back: PeriodicReport = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back.applications[0], Application::G1(_)));
+        assert_matches!(back.applications[0], Application::G1(_));
         let Application::G1(ref app) = back.applications[0] else {
             unreachable!()
         };
@@ -580,7 +581,7 @@ mod tests {
         let r = sample_report(vec![Application::G2(sample_g2_app())]);
         let json = serde_json::to_string(&r).unwrap();
         let back: PeriodicReport = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back.applications[0], Application::G2(_)));
+        assert_matches!(back.applications[0], Application::G2(_));
         let Application::G2(ref app) = back.applications[0] else {
             unreachable!()
         };
@@ -608,14 +609,14 @@ mod tests {
             "efficiency_score": 90.0,
             "anti_patterns_detected_count": 0
         });
-        assert!(matches!(
+        assert_matches!(
             serde_json::from_value::<Application>(g1).unwrap(),
             Application::G1(_)
-        ));
-        assert!(matches!(
+        );
+        assert_matches!(
             serde_json::from_value::<Application>(g2).unwrap(),
             Application::G2(_)
-        ));
+        );
     }
 
     #[test]
@@ -767,6 +768,6 @@ mod tests {
         let v = serde_json::to_string(&IntegrityLevel::SignedWithAttestation).unwrap();
         assert_eq!(v, "\"signed-with-attestation\"");
         let back: IntegrityLevel = serde_json::from_str("\"signed-with-attestation\"").unwrap();
-        assert!(matches!(back, IntegrityLevel::SignedWithAttestation));
+        assert_matches!(back, IntegrityLevel::SignedWithAttestation);
     }
 }

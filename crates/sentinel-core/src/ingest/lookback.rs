@@ -91,6 +91,7 @@ pub fn parse(s: &str) -> Result<Duration, LookbackError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     #[test]
     fn hours() {
@@ -115,37 +116,34 @@ mod tests {
 
     #[test]
     fn rejects_empty() {
-        assert!(matches!(parse(""), Err(LookbackError::Empty)));
-        assert!(matches!(parse("   "), Err(LookbackError::Empty)));
+        assert_matches!(parse(""), Err(LookbackError::Empty));
+        assert_matches!(parse("   "), Err(LookbackError::Empty));
     }
 
     #[test]
     fn rejects_no_unit() {
-        assert!(matches!(parse("30"), Err(LookbackError::Invalid(_))));
+        assert_matches!(parse("30"), Err(LookbackError::Invalid(_)));
     }
 
     #[test]
     fn rejects_unknown_unit() {
-        assert!(matches!(parse("5d"), Err(LookbackError::Invalid(_))));
+        assert_matches!(parse("5d"), Err(LookbackError::Invalid(_)));
     }
 
     #[test]
     fn rejects_zero() {
-        assert!(matches!(parse("0h"), Err(LookbackError::Zero)));
+        assert_matches!(parse("0h"), Err(LookbackError::Zero));
     }
 
     #[test]
     fn rejects_overflow_on_multiplication() {
-        assert!(matches!(
-            parse("18446744073709551615h"),
-            Err(LookbackError::Overflow)
-        ));
+        assert_matches!(parse("18446744073709551615h"), Err(LookbackError::Overflow));
     }
 
     #[test]
     fn rejects_overflow_on_addition() {
         // Two components each fitting in u64 but whose sum does not.
         let huge = format!("{0}h{0}h", u64::MAX / 3600);
-        assert!(matches!(parse(&huge), Err(LookbackError::Overflow)));
+        assert_matches!(parse(&huge), Err(LookbackError::Overflow));
     }
 }

@@ -580,6 +580,7 @@ async fn drain_fetch_set(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     // --- Lookback parser (delegation sanity check) ---
 
@@ -587,7 +588,7 @@ mod tests {
     fn parse_lookback_wraps_shared_helper() {
         assert_eq!(parse_lookback("1h").unwrap(), Duration::from_hours(1));
         let err = parse_lookback("").expect_err("empty must fail");
-        assert!(matches!(err, TempoError::InvalidLookback(_)));
+        assert_matches!(err, TempoError::InvalidLookback(_));
     }
 
     // --- Search response parsing ---
@@ -782,7 +783,7 @@ mod tests {
         let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("404 must surface as TraceNotFound");
-        assert!(matches!(err, TempoError::TraceNotFound(_)));
+        assert_matches!(err, TempoError::TraceNotFound(_));
         server.await.unwrap();
     }
 
@@ -809,7 +810,7 @@ mod tests {
         let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("malformed protobuf must surface as ProtobufDecode");
-        assert!(matches!(err, TempoError::ProtobufDecode(_)));
+        assert_matches!(err, TempoError::ProtobufDecode(_));
         server.await.unwrap();
     }
 
@@ -849,7 +850,7 @@ mod tests {
         )
         .await
         .expect_err("empty search result must be NoTracesFound");
-        assert!(matches!(err, TempoError::NoTracesFound));
+        assert_matches!(err, TempoError::NoTracesFound);
         server.await.unwrap();
     }
 
@@ -867,7 +868,7 @@ mod tests {
         )
         .await
         .expect_err("malformed JSON must be JsonParse");
-        assert!(matches!(err, TempoError::JsonParse(_)));
+        assert_matches!(err, TempoError::JsonParse(_));
         server.await.unwrap();
     }
 
@@ -1016,7 +1017,7 @@ mod tests {
         .expect_err("empty trace must surface as NoTracesFound after loop");
         // The trace was fetched successfully but contained zero spans,
         // so the aggregated result is empty → NoTracesFound at the end.
-        assert!(matches!(err, TempoError::NoTracesFound));
+        assert_matches!(err, TempoError::NoTracesFound);
         server.await.unwrap();
     }
 

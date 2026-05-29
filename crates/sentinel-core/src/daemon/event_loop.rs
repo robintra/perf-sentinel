@@ -597,6 +597,7 @@ mod tests {
     use super::*;
     use crate::correlate::window::WindowConfig;
     use crate::event::{EventSource, EventType, SpanEvent};
+    use core::assert_matches;
 
     fn make_normalized(trace_id: &str, target: &str) -> normalize::NormalizedEvent {
         normalize::normalize(SpanEvent {
@@ -862,7 +863,7 @@ mod tests {
         // Fast path: no scrapers → Cow::Borrowed, no clone.
         let base = score::carbon::CarbonContext::default();
         let ctx = build_tick_ctx(&base, None, 0, None, 0, None, 0, None, 0, None, 0);
-        assert!(matches!(ctx, std::borrow::Cow::Borrowed(_)));
+        assert_matches!(ctx, std::borrow::Cow::Borrowed(_));
         assert!(ctx.energy_snapshot.is_none());
     }
 

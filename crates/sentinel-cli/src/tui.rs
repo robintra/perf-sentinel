@@ -1163,6 +1163,7 @@ pub fn run(app: &mut App) -> io::Result<()> {
 /// Outcome of a single keystroke at the run-loop level. The loop
 /// returns `Quit` to break out, `Continue` to repaint and wait for the
 /// next event.
+#[derive(Debug)]
 enum KeyOutcome {
     Continue,
     Quit,
@@ -2195,6 +2196,7 @@ async fn refetch_acks_from_daemon(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
     use sentinel_core::detect::{Confidence, GreenImpact, Pattern};
 
     fn make_test_app() -> App {
@@ -2379,7 +2381,7 @@ mod tests {
         let mut app = make_test_app();
         app.view = View::Analyze;
         let out = dispatch_analyze_key(&mut app, KeyCode::Enter);
-        assert!(matches!(out, KeyOutcome::Continue));
+        assert_matches!(out, KeyOutcome::Continue);
         assert_eq!(app.view, View::Inspect);
         assert_eq!(app.active_panel, Panel::Traces);
     }
@@ -2397,7 +2399,7 @@ mod tests {
         let mut app = make_test_app();
         app.view = View::Explain;
         let out = dispatch_explain_key(&mut app, KeyCode::Esc);
-        assert!(matches!(out, KeyOutcome::Continue));
+        assert_matches!(out, KeyOutcome::Continue);
         assert_eq!(app.view, View::Inspect);
         assert_eq!(app.active_panel, Panel::Detail);
     }

@@ -496,6 +496,7 @@ fn resolve_power(svc_cfg: &ServiceCloudConfig, cfg: &CloudEnergyConfig) -> (f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     // ------------------------------------------------------------------
     // Prometheus JSON parsing
@@ -522,13 +523,13 @@ mod tests {
     fn parse_error_status() {
         let body = r#"{"status":"error","errorType":"bad_data","error":"invalid query"}"#;
         let err = parse_prom_scalar(body, "test_query").unwrap_err();
-        assert!(matches!(err, CloudScraperError::QueryError(_)));
+        assert_matches!(err, CloudScraperError::QueryError(_));
     }
 
     #[test]
     fn parse_malformed_json() {
         let err = parse_prom_scalar("not json", "test_query").unwrap_err();
-        assert!(matches!(err, CloudScraperError::JsonParse(_)));
+        assert_matches!(err, CloudScraperError::JsonParse(_));
     }
 
     #[test]
@@ -1020,7 +1021,7 @@ mod tests {
         let err = fetch_cpu_percent(&client, &uri, "q", None)
             .await
             .expect_err("malformed JSON must error");
-        assert!(matches!(err, CloudScraperError::JsonParse(_)));
+        assert_matches!(err, CloudScraperError::JsonParse(_));
         server.await.unwrap();
     }
 

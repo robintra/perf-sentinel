@@ -175,6 +175,7 @@ impl OrgIdentifiers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -263,13 +264,13 @@ environments_measured = ["prod"]
     #[test]
     fn missing_file_returns_io_error() {
         let err = load_from_path("/no/such/path/org.toml").unwrap_err();
-        assert!(matches!(err, OrgConfigError::Io { .. }));
+        assert_matches!(err, OrgConfigError::Io { .. });
     }
 
     #[test]
     fn invalid_toml_returns_parse_error() {
         let file = write_toml("[organisation\nname = broken");
         let err = load_from_path(file.path()).unwrap_err();
-        assert!(matches!(err, OrgConfigError::Parse { .. }));
+        assert_matches!(err, OrgConfigError::Parse { .. });
     }
 }

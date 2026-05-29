@@ -452,6 +452,7 @@ mod tests {
         ReportIntent,
     };
     use crate::report::periodic::test_fixtures;
+    use core::assert_matches;
 
     fn good_report(intent: ReportIntent, confidentiality: Confidentiality) -> PeriodicReport {
         let applications = match confidentiality {
@@ -500,7 +501,7 @@ mod tests {
         let r = good_report(ReportIntent::Audited, Confidentiality::Internal);
         let errors = validate_official(&r).unwrap_err();
         assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0], ValidationError::AuditedNotImplemented));
+        assert_matches!(errors[0], ValidationError::AuditedNotImplemented);
     }
 
     #[test]
@@ -796,7 +797,7 @@ mod tests {
         r.integrity.content_hash = compute_content_hash(&r).unwrap();
         r.aggregate.total_energy_kwh += 1.0;
         let err = validate_content_hash(&r).unwrap_err();
-        assert!(matches!(err, ValidationError::HashMismatch { .. }));
+        assert_matches!(err, ValidationError::HashMismatch { .. });
     }
 
     #[test]

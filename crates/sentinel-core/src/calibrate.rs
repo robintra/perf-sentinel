@@ -502,6 +502,7 @@ pub fn validate_results(results: &[CalibrationResult]) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::event::{EventSource, EventType};
+    use core::assert_matches;
 
     fn make_event(service: &str, timestamp: &str) -> SpanEvent {
         SpanEvent {
@@ -594,40 +595,37 @@ mod tests {
     #[test]
     fn parse_csv_empty_data() {
         let csv = "timestamp,service,energy_kwh\n";
-        assert!(matches!(
-            parse_energy_csv(csv),
-            Err(CalibrationError::EmptyData)
-        ));
+        assert_matches!(parse_energy_csv(csv), Err(CalibrationError::EmptyData));
     }
 
     #[test]
     fn parse_csv_rejects_negative() {
         let csv = "timestamp,service,energy_kwh\n\
                    2025-07-10T14:00:00Z,svc-a,-0.001\n";
-        assert!(matches!(
+        assert_matches!(
             parse_energy_csv(csv),
             Err(CalibrationError::CsvParse { .. })
-        ));
+        );
     }
 
     #[test]
     fn parse_csv_rejects_bad_header() {
         let csv = "timestamp,service,something\n\
                    2025-07-10T14:00:00Z,svc-a,0.001\n";
-        assert!(matches!(
+        assert_matches!(
             parse_energy_csv(csv),
             Err(CalibrationError::CsvParse { .. })
-        ));
+        );
     }
 
     #[test]
     fn parse_csv_rejects_malformed_row() {
         let csv = "timestamp,service,energy_kwh\n\
                    2025-07-10T14:00:00Z,svc-a\n";
-        assert!(matches!(
+        assert_matches!(
             parse_energy_csv(csv),
             Err(CalibrationError::CsvParse { .. })
-        ));
+        );
     }
 
     // --- Calibration computation ---
@@ -752,7 +750,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
         let tmp = std::env::temp_dir().join("test-cal-negative.toml");
         std::fs::write(&tmp, toml_str).unwrap();
         let result = load_calibration_file(tmp.to_str().unwrap());
-        assert!(matches!(result, Err(CalibrationError::Validation(_))));
+        assert_matches!(result, Err(CalibrationError::Validation(_)));
         let _ = std::fs::remove_file(tmp);
     }
 
@@ -951,7 +949,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
         let csv = "timestamp,service,power_watts\n\
                    2025-07-10T14:00:00Z,svc-a,12.5\n";
         let err = parse_energy_csv(csv).unwrap_err();
-        assert!(matches!(err, CalibrationError::EmptyData));
+        assert_matches!(err, CalibrationError::EmptyData);
     }
 
     // --- calibrate() error branches ---
@@ -960,7 +958,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
     fn calibrate_rejects_empty_readings() {
         let events = vec![make_event("svc-a", "2025-07-10T14:00:00Z")];
         let err = calibrate(&events, &[]).unwrap_err();
-        assert!(matches!(err, CalibrationError::EmptyData));
+        assert_matches!(err, CalibrationError::EmptyData);
     }
 
     #[test]
@@ -993,7 +991,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
     #[test]
     fn load_calibration_file_rejects_missing_file() {
         let err = load_calibration_file("/tmp/does-not-exist-abc123.toml").unwrap_err();
-        assert!(matches!(err, CalibrationError::Io(_)));
+        assert_matches!(err, CalibrationError::Io(_));
     }
 
     /// Write `contents` to a fresh file inside a `tempfile::TempDir` and
@@ -1011,7 +1009,7 @@ base_energy_per_io_op_kwh = 0.000_000_1
     fn load_calibration_file_rejects_malformed_toml() {
         let (_dir, path) = write_temp_toml("malformed.toml", "not = valid [toml");
         let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, CalibrationError::TomlParse(_)));
+        assert_matches!(err, CalibrationError::TomlParse(_));
     }
 
     #[test]
@@ -1027,7 +1025,7 @@ base_energy_per_io_op_kwh = 0.0000001
 "#,
         );
         let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, CalibrationError::Validation(_)));
+        assert_matches!(err, CalibrationError::Validation(_));
     }
 
     #[test]
@@ -1043,7 +1041,7 @@ base_energy_per_io_op_kwh = 0.0000001
 "#,
         );
         let err = load_calibration_file(path.to_str().unwrap()).unwrap_err();
-        assert!(matches!(err, CalibrationError::Validation(_)));
+        assert_matches!(err, CalibrationError::Validation(_));
     }
 
     #[test]

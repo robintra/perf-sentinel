@@ -306,6 +306,7 @@ fn validate_official_reporting(config: &Config) -> Result<(), DaemonError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     #[tokio::test]
     async fn daemon_run_rejects_invalid_listen_address() {
@@ -320,7 +321,7 @@ mod tests {
         };
         // Bogus port paths still reach .parse(), which fails.
         let err = run(config).await.expect_err("should fail");
-        assert!(matches!(err, DaemonError::InvalidAddr(_)));
+        assert_matches!(err, DaemonError::InvalidAddr(_));
     }
 
     #[tokio::test]
@@ -355,7 +356,7 @@ mod tests {
             ..Config::default()
         };
         let err = run(config).await.expect_err("must refuse");
-        assert!(matches!(err, DaemonError::ReportingValidation { .. }));
+        assert_matches!(err, DaemonError::ReportingValidation { .. });
     }
 
     #[tokio::test]

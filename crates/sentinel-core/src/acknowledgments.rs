@@ -295,6 +295,7 @@ mod tests {
     use crate::report::{Analysis, GreenSummary, QualityGate};
     use crate::test_helpers::make_finding;
     use chrono::TimeZone;
+    use core::assert_matches;
 
     fn empty_report(findings: Vec<Finding>) -> Report {
         Report {
@@ -548,7 +549,7 @@ reason = "missing signature"
         )
         .unwrap();
         let err = load_from_file(&path).expect_err("missing field must fail");
-        assert!(matches!(err, AcknowledgmentLoadError::Parse(_)));
+        assert_matches!(err, AcknowledgmentLoadError::Parse(_));
     }
 
     #[test]
@@ -568,13 +569,13 @@ expires_at = "not-a-date"
         )
         .unwrap();
         let err = load_from_file(&path).expect_err("invalid date must fail");
-        assert!(matches!(
+        assert_matches!(
             err,
             AcknowledgmentLoadError::InvalidDate {
                 field: "expires_at",
                 ..
             }
-        ));
+        );
     }
 
     #[test]

@@ -617,6 +617,7 @@ fn parse_prometheus_response(body: &[u8]) -> Result<Vec<PgStatEntry>, PgStatErro
 mod tests {
     use super::*;
     use crate::detect::{Confidence, FindingType, Pattern, Severity};
+    use core::assert_matches;
 
     fn sample_csv() -> &'static str {
         "query,calls,total_exec_time,mean_exec_time,rows,shared_blks_hit,shared_blks_read\n\
@@ -730,31 +731,31 @@ mod tests {
     #[test]
     fn parse_csv_empty_input() {
         let result = parse_pg_stat(b"", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::EmptyInput)));
+        assert_matches!(result, Err(PgStatError::EmptyInput));
     }
 
     #[test]
     fn parse_csv_whitespace_only() {
         let result = parse_pg_stat(b"  \n  \n  ", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::EmptyInput)));
+        assert_matches!(result, Err(PgStatError::EmptyInput));
     }
 
     #[test]
     fn parse_csv_header_only() {
         let result = parse_pg_stat(b"query,calls,total_exec_time,mean_exec_time\n", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::EmptyInput)));
+        assert_matches!(result, Err(PgStatError::EmptyInput));
     }
 
     #[test]
     fn parse_csv_missing_column() {
         let result = parse_pg_stat(b"query,calls\nSELECT 1,100", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::MissingColumn(_))));
+        assert_matches!(result, Err(PgStatError::MissingColumn(_)));
     }
 
     #[test]
     fn parse_csv_oversized_payload() {
         let result = parse_pg_stat(sample_csv().as_bytes(), 10);
-        assert!(matches!(result, Err(PgStatError::PayloadTooLarge { .. })));
+        assert_matches!(result, Err(PgStatError::PayloadTooLarge { .. }));
     }
 
     #[test]
@@ -786,13 +787,13 @@ mod tests {
     #[test]
     fn parse_json_empty_array() {
         let result = parse_pg_stat(b"[]", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::EmptyInput)));
+        assert_matches!(result, Err(PgStatError::EmptyInput));
     }
 
     #[test]
     fn parse_json_invalid() {
         let result = parse_pg_stat(b"[{invalid json}]", 1_048_576);
-        assert!(matches!(result, Err(PgStatError::JsonParse(_))));
+        assert_matches!(result, Err(PgStatError::JsonParse(_)));
     }
 
     #[test]
@@ -968,14 +969,14 @@ mod tests {
     fn parse_invalid_utf8_returns_error() {
         let data: &[u8] = &[0xFF, 0xFE, 0x00, 0x01];
         let result = parse_pg_stat(data, 1_048_576);
-        assert!(matches!(result, Err(PgStatError::CsvParse { line: 0, .. })));
+        assert_matches!(result, Err(PgStatError::CsvParse { line: 0, .. }));
     }
 
     #[test]
     fn parse_csv_invalid_number_returns_error() {
         let csv = "query,calls,total_exec_time,mean_exec_time\nSELECT 1,abc,500.0,5.0";
         let result = parse_pg_stat(csv.as_bytes(), 1_048_576);
-        assert!(matches!(result, Err(PgStatError::CsvParse { line: 2, .. })));
+        assert_matches!(result, Err(PgStatError::CsvParse { line: 2, .. }));
     }
 
     // -- Prometheus response parsing --
@@ -1026,7 +1027,7 @@ mod tests {
     #[test]
     fn parse_prometheus_response_invalid_json() {
         let result = parse_prometheus_response(b"not json");
-        assert!(matches!(result, Err(PgStatError::PrometheusFormat(_))));
+        assert_matches!(result, Err(PgStatError::PrometheusFormat(_)));
     }
 
     // -- Prometheus endpoint URL validation --
@@ -1043,7 +1044,7 @@ mod tests {
     #[test]
     fn validate_endpoint_rejects_malformed_url() {
         let result = validate_prometheus_endpoint("not a url");
-        assert!(matches!(result, Err(PgStatError::PrometheusRequest(_))));
+        assert_matches!(result, Err(PgStatError::PrometheusRequest(_)));
     }
 
     #[cfg(any(feature = "daemon", feature = "tempo"))]

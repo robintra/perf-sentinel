@@ -209,6 +209,7 @@ pub enum JsonIngestError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
 
     #[test]
     fn rejects_oversized_payload() {
@@ -384,10 +385,7 @@ mod tests {
         }
         let ingest = JsonIngest::new(1_048_576);
         let result = ingest.ingest(payload.as_bytes());
-        assert!(matches!(
-            result,
-            Err(JsonIngestError::PayloadTooDeep { .. })
-        ));
+        assert_matches!(result, Err(JsonIngestError::PayloadTooDeep { .. }));
     }
 
     #[test]
@@ -468,10 +466,10 @@ mod tests {
             payload.push(']');
         }
         let ingest = JsonIngest::new(1_048_576);
-        assert!(matches!(
+        assert_matches!(
             ingest.ingest(payload.as_bytes()),
             Err(JsonIngestError::PayloadTooDeep { .. })
-        ));
+        );
     }
 
     #[test]
@@ -508,10 +506,10 @@ mod tests {
         }
         payload.push_str("]}]}]}");
         let ingest = JsonIngest::new(1_048_576);
-        assert!(matches!(
+        assert_matches!(
             ingest.ingest(payload.as_bytes()),
             Err(JsonIngestError::PayloadTooDeep { .. })
-        ));
+        );
     }
 
     #[test]
@@ -552,10 +550,10 @@ mod tests {
         }
         payload.push_str("]}]");
         let ingest = JsonIngest::new(1_048_576);
-        assert!(matches!(
+        assert_matches!(
             ingest.ingest(payload.as_bytes()),
             Err(JsonIngestError::PayloadTooDeep { .. })
-        ));
+        );
     }
 
     #[test]

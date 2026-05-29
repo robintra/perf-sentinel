@@ -620,6 +620,7 @@ async fn rewrite_compacted(
 mod tests {
     use super::*;
     use chrono::Duration;
+    use core::assert_matches;
     use tempfile::TempDir;
 
     fn sample_entry(sig: &str, action: AckAction) -> AckEntry {
@@ -670,7 +671,7 @@ mod tests {
             .ack(sample_entry(&sig, AckAction::Ack))
             .await
             .unwrap_err();
-        assert!(matches!(err, AckError::AlreadyAcked));
+        assert_matches!(err, AckError::AlreadyAcked);
     }
 
     #[tokio::test]
@@ -682,7 +683,7 @@ mod tests {
             .unack(&valid_sig("foo:bar:_baz"), "alice")
             .await
             .unwrap_err();
-        assert!(matches!(err, AckError::NotAcked));
+        assert_matches!(err, AckError::NotAcked);
     }
 
     #[tokio::test]
@@ -842,7 +843,7 @@ mod tests {
                 .ack(sample_entry(bad, AckAction::Ack))
                 .await
                 .unwrap_err();
-            assert!(matches!(err, AckError::InvalidSignature), "rejected {bad}");
+            assert_matches!(err, AckError::InvalidSignature, "rejected {bad}");
         }
     }
 
@@ -977,6 +978,6 @@ mod tests {
         let blob = vec![b'x'; MAX_ACK_ENTRY_BYTES + 100];
         tokio::fs::write(&path, blob).await.unwrap();
         let err = AckStore::new(path).await.unwrap_err();
-        assert!(matches!(err, AckError::EntryTooLarge), "got {err:?}");
+        assert_matches!(err, AckError::EntryTooLarge, "got {err:?}");
     }
 }

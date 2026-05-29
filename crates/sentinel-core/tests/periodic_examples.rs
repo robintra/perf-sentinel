@@ -5,6 +5,7 @@
 //! the canonical examples remain parseable and obey the official-intent
 //! validator.
 
+use core::assert_matches;
 use std::path::PathBuf;
 
 use sentinel_core::report::periodic::schema::{
@@ -28,11 +29,11 @@ fn load_example(rel: &str) -> PeriodicReport {
 fn example_internal_g1_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-internal-G1.json");
     assert_eq!(r.schema_version, "perf-sentinel-report/v1.0");
-    assert!(matches!(r.report_metadata.intent, ReportIntent::Internal));
-    assert!(matches!(
+    assert_matches!(r.report_metadata.intent, ReportIntent::Internal);
+    assert_matches!(
         r.report_metadata.confidentiality_level,
         Confidentiality::Internal
-    ));
+    );
     assert!(
         r.applications
             .iter()
@@ -50,11 +51,11 @@ fn example_internal_g1_parses_and_validates() {
 fn example_official_public_g2_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-official-public-G2.json");
     assert_eq!(r.schema_version, "perf-sentinel-report/v1.0");
-    assert!(matches!(r.report_metadata.intent, ReportIntent::Official));
-    assert!(matches!(
+    assert_matches!(r.report_metadata.intent, ReportIntent::Official);
+    assert_matches!(
         r.report_metadata.confidentiality_level,
         Confidentiality::Public
-    ));
+    );
     assert!(
         r.applications
             .iter()

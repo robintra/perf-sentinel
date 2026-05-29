@@ -768,6 +768,7 @@ mod tests {
     use crate::report::{Analysis, GreenSummary, PerEndpointIoOps, QualityGate, Report};
     use crate::score::carbon::{CarbonEstimate, CarbonReport};
     use chrono::TimeZone;
+    use core::assert_matches;
     use std::io::Write;
     use tempfile::TempDir;
 
@@ -982,7 +983,7 @@ mod tests {
         let (_dir, path) = write_archive(&[(outside, r)]);
 
         let err = aggregate_from_paths(&[path], &q1_2026(), false).unwrap_err();
-        assert!(matches!(err, AggregationError::NoWindowsInPeriod));
+        assert_matches!(err, AggregationError::NoWindowsInPeriod);
     }
 
     #[test]
@@ -992,7 +993,7 @@ mod tests {
         let (_dir, path) = write_archive(&[(ts, r)]);
 
         let err = aggregate_from_paths(&[path], &q1_2026(), true).unwrap_err();
-        assert!(matches!(err, AggregationError::UnattributedWindow { .. }));
+        assert_matches!(err, AggregationError::UnattributedWindow { .. });
     }
 
     #[test]

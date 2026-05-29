@@ -60,6 +60,7 @@ pub enum VerifyHashFormat {
     Json,
 }
 
+#[derive(Debug)]
 enum Status {
     Ok(String),
     Fail(String),
@@ -686,6 +687,7 @@ fn integrity_level_label(level: IntegrityLevel) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
     use sentinel_core::report::periodic::schema::BinaryAttestationMetadata;
     use std::path::PathBuf;
 
@@ -703,7 +705,7 @@ mod tests {
         let hash = compute_content_hash(&report).unwrap();
         report.integrity.content_hash = hash;
         let s = verify_content_hash(&report);
-        assert!(matches!(s, Status::Ok(_)), "expected OK, got display");
+        assert_matches!(s, Status::Ok(_), "expected OK, got display");
     }
 
     #[test]
@@ -713,7 +715,7 @@ mod tests {
         // Example file ships with a zeroed placeholder hash that does not
         // match the recomputed canonical value.
         let s = verify_content_hash(&report);
-        assert!(matches!(s, Status::Fail(_)));
+        assert_matches!(s, Status::Fail(_));
     }
 
     #[test]
@@ -784,7 +786,7 @@ mod tests {
         let report: PeriodicReport =
             serde_json::from_slice(&std::fs::read(example_g2()).unwrap()).unwrap();
         let s = verify_signature(&report, None, None, &IdentityOptions::default());
-        assert!(matches!(s, Status::NotProvided));
+        assert_matches!(s, Status::NotProvided);
     }
 
     fn report_with_signature() -> PeriodicReport {

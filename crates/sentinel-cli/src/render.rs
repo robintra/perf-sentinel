@@ -1045,6 +1045,7 @@ fn write_endpoint_deltas_section(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::assert_matches;
     use sentinel_core::detect::suggestions::SuggestedFix;
     use sentinel_core::detect::{Finding, FindingType, GreenImpact, Pattern};
     use sentinel_core::diff::DiffReport;
@@ -1505,18 +1506,12 @@ mod tests {
         assert_eq!(format_estimation_suffix(None, Some("ignored")).as_ref(), "");
 
         // The three constant arms must stay borrowed (no allocation).
-        assert!(matches!(
-            format_estimation_suffix(Some(true), None),
-            Cow::Borrowed(_)
-        ));
-        assert!(matches!(
+        assert_matches!(format_estimation_suffix(Some(true), None), Cow::Borrowed(_));
+        assert_matches!(
             format_estimation_suffix(Some(false), None),
             Cow::Borrowed(_)
-        ));
-        assert!(matches!(
-            format_estimation_suffix(None, None),
-            Cow::Borrowed(_)
-        ));
+        );
+        assert_matches!(format_estimation_suffix(None, None), Cow::Borrowed(_));
     }
 
     #[test]
@@ -1572,7 +1567,7 @@ mod tests {
             line.as_ref(),
             "  Carbon scoring: Electricity Maps v4, lifecycle, hourly"
         );
-        assert!(matches!(line, Cow::Borrowed(_)));
+        assert_matches!(line, Cow::Borrowed(_));
     }
 
     #[test]
@@ -1588,7 +1583,7 @@ mod tests {
             line.as_ref(),
             "  Carbon scoring: Electricity Maps v3, lifecycle, hourly"
         );
-        assert!(matches!(line, Cow::Borrowed(_)));
+        assert_matches!(line, Cow::Borrowed(_));
     }
 
     #[test]
@@ -1607,7 +1602,7 @@ mod tests {
             line.as_ref(),
             "  Carbon scoring: Electricity Maps v4, direct, 5_minutes"
         );
-        assert!(matches!(line, Cow::Owned(_)));
+        assert_matches!(line, Cow::Owned(_));
     }
 
     #[test]
@@ -1623,7 +1618,7 @@ mod tests {
             line.as_ref(),
             "  Carbon scoring: Electricity Maps custom, lifecycle, hourly"
         );
-        assert!(matches!(line, Cow::Owned(_)));
+        assert_matches!(line, Cow::Owned(_));
     }
 
     /// Visual snapshot helper for the 0.5.12 terminal scoring config

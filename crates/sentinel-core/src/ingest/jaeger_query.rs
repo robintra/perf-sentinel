@@ -361,6 +361,7 @@ fn validate_trace_id(trace_id: &str) -> Result<(), JaegerQueryError> {
 mod tests {
     use super::*;
     use crate::test_helpers::{http_200_text, http_status, spawn_one_shot_server};
+    use core::assert_matches;
 
     fn http_200_json(body: &str) -> Vec<u8> {
         http_200_text("application/json", body)
@@ -394,7 +395,7 @@ mod tests {
             Duration::from_hours(1)
         );
         let err = parse_lookback("").expect_err("empty must fail");
-        assert!(matches!(err, JaegerQueryError::InvalidLookback(_)));
+        assert_matches!(err, JaegerQueryError::InvalidLookback(_));
     }
 
     #[tokio::test]
@@ -430,7 +431,7 @@ mod tests {
         )
         .await
         .expect_err("empty search must surface NoTracesFound");
-        assert!(matches!(err, JaegerQueryError::NoTracesFound));
+        assert_matches!(err, JaegerQueryError::NoTracesFound);
         server.await.expect("server join");
     }
 
@@ -442,10 +443,7 @@ mod tests {
             search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
                 .await
                 .expect_err("500 must surface HttpStatus");
-        assert!(matches!(
-            err,
-            JaegerQueryError::HttpStatus { status: 500, .. }
-        ));
+        assert_matches!(err, JaegerQueryError::HttpStatus { status: 500, .. });
         server.await.expect("server join");
     }
 
@@ -457,7 +455,7 @@ mod tests {
             search_and_fetch_traces(&client, &endpoint, "svc", Duration::from_mins(1), 10, None)
                 .await
                 .expect_err("malformed JSON must surface JsonParse");
-        assert!(matches!(err, JaegerQueryError::JsonParse(_)));
+        assert_matches!(err, JaegerQueryError::JsonParse(_));
         server.await.expect("server join");
     }
 
@@ -479,7 +477,7 @@ mod tests {
         let err = fetch_trace(&client, &endpoint, "abc123", None)
             .await
             .expect_err("404 must surface TraceNotFound");
-        assert!(matches!(err, JaegerQueryError::TraceNotFound(_)));
+        assert_matches!(err, JaegerQueryError::TraceNotFound(_));
         server.await.expect("server join");
     }
 
@@ -489,7 +487,7 @@ mod tests {
         let err = fetch_trace(&client, "http://jaeger.local", "not-hex!", None)
             .await
             .expect_err("non-hex must be rejected");
-        assert!(matches!(err, JaegerQueryError::InvalidTraceId(_)));
+        assert_matches!(err, JaegerQueryError::InvalidTraceId(_));
     }
 
     #[tokio::test]
@@ -529,7 +527,7 @@ mod tests {
         )
         .await
         .expect_err("non-http must be rejected");
-        assert!(matches!(err, JaegerQueryError::InvalidEndpoint(_)));
+        assert_matches!(err, JaegerQueryError::InvalidEndpoint(_));
     }
 
     #[tokio::test]
@@ -562,7 +560,7 @@ mod tests {
         )
         .await
         .expect_err("missing both must be rejected");
-        assert!(matches!(err, JaegerQueryError::MissingArgument(_)));
+        assert_matches!(err, JaegerQueryError::MissingArgument(_));
     }
 
     #[tokio::test]
@@ -594,7 +592,7 @@ mod tests {
         )
         .await
         .expect_err("malformed auth header must be rejected");
-        assert!(matches!(err, JaegerQueryError::InvalidAuthHeader(_)));
+        assert_matches!(err, JaegerQueryError::InvalidAuthHeader(_));
     }
 
     /// End-to-end check that a configured `--auth-header` lands on the

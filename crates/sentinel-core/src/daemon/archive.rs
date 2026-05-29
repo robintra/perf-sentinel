@@ -254,6 +254,7 @@ fn is_rotation_stamp(s: &str) -> bool {
 mod tests {
     use super::*;
     use crate::test_helpers::empty_report;
+    use core::assert_matches;
     use tempfile::TempDir;
 
     fn cfg(dir: &TempDir, max_size_mb: u64, max_files: u32) -> DaemonArchiveConfig {
@@ -384,7 +385,7 @@ mod tests {
             max_files: 4,
         })
         .unwrap_err();
-        assert!(matches!(err, ArchiveError::SymlinkRefused { .. }));
+        assert_matches!(err, ArchiveError::SymlinkRefused { .. });
     }
 
     #[test]
