@@ -80,7 +80,7 @@ jobs:
         if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
-      # `rust-toolchain.toml` pins 1.95.0 and rustup auto-installs it on the
+      # `rust-toolchain.toml` pins 1.96.0 and rustup auto-installs it on the
       # first cargo call. The target must be added to THAT toolchain, not to
       # the `stable` channel the action sets up (they are different versions).
       # The cross path builds inside a Docker image that ships its own Rust
