@@ -4,8 +4,8 @@ title: CLI commands overview
 flowchart LR
     cli["perf-sentinel"]
 
-    analyze["analyze<br/><i>--input file<br/>--ci --format json|sarif</i>"]
-    explain["explain<br/><i>--trace-id ID<br/>--format text|json</i>"]
+    analyze["analyze<br/><i>--input file<br/>--ci --format json|sarif<br/>--tui unified views ⚙ tui</i>"]
+    explain["explain<br/><i>--trace-id ID<br/>--format text|json<br/>--tui unified views ⚙ tui</i>"]
     inspect["inspect ⚙ tui<br/><i>--input file<br/>TUI mode</i>"]
     watch["watch ⚙ daemon<br/><i>daemon mode<br/>--config path</i>"]
     demo["demo<br/><i>embedded dataset</i>"]
@@ -25,7 +25,7 @@ flowchart LR
     analyze_pipeline["Pipeline<br/><i>normalize &rarr; correlate<br/>&rarr; detect &rarr; score</i>"]
     tempo_pipeline["Tempo fetch<br/>&rarr; pipeline"]
     jaeger_query_pipeline["Jaeger query fetch<br/>&rarr; pipeline"]
-    inspect_pipeline["Pipeline + TUI<br/><i>ratatui 4-panel<br/>traces / findings / detail / correlations</i>"]
+    inspect_pipeline["Pipeline + unified TUI<br/><i>views Analyze &harr; Inspect &harr; Explain<br/>Enter drills down / Esc walks up<br/>Inspect = 4-panel traces/findings/detail/correlations<br/>arrow keys or vim h/j/k/l</i>"]
     demo_pipeline["Pipeline"]
     bench_pipeline["Pipeline<br/><i>throughput measurement</i>"]
     report_pipeline["Pipeline + HTML sink<br/><i>embed findings-only traces<br/>inline CSS / JS template</i>"]
@@ -93,6 +93,8 @@ flowchart LR
     tree --> report_json
 
     inspect --> inspect_pipeline
+    analyze -.->|--tui| inspect_pipeline
+    explain -.->|--tui| inspect_pipeline
 
     watch --> daemon
     daemon --> report_ndjson

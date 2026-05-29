@@ -26,13 +26,13 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 
 ## Fonctionnalités
 
-| Document                                       | Description                                                                                                 |
-|------------------------------------------------|-------------------------------------------------------------------------------------------------------------|
-| [HTML-REPORT-FR.md](HTML-REPORT-FR.md)         | Dashboard HTML autonome, mode live via `--daemon-url`, ack/revoke depuis le navigateur                      |
-| [INSPECT-FR.md](INSPECT-FR.md)                 | Inspecteur TUI interactif (`perf-sentinel inspect`), navigation vim, ack/revoke                             |
-| [ACKNOWLEDGMENTS-FR.md](ACKNOWLEDGMENTS-FR.md) | Format `.perf-sentinel-acknowledgments.toml`, signatures SHA-256, règles de filtrage                        |
-| [ACK-WORKFLOW-FR.md](ACK-WORKFLOW-FR.md)       | Workflow d'acquittement de bout en bout : API daemon, CLI, TUI et rapport HTML                              |
-| [REPORTING-FR.md](REPORTING-FR.md)             | Divulgation publique périodique via `perf-sentinel disclose`, versionnement du schéma, vérification de hash |
+| Document                                       | Description                                                                                                                           |
+|------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| [HTML-REPORT-FR.md](HTML-REPORT-FR.md)         | Dashboard HTML autonome, mode live via `--daemon-url`, ack/revoke depuis le navigateur                                                |
+| [INSPECT-FR.md](INSPECT-FR.md)                 | TUI interactif : drill-down Analyze/Inspect/Explain (`analyze --tui`, `inspect`, `explain --tui`), flèches ou touches vim, ack/revoke |
+| [ACKNOWLEDGMENTS-FR.md](ACKNOWLEDGMENTS-FR.md) | Format `.perf-sentinel-acknowledgments.toml`, signatures SHA-256, règles de filtrage                                                  |
+| [ACK-WORKFLOW-FR.md](ACK-WORKFLOW-FR.md)       | Workflow d'acquittement de bout en bout : API daemon, CLI, TUI et rapport HTML                                                        |
+| [REPORTING-FR.md](REPORTING-FR.md)             | Divulgation publique périodique via `perf-sentinel disclose`, versionnement du schéma, vérification de hash                           |
 
 ## Exploitation
 
