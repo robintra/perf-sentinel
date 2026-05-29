@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.45]
+
+### Changed
+
+- `appVersion` bumped to `0.8.0` to track the unified multi-view inspect TUI: two new views (Analyze, the GreenOps summary, and Explain, the full-screen annotated span tree) join the existing Inspect browser with an Enter/Esc drill-down, plus `analyze --tui` / `explain --tui` launch flags and a live Analyze view fed from `/api/export/report`. Template surface is unchanged, no migration needed beyond the chart bump. All changes are additive, no config, default CLI output, daemon wire, or report JSON change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.0` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.44]
 
 ### Changed

@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.44
-appVersion: "0.7.8"
+version: 0.2.45
+appVersion: "0.8.0"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -45,9 +45,11 @@ annotations:
       description: "appVersion 0.7.6: two config breaking changes on Scaphandre and Redfish to eliminate silent over-attribution. Scaphandre `process_map` becomes a typed table per service with `exe_contains` plus optional `cmdline_contains` substrings, replacing the previous flat `\"service\" = \"exe\"` form. Substring matching on both labels disambiguates co-located JVMs or .NET assemblies sharing a runtime. Redfish `endpoints` becomes a typed table per chassis with `url` plus `schema` enum (`legacy_power` or `environment_metrics`), the top-level `power_path` field is removed. EnvironmentMetrics (`PowerWatts.Reading`) is now natively supported alongside the legacy `/Power` resource. Both new struct shapes deny unknown TOML fields. Scaphandre adds a zero-sample warn-once net that catches silent upstream renames of the metric or the `exe` label at runtime, mirroring the Kepler net from 0.7.5, and the staleness gauge now climbs from boot on failure parity with Kepler. Wire-conformance CI extended to assert both Scaphandre cmdline disambiguation and Redfish dual-schema parsing against the real upstream binaries."
     - kind: added
       description: "appVersion 0.7.8: closes the suggested_fix coverage gaps from the v0.7.7 lab and extends N+1 detection to HTTP. Vendor-specific OTel scope recognition resolves a framework for scopes outside the io.opentelemetry.* convention (.NET EF Core via OpenTelemetry.Instrumentation.EntityFrameworkCore or Microsoft.EntityFrameworkCore, Quarkus via io.quarkus.*). A last-resort service-name fallback infers the framework from a distinctive substring in the service name when scopes and code_location are absent. HTTP N+1 sanitizer-aware classification reclassifies same-URL high-occurrence HTTP groups with timing variance from redundant_http to n_plus_one_http. No config, CLI, daemon wire, or report JSON change. Known limitation documented: OpenTelemetry .NET redacts the query string to ?* by default, so query-parameter HTTP N+1 loops stay redundant_http unless OTEL_DOTNET_EXPERIMENTAL_HTTPCLIENT_DISABLE_URL_QUERY_REDACTION=true is set."
+    - kind: added
+      description: "appVersion 0.8.0: the inspect TUI becomes a unified multi-view interface. Two views join the existing Inspect browser, Analyze (GreenOps summary with I/O waste ratio, top offenders, quality gate, findings by severity) and Explain (the selected trace's annotated span tree, full screen). Enter descends Analyze -> Inspect -> Explain and Esc ascends back. analyze --tui and explain --tui open the TUI directly, their default stdout output is unchanged because --tui conflicts with --format and --ci. Under query inspect the Analyze view is fed live from /api/export/report, degrading to a hint on older daemons. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.7.8
+      image: ghcr.io/robintra/perf-sentinel:0.8.0
       platforms:
         - linux/amd64
         - linux/arm64
