@@ -205,7 +205,7 @@ fn sequential_siblings_indexed(spans: &[NormalizedEvent], indices: &[usize]) -> 
     // same microsecond) counts as sequential. Aligned with the boundary
     // chosen by `serialized.rs::compute_predecessors`, which uses the
     // same `end <= start` rule for its sweep-line.
-    bounds.windows(2).all(|w| w[0].1 <= w[1].0)
+    bounds.array_windows::<2>().all(|[a, b]| a.1 <= b.0)
 }
 
 /// Build a finding for a classified group. Returns `None` if the group's

@@ -1295,7 +1295,7 @@ fn cmd_diff(
 /// accepts only the omitted form, `report` accepts both for shell
 /// composability (`tempo --output - | report --input - --output ...`).
 fn is_stdin_input(input: Option<&std::path::Path>) -> bool {
-    input.is_none_or(|p| p == std::path::Path::new("-"))
+    input.is_none_or(|p| p == "-")
 }
 
 /// Best-effort display label for the top bar of the HTML dashboard.
