@@ -28,8 +28,11 @@ use sentinel_core::detect::correlate_cross::CrossTraceCorrelation;
 use sentinel_core::detect::{DetectConfig, Finding, FindingType, Severity};
 use sentinel_core::explain;
 use sentinel_core::report::interpret::InterpretationLevel;
+use sentinel_core::report::periodic::schema::{Confidentiality, ReportIntent};
 use sentinel_core::report::{Analysis, GreenSummary, QualityGate};
 use sentinel_core::text_safety::sanitize_for_terminal;
+
+use crate::disclose::{CustomField, DiscloseState, Granularity, Tone};
 
 #[cfg(feature = "daemon")]
 use chrono::{DateTime, Utc};
@@ -54,6 +57,10 @@ pub enum View {
     Inspect,
     /// The selected trace's annotated span tree, full screen.
     Explain,
+    /// Read-only `disclose` preview: calendar stepper over the period,
+    /// live intent/confidentiality toggles, aggregated summary, equivalent
+    /// command. Standalone — no drill-down to the other views.
+    Disclose,
 }
 
 /// Summary data backing the Analyze view. Supplied by the launcher when
@@ -125,6 +132,11 @@ pub struct App {
     /// active. Drives `draw_ack_modal` and `handle_modal_key`.
     #[cfg(feature = "daemon")]
     pub ack_modal: AckModalState,
+
+    /// Present only under `disclose --tui`. When `Some`, the tab bar shows
+    /// just the standalone Disclose tab and the app opens on it; the
+    /// analyze/inspect/explain drill-down is unused.
+    disclose: Option<DiscloseState>,
 }
 
 impl App {
@@ -193,7 +205,16 @@ impl App {
             acks_by_signature: HashMap::new(),
             #[cfg(feature = "daemon")]
             ack_modal: AckModalState::default(),
+            disclose: None,
         }
+    }
+
+    /// Attach the `disclose --tui` preview state. The caller pairs this with
+    /// `with_initial_view(View::Disclose)`; the App is otherwise built with
+    /// empty findings/traces.
+    pub(crate) fn with_disclose(mut self, state: DiscloseState) -> Self {
+        self.disclose = Some(state);
+        self
     }
 
     /// Attach a daemon handle so `a`/`u` keys are active. Used by
@@ -1233,7 +1254,34 @@ fn handle_keystroke(
         View::Analyze => dispatch_analyze_key(app, code),
         View::Inspect => dispatch_panel_key(app, code),
         View::Explain => dispatch_explain_key(app, code),
+        View::Disclose => dispatch_disclose_key(app, code),
     }
+}
+
+/// Keys for the standalone Disclose preview: `g` cycles granularity,
+/// `\u{2190}/\u{2192}` (`h`/`l`) step the period (or the active custom edge by a day),
+/// `[`/`]` move the active custom edge by a month, `Tab` switches the
+/// custom edge, `i`/`c` toggle intent/confidentiality, `\u{2191}/\u{2193}` (`j`/`k`)
+/// scroll the summary. No view switching (the tab is autonomous).
+fn dispatch_disclose_key(app: &mut App, code: KeyCode) -> KeyOutcome {
+    let Some(state) = app.disclose.as_mut() else {
+        return KeyOutcome::Continue;
+    };
+    match code {
+        KeyCode::Char('q') => return KeyOutcome::Quit,
+        KeyCode::Char('g') => state.cycle_granularity(),
+        KeyCode::Left | KeyCode::Char('h') => state.step(false),
+        KeyCode::Right | KeyCode::Char('l') => state.step(true),
+        KeyCode::Char('[') => state.step_month(false),
+        KeyCode::Char(']') => state.step_month(true),
+        KeyCode::Tab | KeyCode::BackTab => state.toggle_custom_field(),
+        KeyCode::Char('i') => state.toggle_intent(),
+        KeyCode::Char('c') => state.toggle_confidentiality(),
+        KeyCode::Up | KeyCode::Char('k') => state.scroll(false),
+        KeyCode::Down | KeyCode::Char('j') => state.scroll(true),
+        _ => {}
+    }
+    KeyOutcome::Continue
 }
 
 /// Keys for the Analyze view: scroll the summary, Enter descends to the
@@ -1346,6 +1394,7 @@ fn draw(f: &mut Frame, app: &App) {
         View::Analyze => draw_analyze_view(f, app, outer[1]),
         View::Inspect => draw_inspect_view(f, app, outer[1]),
         View::Explain => draw_explain_view(f, app, outer[1]),
+        View::Disclose => draw_disclose_view(f, app, outer[1]),
     }
 
     #[cfg(feature = "daemon")]
@@ -1359,6 +1408,25 @@ fn draw(f: &mut Frame, app: &App) {
 /// that switch views are Enter (down) and Esc (up), bound per view.
 fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
     let dim = Style::default().fg(Color::DarkGray);
+    // The standalone Disclose tab replaces the drill-down bar entirely.
+    if app.disclose.is_some() {
+        let spans = vec![
+            Span::raw(" "),
+            Span::styled(
+                " Disclose ",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+            ),
+            Span::styled(
+                "    g granularity \u{00b7} \u{2190}/\u{2192} period \u{00b7} i intent \u{00b7} c confidentiality \u{00b7} q quit"
+                    .to_string(),
+                dim,
+            ),
+        ];
+        f.render_widget(Paragraph::new(Line::from(spans)), area);
+        return;
+    }
     let mut spans = vec![Span::raw(" ")];
     for (i, (view, label)) in [
         (View::Analyze, "Analyze"),
@@ -1460,6 +1528,142 @@ fn draw_explain_view(f: &mut Frame, app: &App, area: Rect) {
         .wrap(Wrap { trim: false })
         .scroll((app.scroll_offset, 0));
     f.render_widget(paragraph, area);
+}
+
+/// The standalone Disclose preview view: a fixed settings header, the
+/// scrollable aggregated summary, and a footer with the equivalent
+/// `disclose` command to copy.
+fn draw_disclose_view(f: &mut Frame, app: &App, area: Rect) {
+    let Some(state) = app.disclose.as_ref() else {
+        return;
+    };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(6),
+            Constraint::Min(0),
+            Constraint::Length(4),
+        ])
+        .split(area);
+
+    draw_disclose_settings(f, state, chunks[0]);
+
+    let summary_lines: Vec<Line> = state
+        .summary_lines()
+        .iter()
+        .map(|l| Line::from(Span::styled(l.text.clone(), tone_style(l.tone))))
+        .collect();
+    let summary = Paragraph::new(summary_lines)
+        .block(
+            Block::default()
+                .title(" Summary ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan)),
+        )
+        .wrap(Wrap { trim: false })
+        .scroll((state.scroll_offset(), 0));
+    f.render_widget(summary, chunks[1]);
+
+    let command = sanitize_for_terminal(&state.equivalent_command()).into_owned();
+    let footer = Paragraph::new(command)
+        .block(
+            Block::default()
+                .title(" Equivalent command (run it to write the hashed report) ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        )
+        .wrap(Wrap { trim: false });
+    f.render_widget(footer, chunks[2]);
+}
+
+fn draw_disclose_settings(f: &mut Frame, state: &DiscloseState, area: Rect) {
+    let dim = Style::default().fg(Color::DarkGray);
+    let cyan = Style::default().fg(Color::Cyan);
+    let (from, to) = state.resolved_dates();
+
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("Granularity: ", dim),
+            Span::styled(
+                format!("\u{2039} {} \u{203a}", state.granularity().label()),
+                cyan.add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("    Intent: ", dim),
+            Span::styled(intent_label(state.intent()), Style::default()),
+            Span::styled("    Confidentiality: ", dim),
+            Span::styled(
+                confidentiality_label(state.confidentiality()),
+                Style::default(),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Period: ", dim),
+            Span::styled(
+                format!("{from} \u{2192} {to}"),
+                Style::default().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("  ({} days)", state.days_covered()), dim),
+        ]),
+    ];
+
+    let archive = match state.archive_range() {
+        Some((min, max)) => format!("Archive: {} .. {}", min.date_naive(), max.date_naive()),
+        None => "Archive: empty".to_string(),
+    };
+    lines.push(Line::from(Span::styled(archive, dim)));
+
+    if state.granularity() == Granularity::Custom {
+        let (from_focus, to_focus) = match state.custom_field() {
+            CustomField::From => (cyan.add_modifier(Modifier::REVERSED), dim),
+            CustomField::To => (dim, cyan.add_modifier(Modifier::REVERSED)),
+        };
+        lines.push(Line::from(vec![
+            Span::styled("Editing: ", dim),
+            Span::styled(" from ", from_focus),
+            Span::styled("  ", dim),
+            Span::styled(" to ", to_focus),
+            Span::styled(
+                "    Tab switch \u{00b7} \u{2190}/\u{2192} \u{00b1}1 day \u{00b7} [ ] \u{00b1}1 month",
+                dim,
+            ),
+        ]));
+    }
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(" Settings ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    f.render_widget(paragraph, area);
+}
+
+fn intent_label(intent: ReportIntent) -> &'static str {
+    match intent {
+        ReportIntent::Internal => "internal",
+        ReportIntent::Official => "official",
+        ReportIntent::Audited => "audited",
+    }
+}
+
+fn confidentiality_label(confidentiality: Confidentiality) -> &'static str {
+    match confidentiality {
+        Confidentiality::Internal => "internal (G1)",
+        Confidentiality::Public => "public (G2)",
+    }
+}
+
+fn tone_style(tone: Tone) -> Style {
+    match tone {
+        Tone::Header => Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
+        Tone::Normal => Style::default(),
+        Tone::Dim => Style::default().fg(Color::DarkGray),
+        Tone::Good => Style::default().fg(Color::Green),
+        Tone::Warn => Style::default().fg(Color::Yellow),
+        Tone::Bad => Style::default().fg(Color::Red),
+    }
 }
 
 /// Map an interpretation band to a terminal color, matching the CLI
