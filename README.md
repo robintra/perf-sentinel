@@ -441,3 +441,7 @@ Releases follow a documented procedure with a mandatory simulation-lab validatio
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE).
+
+## Credits
+
+Logo and banner by [Gwendoline MEIGNEN](https://www.linkedin.com/in/gwendoline-meignen-b0224873/).
