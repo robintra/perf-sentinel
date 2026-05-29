@@ -441,3 +441,7 @@ Les releases suivent une procédure documentée avec un gate obligatoire de vali
 ## Licence
 
 [GNU Affero General Public License v3.0](LICENSE).
+
+## Crédits
+
+Logo et bannière par [Gwendoline MEIGNEN](https://www.linkedin.com/in/gwendoline-meignen-b0224873/).
