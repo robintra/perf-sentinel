@@ -102,6 +102,12 @@ enum Commands {
         /// Include acknowledged findings in the output, alongside ack metadata.
         #[arg(long)]
         show_acknowledged: bool,
+        /// Launch the interactive TUI instead of printing the report.
+        /// Opens on the Analyze view; Enter drills down to Inspect then
+        /// Explain, Esc walks back up.
+        #[cfg(feature = "tui")]
+        #[arg(long, conflicts_with_all = ["ci", "format", "show_acknowledged"])]
+        tui: bool,
     },
 
     /// Watch for traces in real-time (daemon mode).
@@ -148,6 +154,12 @@ enum Commands {
         /// Output format: text (colored, default) or json.
         #[arg(long, value_enum, default_value = "text")]
         format: ExplainFormat,
+        /// Launch the interactive TUI instead of printing the tree.
+        /// Opens on the Explain view focused on --trace-id; Esc walks up
+        /// to the Inspect and Analyze views.
+        #[cfg(feature = "tui")]
+        #[arg(long, conflicts_with = "format")]
+        tui: bool,
     },
 
     /// Benchmark perf-sentinel on a trace file.
@@ -687,7 +699,19 @@ async fn dispatch_command(command: Commands) {
             acknowledgments,
             no_acknowledgments,
             show_acknowledged,
+            #[cfg(feature = "tui")]
+            tui,
         } => {
+            #[cfg(feature = "tui")]
+            if tui {
+                cmd_analyze_tui(
+                    input.as_deref(),
+                    config.as_deref(),
+                    acknowledgments.as_deref(),
+                    no_acknowledgments,
+                );
+                return;
+            }
             cmd_analyze(
                 input.as_deref(),
                 config.as_deref(),
@@ -703,7 +727,14 @@ async fn dispatch_command(command: Commands) {
             trace_id,
             config,
             format,
+            #[cfg(feature = "tui")]
+            tui,
         } => {
+            #[cfg(feature = "tui")]
+            if tui {
+                cmd_explain_tui(&input, &trace_id, config.as_deref());
+                return;
+            }
             cmd_explain(&input, &trace_id, config.as_deref(), format);
         }
         #[cfg(feature = "daemon")]
@@ -1835,6 +1866,22 @@ fn cmd_calibrate(
     }
 }
 
+/// Print `trace not found` plus up to 20 available trace IDs (with an
+/// `... and N more` tail), then exit 1. Shared by `explain` and
+/// `explain --tui` so both give the operator the same recovery hint.
+fn trace_not_found_exit<'a>(trace_id: &str, available: impl Iterator<Item = &'a str>) -> ! {
+    eprintln!("Error: trace ID '{trace_id}' not found");
+    let ids: Vec<&str> = available.collect();
+    let total = ids.len();
+    let shown = ids.iter().take(20).copied().collect::<Vec<_>>().join(", ");
+    if total > 20 {
+        eprintln!("Available trace IDs: {shown} ... and {} more", total - 20);
+    } else {
+        eprintln!("Available trace IDs: {shown}");
+    }
+    std::process::exit(1);
+}
+
 fn cmd_explain(
     input: &std::path::Path,
     trace_id: &str,
@@ -1850,23 +1897,7 @@ fn cmd_explain(
     let traces = sentinel_core::correlate::correlate(normalized);
 
     let Some(trace) = traces.iter().find(|t| t.trace_id == trace_id) else {
-        eprintln!("Error: trace ID '{trace_id}' not found");
-        let total = traces.len();
-        let ids: Vec<&str> = traces
-            .iter()
-            .take(20)
-            .map(|t| t.trace_id.as_str())
-            .collect();
-        if total > 20 {
-            eprintln!(
-                "Available trace IDs: {} ... and {} more",
-                ids.join(", "),
-                total - 20
-            );
-        } else {
-            eprintln!("Available trace IDs: {}", ids.join(", "));
-        }
-        std::process::exit(1);
+        trace_not_found_exit(trace_id, traces.iter().map(|t| t.trace_id.as_str()));
     };
 
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
@@ -2021,32 +2052,43 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
     }
 }
 
+/// Exit early with a clear message when stdout is not an interactive
+/// terminal. Called at the top of each TUI entry point, before any input is
+/// read or parsed, so a piped `--tui` invocation is rejected without first
+/// ingesting (potentially large) input.
 #[cfg(feature = "tui")]
-fn cmd_inspect(
-    input: &std::path::Path,
-    config_path: Option<&std::path::Path>,
-    acknowledgments_path: Option<&std::path::Path>,
-    no_acknowledgments: bool,
-) {
-    let config = load_config(config_path);
-    let raw = read_events(Some(input), config.daemon.max_payload_size);
-    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+fn require_terminal_or_exit() {
+    use std::io::IsTerminal;
+    if !std::io::stdout().is_terminal() {
+        eprintln!("Error: the interactive TUI requires a terminal (stdout is not a TTY)");
+        std::process::exit(1);
+    }
+}
 
-    // Auto-detect events array vs pre-computed Report object, same shape
-    // contract as `report --input`. A Report payload (e.g. a daemon
-    // snapshot dumped via /api/export/report) lights up the Findings and
-    // Correlations panels. The Detail panel falls back to a per-trace
-    // stub with no spans because Reports don't carry raw spans.
-    let (mut report, mut traces) = load_report_from_input(&raw, &config);
-    apply_acknowledgments_or_exit(
-        &mut report,
-        &config,
-        acknowledgments_path,
-        no_acknowledgments,
-    );
-    if traces.is_empty() && !report.findings.is_empty() {
-        let trace_ids: std::collections::BTreeSet<String> =
+/// Shared launcher for the unified multi-view TUI. `analyze --tui`,
+/// `explain --tui` and `inspect` all funnel here, differing only by the
+/// initial view (and, for explain, the focused trace). Stubs per-trace
+/// placeholders from findings when the input carried no raw spans (a
+/// pre-computed Report), exactly like the Detail panel's fallback. Callers
+/// must invoke `require_terminal_or_exit` before reading input.
+#[cfg(feature = "tui")]
+fn launch_unified_tui(
+    report: sentinel_core::report::Report,
+    mut traces: Vec<sentinel_core::correlate::Trace>,
+    detect_config: sentinel_core::detect::DetectConfig,
+    initial_view: tui::View,
+    focus_trace_id: Option<&str>,
+) {
+    if traces.is_empty() {
+        let mut trace_ids: std::collections::BTreeSet<String> =
             report.findings.iter().map(|f| f.trace_id.clone()).collect();
+        // Keep the explain --tui focus trace reachable even if its only
+        // finding was filtered out by acknowledgments: without a stub it
+        // would be absent from trace_index and `with_focus_trace` would
+        // silently land on trace 0.
+        if let Some(tid) = focus_trace_id {
+            trace_ids.insert(tid.to_string());
+        }
         traces = trace_ids
             .into_iter()
             .map(|tid| sentinel_core::correlate::Trace {
@@ -2056,12 +2098,121 @@ fn cmd_inspect(
             .collect();
     }
 
+    // `report` is fully consumed below, so move the summary fields out
+    // rather than clone them (the findings and correlations are moved into
+    // the App separately, disjoint-field moves the borrow checker allows).
+    let summary = tui::AnalyzeSummary {
+        green_summary: report.green_summary,
+        quality_gate: report.quality_gate,
+        analysis: report.analysis,
+    };
+
     let mut app = tui::App::new(report.findings, traces, detect_config)
-        .with_correlations(report.correlations);
+        .with_correlations(report.correlations)
+        .with_summary(summary)
+        .with_initial_view(initial_view);
+    if let Some(tid) = focus_trace_id {
+        app = app.with_focus_trace(tid);
+    }
     if let Err(e) = tui::run(&mut app) {
         eprintln!("TUI error: {e}");
         std::process::exit(1);
     }
+}
+
+#[cfg(feature = "tui")]
+fn cmd_inspect(
+    input: &std::path::Path,
+    config_path: Option<&std::path::Path>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+) {
+    require_terminal_or_exit();
+    let config = load_config(config_path);
+    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+
+    // Auto-detect events array vs pre-computed Report object, same shape
+    // contract as `report --input`. A Report payload (e.g. a daemon
+    // snapshot dumped via /api/export/report) lights up the Findings and
+    // Correlations panels. The Detail panel falls back to a per-trace
+    // stub with no spans because Reports don't carry raw spans.
+    let (mut report, traces) = load_report_from_input(&raw, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    launch_unified_tui(report, traces, detect_config, tui::View::Inspect, None);
+}
+
+/// `analyze --tui`: run the full pipeline (as `analyze` does) but open the
+/// unified TUI on the Analyze view instead of printing the report.
+#[cfg(feature = "tui")]
+fn cmd_analyze_tui(
+    input: Option<&std::path::Path>,
+    config_path: Option<&std::path::Path>,
+    acknowledgments_path: Option<&std::path::Path>,
+    no_acknowledgments: bool,
+) {
+    require_terminal_or_exit();
+    let config = load_config(config_path);
+    let raw = read_events(input, config.daemon.max_payload_size);
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+    let (mut report, traces) = load_report_from_input(&raw, &config);
+    apply_acknowledgments_or_exit(
+        &mut report,
+        &config,
+        acknowledgments_path,
+        no_acknowledgments,
+    );
+    launch_unified_tui(report, traces, detect_config, tui::View::Analyze, None);
+}
+
+/// `explain --tui`: load the full report (all traces, unlike the
+/// single-trace non-interactive `explain`) and open the unified TUI on the
+/// Explain view focused on `trace_id`.
+#[cfg(feature = "tui")]
+fn cmd_explain_tui(input: &std::path::Path, trace_id: &str, config_path: Option<&std::path::Path>) {
+    require_terminal_or_exit();
+    let config = load_config(config_path);
+    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let detect_config = sentinel_core::detect::DetectConfig::from(&config);
+    let (mut report, traces) = load_report_from_input(&raw, &config);
+    // Validate the trace exists before entering the TUI, mirroring the
+    // non-interactive `explain`'s clear error path including the
+    // available-IDs hint. Checked before ack filtering so a trace whose
+    // only finding is acknowledged still opens.
+    let known = traces.iter().any(|t| t.trace_id == trace_id)
+        || report.findings.iter().any(|f| f.trace_id == trace_id);
+    if !known {
+        // With raw events `traces` holds every id; with a pre-computed
+        // Report `traces` is empty and the ids live on the findings.
+        let available: Vec<&str> = if traces.is_empty() {
+            report
+                .findings
+                .iter()
+                .map(|f| f.trace_id.as_str())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        } else {
+            traces.iter().map(|t| t.trace_id.as_str()).collect()
+        };
+        trace_not_found_exit(trace_id, available.into_iter());
+    }
+    // Apply acknowledgments (default file in cwd) so the shared Inspect and
+    // Analyze views show the same finding population as `inspect` and
+    // `analyze --tui`.
+    apply_acknowledgments_or_exit(&mut report, &config, None, false);
+    launch_unified_tui(
+        report,
+        traces,
+        detect_config,
+        tui::View::Explain,
+        Some(trace_id),
+    );
 }
 
 fn cmd_pg_stat(
