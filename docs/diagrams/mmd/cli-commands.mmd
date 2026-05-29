@@ -18,7 +18,7 @@ flowchart LR
     ack["ack ⚙ daemon<br/><i>--daemon URL<br/>(subcommand: create|revoke|list)<br/>auth: env / --api-key-file / TTY prompt</i>"]
     report["report<br/><i>--input file|-<br/>--output report.html<br/>--pg-stat file | --pg-stat-prometheus URL<br/>--before baseline.json<br/>--max-traces-embedded N</i>"]
     diff["diff<br/><i>--before file --after file<br/>--format text|json|sarif</i>"]
-    disclose["disclose<br/><i>--intent internal|official|audited<br/>--confidentiality internal|public<br/>--period-type calendar-*|custom<br/>--from --to YYYY-MM-DD<br/>--input ndjson archive(s)<br/>--org-config toml<br/>--emit-attestation (optional)</i>"]
+    disclose["disclose<br/><i>--intent internal|official|audited<br/>--confidentiality internal|public<br/>--period-type calendar-*|custom<br/>--from --to YYYY-MM-DD<br/>--input ndjson archive(s)<br/>--org-config toml<br/>--emit-attestation (optional)<br/>--tui read-only preview ⚙ tui</i>"]
     verify_hash["verify-hash<br/><i>--report file | --url URL<br/>--attestation in-toto v1<br/>--bundle cosign<br/>--expected-identity --expected-issuer<br/>--format text|json</i>"]
     hash_bake["hash-bake<br/><i>--report file --output file<br/>--allow-signed<br/>recompute canonical content_hash</i>"]
 

@@ -36,6 +36,27 @@ perf-sentinel publishes reports at two granularity levels, controlled by `--conf
 - `--org-config <PATH>` (required for `intent = "official"`). The static organisation / methodology / scope TOML described in the previous section.
 - `--emit-attestation <PATH>` (optional). When set, also writes the in-toto v1 statement sidecar at this path. Needed for the signing workflow.
 - `--strict-attribution` (optional). By default, perf-sentinel buckets spans without a `service.name` attribution into a synthetic `_unattributed` service. This bucket contributes to aggregate totals but is excluded from per-service breakdowns. With `--strict-attribution`, the disclose call refuses to produce a report if any window carries unattributed spans, listing the offending timestamps in the error message. Use for an official disclosure when you want to assert that 100% of measured operations were properly attributed.
+- `--tui` (optional, needs the `tui` build feature). Opens a read-only preview instead of writing a report, see below. It relaxes `--intent`, `--confidentiality`, `--period-type`, `--from`, `--to`, and `--output` to optional, since you dial them in the interface. Conflicts with `--emit-attestation`.
+
+## Interactive preview (`--tui`)
+
+`perf-sentinel disclose --tui` opens a read-only preview instead of producing a report. It re-reads the same cold NDJSON archive as the canonical command, so the figures match exactly, but it never hashes or writes anything. Use it to dial in a period and confirm coverage before committing to the reproducible CLI or CI run.
+
+```bash
+perf-sentinel disclose --tui \
+  --input /var/lib/perf-sentinel/reports.ndjson \
+  --org-config /etc/perf-sentinel/org.toml
+```
+
+Only `--input` and `--org-config` stay required. The period, intent, and confidentiality are set live:
+
+- `g` cycles the granularity (month, quarter, year, custom). For the first three, `from` and `to` snap to calendar boundaries. `custom` lets you edit each edge by hand.
+- `←` / `→` (or `h` / `l`) step the period one unit at a time. In `custom` they move the active edge by a day, `[` and `]` move it by a month, and `Tab` switches between the `from` and `to` edge.
+- `i` toggles the intent (internal or official), `c` toggles the confidentiality (G1 internal or G2 public).
+- The summary reports the window count, period coverage against the official threshold, measured and excluded services, totals (requests, carbon, energy, waste ratio), and the official-validator verdict when the intent is official.
+- The footer prints the exact `disclose` command for the current settings. Copy it to produce the hashed report.
+
+The preview needs an interactive terminal. Piping its output (no TTY) exits with a clear error rather than rendering.
 
 ## Inputs
 
