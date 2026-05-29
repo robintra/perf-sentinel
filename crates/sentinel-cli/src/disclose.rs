@@ -994,6 +994,133 @@ pub(crate) mod preview {
             let lines = state.summary_lines();
             assert!(lines.iter().any(|l| l.text.contains("No archived windows")));
         }
+
+        fn summary(coverage: f64, validator: ValidatorStatus) -> PreviewSummary {
+            PreviewSummary {
+                windows: 6,
+                days_covered: 90,
+                period_coverage: coverage,
+                applications_measured: 8,
+                applications_excluded: 1,
+                total_requests: 54,
+                total_carbon_kgco2eq: 0.0001,
+                total_energy_kwh: 0.0,
+                waste_ratio: 0.218,
+                anti_patterns: 60,
+                runtime_windows: 0,
+                fallback_windows: 6,
+                malformed_lines: 0,
+                validator,
+            }
+        }
+
+        #[test]
+        fn ready_lines_render_all_validator_states() {
+            // Official passes, coverage above threshold (Good branch).
+            let pass = DiscloseState::ready_lines(&summary(0.82, ValidatorStatus::Pass));
+            assert!(
+                pass.iter()
+                    .any(|l| l.text.contains("Windows aggregated:  6"))
+            );
+            assert!(
+                pass.iter()
+                    .any(|l| l.text.contains("Requests:") && l.text.contains("54"))
+            );
+            assert!(pass.iter().any(|l| l.text.contains("Pass")));
+            // Official fails, coverage below threshold (Warn branch + errors).
+            let fail = DiscloseState::ready_lines(&summary(
+                0.4,
+                ValidatorStatus::Fail(vec!["period coverage too low".to_string()]),
+            ));
+            assert!(fail.iter().any(|l| l.text.contains("Fail")));
+            assert!(
+                fail.iter()
+                    .any(|l| l.text.contains("period coverage too low"))
+            );
+            // Internal intent: validator not enforced.
+            let na = DiscloseState::ready_lines(&summary(0.4, ValidatorStatus::NotApplicable));
+            assert!(na.iter().any(|l| l.text.contains("Not enforced")));
+        }
+
+        #[test]
+        fn scroll_clamps_within_summary() {
+            let mut state = empty_state(d(2026, 5, 15));
+            let max = u16::try_from(state.summary_lines().len().saturating_sub(1)).unwrap();
+            state.scroll(true);
+            state.scroll(true);
+            state.scroll(true);
+            assert_eq!(state.scroll_offset(), max);
+            state.scroll(false);
+            state.scroll(false);
+            state.scroll(false);
+            assert_eq!(state.scroll_offset(), 0);
+        }
+
+        #[test]
+        fn step_month_moves_custom_edge_then_noops_elsewhere() {
+            let min = "2026-03-10T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+            let max = "2026-03-20T00:00:00Z".parse::<DateTime<Utc>>().unwrap();
+            let mut state = DiscloseState::new(
+                Vec::new(),
+                sample_org(),
+                std::path::PathBuf::from("org.toml"),
+                false,
+                Some((min, max)),
+                d(2000, 1, 1),
+            );
+            state.cycle_granularity();
+            state.cycle_granularity();
+            state.cycle_granularity();
+            assert_eq!(state.granularity(), Granularity::Custom);
+            // Move the "to" edge one month forward; "from" unchanged.
+            state.toggle_custom_field();
+            state.step_month(true);
+            assert_eq!(state.resolved_dates(), (d(2026, 3, 10), d(2026, 4, 20)));
+            // step_month is a no-op outside Custom.
+            state.cycle_granularity();
+            let before = state.resolved_dates();
+            state.step_month(true);
+            assert_eq!(state.resolved_dates(), before);
+        }
+
+        #[test]
+        fn equivalent_command_covers_all_value_arms() {
+            let internal = equivalent_command(
+                ReportIntent::Internal,
+                Confidentiality::Internal,
+                PeriodType::CalendarQuarter,
+                d(2026, 1, 1),
+                d(2026, 3, 31),
+                &[PathBuf::from("a.ndjson")],
+                Path::new("o.toml"),
+            );
+            assert!(internal.contains("--intent internal"));
+            assert!(internal.contains("--confidentiality internal"));
+            assert!(internal.contains("--period-type calendar-quarter"));
+
+            let audited = equivalent_command(
+                ReportIntent::Audited,
+                Confidentiality::Public,
+                PeriodType::CalendarYear,
+                d(2026, 1, 1),
+                d(2026, 12, 31),
+                &[PathBuf::from("a.ndjson")],
+                Path::new("o.toml"),
+            );
+            assert!(audited.contains("--intent audited"));
+            assert!(audited.contains("--period-type calendar-year"));
+
+            let custom = equivalent_command(
+                ReportIntent::Official,
+                Confidentiality::Public,
+                PeriodType::Custom,
+                d(2026, 1, 1),
+                d(2026, 2, 15),
+                &[PathBuf::from("a.ndjson")],
+                Path::new("o.toml"),
+            );
+            assert!(custom.contains("--period-type custom"));
+        }
     }
 }
 
