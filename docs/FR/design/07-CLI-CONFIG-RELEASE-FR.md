@@ -363,6 +363,16 @@ Optimisation maximale : inlining agressif, vectorisation de boucles et éliminat
 
 L'alternative `opt-level = "s"` (optimiser pour la taille) a été envisagée mais rejetée : la différence de taille binaire est marginale (~200 Ko), tandis que la différence de débit peut atteindre 10-30% sur les charges de traitement de données.
 
+### Pas de `overflow-checks` en release
+
+`overflow-checks` reste à son défaut release (désactivé). Les profils dev et test le gardent activé via le défaut standard `debug_assertions`, donc un débordement entier se manifeste comme un panic en CI avant qu'une release ne soit produite, là où c'est un bug à corriger plutôt qu'une valeur à laquelle se fier.
+
+L'activer en release serait globalement défavorable pour ce binaire. Il ne concerne que l'arithmétique entière, et combiné avec `panic = "abort"` ci-dessus, chaque débordement vérifié devient un abort immédiat du process. Sur un daemon `watch` longue durée qui ingère du trafic réseau non maîtrisé, cela transforme n'importe quel débordement entier sur de l'arithmétique influencée par l'attaquant (comptes de spans, tailles de payload, durées) en déni de service distant, exactement le mode de défaillance que le reste du chemin d'ingestion est conçu pour éviter. Un sidecar de mesure doit dégrader, pas mourir.
+
+Le flag ne traite pas non plus la préoccupation le plus souvent soulevée ici, un rebouclage silencieux des compteurs carbone. Ces accumulateurs sont des `f64` (`operational_gco2`, `total_transport_gco2`, `energy_kwh` dans `score/carbon_compute.rs`), et les flottants ne rebouclent jamais. Ils saturent à `inf` et produisent `NaN` sur opération invalide. `overflow-checks` ne concerne que les entiers et n'a aucun effet sur eux. Le vrai risque de correction dans le calcul carbone est la propagation de `inf`/`NaN`, gérée par une garde de valeur au site (par exemple la garde de diviseur `calls > 0` dans `ingest/pg_stat.rs`), pas par un profil de build.
+
+Là où un calcul entier précis sur entrée hostile pourrait déborder et où un résultat faux compterait, le code durcit ce site localement avec `checked_*`, `saturating_*` ou `u64::try_from(...).ok()` plutôt que d'armer un panic global. La gestion du débordement reste explicite et locale au lieu de sacrifier la disponibilité du daemon sur l'ensemble du binaire.
+
 ### Allocateur sur les builds musl
 
 Les binaires Linux de release ciblent `x86_64-unknown-linux-musl` et `aarch64-unknown-linux-musl` pour que l'artefact soit entièrement statique et tourne sur n'importe quelle distribution quelle que soit la glibc hôte. La libc musl embarque son propre allocateur, simple et compact mais sensiblement plus lent que celui de la glibc sous contention. Sur la release v0.4.6 (musl + allocateur par défaut), un bench de 500 itérations sur le dataset de démo de 78 événements mesurait 1,08M événements/sec sur aarch64 Linux, contre 1,47M pour un build `aarch64-unknown-linux-gnu` du même code. C'est largement au-dessus de la cible documentée de 100k événements/sec, mais c'est aussi le seul vrai coût du choix musl vs glibc.

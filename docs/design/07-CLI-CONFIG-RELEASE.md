@@ -394,6 +394,16 @@ Maximum optimization: aggressive inlining, loop vectorization and dead code elim
 
 The alternative `opt-level = "s"` (optimize for size) was considered but rejected: the binary size difference is marginal (~200KB), while the throughput difference can reach 10-30% on data-processing workloads.
 
+### No `overflow-checks` in release
+
+`overflow-checks` stays at its release default (off). The dev and test profiles keep it on through the standard `debug_assertions` default, so an integer overflow shows up as a panic in CI before a release is cut, where it is a bug to fix rather than a value to trust.
+
+Enabling it in release would be net-negative for this binary. It only affects integer arithmetic, and combined with `panic = "abort"` above, every checked overflow becomes an immediate process abort. On a long-running `watch` daemon that ingests untrusted network traffic, that turns any integer overflow on attacker-influenced arithmetic (span counts, payload sizes, durations) into a remote denial of service, the exact failure mode the rest of the ingest path is built to avoid. A monitoring sidecar should degrade, not die.
+
+The flag also does not address the concern most often raised here, a silent wrap in the carbon counters. Those accumulators are `f64` (`operational_gco2`, `total_transport_gco2`, `energy_kwh` in `score/carbon_compute.rs`), and floats never wrap. They saturate to `inf` and produce `NaN` on invalid operations. `overflow-checks` is integer-only and has no effect on them. The real correctness risk in the carbon math is `inf`/`NaN` propagation, handled by a value guard at the site (for example the `calls > 0` divisor guard in `ingest/pg_stat.rs`), not by a build profile.
+
+Where a specific integer computation on hostile input could overflow and a wrong result would matter, the code hardens that site locally with `checked_*`, `saturating_*` or `u64::try_from(...).ok()` instead of arming a global panic. Overflow handling stays explicit and local rather than trading away daemon availability across the whole binary.
+
 ### Allocator on musl builds
 
 Linux release binaries target `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` so the artifact is fully static and runs on any distribution regardless of host glibc version. The musl libc ships its own allocator, which is simple and small but noticeably slower than glibc's under allocator contention. On the v0.4.6 release (musl + default allocator) a bench run over 500 iterations of the 78-event demo dataset measured 1.08M events/sec on aarch64 Linux, against 1.47M for an `aarch64-unknown-linux-gnu` build of the same code. That is well above the documented 100k events/sec target, but also the sole real cost of choosing musl over glibc.
