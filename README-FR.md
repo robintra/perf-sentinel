@@ -13,7 +13,7 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-**Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry et estime l'empreinte énergétique et carbone de ces I/O (GreenOps). S'utilise comme quality gate CI sur traces capturées, ou comme daemon OTLP long-running avec métriques Prometheus et API de query.**
+**Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry de vos services et estime l'empreinte énergétique et carbone de ces I/O. S'utilise comme quality gate CI sur traces capturées, ou comme daemon OTLP long-running avec métriques Prometheus et API de query.**
 
 > **À lire en premier**
 > - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md) pour la mise en place (Java/Quarkus/.NET/Rust).
