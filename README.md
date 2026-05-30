@@ -411,6 +411,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 | Topic                                        | Document                                                                               |
 |----------------------------------------------|----------------------------------------------------------------------------------------|
+| Table of contents                            | [docs](docs/00-INDEX.md)                                                               |
 | CLI subcommand reference                     | [docs/CLI.md](docs/CLI.md)                                                             |
 | Architecture and pipeline                    | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                                           |
 | Integration topologies (CI / prod / sidecar) | [docs/INTEGRATION.md](docs/INTEGRATION.md)                                             |

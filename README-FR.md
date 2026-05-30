@@ -411,6 +411,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 | Sujet                                            | Document                                                                                                       |
 |--------------------------------------------------|----------------------------------------------------------------------------------------------------------------|
+| Sommaire                                         | [docs/FR](docs/FR/00-INDEX-FR.md)                                                                              |
 | Référence des sous-commandes CLI                 | [docs/FR/CLI-FR.md](docs/FR/CLI-FR.md)                                                                         |
 | Architecture et pipeline                         | [docs/FR/ARCHITECTURE-FR.md](docs/FR/ARCHITECTURE-FR.md)                                                       |
 | Topologies d'intégration (CI / prod / sidecar)   | [docs/FR/INTEGRATION-FR.md](docs/FR/INTEGRATION-FR.md)                                                         |
@@ -427,8 +428,8 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 | Disclosures périodiques d'efficacité (optionnel) | [docs/FR/REPORTING-FR.md](docs/FR/REPORTING-FR.md)                                                             |
 | Déploiement Helm                                 | [docs/FR/HELM-DEPLOYMENT-FR.md](docs/FR/HELM-DEPLOYMENT-FR.md)                                                 |
 | Runbook opérationnel                             | [docs/FR/RUNBOOK-FR.md](docs/FR/RUNBOOK-FR.md)                                                                 |
-| Provenance supply-chain (SLSA, Sigstore)         | [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md)                                                                   |
-| Notes de design (deep dive)                      | [docs/design/](docs/design/00-INDEX.md)                                                                        |
+| Provenance supply-chain (SLSA, Sigstore)         | [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md)                                                       |
+| Notes de design (deep dive)                      | [docs/FR/design/](docs/FR/design/00-INDEX-FR.md)                                                               |
 
 ## Supply chain
 
