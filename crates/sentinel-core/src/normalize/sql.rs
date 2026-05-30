@@ -92,6 +92,24 @@ pub fn normalize_sql(query: &str) -> SqlNormalized {
     collapse_in_lists(t.template, t.has_in_list, t.params)
 }
 
+/// Slice `query` by byte bounds, asserting in debug builds that both
+/// bounds fall on UTF-8 char boundaries.
+///
+/// The tokenizer only ever anchors slice bounds on ASCII delimiters
+/// (`'`, `"`, `$...$`, digits), and every ASCII byte is a char boundary,
+/// so this holds by construction today. The guard is a refactor net: a
+/// future slice taken at a non-ASCII-anchored position would panic on
+/// multi-byte input, invisible to a grep for `unwrap`/`panic`. Compiles
+/// out in release.
+fn checked_query_slice(query: &str, start: usize, end: usize) -> &str {
+    debug_assert!(
+        query.is_char_boundary(start) && query.is_char_boundary(end),
+        "SQL tokenizer query slice [{start}..{end}) is off a char boundary; \
+         bounds must anchor on ASCII delimiters"
+    );
+    &query[start..end]
+}
+
 fn step_normal(t: &mut Tokenizer<'_>) {
     let b = t.bytes[t.i];
     if b == b'\'' {
@@ -148,13 +166,15 @@ fn step_in_string(t: &mut Tokenizer<'_>) {
     if b == b'\'' {
         if t.i + 1 < t.bytes.len() && t.bytes[t.i + 1] == b'\'' {
             // Escaped quote '': flush accumulated slice, push a single quote, reset start
-            t.current_value.push_str(&t.query[t.value_start..t.i]);
+            t.current_value
+                .push_str(checked_query_slice(t.query, t.value_start, t.i));
             t.current_value.push('\'');
             t.i += 2;
             t.value_start = t.i;
         } else {
             // Closing quote: flush remaining content as a proper &str slice
-            t.current_value.push_str(&t.query[t.value_start..t.i]);
+            t.current_value
+                .push_str(checked_query_slice(t.query, t.value_start, t.i));
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
             t.state = State::Normal;
@@ -195,7 +215,8 @@ fn step_in_dollar_quote(t: &mut Tokenizer<'_>) {
     let remaining = &t.bytes[t.i..];
     if remaining.starts_with(&t.dollar_tag) {
         // Found closing tag -- flush content as a proper &str slice
-        t.current_value.push_str(&t.query[t.value_start..t.i]);
+        t.current_value
+            .push_str(checked_query_slice(t.query, t.value_start, t.i));
         t.params.push(std::mem::take(&mut t.current_value));
         t.template.push('?');
         t.i += t.dollar_tag.len();
@@ -258,7 +279,8 @@ fn extract_dollar_tag(i: usize, bytes: &[u8]) -> Vec<u8> {
 
 fn flush_normal_run(t: &mut Tokenizer<'_>) {
     if t.i > t.normal_start {
-        t.template.push_str(&t.query[t.normal_start..t.i]);
+        t.template
+            .push_str(checked_query_slice(t.query, t.normal_start, t.i));
     }
 }
 
@@ -267,7 +289,7 @@ fn flush_pending(t: &mut Tokenizer<'_>) {
         State::InString | State::InDollarQuote => {
             // Flush remaining content from the unflushed &str slice
             t.current_value
-                .push_str(&t.query[t.value_start..t.bytes.len()]);
+                .push_str(checked_query_slice(t.query, t.value_start, t.bytes.len()));
             t.params.push(std::mem::take(&mut t.current_value));
             t.template.push('?');
         }
@@ -278,7 +300,8 @@ fn flush_pending(t: &mut Tokenizer<'_>) {
         State::Normal | State::InDoubleQuote => {
             let len = t.bytes.len();
             if len > t.normal_start {
-                t.template.push_str(&t.query[t.normal_start..len]);
+                t.template
+                    .push_str(checked_query_slice(t.query, t.normal_start, len));
             }
         }
     }
@@ -644,6 +667,25 @@ mod tests {
         let r = normalize_sql("SELECT * FROM t WHERE name = 'caf\u{00e9} d''or'");
         assert_eq!(r.template, "SELECT * FROM t WHERE name = ?");
         assert_eq!(r.params, vec!["caf\u{00e9} d'or"]);
+    }
+
+    // -- char-boundary slice guard --
+
+    #[test]
+    fn checked_query_slice_returns_substring_on_char_boundaries() {
+        // "x\u{00e9}y": x=0, e-acute=1..3 (2 bytes), y=3. Bounds 1 and 3
+        // are char boundaries, so the slice is the middle character.
+        assert_eq!(checked_query_slice("x\u{00e9}y", 1, 3), "\u{00e9}");
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "must anchor on ASCII delimiters")]
+    fn checked_query_slice_rejects_non_char_boundary() {
+        // End bound 2 falls inside the 2-byte e-acute (bytes 1..3): not a
+        // char boundary. The debug-only guard must fire with the tokenizer
+        // message before the raw slice would panic.
+        let _ = checked_query_slice("x\u{00e9}y", 1, 2);
     }
 
     // -- SQL comments (pass through as-is, no special handling) --
