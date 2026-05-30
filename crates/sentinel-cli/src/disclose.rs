@@ -1063,7 +1063,7 @@ pub(crate) mod preview {
             let mut state = DiscloseState::new(
                 Vec::new(),
                 sample_org(),
-                std::path::PathBuf::from("org.toml"),
+                PathBuf::from("org.toml"),
                 false,
                 Some((min, max)),
                 d(2000, 1, 1),
