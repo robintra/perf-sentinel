@@ -13,12 +13,13 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-**Detect I/O anti-patterns (N+1, redundant calls, slow SQL/HTTP, fanout) in OpenTelemetry traces of your services and estimate the energy and carbon footprint of that I/O. Run as a CI quality gate on captured traces, or as a long-running OTLP daemon with Prometheus metrics and a query API.**
+**Detect I/O anti-patterns (N+1, redundant calls, slow SQL/HTTP, fanout) in your services' OpenTelemetry traces, and estimate the energy and carbon footprint of that I/O. Run it either as a CI quality gate on captured traces, or as a long-running OTLP daemon (Prometheus metrics, query API).**
 
 > **Read this first**
 > - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans). If they don't, perf-sentinel has nothing to analyze. See [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) for language-specific setup (Java / C# / Rust / Go / Node.js / Python).
 > - **What it is:** a self-hosted, single-binary (`<20 MB RSS`) anti-pattern detector, runnable in batch mode on captured traces (local exploration, post-mortem, or a CI quality gate that exits 1 on threshold breach) or as a long-running daemon (OTLP ingestion, query API, live dashboard, Prometheus metrics).
 > - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform (yet). See [What perf-sentinel is not](#what-perf-sentinel-is-not).
+> - **Maturity:** beta, pre-1.0. The CLI surface, config keys and on-disk formats may still change between releases before 1.0, with breaking changes called out in the [release notes](https://github.com/robintra/perf-sentinel/releases). The JSON output enums are the one part under an explicit stability contract (see [Input and output formats](#input-and-output-formats)).
 
 ---
 
@@ -196,6 +197,12 @@ Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold br
 
 The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
 
+### Data handling
+
+perf-sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only: SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
+
+The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints are unauthenticated, so put a reverse proxy or network policy in front before exposing the API beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
+
 ## Quickstart
 
 ```bash
@@ -252,7 +259,7 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 
 ## Performance
 
-| Metric                                 | Result (v0.8.0)            |
+| Metric                                 | Result (as of v0.8.0)      |
 |----------------------------------------|----------------------------|
 | Peak pipeline throughput               | **> 1.8 M events / sec**   |
 | Sustained end-to-end throughput        | **≈ 1.0 M events / sec**   |
@@ -274,7 +281,7 @@ Every finding carries an **I/O intensity score (IIS)**, total I/O ops for an end
 >
 > It is **not yet third-party verified** for standalone CSRD / GHG Protocol Scope 2/3 inventory reporting, which requires audit by a qualified body and integration with non-IT scopes. CO₂ figures carry a `~2×` uncertainty bracket in the default proxy mode (tighter with any measured-energy source: Scaphandre RAPL, Kepler eBPF, Redfish BMC, or cloud SPECpower + calibration). Methodology, sources and bounds: [docs/LIMITATIONS.md#carbon-estimates-accuracy](docs/LIMITATIONS.md#carbon-estimates-accuracy) and [docs/METHODOLOGY.md](docs/METHODOLOGY.md).
 
-Concrete pairings: pass the I/O counts and per-region energy estimates to **Watershed**, **Sweep**, **Greenly** or **Persefoni** as activity data ; or use perf-sentinel directly to demonstrate **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) software-optimization conformance, where N+1 detection, redundant calls, caching and fanout reduction map onto the corresponding criteria.
+Concrete pairings: pass the I/O counts and per-region energy estimates to **Watershed**, **Sweep**, **Greenly** or **Persefoni** as activity data; or use perf-sentinel directly to demonstrate **RGESN** (Référentiel Général d'Écoconception de Services Numériques, ARCEP/Ademe/DINUM 2024) software-optimization conformance, where N+1 detection, redundant calls, caching and fanout reduction map onto the corresponding criteria.
 
 For organisations who still want to publish a *non-regulatory* periodic efficiency disclosure (quarterly/yearly JSON, optional Sigstore signature), the optional `perf-sentinel disclose` workflow is documented in [docs/REPORTING.md](docs/REPORTING.md). It is intentionally kept off the main quickstart path.
 
@@ -458,6 +465,8 @@ Releases follow a documented procedure with a mandatory simulation-lab validatio
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE).
+
+Running perf-sentinel does not place your own services under the AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), which is arm's-length communication, not linking, so it creates no derivative work and imposes no license obligation on your code. The AGPL covers perf-sentinel's own source. If you modify it and offer the modified version to others over a network, section 13 requires you to make that modified source available to those users. Using the official, unmodified binaries or image carries no such obligation. This is a practical summary, not legal advice, check with your own counsel if in doubt.
 
 ## Credits
 

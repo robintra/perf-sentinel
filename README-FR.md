@@ -13,12 +13,13 @@
   <img alt="perf-sentinel" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg">
 </picture>
 
-**Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry de vos services et estime l'empreinte énergétique et carbone de ces I/O. S'utilise comme quality gate CI sur traces capturées, ou comme daemon OTLP long-running avec métriques Prometheus et API de query.**
+**Détecte les anti-patterns d'I/O (N+1, appels redondants, SQL/HTTP lents, fanout) dans les traces OpenTelemetry de vos services et estime l'empreinte énergétique et carbone de ces I/O. S'utilise soit comme quality gate CI sur traces capturées, soit comme daemon OTLP long-running (métriques Prometheus, API de query).**
 
 > **À lire en premier**
 > - **Prérequis :** vos services doivent émettre des **traces OpenTelemetry** (spans SQL + HTTP). Sinon, perf-sentinel n'a rien à analyser. Voir [docs/FR/INSTRUMENTATION-FR.md](docs/FR/INSTRUMENTATION-FR.md) pour la mise en place (Java / C# / Rust / Go / Node.js / Python).
 > - **Ce que c'est :** un détecteur d'anti-patterns auto-hébergé, mono-binaire (`<20 Mo RSS`), utilisable en batch sur traces capturées (exploration locale, post-mortem, ou quality gate CI avec exit 1 sur dépassement de seuil) ou en mode daemon long-running (ingestion OTLP, API de query, dashboard live, métriques Prometheus).
 > - **Ce que ce n'est *pas* :** un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire standalone. Voir [Ce que perf-sentinel n'est pas](#ce-que-perf-sentinel-nest-pas).
+> - **Maturité :** bêta, pré-1.0. La surface CLI, les clés de configuration et les formats sur disque peuvent encore changer d'une release à l'autre avant la 1.0, les ruptures de compatibilité étant signalées dans les [notes de version](https://github.com/robintra/perf-sentinel/releases). Les enums de sortie JSON sont la seule partie couverte par un contrat de stabilité explicite (voir [Formats d'entrée et de sortie](#formats-dentrée-et-de-sortie)).
 
 ---
 
@@ -196,6 +197,12 @@ Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépas
 
 Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
 
+### Traitement des données
+
+perf-sentinel traite les traces sur place. Il ne fait aucun appel réseau sortant silencieux et n'embarque aucune télémétrie d'usage. Le contenu brut des spans (valeurs SQL littérales, URLs complètes) ne vit **qu'en mémoire**, dans la fenêtre de streaming : par défaut un TTL de 30 s et un cache LRU plafonné à 10 000 traces actives, tous deux ajustables sous `[daemon]`. Le daemon n'écrit jamais de spans bruts sur disque. Tout ce qu'il émet (rapports JSON / SARIF / HTML, API de query dont `/api/explain`, métriques Prometheus, archive NDJSON par fenêtre optionnelle) ne porte que le **template normalisé** : les littéraux SQL et les valeurs de chemin/query des URLs sont remplacés par des `?` et réduits à un *décompte* de paramètres distincts, jamais les valeurs elles-mêmes.
+
+Le daemon écoute sur `127.0.0.1` par défaut. TLS, CORS et la clé d'API d'acquittement sont tous opt-in. Les endpoints `GET` en lecture seule ne sont pas authentifiés, placez donc un reverse proxy ou une network policy devant avant d'exposer l'API au-delà de localhost. Réglages de rétention et d'écoute dans [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md), surface d'API dans [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md).
+
 ## Démarrage rapide
 
 ```bash
@@ -252,7 +259,7 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 
 ## Performance
 
-| Métrique                                | Résultat (v0.8.0)              |
+| Métrique                                | Résultat (relevé en v0.8.0)    |
 |-----------------------------------------|--------------------------------|
 | Débit pic pipeline                      | **> 1,8 M évènements / sec**   |
 | Débit soutenu end-to-end                | **≈ 1,0 M évènements / sec**   |
@@ -458,6 +465,8 @@ Les releases suivent une procédure documentée avec un gate obligatoire de vali
 ## Licence
 
 [GNU Affero General Public License v3.0](LICENSE).
+
+Faire tourner perf-sentinel ne place pas vos propres services sous AGPL. C'est un processus autonome : vos applications lui envoient seulement des traces OpenTelemetry par le réseau (OTLP), une communication à distance et non un lien de compilation, qui ne crée donc aucune œuvre dérivée et n'impose aucune obligation de licence sur votre code. L'AGPL couvre le code source de perf-sentinel lui-même. Si vous le modifiez et proposez la version modifiée à des tiers via un réseau, l'article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs. Utiliser les binaires ou l'image officiels non modifiés n'entraîne aucune obligation de ce type. Ceci est un résumé pratique et non un avis juridique, consultez votre service juridique en cas de doute.
 
 ## Crédits
 
