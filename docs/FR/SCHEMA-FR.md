@@ -1,12 +1,14 @@
-# Référence schéma : perf-sentinel-report v1.0
+# Référence schéma : perf-sentinel-report v1.1
 
 Ce document décrit la forme JSON d'un rapport de transparence périodique en prose. Le JSON Schema lisible par machine se trouve dans `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Deux exemples remplis sont sous `docs/schemas/examples/`.
+
+La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`. Le schéma accepte à la fois `perf-sentinel-report/v1.0` et `v1.1`, et les nouveaux champs prennent une valeur par défaut quand ils sont absents, donc les lecteurs et rapports v1.0 restent valides.
 
 ## Clés racine
 
 | clé               | type           | requise | notes                                                                             |
 |-------------------|----------------|---------|-----------------------------------------------------------------------------------|
-| `schema_version`  | string (const) | oui     | `"perf-sentinel-report/v1.0"`                                                     |
+| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.1"` (accepte aussi `"…/v1.0"`)                          |
 | `report_metadata` | object         | oui     | voir [Métadonnées de rapport](#métadonnées-de-rapport)                            |
 | `organisation`    | object         | oui     | voir [Organisation](#organisation)                                                |
 | `period`          | object         | oui     | voir [Période](#période)                                                          |
@@ -50,6 +52,15 @@ Le domaine de publication (par exemple `transparency.example.fr`) est traité co
 > **Voir aussi.** L'[introduction énergie et SCI](METHODOLOGY-FR.md#introduction-énergie-et-sci-v10) dans la doc méthodologie définit les termes SCI v1.0 (E, I, M), `efficiency_score`, `io_waste_ratio`, Scaphandre, SPECpower et le vocabulaire associé utilisé par tous les champs ci-dessous.
 
 Sommes sur toute la période et tout le tableau `applications`. `total_requests`, `total_energy_kwh`, `total_carbon_kgco2eq` et `estimated_optimization_potential_kgco2eq` sont des nombres finis non négatifs. `aggregate_waste_ratio` est dans `[0, 1]`. `aggregate_efficiency_score` est dans `[0, 100]` et vaut `clamp(100 - 100 * io_waste_ratio, 0, 100)`. `anti_patterns_detected_count` est la somme de toutes les occurrences par service, y compris les patterns non évitables.
+
+### Tiers de gaspillage (1.1+)
+
+Le rapport porte le gaspillage évitable, énergie et carbone, à deux seuils de détection N+1, côte à côte, pour rendre l'écart auditable :
+
+- `canonical_waste` est calculé à un seuil N+1 fixe épinglé dans le binaire (`2`), pas la config de l'opérateur. C'est le chiffre non manipulable : un opérateur ne peut pas le réduire en relâchant son propre seuil. C'est le chiffre évitable de référence, et depuis la v1.1 les champs plats `estimated_optimization_potential_kgco2eq`, `aggregate_waste_ratio` et `aggregate_efficiency_score` sont des alias de ce tier (ils portaient la valeur opérationnelle en v1.0).
+- `operational_waste` est calculé au seuil N+1 configuré par l'opérateur et enregistre ce seuil dans `n_plus_one_threshold`. Le comparer à `canonical_waste` montre combien de gaspillage évitable le seuil de l'opérateur masque.
+
+Chaque tier porte `n_plus_one_threshold` (entier), `energy_kwh` et `carbon_kgco2eq` (non négatifs), `waste_ratio` (`[0, 1]`) et `efficiency_score` (`[0, 100]`). Pour `intent = "official"`, le validator exige que `canonical_waste.n_plus_one_threshold` égale le seuil canonique du binaire. Le seuil opérationnel est le choix enregistré de l'opérateur et n'est délibérément pas borné, puisqu'un seuil relâché est précisément ce que ce tier sert à exposer. L'énergie et le carbone totaux (`total_energy_kwh`, `total_carbon_kgco2eq`) sont dérivés des spans et indépendants des deux seuils.
 
 ### Signaux de qualité (0.7.0+)
 

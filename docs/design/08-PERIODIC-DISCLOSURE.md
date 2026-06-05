@@ -97,6 +97,16 @@ The aggregator needs `green_summary` (for energy/carbon) and `per_endpoint_io_op
 
 `per_endpoint_io_ops` was previously bound to `_` in `process_traces` (the value was already computed by `score_green` but discarded). Keeping it for the archive is a no-cost change in the hot path.
 
+### Canonical avoidable tier at archive time (1.1+)
+
+The operator's `n_plus_one_threshold` decides which N+1 patterns become findings, so a loose threshold shrinks the avoidable energy/carbon the disclosure would report. Because `disclose` only sums pre-archived figures and cannot re-detect (findings suppressed by a high threshold are absent from the archive), the non-manipulable figure has to be produced where the raw traces still exist: the daemon archive path.
+
+`score::canonical::compute_disclosure_waste` runs one extra N+1 + redundant pass at the binary-pinned `DISCLOSURE_N_PLUS_ONE_THRESHOLD` (`2`) and rescales the avoidable energy/carbon from the operational summary's `operational_gco2` and `accounted_io_ops` (no second full carbon pass). It returns both tiers, archived on `Report.disclosure_waste`: `canonical` at the pinned threshold and `operational` at the operator's. The live dashboard and `findings_store` keep operational semantics, so only the disclosure archive carries the canonical tier. The aggregator folds both tiers into `aggregate.canonical_waste` / `operational_waste`, with the flat avoidable fields aliasing the canonical tier. The extra pass is paid only when archiving is enabled.
+
+A deferred upgrade would stamp the canonical threshold per window and reconcile across a heterogeneous binary fleet at aggregation time; today the aggregator reconciles thresholds by `max` and surfaces the producing binaries via `aggregate.binary_versions`.
+
+The validator authenticates the canonical *label* (`canonical_waste.n_plus_one_threshold == 2`), not the *magnitude* of the archived figures: a tampered NDJSON line can carry threshold 2 with deflated counts and still pass. This is inherent to a self-disclosure model. The `content_hash` (plus the optional cosign attestation) binds the integrity of the *published report*; the honesty of the source archives rests on the binary's `binary_hash` and SLSA provenance, not on the aggregator. Archive-derived counts are summed with `saturating_add` so a crafted near-`u64::MAX` value cannot wrap a period total into a small (under-reported) number.
+
 ## Org-config TOML
 
 The operator-supplied TOML is a partial blueprint for the static fields of a `PeriodicReport`. It carries `organisation`, `methodology`, `scope_manifest` (less the runtime numbers), and optional `notes`. The aggregator fills in the runtime sections (`aggregate`, `applications`, `integrity`).

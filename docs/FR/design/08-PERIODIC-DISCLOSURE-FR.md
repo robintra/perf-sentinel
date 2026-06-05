@@ -97,6 +97,16 @@ L'aggregator a besoin de `green_summary` (pour énergie/carbone) et de `per_endp
 
 `per_endpoint_io_ops` était auparavant lié à `_` dans `process_traces` (la valeur était déjà calculée par `score_green` mais jetée). La garder pour l'archive est un changement sans coût dans le chemin chaud.
 
+### Tier évitable canonique à l'archivage (1.1+)
+
+Le `n_plus_one_threshold` de l'opérateur décide quels patterns N+1 deviennent des findings, donc un seuil relâché réduit l'énergie/carbone évitable que la disclosure déclarerait. Comme `disclose` ne fait que sommer des chiffres déjà archivés et ne peut pas re-détecter (les findings supprimés par un seuil élevé sont absents de l'archive), le chiffre non manipulable doit être produit là où les traces brutes existent encore : le chemin d'archivage du daemon.
+
+`score::canonical::compute_disclosure_waste` exécute une passe N+1 + redondant supplémentaire au seuil épinglé `DISCLOSURE_N_PLUS_ONE_THRESHOLD` (`2`) et rééchelonne l'énergie/carbone évitable depuis `operational_gco2` et `accounted_io_ops` du résumé opérationnel (pas de second calcul carbone complet). Il renvoie les deux tiers, archivés sur `Report.disclosure_waste` : `canonical` au seuil épinglé et `operational` à celui de l'opérateur. Le tableau de bord live et `findings_store` gardent la sémantique opérationnelle, donc seule l'archive de disclosure porte le tier canonique. L'aggregator replie les deux tiers dans `aggregate.canonical_waste` / `operational_waste`, les champs plats évitables étant des alias du tier canonique. La passe supplémentaire n'est payée que quand l'archivage est activé.
+
+Une amélioration différée estamperait le seuil canonique par fenêtre et réconcilierait à travers un parc de binaires hétérogène à l'agrégation. Aujourd'hui l'aggregator réconcilie les seuils par `max` et expose les binaires producteurs via `aggregate.binary_versions`.
+
+Le validator authentifie le *label* canonique (`canonical_waste.n_plus_one_threshold == 2`), pas la *magnitude* des chiffres archivés : une ligne NDJSON falsifiée peut porter le seuil 2 avec des compteurs dégonflés et passer quand même. C'est inhérent à un modèle d'auto-déclaration. Le `content_hash` (et l'attestation cosign optionnelle) lie l'intégrité du *rapport publié*. L'honnêteté des archives sources repose sur le `binary_hash` du binaire et la provenance SLSA, pas sur l'aggregator. Les compteurs issus des archives sont sommés avec `saturating_add`, pour qu'une valeur proche de `u64::MAX` forgée ne puisse pas faire déborder un total de période vers un petit nombre (sous-déclaré).
+
 ## TOML org-config
 
 Le TOML fourni par l'opérateur est un blueprint partiel pour les champs statiques d'un `PeriodicReport`. Il porte `organisation`, `methodology`, `scope_manifest` (sans les chiffres runtime) et `notes` optionnel. L'aggregator remplit les sections runtime (`aggregate`, `applications`, `integrity`).

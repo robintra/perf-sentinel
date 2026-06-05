@@ -1,12 +1,14 @@
-# Schema reference: perf-sentinel-report v1.0
+# Schema reference: perf-sentinel-report v1.1
 
 This document describes the JSON shape of a periodic disclosure report in prose. The machine-readable JSON Schema lives at `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Two filled examples sit under `docs/schemas/examples/`.
+
+v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. The schema accepts both `perf-sentinel-report/v1.0` and `v1.1`, and the new fields default when absent, so v1.0 readers and reports remain valid.
 
 ## Top-level keys
 
 | key               | type           | required | notes                                                                    |
 |-------------------|----------------|----------|--------------------------------------------------------------------------|
-| `schema_version`  | string (const) | yes      | `"perf-sentinel-report/v1.0"`                                            |
+| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.1"` (also accepts `"…/v1.0"`)                  |
 | `report_metadata` | object         | yes      | see [Report metadata](#report-metadata)                                  |
 | `organisation`    | object         | yes      | see [Organisation](#organisation)                                        |
 | `period`          | object         | yes      | see [Period](#period)                                                    |
@@ -50,6 +52,15 @@ The publication domain (e.g. `transparency.example.fr`) is treated as an implici
 > **See also.** The [Energy and SCI primer](METHODOLOGY.md#background-energy-and-sci-primer) in the methodology doc defines SCI v1.0 terms (E, I, M), `efficiency_score`, `io_waste_ratio`, Scaphandre, SPECpower and the related vocabulary used by every field below.
 
 Sums across the entire period and the entire `applications` array. `total_requests`, `total_energy_kwh`, `total_carbon_kgco2eq`, and `estimated_optimization_potential_kgco2eq` are non-negative finite numbers. `aggregate_waste_ratio` is in `[0, 1]`. `aggregate_efficiency_score` is in `[0, 100]` and equals `clamp(100 - 100 * io_waste_ratio, 0, 100)`. `anti_patterns_detected_count` is the sum of every per-service occurrences count, including non-avoidable patterns.
+
+### Waste tiers (1.1+)
+
+The report carries the avoidable energy and carbon at two N+1 detection thresholds, side by side, so the gap between them is auditable:
+
+- `canonical_waste` is computed at a fixed N+1 threshold pinned in the binary (`2`), not the operator's config. It is the non-manipulable figure: an operator cannot shrink it by loosening their own threshold. This is the headline avoidable number, and the flat `estimated_optimization_potential_kgco2eq`, `aggregate_waste_ratio`, and `aggregate_efficiency_score` fields alias this tier since v1.1 (they carried the operational value in v1.0).
+- `operational_waste` is computed at the operator's configured N+1 threshold and records that threshold in `n_plus_one_threshold`. Comparing it against `canonical_waste` shows how much avoidable waste the operator's threshold hides.
+
+Each tier carries `n_plus_one_threshold` (integer), `energy_kwh` and `carbon_kgco2eq` (non-negative), `waste_ratio` (`[0, 1]`), and `efficiency_score` (`[0, 100]`). For `intent = "official"`, the validator requires `canonical_waste.n_plus_one_threshold` to equal the binary's canonical threshold; the operational threshold is the operator's recorded choice and is deliberately not range-checked, since a loose threshold is exactly what that tier exists to surface. The total energy and carbon (`total_energy_kwh`, `total_carbon_kgco2eq`) are span-derived and independent of either threshold.
 
 ### Quality signals (0.7.0+)
 
