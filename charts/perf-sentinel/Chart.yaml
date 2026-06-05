@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.46
-appVersion: "0.8.1"
+version: 0.2.47
+appVersion: "0.8.2"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -49,9 +49,11 @@ annotations:
       description: "appVersion 0.8.0: the inspect TUI becomes a unified multi-view interface. Two views join the existing Inspect browser, Analyze (GreenOps summary with I/O waste ratio, top offenders, quality gate, findings by severity) and Explain (the selected trace's annotated span tree, full screen). Enter descends Analyze -> Inspect -> Explain and Esc ascends back. analyze --tui and explain --tui open the TUI directly, their default stdout output is unchanged because --tui conflicts with --format and --ci. Under query inspect the Analyze view is fed live from /api/export/report, degrading to a hint on older daemons. No chart template change, this bump only tracks the new appVersion."
     - kind: changed
       description: "appVersion 0.8.1: patch release with no daemon-facing change. The SQL tokenizer slice path gains a debug-only char-boundary assertion (compiled out in release) as a refactor guard, disclose state initialization is simplified, and the release profile rationale now documents why overflow-checks stays off in release. Remaining changes are release tooling (Helm chart release automation script) and documentation. No chart template change, this bump only tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.8.2: the periodic public disclosure reports avoidable energy and carbon at two N+1 thresholds side by side, canonical_waste (a threshold pinned in the binary that the operator cannot configure, so the disclosed waste figure is non-manipulable) and operational_waste (the operator's configured threshold), schema perf-sentinel-report/v1.1. The flat avoidable fields alias the canonical tier and the change is additive, v1.0 readers remain valid. Also bumps the TUI backend to ratatui 0.30.1. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.1
+      image: ghcr.io/robintra/perf-sentinel:0.8.2
       platforms:
         - linux/amd64
         - linux/arm64
