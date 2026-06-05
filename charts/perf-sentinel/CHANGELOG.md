@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.47]
+
+### Changed
+
+- `appVersion` bumped to `0.8.2` to track the two-tier avoidable energy and carbon breakdown added to the periodic public disclosure (a canonical N+1 threshold pinned in the binary that the operator cannot configure, next to the operational threshold, schema v1.1) and the ratatui 0.30.1 TUI backend bump. Template surface is unchanged, no migration needed beyond the chart bump. The report JSON schema gains the additive v1.1 waste tiers, v1.0 consumers are unaffected. No config or daemon wire change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.2` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.46]
 
 ### Changed
