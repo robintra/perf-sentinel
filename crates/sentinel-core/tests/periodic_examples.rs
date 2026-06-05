@@ -28,7 +28,7 @@ fn load_example(rel: &str) -> PeriodicReport {
 #[test]
 fn example_internal_g1_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-internal-G1.json");
-    assert_eq!(r.schema_version, "perf-sentinel-report/v1.0");
+    assert_eq!(r.schema_version, "perf-sentinel-report/v1.1");
     assert_matches!(r.report_metadata.intent, ReportIntent::Internal);
     assert_matches!(
         r.report_metadata.confidentiality_level,
@@ -50,7 +50,7 @@ fn example_internal_g1_parses_and_validates() {
 #[test]
 fn example_official_public_g2_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-official-public-G2.json");
-    assert_eq!(r.schema_version, "perf-sentinel-report/v1.0");
+    assert_eq!(r.schema_version, "perf-sentinel-report/v1.1");
     assert_matches!(r.report_metadata.intent, ReportIntent::Official);
     assert_matches!(
         r.report_metadata.confidentiality_level,

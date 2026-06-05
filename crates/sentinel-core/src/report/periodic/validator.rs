@@ -3,11 +3,13 @@
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for the rule list and
 //! the rationale for collecting every error in one pass.
 
+use crate::detect::DISCLOSURE_N_PLUS_ONE_THRESHOLD;
+
 use super::errors::ValidationError;
 use super::hasher::compute_content_hash;
 use super::schema::{
     Aggregate, Application, ApplicationG1, ApplicationG2, Confidentiality, Conformance,
-    Methodology, Organisation, Period, PeriodicReport, ReportIntent, ScopeManifest,
+    Methodology, Organisation, Period, PeriodicReport, ReportIntent, ScopeManifest, WasteTier,
 };
 
 /// All pattern names known to perf-sentinel, kept in sync with
@@ -356,6 +358,63 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
                  excludes non-calibrated windows, or set intent=internal.",
                 agg.period_coverage * 100.0,
                 MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0,
+            ),
+        });
+    }
+    validate_waste_tiers(agg, errors);
+}
+
+/// Validate the canonical/operational avoidable tiers. The canonical tier
+/// must carry the binary-pinned threshold, else the figure was not computed
+/// at the non-manipulable threshold. The operational threshold is the
+/// operator's recorded choice and is deliberately not range-checked: a loose
+/// operator threshold is exactly what this tier exists to surface.
+fn validate_waste_tiers(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
+    validate_waste_tier("canonical_waste", &agg.canonical_waste, errors);
+    validate_waste_tier("operational_waste", &agg.operational_waste, errors);
+
+    let canonical = agg.canonical_waste.n_plus_one_threshold;
+    if canonical != DISCLOSURE_N_PLUS_ONE_THRESHOLD {
+        let reason = if canonical == 0 {
+            "n_plus_one_threshold is 0: the period contains only archives that predate \
+             canonical disclosure. Regenerate over post-upgrade windows or use intent=internal."
+                .to_string()
+        } else {
+            format!(
+                "n_plus_one_threshold must equal the canonical {DISCLOSURE_N_PLUS_ONE_THRESHOLD}, got {canonical}"
+            )
+        };
+        errors.push(ValidationError::Aggregate {
+            field: "canonical_waste",
+            reason,
+        });
+    }
+}
+
+fn validate_waste_tier(name: &'static str, tier: &WasteTier, errors: &mut Vec<ValidationError>) {
+    for (sub, value) in [
+        ("energy_kwh", tier.energy_kwh),
+        ("carbon_kgco2eq", tier.carbon_kgco2eq),
+    ] {
+        if !value.is_finite() || value < 0.0 {
+            errors.push(ValidationError::Aggregate {
+                field: name,
+                reason: format!("{sub} must be a finite number >= 0, got {value}"),
+            });
+        }
+    }
+    if !tier.waste_ratio.is_finite() || !(0.0..=1.0).contains(&tier.waste_ratio) {
+        errors.push(ValidationError::Aggregate {
+            field: name,
+            reason: format!("waste_ratio must be in [0, 1], got {}", tier.waste_ratio),
+        });
+    }
+    if !tier.efficiency_score.is_finite() || !(0.0..=100.0).contains(&tier.efficiency_score) {
+        errors.push(ValidationError::Aggregate {
+            field: name,
+            reason: format!(
+                "efficiency_score must be in [0, 100], got {}",
+                tier.efficiency_score
             ),
         });
     }
@@ -721,6 +780,29 @@ mod tests {
                     if *field == "aggregate_waste_ratio")),
             "got {errors:?}"
         );
+    }
+
+    #[test]
+    fn canonical_waste_threshold_mismatch_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.canonical_waste.n_plus_one_threshold = DISCLOSURE_N_PLUS_ONE_THRESHOLD + 1;
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, reason }
+                    if *field == "canonical_waste" && reason.contains("canonical"))),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn high_operational_threshold_accepted() {
+        // The operator's threshold is recorded, not range-checked: a loose
+        // threshold is exactly what the operational tier exists to surface.
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.operational_waste.n_plus_one_threshold = 5_000;
+        validate_official(&r).expect("a high operator threshold must not fail validation");
     }
 
     #[test]

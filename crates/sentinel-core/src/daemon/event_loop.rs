@@ -542,6 +542,18 @@ async fn process_traces(
 
     if let Some(handle) = ctx.archive_handle {
         let events_processed = trace_structs.iter().map(|t| t.spans.len()).sum();
+        // Operator + canonical avoidable tiers, archived side by side.
+        // Skipped when green scoring produced no carbon: the tiers would
+        // carry avoidable ops with zero energy/carbon, and the extra
+        // canonical detection pass would be wasted. Computed before the
+        // summary is moved into the report.
+        let disclosure_waste = green_summary.co2.is_some().then(|| {
+            score::canonical::compute_disclosure_waste(
+                &trace_structs,
+                &green_summary,
+                ctx.detect_config,
+            )
+        });
         let report = crate::report::Report {
             analysis: crate::report::Analysis {
                 duration_ms: 0,
@@ -563,6 +575,7 @@ async fn process_traces(
             warning_details: vec![],
             acknowledged_findings: vec![],
             binary_version: env!("CARGO_PKG_VERSION").to_string(),
+            disclosure_waste,
         };
         let archive = super::archive::OwnedArchive {
             ts: chrono::Utc::now(),

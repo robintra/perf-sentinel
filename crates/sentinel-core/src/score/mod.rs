@@ -20,6 +20,10 @@ pub(crate) mod ops_snapshot_diff;
 pub mod redfish;
 pub mod scaphandre;
 
+// Daemon-only: the canonical avoidable pass runs at archive time. The
+// `disclose` subcommand reads pre-computed tiers, it never recomputes them.
+#[cfg(feature = "daemon")]
+pub(crate) mod canonical;
 mod carbon_compute;
 mod region_breakdown;
 
@@ -161,6 +165,7 @@ pub fn score_green(
             multi_region_active: false,
             per_service: std::collections::BTreeMap::new(),
             window_model: "",
+            accounted_io_ops: total_io_ops,
         },
     };
 
@@ -185,6 +190,7 @@ pub fn score_green(
     let green_summary = GreenSummary {
         total_io_ops,
         avoidable_io_ops,
+        accounted_io_ops: carbon_outputs.accounted_io_ops,
         io_waste_ratio,
         io_waste_ratio_band: crate::report::interpret::InterpretationLevel::for_waste_ratio(
             io_waste_ratio,
@@ -212,7 +218,7 @@ pub fn score_green(
 /// Dedup avoidable I/O ops by (`trace_id`, template, `source_endpoint`),
 /// taking max. Slow findings are not avoidable I/O, they are necessary
 /// operations that happen to be slow.
-fn dedup_avoidable_io_ops(findings: &[Finding]) -> usize {
+pub(crate) fn dedup_avoidable_io_ops(findings: &[Finding]) -> usize {
     let capacity = findings
         .iter()
         .filter(|f| f.finding_type.is_avoidable_io())

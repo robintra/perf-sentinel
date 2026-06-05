@@ -290,6 +290,29 @@ fn select_proxy_co2_model_tag(
     }
 }
 
+/// Region-blind avoidable share: `window_total` (operational CO₂ or energy)
+/// scaled by the fraction of accounted I/O ops that are avoidable, clamped
+/// to 1.0.
+///
+/// Units-neutral and shared by [`finalize_carbon_report`] and the
+/// canonical-disclosure rescale (`score::canonical`) so the operational and
+/// canonical avoidable figures cannot drift on the formula. The clamp guards
+/// the pathological case where avoidable ops from unknown-region spans exceed
+/// the accounted denominator.
+#[must_use]
+pub(super) fn avoidable_share(
+    window_total: f64,
+    avoidable_io_ops: usize,
+    accounted_io_ops: usize,
+) -> f64 {
+    if accounted_io_ops > 0 {
+        let ratio = (avoidable_io_ops as f64 / accounted_io_ops as f64).min(1.0);
+        window_total * ratio
+    } else {
+        0.0
+    }
+}
+
 /// Final assembly of the [`CarbonReport`] struct: SCI v1.0 numerator
 /// (E × I + M + T), avoidable CO₂ via region-blind ratio, and the
 /// methodology tag that shifts when network transport is included.
@@ -319,15 +342,7 @@ pub(super) fn finalize_carbon_report(
     // Embodied is NOT included in avoidable: hardware emissions are fixed
     // regardless of whether the application does N+1 queries.
     let accounted_io_ops = total_io_ops.saturating_sub(unknown_ops);
-    let avoidable_mid = if accounted_io_ops > 0 {
-        // Clamp ratio to 1.0: in pathological cases (avoidable ops from
-        // unknown-region spans exceeding accounted ops) the ratio can
-        // exceed 1.0, which would produce avoidable > operational.
-        let ratio = (avoidable_io_ops as f64 / accounted_io_ops as f64).min(1.0);
-        operational_gco2 * ratio
-    } else {
-        0.0
-    };
+    let avoidable_mid = avoidable_share(operational_gco2, avoidable_io_ops, accounted_io_ops);
 
     let transport_gco2 = if total_transport_gco2 > 0.0 {
         Some(total_transport_gco2)

@@ -349,6 +349,14 @@ mod tests {
         );
 
         let mut m = r.clone();
+        m.aggregate.canonical_waste.n_plus_one_threshold += 1;
+        assert_ne!(
+            compute_content_hash(&m).unwrap(),
+            baseline,
+            "aggregate.canonical_waste.n_plus_one_threshold"
+        );
+
+        let mut m = r.clone();
         m.methodology.sci_specification = format!("{}-v2", m.methodology.sci_specification);
         assert_ne!(
             compute_content_hash(&m).unwrap(),

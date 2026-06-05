@@ -95,6 +95,11 @@ pub struct Report {
     /// on reports written by binaries that predate this field.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub binary_version: String,
+    /// Avoidable energy/carbon tiers (operator + canonical threshold), set
+    /// only by the daemon archive path (the periodic aggregator reads them).
+    /// `None` in batch and live outputs. Additive via `serde(default)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disclosure_waste: Option<DisclosureWaste>,
 }
 
 /// A finding paired with the acknowledgment that suppressed it.
@@ -106,6 +111,26 @@ pub struct Report {
 pub struct AcknowledgedFinding {
     pub finding: Finding,
     pub acknowledgment: crate::acknowledgments::Acknowledgment,
+}
+
+/// Avoidable energy/carbon at one N+1 threshold, archived per window.
+/// `avoidable_kwh`/`avoidable_gco2` are the energy/carbon shares of the
+/// avoidable I/O ops. The aggregator sums these and derives ratio/efficiency
+/// into the period-aggregate `periodic::schema::WasteTier` (gCO₂ → kg there).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AvoidableTier {
+    pub n_plus_one_threshold: u32,
+    pub avoidable_io_ops: usize,
+    pub avoidable_kwh: f64,
+    pub avoidable_gco2: f64,
+}
+
+/// The two avoidable tiers archived with a daemon window: `canonical` at the
+/// binary-pinned threshold (non-manipulable), `operational` at the operator's.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DisclosureWaste {
+    pub canonical: AvoidableTier,
+    pub operational: AvoidableTier,
 }
 
 /// Analysis metadata.
@@ -121,6 +146,11 @@ pub struct Analysis {
 pub struct GreenSummary {
     pub total_io_ops: usize,
     pub avoidable_io_ops: usize,
+    /// Region-resolved I/O ops (`total_io_ops` minus the unknown bucket): the
+    /// denominator behind `co2.avoidable`. In-process only (`serde(skip)`),
+    /// read by the daemon to rescale avoidable at the canonical threshold.
+    #[serde(skip)]
+    pub accounted_io_ops: usize,
     pub io_waste_ratio: f64,
     /// Classification band for `io_waste_ratio`
     /// (`healthy` / `moderate` / `high` / `critical`).
@@ -276,6 +306,7 @@ impl GreenSummary {
         Self {
             total_io_ops,
             avoidable_io_ops: 0,
+            accounted_io_ops: total_io_ops,
             io_waste_ratio: 0.0,
             io_waste_ratio_band: InterpretationLevel::Healthy,
             top_offenders: vec![],

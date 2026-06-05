@@ -32,6 +32,7 @@ pub fn empty_report() -> Report {
         warning_details: vec![],
         acknowledged_findings: vec![],
         binary_version: env!("CARGO_PKG_VERSION").to_string(),
+        disclosure_waste: None,
     }
 }
 

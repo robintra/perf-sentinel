@@ -138,7 +138,7 @@ pub(super) fn sample_report(
     confidentiality: Confidentiality,
     applications: Vec<Application>,
 ) -> PeriodicReport {
-    use super::schema::Aggregate;
+    use super::schema::{Aggregate, WasteTier};
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
         report_metadata: sample_metadata(intent, confidentiality),
@@ -154,6 +154,20 @@ pub(super) fn sample_report(
             aggregate_waste_ratio: 0.1,
             anti_patterns_detected_count: 3,
             estimated_optimization_potential_kgco2eq: 0.01,
+            canonical_waste: WasteTier {
+                n_plus_one_threshold: 2,
+                energy_kwh: 0.04,
+                carbon_kgco2eq: 0.01,
+                waste_ratio: 0.1,
+                efficiency_score: 90.0,
+            },
+            operational_waste: WasteTier {
+                n_plus_one_threshold: 5,
+                energy_kwh: 0.02,
+                carbon_kgco2eq: 0.005,
+                waste_ratio: 0.05,
+                efficiency_score: 95.0,
+            },
             period_coverage: 1.0,
             binary_versions: BTreeSet::new(),
             runtime_windows_count: 0,
