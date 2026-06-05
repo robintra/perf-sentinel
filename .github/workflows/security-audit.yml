@@ -7,6 +7,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'crates/**/Cargo.toml'
+      - 'deny.toml'
       - '.github/workflows/security-audit.yml'
   pull_request:
     branches: [main]
@@ -14,6 +15,7 @@ on:
       - 'Cargo.lock'
       - 'Cargo.toml'
       - 'crates/**/Cargo.toml'
+      - 'deny.toml'
   schedule:
     - cron: '17 6 * * *'
 
@@ -40,3 +42,24 @@ jobs:
           # even if `audit.toml` is moved or refactored. See
           # `audit.toml` for the full exposure analysis.
           ignore: RUSTSEC-2026-0097
+
+  # Supply-chain policy gate driven by deny.toml: advisories, bans, license
+  # compatibility (AGPL-3.0-only) and crate sources. The advisory overlap with
+  # the cargo-audit job above is intentional, cargo-deny layers the bans,
+  # license and source checks on top.
+  deny:
+    name: Cargo Deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # cargo-deny is a prebuilt binary and `cargo deny check` only runs
+      # `cargo metadata`, so the runner's cargo (pinned to 1.96.0 by
+      # rust-toolchain.toml on first use) suffices, no toolchain step needed.
+      # Pinned to match the deny.toml schema target (cargo-deny 0.19.x).
+      - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
+        with:
+          tool: cargo-deny@0.19.8
+      - name: cargo deny check
+        run: cargo deny check

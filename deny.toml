@@ -1,0 +1,56 @@
+# cargo-deny configuration for perf-sentinel.
+#
+# Read by `cargo deny check` (advisories, bans, licenses, sources). This is the
+# supply-chain gate companion to `audit.toml` (which configures `cargo audit`).
+# Schema targets cargo-deny 0.19.x.
+
+[graph]
+# License and ban analysis must see feature-gated dependencies too (daemon,
+# tempo, jaeger-query, tui), so resolve the full feature set.
+all-features = true
+
+[advisories]
+# No ignores are needed. Both rand versions in the tree (0.8.6 and 0.9.3) sit in
+# RUSTSEC-2026-0097's patched range (>= 0.8.6 below 0.9.0, and >= 0.9.3 below
+# 0.10.0), so the advisory matches nothing here. The withdrawn advisories on
+# dirs, humantime and ring are not flagged either.
+ignore = []
+
+[licenses]
+# AGPL-3.0-only is copyleft, every dependency below is license-compatible with
+# it. The list is the exact set observed across the dependency graph, all
+# permissive except MPL-2.0 (file-level weak copyleft, one-way compatible with
+# AGPL) used by option-ext. LGPL-2.1-or-later is deliberately omitted: the only
+# crate offering it (r-efi) is multi-licensed and resolves via MIT or Apache.
+allow = [
+    "AGPL-3.0-only",          # perf-sentinel and perf-sentinel-core themselves
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "0BSD",
+    "Unlicense",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Several crates legitimately appear in multiple versions (transitive diamond
+# dependencies), so duplicates are surfaced as warnings rather than failing the
+# gate. Wildcard version requirements are rejected, except for the intra-
+# workspace path dependency.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+# Every crate must come from crates.io. No git or alternative registry sources.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
