@@ -4,7 +4,7 @@
 //! findings, so raising it shrinks the avoidable energy/carbon a disclosure
 //! would report. To keep the public figure non-manipulable, the daemon
 //! archives the avoidable at a fixed canonical threshold
-//! ([`crate::detect::DISCLOSURE_N_PLUS_ONE_THRESHOLD`]) alongside the
+//! ([`DISCLOSURE_N_PLUS_ONE_THRESHOLD`]) alongside the
 //! operator-threshold one. Daemon-only (the `disclose` subcommand reads
 //! pre-computed tiers); the anti-gaming invariant tests run under the
 //! `daemon` feature (`cargo test -p perf-sentinel-core --features daemon`).
