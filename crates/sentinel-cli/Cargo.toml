@@ -39,7 +39,9 @@ tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+# float_roundtrip: exact float parsing so verify-hash round-trips the
+# disclosure content_hash. See the note in sentinel-core/Cargo.toml.
+serde_json = { version = "1.0.149", features = ["float_roundtrip"] }
 # Used to stamp the current time when applying acknowledgments. Same
 # version line as the core crate, default-features off to skip the
 # wasm/JS bindings.
@@ -72,5 +74,5 @@ libc = "0.2.183"
 mimalloc = "0.1.49"
 
 [dev-dependencies]
-serde_json = "1.0.149"
+serde_json = { version = "1.0.149", features = ["float_roundtrip"] }
 tempfile = "3.27.0"

@@ -229,6 +229,29 @@ mod tests {
     }
 
     #[test]
+    fn content_hash_survives_json_roundtrip() {
+        // verify-hash reparses the report from a file before recomputing the
+        // hash, so the hash must be stable across serialize -> parse. With
+        // messy floats (long mantissas, the kind disclose produces) the
+        // default serde_json parser can shift a value by 1 ULP and break the
+        // hash of an untampered report. The `float_roundtrip` feature makes
+        // parsing exact. This guards against that feature being dropped.
+        let mut r = sample_report();
+        r.aggregate.total_energy_kwh = 2.0 / 3.0;
+        r.aggregate.total_carbon_kgco2eq = 1.0 / 7.0;
+        r.aggregate.canonical_waste.energy_kwh = 100.0 * 5.0 / 6.0 * 1e-7;
+        r.aggregate.canonical_waste.carbon_kgco2eq = 10.0 * 5.0 / 6.0 / 1000.0;
+        r.aggregate.operational_waste.energy_kwh = 1.0 / 11.0;
+
+        let before = compute_content_hash(&r).unwrap();
+        let json = serde_json::to_string(&r).unwrap();
+        let reparsed: PeriodicReport = serde_json::from_str(&json).unwrap();
+        let after = compute_content_hash(&reparsed).unwrap();
+
+        assert_eq!(before, after, "content_hash must survive a JSON round-trip");
+    }
+
+    #[test]
     fn hash_changes_on_aggregate_mutation() {
         let r = sample_report();
         let baseline = compute_content_hash(&r).unwrap();
