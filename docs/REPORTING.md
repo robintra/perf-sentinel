@@ -60,6 +60,15 @@ Only `--input` and `--org-config` stay required. The period, intent, and confide
 
 The preview needs an interactive terminal. Piping its output (no TTY) exits with a clear error rather than rendering.
 
+## Avoidable waste: canonical versus operational (1.1+)
+
+A report carries the total operational energy and carbon of the workload (span-derived, not tunable) plus two tiers of avoidable waste:
+
+- **Canonical** (`aggregate.canonical_waste`). Computed at a fixed N+1 threshold pinned in the binary (`2`), regardless of the operator's `[detection] n_plus_one_threshold`. This is the non-manipulable figure: raising your own threshold cannot shrink it. It is the headline avoidable number, and at the default operator threshold of `5` it is typically larger than what the operator's own dashboard shows.
+- **Operational** (`aggregate.operational_waste`). Computed at the operator's configured threshold and recorded with that threshold.
+
+Publishing both keeps the disclosure honest: a reader compares the two and sees how much avoidable waste a loose operator threshold would otherwise hide. For `intent = official`, the validator rejects a report whose `canonical_waste.n_plus_one_threshold` is not the binary's canonical value.
+
 ![disclose preview, month view: settings header, aggregated summary, and the equivalent command in the footer](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/preview.png)
 
 ![disclose preview, quarter view: the `g` stepper widens the period to the whole quarter](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/quarter.png)
