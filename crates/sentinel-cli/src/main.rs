@@ -1083,6 +1083,9 @@ fn resolve_auth_header(
 /// extracted out of the main dispatch so it does not inflate the
 /// match's cognitive complexity.
 #[allow(clippy::too_many_arguments)]
+// The only `.await` is the daemon-gated Prometheus fetch below, so the
+// no-default-features build sees an async fn with no await.
+#[cfg_attr(not(feature = "daemon"), allow(clippy::unused_async))]
 async fn dispatch_pg_stat(
     input: Option<&std::path::Path>,
     #[cfg(feature = "daemon")] prometheus: Option<&str>,
@@ -1570,7 +1573,16 @@ fn load_diff_against_baseline(
     sentinel_core::diff::diff_runs(&baseline, current)
 }
 
-#[allow(clippy::too_many_arguments)] // optional flags, each adds a dedicated ingestion path
+#[allow(clippy::too_many_arguments)]
+// optional flags, each adds a dedicated ingestion path
+// Without the `daemon` feature the only `.await` (the Prometheus pg-stat
+// fetch) is compiled out, leaving an async fn with no await, and the
+// pg_stat `if let`/`else` collapses to a shape clippy reads as `Option::map`
+// even though the `else` carries the daemon-gated Prometheus branch.
+#[cfg_attr(
+    not(feature = "daemon"),
+    allow(clippy::unused_async, clippy::manual_map)
+)]
 async fn cmd_report(
     input: Option<&std::path::Path>,
     config_path: Option<&std::path::Path>,
