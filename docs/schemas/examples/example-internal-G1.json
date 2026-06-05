@@ -1,5 +1,5 @@
 {
-  "schema_version": "perf-sentinel-report/v1.0",
+  "schema_version": "perf-sentinel-report/v1.1",
   "report_metadata": {
     "intent": "internal",
     "confidentiality_level": "internal",
@@ -81,6 +81,20 @@
     "aggregate_waste_ratio": 0.18,
     "anti_patterns_detected_count": 47,
     "estimated_optimization_potential_kgco2eq": 0.34,
+    "canonical_waste": {
+      "n_plus_one_threshold": 2,
+      "energy_kwh": 3.27,
+      "carbon_kgco2eq": 0.34,
+      "waste_ratio": 0.18,
+      "efficiency_score": 82.1
+    },
+    "operational_waste": {
+      "n_plus_one_threshold": 5,
+      "energy_kwh": 1.84,
+      "carbon_kgco2eq": 0.19,
+      "waste_ratio": 0.10,
+      "efficiency_score": 90.0
+    },
     "period_coverage": 0.94,
     "binary_versions": ["0.6.2", "0.7.0"],
     "runtime_windows_count": 169,

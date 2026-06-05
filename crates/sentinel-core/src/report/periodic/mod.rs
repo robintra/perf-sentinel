@@ -1,4 +1,4 @@
-//! Periodic disclosure report (v1.0).
+//! Periodic disclosure report (v1.1).
 //!
 //! A separate JSON document type, distinct from the per-batch [`Report`]
 //! tree, aggregated over a calendar period (default quarter). Designed

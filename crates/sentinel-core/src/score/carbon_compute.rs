@@ -120,6 +120,11 @@ pub(super) struct CarbonComputeOutputs {
     pub multi_region_active: bool,
     pub per_service: BTreeMap<String, ServiceCarbonAccumulator>,
     pub window_model: &'static str,
+    /// I/O ops whose region was resolved (`total_io_ops` minus the
+    /// unknown-region bucket). Denominator of the avoidable-CO₂ ratio,
+    /// surfaced so the disclosure path can rescale avoidable at a
+    /// canonical threshold without a second carbon pass.
+    pub accounted_io_ops: usize,
 }
 
 /// Compute carbon report, per-region breakdown, and multi-region flag.
@@ -149,6 +154,7 @@ pub(super) fn compute_carbon_report(
             multi_region_active: state.multi_region_active,
             per_service: BTreeMap::new(),
             window_model: "",
+            accounted_io_ops: 0,
         };
     }
 
@@ -178,6 +184,7 @@ pub(super) fn compute_carbon_report(
         multi_region_active: state.multi_region_active,
         per_service: state.per_service,
         window_model: model,
+        accounted_io_ops: total_io_ops.saturating_sub(state.unknown_ops),
     }
 }
 

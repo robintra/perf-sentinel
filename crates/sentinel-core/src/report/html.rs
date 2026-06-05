@@ -679,6 +679,7 @@ mod tests {
             warning_details: vec![],
             acknowledged_findings: vec![],
             binary_version: String::new(),
+            disclosure_waste: None,
         }
     }
 

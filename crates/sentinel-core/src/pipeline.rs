@@ -85,6 +85,10 @@ pub fn analyze_with_traces(
         warning_details: vec![],
         acknowledged_findings: vec![],
         binary_version: env!("CARGO_PKG_VERSION").to_string(),
+        // Batch analyze does not feed the periodic disclosure (that path is
+        // daemon-archive-sourced), so the canonical avoidable tiers are only
+        // computed at archive time, not here.
+        disclosure_waste: None,
     };
 
     (report, traces)

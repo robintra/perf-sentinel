@@ -20,7 +20,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "perf-sentinel-report/v1.0"
+      "enum": ["perf-sentinel-report/v1.0", "perf-sentinel-report/v1.1"]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
     "organisation": { "$ref": "#/$defs/Organisation" },
@@ -290,6 +290,23 @@
         }
       }
     },
+    "WasteTier": {
+      "type": "object",
+      "required": [
+        "n_plus_one_threshold",
+        "energy_kwh",
+        "carbon_kgco2eq",
+        "waste_ratio",
+        "efficiency_score"
+      ],
+      "properties": {
+        "n_plus_one_threshold": { "type": "integer", "minimum": 0 },
+        "energy_kwh": { "type": "number", "minimum": 0 },
+        "carbon_kgco2eq": { "type": "number", "minimum": 0 },
+        "waste_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+        "efficiency_score": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
     "Aggregate": {
       "type": "object",
       "required": [
@@ -319,6 +336,14 @@
         "estimated_optimization_potential_kgco2eq": {
           "type": "number",
           "minimum": 0
+        },
+        "canonical_waste": {
+          "$ref": "#/$defs/WasteTier",
+          "description": "Avoidable energy/carbon at the binary-pinned canonical N+1 threshold (non-manipulable by operator config). The flat aggregate_* and estimated_optimization_potential_kgco2eq fields alias this tier. v1.1+."
+        },
+        "operational_waste": {
+          "$ref": "#/$defs/WasteTier",
+          "description": "Avoidable energy/carbon at the operator's configured N+1 threshold, recorded with that threshold so the gap to canonical_waste is visible. v1.1+."
         },
         "period_coverage": {
           "type": "number",

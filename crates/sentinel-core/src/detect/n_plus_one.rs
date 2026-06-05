@@ -22,6 +22,13 @@ use super::{ClassificationMethod, Finding, FindingType, Severity};
 /// here automatically updates the CLI interpretation band.
 pub(crate) const CRITICAL_OCCURRENCE_THRESHOLD: usize = 10;
 
+/// Fixed N+1 threshold for the avoidable energy/carbon archived for periodic
+/// disclosure. Not operator-configurable on purpose: sourcing it from config
+/// would let a loose operational threshold shrink the disclosed waste. Value
+/// `2` is the most sensitive defensible threshold, so the figure is an upper
+/// bound the operator cannot reduce.
+pub const DISCLOSURE_N_PLUS_ONE_THRESHOLD: u32 = 2;
+
 /// Detect N+1 patterns in a single trace.
 ///
 /// Groups spans by (`event_type`, template) and emits a finding when the

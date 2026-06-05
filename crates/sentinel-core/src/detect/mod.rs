@@ -11,6 +11,8 @@ pub mod serialized;
 pub mod slow;
 pub mod suggestions;
 
+pub use n_plus_one::DISCLOSURE_N_PLUS_ONE_THRESHOLD;
+
 use std::collections::HashMap;
 
 use crate::correlate::Trace;

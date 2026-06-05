@@ -1,13 +1,20 @@
-//! Wire schema (v1.0) for the periodic disclosure report.
+//! Wire schema (v1.1) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
+//!
+//! v1.1 adds the `canonical_waste` / `operational_waste` tiers to
+//! `Aggregate`: avoidable energy and carbon at the binary-pinned canonical
+//! N+1 threshold and at the operator's configured threshold, side by side.
+//! The pre-existing flat avoidable fields are retained as aliases of the
+//! canonical tier. Additive via `serde(default)`, so v1.0 readers and
+//! reports remain compatible.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.0";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.1";
 
 /// Patterns that an `intent = "official"` disclosure must keep enabled.
 /// Aligned with `FindingType::is_avoidable_io()`: the four patterns whose
@@ -212,15 +219,57 @@ pub struct CalibrationInputs {
     pub calibration_applied: bool,
 }
 
+/// Avoidable energy and carbon for one N+1 threshold, summed over the period.
+///
+/// `n_plus_one_threshold` is the threshold that produced these figures: the
+/// binary-pinned [`crate::detect::DISCLOSURE_N_PLUS_ONE_THRESHOLD`] for the
+/// canonical tier, the operator's configured value for the operational tier.
+/// `waste_ratio` is `avoidable_io_ops / total_io_ops` over the period and
+/// `efficiency_score` is `100 - waste_ratio * 100`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WasteTier {
+    pub n_plus_one_threshold: u32,
+    pub energy_kwh: f64,
+    pub carbon_kgco2eq: f64,
+    pub waste_ratio: f64,
+    pub efficiency_score: f64,
+}
+
+impl WasteTier {
+    /// True when the tier is the all-zero default (a v1.0 / pre-canonical
+    /// report). Drives `skip_serializing_if` so absent tiers stay absent on
+    /// the wire and the `content_hash` is stable across schema versions.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Aggregate {
     pub total_requests: u64,
     pub total_energy_kwh: f64,
     pub total_carbon_kgco2eq: f64,
+    /// Period efficiency. Since v1.1 this aliases `canonical_waste.efficiency_score`
+    /// (the non-manipulable tier); pre-v1.1 it carried the operator-threshold value.
     pub aggregate_efficiency_score: f64,
+    /// Period waste ratio. Since v1.1 this aliases `canonical_waste.waste_ratio`.
     pub aggregate_waste_ratio: f64,
     pub anti_patterns_detected_count: u64,
+    /// Avoidable carbon. Since v1.1 this aliases `canonical_waste.carbon_kgco2eq`.
     pub estimated_optimization_potential_kgco2eq: f64,
+    /// Avoidable energy/carbon at the binary-pinned canonical N+1 threshold.
+    /// Non-manipulable by operator config: this is the headline disclosure
+    /// figure. `Default` (all zeros, threshold 0) for v1.0 reports.
+    /// `skip_serializing_if` omits the default so a v1.0 report re-hashed on
+    /// a v1.1 binary keeps the same `content_hash`.
+    #[serde(default, skip_serializing_if = "WasteTier::is_default")]
+    pub canonical_waste: WasteTier,
+    /// Avoidable energy/carbon at the operator's configured N+1 threshold,
+    /// recorded with that threshold so the gap to `canonical_waste` is
+    /// visible. `Default` for v1.0 reports.
+    #[serde(default, skip_serializing_if = "WasteTier::is_default")]
+    pub operational_waste: WasteTier,
     /// Fraction of the period's scoring windows that used runtime-calibrated
     /// energy attribution. `1.0` when every window provided runtime energy,
     /// `0.0` when every window fell back to the proxy. Defined as
@@ -465,6 +514,20 @@ mod tests {
             aggregate_waste_ratio: 0.18,
             anti_patterns_detected_count: 47,
             estimated_optimization_potential_kgco2eq: 0.25,
+            canonical_waste: WasteTier {
+                n_plus_one_threshold: 2,
+                energy_kwh: 2.1,
+                carbon_kgco2eq: 0.25,
+                waste_ratio: 0.18,
+                efficiency_score: 82.0,
+            },
+            operational_waste: WasteTier {
+                n_plus_one_threshold: 5,
+                energy_kwh: 0.9,
+                carbon_kgco2eq: 0.12,
+                waste_ratio: 0.08,
+                efficiency_score: 92.0,
+            },
             period_coverage: 1.0,
             binary_versions: BTreeSet::new(),
             runtime_windows_count: 0,
@@ -561,6 +624,25 @@ mod tests {
         assert_eq!(json, json2);
         assert_eq!(back.schema_version, SCHEMA_VERSION);
         assert!(back.applications.is_empty());
+    }
+
+    #[test]
+    fn default_waste_tiers_omitted_from_serialization() {
+        // A v1.0 / pre-canonical report has all-zero tiers; they must be
+        // omitted so re-hashing it on a v1.1 binary keeps content_hash stable.
+        let mut agg = sample_aggregate();
+        assert!(
+            serde_json::to_value(&agg)
+                .unwrap()
+                .get("canonical_waste")
+                .is_some()
+        );
+
+        agg.canonical_waste = WasteTier::default();
+        agg.operational_waste = WasteTier::default();
+        let json = serde_json::to_value(&agg).unwrap();
+        assert!(json.get("canonical_waste").is_none());
+        assert!(json.get("operational_waste").is_none());
     }
 
     #[test]

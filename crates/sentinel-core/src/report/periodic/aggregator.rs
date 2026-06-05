@@ -15,7 +15,7 @@ use crate::report::Report;
 use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 
 use super::errors::AggregationError;
-use super::schema::{Aggregate, Period};
+use super::schema::{Aggregate, Period, WasteTier};
 
 pub const UNATTRIBUTED_SERVICE: &str = "_unattributed";
 
@@ -201,6 +201,16 @@ struct WindowMetrics {
     runtime_attribution: bool,
 }
 
+/// Period-summed avoidable energy/carbon for one N+1 threshold tier.
+/// `threshold` reconciled by `max` across windows. `avoidable_kg` in kg.
+#[derive(Default)]
+struct WasteTierAccumulator {
+    n_plus_one_threshold: u32,
+    avoidable_io_ops: u64,
+    avoidable_kwh: f64,
+    avoidable_kg: f64,
+}
+
 #[derive(Default)]
 struct Builder {
     per_service: BTreeMap<String, ServiceAccumulator>,
@@ -209,9 +219,10 @@ struct Builder {
     first_seen: BTreeMap<(String, String), DateTime<Utc>>,
     last_seen: BTreeMap<(String, String), DateTime<Utc>>,
     total_io_ops: u64,
-    avoidable_io_ops: u64,
     total_carbon_kgco2eq: f64,
-    avoidable_carbon_kgco2eq: f64,
+    /// Avoidable tiers from each window's `Report.disclosure_waste`.
+    canonical_waste: WasteTierAccumulator,
+    operational_waste: WasteTierAccumulator,
     /// Sum of runtime-calibrated `energy_kwh` for windows that carry it.
     runtime_energy_kwh: f64,
     /// Distinct energy model strings collected across all windows. The
@@ -303,6 +314,7 @@ impl Builder {
         };
 
         self.fold_global_counters(&m);
+        self.fold_disclosure_waste(&report, &m);
         self.fold_binary_version(&report.binary_version);
         self.fold_window_energy_model(&report.green_summary.energy_model);
         self.fold_per_service_measured_ratio(&report.green_summary.per_service_measured_ratio);
@@ -368,11 +380,36 @@ impl Builder {
 
     fn fold_global_counters(&mut self, m: &WindowMetrics) {
         self.windows_aggregated += 1;
-        self.total_io_ops += m.total_io;
-        self.avoidable_io_ops += m.avoidable_io;
+        self.total_io_ops = self.total_io_ops.saturating_add(m.total_io);
         self.total_carbon_kgco2eq += m.carbon_kg;
-        self.avoidable_carbon_kgco2eq += m.avoidable_kg;
         self.runtime_energy_kwh += m.energy_kwh;
+    }
+
+    /// Accumulate the canonical and operational avoidable tiers. A legacy
+    /// archive (no `disclosure_waste`) has no canonical figure, so it feeds
+    /// only the operational tier (best-effort from `green_summary`); the
+    /// canonical tier is left untouched rather than contaminated with
+    /// operator-threshold data, so an all-legacy period fails official
+    /// validation honestly instead of presenting legacy data as canonical.
+    fn fold_disclosure_waste(&mut self, report: &Report, m: &WindowMetrics) {
+        if let Some(dw) = &report.disclosure_waste {
+            fold_tier(&mut self.canonical_waste, &dw.canonical);
+            fold_tier(&mut self.operational_waste, &dw.operational);
+        } else {
+            // accounted_io_ops is not serialized, so the legacy energy share
+            // uses total_io as the denominator (clamped). Threshold stays 0.
+            let ratio = if m.total_io == 0 {
+                0.0
+            } else {
+                (m.avoidable_io as f64 / m.total_io as f64).min(1.0)
+            };
+            self.operational_waste.avoidable_io_ops = self
+                .operational_waste
+                .avoidable_io_ops
+                .saturating_add(m.avoidable_io);
+            self.operational_waste.avoidable_kwh += m.energy_kwh * ratio;
+            self.operational_waste.avoidable_kg += m.avoidable_kg;
+        }
     }
 
     fn fold_binary_version(&mut self, bv: &str) {
@@ -597,12 +634,9 @@ impl Builder {
             self.per_service.values().map(|s| s.energy_kwh).sum()
         };
         let total_carbon = self.total_carbon_kgco2eq;
-        let waste_ratio = if self.total_io_ops == 0 {
-            0.0
-        } else {
-            self.avoidable_io_ops as f64 / self.total_io_ops as f64
-        };
-        let efficiency_score = (100.0 - waste_ratio * 100.0).clamp(0.0, 100.0);
+        // Flat avoidable fields alias the canonical (non-manipulable) tier.
+        let canonical_waste = make_waste_tier(&self.canonical_waste, self.total_io_ops);
+        let operational_waste = make_waste_tier(&self.operational_waste, self.total_io_ops);
         let anti_patterns_count: u64 = self
             .per_service
             .values()
@@ -622,10 +656,12 @@ impl Builder {
                 total_requests,
                 total_energy_kwh,
                 total_carbon_kgco2eq: total_carbon,
-                aggregate_efficiency_score: efficiency_score,
-                aggregate_waste_ratio: waste_ratio.clamp(0.0, 1.0),
+                aggregate_efficiency_score: canonical_waste.efficiency_score,
+                aggregate_waste_ratio: canonical_waste.waste_ratio,
                 anti_patterns_detected_count: anti_patterns_count,
-                estimated_optimization_potential_kgco2eq: self.avoidable_carbon_kgco2eq,
+                estimated_optimization_potential_kgco2eq: canonical_waste.carbon_kgco2eq,
+                canonical_waste,
+                operational_waste,
                 period_coverage,
                 binary_versions: self.binary_versions,
                 runtime_windows_count: self.runtime_windows,
@@ -666,6 +702,43 @@ fn service_io_distribution(
         *out.entry(entry.service.clone()).or_insert(0) += entry.io_ops as u64;
     }
     out
+}
+
+/// Fold one window's avoidable tier into the period accumulator, sanitizing
+/// the energy/carbon against tampered archives.
+fn fold_tier(acc: &mut WasteTierAccumulator, tier: &crate::report::AvoidableTier) {
+    // saturating_add: the counts come from untrusted archive JSON; a wrapping
+    // sum would be a silent under-reporting primitive in a release binary.
+    acc.avoidable_io_ops = acc
+        .avoidable_io_ops
+        .saturating_add(tier.avoidable_io_ops as u64);
+    acc.avoidable_kwh += sanitize_f64(tier.avoidable_kwh);
+    acc.avoidable_kg += sanitize_f64(tier.avoidable_gco2) / 1000.0;
+    acc.n_plus_one_threshold = acc.n_plus_one_threshold.max(tier.n_plus_one_threshold);
+}
+
+/// Derive a [`WasteTier`] from a period accumulator. `waste_ratio` and
+/// `efficiency_score` are computed against the period's total I/O ops.
+fn make_waste_tier(acc: &WasteTierAccumulator, total_io_ops: u64) -> WasteTier {
+    // An accumulator that received no data (threshold 0 and no avoidable ops,
+    // i.e. an all-legacy canonical tier) is the all-zero default, not "100%
+    // efficient". Returning the default lets `skip_serializing_if` omit it,
+    // signalling "no data" rather than a misleading perfect score.
+    if acc.n_plus_one_threshold == 0 && acc.avoidable_io_ops == 0 {
+        return WasteTier::default();
+    }
+    let waste_ratio = if total_io_ops == 0 {
+        0.0
+    } else {
+        acc.avoidable_io_ops as f64 / total_io_ops as f64
+    };
+    WasteTier {
+        n_plus_one_threshold: acc.n_plus_one_threshold,
+        energy_kwh: acc.avoidable_kwh,
+        carbon_kgco2eq: acc.avoidable_kg,
+        waste_ratio: waste_ratio.clamp(0.0, 1.0),
+        efficiency_score: (100.0 - waste_ratio * 100.0).clamp(0.0, 100.0),
+    }
 }
 
 /// Strip non-finite and negative values from any `f64` field read out
@@ -909,6 +982,7 @@ mod tests {
             warning_details: vec![],
             acknowledged_findings: vec![],
             binary_version: String::new(),
+            disclosure_waste: None,
         }
     }
 
@@ -930,6 +1004,50 @@ mod tests {
             period_type: crate::report::periodic::schema::PeriodType::CalendarQuarter,
             days_covered: 90,
         }
+    }
+
+    #[test]
+    fn aggregator_surfaces_both_waste_tiers() {
+        let ts = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        // green_summary avoidable (50) differs from the canonical tier (200),
+        // so the assertions prove the disclosure_waste tiers drive the output,
+        // not the operational green_summary.
+        let mut report = make_report(100, 1_000, 50, &[("svc-a", "/api", 1_000)], vec![]);
+        report.disclosure_waste = Some(crate::report::DisclosureWaste {
+            canonical: crate::report::AvoidableTier {
+                n_plus_one_threshold: 2,
+                avoidable_io_ops: 200,
+                avoidable_kwh: 0.5,
+                avoidable_gco2: 300.0,
+            },
+            operational: crate::report::AvoidableTier {
+                n_plus_one_threshold: 5,
+                avoidable_io_ops: 50,
+                avoidable_kwh: 0.1,
+                avoidable_gco2: 80.0,
+            },
+        });
+
+        let (_dir, path) = write_archive(&[(ts, report)]);
+        let agg = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate;
+
+        assert_eq!(agg.canonical_waste.n_plus_one_threshold, 2);
+        assert_eq!(agg.operational_waste.n_plus_one_threshold, 5);
+        assert!((agg.canonical_waste.carbon_kgco2eq - 0.3).abs() < 1e-9);
+        assert!((agg.operational_waste.carbon_kgco2eq - 0.08).abs() < 1e-9);
+        assert!((agg.canonical_waste.energy_kwh - 0.5).abs() < 1e-9);
+        assert!((agg.operational_waste.energy_kwh - 0.1).abs() < 1e-9);
+        assert!((agg.canonical_waste.waste_ratio - 0.2).abs() < 1e-9);
+        assert!((agg.operational_waste.waste_ratio - 0.05).abs() < 1e-9);
+        // Flat fields alias the canonical tier.
+        assert!(
+            (agg.estimated_optimization_potential_kgco2eq - agg.canonical_waste.carbon_kgco2eq)
+                .abs()
+                < 1e-12
+        );
+        assert!((agg.aggregate_waste_ratio - agg.canonical_waste.waste_ratio).abs() < 1e-12);
     }
 
     #[test]
@@ -963,8 +1081,14 @@ mod tests {
         assert_eq!(out.windows_aggregated, 3);
         assert_eq!(out.aggregate.total_requests, 100 + 200 + 150);
         assert!(out.aggregate.total_energy_kwh > 0.0);
-        assert!(out.aggregate.aggregate_waste_ratio > 0.0);
-        assert!(out.aggregate.aggregate_efficiency_score < 100.0);
+        // These windows are legacy (no disclosure_waste), so the avoidable
+        // figures land only in the operational tier; the canonical tier stays
+        // the all-zero default (omitted on the wire, not "100% efficient")
+        // rather than being fed legacy data, and the flat aliases stay zero.
+        assert!(out.aggregate.operational_waste.waste_ratio > 0.0);
+        assert!(out.aggregate.operational_waste.efficiency_score < 100.0);
+        assert_eq!(out.aggregate.canonical_waste, WasteTier::default());
+        assert!(out.aggregate.aggregate_waste_ratio.abs() < 1e-12);
         assert_eq!(out.aggregate.anti_patterns_detected_count, 3);
 
         let svc_a = out.per_service.get("svc-a").expect("svc-a missing");
