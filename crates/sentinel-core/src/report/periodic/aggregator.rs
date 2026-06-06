@@ -830,7 +830,7 @@ fn naive_to_utc_start(d: NaiveDate) -> DateTime<Utc> {
 ///
 /// This measures days with OBSERVED TRAFFIC, not daemon uptime: archiving is
 /// traffic-gated, so legitimately quiet days lower it. See
-/// [`super::schema::TemporalCoverage`].
+/// [`TemporalCoverage`].
 fn compute_temporal_coverage(observed: &BTreeSet<NaiveDate>, period: &Period) -> TemporalCoverage {
     let days_in_period = period.days_covered;
     let observed_days = u32::try_from(observed.len()).unwrap_or(u32::MAX);
