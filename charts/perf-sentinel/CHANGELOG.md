@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.48]
+
+### Changed
+
+- `appVersion` bumped to `0.8.3` to track the temporal-coverage continuity signal added to the periodic public disclosure (`aggregate.temporal_coverage`, schema `perf-sentinel-report/v1.2`), the in-band `coverage_basis` provenance marker, and the reserved `integrity.cross_period_log` hook. The schema change is additive, v1.1 and v1.0 consumers are unaffected. Template surface is unchanged, no migration needed beyond the chart bump. No config or daemon wire change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.3` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.47]
 
 ### Changed
