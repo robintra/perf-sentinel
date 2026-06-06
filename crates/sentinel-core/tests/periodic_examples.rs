@@ -28,7 +28,7 @@ fn load_example(rel: &str) -> PeriodicReport {
 #[test]
 fn example_internal_g1_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-internal-G1.json");
-    assert_eq!(r.schema_version, "perf-sentinel-report/v1.1");
+    assert_eq!(r.schema_version, "perf-sentinel-report/v1.2");
     assert_matches!(r.report_metadata.intent, ReportIntent::Internal);
     assert_matches!(
         r.report_metadata.confidentiality_level,
@@ -50,7 +50,7 @@ fn example_internal_g1_parses_and_validates() {
 #[test]
 fn example_official_public_g2_parses_and_validates() {
     let r = load_example("docs/schemas/examples/example-official-public-G2.json");
-    assert_eq!(r.schema_version, "perf-sentinel-report/v1.1");
+    assert_eq!(r.schema_version, "perf-sentinel-report/v1.2");
     assert_matches!(r.report_metadata.intent, ReportIntent::Official);
     assert_matches!(
         r.report_metadata.confidentiality_level,
@@ -107,4 +107,34 @@ fn example_disclaimers_include_quality_signals() {
     let combined = r.notes.disclaimers.join(" ");
     assert!(combined.contains("Calibration applied"));
     assert!(combined.contains("multiple perf-sentinel binary versions"));
+    assert!(combined.contains("Temporal coverage"));
+}
+
+#[test]
+fn examples_carry_v1_2_continuity_and_provenance_fields() {
+    for rel in [
+        "docs/schemas/examples/example-internal-G1.json",
+        "docs/schemas/examples/example-official-public-G2.json",
+    ] {
+        let r = load_example(rel);
+        let tc = &r.aggregate.temporal_coverage;
+        assert!(
+            !tc.is_default(),
+            "{rel}: temporal_coverage must be populated"
+        );
+        assert!((0.0..=1.0).contains(&tc.temporal_coverage));
+        assert_eq!(tc.days_in_period, r.period.days_covered);
+        assert!(tc.observed_days <= tc.days_in_period);
+        let basis = r
+            .scope_manifest
+            .coverage_basis
+            .as_ref()
+            .unwrap_or_else(|| panic!("{rel}: coverage_basis must be present"));
+        assert!(
+            basis
+                .machine_derived
+                .iter()
+                .any(|f| f == "coverage_percentage")
+        );
+    }
 }

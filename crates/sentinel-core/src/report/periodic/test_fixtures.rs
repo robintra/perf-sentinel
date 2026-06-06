@@ -116,6 +116,7 @@ pub(super) fn sample_scope_manifest() -> ScopeManifest {
         total_requests_in_period: None,
         requests_measured: 1000,
         coverage_percentage: None,
+        coverage_basis: None,
     }
 }
 
@@ -127,6 +128,7 @@ pub(super) fn sample_integrity() -> Integrity {
         trace_integrity_chain: serde_json::Value::Null,
         signature: None,
         binary_attestation: None,
+        cross_period_log: None,
     }
 }
 
@@ -138,7 +140,7 @@ pub(super) fn sample_report(
     confidentiality: Confidentiality,
     applications: Vec<Application>,
 ) -> PeriodicReport {
-    use super::schema::{Aggregate, WasteTier};
+    use super::schema::{Aggregate, TemporalCoverage, WasteTier};
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
         report_metadata: sample_metadata(intent, confidentiality),
@@ -174,6 +176,7 @@ pub(super) fn sample_report(
             fallback_windows_count: 0,
             per_service_energy_models: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
+            temporal_coverage: TemporalCoverage::default(),
         },
         applications,
         integrity: sample_integrity(),

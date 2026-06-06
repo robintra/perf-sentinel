@@ -437,4 +437,35 @@ mod tests {
         });
         assert_eq!(compute_content_hash(&signed).unwrap(), baseline);
     }
+
+    #[test]
+    fn hash_unaffected_by_absent_v1_2_fields_but_changes_when_populated() {
+        use crate::report::periodic::schema::TemporalCoverage;
+        let r = sample_report();
+        let baseline = compute_content_hash(&r).unwrap();
+
+        // The v1.2 additions are absent/default in sample_report, so the
+        // canonical form is byte-identical to a pre-v1.2 report: a re-hash of a
+        // legacy report keeps its content_hash.
+        let v = serde_json::to_value(&r).unwrap();
+        assert!(v["aggregate"].get("temporal_coverage").is_none());
+        assert!(v["scope_manifest"].get("coverage_basis").is_none());
+        assert!(v["integrity"].get("cross_period_log").is_none());
+
+        // Explicitly setting the defaults must not change the hash.
+        let mut same = r.clone();
+        same.aggregate.temporal_coverage = TemporalCoverage::default();
+        assert_eq!(compute_content_hash(&same).unwrap(), baseline);
+
+        // temporal_coverage is disclosed content, NOT a post-sign field: a real
+        // value must change the hash so it cannot be silently swapped.
+        let mut populated = r;
+        populated.aggregate.temporal_coverage = TemporalCoverage {
+            temporal_coverage: 0.5,
+            observed_days: 45,
+            days_in_period: 90,
+            largest_gap_days: 10,
+        };
+        assert_ne!(compute_content_hash(&populated).unwrap(), baseline);
+    }
 }

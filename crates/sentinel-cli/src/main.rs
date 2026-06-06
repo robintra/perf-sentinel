@@ -487,7 +487,7 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
-    /// Produce a periodic public disclosure report (v1.0 schema).
+    /// Produce a periodic public disclosure report (v1.2 schema).
     ///
     /// Reads archived per-window `Report` NDJSON, filters to the
     /// requested period, applies the official-intent validator when

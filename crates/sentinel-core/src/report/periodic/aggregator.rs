@@ -15,7 +15,7 @@ use crate::report::Report;
 use crate::score::carbon::ENERGY_PER_IO_OP_KWH;
 
 use super::errors::AggregationError;
-use super::schema::{Aggregate, Period, WasteTier};
+use super::schema::{Aggregate, Period, TemporalCoverage, WasteTier};
 
 pub const UNATTRIBUTED_SERVICE: &str = "_unattributed";
 
@@ -138,7 +138,7 @@ pub fn aggregate_from_paths(
         return Err(AggregationError::NoWindowsInPeriod);
     }
 
-    Ok(builder.finalize(source_files))
+    Ok(builder.finalize(source_files, period))
 }
 
 /// Inclusive `(earliest, latest)` window timestamp covered by an archive.
@@ -248,6 +248,10 @@ struct Builder {
     /// Sum and count of per-window `per_service_measured_ratio` values,
     /// keyed by service. Finalized to a per-service mean in `finalize`.
     per_service_measured_ratio_sums: BTreeMap<String, (f64, u32)>,
+    /// Distinct UTC calendar days that carried >= 1 folded window. Bounded
+    /// by the period length (<= 366 for a calendar year), no cap needed.
+    /// Drives the v1.2 temporal-coverage continuity signal.
+    observed_days: BTreeSet<NaiveDate>,
 }
 
 impl Builder {
@@ -314,6 +318,10 @@ impl Builder {
         };
 
         self.fold_global_counters(&m);
+        // Count the day only once the window is committed (after the
+        // non-finite-carbon guard), keeping observed_days aligned with
+        // windows_aggregated.
+        self.observed_days.insert(ts.date_naive());
         self.fold_disclosure_waste(&report, &m);
         self.fold_binary_version(&report.binary_version);
         self.fold_window_energy_model(&report.green_summary.energy_model);
@@ -623,7 +631,7 @@ impl Builder {
             .or_insert(ts);
     }
 
-    fn finalize(self, source_files: Vec<String>) -> AggregateInputs {
+    fn finalize(self, source_files: Vec<String>, period: &Period) -> AggregateInputs {
         let total_requests: u64 = self.per_service.values().map(|s| s.total_requests).sum();
         // Prefer the sum of runtime-calibrated `energy_kwh` accumulated
         // from each window. Falls back to per-service energy (which is
@@ -650,6 +658,8 @@ impl Builder {
         } else {
             self.runtime_windows as f64 / total_windows as f64
         };
+
+        let temporal_coverage = compute_temporal_coverage(&self.observed_days, period);
 
         AggregateInputs {
             aggregate: Aggregate {
@@ -679,6 +689,7 @@ impl Builder {
                         (svc, mean)
                     })
                     .collect(),
+                temporal_coverage,
             },
             per_service: self.per_service,
             windows_aggregated: self.windows_aggregated,
@@ -810,6 +821,61 @@ fn in_period(ts: DateTime<Utc>, period: &Period) -> bool {
 
 fn naive_to_utc_start(d: NaiveDate) -> DateTime<Utc> {
     Utc.from_utc_datetime(&d.and_hms_opt(0, 0, 0).expect("00:00:00 is valid"))
+}
+
+/// Build the v1.2 temporal-continuity signal from the set of distinct
+/// observed days and the declared period. `observed_days` only ever holds
+/// in-period days (the `in_period` filter runs before a window is folded),
+/// so the ratio cannot exceed 1; it is clamped defensively anyway.
+///
+/// This measures days with OBSERVED TRAFFIC, not daemon uptime: archiving is
+/// traffic-gated, so legitimately quiet days lower it. See
+/// [`super::schema::TemporalCoverage`].
+fn compute_temporal_coverage(observed: &BTreeSet<NaiveDate>, period: &Period) -> TemporalCoverage {
+    let days_in_period = period.days_covered;
+    let observed_days = u32::try_from(observed.len()).unwrap_or(u32::MAX);
+    let temporal_coverage = if days_in_period == 0 {
+        0.0
+    } else {
+        (f64::from(observed_days) / f64::from(days_in_period)).clamp(0.0, 1.0)
+    };
+    TemporalCoverage {
+        temporal_coverage,
+        observed_days,
+        days_in_period,
+        largest_gap_days: largest_gap_days(observed, period),
+    }
+}
+
+/// Longest run of consecutive in-period calendar days with zero windows.
+///
+/// Walks the sorted `observed` set (`O(observed_days)`) rather than every day in
+/// the declared span, so the cost is bounded by archive content, not by an
+/// operator-chosen `from`/`to` range. `observed` holds only in-period days, so
+/// the leading/trailing edges and the between-day gaps cover the whole period.
+fn largest_gap_days(observed: &BTreeSet<NaiveDate>, period: &Period) -> u32 {
+    // Inclusive day-count between two dates as a saturating u32 (>= 0).
+    let span = |a: NaiveDate, b: NaiveDate| -> u32 {
+        u32::try_from((b - a).num_days().max(0)).unwrap_or(u32::MAX)
+    };
+    let Some(&first) = observed.iter().next() else {
+        // No observed day: the whole period is one gap.
+        return if period.to_date >= period.from_date {
+            span(period.from_date, period.to_date).saturating_add(1)
+        } else {
+            0
+        };
+    };
+    // Leading gap: days before the first observed day.
+    let mut max = span(period.from_date, first);
+    // Between consecutive observed days a and b: (b - a) - 1 empty days.
+    let mut prev = first;
+    for &day in observed.iter().skip(1) {
+        max = max.max(span(prev, day).saturating_sub(1));
+        prev = day;
+    }
+    // Trailing gap: days after the last observed day.
+    max.max(span(prev, period.to_date))
 }
 
 fn resolve_files(paths: &[PathBuf]) -> Result<Vec<PathBuf>, AggregationError> {
@@ -1004,6 +1070,58 @@ mod tests {
             period_type: crate::report::periodic::schema::PeriodType::CalendarQuarter,
             days_covered: 90,
         }
+    }
+
+    fn plain_window() -> Report {
+        make_report(10, 100, 10, &[("svc-a", "/api", 100)], vec![])
+    }
+
+    #[test]
+    fn temporal_coverage_counts_distinct_days() {
+        let ts1 = Utc.with_ymd_and_hms(2026, 1, 15, 0, 0, 0).unwrap();
+        let ts2 = Utc.with_ymd_and_hms(2026, 2, 15, 0, 0, 0).unwrap();
+        let ts3 = Utc.with_ymd_and_hms(2026, 3, 15, 0, 0, 0).unwrap();
+        let (_dir, path) = write_archive(&[
+            (ts1, plain_window()),
+            (ts2, plain_window()),
+            (ts3, plain_window()),
+        ]);
+        let tc = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate
+            .temporal_coverage;
+        assert_eq!(tc.observed_days, 3);
+        assert_eq!(tc.days_in_period, 90);
+        assert!((tc.temporal_coverage - 3.0 / 90.0).abs() < 1e-9);
+        // The three days are a month apart, so the gap is large.
+        assert!(tc.largest_gap_days > 25, "gap was {}", tc.largest_gap_days);
+    }
+
+    #[test]
+    fn temporal_coverage_dedups_same_day_windows() {
+        let morning = Utc.with_ymd_and_hms(2026, 1, 10, 1, 0, 0).unwrap();
+        let evening = Utc.with_ymd_and_hms(2026, 1, 10, 23, 0, 0).unwrap();
+        let (_dir, path) = write_archive(&[(morning, plain_window()), (evening, plain_window())]);
+        let tc = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate
+            .temporal_coverage;
+        assert_eq!(tc.observed_days, 1);
+    }
+
+    #[test]
+    fn temporal_coverage_buckets_subsecond_near_midnight_by_utc_day() {
+        // 23:59:59.500 on Jan 31 and 00:00:00.200 on Feb 1 are distinct days.
+        let jan31 = Utc.with_ymd_and_hms(2026, 1, 31, 23, 59, 59).unwrap()
+            + chrono::Duration::milliseconds(500);
+        let feb1 = Utc.with_ymd_and_hms(2026, 2, 1, 0, 0, 0).unwrap()
+            + chrono::Duration::milliseconds(200);
+        let (_dir, path) = write_archive(&[(jan31, plain_window()), (feb1, plain_window())]);
+        let tc = aggregate_from_paths(&[path], &q1_2026(), false)
+            .unwrap()
+            .aggregate
+            .temporal_coverage;
+        assert_eq!(tc.observed_days, 2);
     }
 
     #[test]

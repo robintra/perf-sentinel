@@ -15,12 +15,14 @@ use sentinel_core::report::periodic::aggregator::{
 use sentinel_core::report::periodic::org_config::{self, OrgConfig};
 use sentinel_core::report::periodic::schema::{
     AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
-    Confidentiality, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity, IntegrityLevel,
-    Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport,
-    ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, core_patterns_required,
+    Confidentiality, CoverageBasis, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity,
+    IntegrityLevel, Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType,
+    PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, TemporalCoverage,
+    core_patterns_required,
 };
 use sentinel_core::report::periodic::{
-    MIN_PERIOD_COVERAGE_FOR_OFFICIAL, binary_hash, compute_content_hash, validate_official,
+    LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD, MIN_PERIOD_COVERAGE_FOR_OFFICIAL, binary_hash,
+    compute_content_hash, validate_official,
 };
 use sentinel_core::text_safety::sanitize_for_terminal;
 use std::collections::BTreeMap;
@@ -1209,6 +1211,31 @@ pub fn cmd_disclose(
         return 2;
     }
 
+    // Non-fatal continuity + completeness warnings. temporal_coverage is never
+    // a hard gate (archiving is traffic-gated, so a low value can be a quiet
+    // period), only surfaced here and as an in-band disclaimer.
+    let tc = &report.aggregate.temporal_coverage;
+    if tc.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
+        eprintln!(
+            "Warning: temporal coverage is {:.1}% ({}/{} declared days had measured \
+             traffic, largest gap {} {}). Archiving is traffic-gated, so quiet \
+             periods lower this, it is not a daemon-uptime guarantee.",
+            tc.temporal_coverage * 100.0,
+            tc.observed_days,
+            tc.days_in_period,
+            tc.largest_gap_days,
+            day_or_days(tc.largest_gap_days),
+        );
+    }
+    if matches!(intent_schema, ReportIntent::Official)
+        && report.scope_manifest.total_requests_in_period.is_none()
+    {
+        eprintln!(
+            "Warning: total_requests_in_period is not declared in the org config; \
+             coverage_percentage will be absent from this official report."
+        );
+    }
+
     match compute_content_hash(&report) {
         Ok(hash) => {
             report.integrity.content_hash = hash;
@@ -1353,6 +1380,7 @@ pub(crate) fn build_report(
                 100.0 * (aggregate.aggregate.total_requests as f64) / (total as f64)
             }
         }),
+        coverage_basis: Some(CoverageBasis::standard()),
     };
 
     let applications = build_applications(
@@ -1376,6 +1404,10 @@ pub(crate) fn build_report(
         augment_disclaimers_for_binary_versions(disclaimers, &aggregate.aggregate.binary_versions);
     let disclaimers =
         augment_disclaimers_for_calibration(disclaimers, aggregate.calibration_applied);
+    let disclaimers = augment_disclaimers_for_temporal_coverage(
+        disclaimers,
+        &aggregate.aggregate.temporal_coverage,
+    );
 
     PeriodicReport {
         schema_version: SCHEMA_VERSION.to_string(),
@@ -1413,6 +1445,7 @@ pub(crate) fn build_report(
             trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: None,
+            cross_period_log: None,
         },
         notes: Notes {
             disclaimers,
@@ -1480,6 +1513,33 @@ fn augment_disclaimers_for_coverage(
             MIN_PERIOD_COVERAGE_FOR_OFFICIAL * 100.0,
         ));
     }
+    disclaimers
+}
+
+/// `"day"` for 1, `"days"` otherwise. Keeps operator-facing English correct
+/// in the published disclaimer and the CLI warning.
+fn day_or_days(n: u32) -> &'static str {
+    if n == 1 { "day" } else { "days" }
+}
+
+/// Append the temporal-continuity figure and its traffic-gated caveat. Always
+/// appended (the figure is published for transparency, never a hard gate), so
+/// a reader sees how much of the declared period actually carried measurements.
+fn augment_disclaimers_for_temporal_coverage(
+    mut disclaimers: Vec<String>,
+    tc: &TemporalCoverage,
+) -> Vec<String> {
+    disclaimers.push(format!(
+        "Temporal coverage: {}/{} declared days carried measured traffic ({:.1}%, \
+         largest gap {} {}). Archiving is traffic-gated, so days without measured \
+         traffic, including legitimately quiet periods, lower this figure. It is a \
+         lower bound on activity, not a daemon-uptime guarantee.",
+        tc.observed_days,
+        tc.days_in_period,
+        tc.temporal_coverage * 100.0,
+        tc.largest_gap_days,
+        day_or_days(tc.largest_gap_days),
+    ));
     disclaimers
 }
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": "perf-sentinel-report/v1.1",
+  "schema_version": "perf-sentinel-report/v1.2",
   "report_metadata": {
     "intent": "official",
     "confidentiality_level": "public",
@@ -39,7 +39,21 @@
     "environments_excluded": [],
     "total_requests_in_period": 4200000,
     "requests_measured": 4150000,
-    "coverage_percentage": 98.8
+    "coverage_percentage": 98.8,
+    "coverage_basis": {
+      "operator_declared": [
+        "total_applications_declared",
+        "total_requests_in_period",
+        "applications_excluded",
+        "environments_measured",
+        "environments_excluded"
+      ],
+      "machine_derived": [
+        "applications_measured",
+        "requests_measured",
+        "coverage_percentage"
+      ]
+    }
   },
   "methodology": {
     "sci_specification": "ISO/IEC 21031:2024",
@@ -109,6 +123,12 @@
       "billing": 0.0,
       "catalog": 1.0,
       "checkout": 1.0
+    },
+    "temporal_coverage": {
+      "temporal_coverage": 0.967,
+      "observed_days": 87,
+      "days_in_period": 90,
+      "largest_gap_days": 2
     }
   },
   "applications": [
@@ -157,7 +177,8 @@
       "Not suitable for CSRD or GHG Protocol Scope 3 reporting.",
       "Methodology: ISO/IEC 21031:2024 (SCI).",
       "Per-service carbon includes operational emissions only; embodied carbon (SCI M term) is reported in the aggregate total but not attributed per service.",
-      "Energy and carbon attribution per service is runtime-calibrated when the window's energy_model is non-empty; archives without runtime energy attribution fall back to proportional I/O share."
+      "Energy and carbon attribution per service is runtime-calibrated when the window's energy_model is non-empty; archives without runtime energy attribution fall back to proportional I/O share.",
+      "Temporal coverage: 87/90 declared days carried measured traffic (96.7%, largest gap 2 days). Archiving is traffic-gated, so days without measured traffic, including legitimately quiet periods, lower this figure. It is a lower bound on activity, not a daemon-uptime guarantee."
     ],
     "reference_urls": {
       "methodology": "https://github.com/robintra/perf-sentinel/blob/main/docs/METHODOLOGY.md",

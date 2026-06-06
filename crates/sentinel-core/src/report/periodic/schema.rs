@@ -1,4 +1,4 @@
-//! Wire schema (v1.1) for the periodic disclosure report.
+//! Wire schema (v1.2) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -8,13 +8,42 @@
 //! The pre-existing flat avoidable fields are retained as aliases of the
 //! canonical tier. Additive via `serde(default)`, so v1.0 readers and
 //! reports remain compatible.
+//!
+//! v1.2 adds `Aggregate.temporal_coverage` (how many declared calendar days
+//! carry archived windows, a continuity signal), `ScopeManifest.coverage_basis`
+//! (which scope fields are operator-asserted vs machine-derived), and the
+//! reserved `Integrity.cross_period_log` hook for a future inter-period
+//! transparency log. Every addition uses `serde(default)` plus a
+//! `skip_serializing_if` so a pre-v1.2 report re-hashed on a v1.2 binary keeps
+//! its `content_hash`.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.1";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.2";
+
+/// Scope fields the operator declares by hand in the org config. These are
+/// unaudited inputs: the binary cannot verify the size of the portfolio they
+/// describe. Surfaced in [`CoverageBasis`] so a report consumer sees, in-band,
+/// which figures rest on operator assertion.
+pub const SCOPE_OPERATOR_DECLARED_FIELDS: &[&str] = &[
+    "total_applications_declared",
+    "total_requests_in_period",
+    "applications_excluded",
+    "environments_measured",
+    "environments_excluded",
+];
+
+/// Scope fields the aggregator derives from the archived windows. These cannot
+/// be set by the operator and are therefore not subject to the self-disclosure
+/// caveat that applies to [`SCOPE_OPERATOR_DECLARED_FIELDS`].
+pub const SCOPE_MACHINE_DERIVED_FIELDS: &[&str] = &[
+    "applications_measured",
+    "requests_measured",
+    "coverage_percentage",
+];
 
 /// Patterns that an `intent = "official"` disclosure must keep enabled.
 /// Aligned with `FindingType::is_avoidable_io()`: the four patterns whose
@@ -154,6 +183,39 @@ pub struct ScopeManifest {
     pub requests_measured: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coverage_percentage: Option<f64>,
+    /// In-band provenance marker: which scope fields are operator-asserted
+    /// (unaudited) versus machine-derived from the archives. Constant for a
+    /// given schema version, surfaced so a JSON consumer need not consult
+    /// `docs/SCHEMA.md`. Absent on pre-v1.2 reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_basis: Option<CoverageBasis>,
+}
+
+/// Names the [`ScopeManifest`] fields that rest on operator assertion versus
+/// those the aggregator computes. See [`SCOPE_OPERATOR_DECLARED_FIELDS`] and
+/// [`SCOPE_MACHINE_DERIVED_FIELDS`]. The lists are fixed per schema version,
+/// so this object carries no per-report variability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CoverageBasis {
+    pub operator_declared: Vec<String>,
+    pub machine_derived: Vec<String>,
+}
+
+impl CoverageBasis {
+    /// The canonical provenance split for the current schema version.
+    #[must_use]
+    pub fn standard() -> Self {
+        Self {
+            operator_declared: SCOPE_OPERATOR_DECLARED_FIELDS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+            machine_derived: SCOPE_MACHINE_DERIVED_FIELDS
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,6 +307,38 @@ impl WasteTier {
     }
 }
 
+/// Temporal continuity of the period (v1.2). Measures how much of the declared
+/// calendar window actually carried archived measurements.
+///
+/// Caveat: daemon archiving is traffic-gated (a window with no traffic writes
+/// nothing), so this is "days with observed traffic", a lower bound on
+/// activity, NOT a daemon-uptime guarantee. Legitimately quiet days (nights,
+/// weekends, low-traffic services) lower it. It is published for transparency
+/// and surfaced as a warning when low, never a hard `official` gate.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TemporalCoverage {
+    /// `observed_days / days_in_period`, clamped to `[0, 1]`.
+    pub temporal_coverage: f64,
+    /// Distinct UTC calendar days in the period that carry >= 1 window.
+    pub observed_days: u32,
+    /// The period's declared `days_covered`, mirrored for self-containment.
+    pub days_in_period: u32,
+    /// Longest run of consecutive in-period days with zero windows.
+    pub largest_gap_days: u32,
+}
+
+impl TemporalCoverage {
+    /// True when all-zero: a pre-v1.2 report, or a period with no windows.
+    /// Drives `skip_serializing_if` so the field stays absent on the wire and
+    /// the `content_hash` of pre-v1.2 reports is unchanged. Unlike
+    /// `period_coverage`, the honest "unknown" here is zero/absent, not a
+    /// permissive 1.0.
+    #[must_use]
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Aggregate {
     pub total_requests: u64,
@@ -309,6 +403,11 @@ pub struct Aggregate {
     /// fully measured". Empty for periods without per-service attribution.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub per_service_measured_ratio: BTreeMap<String, f64>,
+    /// Temporal continuity of the period (v1.2). See [`TemporalCoverage`].
+    /// Default (all-zero) for pre-v1.2 reports, omitted from the wire so their
+    /// `content_hash` stays stable.
+    #[serde(default, skip_serializing_if = "TemporalCoverage::is_default")]
+    pub temporal_coverage: TemporalCoverage,
 }
 
 #[inline]
@@ -387,6 +486,32 @@ pub struct Integrity {
     /// so files predating the field retain their canonical form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_attestation: Option<BinaryAttestationMetadata>,
+    /// Reserved (v1.2): locator for an external append-only / Rekor-style
+    /// transparency log that chains successive periodic reports, enabling
+    /// INTER-period continuity verification (detecting an operator who silently
+    /// stopped publishing for several periods). Always absent in v1.2; will be
+    /// populated only under a future `intent=audited`. Part of the disclosed
+    /// content, so it is NOT a post-sign field. See [`CrossPeriodLogRef`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cross_period_log: Option<CrossPeriodLogRef>,
+}
+
+/// Reserved (v1.2) locator for an inter-period transparency log. The intra-
+/// report integrity guarantees (`content_hash`, cosign signature, SLSA
+/// provenance) bind a single published report. They cannot detect an operator
+/// who simply stops disclosing. A chained, append-only log of successive
+/// `content_hash` values closes that gap for the future `audited` intent.
+/// Defined now so the field is forward-compatible; no runtime support yet.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrossPeriodLogRef {
+    /// Format identifier for the inter-period log entry.
+    pub format: String,
+    /// URL of the append-only log holding this report's entry.
+    pub log_url: String,
+    /// `content_hash` of the immediately preceding period's report, chaining
+    /// the disclosures so a skipped period is detectable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_report_hash: Option<String>,
 }
 
 /// Sigstore cosign + in-toto signature locator. Format strings are
@@ -490,6 +615,7 @@ mod tests {
             total_requests_in_period: Some(1_000_000),
             requests_measured: 980_000,
             coverage_percentage: Some(98.0),
+            coverage_basis: Some(CoverageBasis::standard()),
         }
     }
 
@@ -534,6 +660,12 @@ mod tests {
             fallback_windows_count: 0,
             per_service_energy_models: BTreeMap::new(),
             per_service_measured_ratio: BTreeMap::new(),
+            temporal_coverage: TemporalCoverage {
+                temporal_coverage: 0.9,
+                observed_days: 81,
+                days_in_period: 90,
+                largest_gap_days: 3,
+            },
         }
     }
 
@@ -546,6 +678,7 @@ mod tests {
             trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: None,
+            cross_period_log: None,
         }
     }
 
@@ -785,6 +918,7 @@ mod tests {
             trace_integrity_chain: serde_json::Value::Null,
             signature: Some(sample_signature()),
             binary_attestation: Some(sample_attestation()),
+            cross_period_log: None,
         };
         let s = serde_json::to_string(&i).unwrap();
         let back: Integrity = serde_json::from_str(&s).unwrap();
@@ -801,6 +935,7 @@ mod tests {
             trace_integrity_chain: serde_json::Value::Null,
             signature: Some(sample_signature()),
             binary_attestation: None,
+            cross_period_log: None,
         };
         let s = serde_json::to_string(&i).unwrap();
         let back: Integrity = serde_json::from_str(&s).unwrap();
@@ -820,6 +955,7 @@ mod tests {
             trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: Some(sample_attestation()),
+            cross_period_log: None,
         };
         let s = serde_json::to_string(&i).unwrap();
         let back: Integrity = serde_json::from_str(&s).unwrap();
@@ -839,6 +975,7 @@ mod tests {
             trace_integrity_chain: serde_json::Value::Null,
             signature: None,
             binary_attestation: None,
+            cross_period_log: None,
         };
         let s = serde_json::to_string(&i).unwrap();
         assert!(s.contains("\"signature\":null"));
@@ -851,5 +988,104 @@ mod tests {
         assert_eq!(v, "\"signed-with-attestation\"");
         let back: IntegrityLevel = serde_json::from_str("\"signed-with-attestation\"").unwrap();
         assert_matches!(back, IntegrityLevel::SignedWithAttestation);
+    }
+
+    #[test]
+    fn default_temporal_coverage_omitted_from_serialization() {
+        // A pre-v1.2 report has the all-zero default; it must be omitted so
+        // re-hashing it on a v1.2 binary keeps content_hash stable.
+        let mut agg = sample_aggregate();
+        assert!(
+            serde_json::to_value(&agg)
+                .unwrap()
+                .get("temporal_coverage")
+                .is_some()
+        );
+        agg.temporal_coverage = TemporalCoverage::default();
+        let json = serde_json::to_value(&agg).unwrap();
+        assert!(json.get("temporal_coverage").is_none());
+    }
+
+    #[test]
+    fn aggregate_temporal_coverage_defaults_when_missing() {
+        // Reports produced before v1.2 omit the field; default is all-zero
+        // (the honest "unknown"), NOT the permissive 1.0 of period_coverage.
+        let legacy = serde_json::json!({
+            "total_requests": 0,
+            "total_energy_kwh": 0.0,
+            "total_carbon_kgco2eq": 0.0,
+            "aggregate_efficiency_score": 100.0,
+            "aggregate_waste_ratio": 0.0,
+            "anti_patterns_detected_count": 0,
+            "estimated_optimization_potential_kgco2eq": 0.0
+        });
+        let agg: Aggregate = serde_json::from_value(legacy).unwrap();
+        assert!(agg.temporal_coverage.is_default());
+        assert_eq!(agg.temporal_coverage.observed_days, 0);
+    }
+
+    #[test]
+    fn coverage_basis_roundtrips_and_is_omitted_when_none() {
+        let mut scope = sample_scope();
+        let json = serde_json::to_value(&scope).unwrap();
+        let basis = json.get("coverage_basis").unwrap();
+        assert!(basis.get("operator_declared").is_some());
+        assert!(basis.get("machine_derived").is_some());
+
+        scope.coverage_basis = None;
+        let json = serde_json::to_value(&scope).unwrap();
+        assert!(json.get("coverage_basis").is_none());
+    }
+
+    #[test]
+    fn cross_period_log_reserved_and_absent_in_v1_2() {
+        // The reserved hook is None today; it must not appear on the wire so
+        // the content_hash of every current report is unaffected.
+        let i = sample_integrity();
+        let s = serde_json::to_string(&i).unwrap();
+        assert!(!s.contains("cross_period_log"));
+        let back: Integrity = serde_json::from_str(&s).unwrap();
+        assert!(back.cross_period_log.is_none());
+    }
+
+    #[test]
+    fn coverage_basis_field_lists_match_scope_manifest_keys() {
+        // The provenance lists are hand-maintained strings. Lock them to the
+        // real serialized field names so a future rename of a ScopeManifest
+        // field cannot silently leave a stale provenance label, mirroring
+        // `core_patterns_required_matches_constant`.
+        let scope = ScopeManifest {
+            total_applications_declared: 1,
+            applications_measured: 1,
+            applications_excluded: vec![ExcludedApp {
+                service_name: "x".to_string(),
+                reason: "y".to_string(),
+            }],
+            environments_measured: vec!["prod".to_string()],
+            environments_excluded: vec![ExcludedEnv {
+                name: "dev".to_string(),
+                reason: "z".to_string(),
+            }],
+            total_requests_in_period: Some(1),
+            requests_measured: 1,
+            coverage_percentage: Some(1.0),
+            coverage_basis: Some(CoverageBasis::standard()),
+        };
+        let value = serde_json::to_value(&scope).unwrap();
+        let keys = value.as_object().unwrap();
+        for name in SCOPE_OPERATOR_DECLARED_FIELDS
+            .iter()
+            .chain(SCOPE_MACHINE_DERIVED_FIELDS)
+        {
+            assert!(
+                keys.contains_key(*name),
+                "coverage_basis lists a non-existent ScopeManifest field {name:?}"
+            );
+            assert!(
+                !(SCOPE_OPERATOR_DECLARED_FIELDS.contains(name)
+                    && SCOPE_MACHINE_DERIVED_FIELDS.contains(name)),
+                "{name:?} appears in both provenance lists"
+            );
+        }
     }
 }

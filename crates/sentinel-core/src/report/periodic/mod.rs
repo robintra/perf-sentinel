@@ -1,4 +1,4 @@
-//! Periodic disclosure report (v1.1).
+//! Periodic disclosure report (v1.2).
 //!
 //! A separate JSON document type, distinct from the per-batch [`Report`]
 //! tree, aggregated over a calendar period (default quarter). Designed
@@ -32,9 +32,13 @@ pub use errors::{AggregationError, HashError, ValidationError};
 pub use hasher::{binary_hash, compute_content_hash, compute_file_sha256_hex};
 pub use schema::{
     Aggregate, AntiPatternDetail, Application, ApplicationG1, ApplicationG2,
-    BinaryAttestationMetadata, CalibrationInputs, Confidentiality, Conformance, DisabledPattern,
-    ExcludedApp, ExcludedEnv, Integrity, IntegrityLevel, Methodology, Notes, OrgIdentifiers,
-    Organisation, Period, PeriodType, PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION,
-    ScopeManifest, SignatureMetadata, core_patterns_required,
+    BinaryAttestationMetadata, CalibrationInputs, Confidentiality, Conformance, CoverageBasis,
+    CrossPeriodLogRef, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity, IntegrityLevel,
+    Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType, PeriodicReport,
+    ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, SignatureMetadata,
+    TemporalCoverage, core_patterns_required,
 };
-pub use validator::{MIN_PERIOD_COVERAGE_FOR_OFFICIAL, validate_content_hash, validate_official};
+pub use validator::{
+    LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD, MIN_PERIOD_COVERAGE_FOR_OFFICIAL, validate_content_hash,
+    validate_official,
+};

@@ -9,7 +9,8 @@ use super::errors::ValidationError;
 use super::hasher::compute_content_hash;
 use super::schema::{
     Aggregate, Application, ApplicationG1, ApplicationG2, Confidentiality, Conformance,
-    Methodology, Organisation, Period, PeriodicReport, ReportIntent, ScopeManifest, WasteTier,
+    Methodology, Organisation, Period, PeriodicReport, ReportIntent, ScopeManifest,
+    TemporalCoverage, WasteTier,
 };
 
 /// All pattern names known to perf-sentinel, kept in sync with
@@ -37,6 +38,14 @@ const CARBON_SOURCE_VALUES: &[&str] = &["electricity_maps", "static_tables", "mi
 /// `official` would silently understate or distort the period total.
 pub const MIN_PERIOD_COVERAGE_FOR_OFFICIAL: f64 = 0.75;
 
+/// Informational threshold for the `disclose` CLI temporal-coverage warning.
+/// When fewer than this fraction of the declared period's days carry archived
+/// windows, the CLI emits a stderr warning and an in-band disclaimer. This is
+/// deliberately NOT a validation gate: `validate_official` never rejects on
+/// `temporal_coverage` because archiving is traffic-gated, so a low value can
+/// be a legitimately quiet period rather than a measurement gap.
+pub const LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD: f64 = 0.80;
+
 /// Validate a report for the given intent.
 ///
 /// `internal` always returns `Ok(())`.
@@ -60,6 +69,11 @@ pub fn validate_official(report: &PeriodicReport) -> Result<(), Vec<ValidationEr
     validate_scope_manifest(&report.scope_manifest, &mut errors);
     validate_methodology(&report.methodology, &mut errors);
     validate_aggregate(&report.aggregate, &mut errors);
+    validate_temporal_coverage(
+        &report.aggregate.temporal_coverage,
+        &report.period,
+        &mut errors,
+    );
     validate_applications(
         &report.applications,
         report.report_metadata.confidentiality_level,
@@ -128,6 +142,17 @@ fn validate_period(period: &Period, errors: &mut Vec<ValidationError>) {
             "to_date {} precedes from_date {}",
             period.to_date, period.from_date
         )));
+    } else {
+        // `days_covered` is derived from the dates by `disclose`, so a
+        // disclose-produced report always satisfies this. A mismatch means a
+        // hand-edited or forged report.
+        let expected = (period.to_date - period.from_date).num_days() + 1;
+        if i64::from(period.days_covered) != expected {
+            errors.push(ValidationError::Period(format!(
+                "days_covered {} does not equal (to_date - from_date) + 1 = {expected}",
+                period.days_covered
+            )));
+        }
     }
     if period.days_covered < 30 {
         errors.push(ValidationError::Period(format!(
@@ -161,6 +186,19 @@ fn validate_scope_manifest(scope: &ScopeManifest, errors: &mut Vec<ValidationErr
         errors.push(ValidationError::ScopeManifest {
             field: "coverage_percentage",
             reason: format!("must be a finite value in [0, 100], got {pct}"),
+        });
+    }
+    // A machine-derived numerator above an operator-declared denominator is a
+    // genuine inconsistency (it also implies coverage_percentage > 100).
+    if let Some(total) = scope.total_requests_in_period
+        && scope.requests_measured > total
+    {
+        errors.push(ValidationError::ScopeManifest {
+            field: "requests_measured",
+            reason: format!(
+                "{} measured exceeds {total} declared in total_requests_in_period",
+                scope.requests_measured
+            ),
         });
     }
 }
@@ -364,6 +402,58 @@ fn validate_aggregate(agg: &Aggregate, errors: &mut Vec<ValidationError>) {
     validate_waste_tiers(agg, errors);
 }
 
+/// Validate the v1.2 temporal-coverage block. The float ratio is always
+/// range-checked, with NO official-intent gate: archiving is traffic-gated, so
+/// a low value can be a legitimately quiet period, the breach is a CLI warning
+/// only. The integer sub-fields are cross-checked only when the block is
+/// populated, so a pre-v1.2 / default (all-zero) block still validates. These
+/// mirror the `days_covered` and `requests_measured` consistency rules: a
+/// disclose-produced report satisfies them by construction, so only a
+/// hand-edited or forged report trips them.
+fn validate_temporal_coverage(
+    tc: &TemporalCoverage,
+    period: &Period,
+    errors: &mut Vec<ValidationError>,
+) {
+    let ratio = tc.temporal_coverage;
+    if !ratio.is_finite() || !(0.0..=1.0).contains(&ratio) {
+        errors.push(ValidationError::Aggregate {
+            field: "temporal_coverage",
+            reason: format!("must be in [0, 1], got {ratio}"),
+        });
+    }
+    if tc.is_default() {
+        return;
+    }
+    if tc.observed_days > tc.days_in_period {
+        errors.push(ValidationError::Aggregate {
+            field: "temporal_coverage.observed_days",
+            reason: format!(
+                "{} observed exceeds {} days_in_period",
+                tc.observed_days, tc.days_in_period
+            ),
+        });
+    }
+    if tc.days_in_period != period.days_covered {
+        errors.push(ValidationError::Aggregate {
+            field: "temporal_coverage.days_in_period",
+            reason: format!(
+                "{} does not equal period.days_covered {}",
+                tc.days_in_period, period.days_covered
+            ),
+        });
+    }
+    if tc.largest_gap_days > tc.days_in_period {
+        errors.push(ValidationError::Aggregate {
+            field: "temporal_coverage.largest_gap_days",
+            reason: format!(
+                "{} exceeds {} days_in_period",
+                tc.largest_gap_days, tc.days_in_period
+            ),
+        });
+    }
+}
+
 /// Validate the canonical/operational avoidable tiers. The canonical tier
 /// must carry the binary-pinned threshold, else the figure was not computed
 /// at the non-manipulable threshold. The operational threshold is the
@@ -508,7 +598,7 @@ mod tests {
     use crate::detect::FindingType;
     use crate::report::periodic::schema::{
         Application, ApplicationG2, Confidentiality, DisabledPattern, ExcludedApp, PeriodicReport,
-        ReportIntent,
+        ReportIntent, TemporalCoverage,
     };
     use crate::report::periodic::test_fixtures;
     use core::assert_matches;
@@ -880,6 +970,106 @@ mod tests {
         r.aggregate.total_energy_kwh += 1.0;
         let err = validate_content_hash(&r).unwrap_err();
         assert_matches!(err, ValidationError::HashMismatch { .. });
+    }
+
+    #[test]
+    fn days_covered_inconsistent_with_dates_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.period.days_covered = 999;
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Period(msg)
+                if msg.contains("does not equal"))),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn temporal_coverage_out_of_range_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        // Consistent block except the out-of-range ratio.
+        r.aggregate.temporal_coverage = TemporalCoverage {
+            temporal_coverage: 1.5,
+            observed_days: 80,
+            days_in_period: r.period.days_covered,
+            largest_gap_days: 2,
+        };
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, .. }
+                    if *field == "temporal_coverage")),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn low_temporal_coverage_accepted_for_official() {
+        // No gate: a quiet period must still publish as official. Only the CLI
+        // warns, the validator stays silent. Block is internally consistent.
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.temporal_coverage = TemporalCoverage {
+            temporal_coverage: 0.05,
+            observed_days: 5,
+            days_in_period: r.period.days_covered,
+            largest_gap_days: 60,
+        };
+        validate_official(&r).expect("low temporal coverage must not gate official");
+    }
+
+    #[test]
+    fn inconsistent_temporal_subfields_rejected() {
+        // A populated but self-inconsistent block (observed > days_in_period,
+        // and days_in_period != period.days_covered) is a forged-report signal.
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.temporal_coverage = TemporalCoverage {
+            temporal_coverage: 0.5,
+            observed_days: 999,
+            days_in_period: 30,
+            largest_gap_days: 0,
+        };
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, .. }
+                    if *field == "temporal_coverage.observed_days")),
+            "got {errors:?}"
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::Aggregate { field, .. }
+                    if *field == "temporal_coverage.days_in_period")),
+            "got {errors:?}"
+        );
+    }
+
+    #[test]
+    fn default_temporal_coverage_accepted_for_official() {
+        // A pre-v1.2 / absent (all-zero) block must still validate: the integer
+        // cross-checks are skipped when the block is default.
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.aggregate.temporal_coverage = TemporalCoverage::default();
+        validate_official(&r).expect("default temporal_coverage must not gate official");
+    }
+
+    #[test]
+    fn requests_measured_exceeds_declared_rejected() {
+        let mut r = good_report(ReportIntent::Official, Confidentiality::Internal);
+        r.scope_manifest.total_requests_in_period = Some(100);
+        r.scope_manifest.requests_measured = 500;
+        let errors = validate_official(&r).unwrap_err();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::ScopeManifest { field, .. }
+                    if *field == "requests_measured")),
+            "got {errors:?}"
+        );
     }
 
     #[test]
