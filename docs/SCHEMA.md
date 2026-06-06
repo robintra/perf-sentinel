@@ -1,14 +1,14 @@
-# Schema reference: perf-sentinel-report v1.1
+# Schema reference: perf-sentinel-report v1.2
 
 This document describes the JSON shape of a periodic disclosure report in prose. The machine-readable JSON Schema lives at `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Two filled examples sit under `docs/schemas/examples/`.
 
-v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. The schema accepts both `perf-sentinel-report/v1.0` and `v1.1`, and the new fields default when absent, so v1.0 readers and reports remain valid.
+v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. v1.2 adds `aggregate.temporal_coverage` (a measurement-continuity signal), `scope_manifest.coverage_basis` (a provenance marker), and the reserved `integrity.cross_period_log` hook. The schema accepts `perf-sentinel-report/v1.0`, `v1.1`, and `v1.2`, and every added field defaults when absent, so older readers and reports remain valid and the `content_hash` of a pre-v1.2 report is unchanged when re-hashed on a v1.2 binary.
 
 ## Top-level keys
 
 | key               | type           | required | notes                                                                    |
 |-------------------|----------------|----------|--------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.1"` (also accepts `"…/v1.0"`)                  |
+| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.2"` (also accepts `"…/v1.1"`, `"…/v1.0"`)      |
 | `report_metadata` | object         | yes      | see [Report metadata](#report-metadata)                                  |
 | `organisation`    | object         | yes      | see [Organisation](#organisation)                                        |
 | `period`          | object         | yes      | see [Period](#period)                                                    |
@@ -39,7 +39,9 @@ The publication domain (e.g. `transparency.example.fr`) is treated as an implici
 
 ## Scope manifest
 
-`total_applications_declared` is the size of the organisation's application portfolio. `applications_measured` is the count of services for which the disclosure carries data. Each entry in `applications_excluded` carries `service_name` and a non-empty `reason`. `environments_measured` lists the operator-defined environments observed (e.g. `["prod"]`). `total_requests_in_period` is an optional operator estimate; `requests_measured` is what perf-sentinel actually saw. `coverage_percentage` is `requests_measured / total_requests_in_period * 100` when the former is set.
+`total_applications_declared` is the size of the organisation's application portfolio. `applications_measured` is the count of services for which the disclosure carries data. Each entry in `applications_excluded` carries `service_name` and a non-empty `reason`. `environments_measured` lists the operator-defined environments observed (e.g. `["prod"]`). `total_requests_in_period` is an optional operator estimate, `requests_measured` is what perf-sentinel actually saw. `coverage_percentage` is `requests_measured / total_requests_in_period * 100` when the former is set.
+
+`coverage_basis` (v1.2) makes the trust boundary explicit in-band. It lists which scope fields are `operator_declared` (unaudited assertions the binary cannot verify, the denominators `total_applications_declared` and `total_requests_in_period`, plus the exclusion lists) versus `machine_derived` (computed by the aggregator from the archives, `applications_measured`, `requests_measured`, `coverage_percentage`). A reader of `coverage_percentage` should treat its denominator as operator-asserted: an operator who sets `total_requests_in_period` low can present near-100% coverage of a self-defined universe. This is inherent to a self-disclosure model, the cryptographic integrity guarantees bind the published report, not the honesty of the declared portfolio size. See [docs/design/08-PERIODIC-DISCLOSURE.md](design/08-PERIODIC-DISCLOSURE.md).
 
 ## Methodology
 
@@ -75,6 +77,12 @@ The aggregate carries four optional fields that describe the quality of the sour
 - `per_service_energy_models` maps each service to the set of energy-model tags observed across the period (`scaphandre_rapl`, `cloud_specpower`, `io_proxy_v3`, etc.). The `+cal` suffix is stripped before insertion, the period-wide `calibration_applied` flag in `methodology.calibration_inputs` carries that information instead.
 - `per_service_measured_ratio` is the per-service mean of the per-window fraction of spans whose energy was resolved by Scaphandre or cloud SPECpower. A value close to `1.0` means the service is fully measured across the period, `0.0` means it relies on proxy fallback. This is a simple arithmetic mean of per-window ratios, not span-weighted: a window with 10 spans and a window with 10000 spans contribute equally to the mean.
 
+### Temporal coverage (v1.2)
+
+`temporal_coverage` is a continuity signal: how much of the declared period actually carried measurements. It is an object with `temporal_coverage` (in `[0, 1]`, equal to `observed_days / days_in_period`), `observed_days` (distinct UTC calendar days carrying at least one archived window), `days_in_period` (mirrors `period.days_covered`), and `largest_gap_days` (the longest run of consecutive in-period days with no windows).
+
+Read it as a lower bound on activity, not as daemon uptime. Daemon archiving is traffic-gated: a window with no traffic writes nothing, so legitimately quiet days (nights, weekends, low-traffic services) lower the figure. For that reason it is **never** a hard `official` gate. The `disclose` CLI publishes the value, emits a stderr warning below an informational threshold, and appends an in-band disclaimer carrying the same caveat. It exists so a reader can tell a continuously-measured period from one where the daemon ran only a handful of days, which the per-calendar-day `days_covered` alone cannot reveal.
+
 ## Applications
 
 Two granularities, homogeneous per disclosure. The validator rejects a disclosure that mixes the two.
@@ -98,6 +106,8 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 `signature` (0.7.0+) is either `null` (hash-only report) or a typed object with `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, and `signed_at`. The fields collectively let a verifier locate the cosign bundle and the Rekor inclusion proof.
 
 `binary_attestation` (0.7.0+) is optional and, when present, carries a `format` (`"slsa-provenance-v1"`), `attestation_url`, `builder_id`, `git_tag`, `git_commit`, and `slsa_level` (`"L2"` for v0.7.0, `"L3"` from v0.7.1 onward since the release workflow moved to `actions/attest-build-provenance` which produces a level-3 attestation by construction). Consumers verify the binary downloaded from `binary_verification_url` with `gh attestation verify <binary> --owner robintra --repo perf-sentinel` for 0.7.1+ releases, or with `slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl ...` for the legacy 0.7.0 release.
+
+`cross_period_log` (v1.2) is reserved and absent today. It is the schema hook for an external append-only or Rekor-style log that chains successive periodic reports, so a third party can detect an operator who silently stopped publishing for several periods, the one gap the per-report integrity guarantees cannot close. It will be populated only under a future `intent = "audited"`, alongside the external audit attestation.
 
 `integrity_level` in `report_metadata` is one of `none`, `hash-only`, `signed`, `signed-with-attestation` (0.7.0+), `audited`. The reader can use it as a fast filter before parsing the integrity block.
 
