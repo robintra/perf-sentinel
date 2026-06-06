@@ -21,3 +21,4 @@ v0.8.1	3da90a0	2026-05-30	PASS
 # disclosures: content_hash drifted 1 ULP on JSON re-parse. Fixed at c84c1e4
 # (serde_json float_roundtrip), re-validated green end-to-end.
 v0.8.2	fa53b74	2026-06-05	PASS
+v0.8.3	c5948c6	2026-06-06	PASS
