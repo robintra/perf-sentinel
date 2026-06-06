@@ -20,7 +20,11 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": ["perf-sentinel-report/v1.0", "perf-sentinel-report/v1.1"]
+      "enum": [
+        "perf-sentinel-report/v1.0",
+        "perf-sentinel-report/v1.1",
+        "perf-sentinel-report/v1.2"
+      ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
     "organisation": { "$ref": "#/$defs/Organisation" },
@@ -193,7 +197,27 @@
         "coverage_percentage": {
           "type": "number",
           "minimum": 0,
-          "maximum": 100
+          "maximum": 100,
+          "description": "requests_measured / total_requests_in_period * 100 when the latter is set. Machine-derived; see coverage_basis."
+        },
+        "coverage_basis": {
+          "$ref": "#/$defs/CoverageBasis",
+          "description": "Since v1.2. In-band provenance marker: which scope fields are operator-asserted (unaudited) versus machine-derived from the archives. Constant per schema version."
+        }
+      }
+    },
+    "CoverageBasis": {
+      "type": "object",
+      "description": "Provenance split for the ScopeManifest. The operator_declared fields rest on unaudited operator assertion (the binary cannot verify the portfolio size they describe); the machine_derived fields are computed by the aggregator.",
+      "required": ["operator_declared", "machine_derived"],
+      "properties": {
+        "operator_declared": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "machine_derived": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     },
@@ -397,6 +421,43 @@
             "maximum": 1
           },
           "description": "Per-service mean of the per-window measured-ratio across the period. 1.0 means every span had measured energy across every window; 0.0 means the service fell back to proxy entirely."
+        },
+        "temporal_coverage": {
+          "$ref": "#/$defs/TemporalCoverage",
+          "description": "Since v1.2. Continuity signal: how many declared calendar days carried archived windows. Absent (or all-zero) on pre-v1.2 reports."
+        }
+      }
+    },
+    "TemporalCoverage": {
+      "type": "object",
+      "description": "Since v1.2. Measures days with OBSERVED TRAFFIC, not daemon uptime: archiving is traffic-gated, so a window with no traffic writes nothing and legitimately quiet days (nights, weekends, low-traffic services) lower this figure. Published for transparency and surfaced as a warning when low, never a hard official gate.",
+      "required": [
+        "temporal_coverage",
+        "observed_days",
+        "days_in_period",
+        "largest_gap_days"
+      ],
+      "properties": {
+        "temporal_coverage": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "observed_days / days_in_period."
+        },
+        "observed_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Distinct UTC calendar days in the period that carry at least one archived window."
+        },
+        "days_in_period": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The period's declared days_covered, mirrored for self-containment."
+        },
+        "largest_gap_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Longest run of consecutive in-period days with zero windows."
         }
       }
     },
@@ -505,7 +566,21 @@
         "binary_attestation": {
           "$ref": "#/$defs/BinaryAttestationMetadata",
           "description": "SLSA build provenance attestation for the perf-sentinel binary that produced this report. Present when the binary comes from a recognized SLSA L2+ builder (0.7.0+)."
+        },
+        "cross_period_log": {
+          "$ref": "#/$defs/CrossPeriodLogRef",
+          "description": "Reserved (v1.2). Locator for an external append-only / Rekor-style log that chains successive periodic reports, enabling inter-period continuity verification (detecting an operator who silently stopped publishing). Always absent in v1.2; populated only under a future intent=audited."
         }
+      }
+    },
+    "CrossPeriodLogRef": {
+      "type": "object",
+      "description": "Reserved (v1.2) locator for an inter-period transparency log. The per-report integrity guarantees bind a single published report; a chained append-only log of successive content_hash values closes the gap for an operator who stops disclosing. No runtime support yet.",
+      "required": ["format", "log_url"],
+      "properties": {
+        "format": { "type": "string" },
+        "log_url": { "type": "string", "format": "uri" },
+        "previous_report_hash": { "$ref": "#/$defs/Sha256" }
       }
     },
     "SignatureMetadata": {
