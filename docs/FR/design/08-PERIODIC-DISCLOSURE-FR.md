@@ -1,6 +1,6 @@
 # Rapport public périodique
 
-Notes de design pour le pipeline de transparence : schéma v1.0, aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
+Notes de design pour le pipeline de transparence : schéma (actuel v1.2), aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
 
 ## Disposition des modules
 
@@ -190,11 +190,26 @@ Le choix de 75% reflète trois observations.
 
 Ce seuil n'est pas normatif. Si un retour terrain d'opérateurs ou d'auditeurs montre qu'il est trop strict (rapports `internal` qui atterrissent régulièrement juste sous 75% et qui auraient été utiles en `official`) ou trop permissif (un audit identifie qu'un quart de proxy suffit à masquer une régression), il doit être ajusté. La constante vit dans `crates/sentinel-core/src/report/periodic/validator.rs` et est ré-exportée via le module `report::periodic`.
 
+## Couverture temporelle (v1.2)
+
+`period_coverage` (ci-dessus) répond à "quelle part de la période était runtime-calibrated", pas à "quelle part de la période a été mesurée tout court". Les deux sont indépendants : un daemon qui n'a tourné que trois jours sur 90 déclarés peut quand même rapporter `period_coverage = 1.0` si ces trois jours étaient pleinement calibrés. Rien dans le schéma v1.1 ne révélait ce trou. `days_covered` est de l'arithmétique calendaire pure (`(to - from) + 1`), il décrit la fenêtre déclarée par l'opérateur, pas l'activité réelle du daemon.
+
+`aggregate.temporal_coverage` comble ce trou. L'agrégateur suit l'ensemble des jours calendaires UTC distincts portant au moins une fenêtre foldée (`Builder.observed_days`, inséré dans `process_window` juste après que la fenêtre est validée, pour rester aligné avec `windows_aggregated`). `finalize` divise ce décompte par `period.days_covered` et enregistre aussi `observed_days`, `days_in_period` et `largest_gap_days` (la plus longue suite de jours consécutifs de la période sans fenêtre).
+
+### Pourquoi un warning publié, pas une barrière
+
+L'archivage du daemon est **déclenché par le trafic**, pas par une minuterie. `process_traces` retourne tôt sur un lot vide et le `try_send` d'archive est après ce garde, donc une fenêtre sans trafic n'écrit aucune ligne NDJSON. Par conséquent `temporal_coverage` mesure les *jours avec trafic observé*, une borne basse de l'activité, pas l'uptime du daemon. Les jours légitimement calmes (nuits, week-ends, services peu sollicités, un service sans requête un jour férié) l'abaissent. Une barrière dure `official` rejetterait donc des rapports honnêtes de déploiements intermittents ou peu sollicités. Donc `validate_official` ne fait que vérifier la plage du champ (`[0, 1]`, fini) et ne bloque jamais dessus. La CLI `disclose` publie la valeur, affiche un warning sur stderr sous `LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD`, et ajoute un disclaimer en bande (couvert par le hash) portant la mise en garde du traffic-gating. Le lecteur juge.
+
+### Ce qu'il adresse et ce qu'il n'adresse pas
+
+C'est le signal in-binary le plus proche de l'échappatoire d'auto-déclaration "il suffit d'arrêter perf-sentinel une partie de la période". L'extinction partielle se voit maintenant comme un `temporal_coverage` bas et un `largest_gap_days` grand. Il n'adresse **pas** la non-participation totale (ne jamais lancer l'outil ne laisse aucun rapport) ni un dénominateur malhonnête (`total_requests_in_period` fixé bas), tous deux irréductibles sans infrastructure externe, voir Révisions futures. Deux vérifications de cohérence bon marché l'accompagnent : `days_covered` doit valoir `(to_date - from_date) + 1` (rejet dur, seul un fichier édité à la main peut échouer) et `requests_measured` ne doit pas dépasser un `total_requests_in_period` déclaré par l'opérateur (rejet dur).
+
 ## Révisions futures
 
 - **Signature Sigstore** : `integrity.signature` est réservé. Ajouter une vraie signature est un bump mineur SemVer du schéma (champ additif passant non null dans certains fichiers).
 - **Intent `audited`** : la troisième valeur d'intent demandera une attestation d'audit externe. La forme vivra sous `integrity` ou dans une section voisine, pas encore tranché.
 - **Chaîne d'intégrité de traces** : `integrity.trace_integrity_chain` est réservé pour une racine de Merkle sur les traces sources alimentant la disclosure. Hors scope du schéma v1.0.
+- **Journal inter-périodes** : `integrity.cross_period_log` (réservé en v1.2) est le hook pour un journal externe en ajout seul ou de type Rekor chaînant les `content_hash` successifs entre périodes. C'est ce qui rend la non-participation totale (un opérateur qui arrête de publier) détectable par un tiers, le trou qu'aucune garantie d'intégrité par rapport ne peut combler. Il ne sera renseigné que sous `intent = "audited"`. Comme c'est du contenu disclosé (toujours `None` en v1.2, omis du wire), il n'est volontairement pas dans `POST_SIGN_FIELDS`, donc les hashs des rapports actuels ne changent pas.
 - **Intégration Boavizta** : `methodology.calibration_inputs` gagnera un champ `boavizta_version` quand l'intégration sera livrée. Les consommateurs de schéma doivent tolérer des champs de calibration inconnus, ce qu'ils font déjà parce que `additionalProperties` n'est pas posé.
 
 ## Mapping des fichiers source

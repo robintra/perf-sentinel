@@ -1,14 +1,14 @@
-# Référence schéma : perf-sentinel-report v1.1
+# Référence schéma : perf-sentinel-report v1.2
 
 Ce document décrit la forme JSON d'un rapport de transparence périodique en prose. Le JSON Schema lisible par machine se trouve dans `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Deux exemples remplis sont sous `docs/schemas/examples/`.
 
-La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`. Le schéma accepte à la fois `perf-sentinel-report/v1.0` et `v1.1`, et les nouveaux champs prennent une valeur par défaut quand ils sont absents, donc les lecteurs et rapports v1.0 restent valides.
+La v1.1 ajoute les tiers `canonical_waste` et `operational_waste` à `aggregate`. La v1.2 ajoute `aggregate.temporal_coverage` (un signal de continuité de mesure), `scope_manifest.coverage_basis` (un marqueur de provenance) et le hook réservé `integrity.cross_period_log`. Le schéma accepte `perf-sentinel-report/v1.0`, `v1.1` et `v1.2`, et chaque champ ajouté prend une valeur par défaut quand il est absent, donc les lecteurs et rapports plus anciens restent valides et le `content_hash` d'un rapport pré-v1.2 reste identique quand il est rehashé sur un binaire v1.2.
 
 ## Clés racine
 
 | clé               | type           | requise | notes                                                                             |
 |-------------------|----------------|---------|-----------------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.1"` (accepte aussi `"…/v1.0"`)                          |
+| `schema_version`  | string (enum)  | oui     | `"perf-sentinel-report/v1.2"` (accepte aussi `"…/v1.1"`, `"…/v1.0"`)              |
 | `report_metadata` | object         | oui     | voir [Métadonnées de rapport](#métadonnées-de-rapport)                            |
 | `organisation`    | object         | oui     | voir [Organisation](#organisation)                                                |
 | `period`          | object         | oui     | voir [Période](#période)                                                          |
@@ -39,7 +39,9 @@ Le domaine de publication (par exemple `transparency.example.fr`) est traité co
 
 ## Manifeste de scope
 
-`total_applications_declared` est la taille du portefeuille applicatif de l'organisation. `applications_measured` est le nombre de services pour lesquels le rapport porte des données. Chaque entrée de `applications_excluded` porte `service_name` et un `reason` non vide. `environments_measured` liste les environnements définis par l'opérateur et observés (par exemple `["prod"]`). `total_requests_in_period` est une estimation opérateur optionnelle ; `requests_measured` est ce que perf-sentinel a effectivement vu. `coverage_percentage` vaut `requests_measured / total_requests_in_period * 100` quand le premier est renseigné.
+`total_applications_declared` est la taille du portefeuille applicatif de l'organisation. `applications_measured` est le nombre de services pour lesquels le rapport porte des données. Chaque entrée de `applications_excluded` porte `service_name` et un `reason` non vide. `environments_measured` liste les environnements définis par l'opérateur et observés (par exemple `["prod"]`). `total_requests_in_period` est une estimation opérateur optionnelle, `requests_measured` est ce que perf-sentinel a effectivement vu. `coverage_percentage` vaut `requests_measured / total_requests_in_period * 100` quand le premier est renseigné.
+
+`coverage_basis` (v1.2) rend la frontière de confiance explicite, en bande. Il liste quels champs de scope sont `operator_declared` (assertions non auditées que le binaire ne peut pas vérifier : les dénominateurs `total_applications_declared` et `total_requests_in_period`, plus les listes d'exclusion) versus `machine_derived` (calculés par l'agrégateur depuis les archives : `applications_measured`, `requests_measured`, `coverage_percentage`). Un lecteur de `coverage_percentage` doit traiter son dénominateur comme une assertion opérateur : un opérateur qui fixe `total_requests_in_period` bas peut présenter une couverture proche de 100 % d'un univers qu'il a lui-même défini. C'est inhérent à un modèle d'auto-déclaration, les garanties d'intégrité cryptographique lient le rapport publié, pas l'honnêteté de la taille de portefeuille déclarée. Voir [docs/FR/design/08-PERIODIC-DISCLOSURE-FR.md](design/08-PERIODIC-DISCLOSURE-FR.md).
 
 ## Méthodologie
 
@@ -75,6 +77,12 @@ L'agrégat porte quatre champs optionnels qui décrivent la qualité des archive
 - `per_service_energy_models` mappe chaque service à l'ensemble des tags de modèle énergétique observés sur la période (`scaphandre_rapl`, `cloud_specpower`, `io_proxy_v3`, etc.). Le suffixe `+cal` est strippé avant insertion, le flag period-wide `calibration_applied` dans `methodology.calibration_inputs` porte cette information à la place.
 - `per_service_measured_ratio` est la moyenne par service de la fraction par fenêtre des spans dont l'énergie a été résolue par Scaphandre ou cloud SPECpower. Une valeur proche de `1.0` signifie que le service est entièrement mesuré sur la période, `0.0` qu'il s'appuie sur le proxy fallback. C'est une moyenne arithmétique simple des ratios par fenêtre, pas pondérée par le nombre de spans : une fenêtre de 10 spans et une fenêtre de 10000 spans contribuent à part égale à la moyenne.
 
+### Couverture temporelle (v1.2)
+
+`temporal_coverage` est un signal de continuité : quelle part de la période déclarée a réellement porté des mesures. C'est un objet avec `temporal_coverage` (dans `[0, 1]`, égal à `observed_days / days_in_period`), `observed_days` (jours calendaires UTC distincts portant au moins une fenêtre archivée), `days_in_period` (reflète `period.days_covered`) et `largest_gap_days` (la plus longue suite de jours consécutifs de la période sans fenêtre).
+
+À lire comme une borne basse de l'activité, pas comme l'uptime du daemon. L'archivage du daemon est déclenché par le trafic : une fenêtre sans trafic n'écrit rien, donc les jours légitimement calmes (nuits, week-ends, services peu sollicités) abaissent le chiffre. Pour cette raison ce n'est **jamais** une barrière dure `official`. La CLI `disclose` publie la valeur, émet un warning sur stderr sous un seuil informatif, et ajoute un disclaimer en bande portant la même mise en garde. Il existe pour qu'un lecteur distingue une période mesurée en continu d'une période où le daemon n'a tourné que quelques jours, ce que le `days_covered` calendaire seul ne peut pas révéler.
+
 ## Applications
 
 Deux granularités, homogènes par rapport. Le validator refuse un rapport qui mélangerait les deux.
@@ -98,6 +106,8 @@ Les deux granularités sont encodées dans le JSON Schema avec des clauses `not:
 `signature` (0.7.0+) vaut soit `null` (rapport hash-only) soit un objet typé avec `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, et `signed_at`. Les champs permettent collectivement à un vérifieur de localiser le bundle cosign et la preuve d'inclusion Rekor.
 
 `binary_attestation` (0.7.0+) est optionnel et, quand présent, porte un `format` (`"slsa-provenance-v1"`), `attestation_url`, `builder_id`, `git_tag`, `git_commit`, et `slsa_level` (`"L2"` pour 0.7.0, `"L3"` à partir de 0.7.1 puisque le workflow de release est passé à `actions/attest-build-provenance` qui produit une attestation niveau 3 par construction). Les consommateurs vérifient le binaire téléchargé depuis `binary_verification_url` avec `gh attestation verify <binary> --owner robintra --repo perf-sentinel` pour les releases 0.7.1+, ou avec `slsa-verifier verify-artifact --provenance-path multiple.intoto.jsonl ...` pour la 0.7.0 legacy.
+
+`cross_period_log` (v1.2) est réservé et absent aujourd'hui. C'est le hook de schéma pour un journal externe en ajout seul ou de type Rekor qui chaîne les rapports périodiques successifs, afin qu'un tiers puisse détecter un opérateur qui aurait arrêté de publier sur plusieurs périodes, le seul trou que les garanties d'intégrité par rapport ne peuvent pas combler. Il ne sera renseigné que sous un futur `intent = "audited"`, aux côtés de l'attestation d'audit externe.
 
 `integrity_level` dans `report_metadata` vaut `none`, `hash-only`, `signed`, `signed-with-attestation` (0.7.0+), `audited`. Le lecteur peut l'utiliser comme filtre rapide avant de parser le bloc integrity.
 
