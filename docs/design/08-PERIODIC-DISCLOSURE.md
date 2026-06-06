@@ -1,6 +1,6 @@
 # Periodic disclosure report
 
-Design notes for the periodic public disclosure pipeline: schema v1.0, aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`; the calculation chain lives in `docs/METHODOLOGY.md`; the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
+Design notes for the periodic public disclosure pipeline: schema (current v1.2), aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`, the calculation chain lives in `docs/METHODOLOGY.md`, the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
 
 ## Module layout
 
@@ -190,11 +190,26 @@ The 75% choice reflects three observations.
 
 This threshold is not normative. If terrain feedback from operators or auditors shows it is too strict (internal reports routinely landing just below 75% that would have been useful as official) or too permissive (an audit identifies a quarter of proxy data is enough to mask a regression), it should be tuned. The constant lives in `crates/sentinel-core/src/report/periodic/validator.rs` and is re-exported via the `report::periodic` module.
 
+## Temporal coverage (v1.2)
+
+`period_coverage` (above) answers "how much of the period was runtime-calibrated", not "how much of the period was measured at all". The two are independent: a daemon that ran only three days out of a declared 90 can still report `period_coverage = 1.0` if those three days were fully calibrated. Nothing in the v1.1 schema surfaced that gap. `days_covered` is pure calendar arithmetic (`(to - from) + 1`), so it describes the operator's declared window, not the daemon's actual activity.
+
+`aggregate.temporal_coverage` closes that gap. The aggregator tracks the set of distinct UTC calendar days carrying at least one folded window (`Builder.observed_days`, inserted in `process_window` right after the window is committed, so it stays aligned with `windows_aggregated`). `finalize` divides that count by `period.days_covered` and also records `observed_days`, `days_in_period`, and `largest_gap_days` (longest run of consecutive in-period days with no windows).
+
+### Why it is a published warning, not a gate
+
+Daemon archiving is **traffic-gated**, not timer-based. `process_traces` returns early on an empty batch and the archive `try_send` sits after that guard, so a window with no traffic writes no NDJSON line. Consequently `temporal_coverage` measures *days with observed traffic*, a lower bound on activity, not daemon uptime. Legitimately quiet days (nights, weekends, low-traffic services, a service with no requests on a holiday) lower it. A hard `official` gate would therefore reject honest reports from intermittent or low-traffic deployments. So `validate_official` only range-checks the field (`[0, 1]`, finite) and never gates on it. The `disclose` CLI publishes the value, prints a stderr warning below `LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD`, and appends an in-band (hash-covered) disclaimer carrying the traffic-gated caveat. The reader judges.
+
+### What it does and does not address
+
+This is the in-binary signal closest to the self-disclosure escape hatch "just stop running perf-sentinel for part of the period". Partial shutdown now shows up as a low `temporal_coverage` and a large `largest_gap_days`. It does **not** address total non-participation (never running the tool leaves no report) nor a dishonest denominator (`total_requests_in_period` set low), both of which are irreducible without external infrastructure, see Future revisions. Two cheap consistency checks ship alongside: `days_covered` must equal `(to_date - from_date) + 1` (hard reject, only a hand-edited file can fail it) and `requests_measured` must not exceed an operator-declared `total_requests_in_period` (hard reject).
+
 ## Future revisions
 
 - **Sigstore signature**: `integrity.signature` is reserved. Adding a real signature is a SemVer-minor schema bump (additive field becoming non-null in some files).
 - **`audited` intent**: the third intent value will require an external audit attestation. The shape will live under `integrity` or in a sibling section; not decided yet.
 - **Trace integrity chain**: `integrity.trace_integrity_chain` is reserved for a Merkle root over the source traces that fed the disclosure. Out of scope for the v1.0 schema.
+- **Cross-period log**: `integrity.cross_period_log` (reserved in v1.2) is the hook for an external append-only or Rekor-style log chaining successive `content_hash` values across periods. It is what makes total non-participation (an operator who stops publishing) detectable by a third party, the gap no single-report integrity guarantee can close. It will be populated only under `intent = "audited"`. Because it is disclosed content (always `None` in v1.2, omitted from the wire), it is deliberately not in `POST_SIGN_FIELDS`, so current report hashes are unaffected.
 - **Boavizta integration**: `methodology.calibration_inputs` will gain a `boavizta_version` field when the integration ships. Schema consumers must tolerate unknown calibration fields, which they already do because `additionalProperties` is unset.
 
 ## Source file mapping
