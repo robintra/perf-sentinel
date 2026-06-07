@@ -209,15 +209,6 @@ git push origin chart-vA.B.C
 
 L'un ou l'autre chemin déclenche `.github/workflows/helm-release.yml`, qui valide le tag du chart contre `Chart.yaml` via `scripts/check-helm-tag-version.sh`, package le chart et le pousse sur GHCR comme artefact OCI, le signe avec cosign en keyless, atteste la provenance de build SLSA et un SBOM SPDX (tous deux vérifiables via `gh attestation verify`), et crée la GitHub Release en brouillon. Publiez le brouillon une fois que vous l'avez relu.
 
-### 8. Communication publique
-
-Après que la page de release GitHub est générée et que le chart est live :
-
-- Post LinkedIn avec lien vers les release notes
-- Entrée de blog sur le site projet si la release introduit des capacités user-facing
-- Reddit, Hacker News, canaux communautaires quand le changement est largement pertinent
-- Contacts institutionnels (collaborateurs académiques, clients sous accord de disclosure) pour les releases qui touchent leurs cas d'usage
-
 ## Ce que fait le workflow de release
 
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :
