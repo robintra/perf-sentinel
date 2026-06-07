@@ -166,3 +166,23 @@ perf-sentinel completions fish > ~/.config/fish/completions/perf-sentinel.fish
 Recharger le shell, ou `source` le fichier, après l'installation.
 Régénérer le script après chaque upgrade de `perf-sentinel` pour que
 la complétion reste alignée avec les nouveaux flags et sous-commandes.
+
+## Page de manuel
+
+`perf-sentinel man` écrit une page de manuel roff sur stdout. Elle rend
+la page de premier niveau, qui liste les sous-commandes (comme `git.1`).
+Rediriger la sortie vers le chemin des pages de manuel :
+
+```bash
+perf-sentinel man > /usr/local/share/man/man1/perf-sentinel.1
+```
+
+`man perf-sentinel` fonctionne ensuite. Pour prévisualiser sans
+installer :
+
+```bash
+perf-sentinel man > /tmp/perf-sentinel.1 && man /tmp/perf-sentinel.1
+```
+
+Régénérer la page après chaque upgrade de `perf-sentinel` pour qu'elle
+reste alignée avec les nouveaux flags et sous-commandes.

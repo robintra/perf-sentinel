@@ -256,6 +256,7 @@ perf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # pull from G
 perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc
 perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv
 perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # shell completions
+perf-sentinel man > perf-sentinel.1                                # man page
 perf-sentinel query findings --service order-svc                   # talk to a running daemon
 ```
 
