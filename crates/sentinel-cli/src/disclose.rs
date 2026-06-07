@@ -1211,30 +1211,7 @@ pub fn cmd_disclose(
         return 2;
     }
 
-    // Non-fatal continuity + completeness warnings. temporal_coverage is never
-    // a hard gate (archiving is traffic-gated, so a low value can be a quiet
-    // period), only surfaced here and as an in-band disclaimer.
-    let tc = &report.aggregate.temporal_coverage;
-    if tc.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
-        eprintln!(
-            "Warning: temporal coverage is {:.1}% ({}/{} declared days had measured \
-             traffic, largest gap {} {}). Archiving is traffic-gated, so quiet \
-             periods lower this, it is not a daemon-uptime guarantee.",
-            tc.temporal_coverage * 100.0,
-            tc.observed_days,
-            tc.days_in_period,
-            tc.largest_gap_days,
-            day_or_days(tc.largest_gap_days),
-        );
-    }
-    if matches!(intent_schema, ReportIntent::Official)
-        && report.scope_manifest.total_requests_in_period.is_none()
-    {
-        eprintln!(
-            "Warning: total_requests_in_period is not declared in the org config; \
-             coverage_percentage will be absent from this official report."
-        );
-    }
+    emit_non_fatal_warnings(&report, intent_schema);
 
     match compute_content_hash(&report) {
         Ok(hash) => {
@@ -1273,6 +1250,33 @@ pub fn cmd_disclose(
         report.applications.len()
     );
     0
+}
+
+// Non-fatal continuity + completeness warnings. temporal_coverage is never
+// a hard gate (archiving is traffic-gated, so a low value can be a quiet
+// period), only surfaced here and as an in-band disclaimer.
+fn emit_non_fatal_warnings(report: &PeriodicReport, intent: ReportIntent) {
+    let tc = &report.aggregate.temporal_coverage;
+    if tc.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
+        eprintln!(
+            "Warning: temporal coverage is {:.1}% ({}/{} declared days had measured \
+             traffic, largest gap {} {}). Archiving is traffic-gated, so quiet \
+             periods lower this, it is not a daemon-uptime guarantee.",
+            tc.temporal_coverage * 100.0,
+            tc.observed_days,
+            tc.days_in_period,
+            tc.largest_gap_days,
+            day_or_days(tc.largest_gap_days),
+        );
+    }
+    if matches!(intent, ReportIntent::Official)
+        && report.scope_manifest.total_requests_in_period.is_none()
+    {
+        eprintln!(
+            "Warning: total_requests_in_period is not declared in the org config; \
+             coverage_percentage will be absent from this official report."
+        );
+    }
 }
 
 fn write_attestation(
