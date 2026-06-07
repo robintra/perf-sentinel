@@ -1,7 +1,9 @@
 # Windows MSVC reserves only a 1 MiB main-thread stack by default. The large
 # debug-build async `main` future (the `#[tokio::main]` state machine spanning
 # every subcommand) overflows it on startup, even for `perf-sentinel --version`.
-# Reserve 8 MiB to match the typical Linux main-thread stack so the binary runs
-# on Windows. `-C link-arg=/STACK:...` only affects the final binary link.
+# Reserve 8 MiB to match the typical Linux main-thread stack. The flag applies
+# to every binary link on a windows-msvc host (daemon, test binaries, and host
+# build-script/proc-macro links, where it is harmless); the cfg excludes
+# Linux/macOS, so CI (Linux) is unaffected.
 [target.'cfg(all(windows, target_env = "msvc"))']
 rustflags = ["-C", "link-arg=/STACK:8388608"]

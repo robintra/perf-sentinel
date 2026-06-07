@@ -11,6 +11,14 @@
 /// Build this future once and `tokio::pin!` it before a `select!` loop so the
 /// signal listeners are registered a single time, not re-registered on every
 /// iteration.
+///
+/// Caveat: on Unix, registering the SIGTERM handler is process-wide and
+/// permanent. Tokio never restores the OS default disposition, so once this
+/// future has been awaited, SIGTERM is caught (no longer fatal by default) for
+/// the rest of the process lifetime, even after the future is dropped. For a
+/// one-shot caller this means the process stops terminating by default on
+/// SIGTERM after the first await (SIGKILL still applies). Harmless for the
+/// long-running daemon, which wants exactly that for its whole lifetime.
 pub(crate) async fn shutdown_signal() {
     #[cfg(unix)]
     {
