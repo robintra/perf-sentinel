@@ -79,6 +79,7 @@ enum Commands {
     /// window correlator and are not available in batch analyze. Use
     /// `perf-sentinel watch` then `perf-sentinel query correlations`
     /// for cross-trace findings.
+    #[command(after_help = help_examples::ANALYZE)]
     Analyze {
         /// Path to a JSON trace file to analyze. If omitted, reads from stdin.
         #[arg(short, long)]
@@ -112,6 +113,7 @@ enum Commands {
 
     /// Watch for traces in real-time (daemon mode).
     #[cfg(feature = "daemon")]
+    #[command(after_help = help_examples::WATCH)]
     Watch {
         /// Path to a .perf-sentinel.toml config file.
         #[arg(short, long)]
@@ -141,6 +143,7 @@ enum Commands {
     /// pool saturation, serialized calls) are rendered in a dedicated
     /// header section above the span tree. Cross-trace percentile
     /// findings from `analyze` are not included.
+    #[command(after_help = help_examples::EXPLAIN)]
     Explain {
         /// Path to a JSON trace file.
         #[arg(short, long)]
@@ -199,6 +202,7 @@ enum Commands {
 
     /// Query Grafana Tempo for traces and analyze them.
     #[cfg(feature = "tempo")]
+    #[command(after_help = help_examples::TEMPO)]
     Tempo {
         /// Tempo HTTP API endpoint (e.g. `http://localhost:3200`).
         #[arg(long)]
@@ -247,6 +251,7 @@ enum Commands {
 
     /// Query a Jaeger query API backend (Jaeger or Victoria Traces) for traces and analyze them.
     #[cfg(feature = "jaeger-query")]
+    #[command(after_help = help_examples::JAEGER_QUERY)]
     JaegerQuery {
         /// Jaeger query API endpoint (e.g. `http://localhost:16686` or `http://victoria:10428`).
         #[arg(long)]
@@ -294,6 +299,7 @@ enum Commands {
     },
 
     /// Calibrate energy coefficients from real measurements.
+    #[command(after_help = help_examples::CALIBRATE)]
     Calibrate {
         /// Path to a JSON trace file (same format as analyze input).
         #[arg(long)]
@@ -310,6 +316,7 @@ enum Commands {
     },
 
     /// Analyze `pg_stat_statements` data for SQL hotspot detection.
+    #[command(after_help = help_examples::PG_STAT)]
     PgStat {
         /// Path to `pg_stat_statements` CSV or JSON export.
         #[arg(short, long)]
@@ -340,6 +347,7 @@ enum Commands {
 
     /// Query a running perf-sentinel daemon for findings and status.
     #[cfg(feature = "daemon")]
+    #[command(after_help = help_examples::QUERY)]
     Query {
         /// Daemon HTTP endpoint.
         #[arg(long, default_value = "http://localhost:4318")]
@@ -356,6 +364,7 @@ enum Commands {
     /// is a TTY. TOML CI acks (`.perf-sentinel-acknowledgments.toml`)
     /// are out of scope, edit the file and ship via PR review instead.
     #[cfg(feature = "daemon")]
+    #[command(after_help = help_examples::ACK)]
     Ack {
         /// Daemon HTTP endpoint.
         #[arg(
@@ -375,6 +384,7 @@ enum Commands {
     /// even when the quality gate fails (the gate status is rendered as
     /// a badge in the HTML top bar, not as a CI signal). Use `analyze
     /// --ci` for the exit-code semantics.
+    #[command(after_help = help_examples::REPORT)]
     Report {
         /// Path to a JSON trace file. Omit or pass `-` to read from stdin.
         /// Same format auto-detection as `analyze --input` (native JSON,
@@ -453,6 +463,7 @@ enum Commands {
     },
 
     /// Compare two trace sets and emit a delta report (regressions and improvements).
+    #[command(after_help = help_examples::DIFF)]
     Diff {
         /// Path to the baseline trace file (e.g. base branch, last release).
         #[arg(long)]
@@ -482,6 +493,7 @@ enum Commands {
     ///
     /// Pipe the output to the shell-specific completion path, e.g.
     /// `perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel`.
+    #[command(after_help = help_examples::COMPLETIONS)]
     Completions {
         /// Target shell: bash, zsh, fish, powershell, elvish.
         #[arg(value_enum)]
@@ -494,6 +506,7 @@ enum Commands {
     /// applicable, computes the deterministic SHA-256 content hash, and
     /// writes a single `perf-sentinel-report.json`. Designed for public
     /// transparency, not regulatory-grade.
+    #[command(after_help = help_examples::DISCLOSE)]
     Disclose {
         /// `internal`, `official`, or `audited`. `audited` is reserved for
         /// a future release and exits with code 2. Optional under `--tui`
@@ -580,6 +593,7 @@ enum Commands {
     /// at the matching sidecar files, delegates signature verification
     /// to `cosign verify-blob` and SLSA verification to
     /// `gh attestation verify`.
+    #[command(after_help = help_examples::VERIFY_HASH)]
     VerifyHash {
         /// Local report file to verify. Required unless `--url` is set.
         #[arg(long, value_name = "PATH", conflicts_with = "url")]
@@ -627,6 +641,7 @@ enum Commands {
     /// saves the result to `--output`. The same path as `--report` is
     /// allowed and bakes in place via an atomic temp+rename. Intended
     /// for test fixture generation and debugging.
+    #[command(after_help = help_examples::HASH_BAKE)]
     HashBake {
         /// Local report file to read.
         #[arg(long, value_name = "PATH")]
@@ -710,6 +725,105 @@ enum QueryAction {
         #[arg(long, value_enum, default_value = "text")]
         format: QueryOutputFormat,
     },
+}
+
+/// Usage-example blocks appended under each user-facing command's help
+/// via clap `after_help`. Centralized so the examples stay in lockstep with
+/// the invocations documented in `docs/CLI.md` and the README. Feature-gated
+/// constants mirror their command's `#[cfg]` so no constant goes unused
+/// in a `--no-default-features` build.
+mod help_examples {
+    pub const ANALYZE: &str = "Examples:
+  # Gate a CI run and fail on regressions
+  perf-sentinel analyze --ci --input traces.json
+
+  # Emit JSON for a dashboard or further processing
+  perf-sentinel analyze --input traces.json --format json";
+
+    #[cfg(feature = "daemon")]
+    pub const WATCH: &str = "Examples:
+  # Run the daemon, listening on all interfaces for containers
+  perf-sentinel watch --listen-address 0.0.0.0
+
+  # Load thresholds and detection settings from a config file
+  perf-sentinel watch --config .perf-sentinel.toml";
+
+    pub const EXPLAIN: &str = "Examples:
+  # Render the annotated span tree for a single trace
+  perf-sentinel explain --input traces.json --trace-id abc123def456";
+
+    pub const REPORT: &str = "Examples:
+  # Build a self-contained HTML dashboard
+  perf-sentinel report --input traces.json --output report.html
+
+  # Add a Diff tab against a baseline report
+  perf-sentinel report --input traces.json --output report.html --before baseline.json";
+
+    pub const DIFF: &str = "Examples:
+  # Compare a PR against its baseline and emit SARIF for code scanning
+  perf-sentinel diff --before base.json --after pr.json --format sarif --output diff.sarif";
+
+    #[cfg(feature = "tempo")]
+    pub const TEMPO: &str = "Examples:
+  # Fetch and analyze a single trace
+  perf-sentinel tempo --endpoint http://tempo:3200 --trace-id abc123def456
+
+  # Search recent traces for a service
+  perf-sentinel tempo --endpoint http://tempo:3200 --service order-svc --lookback 2h";
+
+    #[cfg(feature = "jaeger-query")]
+    pub const JAEGER_QUERY: &str = "Examples:
+  # Pull recent traces for a service and analyze them
+  perf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc";
+
+    pub const CALIBRATE: &str = "Examples:
+  # Fit energy coefficients from measured power
+  perf-sentinel calibrate --traces traces.json --measured-energy rapl.csv";
+
+    pub const PG_STAT: &str = "Examples:
+  # Rank SQL hotspots from a pg_stat_statements export
+  perf-sentinel pg-stat --input pg_stat.csv --traces traces.json";
+
+    #[cfg(feature = "daemon")]
+    pub const QUERY: &str = "Examples:
+  # List recent findings for a service from a running daemon
+  perf-sentinel query findings --service order-svc
+
+  # Show daemon status
+  perf-sentinel query status";
+
+    #[cfg(feature = "daemon")]
+    pub const ACK: &str = "Examples:
+  # Acknowledge a finding for one week
+  perf-sentinel ack create --signature \"<signature>\" --reason \"deferred to next cycle\" --expires 7d
+
+  # List active daemon acknowledgments
+  perf-sentinel ack list";
+
+    pub const DISCLOSE: &str = "Examples:
+  # Aggregate a quarter of archived windows into an internal report
+  perf-sentinel disclose --intent internal --confidentiality internal --period-type calendar-quarter --from 2026-01-01 --to 2026-03-31 --input /var/lib/perf-sentinel/reports.ndjson --output report.json --org-config org.toml
+
+  # Public report with a signed attestation sidecar
+  perf-sentinel disclose --intent official --confidentiality public --period-type calendar-quarter --from 2026-01-01 --to 2026-03-31 --input archive/2026Q1/ --output report.json --emit-attestation report.intoto.jsonl --org-config org.toml";
+
+    pub const VERIFY_HASH: &str = "Examples:
+  # Verify a local report and its sidecar signature
+  perf-sentinel verify-hash --report report.json --attestation report.intoto.jsonl --bundle report.sig --expected-identity release@example.com --expected-issuer https://accounts.google.com
+
+  # Recompute the content hash of a published report
+  perf-sentinel verify-hash --url https://example.com/perf-sentinel-report.json --no-identity-check";
+
+    pub const HASH_BAKE: &str = "Examples:
+  # Bake the canonical content hash into a report in place
+  perf-sentinel hash-bake --report report.json --output report.json";
+
+    pub const COMPLETIONS: &str = "Examples:
+  # Install zsh completions
+  perf-sentinel completions zsh > ~/.zfunc/_perf-sentinel
+
+  # Install bash completions
+  perf-sentinel completions bash > /usr/local/etc/bash_completion.d/perf-sentinel";
 }
 
 #[tokio::main]
