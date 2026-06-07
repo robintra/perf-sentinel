@@ -41,7 +41,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 serde = { version = "1.0.228", features = ["derive"] }
 # float_roundtrip: exact float parsing so verify-hash round-trips the
 # disclosure content_hash. See the note in sentinel-core/Cargo.toml.
-serde_json = { version = "1.0.149", features = ["float_roundtrip"] }
+serde_json = { version = "1.0.150", features = ["float_roundtrip"] }
 # Used to stamp the current time when applying acknowledgments. Same
 # version line as the core crate, default-features off to skip the
 # wasm/JS bindings.
@@ -59,7 +59,7 @@ crossterm = { version = "0.29.0", optional = true }
 hyper = { version = "1.9.0", optional = true }
 bytes = { version = "1.11.1", optional = true }
 humantime = { version = "2.3.0", optional = true }
-rpassword = { version = "7.5.2", optional = true }
+rpassword = { version = "7.5.4", optional = true }
 # Synchronous HTTP client used exclusively by `verify-hash --url`.
 # Sync (not tokio), small dep graph, audited (Cure53 2021). The default
 # `rustls` feature pulls in TLS support; no native-tls fallback.
