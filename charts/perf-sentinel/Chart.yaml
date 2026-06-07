@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.48
-appVersion: "0.8.3"
+version: 0.2.49
+appVersion: "0.8.4"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -53,9 +53,11 @@ annotations:
       description: "appVersion 0.8.2: the periodic public disclosure reports avoidable energy and carbon at two N+1 thresholds side by side, canonical_waste (a threshold pinned in the binary that the operator cannot configure, so the disclosed waste figure is non-manipulable) and operational_waste (the operator's configured threshold), schema perf-sentinel-report/v1.1. The flat avoidable fields alias the canonical tier and the change is additive, v1.0 readers remain valid. Also bumps the TUI backend to ratatui 0.30.1. No chart template change, this bump only tracks the new appVersion."
     - kind: added
       description: "appVersion 0.8.3: the periodic public disclosure gains a temporal-coverage continuity signal (aggregate.temporal_coverage, schema perf-sentinel-report/v1.2) that reports how many of the declared period's calendar days carried measurements, so a reader can tell a continuously-measured period from one where the daemon ran only a few days. Archiving is traffic-gated so the figure is a lower bound on activity, not daemon uptime, surfaced as a warning and an in-band disclaimer, never a hard official gate. Also adds an in-band coverage_basis provenance marker and reserves an integrity.cross_period_log hook. The schema change is additive, v1.1 and v1.0 readers remain valid. No chart template change, this bump only tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.8.4: a man subcommand renders the perf-sentinel manual page to stdout (perf-sentinel man, backed by clap_mangen), mirroring the existing completions subcommand. Every user-facing command's --help now carries copy-pasteable usage examples, and several command help texts were tightened. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.3
+      image: ghcr.io/robintra/perf-sentinel:0.8.4
       platforms:
         - linux/amd64
         - linux/arm64

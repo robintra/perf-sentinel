@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.49]
+
+### Changed
+
+- `appVersion` bumped to `0.8.4` to track the new `man` subcommand (renders the manual page to stdout) and the usage-example blocks added to every user-facing command's `--help`. Template surface is unchanged, no migration needed beyond the chart bump. No config or daemon wire change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.4` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.48]
 
 ### Changed
