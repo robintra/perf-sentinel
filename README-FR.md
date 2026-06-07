@@ -266,15 +266,42 @@ perf-sentinel query findings --service order-svc                   # dialoguer a
 
 ## Performance
 
-| Métrique                                | Résultat (relevé en v0.8.0)    |
-|-----------------------------------------|--------------------------------|
-| Débit pic pipeline                      | **> 1,8 M évènements / sec**   |
-| Débit soutenu end-to-end                | **≈ 1,0 M évènements / sec**   |
-| Mémoire résidente sous charge soutenue  | **≈ 190 Mo**                   |
+`perf-sentinel bench` ne chronomètre que le pipeline d'analyse (`normalize -> correlate -> detect -> score`). La lecture du fichier, le parsing JSON et l'ingestion ont tous lieu avant le démarrage du chrono, et les lots d'entrée sont clonés en amont, donc ces chiffres sont le coût pur du pipeline, pas un débit de bout en bout ni un benchmark du daemon sous charge. Le pipeline est mono-thread (pas de rayon), le nombre de cœurs ne change donc pas le débit. Les deux jeux de données comptent chacun 44 043 évènements synthétiques, construits en dupliquant la fixture de démo (`crates/sentinel-cli/src/demo_data.json`), l'un répétant le même motif et l'autre avec du SQL aléatoire par requête. Cela isole bien le débit du pipeline mais ne reflète pas la diversité d'une vraie production.
 
-Le chiffre `<20 Mo RSS` cité dans le TL;DR et le tableau comparatif correspond à l'**empreinte daemon stationnaire à faible trafic** (apples-to-apples avec les chiffres "agent idle" listés pour les autres outils) : le binaire release musl + mimalloc tourne à **~17 Mo** au repos (le build natif, ~10 Mo, mimalloc échange un peu de RSS contre de la vitesse d'allocation). Sous la charge soutenue de ~1,0 M évts/s ci-dessus, le même daemon culmine à **≈ 190 Mo** (contre 237 Mo mesuré sur 0.6.1, confortablement sous le plafond de 250 Mo).
+| Jeu de données (44 043 évènements synthétiques) | Plateforme     | Débit pipeline       | p50 / p99 par évènement |
+|-------------------------------------------------|----------------|----------------------|-------------------------|
+| Motif répété                                    | x86 Xeon 8481C | ~576 k évts/s        | 1,72 / 1,88 µs          |
+| Motif répété                                    | Apple M4 Pro   | ~1,23 M évts/s       | 0,81 / 0,89 µs          |
+| SQL varié                                       | x86 Xeon 8481C | ~640 k évts/s        | 1,54 / 1,69 µs          |
+| SQL varié                                       | Apple M4 Pro   | ~1,33 M évts/s       | 0,75 / 0,81 µs          |
 
-Mesuré sur un Mac Mini M4 Pro (12 cœurs, 24 Go de mémoire unifiée, macOS 26.4.1), build release `aarch64-unknown-linux-musl` avec `mimalloc`, dans un conteneur Docker Desktop `linux/arm64` (VM 15,6 Go). Édition Rust 2024, rustc 1.96.0 stable. Reproduire avec `perf-sentinel bench --help`.
+- **x86**, mesuré en juin 2026 : GCP c3-standard-8 (Intel Xeon Platinum 8481C @ 2,70 GHz, 8 vCPU), release officielle 0.8.5 `x86_64-unknown-linux-musl` (allocateur mimalloc).
+- **M4**, mesuré le 2026-06-08 : Mac mini M4 Pro (12 cœurs, 24 Go de mémoire unifiée, macOS 26.5.1), release officielle 0.8.5 `aarch64-apple-darwin` (allocateur système), exécutée nativement sur l'hôte.
+
+Avec les artefacts natifs de chaque plateforme, le M4 Pro soutient environ 2,1x le débit d'un vCPU 8481C (2,14x sur le motif répété, 2,08x sur le varié). p50 / p99 sont la latence par évènement (durée d'une itération divisée par le nombre d'évènements), sur 10 itérations. Reproduire avec `perf-sentinel bench --help`. Édition Rust 2024, rustc 1.96.0 stable.
+
+<details>
+<summary><b>Détail par allocateur sur la même puce (macOS natif vs Docker musl)</b></summary>
+
+L'artefact musl x86 est lié à mimalloc tandis que l'artefact macOS arm64 utilise l'allocateur système, les binaires cross-plateforme diffèrent donc par l'allocateur autant que par l'ISA. Pour isoler ce point, la release musl + mimalloc (l'artefact `linux/arm64`) a aussi été mesurée au bench sur le même M4 Pro, dans un conteneur Docker `linux/arm64`, sur les mêmes jeux de données :
+
+| Build sur la même puce M4 Pro          | Motif répété         | SQL varié            |
+|----------------------------------------|----------------------|----------------------|
+| macOS arm64 natif, allocateur système  | ~1,23 M évts/s       | ~1,33 M évts/s       |
+| Docker linux/arm64, musl + mimalloc    | ~1,39 M évts/s       | ~1,51 M évts/s       |
+
+Même puce, mêmes jeux de données : le build musl + mimalloc tourne environ 13 % plus vite que l'allocateur natif de macOS, ce qui confirme l'allocateur comme cause principale du débit plus élevé en Docker. À build équivalent (les deux en musl + mimalloc), le M4 Pro fait alors environ 2,4x le x86 8481C (2,41x sur le motif répété, 2,36x sur le varié).
+
+</details>
+
+<details>
+<summary><b>Mémoire : rss_peak_bytes du bench vs empreinte du daemon</b></summary>
+
+`bench` affiche aussi `rss_peak_bytes`, mais cette valeur est dominée par les lots d'entrée pré-clonés gardés en mémoire (10 itérations x 44 043 évènements), ce n'est donc pas l'empreinte mémoire du daemon. Elle n'est pas non plus comparable d'un OS à l'autre : `rss_peak_bytes` lit le RSS courant via `/proc` sous Linux mais le RSS de pic via `getrusage` sous macOS.
+
+Séparément, la mémoire du daemon long-running a été profilée sur le même M4 Pro avec le build musl + mimalloc dans une VM Docker Desktop `linux/arm64` (15,6 Go). Il tourne à **~17 Mo** au repos (le chiffre `<20 Mo RSS` cité dans le TL;DR et le tableau comparatif, apples-to-apples avec les chiffres "agent idle" des autres outils). Le build natif tourne à ~10 Mo, mimalloc échange un peu de RSS contre de la vitesse d'allocation. Sous une charge d'ingestion soutenue de ~1,0 M évts/s, le même daemon culmine à **~190 Mo** (contre 237 Mo sur 0.6.1, sous le plafond de 250 Mo).
+
+</details>
 
 ## GreenOps : score d'intensité I/O (directionnel)
 
