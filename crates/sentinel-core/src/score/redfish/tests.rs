@@ -411,9 +411,19 @@ async fn spawn_scraper_staleness_gauge_climbs_when_every_chassis_fails() {
     let metrics = Arc::new(MetricsState::new());
     let handle = spawn_scraper(cfg, state, metrics.clone());
 
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    let age = metrics.redfish_last_scrape_age_seconds.get();
+    // Poll until the staleness gauge starts climbing rather than waiting a
+    // fixed window. On Linux the scrape fails fast (connection refused) within
+    // a tick, but on Windows connecting to the dropped port can take until the
+    // fetch timeout (5s) to fail, so a fixed 300ms wait flakes. Break as soon
+    // as the gauge moves; the budget only has to exceed the fetch timeout.
+    let mut age = 0.0;
+    for _ in 0..320 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        age = metrics.redfish_last_scrape_age_seconds.get();
+        if age > 0.0 {
+            break;
+        }
+    }
     handle.abort();
     assert!(
         age > 0.0,

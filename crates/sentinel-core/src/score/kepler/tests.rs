@@ -525,13 +525,22 @@ async fn spawn_scraper_staleness_gauge_climbs_when_never_succeeds() {
     let metrics = std::sync::Arc::new(crate::report::metrics::MetricsState::new());
     let handle = spawn_scraper(cfg, state, metrics.clone());
 
-    // Wait long enough for several ticks to fail.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    let age = metrics.kepler_last_scrape_age_seconds.get();
+    // Poll until the staleness gauge starts climbing rather than waiting a
+    // fixed window. On Linux the scrape fails fast (connection refused) within
+    // a tick, but on Windows connecting to the dropped port can take until the
+    // fetch timeout (3s) to fail, so a fixed 300ms wait flakes. Break as soon
+    // as the gauge moves; the budget only has to exceed the fetch timeout.
+    let mut age = 0.0;
+    for _ in 0..320 {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        age = metrics.kepler_last_scrape_age_seconds.get();
+        if age > 0.0 {
+            break;
+        }
+    }
+    handle.abort();
     assert!(
         age > 0.0,
         "staleness gauge should climb on never-succeeded scraper, got {age}"
     );
-    handle.abort();
 }

@@ -254,6 +254,8 @@ fn is_rotation_stamp(s: &str) -> bool {
 mod tests {
     use super::*;
     use crate::test_helpers::empty_report;
+    // Only the Unix-gated `writer_refuses_symlink_target` test uses this.
+    #[cfg(unix)]
     use core::assert_matches;
     use tempfile::TempDir;
 
@@ -371,6 +373,10 @@ mod tests {
         );
     }
 
+    // Uses `std::os::unix::fs::symlink` to create the symlink under test, so
+    // it only builds and runs on Unix. The symlink-refusal logic itself is
+    // cross-platform (`symlink_metadata().is_symlink()`).
+    #[cfg(unix)]
     #[tokio::test]
     async fn writer_refuses_symlink_target() {
         let dir = TempDir::new().unwrap();

@@ -510,6 +510,7 @@ async fn tighten_parent_dir_perms(parent: &Path) {
 }
 
 #[cfg(not(unix))]
+#[allow(clippy::unused_async)] // must match the `async` Unix signature it mirrors
 async fn tighten_parent_dir_perms(_parent: &Path) {}
 
 #[cfg(unix)]
