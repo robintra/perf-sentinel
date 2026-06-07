@@ -114,6 +114,43 @@ fn cli_help_shows_subcommands() {
     assert!(stdout.contains("analyze"));
     assert_eq!(stdout.contains("watch"), cfg!(feature = "daemon"));
     assert!(stdout.contains("demo"));
+    // `contains("man")` would be vacuous: "Commands" already contains "man".
+    // Assert on the man subcommand's unique about string instead.
+    assert!(stdout.contains("Generate a man page"));
+}
+
+#[test]
+fn cli_man_outputs_roff_page() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("man")
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(output.status.success(), "man command failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(".TH"),
+        "man output should carry a .TH roff header"
+    );
+    assert!(
+        stdout.to_uppercase().contains("PERF-SENTINEL"),
+        "man output should name the binary"
+    );
+}
+
+#[test]
+fn cli_analyze_help_shows_usage_examples() {
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["analyze", "--help"])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Examples:"),
+        "analyze --help should include a usage examples block"
+    );
+    assert!(stdout.contains("perf-sentinel analyze --ci --input traces.json"));
 }
 
 #[test]

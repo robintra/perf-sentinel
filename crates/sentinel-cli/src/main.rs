@@ -499,6 +499,13 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+    /// Generate a man page for perf-sentinel on stdout.
+    ///
+    /// Renders the roff man page for the top-level command (it lists the
+    /// subcommands, like `git.1`). Redirect it into your man path, e.g.
+    /// `perf-sentinel man > /usr/local/share/man/man1/perf-sentinel.1`.
+    #[command(after_help = help_examples::MAN)]
+    Man,
     /// Produce a periodic public disclosure report (v1.2 schema).
     ///
     /// Reads archived per-window `Report` NDJSON, filters to the
@@ -824,6 +831,10 @@ mod help_examples {
 
   # Install bash completions
   perf-sentinel completions bash > /usr/local/etc/bash_completion.d/perf-sentinel";
+
+    pub const MAN: &str = "Examples:
+  # Install the man page into the system man path
+  perf-sentinel man > /usr/local/share/man/man1/perf-sentinel.1";
 }
 
 #[tokio::main]
@@ -1091,6 +1102,13 @@ async fn dispatch_command(command: Commands) {
         Commands::Completions { shell } => {
             let mut cmd = Cli::command();
             clap_complete::generate(shell, &mut cmd, "perf-sentinel", &mut std::io::stdout());
+        }
+        Commands::Man => {
+            let cmd = Cli::command();
+            if let Err(err) = clap_mangen::Man::new(cmd).render(&mut std::io::stdout()) {
+                eprintln!("Error: failed to render man page: {err}");
+                std::process::exit(1);
+            }
         }
         Commands::Disclose {
             intent,
@@ -3005,6 +3023,30 @@ mod tests {
         assert!(
             result.is_err(),
             "tcsh is not a clap_complete::Shell variant"
+        );
+    }
+
+    #[test]
+    fn man_subcommand_parses() {
+        let cli = Cli::try_parse_from(["perf-sentinel", "man"]).expect("failed to parse 'man'");
+        assert!(matches!(cli.command, Commands::Man));
+    }
+
+    #[test]
+    fn man_subcommand_renders_roff() {
+        use clap::CommandFactory;
+        let mut buf: Vec<u8> = Vec::new();
+        clap_mangen::Man::new(Cli::command())
+            .render(&mut buf)
+            .expect("man render should succeed");
+        let out = String::from_utf8(buf).expect("man output is utf-8");
+        assert!(
+            out.contains(".TH"),
+            "man page should carry a .TH roff header"
+        );
+        assert!(
+            out.to_uppercase().contains("PERF-SENTINEL"),
+            "man page should name the binary"
         );
     }
 }
