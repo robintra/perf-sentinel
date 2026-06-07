@@ -3,6 +3,7 @@
 ## Sommaire
 
 - [Fiabilité de la capture OTLP](#fiabilité-de-la-capture-otlp) : pourquoi perf-sentinel peut manquer des spans en tant qu'écouteur passif.
+- [La qualité de l'instrumentation borne les findings](#la-qualité-de-linstrumentation-borne-les-findings) : pourquoi un rapport maigre peut signaler une instrumentation manquante, pas un service sain.
 - [Tokenizer SQL](#tokenizer-sql) : compromis du normaliseur regex vs un parseur SQL complet.
 - [Paramètres bindés des ORM et classification N+1 vs redundant](#paramètres-bindés-des-orm-et-classification-n1-vs-redundant) : impact des placeholders nommés sur la classification.
 - [Redaction de la query string HTTP et visibilité des N+1](#redaction-de-la-query-string-http-et-visibilité-des-n1) : pourquoi les boucles N+1 sur paramètre de query sont invisibles avec les instrumentations qui redactent la query string.
@@ -13,9 +14,11 @@
 - [Détection de saturation du pool de connexions](#détection-de-saturation-du-pool-de-connexions) : heuristique basée sur le chevauchement des spans SQL, pas sur les métriques du pool.
 - [Détection des appels sérialisés](#détection-des-appels-sérialisés) : heuristique de niveau info sur les spans frères séquentiels.
 - [`rss_peak_bytes` sous Windows](#rss_peak_bytes-sous-windows) : pourquoi le RSS du bench est null sous Windows.
+- [Échantillonnage en amont et précision de la détection](#échantillonnage-en-amont-et-précision-de-la-détection) : pourquoi un échantillonnage head-based à 1-10% masque les patterns rares et fait taire la corrélation cross-trace.
 - [Échantillonnage en mode daemon](#échantillonnage-en-mode-daemon) : conséquences de `sampling_rate < 1.0`.
 - [Nombre maximum d'événements par trace](#nombre-maximum-dévénements-par-trace) : cap du ring buffer par trace.
 - [Traces longues et éviction TTL en mode daemon](#traces-longues-et-éviction-ttl-en-mode-daemon) : pourquoi les traces à rafales espacées sous-comptent en mode streaming.
+- [Modèle d'état du daemon, en mémoire, mono-processus, sans état partagé](#modèle-détat-du-daemon-en-mémoire-mono-processus-sans-état-partagé) : pourquoi les replicas ne partagent pas d'état et un kill non gracieux perd la fenêtre en vol.
 - [Limites de longueur des champs à l'ingestion](#limites-de-longueur-des-champs-à-lingestion) : caps en octets appliqués à la frontière d'ingestion.
 - [Taille du binaire](#taille-du-binaire) : cible de la release et ce qui contribue à la taille.
 - [Dashboard HTML : guard formula-injection CSV](#dashboard-html--guard-formula-injection-csv) : neutralisation OWASP CSV-injection dans les CSVs exportés.
@@ -41,6 +44,14 @@ perf-sentinel est un **écouteur passif** : il reçoit les traces transmises par
 - Plantages de l'application avant le flush des spans
 
 **Atténuation :** Pour les pipelines CI critiques, utilisez le mode batch (`perf-sentinel analyze`) avec des fichiers de traces pré-collectés plutôt que de dépendre de la capture en direct.
+
+## La qualité de l'instrumentation borne les findings
+
+Chaque finding dérive d'un span normalisé. perf-sentinel lit une liste fermée d'attributs porteurs (le texte de la requête `db.statement` / `db.query.text`, l'URL cible `http.url` / `url.full`, plus les attributs d'enrichissement listés dans [Attributs de span requis](./INSTRUMENTATION-FR.md#attributs-de-span-requis)). Un span qui n'en porte aucun n'est pas une opération d'I/O et est ignoré. Un span SQL qui *est* une opération d'I/O mais arrive sans texte de requête, ou un span HTTP sans URL, est lui aussi ignoré : il n'y a rien à normaliser, donc aucun finding ne peut être produit. La détection est bornée par la qualité de l'instrumentation en amont, de la même manière que tout outil purement logiciel est borné par sa source de mesure.
+
+L'écartement est **silencieux**. perf-sentinel n'émet ni avertissement ni erreur pour un span écarté, donc un attribut manquant ne remonte pas comme un problème, il remonte comme l'*absence* de finding. La cause courante en pratique est une instrumentation qui omet le texte de la requête par défaut : .NET exige `SetDbStatementForText = true`, et plusieurs bibliothèques masquent les requêtes pour des raisons de sécurité tant que la capture du texte n'est pas activée explicitement. Voir [Attributs de span requis](./INSTRUMENTATION-FR.md#attributs-de-span-requis) pour les réglages par langage.
+
+La conséquence opérationnelle : un rapport maigre ou vide n'est pas la preuve qu'un service est sain. Cela peut tout aussi bien signifier que les spans n'ont jamais porté ce dont perf-sentinel a besoin. Auditez votre propre tracing avant de faire confiance à un score bas. Lancez `perf-sentinel inspect --input <events.json>` (ou `query --daemon <URL> inspect` contre un daemon en cours) et confirmez que les spans SQL et HTTP apparaissent avec leur texte de requête et leurs URLs. Un arbre de spans clairsemé ou vide est le signal que le coût d'entrée est un travail d'instrumentation, pas un feu vert.
 
 ## Tokenizer SQL
 
@@ -172,9 +183,26 @@ Les findings d'appels sérialisés ne sont PAS comptées comme I/O évitables. E
 
 La commande `perf-sentinel bench` rapporte le RSS pic (Resident Set Size) en utilisant des APIs spécifiques à la plateforme. Sous Windows, cette métrique est rapportée comme `null` car l'implémentation actuelle utilise `getrusage()` qui est spécifique à Unix. Les métriques de débit et de latence fonctionnent sur toutes les plateformes.
 
+## Échantillonnage en amont et précision de la détection
+
+Cette section traite de l'échantillonnage appliqué **avant** perf-sentinel, dans le SDK ou le collecteur. Elle est distincte du knob `sampling_rate` propre au daemon, traité plus bas.
+
+L'échantillonnage head-based garde ou écarte une trace entière à sa racine. Les traces conservées arrivent complètes, donc les détecteurs par trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) restent corrects sur les traces que perf-sentinel voit : un N+1 dans une trace conservée reste entièrement visible. Ce qu'un échantillonnage head-based agressif (le classique 1% à 10% en production, pour le coût) dégrade, c'est la couverture, pas la structure par trace :
+
+- **Les patterns rares peuvent ne jamais apparaître.** Un pattern qui ne survient que dans une petite fraction du trafic peut être entièrement écarté et ne jamais atteindre la détection.
+- **Les agrégats sont calculés sur un sous-ensemble non représentatif.** Le ratio de gaspillage I/O et les compteurs Prometheus ne reflètent que les traces échantillonnées, donc ils ne peuvent pas se lire comme des chiffres sur l'ensemble du trafic.
+- **La corrélation cross-trace cesse de fait de produire.** Le [corrélateur cross-trace](#corrélation-cross-trace) a besoin qu'une paire de findings se répète (`min_co_occurrences`, défaut 5) dans sa fenêtre. À bas taux d'échantillonnage, les co-occurrences répétées survivent rarement, donc le corrélateur reste silencieux même quand le couplage sous-jacent est réel.
+
+perf-sentinel n'inspecte pas le flag W3C `sampled` et ne distingue pas une trace complète d'une survivante d'un échantillonnage head-based. Il traite ce qui arrive comme la trace complète.
+
+Recommandations :
+
+- Pour les quality gates CI, utilisez le mode batch (`perf-sentinel analyze`) sur des traces intégralement capturées. Un gate qui décide sur 1% du trafic n'est pas un gate.
+- Dans le daemon, si vous devez échantillonner pour le coût, préférez un échantillonnage **tail-based** au niveau du collecteur. Le tail-based garde lui aussi des traces entières, mais permet de biaiser la rétention vers les traces lentes ou en erreur, là où le gaspillage structurel se concentre.
+
 ## Échantillonnage en mode daemon
 
-Lorsque `sampling_rate` est défini en dessous de 1.0 dans la configuration `[daemon]`, perf-sentinel supprime aléatoirement des traces pour réduire l'utilisation des ressources. Cela signifie :
+Ceci est le knob d'échantillonnage propre à perf-sentinel, appliqué après l'ingestion, distinct de l'échantillonnage en amont décrit ci-dessus. Lorsque `sampling_rate` est défini en dessous de 1.0 dans la configuration `[daemon]`, perf-sentinel supprime aléatoirement des traces pour réduire l'utilisation des ressources. Cela signifie :
 
 - Certains patterns N+1 ou redondants peuvent ne pas être détectés
 - Le ratio de gaspillage est calculé uniquement sur les traces échantillonnées et peut ne pas représenter l'ensemble du trafic
@@ -193,7 +221,7 @@ Pour les traces avec un très grand nombre d'événements, augmentez `max_events
 
 ## Traces longues et éviction TTL en mode daemon
 
-La fenêtre de détection en streaming évince une trace lorsqu'elle est restée inactive pendant `trace_ttl_ms` (défaut 30s). « Inactive » signifie qu'aucun span event pour ce `trace_id` n'a été ingéré dans le TTL. Le TTL actif est réinitialisé à chaque ingestion de span, donc une trace qui émet un span toutes les <30s reste vivante indéfiniment.
+La fenêtre de détection en streaming évince une trace lorsqu'elle est restée inactive pendant `trace_ttl_ms` (défaut 30s). "Inactive" signifie qu'aucun span event pour ce `trace_id` n'a été ingéré dans le TTL. Le TTL actif est réinitialisé à chaque ingestion de span, donc une trace qui émet un span toutes les <30s reste vivante indéfiniment.
 
 Mais une trace qui émet des spans creux et espacés (par exemple un job batch long qui émet un span toutes les 60s, ou un websocket en long polling) sera évincée entre les rafales. Un span tardif portant le même `trace_id` qui arrive après l'éviction crée un **nouveau** bucket de trace ; les events précédents sont perdus. Les détections threshold-driven qui s'appuient sur des spans co-localisés dans une même trace (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) sous-rapportent silencieusement parce que chaque fragment passe sous le seuil per-trace.
 
@@ -204,6 +232,21 @@ Mitigations, par ordre de précision :
 - **Raccourcissez la trace en amont.** Si une trace est conceptuellement longue parce qu'elle couvre plusieurs actions utilisateur, envisagez de la découper côté application (une trace par requête logique).
 
 C'est une propriété de la fenêtre streaming, pas un bug. La détection temps réel sur un buffer circulaire borné troque toujours durée de trace contre mémoire ; le daemon retient 30s comme défaut adapté aux profils request-response classiques (API HTTP, RPC).
+
+## Modèle d'état du daemon, en mémoire, mono-processus, sans état partagé
+
+L'état de corrélation du daemon est entièrement en mémoire : une fenêtre glissante de 30s (`trace_ttl_ms`) sur un LRU de 10 000 traces (`max_active_traces`), tous deux réglables sous `[daemon]`. Il n'y a pas de couche de persistance, pas de write-ahead log, pas de snapshot, pas de débordement sur disque. Cela façonne trois propriétés opérationnelles qui comptent pour un déploiement de production sérieux.
+
+**Un arrêt gracieux draine, un kill non gracieux non.** Sur un arrêt propre, le daemon draine sa fenêtre à travers la détection avant de quitter. SIGINT (Ctrl+C) et, sous Unix, SIGTERM déclenchent tous deux ce drain, donc une terminaison de pod Kubernetes normale (rolling update, scale-down) flushe la fenêtre en vol au lieu de la jeter. Une mort *non gracieuse* la perd quand même : SIGKILL (le kill forcé du kubelet après la période de grâce de terminaison), un OOM kill ou un crash du processus sautent le drain et jettent les traces en vol, jusqu'à une fenêtre entière, sans reprise.
+
+L'impact pratique est faible. Ce qui est en vol à cet instant, ce sont des traces incomplètes (elles n'ont pas atteint leur TTL, donc elles reçoivent peut-être encore des spans), et perf-sentinel surface des patterns *récurrents* : un N+1 ou un chemin bavard que la fenêtre jetée aurait signalé réapparaît à la requête suivante et est capturé par le nouveau processus en quelques secondes. Les données de trace ne sont pas perdues non plus, elles vivent en amont dans votre collecteur ou votre store de traces. Les acknowledgments runtime sont sur disque et survivent (voir [mode StatefulSet](./HELM-DEPLOYMENT-FR.md#statefulset)). Le seul endroit où un trou est visible est l'archive NDJSON par fenêtre (opt-in), qui manque la fenêtre en vol au moment du kill. Si cela compte, gardez `trace_ttl_ms` court, ou exécutez les gates en mode batch où il n'y a pas de fenêtre à perdre.
+
+**Les replicas ne partagent pas d'état.** Chaque instance du daemon est indépendante : sa propre fenêtre, ses propres métriques, son propre corrélateur. Le chart Helm expose `workload.replicas`, mais il n'y a ni leader election ni store partagé. Deux replicas qui analysent le même service calculent deux vues partielles, jamais une vue fusionnée. Les compteurs Prometheus sont par replica et doivent être agrégés au niveau PromQL.
+
+**La corrélation suppose des spans co-localisés.** Les détecteurs par trace et le [corrélateur cross-trace](#corrélation-cross-trace) sont une structure par processus. Ils supposent que chaque span d'une trace donnée, et chaque trace liée, atterrit dans le même daemon. Conséquences pour le passage à l'échelle horizontal :
+
+- **Les détecteurs par trace** (`n_plus_one` et consorts) sont corrects avec plusieurs replicas *seulement* si le collecteur répartit par `trace_id` afin que toutes les spans d'une trace atteignent la même instance. Le `loadbalancingexporter` du Collector OTel avec `routing_key: traceID` fait cela, et la [topologie shardée](./HELM-DEPLOYMENT-FR.md#deployment-par-défaut) en dépend.
+- **La corrélation cross-service** n'a pas de réponse distribuée aujourd'hui. Elle ne voit que ce qu'un processus met en tampon, donc elle doit tourner sur un daemon unique qui reçoit tous les services concernés, ou vous acceptez une corrélation partielle. La répartition par `trace_id` n'aide pas ici, car la corrélation cross-service couvre des traces *différentes*.
 
 ## Limites de longueur des champs à l'ingestion
 

@@ -215,6 +215,18 @@ workload:
   replicas: 1
 ```
 
+> **Scalabilité et état.** Les replicas ne partagent jamais d'état. La
+> détection par trace reste correcte entre replicas uniquement avec le
+> load balancing par `trace_id` décrit ci-dessus. La corrélation
+> cross-service est mono-processus et ne voit que ce qu'un daemon met en
+> tampon, donc faites-la tourner sur une instance unique qui reçoit tous
+> les services à corréler. Le daemon draine sa fenêtre en vol sur
+> SIGTERM, donc un rolling update ou un scale-down normal ne perd rien.
+> Seul un kill non gracieux (SIGKILL après la période de grâce, OOM)
+> jette la fenêtre, et cela coûte au plus `trace_ttl_ms` de détection de
+> patterns récurrents. Détails dans
+> [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#modèle-détat-du-daemon-en-mémoire-mono-processus-sans-état-partagé).
+
 ### `DaemonSet`
 
 Rare. Utile uniquement si vous avez une exigence dure d'avoir un daemon sur chaque noeud (par exemple pour remplacer un forwarder de traces node-local existant). Un DaemonSet répartit les traces sur plusieurs noeuds, ce qui casse la détection N+1 sauf si un collector en amont garantit que toutes les spans d'une trace rejoignent le même daemon. La plupart des utilisateurs n'ont pas besoin de ce mode.

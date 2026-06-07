@@ -264,6 +264,17 @@ workload:
   replicas: 1
 ```
 
+> **Scaling and state.** Replicas never share state. Per-trace detection
+> stays correct across replicas only with the trace-id load balancing
+> described above. Cross-service correlation is single-process and only
+> sees what one daemon buffers, so run it on a single instance that
+> receives all the services you want correlated. The daemon drains its
+> in-flight window on SIGTERM, so a normal rolling update or scale-down
+> loses nothing. Only an ungraceful kill (SIGKILL after the grace period,
+> OOM) drops the window, and that costs at most `trace_ttl_ms` of
+> recurring-pattern detection. Details in
+> [LIMITATIONS.md](./LIMITATIONS.md#daemon-state-model-in-memory-single-process-no-shared-state).
+
 ### `DaemonSet`
 
 Rare. Useful only when you have a hard requirement for a daemon on every

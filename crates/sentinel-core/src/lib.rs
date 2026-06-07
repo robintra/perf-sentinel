@@ -26,6 +26,8 @@ pub mod pipeline;
 pub mod quality_gate;
 pub mod report;
 pub mod score;
+#[cfg(any(feature = "daemon", feature = "tempo"))]
+pub(crate) mod shutdown;
 pub mod text_safety;
 pub(crate) mod time;
 

@@ -491,19 +491,20 @@ struct FetchLoopOutcome {
     interrupted: bool,
 }
 
-/// Drive the per-trace fetch `JoinSet` to completion, handle Ctrl-C, and
-/// aggregate failure counts for the summary emitted by the caller. Design
-/// rationale in `docs/design/06-INGESTION-AND-DAEMON.md` § "Tempo ingestion".
+/// Drive the per-trace fetch `JoinSet` to completion, handle shutdown
+/// signals (SIGINT, plus SIGTERM on Unix), and aggregate failure counts for
+/// the summary emitted by the caller. Design rationale in
+/// `docs/design/06-INGESTION-AND-DAEMON.md` § "Tempo ingestion".
 ///
 /// Intended for one-shot CLI use. Calling it from a long-running component
-/// that already owns a SIGINT handler is not buggy but will fire two
-/// cleanups on the same signal, revisit before reusing.
+/// that already owns a shutdown-signal handler is not buggy but will fire
+/// two cleanups on the same signal, revisit before reusing.
 async fn drain_fetch_set(
     mut set: tokio::task::JoinSet<(String, Result<Vec<SpanEvent>, TempoError>)>,
     total: usize,
 ) -> FetchLoopOutcome {
-    let shutdown_signal = tokio::signal::ctrl_c();
-    tokio::pin!(shutdown_signal);
+    let shutdown = crate::shutdown::shutdown_signal();
+    tokio::pin!(shutdown);
 
     let mut events = Vec::new();
     let mut done: usize = 0;
@@ -513,14 +514,14 @@ async fn drain_fetch_set(
 
     loop {
         tokio::select! {
-            // `biased` checks the shutdown branch first so a pending Ctrl-C
+            // `biased` checks the shutdown branch first so a pending signal
             // is not starved by a flood of task completions.
             biased;
-            _ = &mut shutdown_signal, if !interrupted => {
+            () = &mut shutdown, if !interrupted => {
                 tracing::warn!(
                     completed = done,
                     pending = set.len(),
-                    "Received Ctrl-C, aborting in-flight Tempo fetches"
+                    "Received shutdown signal, aborting in-flight Tempo fetches"
                 );
                 set.abort_all();
                 interrupted = true;

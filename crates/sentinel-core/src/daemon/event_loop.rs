@@ -36,7 +36,7 @@ pub(super) struct EventLoopConfig {
     pub(super) confidence: Confidence,
 }
 
-/// Bundle of handles aborted on Ctrl-C.
+/// Bundle of handles aborted on shutdown (SIGINT, or SIGTERM on Unix).
 pub(super) struct ShutdownTargets<'a> {
     pub(super) energy: EnergyScraperHandles<'a>,
     pub(super) listeners: ListenerHandles<'a>,
@@ -89,7 +89,8 @@ struct ProcessTracesCtxParts<'a> {
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
-/// TTL ticker, and handle Ctrl-C. Returns when Ctrl-C is received.
+/// TTL ticker, and handle shutdown signals. Returns when SIGINT (Ctrl+C)
+/// or, on Unix, SIGTERM is received, after draining the in-flight window.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_event_loop(
     rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
@@ -127,6 +128,13 @@ pub(super) async fn run_event_loop(
         archive_handle,
     };
 
+    // Build the shutdown future once and pin it, so the SIGTERM/SIGINT
+    // listeners are registered a single time rather than re-registered on
+    // every loop iteration (every OTLP batch and ticker tick). Same idiom
+    // as the Tempo fetch drain in `ingest::tempo`.
+    let shutdown_fut = crate::shutdown::shutdown_signal();
+    tokio::pin!(shutdown_fut);
+
     loop {
         tokio::select! {
             Some(events) = rx.recv() => {
@@ -143,7 +151,7 @@ pub(super) async fn run_event_loop(
                 let expired = evict_expired_traces(window, metrics).await;
                 flush_evicted(expired, energy_sources, parts()).await;
             }
-            _ = tokio::signal::ctrl_c() => {
+            () = &mut shutdown_fut => {
                 tracing::info!("Shutting down daemon, processing remaining traces...");
                 shutdown_listeners(shutdown.energy, shutdown.listeners);
                 let remaining = {

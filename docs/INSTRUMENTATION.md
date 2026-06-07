@@ -367,6 +367,14 @@ perf-sentinel detects I/O anti-patterns by looking at specific span attributes. 
 
 Spans that have neither a SQL attribute nor an HTTP attribute are skipped: they are not I/O operations. Modern OTel agents (v2.x) emit the stable convention by default. Older agents emit the legacy convention. perf-sentinel handles both transparently.
 
+> **Silent skip.** A span dropped for a missing carrying attribute
+> produces no warning and no error. A SQL span without `db.statement` /
+> `db.query.text`, or an HTTP span without `http.url` / `url.full`,
+> simply yields no finding. A thin or empty report can therefore mean
+> *no problems* or *no usable instrumentation*. Run
+> `perf-sentinel inspect` to see what was actually extracted, and see
+> [Instrumentation quality bounds findings](./LIMITATIONS.md#instrumentation-quality-bounds-findings).
+
 > **`http.route` is load-bearing for ack stability.** The acknowledgment
 > signature is keyed on the route template, not the instantiated URL.
 > Services that emit `http.route` (Spring Boot, ASP.NET Core, Express,

@@ -3,6 +3,7 @@
 ## Contents
 
 - [OTLP capture reliability](#otlp-capture-reliability): why perf-sentinel may miss spans as a passive listener.
+- [Instrumentation quality bounds findings](#instrumentation-quality-bounds-findings): why a thin report can mean missing instrumentation, not a clean service.
 - [SQL tokenizer](#sql-tokenizer): regex-based normalizer trade-offs.
 - [ORM bind parameters and N+1 vs redundant classification](#orm-bind-parameters-and-n1-vs-redundant-classification): how named bind placeholders affect classification.
 - [HTTP query-string redaction and N+1 visibility](#http-query-string-redaction-and-n1-visibility): why query-parameter N+1 loops are invisible under instrumentations that redact the query string.
@@ -10,9 +11,11 @@
 - [Score interpretation](#score-interpretation): the healthy / moderate / high / critical bands for `io_intensity_score` and `io_waste_ratio`.
 - [Fanout detection requires `parent_span_id`](#fanout-detection-requires-parent_span_id): instrumentation prerequisite.
 - [`rss_peak_bytes` on Windows](#rss_peak_bytes-on-windows): why bench RSS is null on Windows.
+- [Upstream sampling and detection accuracy](#upstream-sampling-and-detection-accuracy): why 1-10% head-based sampling hides rare patterns and quiets cross-trace correlation.
 - [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
 - [Maximum events per trace](#maximum-events-per-trace): per-trace ring-buffer cap.
 - [Long-running traces and TTL eviction in daemon mode](#long-running-traces-and-ttl-eviction-in-daemon-mode): why sparse-burst traces undercount in streaming mode.
+- [Daemon state model: in-memory, single-process, no shared state](#daemon-state-model-in-memory-single-process-no-shared-state): why replicas do not share state and an ungraceful kill drops the in-flight window.
 - [Field length limits at ingestion](#field-length-limits-at-ingestion): per-field byte caps applied at the ingestion boundary.
 - [Binary size](#binary-size): release-binary target and what contributes to it.
 - [HTML dashboard: CSV formula-injection guard](#html-dashboard-csv-formula-injection-guard): OWASP CSV-injection neutralization in exported CSVs.
@@ -37,6 +40,14 @@
 perf-sentinel is a passive listener: it receives traces forwarded by OpenTelemetry SDKs or collectors and cannot guarantee that every span is captured. Spans may be lost to network issues, SDK or collector sampling, or application crashes before flush.
 
 For critical CI pipelines, use batch mode (`perf-sentinel analyze`) on pre-collected trace files rather than live capture.
+
+## Instrumentation quality bounds findings
+
+Every finding is derived from a normalized span. perf-sentinel reads a closed list of carrying attributes (the query text `db.statement` / `db.query.text`, the target URL `http.url` / `url.full`, plus the enrichment attributes listed in [Required span attributes](./INSTRUMENTATION.md#required-span-attributes)). A span that carries none of them is not an I/O operation and is skipped. A SQL span that *is* an I/O operation but ships without query text, or an HTTP span without a URL, is also skipped: there is nothing to normalize, so no finding can be produced. Detection is bounded by the quality of the upstream instrumentation, the same way any software-only tool is bounded by its measurement source.
+
+The skip is **silent**. perf-sentinel emits no warning and no error for a dropped span, so a missing attribute does not surface as a problem, it surfaces as the *absence* of a finding. The common real-world cause is an instrumentation that omits the statement by default: .NET needs `SetDbStatementForText = true`, and several libraries redact statements for security unless statement capture is explicitly enabled. See [Required span attributes](./INSTRUMENTATION.md#required-span-attributes) for the per-language settings.
+
+The operational consequence: a thin or empty report is not evidence that a service is clean. It can equally mean the spans never carried what perf-sentinel needs. Audit your own tracing before trusting a low score. Run `perf-sentinel inspect --input <events.json>` (or `query --daemon <URL> inspect` against a live daemon) and confirm that SQL and HTTP spans appear with their query text and URLs. A sparse or empty span tree is the signal that the entry cost is instrumentation work, not a green light.
 
 ## SQL tokenizer
 
@@ -108,9 +119,26 @@ Fanout findings, like slow findings, are **not** counted as avoidable I/O in the
 
 The `perf-sentinel bench` command reports peak RSS (Resident Set Size) using platform-specific APIs. On Windows, this metric is reported as `null` because the current implementation uses Unix-only `getrusage()`. The throughput and latency metrics work on all platforms.
 
+## Upstream sampling and detection accuracy
+
+This section is about sampling applied **before** perf-sentinel, in the SDK or the collector. It is separate from the daemon's own `sampling_rate` knob, covered below.
+
+Head-based sampling keeps or drops a whole trace at its root. Traces that are kept arrive complete, so the per-trace detectors (`n_plus_one`, `chatty_service`, `excessive_fanout`, `pool_saturation`, `serialized_calls`) stay correct on the traces perf-sentinel does see: an N+1 inside a kept trace is still fully visible. What aggressive head-based sampling (the common 1% to 10% used in production, for cost) degrades is coverage, not per-trace structure:
+
+- **Rare patterns may never appear.** A pattern that only occurs in a small fraction of traffic can be sampled out entirely and never reach detection.
+- **Aggregates are computed over a non-representative subset.** The I/O waste ratio and the Prometheus counters reflect only the sampled traces, so they cannot be read as whole-traffic figures.
+- **Cross-trace correlation effectively stops firing.** The [cross-trace correlator](#cross-trace-correlation) needs a finding pair to recur (`min_co_occurrences`, default 5) inside its window. At low sampling rates the repeated co-occurrences rarely survive, so the correlator stays quiet even when the underlying coupling is real.
+
+perf-sentinel does not inspect the W3C `sampled` flag and cannot tell a complete trace from a head-sampled survivor. It treats whatever arrives as the full trace.
+
+Recommendations:
+
+- For CI quality gates, run batch mode (`perf-sentinel analyze`) on fully captured traces. A gate that decides on 1% of traffic is not a gate.
+- In the daemon, if you must sample for cost, prefer **tail-based** sampling at the collector. Tail-based keeps whole traces too, but lets you bias retention toward slow or error traces, which is where structural waste concentrates.
+
 ## Sampling in daemon mode
 
-When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, perf-sentinel randomly drops traces to reduce resource usage. This means:
+This is perf-sentinel's own sampling knob, applied after ingestion, distinct from the upstream sampling described above. When `sampling_rate` is set below 1.0 in the `[daemon]` configuration, perf-sentinel randomly drops traces to reduce resource usage. This means:
 
 - Some N+1 or redundant patterns may go undetected
 - The waste ratio is computed only over sampled traces and may not represent the full traffic
@@ -140,6 +168,21 @@ Mitigations, in order of precision:
 - **Shorten the upstream trace.** If a trace is conceptually long because it spans multiple user actions, consider splitting it at the application level (one trace per logical request).
 
 This is a property of the streaming window, not a bug. Real-time detection on a bounded ring buffer always trades trace duration against memory; the daemon picks 30s as a default that fits typical request-response shapes (HTTP API, RPC).
+
+## Daemon state model: in-memory, single-process, no shared state
+
+The daemon's correlation state is entirely in memory: a 30s rolling window (`trace_ttl_ms`) over a 10,000-trace LRU (`max_active_traces`), both tunable under `[daemon]`. There is no persistence layer, no write-ahead log, no snapshot, no disk spill. This shapes three operational properties that matter for a serious production deployment.
+
+**A graceful shutdown drains, an ungraceful kill does not.** On a clean shutdown the daemon drains its window through detection before exiting. Both SIGINT (Ctrl+C) and, on Unix, SIGTERM trigger this drain, so a normal Kubernetes pod termination (rolling update, scale-down) flushes the in-flight window instead of dropping it. An *ungraceful* death still loses it: SIGKILL (the kubelet's forced kill after the termination grace period), an OOM kill, or a process crash skips the drain and drops the in-flight traces, up to one full window, with no recovery.
+
+The practical impact is small. What is in flight at that moment is incomplete traces (they have not hit their TTL, so they may still be receiving spans), and perf-sentinel surfaces *recurring* patterns: an N+1 or a chatty path that the dropped window would have flagged reappears on the next request and is caught by the new process within seconds. The trace data is not lost either, it lives upstream in your collector or trace store. Runtime acknowledgments are file-backed and survive (see [StatefulSet mode](./HELM-DEPLOYMENT.md#statefulset)). The one place a gap is visible is the opt-in per-window NDJSON archive, which misses the window that was in flight at the kill. If that matters, keep `trace_ttl_ms` short, or run gates in batch mode where there is no window to lose.
+
+**Replicas do not share state.** Each daemon instance is independent: its own window, its own metrics, its own correlator. The Helm chart exposes `workload.replicas`, but there is no leader election and no shared store. Two replicas analyzing the same service compute two partial pictures, never a merged one. Prometheus counters are per-replica and must be aggregated at the PromQL layer.
+
+**Correlation assumes co-located spans.** The per-trace detectors and the [cross-trace correlator](#cross-trace-correlation) are a per-process structure. They assume every span of a given trace, and every related trace, lands in the same daemon. The consequences for scaling out:
+
+- **Per-trace detectors** (`n_plus_one` and friends) are correct under multiple replicas *only* if the collector load-balances by `trace_id` so all spans of a trace reach the same instance. The OTel Collector `loadbalancingexporter` with `routing_key: traceID` does this, and the [sharded topology](./HELM-DEPLOYMENT.md#deployment-default) relies on it.
+- **Cross-service correlation** has no distributed answer today. It only sees what one process buffers, so it must run on a single daemon that receives all the relevant services, or you accept partial correlation. Routing by `trace_id` does not help here, because cross-service correlation spans *different* traces.
 
 ## Field length limits at ingestion
 

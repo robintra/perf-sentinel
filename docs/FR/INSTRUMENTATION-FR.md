@@ -367,6 +367,15 @@ perf-sentinel détecte les anti-patterns I/O en examinant des attributs de span 
 
 Les spans qui n'ont ni attribut SQL ni attribut HTTP sont ignorés. Les agents OTel modernes (v2.x) émettent la convention stable par défaut. Les agents plus anciens émettent la convention legacy. perf-sentinel gère les deux de manière transparente.
 
+> **Écartement silencieux.** Un span écarté pour un attribut porteur
+> manquant ne produit ni avertissement ni erreur. Un span SQL sans
+> `db.statement` / `db.query.text`, ou un span HTTP sans `http.url` /
+> `url.full`, ne donne tout simplement aucun finding. Un rapport maigre
+> ou vide peut donc signifier *aucun problème* ou *aucune instrumentation
+> exploitable*. Lancez `perf-sentinel inspect` pour voir ce qui a
+> réellement été extrait, et voir
+> [La qualité de l'instrumentation borne les findings](./LIMITATIONS-FR.md#la-qualité-de-linstrumentation-borne-les-findings).
+
 > **`http.route` est porteur pour la stabilité des acks.** La
 > signature d'acknowledgment clé sur le template de route, pas sur
 > l'URL instanciée. Les services qui émettent `http.route` (Spring
