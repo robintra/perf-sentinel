@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.50]
+
+### Changed
+
+- `appVersion` bumped to `0.8.5` to track graceful in-flight window drain on `SIGTERM`: a normal Kubernetes pod termination (rolling update, scale-down) now flushes the daemon's streaming window through detection instead of dropping it, matching the existing `SIGINT` (Ctrl+C) behavior. Only an ungraceful kill (`SIGKILL` after the grace period, OOM) still loses it, so keep `terminationGracePeriodSeconds` above the configured window duration to benefit. The Windows daemon binary and core test suite also build and run now. Template surface is unchanged, no migration needed beyond the chart bump. No config or daemon wire change.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.5` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.49]
 
 ### Changed
