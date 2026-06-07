@@ -162,3 +162,22 @@ perf-sentinel completions fish > ~/.config/fish/completions/perf-sentinel.fish
 Reload your shell, or `source` the file, after install. Re-run the
 generator after upgrading `perf-sentinel` so completions stay in sync
 with new flags and subcommands.
+
+## Man page
+
+`perf-sentinel man` writes a roff man page to stdout. It renders the
+top-level page, which lists the subcommands (like `git.1`). Redirect it
+into your man path:
+
+```bash
+perf-sentinel man > /usr/local/share/man/man1/perf-sentinel.1
+```
+
+`man perf-sentinel` then works. To preview without installing:
+
+```bash
+perf-sentinel man > /tmp/perf-sentinel.1 && man /tmp/perf-sentinel.1
+```
+
+Re-run the generator after upgrading `perf-sentinel` so the page stays
+in sync with new flags and subcommands.
