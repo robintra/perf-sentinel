@@ -1211,7 +1211,13 @@ pub fn cmd_disclose(
         return 2;
     }
 
-    emit_non_fatal_warnings(&report, intent_schema);
+    for warning in non_fatal_warnings(
+        &report.aggregate.temporal_coverage,
+        intent_schema,
+        report.scope_manifest.total_requests_in_period.is_some(),
+    ) {
+        eprintln!("{warning}");
+    }
 
     match compute_content_hash(&report) {
         Ok(hash) => {
@@ -1254,29 +1260,34 @@ pub fn cmd_disclose(
 
 // Non-fatal continuity + completeness warnings. temporal_coverage is never
 // a hard gate (archiving is traffic-gated, so a low value can be a quiet
-// period), only surfaced here and as an in-band disclaimer.
-fn emit_non_fatal_warnings(report: &PeriodicReport, intent: ReportIntent) {
-    let tc = &report.aggregate.temporal_coverage;
-    if tc.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
-        eprintln!(
+// period), only surfaced here and as an in-band disclaimer. Pure (returns the
+// lines) so it is unit-testable, cmd_disclose prints them to stderr.
+fn non_fatal_warnings(
+    coverage: &TemporalCoverage,
+    intent: ReportIntent,
+    total_requests_declared: bool,
+) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if coverage.temporal_coverage < LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD {
+        warnings.push(format!(
             "Warning: temporal coverage is {:.1}% ({}/{} declared days had measured \
              traffic, largest gap {} {}). Archiving is traffic-gated, so quiet \
              periods lower this, it is not a daemon-uptime guarantee.",
-            tc.temporal_coverage * 100.0,
-            tc.observed_days,
-            tc.days_in_period,
-            tc.largest_gap_days,
-            day_or_days(tc.largest_gap_days),
-        );
+            coverage.temporal_coverage * 100.0,
+            coverage.observed_days,
+            coverage.days_in_period,
+            coverage.largest_gap_days,
+            day_or_days(coverage.largest_gap_days),
+        ));
     }
-    if matches!(intent, ReportIntent::Official)
-        && report.scope_manifest.total_requests_in_period.is_none()
-    {
-        eprintln!(
+    if matches!(intent, ReportIntent::Official) && !total_requests_declared {
+        warnings.push(
             "Warning: total_requests_in_period is not declared in the org config; \
              coverage_percentage will be absent from this official report."
+                .to_string(),
         );
     }
+    warnings
 }
 
 fn write_attestation(
@@ -1810,5 +1821,45 @@ mod tests {
 
         let _ = std::fs::remove_file(&tmp);
         let _ = std::fs::remove_file(&att);
+    }
+
+    #[test]
+    fn non_fatal_warnings_flags_low_coverage_and_undeclared_official_requests() {
+        let low = TemporalCoverage {
+            temporal_coverage: 0.10,
+            observed_days: 3,
+            days_in_period: 30,
+            largest_gap_days: 20,
+        };
+        let warnings = non_fatal_warnings(&low, ReportIntent::Official, false);
+        assert_eq!(warnings.len(), 2);
+        assert!(warnings[0].contains("temporal coverage is 10.0%"));
+        assert!(warnings[0].contains("3/30 declared days"));
+        assert!(warnings[0].contains("largest gap 20 days"));
+        assert!(warnings[1].contains("total_requests_in_period is not declared"));
+    }
+
+    #[test]
+    fn non_fatal_warnings_silent_when_healthy_and_declared() {
+        let healthy = TemporalCoverage {
+            temporal_coverage: 1.0,
+            observed_days: 30,
+            days_in_period: 30,
+            largest_gap_days: 0,
+        };
+        // Full coverage and a declared request count: an official report stays quiet.
+        assert!(non_fatal_warnings(&healthy, ReportIntent::Official, true).is_empty());
+    }
+
+    #[test]
+    fn non_fatal_warnings_internal_intent_never_warns_on_requests() {
+        let healthy = TemporalCoverage {
+            temporal_coverage: 1.0,
+            observed_days: 30,
+            days_in_period: 30,
+            largest_gap_days: 0,
+        };
+        // Internal intent skips the total_requests_in_period warning even when undeclared.
+        assert!(non_fatal_warnings(&healthy, ReportIntent::Internal, false).is_empty());
     }
 }
