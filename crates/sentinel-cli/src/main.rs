@@ -103,7 +103,7 @@ enum Commands {
         #[arg(long)]
         show_acknowledged: bool,
         /// Launch the interactive TUI instead of printing the report.
-        /// Opens on the Analyze view; Enter drills down to Inspect then
+        /// Opens on the Analyze view. Enter drills down to Inspect then
         /// Explain, Esc walks back up.
         #[cfg(feature = "tui")]
         #[arg(long, conflicts_with_all = ["ci", "format", "show_acknowledged"])]
@@ -137,7 +137,7 @@ enum Commands {
 
     /// Explain a specific trace: tree view with findings annotated inline.
     /// Span-anchored detections (N+1, redundant, slow, fanout) land on
-    /// their offending spans; trace-level detections (chatty service,
+    /// their offending spans. Trace-level detections (chatty service,
     /// pool saturation, serialized calls) are rendered in a dedicated
     /// header section above the span tree. Cross-trace percentile
     /// findings from `analyze` are not included.
@@ -155,7 +155,7 @@ enum Commands {
         #[arg(long, value_enum, default_value = "text")]
         format: ExplainFormat,
         /// Launch the interactive TUI instead of printing the tree.
-        /// Opens on the Explain view focused on --trace-id; Esc walks up
+        /// Opens on the Explain view focused on --trace-id. Esc walks up
         /// to the Inspect and Analyze views.
         #[cfg(feature = "tui")]
         #[arg(long, conflicts_with = "format")]
@@ -178,7 +178,7 @@ enum Commands {
     /// native, Jaeger or Zipkin) or a pre-computed Report JSON
     /// (e.g. a daemon snapshot from `/api/export/report`). With a
     /// Report input the Findings and Correlations panels light up
-    /// fully; the Detail panel falls back to per-trace stubs because
+    /// fully. The Detail panel falls back to per-trace stubs because
     /// Reports do not carry raw spans.
     #[cfg(feature = "tui")]
     Inspect {
@@ -420,7 +420,7 @@ enum Commands {
         /// --pg-stat-prometheus.
         ///
         /// Accepts values in `[1, 10000]`. Values above ~1000 rarely
-        /// add insight and stress the upstream exporter; the
+        /// add insight and stress the upstream exporter. The
         /// `postgres_exporter` default query timeout is 30s.
         /// Supplying this flag without a `pg_stat` source errors
         /// with a message pointing at the required companion flag.
@@ -495,9 +495,9 @@ enum Commands {
     /// writes a single `perf-sentinel-report.json`. Designed for public
     /// transparency, not regulatory-grade.
     Disclose {
-        /// `internal`, `official`, or `audited`. `audited` short-circuits
-        /// with exit code 2 in this release. Optional under `--tui` (set
-        /// it live in the preview).
+        /// `internal`, `official`, or `audited`. `audited` is reserved for
+        /// a future release and exits with code 2. Optional under `--tui`
+        /// (set it live in the preview).
         #[cfg_attr(
             feature = "tui",
             arg(long, value_enum, required_unless_present = "tui")
