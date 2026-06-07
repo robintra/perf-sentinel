@@ -143,7 +143,12 @@ C'est le chemin recommandé parce qu'il rend l'oubli du gate
 structurellement impossible. Utilisez `scripts/release.sh vX.Y.Z
 --dry-run` pour vérifier que tous les gates passent au vert avant de
 tagger pour de vrai. Passez `--yes` pour sauter la confirmation
-interactive en contexte scripté.
+interactive en contexte scripté. Passez `--skip-lab` pour contourner
+explicitement le gate de validation lab (il émet un avertissement
+d'audit bien visible et n'écrit jamais le ledger), pour une release
+validée par d'autres moyens, par exemple un changement CLI ou docs
+seulement couvert par la suite E2E. Le flag ne saute que le gate lab,
+tous les autres pre-checks et le gate de version s'appliquent toujours.
 
 La prose ci-dessous reste la référence de ce que le script automatise,
 et le fallback quand un opérateur veut piloter les étapes à la main.

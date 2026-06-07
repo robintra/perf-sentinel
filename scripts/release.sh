@@ -2,7 +2,10 @@
 # Constrained tag-and-push path for perf-sentinel: implements steps 5
 # and 6 of docs/RELEASE-PROCEDURE.md as a single fail-closed command.
 # Refuses to tag unless every pre-check and gate passes. The tag is
-# always signed (`git tag -s`), no bypass.
+# always signed (`git tag -s`), no bypass. The lab-validation gate is
+# the sole exception: --skip-lab skips it explicitly and logs a loud
+# audit warning, for releases validated by other means (e.g. a
+# CLI/docs-only change covered by the E2E suite).
 
 set -euo pipefail
 export LC_ALL=C
@@ -13,6 +16,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 VERSION=""
 DRY_RUN=0
 YES=0
+SKIP_LAB=0
 
 emit_error() {
   if [ "${GITHUB_ACTIONS:-}" = "true" ]; then
@@ -32,16 +36,21 @@ emit_notice() {
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") vX.Y.Z [--dry-run] [--yes]
+Usage: $(basename "$0") vX.Y.Z [--dry-run] [--yes] [--skip-lab]
 
 Implements steps 5 (lab-validation gate) and 6 (signed tag + push) of
 docs/RELEASE-PROCEDURE.md. Fails closed: every pre-check and gate must
 pass before any tag is created or pushed. The tag is always signed,
-no bypass.
+no bypass. The lab gate is the sole skippable gate, via --skip-lab.
 
 Options:
   --dry-run   Run every gate, print the planned action, mutate nothing.
   --yes       Skip the interactive confirmation before tag and push.
+  --skip-lab  Bypass the lab-validation gate explicitly. Logs a loud
+              audit warning and never writes the ledger. For releases
+              validated by other means, e.g. a CLI/docs-only change
+              covered by the E2E suite. All other pre-checks and the
+              version gate still apply.
   -h, --help  Print this help and exit.
 
 Exit codes:
@@ -54,8 +63,9 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
-    --dry-run) DRY_RUN=1; shift ;;
-    --yes)     YES=1; shift ;;
+    --dry-run)  DRY_RUN=1; shift ;;
+    --yes)      YES=1; shift ;;
+    --skip-lab) SKIP_LAB=1; shift ;;
     --)        shift; break ;;
     -*)        emit_error "unknown option: $1"; usage >&2; exit 2 ;;
     *)
@@ -156,9 +166,14 @@ if ! "${REPO_ROOT}/scripts/check-tag-version.sh" "${VERSION}"; then
   exit 1
 fi
 
-# Gate: lab validation ledger has a fresh PASS for this version.
-if ! "${REPO_ROOT}/release-gate/check-lab-validation.sh" --version "${VERSION}"; then
-  emit_error "release-gate/check-lab-validation.sh refused ${VERSION}. Run the lab and append a PASS entry to release-gate/lab-validations.txt (step 4 of RELEASE-PROCEDURE.md)."
+# Gate: lab validation ledger has a fresh PASS for this version. The
+# operator can skip this single gate with --skip-lab, which logs a loud
+# audit warning instead of consulting the ledger. The ledger is never
+# written here, so a skipped lab leaves no false PASS behind.
+if [ "${SKIP_LAB}" -eq 1 ]; then
+  emit_notice "release: WARNING lab-validation gate bypassed by operator (--skip-lab). ${VERSION} was NOT validated in the simulation lab, and no PASS was recorded in the ledger."
+elif ! "${REPO_ROOT}/release-gate/check-lab-validation.sh" --version "${VERSION}"; then
+  emit_error "release-gate/check-lab-validation.sh refused ${VERSION}. Run the lab and append a PASS entry to release-gate/lab-validations.txt (step 4 of RELEASE-PROCEDURE.md), or pass --skip-lab to bypass this gate explicitly."
   exit 1
 fi
 
@@ -179,6 +194,9 @@ if [ "${YES}" -ne 1 ]; then
   if [ ! -t 0 ]; then
     emit_error "interactive confirmation requested but stdin is not a TTY. Pass --yes to confirm non-interactively."
     exit 1
+  fi
+  if [ "${SKIP_LAB}" -eq 1 ]; then
+    printf 'WARNING: lab-validation gate skipped (--skip-lab), %s was NOT lab-validated.\n' "${VERSION}"
   fi
   printf 'Tag %s at %s and push to origin?\n  Message: %s\nProceed? [y/N] ' "${VERSION}" "${SHORT_SHA}" "${TAG_MESSAGE}"
   read -r reply </dev/tty
@@ -213,7 +231,6 @@ fi
 emit_notice ""
 emit_notice "Released ${VERSION} at ${SHORT_SHA}"
 emit_notice "  .github/workflows/release.yml is now running."
-emit_notice "  Next manual steps (RELEASE-PROCEDURE.md):"
+emit_notice "  Next manual step (RELEASE-PROCEDURE.md):"
 emit_notice "    7. Release the Helm chart: scripts/release-chart.sh chart-vA.B.C (once the GHCR image lands)."
-emit_notice "    8. Public communication (LinkedIn, blog, etc.)."
 exit 0

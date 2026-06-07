@@ -141,7 +141,12 @@ no dangling ref is left on the remote.
 This is the recommended path because it makes "forgetting the gate"
 structurally impossible. Use `scripts/release.sh vX.Y.Z --dry-run` to
 verify all gates green before tagging for real. Pass `--yes` to skip
-the interactive confirmation in scripted contexts.
+the interactive confirmation in scripted contexts. Pass `--skip-lab`
+to bypass the lab-validation gate explicitly (it logs a loud audit
+warning and never writes the ledger), for a release validated by other
+means such as a CLI or docs-only change covered by the E2E suite. The
+flag skips only the lab gate, every other pre-check and the version
+gate still apply.
 
 The prose below remains the reference of what the script automates,
 and the fallback when an operator wants to drive the steps by hand.
