@@ -201,7 +201,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         None => None,
     };
 
-    let base_carbon_ctx = std::sync::Arc::new(config.carbon_context());
+    let base_carbon_ctx = Arc::new(config.carbon_context());
     let detect_config = DetectConfig::from(&config);
     let energy_sources = EnergySources {
         base_carbon_ctx,
