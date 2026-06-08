@@ -1,0 +1,57 @@
+name: CodeQL
+
+# Dataflow/taint analysis for Rust, complementary to the Clippy SARIF and
+# SonarCloud scans already run by ci.yml. CodeQL adds what those do not:
+# cross-function taint tracking (path/SQL/regex injection, crypto misuse,
+# log injection, non-HTTPS URLs, insecure cookies). This matters here because
+# the daemon ingests OTLP from the network, i.e. untrusted input.
+#
+# Rust support went generally available in CodeQL 2.23.3 (October 2025) and
+# uses build-mode `none`: the extractor reads source directly, so no Rust
+# toolchain or `cargo build` step is needed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly on Wednesday 04:23 UTC. Off-peak and offset from the daily
+    # security-audit (06:17) and the weekly clippy drift scan (Mon 06:00)
+    # so the three security workflows do not contend for runners.
+    - cron: '23 4 * * 3'
+  workflow_dispatch:
+
+# Default-deny the GITHUB_TOKEN; the analyze job re-grants the narrow scope
+# it needs to publish results to GitHub Code Scanning.
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (Rust)
+    runs-on: ubuntu-latest
+    # Skip on PRs from forks: fork PRs receive a read-only GITHUB_TOKEN, so
+    # the SARIF upload to Code Scanning cannot post. Mirrors the fork guard
+    # used by ci.yml. A maintainer can re-run via workflow_dispatch.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      # Required to upload the CodeQL SARIF report to GitHub Code Scanning.
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          languages: rust
+          # No build required for Rust; the extractor reads source directly.
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+        with:
+          category: "/language:rust"
