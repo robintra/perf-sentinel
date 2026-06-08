@@ -498,7 +498,7 @@ Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image 
 
 ## Releasing
 
-Les releases suivent une procédure documentée avec un gate obligatoire de validation simulation-lab. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md) ([EN](docs/RELEASE-PROCEDURE.md)).
+Les releases suivent une procédure documentée avec un gate obligatoire de validation simulation-lab. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md).
 
 ## Licence
 
