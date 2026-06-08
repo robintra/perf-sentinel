@@ -18,6 +18,7 @@
 - [Échantillonnage en mode daemon](#échantillonnage-en-mode-daemon) : conséquences de `sampling_rate < 1.0`.
 - [Nombre maximum d'événements par trace](#nombre-maximum-dévénements-par-trace) : cap du ring buffer par trace.
 - [Traces longues et éviction TTL en mode daemon](#traces-longues-et-éviction-ttl-en-mode-daemon) : pourquoi les traces à rafales espacées sous-comptent en mode streaming.
+- [Contre-pression d'analyse et délestage de charge](#contre-pression-danalyse-et-délestage-de-charge) : pourquoi un worker d'analyse lent déleste des lots entiers, de façon explicite et métrée.
 - [Modèle d'état du daemon, en mémoire, mono-processus, sans état partagé](#modèle-détat-du-daemon-en-mémoire-mono-processus-sans-état-partagé) : pourquoi les replicas ne partagent pas d'état et un kill non gracieux perd la fenêtre en vol.
 - [Limites de longueur des champs à l'ingestion](#limites-de-longueur-des-champs-à-lingestion) : caps en octets appliqués à la frontière d'ingestion.
 - [Taille du binaire](#taille-du-binaire) : cible de la release et ce qui contribue à la taille.
@@ -232,6 +233,19 @@ Mitigations, par ordre de précision :
 - **Raccourcissez la trace en amont.** Si une trace est conceptuellement longue parce qu'elle couvre plusieurs actions utilisateur, envisagez de la découper côté application (une trace par requête logique).
 
 C'est une propriété de la fenêtre streaming, pas un bug. La détection temps réel sur un buffer circulaire borné troque toujours durée de trace contre mémoire ; le daemon retient 30s comme défaut adapté aux profils request-response classiques (API HTTP, RPC).
+
+## Contre-pression d'analyse et délestage de charge
+
+detect+score tournent sur un unique worker d'analyse dédié, découplé de la boucle `select!` d'ingestion / éviction par un canal borné (1024 lots). La boucle enfile sans bloquer les lots évincés et expirés, donc une passe d'analyse lente ne peut plus bloquer l'ingestion ni retarder l'éviction TTL. En contrepartie, lorsque l'analyse ne suit pas sous charge soutenue, la file se remplit et des lots entiers sont **délestés**. Le délestage est explicite et métré, pas silencieux :
+
+- `perf_sentinel_analysis_queue_depth` expose le backlog courant. Une valeur non nulle durable signifie que le worker prend du retard.
+- `perf_sentinel_analysis_shed_batches_total` et `perf_sentinel_analysis_shed_traces_total` comptent ce qui a été abandonné. Alertez sur `rate(perf_sentinel_analysis_shed_batches_total[5m]) > 0`.
+
+Un lot délesté est totalement écarté de la détection : ses findings ne sont jamais émis et le corrélateur cross-trace ne le voit jamais. Comme perf-sentinel fait remonter des motifs *récurrents*, un N+1 ou un chemin bavard délesté est normalement redétecté à la requête suivante une fois le worker rattrapé. Un délestage soutenu signale un daemon sous-dimensionné pour le volume de traces : scalez horizontalement (shard par `trace_id`), gardez de la marge via `sampling_rate`, ou réduisez le coût par trace en amont.
+
+Le délestage répond à la *surcharge*, pas à une *panne*. Si le worker d'analyse lui-même s'arrête (par exemple un détecteur qui panique sur une trace pathologique), le daemon ne reste pas debout à n'analyser plus rien : il sort en erreur pour qu'un superviseur (Kubernetes, systemd) redémarre le process, le même comportement fail-loud que l'ancienne détection en ligne, où une panique crashait tout le daemon. Tout lot enfilé dans la brève fenêtre avant la sortie est compté comme délesté plutôt que perdu silencieusement.
+
+Un arrêt gracieux ne déleste **pas** : il vide la fenêtre et joint le worker afin que chaque lot en vol soit analysé avant la sortie.
 
 ## Modèle d'état du daemon, en mémoire, mono-processus, sans état partagé
 

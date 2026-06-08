@@ -213,7 +213,7 @@ curl -s http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_trace
 1. **Trafic amont effondré.** Le trafic réel vers vos services a chuté ; perf-sentinel reflète fidèlement la réalité. Recoupez avec les métriques de votre load balancer ou HTTP.
 2. **OTel collector down.** Si un collector central est entre les services et perf-sentinel, vérifiez d'abord sa santé et ses métriques de réception.
 3. **Changement de sampling.** Un bump de config a baissé le taux de sampling. Auditez les commits récents dans le repo de config OTel.
-4. **Backpressure du daemon.** Si le canal OTLP de réception est plein, les events sont rejetés silencieusement. Cherchez `channel full` dans les logs avec `RUST_LOG=sentinel_core::ingest=debug`. Déclencheurs fréquents : pipeline de détection bloqué sur une trace pathologique, ou `max_active_traces` trop bas pour le débit courant.
+4. **Backpressure du daemon.** Deux points de pression distincts. Si l'ingestion dépasse la boucle de réception, le canal OTLP se remplit et les events sont rejetés : cherchez `channel full` (`RUST_LOG=sentinel_core::ingest=debug`) et `perf_sentinel_otlp_rejected_total{reason="channel_full"}`. Si la détection ne suit pas, la file du worker d'analyse se remplit et des lots entiers sont délestés : surveillez `perf_sentinel_analysis_queue_depth` et `perf_sentinel_analysis_shed_batches_total`. Déclencheurs fréquents : une trace pathologique qui ralentit detect+score, ou `max_active_traces` trop bas pour le débit courant.
 
 Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande majorité.
 

@@ -100,6 +100,9 @@ counter de rejet tower-http dans leur stack.
 | `perf_sentinel_traces_analyzed_total`        | counter   | (aucun)            | Compte cumulatif de traces traitées par l'event loop.                                                                                                                                                                                                                        |
 | `perf_sentinel_events_processed_total`       | counter   | (aucun)            | Compte cumulatif d'events traités par l'event loop.                                                                                                                                                                                                                          |
 | `perf_sentinel_active_traces`                | gauge     | (aucun)            | Traces actuellement actives dans la fenêtre glissante.                                                                                                                                                                                                                       |
+| `perf_sentinel_analysis_queue_depth`         | gauge     | (aucun)            | Lots en attente dans la file du worker d'analyse (incrémenté à l'enfilement, décrémenté quand le worker prend un lot). Une valeur non nulle durable signifie que detect+score prend du retard sur l'ingestion.                                                               |
+| `perf_sentinel_analysis_shed_batches_total`  | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alerte sur `rate(...) > 0`.                                                                          |
+| `perf_sentinel_analysis_shed_traces_total`   | counter   | (aucun)            | Traces abandonnées par les lots délestés comptés dans `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                           |
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Histogramme de durée pour les spans dépassant le seuil slow, par `type` (`sql` ou `http_out`). Buckets : 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 secondes. Utilisé par `histogram_quantile()` Grafana pour des percentiles précis sur des déploiements daemon shardés. |
 | `perf_sentinel_export_report_requests_total` | counter   | (aucun)            | Total des requêtes `GET /api/export/report`. Inclut les réponses cold-start (200 avec enveloppe vide).                                                                                                                                                                       |
 
@@ -182,11 +185,11 @@ l'endpoint `[green.scaphandre]` configuré, toutes les
 `scrape_interval_secs`). Enregistrés uniquement quand le daemon est
 compilé avec la feature `daemon`.
 
-| Metric                                          | Type    | Labels    | Description                                                                                         |
-|-------------------------------------------------|---------|-----------|-----------------------------------------------------------------------------------------------------|
-| `perf_sentinel_scaphandre_scrape_total`         | counter | `status`  | Total des tentatives de scrape Scaphandre depuis le démarrage, partitionné par issue.               |
-| `perf_sentinel_scaphandre_scrape_failed_total`  | counter | `reason`  | Total des scrapes Scaphandre en échec depuis le démarrage, partitionné par cause.                   |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge | (aucun)   | Secondes depuis le dernier scrape réussi (remis à 0 sur succès). Canari pour scraper bloqué.        |
+| Metric                                             | Type    | Labels   | Description                                                                                  |
+|----------------------------------------------------|---------|----------|----------------------------------------------------------------------------------------------|
+| `perf_sentinel_scaphandre_scrape_total`            | counter | `status` | Total des tentatives de scrape Scaphandre depuis le démarrage, partitionné par issue.        |
+| `perf_sentinel_scaphandre_scrape_failed_total`     | counter | `reason` | Total des scrapes Scaphandre en échec depuis le démarrage, partitionné par cause.            |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge   | (aucun)  | Secondes depuis le dernier scrape réussi (remis à 0 sur succès). Canari pour scraper bloqué. |
 
 Valeurs du label `status` : `success`, `failed`. Pré-chauffés à zéro
 pour que les dashboards tracent un taux nul avant le premier scrape.

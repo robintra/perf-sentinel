@@ -83,7 +83,7 @@ Malformed lines (parse failures) are skipped with a `tracing::warn!` and counted
 
 ## Daemon archive writer
 
-The writer is a `tokio::spawn` task fed by a bounded `tokio::sync::mpsc::Sender<OwnedArchive>` with capacity 256. Producer-side (in `process_traces`) calls `handle.try_send(OwnedArchive { ts, report })` so the daemon's per-window scoring path never blocks on disk I/O. Sending the typed `OwnedArchive` (not a pre-serialised string) keeps the `serde_json::to_string` cost off the hot path and lets the writer task amortise it against disk I/O.
+The writer is a `tokio::spawn` task fed by a bounded `tokio::sync::mpsc::Sender<OwnedArchive>` with capacity 256. Producer-side (in `process_traces`, on the analysis worker) calls `archive::try_send(tx, OwnedArchive { ts, report })` so the daemon's per-window scoring path never blocks on disk I/O. Sending the typed `OwnedArchive` (not a pre-serialised string) keeps the `serde_json::to_string` cost off the hot path and lets the writer task amortise it against disk I/O.
 
 The bounded channel uses drop-on-full: when the writer falls behind, new windows are dropped with a `tracing::warn!`. The 256-message capacity is sized so a steady-state stalled writer surfaces within seconds rather than letting an unbounded queue OOM the daemon.
 

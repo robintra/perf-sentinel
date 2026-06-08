@@ -132,15 +132,19 @@ This avoids parsing the full payload into a `serde_json::Value` for detection, e
 ### Architecture
 
 ```
-OTLP gRPC (port 4317)   ─┐
-OTLP HTTP (port 4318)   ─┤─→ mpsc::channel(1024) ─→ TraceWindow ─→ eviction ─→ detect ─→ score ─→ NDJSON
-JSON unix socket        ─┘
+OTLP gRPC (port 4317)   ─┐                                        ┌─ analysis worker ─┐
+OTLP HTTP (port 4318)   ─┤─→ mpsc(1024) ─→ TraceWindow ─→ eviction ─→ mpsc(1024) ─→ detect ─→ score ─→ NDJSON
+JSON unix socket        ─┘     (select! loop)                      └───────────────────┘
 ```
 
 The event loop uses `tokio::select!` to multiplex:
-- **Receive events** from the channel -> normalize -> push into window
-- **Ticker** every TTL/2 ms -> evict expired traces -> detect/score -> emit
-- **Ctrl+C** -> drain all traces -> detect/score -> emit -> shutdown
+- **Receive events** from the channel -> normalize -> push into window -> enqueue evictions
+- **Ticker** every TTL/2 ms -> evict expired traces -> enqueue
+- **Ctrl+C** -> drain all traces -> hand to the worker -> join -> shutdown
+
+detect+score do **not** run on the select! loop. They run on a single dedicated
+analysis worker task fed over a bounded channel (see [Analysis worker](#analysis-worker)),
+so a long analysis pass can no longer stall ingestion or eviction.
 
 ### Normalization outside the lock
 
@@ -182,6 +186,44 @@ let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
 ```
 
 The [bounded channel](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.channel.html) provides backpressure: if the event loop falls behind and the buffer fills to 1024 batches, ingestion senders will await until space is available. This prevents unbounded memory growth from fast producers.
+
+### Analysis worker
+
+detect+score are CPU-bound. Running them inline on the `select!` task meant a long
+analysis pass blocked the loop from polling `rx.recv()` and the eviction ticker, so
+ingestion and eviction liveness depended on analysis latency. Instead, evicted (LRU),
+expired (TTL) and drained (shutdown) batches are handed to a **single** analysis
+worker over a second bounded channel:
+
+```rust
+let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(1024);
+let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
+```
+
+- **One worker, one channel, FIFO.** Analysis stays single-threaded and batches reach
+  the worker in the order they left the window, so the stateful cross-trace correlator
+  observes a deterministic sequence. No thread pool, no `spawn_blocking` per batch.
+- **Non-blocking enqueue with metered shedding.** The loop enqueues with `try_reserve`
+  (synchronous, never awaits analysis), building the owned `CarbonContext` only once a
+  slot is reserved so a shed never pays for a discarded clone. When the queue is full
+  (or the worker has stopped) the whole batch is shed
+  and counted via `perf_sentinel_analysis_shed_batches_total` and
+  `perf_sentinel_analysis_shed_traces_total`; `perf_sentinel_analysis_queue_depth`
+  tracks the backlog. Overload is explicit and observable, never a silent drop. The
+  trade-off is intentional: under sustained overload we drop whole batches rather than
+  block ingestion (a liveness/backpressure choice, not a throughput one).
+- **CarbonContext sampled at eviction time.** The per-batch `CarbonContext` (energy
+  scraper snapshots + grid intensity) is built on the loop side when the batch is
+  evicted and travels with it, preserving the previous sampling instant.
+- **Shutdown drains, then joins.** On Ctrl+C / SIGTERM the loop drains the window,
+  hands the remainder to the worker with a blocking `send` (guaranteed delivery, no
+  shedding), closes the channel, and awaits the worker so every buffered and in-flight
+  batch is fully analyzed before returning.
+- **Fail-loud on worker death.** A fourth `select!` arm watches the worker's
+  `JoinHandle`. If the worker stops before shutdown (a detector panics), `run_event_loop`
+  returns `DaemonError::AnalysisWorkerStopped` so the process exits and a supervisor
+  restarts it, rather than staying up while silently analyzing nothing. This restores the
+  fail-loud semantics the inline-detection design had (a panic crashed the daemon).
 
 ### Security hardening
 

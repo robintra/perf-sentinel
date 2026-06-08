@@ -118,15 +118,19 @@ La taille du payload est vérifiée **avant** la désérialisation. Cela empêch
 ### Architecture
 
 ```
-OTLP gRPC (port 4317)   ─┐
-OTLP HTTP (port 4318)   ─┤─→ mpsc::channel(1024) ─→ TraceWindow ─→ éviction ─→ detect ─→ score ─→ NDJSON
-Socket unix JSON        ─┘
+OTLP gRPC (port 4317)   ─┐                                          ┌─ worker d'analyse ─┐
+OTLP HTTP (port 4318)   ─┤─→ mpsc(1024) ─→ TraceWindow ─→ éviction ─→ mpsc(1024) ─→ detect ─→ score ─→ NDJSON
+Socket unix JSON        ─┘     (boucle select!)                      └────────────────────┘
 ```
 
 La boucle événementielle utilise `tokio::select!` pour multiplexer :
-- **Réception d'événements** depuis le canal -> normaliser -> pousser dans la fenêtre
-- **Ticker** toutes les TTL/2 ms -> évincer les traces expirées -> detect/score -> émettre
-- **Ctrl+C** -> vider toutes les traces -> detect/score -> émettre -> arrêt
+- **Réception d'événements** depuis le canal -> normaliser -> pousser dans la fenêtre -> enfiler les évictions
+- **Ticker** toutes les TTL/2 ms -> évincer les traces expirées -> enfiler
+- **Ctrl+C** -> vider toutes les traces -> remettre au worker -> joindre -> arrêt
+
+detect+score ne tournent **pas** sur la boucle select!. Ils s'exécutent sur un unique
+worker d'analyse dédié alimenté par un canal borné (voir [Worker d'analyse](#worker-danalyse)),
+de sorte qu'une passe d'analyse longue ne peut plus bloquer l'ingestion ni l'éviction.
 
 ### Normalisation en dehors du verrou
 
@@ -168,6 +172,46 @@ let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
 ```
 
 Le [canal borné](https://docs.rs/tokio/latest/tokio/sync/mpsc/fn.channel.html) fournit une contre-pression : si la boucle événementielle prend du retard et que le buffer se remplit à 1024 lots, les émetteurs d'ingestion attendront jusqu'à ce qu'un espace soit disponible. Cela empêche la croissance mémoire non bornée par des producteurs rapides.
+
+### Worker d'analyse
+
+detect+score sont CPU-bound. Les exécuter en ligne sur la tâche `select!` faisait
+qu'une passe d'analyse longue bloquait la boucle, l'empêchant de poller `rx.recv()` et
+le ticker d'éviction : la liveness d'ingestion et d'éviction dépendait alors de la
+latence d'analyse. À la place, les lots évincés (LRU), expirés (TTL) et vidés
+(shutdown) sont remis à un **unique** worker d'analyse via un second canal borné :
+
+```rust
+let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(1024);
+let worker = tokio::spawn(run_analysis_worker(work_rx, ctx));
+```
+
+- **Un worker, un canal, FIFO.** L'analyse reste mono-thread et les lots atteignent le
+  worker dans l'ordre où ils ont quitté la fenêtre, donc le corrélateur cross-trace
+  (avec état) observe une séquence déterministe. Pas de pool de threads, pas de
+  `spawn_blocking` par lot.
+- **Enfilement non bloquant avec délestage compté.** La boucle enfile en `try_reserve`
+  (synchrone, n'attend jamais l'analyse), construisant le `CarbonContext` possédé
+  seulement une fois un slot réservé, pour qu'un délestage ne paie jamais un clone jeté.
+  File pleine (ou worker arrêté) → le lot entier est délesté et
+  compté via `perf_sentinel_analysis_shed_batches_total` et
+  `perf_sentinel_analysis_shed_traces_total` ; `perf_sentinel_analysis_queue_depth`
+  suit le backlog. La surcharge est explicite et observable, jamais un drop silencieux.
+  Compromis assumé : sous surcharge soutenue on perd des lots entiers plutôt que de
+  bloquer l'ingestion (choix de liveness/contre-pression, pas de débit).
+- **CarbonContext échantillonné à l'éviction.** Le `CarbonContext` par lot (snapshots
+  des scrapers d'énergie + intensité réseau) est construit côté boucle au moment de
+  l'éviction et voyage avec le lot, ce qui préserve l'instant d'échantillonnage
+  précédent.
+- **Shutdown : drain puis join.** Sur Ctrl+C / SIGTERM la boucle vide la fenêtre,
+  remet le reste au worker via un `send` bloquant (livraison garantie, sans délestage),
+  ferme le canal et attend le worker afin que chaque lot bufferisé et en vol soit
+  entièrement analysé avant le retour.
+- **Fail-loud si le worker meurt.** Une quatrième branche `select!` surveille le
+  `JoinHandle` du worker. S'il s'arrête avant le shutdown (un détecteur panique),
+  `run_event_loop` retourne `DaemonError::AnalysisWorkerStopped` : le process sort et un
+  superviseur le redémarre, plutôt que de rester debout à n'analyser plus rien. Cela
+  restaure la sémantique fail-loud de la détection en ligne (une panique crashait le daemon).
 
 ### Renforcement de la sécurité
 

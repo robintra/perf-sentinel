@@ -15,6 +15,7 @@
 - [Sampling in daemon mode](#sampling-in-daemon-mode): consequences of `sampling_rate < 1.0`.
 - [Maximum events per trace](#maximum-events-per-trace): per-trace ring-buffer cap.
 - [Long-running traces and TTL eviction in daemon mode](#long-running-traces-and-ttl-eviction-in-daemon-mode): why sparse-burst traces undercount in streaming mode.
+- [Analysis backpressure and load shedding](#analysis-backpressure-and-load-shedding): why a slow analysis worker sheds whole batches, explicitly metered.
 - [Daemon state model: in-memory, single-process, no shared state](#daemon-state-model-in-memory-single-process-no-shared-state): why replicas do not share state and an ungraceful kill drops the in-flight window.
 - [Field length limits at ingestion](#field-length-limits-at-ingestion): per-field byte caps applied at the ingestion boundary.
 - [Binary size](#binary-size): release-binary target and what contributes to it.
@@ -168,6 +169,19 @@ Mitigations, in order of precision:
 - **Shorten the upstream trace.** If a trace is conceptually long because it spans multiple user actions, consider splitting it at the application level (one trace per logical request).
 
 This is a property of the streaming window, not a bug. Real-time detection on a bounded ring buffer always trades trace duration against memory; the daemon picks 30s as a default that fits typical request-response shapes (HTTP API, RPC).
+
+## Analysis backpressure and load shedding
+
+detect+score run on a single dedicated analysis worker, decoupled from the ingestion / eviction `select!` loop by a bounded channel (1024 batches). The loop enqueues evicted and expired batches without blocking, so a slow analysis pass can no longer stall ingestion or delay TTL eviction. The trade-off is that when analysis cannot keep up with sustained load, the queue fills and whole batches are **shed**. Shedding is explicit and metered, not silent:
+
+- `perf_sentinel_analysis_queue_depth` exposes the current backlog. A sustained nonzero value means the worker is falling behind.
+- `perf_sentinel_analysis_shed_batches_total` and `perf_sentinel_analysis_shed_traces_total` count what was dropped. Alert on `rate(perf_sentinel_analysis_shed_batches_total[5m]) > 0`.
+
+A shed batch is dropped from detection entirely: its findings are never emitted and the cross-trace correlator never sees it. Because perf-sentinel surfaces *recurring* patterns, a shed N+1 or chatty path is normally re-detected on the next request once the worker catches up. If you see sustained shedding, the daemon is undersized for the trace volume: scale out (shard by `trace_id`), raise `sampling_rate` headroom, or reduce per-trace cost upstream.
+
+Shedding is the response to *overload*, not to *failure*. If the analysis worker itself stops (e.g. a detector panics on a pathological trace), the daemon does not stay up analyzing nothing: it exits with an error so a supervisor (Kubernetes, systemd) restarts the process, the same fail-loud behavior the older inline-detection design had when a panic crashed the whole daemon. Any batch enqueued in the brief window before exit is counted as shed rather than lost silently.
+
+A graceful shutdown does **not** shed: it drains the window and joins the worker so every in-flight batch is analyzed before exit.
 
 ## Daemon state model: in-memory, single-process, no shared state
 

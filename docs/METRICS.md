@@ -98,6 +98,9 @@ own stack.
 | `perf_sentinel_traces_analyzed_total`        | counter   | (none)             | Cumulative trace count processed by the event loop.                                                                                                                                                                                                                |
 | `perf_sentinel_events_processed_total`       | counter   | (none)             | Cumulative event count processed by the event loop.                                                                                                                                                                                                                |
 | `perf_sentinel_active_traces`                | gauge     | (none)             | Currently active traces in the sliding window.                                                                                                                                                                                                                     |
+| `perf_sentinel_analysis_queue_depth`         | gauge     | (none)             | Batches pending in the analysis worker queue (incremented on enqueue, decremented when the worker picks a batch up). A sustained nonzero value means detect+score is falling behind ingestion.                                                                     |
+| `perf_sentinel_analysis_shed_batches_total`  | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on `rate(...) > 0`.                                                                                          |
+| `perf_sentinel_analysis_shed_traces_total`   | counter   | (none)             | Traces dropped by the shed batches counted in `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                         |
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Duration histogram for spans exceeding the slow threshold, by event `type` (`sql` or `http_out`). Buckets: 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 seconds. Used by Grafana `histogram_quantile()` for accurate percentiles across sharded daemon instances. |
 | `perf_sentinel_export_report_requests_total` | counter   | (none)             | Total `GET /api/export/report` requests. Includes cold-start responses (200 with empty envelope).                                                                                                                                                                  |
 
@@ -175,11 +178,11 @@ fetches `scaph_process_power_consumption_microwatts` from the
 configured `[green.scaphandre] endpoint` every `scrape_interval_secs`).
 Only registered when the daemon is built with the `daemon` feature.
 
-| Metric                                          | Type    | Labels    | Description                                                                                  |
-|-------------------------------------------------|---------|-----------|----------------------------------------------------------------------------------------------|
-| `perf_sentinel_scaphandre_scrape_total`         | counter | `status`  | Total Scaphandre scrape attempts since daemon start, partitioned by outcome.                 |
-| `perf_sentinel_scaphandre_scrape_failed_total`  | counter | `reason`  | Total failed Scaphandre scrapes since daemon start, partitioned by failure reason.           |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge | (none)    | Seconds since the last successful scrape (resets to 0 on success). Hung-scraper canary.      |
+| Metric                                             | Type    | Labels   | Description                                                                             |
+|----------------------------------------------------|---------|----------|-----------------------------------------------------------------------------------------|
+| `perf_sentinel_scaphandre_scrape_total`            | counter | `status` | Total Scaphandre scrape attempts since daemon start, partitioned by outcome.            |
+| `perf_sentinel_scaphandre_scrape_failed_total`     | counter | `reason` | Total failed Scaphandre scrapes since daemon start, partitioned by failure reason.      |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds` | gauge   | (none)   | Seconds since the last successful scrape (resets to 0 on success). Hung-scraper canary. |
 
 `status` label values: `success`, `failed`. Pre-warmed at zero so
 dashboards plot rate-zero before the first scrape.
@@ -279,10 +282,10 @@ each with a different lifecycle. The distinction matters for
 monitoring strategies: a transient warning self-resolves, a sticky one
 persists until the daemon restarts.
 
-| Kind              | Lifecycle | Emitted when                                                                            | Cleared by                                              |
-|-------------------|-----------|-----------------------------------------------------------------------------------------|---------------------------------------------------------|
-| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon            | First successful batch (both counters strictly positive) |
-| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start      | Daemon restart (counter reset)                          |
+| Kind              | Lifecycle | Emitted when                                                                      | Cleared by                                               |
+|-------------------|-----------|-----------------------------------------------------------------------------------|----------------------------------------------------------|
+| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon       | First successful batch (both counters strictly positive) |
+| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start | Daemon restart (counter reset)                           |
 
 `cold_start` is a state warning: "the snapshot is not meaningful right
 now". `ingestion_drops` is an audit warning: "at some point since

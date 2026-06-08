@@ -83,7 +83,7 @@ Les lignes malformées (échecs de parse) sont sautées avec un `tracing::warn!`
 
 ## Writer d'archive daemon
 
-Le writer est une tâche `tokio::spawn` alimentée par un `tokio::sync::mpsc::Sender<OwnedArchive>` borné, capacité 256. Côté producteur (dans `process_traces`), `handle.try_send(OwnedArchive { ts, report })` évite que la boucle de scoring par fenêtre ne bloque sur l'I/O disque. Envoyer un `OwnedArchive` typé (et non une chaîne pré-sérialisée) sort le coût `serde_json::to_string` du chemin chaud et laisse la tâche writer l'amortir contre l'I/O disque.
+Le writer est une tâche `tokio::spawn` alimentée par un `tokio::sync::mpsc::Sender<OwnedArchive>` borné, capacité 256. Côté producteur (dans `process_traces`, sur le worker d'analyse), `archive::try_send(tx, OwnedArchive { ts, report })` évite que la boucle de scoring par fenêtre ne bloque sur l'I/O disque. Envoyer un `OwnedArchive` typé (et non une chaîne pré-sérialisée) sort le coût `serde_json::to_string` du chemin chaud et laisse la tâche writer l'amortir contre l'I/O disque.
 
 Le canal borné applique une politique drop-on-full : quand le writer prend du retard, les nouvelles fenêtres sont jetées avec un `tracing::warn!`. La capacité 256 est dimensionnée pour que l'état d'un writer bloqué en régime permanent remonte en quelques secondes plutôt qu'un canal unbounded qui ferait OOM le daemon.
 
