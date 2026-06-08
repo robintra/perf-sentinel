@@ -36,6 +36,13 @@ use tracing::info;
 #[derive(Parser)]
 #[command(name = "perf-sentinel")]
 #[command(about = "Lightweight polyglot performance anti-pattern detector")]
+#[command(
+    long_about = "Lightweight polyglot performance anti-pattern detector.\n\n\
+    All subcommands read tuning from a .perf-sentinel.toml file (--config), not CLI flags. \
+    Batch tuning lives in [thresholds], [detection] and [green] (see `analyze --help`). \
+    Daemon tuning lives in [daemon] plus [daemon.correlation|ack|cors|archive] \
+    (see `watch --help`). Full reference with defaults and ranges: docs/CONFIGURATION.md."
+)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -79,6 +86,20 @@ enum Commands {
     /// window correlator and are not available in batch analyze. Use
     /// `perf-sentinel watch` then `perf-sentinel query correlations`
     /// for cross-trace findings.
+    ///
+    /// All tuning lives in the config file (`--config`), not as CLI flags.
+    /// Full reference with defaults and ranges: docs/CONFIGURATION.md.
+    /// Quality gate: `[thresholds]` (`n_plus_one_sql_critical_max`,
+    /// `n_plus_one_http_warning_max`, `io_waste_ratio_max`).
+    /// Detection: `[detection]` (`n_plus_one_min_occurrences`,
+    /// `window_duration_ms`, `slow_query_threshold_ms`,
+    /// `slow_query_min_occurrences`, `max_fanout`, `chatty_service_min_calls`,
+    /// `pool_saturation_concurrent_threshold`, `serialized_min_sequential`,
+    /// `sanitizer_aware_classification`).
+    /// Carbon and energy: `[green]` (`enabled`, `default_region`,
+    /// `[green.service_regions]`, the opt-in
+    /// `[green.scaphandre|kepler|redfish|cloud|electricity_maps]` sources,
+    /// `calibration_file`, `hourly_profiles_file`).
     #[command(after_help = help_examples::ANALYZE)]
     Analyze {
         /// Path to a JSON trace file to analyze. If omitted, reads from stdin.
@@ -112,6 +133,22 @@ enum Commands {
     },
 
     /// Watch for traces in real-time (daemon mode).
+    ///
+    /// All runtime tuning lives in the `[daemon]` section of the config
+    /// file (`--config`), not as CLI flags (except the listen overrides
+    /// below). Full reference with defaults and ranges:
+    /// docs/CONFIGURATION.md.
+    ///
+    /// Listeners: `listen_address`, `listen_port_http`, `listen_port_grpc`,
+    /// `json_socket`, `tls_cert_path`, `tls_key_path`.
+    /// Window sizing and memory: `max_active_traces`, `trace_ttl_ms`,
+    /// `max_events_per_trace`, `max_payload_size`, `max_retained_findings`.
+    /// Bounded-queue backpressure (default 1024 each):
+    /// `ingest_queue_capacity` and `analysis_queue_capacity` (sheds whole
+    /// batches when full).
+    /// Behavior: `sampling_rate`, `environment`, `api_enabled`.
+    /// Sub-sections: `[daemon.correlation]`, `[daemon.ack]`,
+    /// `[daemon.cors]`, `[daemon.archive]`.
     #[cfg(feature = "daemon")]
     #[command(after_help = help_examples::WATCH)]
     Watch {
@@ -1104,10 +1141,24 @@ async fn dispatch_command(command: Commands) {
             clap_complete::generate(shell, &mut cmd, "perf-sentinel", &mut std::io::stdout());
         }
         Commands::Man => {
+            // Render the root page, then one page per subcommand, so tuning
+            // documented only in a subcommand's long help (e.g. the `[daemon]`
+            // queue knobs on `watch`) is discoverable from `man`, not just
+            // `--help`. The root page alone lists subcommands by their short
+            // description only.
             let cmd = Cli::command();
-            if let Err(err) = clap_mangen::Man::new(cmd).render(&mut std::io::stdout()) {
-                eprintln!("Error: failed to render man page: {err}");
-                std::process::exit(1);
+            let mut pages = vec![cmd.clone()];
+            for sub in cmd.get_subcommands() {
+                if sub.get_name() != "help" {
+                    pages.push(sub.clone());
+                }
+            }
+            let mut out = std::io::stdout();
+            for page in pages {
+                if let Err(err) = clap_mangen::Man::new(page).render(&mut out) {
+                    eprintln!("Error: failed to render man page: {err}");
+                    std::process::exit(1);
+                }
             }
         }
         Commands::Disclose {
