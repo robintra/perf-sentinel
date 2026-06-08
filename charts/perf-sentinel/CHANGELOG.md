@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.51]
+
+### Changed
+
+- `appVersion` bumped to `0.8.6` to track configurable daemon queue depths (`[daemon] ingest_queue_capacity` and `analysis_queue_capacity`, both default 1024, range 1 to 1,048,576) and an `Arc`-shared carbon context that drops a per-batch clone on the streaming hot path. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.6` to keep the Artifact Hub display metadata in lockstep with `appVersion`. Runtime image selection is unaffected (templates already resolve to `.Chart.AppVersion` when `values.yaml` `image.tag` is empty).
+
 ## [0.2.50]
 
 ### Changed
