@@ -61,7 +61,7 @@ pub(super) struct ListenerHandles<'a> {
 }
 
 /// Lifetime-bound bundle of energy/intensity scraper state used to build
-/// the per-tick `CarbonContext`. Borrowed by `flush_evicted`.
+/// the per-tick `CarbonContext`. Borrowed by `enqueue_for_analysis`.
 pub(super) struct EnergySources<'a> {
     pub(super) base_carbon_ctx: &'a score::carbon::CarbonContext,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
@@ -76,38 +76,114 @@ pub(super) struct EnergySources<'a> {
     pub(super) emaps_staleness_ms: u64,
 }
 
-/// Borrowed parts of `ProcessTracesCtx` shared across all flush sites.
-struct ProcessTracesCtxParts<'a> {
-    detect_config: &'a DetectConfig,
+/// Capacity of the channel feeding the analysis worker. Bounds the
+/// pending-batch backlog; once full, the select! loop sheds whole
+/// batches (counted, never silent) instead of blocking ingestion.
+const ANALYSIS_QUEUE_CAPACITY: usize = 1024;
+
+/// One evicted/expired/drained batch handed to the analysis worker. The
+/// `CarbonContext` is built on the loop side at eviction time, so energy
+/// scraper readings keep their current sampling instant.
+struct AnalysisBatch {
+    traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
+    carbon_ctx: score::carbon::CarbonContext,
+}
+
+/// Owned/`Arc` state the analysis worker needs. Everything crossing the
+/// task boundary is owned or shared via `Arc` so the spawned worker is
+/// `'static`. Mirrors the borrowed fields of [`ProcessTracesCtx`].
+struct AnalysisWorkerCtx {
+    detect_config: DetectConfig,
     green_enabled: bool,
-    metrics: &'a MetricsState,
     confidence: Confidence,
-    findings_store: &'a findings_store::FindingsStore,
-    correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
-    green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
-    archive_handle: Option<&'a super::archive::ArchiveHandle>,
+    metrics: Arc<MetricsState>,
+    findings_store: Arc<findings_store::FindingsStore>,
+    correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
+    green_summary_cell: Arc<RwLock<GreenSummary>>,
+    archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
 }
 
 /// Drive the daemon's main `tokio::select!` loop: receive events, run the
-/// TTL ticker, and handle shutdown signals. Returns when SIGINT (Ctrl+C)
-/// or, on Unix, SIGTERM is received, after draining the in-flight window.
+/// TTL ticker, and handle shutdown signals.
+///
+/// # Errors
+///
+/// Returns [`super::DaemonError::AnalysisWorkerStopped`] if the analysis
+/// worker dies (e.g. a detector panics) while the daemon is running, so a
+/// supervisor restarts the process instead of leaving it up while it
+/// silently analyzes nothing. Returns `Ok(())` on a graceful shutdown
+/// (SIGINT, or SIGTERM on Unix) after draining the in-flight window.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_event_loop(
     rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
     window: &Arc<Mutex<TraceWindow>>,
-    metrics: &MetricsState,
-    findings_store: &findings_store::FindingsStore,
-    correlator: Option<&Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
+    metrics: Arc<MetricsState>,
+    findings_store: Arc<findings_store::FindingsStore>,
+    correlator: Option<Arc<Mutex<detect::correlate_cross::CrossTraceCorrelator>>>,
     detect_config: &DetectConfig,
     energy_sources: &EnergySources<'_>,
     shutdown: ShutdownTargets<'_>,
     loop_cfg: EventLoopConfig,
-    green_summary_cell: &Arc<RwLock<GreenSummary>>,
-    archive_handle: Option<&super::archive::ArchiveHandle>,
-) {
+    green_summary_cell: Arc<RwLock<GreenSummary>>,
+    archive_tx: Option<mpsc::Sender<super::archive::OwnedArchive>>,
+) -> Result<(), super::DaemonError> {
+    // detect+score run on this single worker, off the select! loop, so a
+    // long analysis pass can no longer stall ingestion (rx) or TTL
+    // eviction (ticker). One channel, one worker, FIFO: the stateful
+    // cross-trace correlator still sees a deterministic batch sequence.
+    let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(ANALYSIS_QUEUE_CAPACITY);
+    let worker = tokio::spawn(run_analysis_worker(
+        work_rx,
+        AnalysisWorkerCtx {
+            detect_config: detect_config.clone(),
+            green_enabled: loop_cfg.green_enabled,
+            confidence: loop_cfg.confidence,
+            metrics: metrics.clone(),
+            findings_store,
+            correlator,
+            green_summary_cell,
+            archive_tx,
+        },
+    ));
+
+    // The shutdown future and the spawned worker are injected into
+    // `drive_event_loop` so tests can drive the loop with a controllable
+    // shutdown trigger and a worker that stops on demand (graceful-drain and
+    // fail-loud paths). Production wires the real SIGINT/SIGTERM signal.
+    drive_event_loop(
+        rx,
+        window,
+        &metrics,
+        energy_sources,
+        shutdown,
+        loop_cfg,
+        work_tx,
+        worker,
+        crate::shutdown::shutdown_signal(),
+    )
+    .await
+}
+
+/// Inner select! loop, split out from [`run_event_loop`] so the worker
+/// handle and shutdown future are parameters (testable). Returns
+/// [`super::DaemonError::AnalysisWorkerStopped`] if `worker` stops before
+/// `shutdown_fut` fires; otherwise drains the window into the worker and
+/// returns `Ok(())`.
+#[allow(clippy::too_many_arguments)]
+async fn drive_event_loop(
+    rx: &mut mpsc::Receiver<Vec<SpanEvent>>,
+    window: &Arc<Mutex<TraceWindow>>,
+    metrics: &MetricsState,
+    energy_sources: &EnergySources<'_>,
+    shutdown: ShutdownTargets<'_>,
+    loop_cfg: EventLoopConfig,
+    work_tx: mpsc::Sender<AnalysisBatch>,
+    mut worker: tokio::task::JoinHandle<()>,
+    shutdown_fut: impl std::future::Future<Output = ()>,
+) -> Result<(), super::DaemonError> {
     let mut ticker = interval(Duration::from_millis(loop_cfg.evict_ms.max(100)));
-    // Prevent burst-catchup if process_traces takes longer than the tick
-    // interval. The Scaphandre and cloud scrapers already use Delay.
+    // Prevent burst-catchup if a tick is delayed. With analysis off the
+    // loop, the loop rarely lags, but the scrapers already use Delay.
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Cardinality cap on the per-service Prometheus counter prevents OOM
     // from a malicious OTLP sender injecting millions of unique
@@ -117,25 +193,13 @@ pub(super) async fn run_event_loop(
         max_service_cardinality: 1024,
         service_cap_warned: false,
     };
-    let parts = || ProcessTracesCtxParts {
-        detect_config,
-        green_enabled: loop_cfg.green_enabled,
-        metrics,
-        confidence: loop_cfg.confidence,
-        findings_store,
-        correlator,
-        green_summary_cell,
-        archive_handle,
-    };
 
-    // Build the shutdown future once and pin it, so the SIGTERM/SIGINT
-    // listeners are registered a single time rather than re-registered on
-    // every loop iteration (every OTLP batch and ticker tick). Same idiom
-    // as the Tempo fetch drain in `ingest::tempo`.
-    let shutdown_fut = crate::shutdown::shutdown_signal();
+    // Pin the shutdown future once so the SIGTERM/SIGINT listeners are
+    // registered a single time rather than re-registered on every loop
+    // iteration. Same idiom as the Tempo fetch drain in `ingest::tempo`.
     tokio::pin!(shutdown_fut);
 
-    loop {
+    let graceful = loop {
         tokio::select! {
             Some(events) = rx.recv() => {
                 let lru_evicted = ingest_event_batch(
@@ -145,23 +209,58 @@ pub(super) async fn run_event_loop(
                     metrics,
                     &mut service_meter,
                 ).await;
-                flush_evicted(lru_evicted, energy_sources, parts()).await;
+                enqueue_for_analysis(lru_evicted, energy_sources, &work_tx, metrics);
             }
             _ = ticker.tick() => {
                 let expired = evict_expired_traces(window, metrics).await;
-                flush_evicted(expired, energy_sources, parts()).await;
+                enqueue_for_analysis(expired, energy_sources, &work_tx, metrics);
             }
             () = &mut shutdown_fut => {
                 tracing::info!("Shutting down daemon, processing remaining traces...");
-                shutdown_listeners(shutdown.energy, shutdown.listeners);
-                let remaining = {
-                    let mut w = window.lock().await;
-                    w.drain_all()
-                };
-                flush_evicted(remaining, energy_sources, parts()).await;
-                break;
+                break true;
+            }
+            res = &mut worker => {
+                // The single analysis worker finished before shutdown, so it
+                // panicked or aborted. Fail loud: exit instead of running on
+                // while silently analyzing nothing, so a supervisor restarts
+                // the process (the inline-detection design crashed the daemon
+                // on the same fault).
+                tracing::error!(result = ?res, "analysis worker stopped unexpectedly; daemon exiting for restart");
+                break false;
             }
         }
+    };
+
+    shutdown_listeners(shutdown.energy, shutdown.listeners);
+    if !graceful {
+        return Err(super::DaemonError::AnalysisWorkerStopped);
+    }
+    drain_to_worker_and_join(window, energy_sources, work_tx, worker, metrics).await;
+    Ok(())
+}
+
+/// Single analysis worker: pulls batches in FIFO order and runs the
+/// CPU-heavy detect+score path that used to run inline on the select!
+/// loop. Exits when the channel closes (shutdown), after draining every
+/// buffered batch.
+async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
+    while let Some(batch) = work_rx.recv().await {
+        wctx.metrics.analysis_queue_depth.dec();
+        process_traces(
+            batch.traces,
+            ProcessTracesCtx {
+                detect_config: &wctx.detect_config,
+                green_enabled: wctx.green_enabled,
+                carbon_ctx: &batch.carbon_ctx,
+                metrics: &wctx.metrics,
+                confidence: wctx.confidence,
+                findings_store: &wctx.findings_store,
+                correlator: wctx.correlator.as_deref(),
+                green_summary_cell: &wctx.green_summary_cell,
+                archive_tx: wctx.archive_tx.as_ref(),
+            },
+        )
+        .await;
     }
 }
 
@@ -245,17 +344,11 @@ async fn evict_expired_traces(
     expired
 }
 
-/// Build a tick `CarbonContext` and route the traces through detect+score.
-/// No-op when `traces` is empty.
-async fn flush_evicted(
-    traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
-    sources: &EnergySources<'_>,
-    parts: ProcessTracesCtxParts<'_>,
-) {
-    if traces.is_empty() {
-        return;
-    }
-    let tick_ctx = build_tick_ctx(
+/// Build the per-tick `CarbonContext` from the current scraper snapshots,
+/// owned so it can travel to the worker. Sampling the energy sources here
+/// (on the loop side, at eviction time) preserves the previous timing.
+fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> score::carbon::CarbonContext {
+    build_tick_ctx(
         sources.base_carbon_ctx,
         sources.scaphandre_state,
         sources.scaphandre_staleness_ms,
@@ -267,22 +360,97 @@ async fn flush_evicted(
         sources.cloud_staleness_ms,
         sources.emaps_state,
         sources.emaps_staleness_ms,
-    );
-    process_traces(
-        traces,
-        ProcessTracesCtx {
-            detect_config: parts.detect_config,
-            green_enabled: parts.green_enabled,
-            carbon_ctx: &tick_ctx,
-            metrics: parts.metrics,
-            confidence: parts.confidence,
-            findings_store: parts.findings_store,
-            correlator: parts.correlator,
-            green_summary_cell: parts.green_summary_cell,
-            archive_handle: parts.archive_handle,
-        },
     )
-    .await;
+    .into_owned()
+}
+
+/// Hand an evicted/expired batch to the analysis worker without blocking.
+/// Synchronous and `try_reserve`-based on purpose: the select! loop never
+/// awaits analysis, so ingestion and eviction stay live. When the queue is
+/// full (or the worker has stopped) the whole batch is shed and counted
+/// (batches + traces) instead of being silently dropped. The owned
+/// `CarbonContext` is built only once a slot is reserved, so a shed never
+/// pays for a discarded clone. No-op when `traces` is empty.
+fn enqueue_for_analysis(
+    traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
+    sources: &EnergySources<'_>,
+    work_tx: &mpsc::Sender<AnalysisBatch>,
+    metrics: &MetricsState,
+) {
+    if traces.is_empty() {
+        return;
+    }
+    let trace_count = traces.len();
+    match work_tx.try_reserve() {
+        Ok(permit) => {
+            metrics.analysis_queue_depth.inc();
+            permit.send(AnalysisBatch {
+                traces,
+                carbon_ctx: build_owned_tick_ctx(sources),
+            });
+        }
+        Err(mpsc::error::TrySendError::Full(())) => {
+            record_shed(metrics, trace_count);
+            tracing::warn!(traces = trace_count, "analysis queue full, shedding batch");
+        }
+        Err(mpsc::error::TrySendError::Closed(())) => {
+            record_shed(metrics, trace_count);
+            tracing::error!(
+                traces = trace_count,
+                "analysis worker stopped, shedding batch"
+            );
+        }
+    }
+}
+
+/// Count a dropped batch on the shed counters so overload, or a stopped
+/// worker, is always observable instead of a silent drop.
+fn record_shed(metrics: &MetricsState, trace_count: usize) {
+    metrics.analysis_shed_batches_total.inc();
+    metrics
+        .analysis_shed_traces_total
+        .inc_by(trace_count as u64);
+}
+
+/// Shutdown handshake: drain the in-flight window into the worker with a
+/// blocking `send` (guaranteed delivery, no shedding), close the channel,
+/// then join the worker so every buffered and in-flight batch is fully
+/// processed before `run_event_loop` returns.
+async fn drain_to_worker_and_join(
+    window: &Arc<Mutex<TraceWindow>>,
+    sources: &EnergySources<'_>,
+    work_tx: mpsc::Sender<AnalysisBatch>,
+    worker: tokio::task::JoinHandle<()>,
+    metrics: &MetricsState,
+) {
+    let remaining = {
+        let mut w = window.lock().await;
+        w.drain_all()
+    };
+    if !remaining.is_empty() {
+        let trace_count = remaining.len();
+        let carbon_ctx = build_owned_tick_ctx(sources);
+        // Blocking send: a live worker keeps draining, so capacity frees up
+        // and the final window is delivered rather than shed.
+        let batch = AnalysisBatch {
+            traces: remaining,
+            carbon_ctx,
+        };
+        if work_tx.send(batch).await.is_ok() {
+            metrics.analysis_queue_depth.inc();
+        } else {
+            // The worker stopped before the drain (e.g. it panicked): the
+            // window cannot be delivered, so count it instead of losing it
+            // silently.
+            record_shed(metrics, trace_count);
+            tracing::error!(
+                traces = trace_count,
+                "analysis worker stopped before shutdown drain"
+            );
+        }
+    }
+    drop(work_tx);
+    let _ = worker.await;
 }
 
 /// Abort all spawned tasks before the daemon returns. Order matters:
@@ -483,7 +651,7 @@ struct ProcessTracesCtx<'a> {
     findings_store: &'a findings_store::FindingsStore,
     correlator: Option<&'a Mutex<detect::correlate_cross::CrossTraceCorrelator>>,
     green_summary_cell: &'a Arc<RwLock<GreenSummary>>,
-    archive_handle: Option<&'a super::archive::ArchiveHandle>,
+    archive_tx: Option<&'a mpsc::Sender<super::archive::OwnedArchive>>,
 }
 
 /// stamps `confidence` on every finding after detection. The
@@ -548,7 +716,7 @@ async fn process_traces(
 
     emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
 
-    if let Some(handle) = ctx.archive_handle {
+    if let Some(archive_tx) = ctx.archive_tx {
         let events_processed = trace_structs.iter().map(|t| t.spans.len()).sum();
         // Operator + canonical avoidable tiers, archived side by side.
         // Skipped when green scoring produced no carbon: the tiers would
@@ -589,7 +757,7 @@ async fn process_traces(
             ts: chrono::Utc::now(),
             report,
         };
-        handle.try_send(archive);
+        super::archive::try_send(archive_tx, archive);
     }
 }
 
@@ -682,7 +850,7 @@ mod tests {
             findings_store,
             correlator: None,
             green_summary_cell,
-            archive_handle: None,
+            archive_tx: None,
         }
     }
 
@@ -1008,5 +1176,289 @@ mod tests {
         let snap2 = scaph.snapshot(100, 50);
         assert!(snap2.contains_key("fresh-svc"));
         assert!(!snap2.contains_key("stale-svc"));
+    }
+
+    /// `EnergySources` with no scrapers configured.
+    fn no_scrapers(base: &score::carbon::CarbonContext) -> EnergySources<'_> {
+        EnergySources {
+            base_carbon_ctx: base,
+            scaphandre_state: None,
+            scaphandre_staleness_ms: 0,
+            kepler_state: None,
+            kepler_staleness_ms: 0,
+            redfish_state: None,
+            redfish_staleness_ms: 0,
+            cloud_state: None,
+            cloud_staleness_ms: 0,
+            emaps_state: None,
+            emaps_staleness_ms: 0,
+        }
+    }
+
+    fn one_trace_batch(id: &str) -> Vec<(String, Vec<normalize::NormalizedEvent>)> {
+        vec![(id.to_string(), vec![make_normalized(id, "SELECT 1")])]
+    }
+
+    fn test_window() -> Arc<Mutex<TraceWindow>> {
+        Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
+            max_events_per_trace: 1000,
+            trace_ttl_ms: 30_000,
+            max_active_traces: std::num::NonZeroUsize::new(10_000).expect("nonzero"),
+        })))
+    }
+
+    fn test_worker_ctx(
+        metrics: &Arc<MetricsState>,
+        findings_store: &Arc<findings_store::FindingsStore>,
+        green_summary_cell: &Arc<RwLock<GreenSummary>>,
+    ) -> AnalysisWorkerCtx {
+        AnalysisWorkerCtx {
+            detect_config: default_detect_config(),
+            green_enabled: true,
+            confidence: Confidence::DaemonStaging,
+            metrics: metrics.clone(),
+            findings_store: findings_store.clone(),
+            correlator: None,
+            green_summary_cell: green_summary_cell.clone(),
+            archive_tx: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn ingestion_not_head_of_line_blocked_by_slow_analysis() {
+        // The worker is "infinitely slow": we keep the receiver but never
+        // poll it, so the queue cannot drain. The select! loop only ever
+        // touches analysis through `enqueue_for_analysis`, which is
+        // synchronous + `try_reserve`, so it can never block on a stuck
+        // worker. The loop therefore keeps draining rx and the ticker.
+        // Excess batches are shed and counted, never silently dropped.
+        let metrics = MetricsState::new();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+        let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(2);
+
+        for i in 0..10u32 {
+            enqueue_for_analysis(
+                one_trace_batch(&format!("t{i}")),
+                &sources,
+                &work_tx,
+                &metrics,
+            );
+        }
+
+        // 2 fit the queue, 8 are shed, all without blocking.
+        assert_eq!(metrics.analysis_queue_depth.get(), 2);
+        assert_eq!(metrics.analysis_shed_batches_total.get(), 8);
+        assert_eq!(metrics.analysis_shed_traces_total.get(), 8);
+    }
+
+    #[tokio::test]
+    async fn saturated_queue_sheds_and_increments_metric() {
+        // A full queue sheds the whole batch and records both the batch
+        // and the trace count it represented.
+        let metrics = MetricsState::new();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+        let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(1);
+
+        enqueue_for_analysis(one_trace_batch("t1"), &sources, &work_tx, &metrics);
+        assert_eq!(metrics.analysis_queue_depth.get(), 1);
+        assert_eq!(metrics.analysis_shed_batches_total.get(), 0);
+
+        // Queue full: a 3-trace batch is shed.
+        let batch = vec![
+            ("t2".to_string(), vec![make_normalized("t2", "SELECT 1")]),
+            ("t3".to_string(), vec![make_normalized("t3", "SELECT 1")]),
+            ("t4".to_string(), vec![make_normalized("t4", "SELECT 1")]),
+        ];
+        enqueue_for_analysis(batch, &sources, &work_tx, &metrics);
+
+        assert_eq!(metrics.analysis_shed_batches_total.get(), 1);
+        assert_eq!(metrics.analysis_shed_traces_total.get(), 3);
+        // The shed batch never entered the queue.
+        assert_eq!(metrics.analysis_queue_depth.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn stopped_worker_counts_as_shed() {
+        // Receiver gone (worker stopped): the batch is shed and counted,
+        // not silently dropped, so shed-based alerts still fire.
+        let metrics = MetricsState::new();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        drop(work_rx);
+
+        let batch = vec![
+            ("t1".to_string(), vec![make_normalized("t1", "SELECT 1")]),
+            ("t2".to_string(), vec![make_normalized("t2", "SELECT 1")]),
+        ];
+        enqueue_for_analysis(batch, &sources, &work_tx, &metrics);
+
+        assert_eq!(metrics.analysis_shed_batches_total.get(), 1);
+        assert_eq!(metrics.analysis_shed_traces_total.get(), 2);
+        assert_eq!(metrics.analysis_queue_depth.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn shutdown_drains_window_and_inflight_queue() {
+        // A batch already buffered in the queue plus the whole in-flight
+        // window must both be fully analyzed before the shutdown handshake
+        // returns.
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        let worker = tokio::spawn(run_analysis_worker(
+            work_rx,
+            test_worker_ctx(&metrics, &store, &cell),
+        ));
+
+        // One in-flight batch (2 traces) already queued.
+        let inflight = vec![
+            ("q1".to_string(), vec![make_normalized("q1", "SELECT 1")]),
+            ("q2".to_string(), vec![make_normalized("q2", "SELECT 1")]),
+        ];
+        enqueue_for_analysis(inflight, &sources, &work_tx, &metrics);
+
+        // Three more traces sit in the window, to be drained on shutdown.
+        let window = test_window();
+        {
+            let mut w = window.lock().await;
+            for id in ["w1", "w2", "w3"] {
+                w.push(make_normalized(id, "SELECT 1"), 0);
+            }
+        }
+
+        drain_to_worker_and_join(&window, &sources, work_tx, worker, &metrics).await;
+
+        // 2 in-flight + 3 drained = 5 traces, all processed before return.
+        assert!((metrics.traces_analyzed_total.get() - 5.0).abs() < f64::EPSILON);
+        assert_eq!(metrics.analysis_queue_depth.get(), 0);
+    }
+
+    /// Dummy listener handles for `drive_event_loop`: never-ending tasks the
+    /// shutdown path aborts. Borrowed for the call's duration.
+    fn dummy_shutdown<'a>(
+        grpc: &'a tokio::task::JoinHandle<()>,
+        http: &'a tokio::task::JoinHandle<()>,
+    ) -> ShutdownTargets<'a> {
+        ShutdownTargets {
+            energy: EnergyScraperHandles {
+                scaphandre: None,
+                kepler: None,
+                redfish: None,
+                cloud: None,
+                emaps: None,
+            },
+            listeners: ListenerHandles {
+                grpc,
+                http,
+                json_socket: None,
+            },
+        }
+    }
+
+    fn test_loop_cfg() -> EventLoopConfig {
+        EventLoopConfig {
+            green_enabled: true,
+            sampling_rate: 1.0,
+            // Large interval; only the immediate first tick can fire, and on
+            // an empty/fresh window it is a no-op.
+            evict_ms: 60_000,
+            confidence: Confidence::DaemonStaging,
+        }
+    }
+
+    #[tokio::test]
+    async fn fail_loud_returns_error_when_worker_dies() {
+        // The worker stops while the loop runs and no shutdown is requested.
+        // drive_event_loop must fail loud so a supervisor restarts the
+        // process, rather than looping on while analysis is dead.
+        let metrics = MetricsState::new();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+        let window = test_window();
+        let (_tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        // Stands in for a panicked detector: the worker is already finished.
+        let worker = tokio::spawn(async {});
+        let grpc = tokio::spawn(std::future::pending::<()>());
+        let http = tokio::spawn(std::future::pending::<()>());
+
+        let result = drive_event_loop(
+            &mut rx,
+            &window,
+            &metrics,
+            &sources,
+            dummy_shutdown(&grpc, &http),
+            test_loop_cfg(),
+            work_tx,
+            worker,
+            std::future::pending::<()>(), // shutdown never fires
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(crate::DaemonError::AnalysisWorkerStopped)
+        ));
+    }
+
+    #[tokio::test]
+    async fn graceful_shutdown_drains_window_and_returns_ok() {
+        // A live worker plus a shutdown trigger: the loop drains the window
+        // through the worker and returns Ok, so the in-flight traces are
+        // analyzed before exit.
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = empty_carbon_ctx();
+        let sources = no_scrapers(&base);
+        let window = test_window();
+        {
+            let mut w = window.lock().await;
+            // Fresh timestamps so the immediate ticker tick does not TTL-evict
+            // them; the shutdown drain is what must process them.
+            for id in ["w1", "w2", "w3"] {
+                w.push(make_normalized(id, "SELECT 1"), current_time_ms());
+            }
+        }
+
+        let (_tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
+        let worker = tokio::spawn(run_analysis_worker(
+            work_rx,
+            test_worker_ctx(&metrics, &store, &cell),
+        ));
+        let grpc = tokio::spawn(std::future::pending::<()>());
+        let http = tokio::spawn(std::future::pending::<()>());
+
+        // Shutdown already requested when the loop starts.
+        let (sd_tx, sd_rx) = tokio::sync::oneshot::channel::<()>();
+        sd_tx.send(()).expect("receiver alive");
+        let shutdown_fut = async move {
+            let _ = sd_rx.await;
+        };
+
+        let result = drive_event_loop(
+            &mut rx,
+            &window,
+            &metrics,
+            &sources,
+            dummy_shutdown(&grpc, &http),
+            test_loop_cfg(),
+            work_tx,
+            worker,
+            shutdown_fut,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        // The 3 in-flight traces were drained and analyzed before return.
+        assert!((metrics.traces_analyzed_total.get() - 3.0).abs() < f64::EPSILON);
     }
 }

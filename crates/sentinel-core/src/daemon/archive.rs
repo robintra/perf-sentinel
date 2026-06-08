@@ -41,20 +41,20 @@ pub struct ArchiveHandle {
     pub join: JoinHandle<()>,
 }
 
-impl ArchiveHandle {
-    /// Try to push a window to the writer without blocking. Returns
-    /// `false` and logs a warning when the channel is full or closed.
-    pub fn try_send(&self, archive: OwnedArchive) -> bool {
-        match self.tx.try_send(archive) {
-            Ok(()) => true,
-            Err(TrySendError::Full(_)) => {
-                tracing::warn!("archive channel full, dropping window");
-                false
-            }
-            Err(TrySendError::Closed(_)) => {
-                tracing::warn!("archive writer task has exited, dropping window");
-                false
-            }
+/// Try to push a window to the writer without blocking. Returns `false`
+/// and logs a warning when the channel is full or closed. Free function
+/// so the analysis worker can call it on a cloned `Sender` without
+/// holding the `ArchiveHandle` (whose `join` stays with `daemon::run`).
+pub fn try_send(tx: &Sender<OwnedArchive>, archive: OwnedArchive) -> bool {
+    match tx.try_send(archive) {
+        Ok(()) => true,
+        Err(TrySendError::Full(_)) => {
+            tracing::warn!("archive channel full, dropping window");
+            false
+        }
+        Err(TrySendError::Closed(_)) => {
+            tracing::warn!("archive writer task has exited, dropping window");
+            false
         }
     }
 }

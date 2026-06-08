@@ -12,7 +12,7 @@ use axum::extract::State;
 use axum::routing::get;
 use prometheus::{
     Counter, CounterVec, Encoder, Gauge, HistogramOpts, HistogramVec, IntCounter, IntCounterVec,
-    Opts, Registry, TextEncoder,
+    IntGauge, Opts, Registry, TextEncoder,
 };
 
 #[cfg(feature = "daemon")]
@@ -285,6 +285,18 @@ pub struct MetricsState {
     pub total_io_ops: Counter,
     /// Cumulative avoidable I/O ops (for computing rolling waste ratio).
     pub avoidable_io_ops: Counter,
+    /// Batches pending in the analysis worker queue (incremented on
+    /// enqueue, decremented when the worker picks a batch up). A
+    /// sustained nonzero value means analysis is falling behind
+    /// ingestion. Stays at 0 without the daemon feature.
+    pub analysis_queue_depth: IntGauge,
+    /// Analysis batches shed because the worker queue was full or the
+    /// worker has stopped. Replaces the previous silent drop: every shed is
+    /// counted here.
+    pub analysis_shed_batches_total: IntCounter,
+    /// Traces dropped by the shed batches counted in
+    /// [`Self::analysis_shed_batches_total`].
+    pub analysis_shed_traces_total: IntCounter,
     /// cumulative I/O ops per service. Labeled with the
     /// `service` attribute from span `service.name`. Exposed so
     /// Grafana dashboards can show per-service throughput, and used
@@ -470,6 +482,24 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let analysis_queue_depth = IntGauge::new(
+            "perf_sentinel_analysis_queue_depth",
+            "Batches pending in the analysis worker queue",
+        )
+        .expect("metric creation should not fail");
+
+        let analysis_shed_batches_total = IntCounter::new(
+            "perf_sentinel_analysis_shed_batches_total",
+            "Analysis batches shed because the worker queue was full or the worker stopped",
+        )
+        .expect("metric creation should not fail");
+
+        let analysis_shed_traces_total = IntCounter::new(
+            "perf_sentinel_analysis_shed_traces_total",
+            "Traces dropped by analysis batch shedding",
+        )
+        .expect("metric creation should not fail");
+
         // per-service I/O op counter. Single source of
         // truth for per-service op counts, the Scaphandre scraper
         // reads this via snapshot-diff instead of maintaining a
@@ -513,6 +543,15 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(avoidable_io_ops.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(analysis_queue_depth.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(analysis_shed_batches_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(analysis_shed_traces_total.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(service_io_ops_total.clone()))
@@ -758,6 +797,9 @@ impl MetricsState {
             active_traces,
             total_io_ops,
             avoidable_io_ops,
+            analysis_queue_depth,
+            analysis_shed_batches_total,
+            analysis_shed_traces_total,
             service_io_ops_total,
             scaphandre_last_scrape_age_seconds,
             cloud_energy_last_scrape_age_seconds,

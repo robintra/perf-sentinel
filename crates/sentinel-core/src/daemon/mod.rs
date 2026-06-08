@@ -96,6 +96,11 @@ pub enum DaemonError {
         #[source]
         source: archive::ArchiveError,
     },
+    /// The single analysis worker stopped (e.g. a detector panicked) while
+    /// the daemon was running. The daemon exits so a supervisor restarts it
+    /// rather than staying up while silently analyzing nothing.
+    #[error("analysis worker stopped unexpectedly")]
+    AnalysisWorkerStopped,
 }
 
 /// Typed sub-enum for TLS configuration failures.
@@ -226,12 +231,15 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         },
     };
 
-    run_event_loop(
+    // Capture the loop outcome but still run cleanup below before
+    // propagating: a worker-death exit must release the socket and flush
+    // the archive just like a graceful shutdown.
+    let loop_result = run_event_loop(
         &mut rx,
         &window,
-        &metrics,
-        &findings_store,
-        correlator.as_deref(),
+        metrics,
+        findings_store,
+        correlator,
         &detect_config,
         &energy_sources,
         shutdown,
@@ -241,8 +249,8 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             evict_ms: config.daemon.trace_ttl_ms / 2,
             confidence: config.confidence(),
         },
-        &green_summary_cell,
-        archive_handle.as_ref(),
+        green_summary_cell,
+        archive_handle.as_ref().map(|h| h.tx.clone()),
     )
     .await;
 
@@ -255,7 +263,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
     {
         let _ = std::fs::remove_file(&config.daemon.json_socket);
     }
-    Ok(())
+    loop_result
 }
 
 /// Daemon startup gate for `[reporting] intent = "official"`.
@@ -420,6 +428,8 @@ total_applications_declared = 1
         assert!(format!("{e2}").contains("HTTP listener"));
         let e3 = DaemonError::GrpcBind(std::io::Error::other("boom"));
         assert!(format!("{e3}").contains("gRPC listener"));
+        let e4 = DaemonError::AnalysisWorkerStopped;
+        assert!(format!("{e4}").contains("analysis worker stopped"));
     }
 
     // ------------------------------------------------------------------
