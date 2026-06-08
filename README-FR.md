@@ -134,6 +134,8 @@ Les valeurs d'enum `io_intensity_band` / `io_waste_ratio_band` (`healthy` / `mod
 
 </details>
 
+La sortie est déterministe : la même entrée produit un JSON et un SARIF identiques au bit près (les findings sont triés sur une clé stable, pas l'ordre d'itération d'une `HashMap`), si bien qu'un quality gate CI ne clignote jamais et que deux exécutions identiques ne produisent aucun diff de PR parasite.
+
 ## Installation
 
 ```bash
@@ -157,7 +159,9 @@ Quatre environnements, trois modèles de déploiement. Mise en place complète d
 
 Modèles : **batch CI** (`analyze --ci` sur traces capturées, exit 1 sur dépassement de seuil), **collector central** (un OTel Collector route vers le daemon `watch`, métriques Prometheus et API de query), **sidecar** (un daemon par service pour du debug isolé). Le collector central est un daemon unique avec état : les replicas horizontaux exigent un load balancing par `trace_id` et ne partagent pas l'état de corrélation, voir [Modèle d'état du daemon](docs/FR/LIMITATIONS-FR.md#modèle-détat-du-daemon-en-mémoire-mono-processus-sans-état-partagé).
 
-Le comportement de la détection sous échantillonnage de traces (head-based vs tail-based) est traité dans [Échantillonnage en amont et précision de la détection](docs/FR/LIMITATIONS-FR.md#échantillonnage-en-amont-et-précision-de-la-détection).
+Le comportement de la détection sous échantillonnage de traces (head-based vs tail-based) est traité dans [Échantillonnage en amont et précision de la détection](docs/FR/LIMITATIONS-FR.md#échantillonnage-en-amont-et-précision-de-la-détection). Le `[daemon] sampling_rate` propre au daemon interagit de la même façon avec les détecteurs basés sur le comptage : échantillonner les traces avant la détection N+1 ou par seuil de répétition sous-compte les occurrences, voir [Échantillonnage en mode daemon](docs/FR/LIMITATIONS-FR.md#échantillonnage-en-mode-daemon).
+
+Sous surcharge soutenue, le daemon déleste des lots d'analyse entiers plutôt que de bloquer l'ingestion, et chaque délestage est compté (`perf_sentinel_analysis_shed_batches_total` / `_traces_total`, avec `perf_sentinel_analysis_queue_depth` pour le backlog en direct), jamais une perte silencieuse. Dimensionnez les files bornées avec `[daemon] ingest_queue_capacity` / `analysis_queue_capacity` et répartissez la charge quand le taux de délestage reste non nul, voir [Contre-pression d'analyse et délestage de charge](docs/FR/LIMITATIONS-FR.md#contre-pression-danalyse-et-délestage-de-charge).
 
 <details>
 <summary><b>Dev local</b></summary>
@@ -207,7 +211,7 @@ Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/
 
 perf-sentinel traite les traces sur place. Il ne fait aucun appel réseau sortant silencieux et n'embarque aucune télémétrie d'usage. Le contenu brut des spans (valeurs SQL littérales, URLs complètes) ne vit **qu'en mémoire**, dans la fenêtre de streaming : par défaut un TTL de 30 s et un cache LRU plafonné à 10 000 traces actives, tous deux ajustables sous `[daemon]`. Le daemon n'écrit jamais de spans bruts sur disque. Tout ce qu'il émet (rapports JSON / SARIF / HTML, API de query dont `/api/explain`, métriques Prometheus, archive NDJSON par fenêtre optionnelle) ne porte que le **template normalisé** : les littéraux SQL et les valeurs de chemin/query des URLs sont remplacés par des `?` et réduits à un *décompte* de paramètres distincts, jamais les valeurs elles-mêmes.
 
-Le daemon écoute sur `127.0.0.1` par défaut. TLS, CORS et la clé d'API d'acquittement sont tous opt-in. Les endpoints `GET` en lecture seule ne sont pas authentifiés, placez donc un reverse proxy ou une network policy devant avant d'exposer l'API au-delà de localhost. Réglages de rétention et d'écoute dans [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md), surface d'API dans [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md).
+Le daemon écoute sur `127.0.0.1` par défaut. TLS, CORS et la clé d'API d'acquittement sont tous opt-in. Les endpoints `GET` en lecture seule **et les listeners d'ingestion OTLP** (gRPC `:4317`, HTTP `:4318`) ne sont pas authentifiés et font confiance à leurs émetteurs, gardez donc l'ingestion sur un réseau de confiance et placez un reverse proxy ou une network policy devant avant d'exposer quoi que ce soit au-delà de localhost. Réglages de rétention et d'écoute dans [docs/FR/CONFIGURATION-FR.md](docs/FR/CONFIGURATION-FR.md), surface d'API dans [docs/FR/QUERY-API-FR.md](docs/FR/QUERY-API-FR.md).
 
 ## Démarrage rapide
 

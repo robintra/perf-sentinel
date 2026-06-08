@@ -134,6 +134,8 @@ The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `m
 
 </details>
 
+Output is deterministic: the same input yields byte-identical JSON and SARIF (findings are sorted on a stable key, not `HashMap` iteration order), so a CI quality gate never flickers and two identical runs produce no spurious PR diff.
+
 ## Install
 
 ```bash
@@ -157,7 +159,9 @@ Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](
 
 Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging). The central collector is a single stateful daemon: horizontal replicas need trace-id-aware load balancing and do not share correlation state, see [Daemon state model](docs/LIMITATIONS.md#daemon-state-model-in-memory-single-process-no-shared-state).
 
-How detection behaves under trace sampling (head-based vs tail-based) is covered in [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy).
+How detection behaves under trace sampling (head-based vs tail-based) is covered in [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy). The daemon's own `[daemon] sampling_rate` interacts with the count-based detectors the same way: sampling traces before N+1 or repetition-threshold detection undercounts occurrences, see [Sampling in daemon mode](docs/LIMITATIONS.md#sampling-in-daemon-mode).
+
+Under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, and every shed is counted (`perf_sentinel_analysis_shed_batches_total` / `_traces_total`, with `perf_sentinel_analysis_queue_depth` for the live backlog), never a silent drop. Size the bounded queues with `[daemon] ingest_queue_capacity` / `analysis_queue_capacity` and shard when the shed rate stays nonzero, see [Analysis backpressure and load shedding](docs/LIMITATIONS.md#analysis-backpressure-and-load-shedding).
 
 <details>
 <summary><b>Local dev</b></summary>
@@ -207,7 +211,7 @@ The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/pe
 
 perf-sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only: SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
 
-The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints are unauthenticated, so put a reverse proxy or network policy in front before exposing the API beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
+The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
 
 ## Quickstart
 
