@@ -6,7 +6,7 @@ flowchart TB
     http["OTLP HTTP<br/><i>:4318 POST /v1/traces</i>"]
     sock["JSON Unix socket<br/><i>/tmp/perf-sentinel.sock</i>"]
 
-    channel["mpsc::channel(1024)<br/><i>Vec&lt;SpanEvent&gt; batches</i>"]
+    channel["Ingestion mpsc::channel(1024)<br/><i>Vec&lt;SpanEvent&gt; batches</i>"]
 
     subgraph eventloop["tokio::select! event loop"]
         recv["Receive batch"]
@@ -31,9 +31,20 @@ flowchart TB
         emaps["Electricity Maps<br/><i>real-time gCO2/kWh<br/>poll_interval_secs</i>"]
     end
 
-    tick_ctx["build_tick_ctx()<br/><i>merge energy snapshots, precedence:<br/>scaphandre &gt; kepler &gt; redfish &gt; cloud<br/>+ real-time intensity</i>"]
+    tick_ctx["build_owned_tick_ctx()<br/><i>merge energy snapshots at eviction time, precedence:<br/>scaphandre &gt; kepler &gt; redfish &gt; cloud<br/>+ real-time intensity</i>"]
 
-    process["process_traces()<br/><i>detect &rarr; score</i>"]
+    enqueue["enqueue_for_analysis()<br/><i>try_reserve(), non-blocking,<br/>never awaits analysis</i>"]
+
+    work_channel["mpsc::channel(1024)<br/><i>AnalysisBatch: events + CarbonContext<br/>bounded, FIFO</i>"]
+
+    shed["record_shed()<br/><i>queue full or worker stopped:<br/>shed whole batch, never silent</i>"]
+
+    subgraph worker["Analysis worker (single tokio task, off the select! loop)"]
+        process["process_traces()<br/><i>detect &rarr; score</i>"]
+        worker_watch["JoinHandle, 4th select! arm<br/><i>worker death &rarr;<br/>DaemonError::AnalysisWorkerStopped</i>"]
+    end
+
+    exit["Fail-loud exit<br/><i>supervisor restarts</i>"]
 
     confidence["Confidence stamping<br/><i>CiBatch / DaemonStaging<br/>/ DaemonProduction</i>"]
 
@@ -70,6 +81,7 @@ flowchart TB
     recv --> sampling --> norm --> window
     tick --> ttl
     ctrlc -- "drain_all()" --> window
+    window -. "drain_to_worker_and_join() (Ctrl-C):<br/>blocking send, no shedding, then join" .-> work_channel
 
     scaph --> tick_ctx
     kepler --> tick_ctx
@@ -77,9 +89,17 @@ flowchart TB
     cloud --> tick_ctx
     emaps --> tick_ctx
 
-    lru -- "evicted traces" --> tick_ctx
-    ttl -- "expired traces" --> tick_ctx
-    tick_ctx --> process
+    lru -- "evicted traces" --> enqueue
+    ttl -- "expired traces" --> enqueue
+    tick_ctx -- "CarbonContext travels with batch" --> enqueue
+    enqueue -- "AnalysisBatch" --> work_channel
+    enqueue -. "queue full / worker stopped" .-> shed
+    work_channel --> process
+    worker_watch -. "stops before shutdown" .-> exit
+
+    enqueue -. "queue_depth.inc()" .-> metrics_state
+    process -. "queue_depth.dec()" .-> metrics_state
+    shed -. "shed_batches/traces_total" .-> metrics_state
 
     process --> confidence
     confidence --> correlator
@@ -104,6 +124,7 @@ flowchart TB
     ack_jsonl -. "list active" .-> api_acks_list
 
     style eventloop fill:#2d3b4a,stroke:#60a5fa
+    style worker fill:#1f3a4a,stroke:#38bdf8
     style window fill:#3b2d4a,stroke:#a78bfa
     style scrapers fill:#2d4a3e,stroke:#4ade80
     style findings_ring fill:#4a3b2d,stroke:#fbbf24
