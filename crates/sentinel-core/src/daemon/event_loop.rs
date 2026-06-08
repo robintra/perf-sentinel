@@ -193,7 +193,7 @@ async fn drive_event_loop(
     loop_cfg: EventLoopConfig,
     work_tx: mpsc::Sender<AnalysisBatch>,
     mut worker: tokio::task::JoinHandle<()>,
-    shutdown_fut: impl std::future::Future<Output = ()>,
+    shutdown_fut: impl Future<Output = ()>,
 ) -> Result<(), super::DaemonError> {
     let mut ticker = interval(Duration::from_millis(loop_cfg.evict_ms.max(100)));
     // Prevent burst-catchup if a tick is delayed. With analysis off the
