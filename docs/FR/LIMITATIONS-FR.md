@@ -247,6 +247,8 @@ Le délestage répond à la *surcharge*, pas à une *panne*. Si le worker d'anal
 
 Un arrêt gracieux ne déleste **pas** : il vide la fenêtre et joint le worker afin que chaque lot en vol soit analysé avant la sortie.
 
+Le délestage d'analyse est distinct de la rétention d'archive. L'archive de divulgation par fenêtre (`daemon/archive.rs`, le NDJSON que `disclose` agrège ensuite) a son propre canal borné avec une politique explicite de rejet quand il est plein. Sous charge soutenue, ou si la tâche d'écriture prend du retard sur les I/O disque, des fenêtres entières sont abandonnées de l'archive même quand leurs findings ont été analysés et servis en direct par l'API, et un arrêt gracieux vide le worker d'analyse mais n'étend pas la même garantie de livraison à l'archive. C'est un fonctionnement au mieux par conception (transparence publique, pas de niveau réglementaire), donc considérez l'archive comme un enregistrement échantillonné plutôt qu'un registre complet.
+
 ## Modèle d'état du daemon, en mémoire, mono-processus, sans état partagé
 
 L'état de corrélation du daemon est entièrement en mémoire : une fenêtre glissante de 30s (`trace_ttl_ms`) sur un LRU de 10 000 traces (`max_active_traces`), tous deux réglables sous `[daemon]`. Il n'y a pas de couche de persistance, pas de write-ahead log, pas de snapshot, pas de débordement sur disque. Cela façonne trois propriétés opérationnelles qui comptent pour un déploiement de production sérieux.

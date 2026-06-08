@@ -183,6 +183,8 @@ Shedding is the response to *overload*, not to *failure*. If the analysis worker
 
 A graceful shutdown does **not** shed: it drains the window and joins the worker so every in-flight batch is analyzed before exit.
 
+Analysis shedding is separate from archive retention. The per-window disclosure archive (`daemon/archive.rs`, the NDJSON that `disclose` later aggregates) has its own bounded channel with an explicit drop-on-full policy. Under sustained load, or if the writer task falls behind on disk I/O, whole windows are dropped from the archive even when their findings were analyzed and served on the live endpoints, and a graceful shutdown drains the analysis worker but does not extend the same delivery guarantee to the archive. This is best-effort by design (public transparency, not regulatory-grade), so treat the archive as a sampled record rather than a complete ledger.
+
 ## Daemon state model: in-memory, single-process, no shared state
 
 The daemon's correlation state is entirely in memory: a 30s rolling window (`trace_ttl_ms`) over a 10,000-trace LRU (`max_active_traces`), both tunable under `[daemon]`. There is no persistence layer, no write-ahead log, no snapshot, no disk spill. This shapes three operational properties that matter for a serious production deployment.
