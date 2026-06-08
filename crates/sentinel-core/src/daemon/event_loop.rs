@@ -34,6 +34,9 @@ pub(super) struct EventLoopConfig {
     pub(super) sampling_rate: f64,
     pub(super) evict_ms: u64,
     pub(super) confidence: Confidence,
+    /// Capacity of the bounded analysis worker queue. From
+    /// `[daemon] analysis_queue_capacity`.
+    pub(super) analysis_queue_capacity: usize,
 }
 
 /// Bundle of handles aborted on shutdown (SIGINT, or SIGTERM on Unix).
@@ -63,7 +66,7 @@ pub(super) struct ListenerHandles<'a> {
 /// Lifetime-bound bundle of energy/intensity scraper state used to build
 /// the per-tick `CarbonContext`. Borrowed by `enqueue_for_analysis`.
 pub(super) struct EnergySources<'a> {
-    pub(super) base_carbon_ctx: &'a score::carbon::CarbonContext,
+    pub(super) base_carbon_ctx: Arc<score::carbon::CarbonContext>,
     pub(super) scaphandre_state: Option<&'a ScaphandreState>,
     pub(super) scaphandre_staleness_ms: u64,
     pub(super) kepler_state: Option<&'a KeplerState>,
@@ -76,17 +79,28 @@ pub(super) struct EnergySources<'a> {
     pub(super) emaps_staleness_ms: u64,
 }
 
-/// Capacity of the channel feeding the analysis worker. Bounds the
-/// pending-batch backlog; once full, the select! loop sheds whole
-/// batches (counted, never silent) instead of blocking ingestion.
-const ANALYSIS_QUEUE_CAPACITY: usize = 1024;
-
 /// One evicted/expired/drained batch handed to the analysis worker. The
 /// `CarbonContext` is built on the loop side at eviction time, so energy
 /// scraper readings keep their current sampling instant.
 struct AnalysisBatch {
     traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
-    carbon_ctx: score::carbon::CarbonContext,
+    carbon_ctx: Arc<score::carbon::CarbonContext>,
+}
+
+impl AnalysisBatch {
+    /// Build a batch from evicted/expired/drained traces, sampling the
+    /// energy sources at eviction time so the snapshot travels with the
+    /// batch. Single construction site shared by both the non-blocking
+    /// enqueue and the shutdown drain.
+    fn new(
+        traces: Vec<(String, Vec<normalize::NormalizedEvent>)>,
+        sources: &EnergySources<'_>,
+    ) -> Self {
+        Self {
+            traces,
+            carbon_ctx: build_owned_tick_ctx(sources),
+        }
+    }
 }
 
 /// Owned/`Arc` state the analysis worker needs. Everything crossing the
@@ -131,7 +145,7 @@ pub(super) async fn run_event_loop(
     // long analysis pass can no longer stall ingestion (rx) or TTL
     // eviction (ticker). One channel, one worker, FIFO: the stateful
     // cross-trace correlator still sees a deterministic batch sequence.
-    let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(ANALYSIS_QUEUE_CAPACITY);
+    let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(loop_cfg.analysis_queue_capacity);
     let worker = tokio::spawn(run_analysis_worker(
         work_rx,
         AnalysisWorkerCtx {
@@ -251,7 +265,7 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
             ProcessTracesCtx {
                 detect_config: &wctx.detect_config,
                 green_enabled: wctx.green_enabled,
-                carbon_ctx: &batch.carbon_ctx,
+                carbon_ctx: batch.carbon_ctx.as_ref(),
                 metrics: &wctx.metrics,
                 confidence: wctx.confidence,
                 findings_store: &wctx.findings_store,
@@ -347,9 +361,9 @@ async fn evict_expired_traces(
 /// Build the per-tick `CarbonContext` from the current scraper snapshots,
 /// owned so it can travel to the worker. Sampling the energy sources here
 /// (on the loop side, at eviction time) preserves the previous timing.
-fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> score::carbon::CarbonContext {
-    build_tick_ctx(
-        sources.base_carbon_ctx,
+fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> Arc<score::carbon::CarbonContext> {
+    match build_tick_ctx(
+        &sources.base_carbon_ctx,
         sources.scaphandre_state,
         sources.scaphandre_staleness_ms,
         sources.kepler_state,
@@ -360,8 +374,13 @@ fn build_owned_tick_ctx(sources: &EnergySources<'_>) -> score::carbon::CarbonCon
         sources.cloud_staleness_ms,
         sources.emaps_state,
         sources.emaps_staleness_ms,
-    )
-    .into_owned()
+    ) {
+        // Fast path (no scraper produced fresh data, the common case):
+        // share the base context by refcount instead of deep-cloning the
+        // region map and calibration table on every evicted batch.
+        std::borrow::Cow::Borrowed(_) => Arc::clone(&sources.base_carbon_ctx),
+        std::borrow::Cow::Owned(ctx) => Arc::new(ctx),
+    }
 }
 
 /// Hand an evicted/expired batch to the analysis worker without blocking.
@@ -384,32 +403,20 @@ fn enqueue_for_analysis(
     match work_tx.try_reserve() {
         Ok(permit) => {
             metrics.analysis_queue_depth.inc();
-            permit.send(AnalysisBatch {
-                traces,
-                carbon_ctx: build_owned_tick_ctx(sources),
-            });
+            permit.send(AnalysisBatch::new(traces, sources));
         }
         Err(mpsc::error::TrySendError::Full(())) => {
-            record_shed(metrics, trace_count);
+            metrics.record_shed(trace_count);
             tracing::warn!(traces = trace_count, "analysis queue full, shedding batch");
         }
         Err(mpsc::error::TrySendError::Closed(())) => {
-            record_shed(metrics, trace_count);
+            metrics.record_shed(trace_count);
             tracing::error!(
                 traces = trace_count,
                 "analysis worker stopped, shedding batch"
             );
         }
     }
-}
-
-/// Count a dropped batch on the shed counters so overload, or a stopped
-/// worker, is always observable instead of a silent drop.
-fn record_shed(metrics: &MetricsState, trace_count: usize) {
-    metrics.analysis_shed_batches_total.inc();
-    metrics
-        .analysis_shed_traces_total
-        .inc_by(trace_count as u64);
 }
 
 /// Shutdown handshake: drain the in-flight window into the worker with a
@@ -429,20 +436,16 @@ async fn drain_to_worker_and_join(
     };
     if !remaining.is_empty() {
         let trace_count = remaining.len();
-        let carbon_ctx = build_owned_tick_ctx(sources);
         // Blocking send: a live worker keeps draining, so capacity frees up
         // and the final window is delivered rather than shed.
-        let batch = AnalysisBatch {
-            traces: remaining,
-            carbon_ctx,
-        };
+        let batch = AnalysisBatch::new(remaining, sources);
         if work_tx.send(batch).await.is_ok() {
             metrics.analysis_queue_depth.inc();
         } else {
             // The worker stopped before the drain (e.g. it panicked): the
             // window cannot be delivered, so count it instead of losing it
             // silently.
-            record_shed(metrics, trace_count);
+            metrics.record_shed(trace_count);
             tracing::error!(
                 traces = trace_count,
                 "analysis worker stopped before shutdown drain"
@@ -1179,9 +1182,9 @@ mod tests {
     }
 
     /// `EnergySources` with no scrapers configured.
-    fn no_scrapers(base: &score::carbon::CarbonContext) -> EnergySources<'_> {
+    fn no_scrapers(base: &Arc<score::carbon::CarbonContext>) -> EnergySources<'_> {
         EnergySources {
-            base_carbon_ctx: base,
+            base_carbon_ctx: base.clone(),
             scaphandre_state: None,
             scaphandre_staleness_ms: 0,
             kepler_state: None,
@@ -1233,7 +1236,7 @@ mod tests {
         // worker. The loop therefore keeps draining rx and the ticker.
         // Excess batches are shed and counted, never silently dropped.
         let metrics = MetricsState::new();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(2);
 
@@ -1257,7 +1260,7 @@ mod tests {
         // A full queue sheds the whole batch and records both the batch
         // and the trace count it represented.
         let metrics = MetricsState::new();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let (work_tx, _work_rx) = mpsc::channel::<AnalysisBatch>(1);
 
@@ -1284,7 +1287,7 @@ mod tests {
         // Receiver gone (worker stopped): the batch is shed and counted,
         // not silently dropped, so shed-based alerts still fire.
         let metrics = MetricsState::new();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
         drop(work_rx);
@@ -1308,7 +1311,7 @@ mod tests {
         let metrics = Arc::new(MetricsState::new());
         let store = Arc::new(findings_store::FindingsStore::new(100));
         let cell = fresh_green_cell();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
 
         let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(4);
@@ -1370,6 +1373,7 @@ mod tests {
             // an empty/fresh window it is a no-op.
             evict_ms: 60_000,
             confidence: Confidence::DaemonStaging,
+            analysis_queue_capacity: 1024,
         }
     }
 
@@ -1379,7 +1383,7 @@ mod tests {
         // drive_event_loop must fail loud so a supervisor restarts the
         // process, rather than looping on while analysis is dead.
         let metrics = MetricsState::new();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let window = test_window();
         let (_tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(16);
@@ -1416,7 +1420,7 @@ mod tests {
         let metrics = Arc::new(MetricsState::new());
         let store = Arc::new(findings_store::FindingsStore::new(100));
         let cell = fresh_green_cell();
-        let base = empty_carbon_ctx();
+        let base = Arc::new(empty_carbon_ctx());
         let sources = no_scrapers(&base);
         let window = test_window();
         {

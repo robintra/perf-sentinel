@@ -156,7 +156,7 @@ pub enum TlsConfigError {
 /// Panics if `config.daemon.max_active_traces` is 0 (config validation prevents this).
 pub async fn run(config: Config) -> Result<(), DaemonError> {
     validate_official_reporting(&config)?;
-    let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(1024);
+    let (tx, mut rx) = mpsc::channel::<Vec<SpanEvent>>(config.daemon.ingest_queue_capacity);
     let window = Arc::new(Mutex::new(TraceWindow::new(WindowConfig {
         max_events_per_trace: config.daemon.max_events_per_trace,
         trace_ttl_ms: config.daemon.trace_ttl_ms,
@@ -201,10 +201,10 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
         None => None,
     };
 
-    let base_carbon_ctx = config.carbon_context();
+    let base_carbon_ctx = std::sync::Arc::new(config.carbon_context());
     let detect_config = DetectConfig::from(&config);
     let energy_sources = EnergySources {
-        base_carbon_ctx: &base_carbon_ctx,
+        base_carbon_ctx,
         scaphandre_state: scaphandre.state.as_deref(),
         scaphandre_staleness_ms: scaphandre.staleness_ms,
         kepler_state: kepler.state.as_deref(),
@@ -248,6 +248,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             sampling_rate: config.daemon.sampling_rate,
             evict_ms: config.daemon.trace_ttl_ms / 2,
             confidence: config.confidence(),
+            analysis_queue_capacity: config.daemon.analysis_queue_capacity,
         },
         green_summary_cell,
         archive_handle.as_ref().map(|h| h.tx.clone()),

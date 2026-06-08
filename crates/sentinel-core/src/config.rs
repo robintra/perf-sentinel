@@ -227,6 +227,14 @@ pub struct DaemonConfig {
     pub environment: DaemonEnvironment,
     /// Maximum number of findings retained by the daemon query API.
     pub max_retained_findings: usize,
+    /// Capacity of the ingestion channel: span-event batches buffered
+    /// between the listeners and the event loop. Provides ingestion
+    /// backpressure once full.
+    pub ingest_queue_capacity: usize,
+    /// Capacity of the analysis worker queue: evicted/expired batches
+    /// awaiting detect+score. When full, whole batches are shed (counted
+    /// on `perf_sentinel_analysis_shed_*`).
+    pub analysis_queue_capacity: usize,
     /// Whether the daemon query API is enabled.
     pub api_enabled: bool,
     /// TLS material for the OTLP listeners. When `cert_path` and
@@ -385,6 +393,8 @@ impl Default for DaemonConfig {
             max_payload_size: 16 * 1024 * 1024,
             environment: DaemonEnvironment::Staging,
             max_retained_findings: 10_000,
+            ingest_queue_capacity: 1024,
+            analysis_queue_capacity: 1024,
             api_enabled: true,
             tls: DaemonTlsConfig::default(),
             ack: DaemonAckConfig::default(),
@@ -651,6 +661,10 @@ struct DaemonSection {
     tls_key_path: Option<String>,
     /// Maximum number of findings kept by the daemon query API.
     max_retained_findings: Option<usize>,
+    /// Ingestion channel capacity (span-event batches).
+    ingest_queue_capacity: Option<usize>,
+    /// Analysis worker queue capacity (batches awaiting detect+score).
+    analysis_queue_capacity: Option<usize>,
     /// Whether the daemon query API is enabled.
     api_enabled: Option<bool>,
     /// Cross-trace correlation section.
@@ -1052,6 +1066,14 @@ impl From<RawConfig> for Config {
                     .daemon
                     .max_retained_findings
                     .unwrap_or(daemon_defaults.max_retained_findings),
+                ingest_queue_capacity: raw
+                    .daemon
+                    .ingest_queue_capacity
+                    .unwrap_or(daemon_defaults.ingest_queue_capacity),
+                analysis_queue_capacity: raw
+                    .daemon
+                    .analysis_queue_capacity
+                    .unwrap_or(daemon_defaults.analysis_queue_capacity),
                 api_enabled: raw
                     .daemon
                     .api_enabled
@@ -2536,6 +2558,18 @@ impl Config {
             &10_000_000,
         )?;
         check_range("trace_ttl_ms", &self.daemon.trace_ttl_ms, &100, &3_600_000)?;
+        check_range(
+            "ingest_queue_capacity",
+            &self.daemon.ingest_queue_capacity,
+            &1,
+            &1_048_576,
+        )?;
+        check_range(
+            "analysis_queue_capacity",
+            &self.daemon.analysis_queue_capacity,
+            &1,
+            &1_048_576,
+        )?;
         check_range("listen_port_http", &self.daemon.listen_port, &1, &65535)?;
         check_range(
             "listen_port_grpc",
@@ -4837,6 +4871,34 @@ toml_path = \"/etc/perf-sentinel/acknowledgments.toml\"
             cfg.daemon.ack.toml_path.as_deref(),
             Some("/etc/perf-sentinel/acknowledgments.toml")
         );
+    }
+
+    #[test]
+    fn parse_daemon_queue_capacities_override_and_default() {
+        let toml = "
+[daemon]
+ingest_queue_capacity = 4096
+analysis_queue_capacity = 2048
+";
+        let cfg = load_from_str(toml).unwrap();
+        assert_eq!(cfg.daemon.ingest_queue_capacity, 4096);
+        assert_eq!(cfg.daemon.analysis_queue_capacity, 2048);
+
+        // Both default to 1024 when the keys are absent.
+        let cfg = load_from_str("").unwrap();
+        assert_eq!(cfg.daemon.ingest_queue_capacity, 1024);
+        assert_eq!(cfg.daemon.analysis_queue_capacity, 1024);
+    }
+
+    #[test]
+    fn validate_daemon_rejects_zero_queue_capacity() {
+        let toml = "
+[daemon]
+analysis_queue_capacity = 0
+";
+        let err = load_from_str(toml).unwrap_err();
+        let msg = format!("{err}");
+        assert!(msg.contains("analysis_queue_capacity"), "{msg}");
     }
 
     #[test]

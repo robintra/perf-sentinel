@@ -858,6 +858,16 @@ impl MetricsState {
         <Self as crate::ingest::otlp::MetricsSink>::record_otlp_reject(self, reason);
     }
 
+    /// Count a shed analysis batch (worker queue full or worker stopped)
+    /// on both the batch and trace shed counters, so overload is always
+    /// observable instead of a silent drop.
+    #[cfg(feature = "daemon")]
+    #[inline]
+    pub fn record_shed(&self, trace_count: usize) {
+        self.analysis_shed_batches_total.inc();
+        self.analysis_shed_traces_total.inc_by(trace_count as u64);
+    }
+
     /// Increment `perf_sentinel_ack_operations_total` for the given
     /// action. Called by the daemon ack endpoints on every successful
     /// ack or unack write. Branchless `match` over the cached children,
