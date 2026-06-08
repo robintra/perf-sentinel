@@ -104,7 +104,7 @@ Dix types de findings, plus la corrélation cross-trace en mode daemon :
 | Saturation de pool | Requêtes concurrentes en vol au-dessus de la taille du pool         |
 | Appels sérialisés  | I/O séquentiels qui pourraient être parallélisés                    |
 
-Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans OTel portent les attributs `code.*`) et impact GreenOps (voir plus bas). Pour les règles de sévérité et seuils ajustables, voir [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
+Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans OTel portent les attributs `code.*`) et impact GreenOps (voir plus bas). Pour les règles de sévérité et seuils ajustables, voir [docs/FR/design/04-DETECTION-FR.md](docs/FR/design/04-DETECTION-FR.md).
 
 ## Formats d'entrée et de sortie
 
@@ -494,11 +494,11 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 ## Supply chain
 
-Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor). Politique complète et commandes de vérification : [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor). Politique complète et commandes de vérification : [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
 
 ## Releasing
 
-Les releases suivent une procédure documentée avec un gate obligatoire de validation simulation-lab. Pas-à-pas dans [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md) ([FR](docs/FR/RELEASE-PROCEDURE-FR.md)).
+Les releases suivent une procédure documentée avec un gate obligatoire de validation simulation-lab. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md) ([EN](docs/RELEASE-PROCEDURE.md)).
 
 ## Licence
 
