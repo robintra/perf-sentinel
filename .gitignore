@@ -20,4 +20,8 @@
 /crates/sentinel-cli/tests/browser/fixtures/
 /crates/sentinel-cli/tests/browser/demo-videos/
 
+# CycloneDX SBOMs written into the tree by `cargo cyclonedx` (generated in CI
+# for releases, never committed).
+*.cdx.json
+
 /CHANGELOG.md

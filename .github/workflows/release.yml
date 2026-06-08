@@ -101,9 +101,26 @@ jobs:
         if: matrix.cross
         run: cross build --release --target ${{ matrix.target }} -p perf-sentinel
 
-      - name: Build (native)
+      # cargo-auditable embeds the resolved dependency list into the binary so
+      # `cargo audit bin <file>` works on the shipped artifact, not just on the
+      # repo's Cargo.lock. Installed from prebuilt releases by
+      # taiki-e/install-action (the same action ci.yml uses), version-pinned to
+      # match the repo's pinning discipline.
+      #
+      # The cross (aarch64-musl) target is deliberately NOT covered: embedding
+      # would require running cargo-auditable inside the `cross` Docker image,
+      # which is fragile to wire and cannot be validated outside a real release.
+      # The CycloneDX SBOM attached to every release (see the `sbom` job below)
+      # is arch-independent and documents the same dependency set for aarch64.
+      - name: Install cargo-auditable
         if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }} -p perf-sentinel
+        uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
+        with:
+          tool: cargo-auditable@0.7.5
+
+      - name: Build (native, with embedded audit data)
+        if: ${{ !matrix.cross }}
+        run: cargo auditable build --release --target ${{ matrix.target }} -p perf-sentinel
 
       - name: Rename binary (Unix)
         if: runner.os != 'Windows'
@@ -119,6 +136,48 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
 
+  # CycloneDX SBOM for the shipped CLI binary: its full transitive dependency
+  # tree, emitted as JSON. Arch-independent, so one SBOM documents every target
+  # binary (including the cross-built aarch64 one that lacks embedded audit
+  # data). Runs in parallel with `build`; the `release` job waits on both, picks
+  # the file up via the merged artifact download, and ships it as a release
+  # asset alongside the checksums and provenance attestation.
+  sbom:
+    name: Generate SBOM (CycloneDX)
+    needs: check-versions
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: stable
+
+      - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
+        with:
+          tool: cargo-cyclonedx@0.5.9
+
+      # `--target all` unions the dependency set across every platform, so the
+      # single SBOM covers all four release binaries (libc on unix, winapi on
+      # windows, etc.), not just the host. Default features, matching the
+      # release build of perf-sentinel. cargo-cyclonedx emits one SBOM per
+      # workspace member next to each manifest; we ship the CLI crate's,
+      # `crates/sentinel-cli/perf-sentinel.cdx.json` (the core crate's is an
+      # ignored byproduct).
+      - name: Generate CycloneDX SBOM
+        run: cargo cyclonedx --format json --target all --spec-version 1.5
+
+      - name: Stage SBOM under the release-asset name
+        run: cp crates/sentinel-cli/perf-sentinel.cdx.json perf-sentinel-sbom.cdx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: perf-sentinel-sbom.cdx.json
+          path: perf-sentinel-sbom.cdx.json
+
   # SLSA Build L3 provenance attestation for every release binary.
   # Stored in the GitHub attestations API (no release asset), queryable
   # via `gh attestation verify <binary> --owner robintra --repo perf-sentinel`.
@@ -127,7 +186,7 @@ jobs:
   # `actions/attest-build-provenance` (maintained under the actions/ org).
   release:
     name: Create GitHub Release
-    needs: build
+    needs: [build, sbom]
     runs-on: ubuntu-latest
     permissions:
       contents: write     # softprops/action-gh-release uploads release assets
