@@ -197,6 +197,10 @@ sampling_rate = 1.0
 max_events_per_trace = 1000
 # Max single OTLP request payload in bytes (1 MB default).
 max_payload_size = 1048576
+# Bounded-queue capacities (defaults shown). Raise under bursty load to
+# reduce ingestion backpressure and analysis-worker shedding.
+ingest_queue_capacity = 1024
+analysis_queue_capacity = 1024
 
 # Deployment environment stamped on every finding as `confidence`:
 # - "staging"    → `daemon_staging`    (medium confidence, default)

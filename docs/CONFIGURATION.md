@@ -422,6 +422,8 @@ Streaming mode (`perf-sentinel watch`) settings.
 | `tls_key_path`          | string  | *(absent)*                  | Path to a PEM-encoded TLS private key. Must be set together with `tls_cert_path` (both or neither). On Unix, the daemon warns if the key file is readable by group or others                                                                                                                                                             |
 | `api_enabled`           | boolean | `true`                      | Enable the daemon query API endpoints (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Set to `false` to disable the API while keeping OTLP ingestion and `/metrics` active                                                                                                                             |
 | `max_retained_findings` | integer | `10000`                     | Maximum number of recent findings retained in the daemon's ring buffer for the query API. Older findings are evicted when the limit is reached. Range: 0 to 10,000,000, where `0` disables the store entirely and reclaims its memory (recommended when `api_enabled = false`)                                                           |
+| `ingest_queue_capacity` | integer | `1024`                      | Capacity of the ingestion channel: span-event batches buffered between the listeners and the event loop. Once full, ingestion applies backpressure to producers. Raise it to absorb burstier traffic at the cost of memory. Range: 1 to 1,048,576                                                                                       |
+| `analysis_queue_capacity` | integer | `1024`                    | Capacity of the analysis worker queue: evicted and expired batches awaiting detect+score. Once full, whole batches are shed and counted on `perf_sentinel_analysis_shed_batches_total`. Raise it to tolerate longer analysis bursts before shedding. Range: 1 to 1,048,576                                                              |
 
 ##### Comfort zones and startup warnings
 
@@ -612,6 +614,10 @@ max_payload_size = 16777216
 # tls_key_path = "/etc/tls/server-key.pem"
 api_enabled = true
 max_retained_findings = 10000
+# Optional: tune the bounded queues (defaults shown). Raise under bursty
+# load to reduce ingestion backpressure / analysis shedding.
+ingest_queue_capacity = 1024
+analysis_queue_capacity = 1024
 
 # Optional: cross-trace correlation (daemon mode only)
 # [daemon.correlation]

@@ -426,6 +426,8 @@ Paramètres du mode streaming (`perf-sentinel watch`).
 | `tls_key_path`          | chaîne   | *(absent)*                  | Chemin vers la clé privée TLS au format PEM. Doit être renseigné avec `tls_cert_path` (les deux ou aucun). Sous Unix, le daemon avertit si le fichier de clé est lisible par le groupe ou les autres                                                                                                                                                                         |
 | `api_enabled`           | booléen  | `true`                      | Active les endpoints de l'API de requêtage du daemon (`/api/findings`, `/api/explain/{trace_id}`, `/api/correlations`, `/api/status`). Mettre à `false` pour désactiver l'API tout en conservant l'ingestion OTLP et `/metrics`                                                                                                                                              |
 | `max_retained_findings` | entier   | `10000`                     | Nombre maximum de findings récents conservés dans le buffer circulaire du daemon pour l'API de requêtage. Les findings les plus anciens sont évincés quand la limite est atteinte. Plage : 0 à 10 000 000, où `0` désactive complètement le store et libère sa mémoire (recommandé quand `api_enabled = false`)                                                              |
+| `ingest_queue_capacity` | entier   | `1024`                      | Capacité du canal d'ingestion : lots d'événements de span tamponnés entre les listeners et la boucle d'événements. Une fois plein, l'ingestion applique une contre-pression aux producteurs. Augmentez-la pour absorber un trafic plus en rafales, au prix de la mémoire. Plage : 1 à 1 048 576                                                                              |
+| `analysis_queue_capacity` | entier | `1024`                      | Capacité de la file du worker d'analyse : lots évincés et expirés en attente de detect+score. Une fois pleine, des lots entiers sont délestés et comptés sur `perf_sentinel_analysis_shed_batches_total`. Augmentez-la pour tolérer des rafales d'analyse plus longues avant délestage. Plage : 1 à 1 048 576                                                                |
 
 ##### Zones de confort et avertissements au démarrage
 
@@ -622,6 +624,11 @@ max_payload_size = 16777216
 # tls_key_path = "/etc/tls/server-key.pem"
 api_enabled = true
 max_retained_findings = 10000
+# Optionnel : régler les files bornées (valeurs par défaut affichées).
+# Augmentez sous charge en rafales pour réduire la contre-pression
+# d'ingestion / le délestage d'analyse.
+ingest_queue_capacity = 1024
+analysis_queue_capacity = 1024
 
 # Optionnel : corrélation cross-trace (mode daemon uniquement)
 # [daemon.correlation]
