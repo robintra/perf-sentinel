@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.50
-appVersion: "0.8.5"
+version: 0.2.51
+appVersion: "0.8.6"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -57,9 +57,11 @@ annotations:
       description: "appVersion 0.8.4: a man subcommand renders the perf-sentinel manual page to stdout (perf-sentinel man, backed by clap_mangen), mirroring the existing completions subcommand. Every user-facing command's --help now carries copy-pasteable usage examples, and several command help texts were tightened. No chart template change, this bump only tracks the new appVersion."
     - kind: changed
       description: "appVersion 0.8.5: a normal Kubernetes pod termination (SIGTERM from a rolling update or scale-down) now drains the daemon's in-flight streaming window through detection instead of dropping it, matching the existing SIGINT (Ctrl+C) behavior, via a shared shutdown-signal helper that also aborts in-flight Tempo fetches. Only an ungraceful kill (SIGKILL after the grace period, OOM) still loses the window, so set terminationGracePeriodSeconds above the daemon's window duration to benefit. The Windows daemon binary and core test suite also build and run now. No chart template change, this bump only tracks the new appVersion."
+    - kind: changed
+      description: "appVersion 0.8.6: the daemon's ingestion channel and analysis-worker queue depths are now configurable via [daemon] ingest_queue_capacity and analysis_queue_capacity (both default 1024), and the base CarbonContext is shared across analysis batches by Arc instead of being deep-cloned on every evicted batch. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.5
+      image: ghcr.io/robintra/perf-sentinel:0.8.6
       platforms:
         - linux/amd64
         - linux/arm64
