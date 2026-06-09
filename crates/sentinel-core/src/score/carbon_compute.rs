@@ -316,7 +316,7 @@ fn resolve_span_region<'a>(
     // (0.0, generic_pue) so their CO₂ from annual intensity is zero but
     // they still produce a breakdown row. When a custom hourly profile
     // or real-time intensity exists for an out-of-table region, a
-    // generic PUE (1.2) is used so the intensity is not zeroed by pue=0.
+    // generic PUE is used so the intensity is not zeroed by pue=0.
     let has_realtime = ctx
         .real_time_intensity
         .as_ref()

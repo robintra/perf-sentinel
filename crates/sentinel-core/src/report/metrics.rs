@@ -396,7 +396,9 @@ pub struct MetricsState {
     /// retention ratio: a fleet whose instrumentation strips
     /// `db.statement` or `http.url` converts every request to zero
     /// events while still returning success, and only this counter
-    /// pair makes that visible.
+    /// pair makes that visible. Spans in requests later rejected as
+    /// `channel_full` count as received but are not retained, so
+    /// cross-check `otlp_rejected_total` during backpressure storms.
     pub otlp_spans_received_total: IntCounter,
     /// OTLP spans skipped by conversion because they are not analyzable
     /// I/O operations, labeled by `reason`. Pre-warmed to 0 for every

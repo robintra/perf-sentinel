@@ -126,7 +126,9 @@ pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 /// Institute Global Data Center Survey weighted average (1.54 in 2025,
 /// flat for six consecutive years): the Generic bucket is the
 /// self-hosted, colocation and non-hyperscaler population, hyperscaler
-/// regions carry their own provider PUE.
+/// regions carry their own provider PUE. Deliberately rounded to one
+/// decimal, the survey plateau spans 1.5-1.6 and finer precision would
+/// be illusory.
 pub const GENERIC_PUE: f64 = 1.5;
 
 /// Vintage of the per-provider PUE constants embedded in `Provider::pue`.
@@ -505,14 +507,21 @@ impl Provider {
 /// Intensity values come from Cloud Carbon Footprint (CCF) and
 /// Electricity Maps (2023-2024 annual averages, consumption-based
 /// with imports). PUE values are sourced from each provider's most
-/// recent sustainability report (AWS 2024 global, GCP 2024 fleet TTM,
-/// Azure FY25 owned-and-controlled), refreshed in the 2026 cycle.
+/// recent sustainability report (AWS 2024 global, GCP 2024 fleet
+/// annual average, Azure FY25 owned-and-controlled), refreshed in the
+/// 2026 cycle.
 ///
 /// Methodology note on Paris (eu-west-3, ~41 g): tracks Electricity
 /// Maps consumption-based-with-imports (mean of 2023 = 49 and
 /// 2024 = 33) rather than RTE's lower production-based figure,
 /// keeping the table internally consistent with the other European
 /// regions.
+///
+/// Vintage note: refreshed rows use the EM 2023-2024 mean. The
+/// eu-central-1/de row keeps its multi-source 338 (EM 2024 = 341
+/// corroborates it; the hourly profile is normalized to that level).
+/// The `br` country alias carries the BR-CS (Central-South) zone
+/// value, the zone containing Sao Paulo, not a national average.
 static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
