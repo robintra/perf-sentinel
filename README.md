@@ -494,7 +494,7 @@ The [Quick look](#quick-look) section at the top shows live GIFs. The frozen fra
 
 ## Supply chain
 
-Every GitHub Action is pinned to a 40-character commit SHA; the production image is `FROM scratch`; `Cargo.lock` is committed and audited daily by `cargo audit`; workflow `GITHUB_TOKEN` permissions default to `contents: read`. Dependabot opens weekly grouped PRs. Release binaries ship SLSA Build L3 provenance (Sigstore + Rekor). Full policy and verification commands: [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
+Every GitHub Action is pinned to a 40-character commit SHA; the production image is `FROM scratch`; `Cargo.lock` is committed and audited daily by `cargo audit`; workflow `GITHUB_TOKEN` permissions default to `contents: read`. Dependabot opens weekly grouped PRs. Release binaries ship SLSA Build L3 provenance (Sigstore + Rekor) and embedded `cargo-auditable` dependency data (`cargo audit bin`), and every release ships an SPDX SBOM attested under the SPDX predicate. Full policy and verification commands: [docs/SUPPLY-CHAIN.md](docs/SUPPLY-CHAIN.md).
 
 ## Releasing
 

@@ -11,9 +11,9 @@ the same rules to new workflows, Dockerfiles and dependencies.
 
 ## Status
 
-Compliance check at 2026-05-03:
+Compliance check at 2026-06-09:
 
-- **GitHub Actions**: 100% of `uses:` lines across the 9 workflows in
+- **GitHub Actions**: 100% of `uses:` lines across the 11 workflows in
   `.github/workflows/` are pinned to a 40-character commit SHA, with
   the human-readable tag in a trailing comment.
 - **Dockerfile**: the production image is `FROM scratch`, with no
@@ -278,6 +278,36 @@ the legacy `multiple.intoto.jsonl` and is verified via
 `slsa-verifier verify-artifact`. The legacy verification path is
 preserved on those existing tags; only 0.7.1+ requires the new
 command.
+
+## Binary SBOM and embedded audit data
+
+Beyond SLSA provenance, every binary release carries two more supply-chain
+artefacts, in the same shape as the Helm chart's SBOM.
+
+**Embedded `cargo-auditable` data.** Each release binary is built with
+`cargo auditable build`, so its resolved dependency list is embedded in the
+binary itself. Audit the shipped artefact directly, not just the repo's
+`Cargo.lock`:
+
+```bash
+cargo audit bin perf-sentinel-linux-amd64
+```
+
+**SPDX SBOM.** Each release ships `perf-sentinel-sbom.spdx.json`, an SPDX SBOM
+that Syft derives from that embedded data and attests under the SPDX predicate
+(`https://spdx.dev/Document/v2.3`) against the Linux amd64 binary, the same
+predicate the chart uses. Verify the attestation against the binary (the SBOM
+is the attestation's predicate, the binary is its subject):
+
+```bash
+gh attestation verify perf-sentinel-linux-amd64 \
+  --owner robintra --repo perf-sentinel \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+The SBOM is derived from the Linux amd64 binary; the four release binaries
+share their Rust dependency closure bar a few platform-shim crates, so it
+documents the release as a whole.
 
 ## PR review checklist
 

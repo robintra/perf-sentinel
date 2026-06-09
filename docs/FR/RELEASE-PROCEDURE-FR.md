@@ -193,7 +193,7 @@ git push origin main vX.Y.Z
 
 Le push du tag déclenche `.github/workflows/release.yml`. Son premier job relance `scripts/check-tag-version.sh` comme gate de sanité, puis la matrice de build produit les binaires, le job de publish pousse vers crates.io strictement (pas de fallback souple en cas de rate-limit), et le job docker scanne l'image avec Trivy (exit dur sur HIGH ou CRITICAL) avant de pousser le manifest multi-arch sur GHCR et Docker Hub.
 
-La provenance de chaque binaire de release est attestée par `actions/attest-build-provenance` (Sigstore OIDC, keyless), ce qui produit des attestations SLSA Build L3 vérifiables via `gh attestation verify`. La migration depuis `slsa-framework/slsa-github-generator` vers `actions/attest-build-provenance` a atterri en 0.7.1.
+La provenance de chaque binaire de release est attestée par `actions/attest-build-provenance` (Sigstore OIDC, keyless), ce qui produit des attestations SLSA Build L3 vérifiables via `gh attestation verify`. La migration depuis `slsa-framework/slsa-github-generator` vers `actions/attest-build-provenance` a atterri en 0.7.1. Chaque release publie aussi un SBOM SPDX (`perf-sentinel-sbom.spdx.json`, généré par Syft et attesté sous le prédicat SPDX) et embarque les données `cargo-auditable` dans chaque binaire, pour que `cargo audit bin` fonctionne sur l'artefact livré. Voir [docs/FR/SUPPLY-CHAIN-FR.md](SUPPLY-CHAIN-FR.md#sbom-des-binaires-et-données-daudit-embarquées).
 
 ### 7. Release du chart Helm
 
@@ -219,10 +219,11 @@ L'un ou l'autre chemin déclenche `.github/workflows/helm-release.yml`, qui vali
 À titre de référence, voici ce que `release.yml` exécute à chaque push de tag `v*` :
 
 1. **check-versions** : `scripts/check-tag-version.sh "${GITHUB_REF_NAME}"` rejette tout mismatch entre le tag et les fichiers de version du workspace (Cargo.toml uniquement, voir le header du script pour le scope exact).
-2. **build** (matrice) : cross-compile `perf-sentinel` pour `linux-amd64-gnu`, `linux-amd64-musl`, `linux-arm64-musl`, `macos-arm64`, `windows-amd64`. Les variantes musl utilisent `mimalloc` comme allocateur global (voir `docs/design/07-CLI-CONFIG-RELEASE.md`).
-3. **release** : rassemble les artefacts, calcule les checksums SHA-256, atteste la provenance de build via Sigstore (OIDC keyless), et crée la release GitHub avec tous les assets et les notes tirées de `CHANGELOG.md`.
-4. **publish-crate** : publie `perf-sentinel-core` puis `perf-sentinel` sur crates.io, attend que l'index se mette à jour, échoue strictement sur timeout au lieu d'émettre un simple avertissement.
-5. **docker** : build l'image multi-arch, la scanne avec Trivy (`exit-code: 1` sur CVE HIGH ou CRITICAL), upload le SARIF, puis push sur GHCR et Docker Hub.
+2. **build** (matrice) : construit `perf-sentinel` pour `linux-amd64-musl`, `linux-arm64-musl`, `macos-arm64` et `windows-amd64`. Le binaire Linux arm64 est construit nativement sur un runner `ubuntu-24.04-arm` (et non via l'outil Docker `cross`), et chaque binaire est produit avec `cargo auditable build` pour embarquer sa liste de dépendances et permettre `cargo audit bin`. Les variantes musl utilisent `mimalloc` comme allocateur global (voir `docs/design/07-CLI-CONFIG-RELEASE.md`).
+3. **sbom** : Syft lit la liste de dépendances depuis les données `cargo-auditable` embarquées dans le binaire Linux amd64, émet un SBOM SPDX, et l'atteste sous le prédicat SPDX, en miroir du job SBOM du chart.
+4. **release** : rassemble les artefacts (binaires plus le SBOM), calcule les checksums SHA-256, atteste la provenance de build via Sigstore (OIDC keyless), et crée la release GitHub avec tous les assets et les notes tirées de `CHANGELOG.md`.
+5. **publish-crate** : publie `perf-sentinel-core` puis `perf-sentinel` sur crates.io, attend que l'index se mette à jour, échoue strictement sur timeout au lieu d'émettre un simple avertissement.
+6. **docker** : build l'image multi-arch, la scanne avec Trivy (`exit-code: 1` sur CVE HIGH ou CRITICAL), upload le SARIF, puis push sur GHCR et Docker Hub.
 
 Le release gate n'est **jamais** invoqué depuis ce workflow par design. Si une PR ajoute une étape gate à `release.yml`, la rejeter. Le gate valide contre un cluster k3d réel que la CI ne peut pas reproduire, et un check automatisé vide dégraderait silencieusement la garantie du gate.
 

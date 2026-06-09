@@ -68,6 +68,7 @@ The following scans run in CI and block the pipeline on severity `HIGH` or `CRIT
 
 - **cargo audit** (Rust dependency vulnerabilities): scheduled daily and on every `Cargo.toml` / `Cargo.lock` change. Documented non-applicable advisories live in `audit.toml`. See `.github/workflows/security-audit.yml`.
 - **Clippy with pedantic lints** plus SARIF upload to GitHub Code Scanning: every CI run. Catches logic and API-design issues.
+- **CodeQL** (Rust dataflow and taint analysis): runs on push, pull requests and a weekly schedule, with results uploaded to GitHub Code Scanning. Adds cross-function taint tracking (path/SQL/regex injection, crypto misuse, log injection) that the Clippy and SonarCloud passes do not cover. See `.github/workflows/codeql.yml`.
 - **Trivy** (container image vulnerabilities): runs on every release tag before the image is pushed to GHCR or Docker Hub. `ignore-unfixed` is enabled so unpatched upstream CVEs do not block the release. SARIF output is uploaded to GitHub Code Scanning.
 - **Gitleaks** (secret scan): runs on every push and pull request, scanning the full git history with the bundled default ruleset (AWS keys, GitHub tokens, JWT, private keys, etc.).
 - **SonarCloud** (code quality and security hotspots): runs when a `SONAR_TOKEN` secret is available, skipped on Dependabot PRs that do not receive repo secrets.

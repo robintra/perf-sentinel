@@ -494,7 +494,7 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 ## Supply chain
 
-Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor). Politique complète et commandes de vérification : [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
+Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor) et les données de dépendances `cargo-auditable` (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Politique complète et commandes de vérification : [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
 
 ## Releasing
 
