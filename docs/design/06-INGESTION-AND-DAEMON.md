@@ -470,11 +470,15 @@ The correlator reference (`Option<&Mutex<CrossTraceCorrelator>>`) is passed to `
 
 ```rust
 if let Some(correlator) = correlator {
-    correlator.lock().await.ingest(&findings, now_ms);
+    let evicted = correlator.lock().await.ingest(&findings, now_ms);
+    // evicted > 0 bumps perf_sentinel_correlator_pairs_evicted_total
+    // and logs a bounded warn (eviction is amortized per 10% of cap).
 }
 ```
 
 This ordering ensures that the `FindingsStore` always has the findings before the correlator processes them.
+
+Lock contention on the shared mutex was analyzed and is a non-issue at the intended scale: the single analysis worker is the only writer, the `/api/correlations` readers run at dashboard frequency over a bounded structure (capped pairs, 256-sample lag reservoirs), `enforce_pair_cap` early-returns under the cap and uses an O(n) quickselect when it trips, and the tokio mutex yields rather than blocking the runtime.
 
 ### NDJSON output
 

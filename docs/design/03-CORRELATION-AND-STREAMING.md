@@ -128,3 +128,15 @@ typical_memory = 10,000 × 50 × ~500 bytes = ~250 MB
 ```
 
 The config validation caps `max_active_traces` at 1,000,000 and `max_events_per_trace` at 100,000 to prevent accidental misconfiguration.
+
+The ~500-byte average assumes well-behaved emitters. The adversarial
+worst case is bounded per field by `sanitize_span_event` at every
+ingest boundary (OTLP, JSON, Jaeger, Zipkin), with `MAX_TARGET_LENGTH`
+(64 KiB per `target`) as the dominating term: a hostile or pathological
+emitter shipping maximal SQL text in every event can push a single
+trace to roughly 130 MB (1,000 events × ~130 KiB of capped strings,
+target plus template). Memory stays bounded, but the envelope is field
+caps × event cap × trace cap, not the typical estimate. Operators who
+suspect an oversized-text emitter should lower `max_events_per_trace`
+or `max_active_traces` (see the memory-pressure section of
+`docs/RUNBOOK.md`).
