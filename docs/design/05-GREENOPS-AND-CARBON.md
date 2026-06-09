@@ -342,7 +342,7 @@ Each profile's arithmetic mean approximates the corresponding flat annual value 
 
 Sources: Electricity Maps annual open-data reports (2023-2024 typical diurnal shapes by zone), ENTSO-E Transparency Platform (European grid composition and demand curves), RTE eco2mix daily data (France), Fraunhofer ISE Energy-Charts (Germany), NGESO carbonintensity.org.uk (UK), EIA hourly generation data (US-East).
 
-The table intentionally does **not** embed monthly profiles (24x12). The additional 12x data for seasonal variance provides marginal accuracy gain compared to the complexity cost. The `IntensitySource` tag already distinguishes annual vs hourly, so extending to monthly later would be backward-compatible.
+Four regions (`eu-west-3`, `eu-central-1`, `eu-west-2`, `us-east-1`) embed full monthly x hourly profiles (12x24, `MONTHLY_PROFILES`), reported under the `io_proxy_v3` model tag. The other profiled regions use a single representative 24-hour profile (`FLAT_YEAR_PROFILES`): for them the additional seasonal data would provide marginal accuracy gain compared to the maintenance cost. The `IntensitySource` tag distinguishes annual, hourly and monthly per region, so promoting a flat region to monthly later is backward-compatible.
 
 The scoring path walks each span once and dispatches between three intensity sources:
 

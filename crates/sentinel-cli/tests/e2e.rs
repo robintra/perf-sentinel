@@ -2547,8 +2547,8 @@ fn cli_report_accepts_report_snapshot_input() {
             "regions": [{
                 "status": "known",
                 "region": "eu-west-3",
-                "grid_intensity_gco2_kwh": 56.0,
-                "pue": 1.2,
+                "grid_intensity_gco2_kwh": 41.0,
+                "pue": 1.15,
                 "io_ops": 42,
                 "co2_gco2": 0.123,
             }],

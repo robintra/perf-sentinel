@@ -338,7 +338,7 @@ La moyenne arithmétique de chaque profil approxime la valeur annuelle plate cor
 
 Sources : rapports open-data annuels Electricity Maps (2023-2024), ENTSO-E Transparency Platform, RTE eco2mix (France), Fraunhofer ISE Energy-Charts (Allemagne), NGESO carbonintensity.org.uk (Royaume-Uni), EIA hourly generation data (US-East).
 
-La table n'embarque intentionnellement **pas** de profils mensuels (24x12). Le gain de précision saisonnier est marginal par rapport au coût en complexité. Le tag `IntensitySource` distingue déjà annuel vs horaire, ce qui rend l'extension future rétrocompatible.
+Quatre régions (`eu-west-3`, `eu-central-1`, `eu-west-2`, `us-east-1`) embarquent des profils mensuels x horaires complets (12x24, `MONTHLY_PROFILES`), rapportés sous le tag de modèle `io_proxy_v3`. Les autres régions profilées utilisent un seul profil représentatif de 24 heures (`FLAT_YEAR_PROFILES`) : pour elles, les données saisonnières additionnelles apporteraient un gain de précision marginal par rapport au coût de maintenance. Le tag `IntensitySource` distingue annuel, horaire et mensuel par région, promouvoir une région plate vers le mensuel reste donc rétrocompatible.
 
 Le chemin de scoring parcourt chaque span une fois et dispatche entre trois sources d'intensité :
 

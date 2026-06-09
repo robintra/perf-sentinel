@@ -764,7 +764,7 @@ mod tests {
     #[test]
     fn per_service_carbon_respects_service_region() {
         // Two services in regions with very different grid intensities.
-        // `eu-west-3` is ~56 gCO2/kWh, `pl` is ~700. The proportional
+        // `eu-west-3` is ~41 gCO2/kWh, `pl` is ~700. The proportional
         // I/O share used by the proxy-only path would give both services
         // the same average; runtime attribution must reflect the per-region rate.
         let mut events = Vec::new();
@@ -1866,7 +1866,7 @@ mod tests {
         //
         // Formula: 6 ops × ENERGY_PER_IO_OP_KWH × 338 × 1.15
         //        = 6 × 1e-7 × 338 × 1.15
-        //        = 2.30178e-4
+        //        = 2.3322e-4
         //
         // NOTE: if CARBON_TABLE[eu-central-1] is ever recalibrated, this
         // test will fail loudly, that's the point. Update both the
@@ -2021,7 +2021,7 @@ mod tests {
     #[test]
     fn custom_profile_on_out_of_table_region_uses_generic_pue() {
         // "my-datacenter" is not in CARBON_TABLE. A custom profile should
-        // still produce non-zero CO2 via the generic PUE fallback (1.2).
+        // still produce non-zero CO2 via the generic PUE fallback.
         let trace = make_trace_at_hour("t1", "my-datacenter", 12, 6);
         let mut custom = HashMap::new();
         custom.insert(
