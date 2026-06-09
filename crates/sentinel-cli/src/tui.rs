@@ -18,7 +18,10 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+// `Clear` only backs the ack modal, which is daemon-gated.
+#[cfg(feature = "daemon")]
+use ratatui::widgets::Clear;
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 
 use sentinel_core::correlate::Trace;
@@ -239,6 +242,9 @@ impl App {
     ///
     /// `pub(crate)` because the TUI module is internal to the
     /// `perf-sentinel` binary crate, not a published library API.
+    // Only the daemon-gated `query inspect` flow calls this in
+    // production; tests exercise it in every feature combo.
+    #[cfg_attr(not(feature = "daemon"), allow(dead_code))]
     pub(crate) fn with_pre_rendered_trees(mut self, trees: HashMap<String, String>) -> Self {
         self.pre_rendered_trees = trees;
         self
@@ -1730,6 +1736,8 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
             let finding = &app.all_findings[idx];
             let severity_color = severity_color(&finding.severity);
             let type_label = finding_type_label(&finding.finding_type);
+            // Only the daemon-gated acked-by suffix mutates the vec.
+            #[cfg_attr(not(feature = "daemon"), allow(unused_mut))]
             let mut spans = vec![
                 Span::styled(
                     format!("[{}] ", i + 1),
