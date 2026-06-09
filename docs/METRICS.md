@@ -65,9 +65,11 @@ sibling Pod cannot read the daemon's process state freely.
 
 ## OTLP ingestion metrics
 
-| Metric                              | Type    | Labels   | Description                                                                       |
-|-------------------------------------|---------|----------|-----------------------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total` | counter | `reason` | Total OTLP requests rejected by the daemon since start, by reason (since 0.5.19). |
+| Metric                                    | Type    | Labels   | Description                                                                       |
+|-------------------------------------------|---------|----------|-----------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total OTLP requests rejected by the daemon since start, by reason (since 0.5.19). |
+| `perf_sentinel_otlp_spans_received_total` | counter | (none)   | Total OTLP spans received across all requests, before I/O filtering (since 0.8.7). |
+| `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | OTLP spans skipped by conversion because they are not analyzable I/O operations (since 0.8.7). |
 
 `reason` label values:
 
@@ -90,6 +92,27 @@ runs. Operators concerned with payload size should monitor the upstream
 proxy or gateway logs, or wire a tower-http rejection counter in their
 own stack.
 
+The two span-level counters expose the retention ratio of the
+deliberate I/O filter (only SQL and outbound-HTTP spans are analyzable,
+see [`LIMITATIONS.md`](./LIMITATIONS.md)). A fleet whose
+instrumentation strips `db.statement` or `http.url` converts every
+request to zero events while requests keep returning success, and only
+this counter pair makes that visible:
+`perf_sentinel_otlp_spans_received_total` rising while
+`perf_sentinel_events_processed_total` stays flat means the spans
+arrive but none carries an analyzable attribute.
+`reason` label values of `perf_sentinel_otlp_spans_filtered_total`,
+pre-warmed to 0:
+
+- `not_io`: span carries no `db.*` statement and no HTTP url or
+  method (internal span, cache hit, middleware...). Expected to
+  dominate on well-instrumented fleets.
+- `missing_db_statement`: span has `db.system` but neither
+  `db.statement` nor `db.query.text`. Typical of drivers configured
+  to omit query text.
+- `missing_http_url`: span has an HTTP method but neither `http.url`
+  nor `url.full`.
+
 ## Analysis and findings metrics
 
 | Metric                                       | Type      | Labels             | Description                                                                                                                                                                                                                                                        |
@@ -101,6 +124,7 @@ own stack.
 | `perf_sentinel_analysis_queue_depth`         | gauge     | (none)             | Batches pending in the analysis worker queue (incremented on enqueue, decremented when the worker picks a batch up). A sustained nonzero value means detect+score is falling behind ingestion.                                                                     |
 | `perf_sentinel_analysis_shed_batches_total`  | counter   | (none)             | Analysis batches shed because the worker queue was full or the worker stopped. Replaces the previous implicit drop: every shed is counted here. Alert on `rate(...) > 0`.                                                                                          |
 | `perf_sentinel_analysis_shed_traces_total`   | counter   | (none)             | Traces dropped by the shed batches counted in `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                         |
+| `perf_sentinel_correlator_pairs_evicted_total` | counter | (none)             | Cross-trace correlator pairs evicted by the `max_tracked_pairs` cap (since 0.8.7). A sustained rate means the correlation topology exceeds the cap and lowest-count pairs are recycled, so `/api/correlations` may drop entries between reads.                     |
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Duration histogram for spans exceeding the slow threshold, by event `type` (`sql` or `http_out`). Buckets: 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 seconds. Used by Grafana `histogram_quantile()` for accurate percentiles across sharded daemon instances. |
 | `perf_sentinel_export_report_requests_total` | counter   | (none)             | Total `GET /api/export/report` requests. Includes cold-start responses (200 with empty envelope).                                                                                                                                                                  |
 
@@ -269,7 +293,8 @@ values on top of the shared HTTP set: `invalid_json`, `path_missing`,
 | `perf_sentinel_io_waste_ratio`                       | gauge   | (none)    | Cumulative I/O waste ratio (avoidable / total) since daemon start. Use `rate()` on the underlying counters for windowed values.    |
 | `perf_sentinel_total_io_ops`                         | counter | (none)    | Cumulative total I/O ops processed.                                                                                                |
 | `perf_sentinel_avoidable_io_ops`                     | counter | (none)    | Cumulative avoidable I/O ops detected.                                                                                             |
-| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Per-service cumulative I/O ops (read by the Scaphandre scraper for per-service energy attribution).                                |
+| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Per-service cumulative I/O ops (read by every measured-energy scraper for per-service energy attribution). Label cardinality is capped at 1024 distinct services per daemon run, new services beyond the cap are not attributed. |
+| `perf_sentinel_service_io_ops_overflow_total`        | counter | (none)    | I/O ops not attributed to a per-service counter because the 1024-service cardinality cap was reached (since 0.8.7). An ongoing increase means per-service throughput and measured-energy attribution undercount newly seen services. |
 | `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (none)    | Seconds since the last successful Scaphandre scrape. Stays at 0 when Scaphandre is not configured. Useful for hung-scraper alerts. |
 | `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (none)    | Same pattern for the cloud SPECpower scraper.                                                                                      |
 | `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (none)    | Same pattern for the Kepler scraper. See the zero-sample staleness pitfall above.                                                  |

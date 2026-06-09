@@ -67,9 +67,11 @@ daemon librement.
 
 ## Metrics d'ingestion OTLP
 
-| Metric                              | Type    | Labels   | Description                                                                                     |
-|-------------------------------------|---------|----------|-------------------------------------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total` | counter | `reason` | Total des requêtes OTLP rejetées par le daemon depuis le démarrage, par raison (depuis 0.5.19). |
+| Metric                                    | Type    | Labels   | Description                                                                                     |
+|-------------------------------------------|---------|----------|---------------------------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total des requêtes OTLP rejetées par le daemon depuis le démarrage, par raison (depuis 0.5.19). |
+| `perf_sentinel_otlp_spans_received_total` | counter | (aucun)  | Total des spans OTLP reçus toutes requêtes confondues, avant le filtrage I/O (depuis 0.8.7).    |
+| `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | Spans OTLP écartés par la conversion parce qu'ils ne sont pas des opérations I/O analysables (depuis 0.8.7). |
 
 Valeurs du label `reason` :
 
@@ -92,6 +94,27 @@ ne tourne. Les opérateurs préoccupés par la taille de payload doivent
 monitorer les logs du proxy ou de la gateway upstream, ou câbler un
 counter de rejet tower-http dans leur stack.
 
+Les deux counters au niveau span exposent le taux de rétention du
+filtre I/O délibéré (seuls les spans SQL et HTTP sortants sont
+analysables, voir [`LIMITATIONS-FR.md`](./LIMITATIONS-FR.md)). Une
+flotte dont l'instrumentation supprime `db.statement` ou `http.url`
+convertit chaque requête en zéro événement alors que les requêtes
+continuent de répondre en succès, et seule cette paire de counters
+rend cela visible : `perf_sentinel_otlp_spans_received_total` qui
+monte pendant que `perf_sentinel_events_processed_total` reste plat
+signifie que les spans arrivent mais qu'aucun ne porte d'attribut
+analysable. Valeurs du label `reason` de
+`perf_sentinel_otlp_spans_filtered_total`, pré-warmées à 0 :
+
+- `not_io` : le span ne porte ni statement `db.*` ni url ou méthode
+  HTTP (span interne, hit de cache, middleware...). Dominant attendu
+  sur les flottes bien instrumentées.
+- `missing_db_statement` : le span a `db.system` mais ni
+  `db.statement` ni `db.query.text`. Typique des drivers configurés
+  pour omettre le texte des requêtes.
+- `missing_http_url` : le span a une méthode HTTP mais ni `http.url`
+  ni `url.full`.
+
 ## Metrics d'analyse et de findings
 
 | Metric                                       | Type      | Labels             | Description                                                                                                                                                                                                                                                                  |
@@ -103,6 +126,7 @@ counter de rejet tower-http dans leur stack.
 | `perf_sentinel_analysis_queue_depth`         | gauge     | (aucun)            | Lots en attente dans la file du worker d'analyse (incrémenté à l'enfilement, décrémenté quand le worker prend un lot). Une valeur non nulle durable signifie que detect+score prend du retard sur l'ingestion.                                                               |
 | `perf_sentinel_analysis_shed_batches_total`  | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alerte sur `rate(...) > 0`.                                                                          |
 | `perf_sentinel_analysis_shed_traces_total`   | counter   | (aucun)            | Traces abandonnées par les lots délestés comptés dans `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                           |
+| `perf_sentinel_correlator_pairs_evicted_total` | counter | (aucun)            | Paires du corrélateur inter-traces évincées par le plafond `max_tracked_pairs` (depuis 0.8.7). Un taux soutenu signifie que la topologie de corrélation dépasse le plafond et que les paires les moins comptées sont recyclées, `/api/correlations` peut donc perdre des entrées entre deux lectures. |
 | `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Histogramme de durée pour les spans dépassant le seuil slow, par `type` (`sql` ou `http_out`). Buckets : 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 secondes. Utilisé par `histogram_quantile()` Grafana pour des percentiles précis sur des déploiements daemon shardés. |
 | `perf_sentinel_export_report_requests_total` | counter   | (aucun)            | Total des requêtes `GET /api/export/report`. Inclut les réponses cold-start (200 avec enveloppe vide).                                                                                                                                                                       |
 
@@ -240,9 +264,12 @@ touché, ils ne sont visibles que dans les logs daemon au niveau
 | `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre. |
 | `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                              |
 | `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                   |
-| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Ops I/O cumulatives par service (lu par le scraper Scaphandre pour l'attribution énergie par service).                                           |
+| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Ops I/O cumulatives par service (lu par chaque scraper d'énergie mesurée pour l'attribution énergie par service). La cardinalité du label est plafonnée à 1024 services distincts par exécution du daemon, les nouveaux services au-delà du plafond ne sont pas attribués. |
+| `perf_sentinel_service_io_ops_overflow_total`        | counter | (aucun)   | Ops I/O non attribuées à un counter par service parce que le plafond de cardinalité de 1024 services était atteint (depuis 0.8.7). Une hausse continue signifie que le débit par service et l'attribution d'énergie mesurée sous-comptent les services nouvellement vus. |
 | `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (aucun)   | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.      |
 | `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (aucun)   | Même pattern pour le scraper cloud SPECpower.                                                                                                    |
+| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Kepler. Voir le piège de staleness zéro-échantillon plus haut.                                                      |
+| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (aucun)   | Même pattern pour le scraper BMC Redfish.                                                                                                        |
 
 ## Références croisées
 

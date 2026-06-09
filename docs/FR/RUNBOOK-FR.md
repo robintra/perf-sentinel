@@ -186,6 +186,7 @@ curl -sf http://perf-sentinel:4318/metrics
 3. **Politique réseau.** Un `NetworkPolicy` Kubernetes ou un security group peut bloquer le trafic cross-namespace. Désactivez temporairement ou autorisez explicitement le chemin service → daemon.
 4. **Service non instrumenté.** Vérifiez `OTEL_SDK_DISABLED=false` et que le service produit bien des spans (la plupart des SDKs OTel ont des compteurs internes ou des logs debug).
 5. **Faute de frappe sur l'endpoint OTLP.** `OTEL_EXPORTER_OTLP_ENDPOINT` doit être `http://<host>:4318`. Pas de suffixe `/v1/traces`, le SDK l'ajoute.
+6. **Les spans arrivent mais aucun n'est analysable.** `perf_sentinel_otlp_spans_received_total` qui monte pendant que `events_processed_total` reste plat signifie que le daemon reçoit des spans mais que chacun est filtré (pas de `db.statement`, pas de `http.url`). Examinez `perf_sentinel_otlp_spans_filtered_total` par `reason` : un `missing_db_statement` dominant pointe vers des drivers configurés pour omettre le texte des requêtes (voir [LIMITATIONS-FR.md](./LIMITATIONS-FR.md#la-qualité-de-linstrumentation-borne-les-findings) et les réglages par langage dans [INSTRUMENTATION-FR.md](./INSTRUMENTATION-FR.md#attributs-de-span-requis)).
 
 **Vérification après correctif.** Déclenchez une requête via un service instrumenté et observez :
 
@@ -280,8 +281,8 @@ curl -s http://perf-sentinel:4318/api/status | jq '{active_traces, stored_findin
 
 1. **Trafic au-dessus des valeurs par défaut.** 10 000 traces actives est dimensionné pour une charge modérée. Les services à fort débit remplissent plus vite que l'éviction ne purge.
 2. **TTL élargi.** Si vous avez augmenté `trace_ttl_ms` pour la commodité post-mortem, chaque trace vit plus longtemps en mémoire.
-3. **Traces pathologiques.** Une seule trace avec des milliers de spans consomme de la RAM. `max_events_per_trace` (défaut 1000) plafonne ; vérifiez qu'il n'a pas été augmenté.
-4. **Croissance du correlator.** `[daemon.correlation] max_tracked_pairs` (défaut 10 000) borne le graphe cross-trace. Le relever multiplie la mémoire par le nombre de paires.
+3. **Traces pathologiques.** Une seule trace avec des milliers de spans consomme de la RAM. `max_events_per_trace` (défaut 1000) plafonne, vérifiez qu'il n'a pas été augmenté. Le texte SQL surdimensionné venant d'un émetteur hostile ou verbeux est aussi borné par champ à l'ingestion (64 KiB par cible), mais 1000 événements de ce type dans une trace s'additionnent : baissez `max_events_per_trace` ou `max_active_traces` si un émetteur déviant est suspecté.
+4. **Croissance du correlator.** `[daemon.correlation] max_tracked_pairs` (défaut 10 000) borne le graphe cross-trace. Le relever multiplie la mémoire par le nombre de paires. `perf_sentinel_correlator_pairs_evicted_total` est le signal que le plafond agit : un taux soutenu signifie que la topologie dépasse le plafond (les corrélations sont recyclées, pas fuitées).
 5. **Findings store gonflé** par une boucle de détection emballée. Rare mais à vérifier via `stored_findings` vs `max_retained_findings`.
 
 **Correctif.**

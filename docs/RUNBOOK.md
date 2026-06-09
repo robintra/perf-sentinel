@@ -184,6 +184,7 @@ curl -sf http://perf-sentinel:4318/metrics
 3. **Network policy.** A Kubernetes `NetworkPolicy` or security group may block cross-namespace traffic. Temporarily disable it or allow the service → daemon path explicitly.
 4. **Service not instrumented.** Verify `OTEL_SDK_DISABLED=false` and that the service is producing spans (most OTel SDKs have internal counters or debug logs).
 5. **OTLP endpoint URL typo.** `OTEL_EXPORTER_OTLP_ENDPOINT` should be `http://<host>:4318`. No `/v1/traces` suffix, the SDK appends it.
+6. **Spans arrive but none is analyzable.** `perf_sentinel_otlp_spans_received_total` rising while `events_processed_total` stays flat means the daemon receives spans but every one is filtered out (no `db.statement`, no `http.url`). Check `perf_sentinel_otlp_spans_filtered_total` by `reason`: a dominant `missing_db_statement` points at drivers configured to omit query text (see [LIMITATIONS.md](./LIMITATIONS.md#instrumentation-quality-bounds-findings) and the per-language settings in [INSTRUMENTATION.md](./INSTRUMENTATION.md#required-span-attributes)).
 
 **Sanity check.** After a fix, drive one request through an instrumented service and watch:
 
@@ -278,8 +279,8 @@ curl -s http://perf-sentinel:4318/api/status | jq '{active_traces, stored_findin
 
 1. **Traffic exceeds defaults.** 10 000 active traces is sized for moderate load. High-throughput services fill it faster than eviction keeps up.
 2. **Widened TTL.** If you raised `trace_ttl_ms` for post-mortem convenience, every trace lives longer in memory.
-3. **Pathological traces.** A single trace with thousands of spans eats RAM. `max_events_per_trace` (default 1000) caps this; confirm it hasn't been raised.
-4. **Correlator growth.** `[daemon.correlation] max_tracked_pairs` (default 10 000) bounds the cross-trace graph. Raising it multiplies memory by the pair count.
+3. **Pathological traces.** A single trace with thousands of spans eats RAM. `max_events_per_trace` (default 1000) caps this; confirm it hasn't been raised. Oversized SQL text from a hostile or verbose emitter is also bounded per field at ingestion (64 KiB per target), but 1000 such events in one trace still add up: lower `max_events_per_trace` or `max_active_traces` if a misbehaving emitter is suspected.
+4. **Correlator growth.** `[daemon.correlation] max_tracked_pairs` (default 10 000) bounds the cross-trace graph. Raising it multiplies memory by the pair count. `perf_sentinel_correlator_pairs_evicted_total` is the signal that the cap is active: a sustained rate means the topology exceeds the cap (correlations are recycled, not leaked).
 5. **Findings store inflated** by a runaway detection loop. Rare but worth checking `stored_findings` vs `max_retained_findings`.
 
 **Fix.**
