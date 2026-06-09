@@ -119,8 +119,12 @@ pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 
 /// Generic PUE (Power Usage Effectiveness) for regions not associated
 /// with a specific cloud provider. Used as fallback for out-of-table
-/// regions that have a custom hourly profile.
-pub const GENERIC_PUE: f64 = 1.2;
+/// regions that have a custom hourly profile. Tracks the Uptime
+/// Institute Global Data Center Survey weighted average (1.54 in 2025,
+/// flat for six consecutive years): the Generic bucket is the
+/// self-hosted, colocation and non-hyperscaler population, hyperscaler
+/// regions carry their own provider PUE.
+pub const GENERIC_PUE: f64 = 1.5;
 
 /// Vintage of the per-provider PUE constants embedded in `Provider::pue`.
 /// Release procedure step 2.5 surfaces this string via `grep`. Bump when
@@ -487,7 +491,7 @@ impl Provider {
             Self::Aws => 1.15,
             Self::Gcp => 1.09,
             Self::Azure => 1.17,
-            Self::Generic => 1.2,
+            Self::Generic => GENERIC_PUE,
         }
     }
 }
@@ -1443,7 +1447,7 @@ mod tests {
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
         assert!((intensity - 41.0).abs() < f64::EPSILON);
-        assert!((pue - 1.2).abs() < f64::EPSILON);
+        assert!((pue - 1.5).abs() < f64::EPSILON);
     }
 
     #[test]

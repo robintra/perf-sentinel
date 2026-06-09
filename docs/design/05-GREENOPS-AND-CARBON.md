@@ -319,7 +319,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
 | AWS      | 1.15  | [AWS Cloud sustainability](https://sustainability.aboutamazon.com/products-services/aws-cloud) (2024 global fleet)                                        |
 | GCP      | 1.09  | [Google data centers efficiency](https://datacenters.google/efficiency/) (2024 annual fleet average)                                                      |
 | Azure    | 1.17  | [Microsoft datacenter efficiency](https://datacenters.microsoft.com/sustainability/efficiency/) (FY25, July 2024 to June 2025 owned-and-controlled)       |
-| Generic  | 1.2   | [Uptime Institute Global Survey 2023](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2023) (newer 2024 and 2025 editions show a similar plateau in the 1.5 to 1.6 industry-average range) |
+| Generic  | 1.5   | [Uptime Institute Global Data Center Survey 2025](https://uptimeinstitute.com/resources/research-and-reports/uptime-institute-global-data-center-survey-results-2025) (weighted average annual PUE 1.54, flat for six consecutive years: 1.58 in 2023, 1.56 in 2024). The Generic bucket covers self-hosted, colocation and non-hyperscaler regions, so the industry survey average is the defensible prior; hyperscaler regions carry their own provider PUE |
 
 PUE (Power Usage Effectiveness) measures the ratio of total datacenter energy to IT equipment energy. A PUE of 1.15 means 15% overhead for cooling, lighting and infrastructure. The industry average is ~1.58 (Uptime Institute), and hyperscale cloud providers achieve significantly lower values, GCP's 1.09 being below the symbolic 10% overhead floor.
 

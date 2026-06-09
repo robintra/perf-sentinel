@@ -813,13 +813,13 @@ mod tests {
             .get("svc-high")
             .copied()
             .expect("svc-high");
-        // True ratio ~17.8x: pl is 700 g/kWh with Generic PUE 1.2 (840),
+        // True ratio ~22.3x: pl is 700 g/kWh with Generic PUE 1.5 (1050),
         // eu-west-3 is 41 g/kWh with AWS PUE 1.15 (~47.2). A buggy
         // "average across regions" path would give ~6x. Future intensity
         // or PUE table refreshes that drift the ratio will surface here.
         assert!(
-            high > low * 17.5 && high < low * 18.1,
-            "svc-high (pl) {high} vs svc-low (eu-west-3) {low}: ratio out of [17.5x, 18.1x]"
+            high > low * 22.0 && high < low * 22.6,
+            "svc-high (pl) {high} vs svc-low (eu-west-3) {low}: ratio out of [22.0x, 22.6x]"
         );
         assert_eq!(
             summary.per_service_region.get("svc-low").unwrap(),
@@ -2040,8 +2040,8 @@ mod tests {
         };
         let (_, summary, _) = score_green(&[trace], vec![], Some(&ctx));
         let co2 = summary.co2.as_ref().unwrap();
-        // 6 ops * 1e-7 kWh/op * 500 gCO2/kWh * 1.2 PUE = 3.6e-4 gCO2
-        let expected = 6.0 * 1e-7 * 500.0 * 1.2;
+        // 6 ops * 1e-7 kWh/op * 500 gCO2/kWh * 1.5 generic PUE = 4.5e-4 gCO2
+        let expected = 6.0 * 1e-7 * 500.0 * 1.5;
         assert!(
             (co2.operational_gco2 - expected).abs() < 1e-12,
             "expected {expected}, got {}",
@@ -2060,8 +2060,8 @@ mod tests {
             "breakdown row co2 must match accumulated value"
         );
         assert!(
-            (row.pue - 1.2).abs() < f64::EPSILON,
-            "out-of-table region with custom profile should use generic PUE 1.2"
+            (row.pue - 1.5).abs() < f64::EPSILON,
+            "out-of-table region with custom profile should use generic PUE 1.5"
         );
         assert!(
             (row.grid_intensity_gco2_kwh - 500.0).abs() < f64::EPSILON,
