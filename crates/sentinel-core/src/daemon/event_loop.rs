@@ -721,8 +721,8 @@ async fn process_traces(
     if let Some(correlator) = ctx.correlator {
         let evicted = correlator.lock().await.ingest(&findings, now_ms);
         if evicted > 0 {
-            // Bounded warn: eviction is amortized to once per 10% of the
-            // pair cap, so this cannot become a per-batch log storm.
+            // Bounded warn: at most one constant-size line per analysis
+            // batch, amortized to once per 10% of the cap for real caps.
             ctx.metrics
                 .correlator_pairs_evicted_total
                 .inc_by(evicted as u64);

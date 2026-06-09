@@ -317,6 +317,7 @@ impl CrossTraceCorrelator {
     /// distinct endpoints currently in the window. This avoids the
     /// O(occurrences) per-tick rebuild that a `clear + repopulate`
     /// approach would require.
+    #[must_use = "the eviction count feeds perf_sentinel_correlator_pairs_evicted_total"]
     pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) -> usize {
         let cutoff = now_ms.saturating_sub(self.config.window_ms);
         self.evict_stale(cutoff);
@@ -570,9 +571,9 @@ mod tests {
         for i in 0..5 {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            correlator.ingest(&[fa], t);
+            let _ = correlator.ingest(&[fa], t);
             let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            correlator.ingest(&[fb], t + 2_000);
+            let _ = correlator.ingest(&[fb], t + 2_000);
         }
 
         let correlations = correlator.active_correlations();
@@ -609,15 +610,15 @@ mod tests {
         // must cap what it records so exported reports stay bounded.
         let oversized = "a".repeat(MAX_SAMPLE_TRACE_ID_BYTES * 4);
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        correlator.ingest(std::slice::from_ref(&fa), 1_000);
+        let _ = correlator.ingest(std::slice::from_ref(&fa), 1_000);
         let mut fb = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
         fb.trace_id = oversized.clone();
-        correlator.ingest(&[fb], 2_000);
+        let _ = correlator.ingest(&[fb], 2_000);
         // Second round so the pair clears the min_co_occurrences floor.
-        correlator.ingest(&[fa], 3_000);
+        let _ = correlator.ingest(&[fa], 3_000);
         let mut fb2 = make_finding("payment-svc", FindingType::PoolSaturation, "svc");
         fb2.trace_id = oversized;
-        correlator.ingest(&[fb2], 4_000);
+        let _ = correlator.ingest(&[fb2], 4_000);
 
         let correlations = correlator.active_correlations();
         let c = correlations.first().expect("expected one correlation");
@@ -643,7 +644,7 @@ mod tests {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
             let fb = make_finding("order-svc", FindingType::RedundantSql, "SELECT * FROM t");
-            correlator.ingest(&[fa, fb], t);
+            let _ = correlator.ingest(&[fa, fb], t);
         }
 
         let correlations = correlator.active_correlations();
@@ -663,13 +664,13 @@ mod tests {
         });
 
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        correlator.ingest(&[fa], 1_000);
+        let _ = correlator.ingest(&[fa], 1_000);
         let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-        correlator.ingest(&[fb], 2_000);
+        let _ = correlator.ingest(&[fb], 2_000);
 
         // After window expires, occurrences are evicted.
         let fa2 = make_finding("other-svc", FindingType::SlowSql, "SELECT 2");
-        correlator.ingest(&[fa2], 100_000);
+        let _ = correlator.ingest(&[fa2], 100_000);
 
         assert!(
             correlator.occurrences.len() <= 2,
@@ -742,10 +743,10 @@ mod tests {
         for i in 0..10 {
             let t = 1_000_000 + i * 10_000;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT * FROM t");
-            correlator.ingest(&[fa], t);
+            let _ = correlator.ingest(&[fa], t);
             if i < 2 {
                 let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-                correlator.ingest(&[fb], t + 1_000);
+                let _ = correlator.ingest(&[fb], t + 1_000);
             }
         }
 
@@ -767,9 +768,9 @@ mod tests {
 
         // A at t=1000, B at t=10000 (9s later, exceeds 1s threshold).
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        correlator.ingest(&[fa], 1_000);
+        let _ = correlator.ingest(&[fa], 1_000);
         let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-        correlator.ingest(&[fb], 10_000);
+        let _ = correlator.ingest(&[fb], 10_000);
 
         let correlations = correlator.active_correlations();
         assert!(
@@ -794,9 +795,9 @@ mod tests {
         for i in 0..total {
             let t = 1_000_000 + i as u64 * 10;
             let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-            correlator.ingest(&[fa], t);
+            let _ = correlator.ingest(&[fa], t);
             let fb = make_finding("payment-svc", FindingType::PoolSaturation, "payment-svc");
-            correlator.ingest(&[fb], t + 1);
+            let _ = correlator.ingest(&[fb], t + 1);
         }
 
         // Directional pairs: both (A->B) and (B->A) are tracked because
@@ -896,13 +897,13 @@ mod tests {
 
         // Ingest a finding, then let it expire.
         let fa = make_finding("order-svc", FindingType::NPlusOneSql, "SELECT 1");
-        correlator.ingest(&[fa], 1_000);
+        let _ = correlator.ingest(&[fa], 1_000);
         assert_eq!(correlator.source_totals.len(), 1);
 
         // Next ingest after the window has elapsed: stale entry must be
         // evicted from source_totals by the rebuild, not leaked.
         let fb = make_finding("other-svc", FindingType::NPlusOneSql, "SELECT 2");
-        correlator.ingest(&[fb], 10_000);
+        let _ = correlator.ingest(&[fb], 10_000);
         // Only the current finding's endpoint should remain.
         assert!(
             correlator.source_totals.len() <= 1,
