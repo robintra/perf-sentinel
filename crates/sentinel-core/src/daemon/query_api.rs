@@ -869,13 +869,13 @@ mod tests {
                 detect::Severity::Warning,
             );
             fa.service = "order-svc".to_string();
-            correlator.ingest(&[fa], t);
+            let _ = correlator.ingest(&[fa], t);
             let mut fb = crate::test_helpers::make_finding(
                 follow_up_kind.clone(),
                 detect::Severity::Warning,
             );
             fb.service = "payment-svc".to_string();
-            correlator.ingest(&[fb], t + 1_000);
+            let _ = correlator.ingest(&[fb], t + 1_000);
         }
     }
 
