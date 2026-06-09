@@ -564,7 +564,7 @@ Le modèle proxy utilise une seule constante `ENERGY_PER_IO_OP_KWH` (0.1 µWh) p
 | Grand          | 2.0x           | > 1 Mo          |
 | Inconnu        | 1.0x           | attribut absent |
 
-**Sources.** Les ratios relatifs proviennent de benchmarks académiques d'énergie SGBD (Xu et al. VLDB 2010, Tsirogiannis et al. SIGMOD 2010) et de la méthodologie Cloud Carbon Footprint.
+**Sources.** Les ratios relatifs proviennent de benchmarks académiques d'énergie SGBD (Z. Xu, Y.-C. Tu, X. Wang, "Exploring Power-Performance Tradeoffs in Database Systems", IEEE ICDE 2010, p. 485-496, Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010, p. 231-242, Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961, 2023) et de la méthodologie Cloud Carbon Footprint.
 
 **Où cela s'intègre.** Dans la boucle de spans de `compute_carbon_report`, le chemin proxy applique le coefficient. Quand de l'énergie mesurée est disponible (Scaphandre ou cloud SPECpower), le coefficient n'est PAS appliqué.
 

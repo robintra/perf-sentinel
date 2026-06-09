@@ -591,7 +591,7 @@ The proxy model uses a single `ENERGY_PER_IO_OP_KWH` constant (0.1 uWh) for ever
 | Large        | 2.0x       | > 1 MB           |
 | Unknown      | 1.0x       | attribute absent |
 
-**Sources.** The relative ratios are derived from academic DBMS energy benchmarks (Xu et al. "An Analysis of Power Consumption in a DBMS", VLDB 2010; Tsirogiannis et al. "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010) and the Cloud Carbon Footprint methodology. The absolute values are order-of-magnitude estimates. The relative ordering (SELECT < DELETE < INSERT/UPDATE) is more robust across hardware generations.
+**Sources.** The relative ratios are derived from academic DBMS energy benchmarks (Z. Xu, Y.-C. Tu, X. Wang, "Exploring Power-Performance Tradeoffs in Database Systems", IEEE ICDE 2010, pp. 485-496; Tsirogiannis, Harizopoulos, Shah, "Analyzing the Energy Efficiency of a Database Server", SIGMOD 2010, pp. 231-242; Lella et al., "DBJoules: An Energy Measurement Tool for Database Management Systems", arXiv:2311.08961, 2023) and the Cloud Carbon Footprint methodology. The absolute values are order-of-magnitude estimates. The relative ordering (SELECT < DELETE < INSERT/UPDATE) is more robust across hardware generations.
 
 **Where it plugs in.** In `compute_carbon_report`'s span loop, the proxy fallback path applies the coefficient:
 
