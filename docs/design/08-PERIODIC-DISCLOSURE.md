@@ -87,6 +87,8 @@ The writer is a `tokio::spawn` task fed by a bounded `tokio::sync::mpsc::Sender<
 
 The bounded channel uses drop-on-full: when the writer falls behind, new windows are dropped with a `tracing::warn!`. The 256-message capacity is sized so a steady-state stalled writer surfaces within seconds rather than letting an unbounded queue OOM the daemon.
 
+The writer task performs synchronous buffered `std::fs` I/O on purpose. Producers never block on it by construction (drop-on-full `try_send`), per-line writes hit a `BufWriter`, and rotation runs once per `max_size_mb` of output. The worst case of a stalled filesystem is one blocked runtime worker inside this task, which the bounded channel converts into dropped windows rather than backpressure on the analysis path. `tokio::fs` or `spawn_blocking` would add per-line overhead for no behavioral gain.
+
 Rotation triggers when `bytes_written` exceeds `max_size_mb * 1_048_576`. The active file is renamed to `<stem>-<UTC-timestamp>.ndjson` first, then a fresh file is opened via `OpenOptions::create_new(true).append(true)` to close the TOCTOU race where a co-resident attacker could plant a symlink between the rename and the re-open. `prune` removes the oldest rotated files until at most `max_files` remain. Pruning sorts by `mtime` descending and validates the timestamp suffix matches the `is_rotation_stamp` shape, so an unrelated file in the archive directory (e.g. `archive-evil.ndjson`) is never deleted.
 
 `metadata_len` reads the existing file size at startup so the writer resumes correctly after a daemon restart without immediately rotating a near-full file.

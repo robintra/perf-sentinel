@@ -105,6 +105,9 @@ fn metadata_len(path: &Path) -> u64 {
     std::fs::metadata(path).map_or(0, |m| m.len())
 }
 
+// Synchronous buffered I/O on a dedicated task, intentional: producers
+// drop-on-full via try_send so a stalled filesystem never blocks the
+// analysis path, and rotation runs once per cap_bytes (rare).
 async fn run_writer(
     mut rx: Receiver<OwnedArchive>,
     path: PathBuf,
