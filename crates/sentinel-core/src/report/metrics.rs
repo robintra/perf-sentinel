@@ -332,6 +332,11 @@ pub struct MetricsState {
     /// Traces dropped by the shed batches counted in
     /// [`Self::analysis_shed_batches_total`].
     pub analysis_shed_traces_total: IntCounter,
+    /// Cross-trace correlator pairs evicted by the `max_tracked_pairs`
+    /// cap. A sustained rate means the correlation topology exceeds the
+    /// cap and lowest-count pairs are silently recycled, so
+    /// `/api/correlations` may drop entries between reads.
+    pub correlator_pairs_evicted_total: IntCounter,
     /// cumulative I/O ops per service. Labeled with the
     /// `service` attribute from span `service.name`. Exposed so
     /// Grafana dashboards can show per-service throughput, and used
@@ -555,6 +560,12 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let correlator_pairs_evicted_total = IntCounter::new(
+            "perf_sentinel_correlator_pairs_evicted_total",
+            "Cross-trace correlator pairs evicted by the max_tracked_pairs cap",
+        )
+        .expect("metric creation should not fail");
+
         // per-service I/O op counter. Single source of
         // truth for per-service op counts, the Scaphandre scraper
         // reads this via snapshot-diff instead of maintaining a
@@ -615,6 +626,9 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(analysis_shed_traces_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(correlator_pairs_evicted_total.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(service_io_ops_total.clone()))
@@ -884,6 +898,7 @@ impl MetricsState {
             analysis_queue_depth,
             analysis_shed_batches_total,
             analysis_shed_traces_total,
+            correlator_pairs_evicted_total,
             service_io_ops_total,
             service_io_ops_overflow_total,
             scaphandre_last_scrape_age_seconds,
