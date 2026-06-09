@@ -14,7 +14,7 @@ use opentelemetry_proto::tonic::trace::v1::Span;
 use tonic::{Request, Response, Status, async_trait};
 
 use crate::event::{EventSource, EventType, SpanEvent};
-use crate::report::metrics::OtlpRejectReason;
+use crate::report::metrics::{OtlpRejectReason, OtlpSpanFilterReason};
 
 /// Sink for the rejection counters this module emits.
 ///
@@ -35,6 +35,33 @@ use crate::report::metrics::OtlpRejectReason;
 pub trait MetricsSink: Send + Sync {
     /// Record one rejected OTLP request, labeled by reason.
     fn record_otlp_reject(&self, reason: OtlpRejectReason);
+
+    /// Record one request's span conversion tally (received vs filtered).
+    fn record_otlp_spans(&self, stats: SpanConversionStats);
+}
+
+/// Per-request span conversion tally.
+///
+/// `received` counts every span in the request; the `filtered_*` fields
+/// count spans skipped by [`convert_span`] because they are not
+/// analyzable I/O operations (one field per [`OtlpSpanFilterReason`]
+/// variant). Retained spans = `received` minus the filtered sum.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SpanConversionStats {
+    pub received: u64,
+    pub filtered_not_io: u64,
+    pub filtered_missing_db_statement: u64,
+    pub filtered_missing_http_url: u64,
+}
+
+impl SpanConversionStats {
+    fn count_filtered(&mut self, reason: OtlpSpanFilterReason) {
+        match reason {
+            OtlpSpanFilterReason::NotIo => self.filtered_not_io += 1,
+            OtlpSpanFilterReason::MissingDbStatement => self.filtered_missing_db_statement += 1,
+            OtlpSpanFilterReason::MissingHttpUrl => self.filtered_missing_http_url += 1,
+        }
+    }
 }
 
 // ── Conversion helpers ──────────────────────────────────────────────
@@ -368,7 +395,20 @@ fn collect_instrumentation_scopes(
 
 #[must_use]
 pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEvent> {
+    convert_otlp_request_counted(request).0
+}
+
+/// [`convert_otlp_request`] with a per-request conversion tally.
+///
+/// The daemon listeners use this variant so the received vs filtered
+/// span counters move even when a whole request converts to zero
+/// events (the request itself still succeeds, by design).
+#[must_use]
+pub fn convert_otlp_request_counted(
+    request: &ExportTraceServiceRequest,
+) -> (Vec<SpanEvent>, SpanConversionStats) {
     let mut events = Vec::new();
+    let mut stats = SpanConversionStats::default();
 
     for resource_spans in &request.resource_spans {
         // Build the per-Resource Arc<str> once, then Arc::clone into each span.
@@ -396,30 +436,50 @@ pub fn convert_otlp_request(request: &ExportTraceServiceRequest) -> Vec<SpanEven
 
         for scope_spans in &resource_spans.scope_spans {
             for span in &scope_spans.spans {
-                if let Some(event) = convert_span(
+                stats.received += 1;
+                match convert_span(
                     span,
                     &service_arc,
                     resource_cloud_region.as_ref(),
                     &span_index,
                     &scope_index,
                 ) {
-                    events.push(event);
+                    Ok(event) => events.push(event),
+                    Err(reason) => stats.count_filtered(reason),
                 }
             }
         }
     }
 
-    events
+    (events, stats)
+}
+
+/// Classify why a span was skipped: distinguishes "internal span" from
+/// "I/O span missing the attribute that carries its statement or url".
+fn span_filter_reason(classified: &ClassifiedAttrs<'_>) -> OtlpSpanFilterReason {
+    if classified.db_system.is_some() {
+        OtlpSpanFilterReason::MissingDbStatement
+    } else if classified
+        .http_method
+        .or(classified.http_request_method)
+        .is_some()
+    {
+        OtlpSpanFilterReason::MissingHttpUrl
+    } else {
+        OtlpSpanFilterReason::NotIo
+    }
 }
 
 /// Convert a single OTLP span to a `SpanEvent`, if it is an I/O operation.
+///
+/// Non-I/O spans return the filter reason so the caller can tally them.
 fn convert_span(
     span: &Span,
     service_arc: &Arc<str>,
     resource_cloud_region: Option<&Arc<str>>,
     span_index: &HashMap<&[u8], &Span>,
     scope_index: &HashMap<&[u8], &str>,
-) -> Option<SpanEvent> {
+) -> Result<SpanEvent, OtlpSpanFilterReason> {
     let classified = classify_span_attrs(&span.attributes);
 
     // Determine event type: SQL if db.statement/db.query.text present, HTTP if http.url/url.full present.
@@ -438,8 +498,7 @@ fn convert_span(
                 .to_string();
             (EventType::HttpOut, url.to_string(), method)
         } else {
-            // Not an I/O span, skip
-            return None;
+            return Err(span_filter_reason(&classified));
         };
 
     // Timestamps and duration
@@ -544,7 +603,7 @@ fn convert_span(
         instrumentation_scopes,
     };
     crate::event::sanitize_span_event(&mut event);
-    Some(event)
+    Ok(event)
 }
 
 // ── gRPC service implementation ─────────────────────────────────────
@@ -573,7 +632,10 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        let events = convert_otlp_request(request.get_ref());
+        let (events, stats) = convert_otlp_request_counted(request.get_ref());
+        if let Some(m) = self.metrics.as_ref() {
+            m.record_otlp_spans(stats);
+        }
         if !events.is_empty() && self.sender.send(events).await.is_err() {
             if let Some(m) = self.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
@@ -649,7 +711,10 @@ pub fn otlp_http_router(
             }
             return StatusCode::BAD_REQUEST;
         };
-        let events = convert_otlp_request(&request);
+        let (events, stats) = convert_otlp_request_counted(&request);
+        if let Some(m) = state.metrics.as_ref() {
+            m.record_otlp_spans(stats);
+        }
         if !events.is_empty() && state.sender.send(events).await.is_err() {
             tracing::warn!("OTLP HTTP: event channel full or closed, dropping events");
             if let Some(m) = state.metrics.as_ref() {
@@ -876,6 +941,83 @@ mod tests {
         };
         let req = make_request("order-svc", vec![span]);
         assert!(convert_otlp_request(&req).is_empty());
+    }
+
+    /// Bare span with only the given attributes (filter-reason fixtures).
+    fn make_bare_span(span_id: &[u8], attributes: Vec<KeyValue>) -> Span {
+        Span {
+            trace_id: vec![1; 16],
+            span_id: span_id.to_vec(),
+            name: "fixture".to_string(),
+            start_time_unix_nano: 1_720_621_921_000_000_000,
+            end_time_unix_nano: 1_720_621_921_000_500_000,
+            attributes,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn counted_conversion_classifies_filtered_spans() {
+        // Four spans: internal, db.system without statement, HTTP method
+        // without url, valid SQL. One filtered per reason, one retained.
+        let internal = make_bare_span(&[4; 8], vec![make_kv("custom.attr", "value")]);
+        let db_no_statement = make_bare_span(&[5; 8], vec![make_kv("db.system", "postgresql")]);
+        let http_no_url = make_bare_span(&[6; 8], vec![make_kv("http.method", "GET")]);
+        let sql = make_sql_span(&[1; 16], &[7; 8], &[], "SELECT 1", 0, 1000);
+        let req = make_request(
+            "order-svc",
+            vec![internal, db_no_statement, http_no_url, sql],
+        );
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            stats,
+            SpanConversionStats {
+                received: 4,
+                filtered_not_io: 1,
+                filtered_missing_db_statement: 1,
+                filtered_missing_http_url: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn counted_conversion_all_filtered_yields_zero_events() {
+        // The "received but 0 retained" case: the request succeeds, the
+        // tally is the only signal that nothing was analyzable.
+        let internal = make_bare_span(&[4; 8], vec![make_kv("custom.attr", "value")]);
+        let req = make_request("order-svc", vec![internal]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(stats.received, 1);
+        assert_eq!(stats.filtered_not_io, 1);
+    }
+
+    #[cfg(feature = "daemon")]
+    #[test]
+    fn record_otlp_spans_moves_received_and_filtered_counters() {
+        let (state, sink) = fresh_metrics_sink();
+        sink.record_otlp_spans(SpanConversionStats {
+            received: 5,
+            filtered_not_io: 2,
+            filtered_missing_db_statement: 1,
+            filtered_missing_http_url: 0,
+        });
+
+        assert_eq!(state.otlp_spans_received_total.get(), 5);
+        let filtered = |reason: &str| {
+            state
+                .otlp_spans_filtered_total
+                .with_label_values(&[reason])
+                .get()
+        };
+        assert_eq!(filtered("not_io"), 2);
+        assert_eq!(filtered("missing_db_statement"), 1);
+        assert_eq!(filtered("missing_http_url"), 0);
     }
 
     #[test]
