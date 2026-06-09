@@ -61,6 +61,41 @@ impl OtlpRejectReason {
     }
 }
 
+/// Reason an OTLP span was skipped by conversion instead of becoming a
+/// `SpanEvent`.
+///
+/// Used as the `reason` label of `perf_sentinel_otlp_spans_filtered_total`.
+/// Variants are pre-warmed to 0 at startup. Span-level filtering is
+/// deliberate (only SQL and outbound-HTTP spans are analyzable, see
+/// docs/LIMITATIONS.md); the counter exists so a fleet whose spans all
+/// filter out is visible instead of silently yielding no findings while
+/// every OTLP request keeps returning success.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OtlpSpanFilterReason {
+    /// Span carries no `db.*` statement and no HTTP url or method.
+    NotIo,
+    /// Span has `db.system` but no `db.statement`/`db.query.text` to analyze.
+    MissingDbStatement,
+    /// Span has an HTTP method but no `http.url`/`url.full` to analyze.
+    MissingHttpUrl,
+}
+
+impl OtlpSpanFilterReason {
+    /// Every variant in declaration order. Fixed-size array so adding a
+    /// variant without bumping the count is a compile-time error,
+    /// keeping the pre-warm loop in `MetricsState::new` exhaustive.
+    pub const ALL: [Self; 3] = [Self::NotIo, Self::MissingDbStatement, Self::MissingHttpUrl];
+
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotIo => "not_io",
+            Self::MissingDbStatement => "missing_db_statement",
+            Self::MissingHttpUrl => "missing_http_url",
+        }
+    }
+}
+
 /// Reason a daemon ack or unack operation failed.
 ///
 /// Used as the `reason` label of
@@ -344,6 +379,19 @@ pub struct MetricsState {
     /// surface an `ingestion_drops` warning in the report payload when
     /// the counter is positive.
     pub otlp_rejected_channel_full: IntCounter,
+    /// OTLP spans received across all requests, before I/O filtering.
+    /// Compared with `otlp_spans_filtered_total` this gives the span
+    /// retention ratio: a fleet whose instrumentation strips
+    /// `db.statement` or `http.url` converts every request to zero
+    /// events while still returning success, and only this counter
+    /// pair makes that visible.
+    pub otlp_spans_received_total: IntCounter,
+    /// OTLP spans skipped by conversion because they are not analyzable
+    /// I/O operations, labeled by `reason`. Pre-warmed to 0 for every
+    /// variant in [`OtlpSpanFilterReason::ALL`]. Incremented once per
+    /// request with aggregated counts (not per span), so no hot-path
+    /// child caching is needed.
+    pub otlp_spans_filtered_total: IntCounterVec,
     /// Successful ack and unack operations on the daemon HTTP API,
     /// labeled by `action` (`ack` or `unack`). Pre-warmed to 0 for
     /// both actions at startup so dashboards plot zero-values before
@@ -641,6 +689,24 @@ impl MetricsState {
             let _ = otlp_rejected_total.with_label_values(&[reason.as_str()]);
         }
 
+        let otlp_spans_received_total = IntCounter::new(
+            "perf_sentinel_otlp_spans_received_total",
+            "Total OTLP spans received, before I/O filtering",
+        )
+        .expect("metric creation should not fail");
+        registry
+            .register(Box::new(otlp_spans_received_total.clone()))
+            .expect("registration should not fail");
+        let otlp_spans_filtered_total = register_int_counter_vec(
+            &registry,
+            "perf_sentinel_otlp_spans_filtered_total",
+            "Total OTLP spans skipped by conversion because they are not analyzable I/O operations, by reason",
+            &["reason"],
+        );
+        for reason in &OtlpSpanFilterReason::ALL {
+            let _ = otlp_spans_filtered_total.with_label_values(&[reason.as_str()]);
+        }
+
         #[cfg(feature = "daemon")]
         let ack_operations_total = register_int_counter_vec(
             &registry,
@@ -809,6 +875,8 @@ impl MetricsState {
             otlp_rejected_unsupported_media_type,
             otlp_rejected_parse_error,
             otlp_rejected_channel_full,
+            otlp_spans_received_total,
+            otlp_spans_filtered_total,
             #[cfg(feature = "daemon")]
             ack_operations_total,
             #[cfg(feature = "daemon")]
@@ -1199,6 +1267,28 @@ impl crate::ingest::otlp::MetricsSink for MetricsState {
             }
             OtlpRejectReason::ParseError => self.otlp_rejected_parse_error.inc(),
             OtlpRejectReason::ChannelFull => self.otlp_rejected_channel_full.inc(),
+        }
+    }
+
+    fn record_otlp_spans(&self, stats: crate::ingest::otlp::SpanConversionStats) {
+        self.otlp_spans_received_total.inc_by(stats.received);
+        let filtered = [
+            (OtlpSpanFilterReason::NotIo, stats.filtered_not_io),
+            (
+                OtlpSpanFilterReason::MissingDbStatement,
+                stats.filtered_missing_db_statement,
+            ),
+            (
+                OtlpSpanFilterReason::MissingHttpUrl,
+                stats.filtered_missing_http_url,
+            ),
+        ];
+        for (reason, count) in filtered {
+            if count > 0 {
+                self.otlp_spans_filtered_total
+                    .with_label_values(&[reason.as_str()])
+                    .inc_by(count);
+            }
         }
     }
 }
@@ -2217,6 +2307,39 @@ mod tests {
                 .get(),
             0
         );
+    }
+
+    #[test]
+    fn otlp_span_counters_start_at_zero_and_prewarm_all_reasons() {
+        let state = MetricsState::new();
+        assert_eq!(state.otlp_spans_received_total.get(), 0);
+        let output = state.render();
+        assert!(
+            output.contains("perf_sentinel_otlp_spans_received_total 0"),
+            "received counter should render at 0, got: {output}"
+        );
+        for reason in ["not_io", "missing_db_statement", "missing_http_url"] {
+            assert!(
+                output.contains(&format!(
+                    "perf_sentinel_otlp_spans_filtered_total{{reason=\"{reason}\"}} 0"
+                )),
+                "pre-warmed line for reason {reason} should appear in /metrics, got: {output}"
+            );
+        }
+    }
+
+    #[test]
+    fn otlp_span_filter_reason_as_str_round_trips_all_variants() {
+        for (variant, label) in [
+            (OtlpSpanFilterReason::NotIo, "not_io"),
+            (
+                OtlpSpanFilterReason::MissingDbStatement,
+                "missing_db_statement",
+            ),
+            (OtlpSpanFilterReason::MissingHttpUrl, "missing_http_url"),
+        ] {
+            assert_eq!(variant.as_str(), label);
+        }
     }
 
     #[cfg(feature = "daemon")]
