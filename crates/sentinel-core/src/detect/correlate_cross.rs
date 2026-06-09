@@ -308,6 +308,8 @@ impl CrossTraceCorrelator {
     ///
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
+    /// Returns the number of pairs evicted by the `max_tracked_pairs`
+    /// cap so the caller can surface the drop (counter and warn).
     ///
     /// `source_totals` is maintained incrementally: increment on
     /// `push_back`, decrement on `pop_front`. Removing an entry when its
@@ -315,7 +317,7 @@ impl CrossTraceCorrelator {
     /// distinct endpoints currently in the window. This avoids the
     /// O(occurrences) per-tick rebuild that a `clear + repopulate`
     /// approach would require.
-    pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) {
+    pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) -> usize {
         let cutoff = now_ms.saturating_sub(self.config.window_ms);
         self.evict_stale(cutoff);
         self.pair_counts
@@ -335,7 +337,7 @@ impl CrossTraceCorrelator {
             });
         }
 
-        self.enforce_pair_cap();
+        self.enforce_pair_cap()
     }
 
     /// Drop occurrences older than `cutoff`, decrementing `source_totals`.
@@ -405,7 +407,7 @@ impl CrossTraceCorrelator {
     }
 
     /// Enforce `max_tracked_pairs` cap. Evicts the pairs with the lowest
-    /// `co_occurrence_count`.
+    /// `co_occurrence_count` and returns how many were removed.
     ///
     /// Two optimizations over the naive "clone all keys then select":
     ///
@@ -417,9 +419,9 @@ impl CrossTraceCorrelator {
     ///    clones), then clone keys only for the ~10% we'll actually
     ///    remove. Previously we cloned every `PairKey` in the map
     ///    (two `CorrelationEndpoint` strings each) on every cap hit.
-    fn enforce_pair_cap(&mut self) {
+    fn enforce_pair_cap(&mut self) -> usize {
         if self.pair_counts.len() <= self.config.max_tracked_pairs {
-            return;
+            return 0;
         }
         // Evict down to 90% of cap so subsequent inserts don't re-trip
         // the cap after a single-element overflow.
@@ -458,9 +460,13 @@ impl CrossTraceCorrelator {
                     .map(|(k, _)| k.clone()),
             );
         }
+        let mut removed = 0;
         for key in below_threshold {
-            self.pair_counts.remove(&key);
+            if self.pair_counts.remove(&key).is_some() {
+                removed += 1;
+            }
         }
+        removed
     }
 
     /// Return all active correlations above the configured thresholds.
@@ -681,26 +687,46 @@ mod tests {
             ..Default::default()
         });
 
-        // Create many distinct pairs.
+        // Create many distinct pairs, summing the reported evictions.
+        let mut evicted_total = 0;
         for i in 0..20 {
             let fa = make_finding(
                 &format!("svc-a-{i}"),
                 FindingType::NPlusOneSql,
                 &format!("tpl-{i}"),
             );
-            correlator.ingest(&[fa], 1000);
+            evicted_total += correlator.ingest(&[fa], 1000);
             let fb = make_finding(
                 &format!("svc-b-{i}"),
                 FindingType::RedundantSql,
                 &format!("tpl-{i}"),
             );
-            correlator.ingest(&[fb], 1001);
+            evicted_total += correlator.ingest(&[fb], 1001);
         }
 
         assert!(
             correlator.pair_counts.len() <= 5,
             "pair count should be capped at max_tracked_pairs"
         );
+        assert!(
+            evicted_total > 0,
+            "cap trips should report the evicted pair count"
+        );
+    }
+
+    #[test]
+    fn ingest_under_cap_reports_zero_evictions() {
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            lag_threshold_ms: 100_000,
+            ..Default::default()
+        });
+
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        assert_eq!(correlator.ingest(&[fa], 1_000), 0);
+        assert_eq!(correlator.ingest(&[fb], 1_001), 0);
     }
 
     #[test]

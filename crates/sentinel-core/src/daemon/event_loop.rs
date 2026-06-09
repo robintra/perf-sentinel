@@ -719,7 +719,18 @@ async fn process_traces(
     }
 
     if let Some(correlator) = ctx.correlator {
-        correlator.lock().await.ingest(&findings, now_ms);
+        let evicted = correlator.lock().await.ingest(&findings, now_ms);
+        if evicted > 0 {
+            // Bounded warn: eviction is amortized to once per 10% of the
+            // pair cap, so this cannot become a per-batch log storm.
+            ctx.metrics
+                .correlator_pairs_evicted_total
+                .inc_by(evicted as u64);
+            tracing::warn!(
+                evicted,
+                "correlator pair cap reached, evicting lowest-count pairs"
+            );
+        }
     }
 
     emit_findings_and_update_metrics(trace_count, &findings, &green_summary, ctx.metrics);
@@ -797,12 +808,20 @@ mod tests {
     use core::assert_matches;
 
     fn make_normalized(trace_id: &str, target: &str) -> normalize::NormalizedEvent {
+        make_normalized_for_service(trace_id, "test", target)
+    }
+
+    fn make_normalized_for_service(
+        trace_id: &str,
+        service: &str,
+        target: &str,
+    ) -> normalize::NormalizedEvent {
         normalize::normalize(SpanEvent {
             timestamp: "2025-07-10T14:32:01.123Z".to_string(),
             trace_id: trace_id.to_string(),
             span_id: "s1".to_string(),
             parent_span_id: None,
-            service: Arc::from("test"),
+            service: Arc::from(service),
             cloud_region: None,
             event_type: EventType::Sql,
             operation: "SELECT".to_string(),
@@ -1306,6 +1325,54 @@ mod tests {
         assert_eq!(metrics.analysis_shed_batches_total.get(), 1);
         assert_eq!(metrics.analysis_shed_traces_total.get(), 2);
         assert_eq!(metrics.analysis_queue_depth.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn correlator_pair_evictions_recorded_in_metrics() {
+        let metrics = MetricsState::new();
+        let carbon = empty_carbon_ctx();
+        let store = findings_store::FindingsStore::new(100);
+        let detect_config = default_detect_config();
+        let cell = fresh_green_cell();
+        // Cap of 1 pair: three same-batch N+1 findings from three
+        // services create three cross-service pairs, forcing evictions.
+        let correlator = Mutex::new(detect::correlate_cross::CrossTraceCorrelator::new(
+            detect::correlate_cross::CorrelationConfig {
+                enabled: true,
+                max_tracked_pairs: 1,
+                lag_threshold_ms: 100_000,
+                min_co_occurrences: 1,
+                min_confidence: 0.0,
+                ..Default::default()
+            },
+        ));
+        let mut ctx = test_ctx(&detect_config, &carbon, &metrics, &store, true, &cell);
+        ctx.correlator = Some(&correlator);
+
+        let traces: Vec<_> = ["svc-a", "svc-b", "svc-c"]
+            .iter()
+            .enumerate()
+            .map(|(i, svc)| {
+                let trace_id = format!("t{i}");
+                let events: Vec<_> = (1..=6)
+                    .map(|p| {
+                        make_normalized_for_service(
+                            &trace_id,
+                            svc,
+                            &format!("SELECT * FROM order_item WHERE order_id = {p}"),
+                        )
+                    })
+                    .collect();
+                (trace_id, events)
+            })
+            .collect();
+
+        process_traces(traces, ctx).await;
+
+        assert!(
+            metrics.correlator_pairs_evicted_total.get() > 0,
+            "pair cap evictions must reach the metric"
+        );
     }
 
     #[test]
