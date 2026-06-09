@@ -204,7 +204,13 @@ jobs:
       - name: Generate SHA256 checksums
         run: |
           cd artifacts
-          sha256sum * > SHA256SUMS.txt
+          # Checksum the release artifacts by their shared `perf-sentinel-`
+          # prefix (the 4 binaries plus the SBOM, the same set the attestation
+          # below covers) rather than `*`. On a clean dir `*` is already safe
+          # (bash expands the glob before the redirect creates SHA256SUMS.txt),
+          # but the explicit prefix also keeps the sums file out should the dir
+          # ever be reused, and documents intent.
+          sha256sum perf-sentinel-* > SHA256SUMS.txt
 
       - name: Attest binaries
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
