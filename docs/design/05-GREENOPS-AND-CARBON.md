@@ -338,7 +338,7 @@ The flat annual value per region discards the diurnal variance that can be large
 - **UK (`eu-west-2`)**: wind + gas, moderate twin peaks.
 - **US-East (`us-east-1`)**: gas + coal, flat daytime peak 13h-18h UTC (9am-2pm ET).
 
-Each profile's arithmetic mean approximates the corresponding flat annual value within ±5%, preserving methodology continuity: enabling hourly profiles should not cause a sudden jump in the reported CO₂ for a representative-day run. Exception: Germany (`eu-central-1`) where the profile mean (~442 gCO₂/kWh) is ~31% above the embedded annual value (338), reflecting recent 2023-2024 data that is higher than the older CCF annual value. Users needing exact calibration can disable hourly profiles with `use_hourly_profiles = false`.
+Each profile's arithmetic mean approximates the corresponding flat annual value within ±5%, preserving methodology continuity: enabling hourly profiles should not cause a sudden jump in the reported CO₂ for a representative-day run. The Germany (`eu-central-1`) profile historically broke this invariant (mean ~431 gCO₂/kWh, frozen at the 2022 coal-crisis level, vs annual 338); since 0.8.7 it is rescaled to the Electricity Maps 2024 level (~341) and the invariant holds for every region with no exception. Users needing exact calibration can disable hourly profiles with `use_hourly_profiles = false`.
 
 Sources: Electricity Maps annual open-data reports (2023-2024 typical diurnal shapes by zone), ENTSO-E Transparency Platform (European grid composition and demand curves), RTE eco2mix daily data (France), Fraunhofer ISE Energy-Charts (Germany), NGESO carbonintensity.org.uk (UK), EIA hourly generation data (US-East).
 

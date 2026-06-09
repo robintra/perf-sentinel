@@ -399,18 +399,18 @@ When `[green] use_hourly_profiles = true` (the default), the scoring stage uses 
 
 To pin reports to the flat-annual model (e.g. to compare historical runs without the hourly shift), set `[green] use_hourly_profiles = false` in the config.
 
-#### ⚠️ Germany (`eu-central-1`) hourly profile diverges from the flat annual
+#### Germany (`eu-central-1`) hourly profile: divergence resolved in 0.8.7
 
-Unlike France, UK and US-East, whose hourly profiles stay within ±5% of their corresponding flat annual values in the primary carbon table, the Germany hourly profile has an **arithmetic mean of ~442 g/kWh**, whereas the embedded flat annual in `CARBON_TABLE[eu-central-1]` is **338 g/kWh** (a ~31% divergence). This reflects recent (2023-2024) ENTSO-E data on the German grid, which has been dominated by coal and variable renewables with pronounced peaks; the embedded flat annual predates this shift and is optimistic by comparison.
+Up to 0.8.6 the Germany hourly profile carried an arithmetic mean of ~431 g/kWh against an embedded flat annual of 338, a ~28% divergence the docs used to describe as "recent data being higher". An audit against primary sources inverted that story: the German grid got cleaner through 2023-2025 (Electricity Maps consumption-based: 475 in 2022, 379 in 2023, 341 in 2024), so the hourly profile level was the stale side, frozen at the 2022 coal-crisis level, while the annual value 338 was current. As shipped before 0.8.7, enabling hourly profiles inflated Frankfurt CO₂ by ~27% versus current primary data.
+
+Since 0.8.7 the profile is rescaled (shape preserved, level normalized to the Electricity Maps 2024 mean of ~341), so the hourly and flat-annual paths agree within ±5% like every other profiled region.
 
 **What this means for your reports:**
 
-- If you run reports with `default_region = "eu-central-1"` (or any span carrying `cloud.region = eu-central-1`) and the default `use_hourly_profiles = true`, you will see **CO₂ numbers roughly 31% higher** than you would have seen before the hourly profiles landed.
-- The new numbers are closer to reality than the old flat-annual ones. **We do not recommend pinning to the old numbers** except for backward-compatibility purposes (e.g. regression-comparing a new run against a baseline captured before the hourly profiles landed).
-- If you do need the old behaviour, set `[green] use_hourly_profiles = false` in your config. This disables hourly for all regions, not just Germany.
-- If you have CI quality gates (`[thresholds] io_waste_ratio_max` etc.) calibrated on the old DE numbers, you will need to recalibrate after the upgrade.
+- Reports with `default_region = "eu-central-1"` (or spans carrying `cloud.region = eu-central-1`) and the default `use_hourly_profiles = true` show **CO₂ numbers roughly 21% lower** than 0.8.6.
+- If you have CI quality gates (`[thresholds] io_waste_ratio_max` etc.) calibrated on the old DE hourly numbers, recalibrate after the upgrade.
 
-The divergence is documented inline in `score/carbon.rs` so future data refreshes stay honest about the mismatch. A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual value so accidental edits to the DE profile cannot silently corrupt it.
+A regression test (`de_flat_annual_numerical_regression`) pins the flat-annual value, and the profile-vs-annual ±5% invariant is now enforced for every region with no exception.
 
 ### What software-only attribution covers
 
