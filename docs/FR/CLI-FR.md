@@ -146,6 +146,13 @@ liste complète des options de `analyze`, `watch`, `query`, `report`,
 `demo`, `bench` et `calibrate`. Les commandes elles-mêmes sont
 stables, leur documentation prose est complétée incrémentalement.
 
+Le trio chaîne d'approvisionnement dispose d'une documentation
+dédiée ailleurs : `disclose`, `verify-hash` et `hash-bake` sont
+couverts dans [`REPORTING-FR.md`](./REPORTING-FR.md), avec le
+contexte signature et provenance dans
+[`SUPPLY-CHAIN-FR.md`](./SUPPLY-CHAIN-FR.md). La complétion shell et
+la page de manuel sont documentées plus bas sur cette page.
+
 ## Complétion shell
 
 `perf-sentinel completions <shell>` écrit un script de complétion sur

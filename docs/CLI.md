@@ -142,6 +142,12 @@ option lists of `analyze`, `watch`, `query`, `report`, `diff`,
 `bench` and `calibrate`. The commands themselves are stable; their
 prose documentation is being filled in incrementally.
 
+The supply-chain trio has dedicated prose documentation elsewhere:
+`disclose`, `verify-hash` and `hash-bake` are covered in
+[`REPORTING.md`](./REPORTING.md), with the signing and provenance
+background in [`SUPPLY-CHAIN.md`](./SUPPLY-CHAIN.md). Shell
+completions and the man page are documented below on this page.
+
 ## Shell completions
 
 `perf-sentinel completions <shell>` writes a completion script to
