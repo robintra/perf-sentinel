@@ -300,13 +300,18 @@ impl ServiceMeter {
                 .service_io_ops_total
                 .with_label_values(&[service])
                 .inc();
-        } else if !self.service_cap_warned {
-            tracing::warn!(
-                cap = self.max_service_cardinality,
-                "Service cardinality cap reached; new services will \
-                 not have per-service I/O op counters"
-            );
-            self.service_cap_warned = true;
+        } else {
+            // Keep the ongoing drop visible: the warn fires once, the
+            // overflow counter moves on every unattributed op.
+            metrics.service_io_ops_overflow_total.inc();
+            if !self.service_cap_warned {
+                tracing::warn!(
+                    cap = self.max_service_cardinality,
+                    "Service cardinality cap reached; new services will \
+                     not have per-service I/O op counters"
+                );
+                self.service_cap_warned = true;
+            }
         }
     }
 }
@@ -1301,6 +1306,33 @@ mod tests {
         assert_eq!(metrics.analysis_shed_batches_total.get(), 1);
         assert_eq!(metrics.analysis_shed_traces_total.get(), 2);
         assert_eq!(metrics.analysis_queue_depth.get(), 0);
+    }
+
+    #[test]
+    fn service_meter_overflow_counts_unattributed_ops() {
+        let metrics = MetricsState::new();
+        let mut meter = ServiceMeter {
+            known_services: std::collections::HashSet::new(),
+            max_service_cardinality: 2,
+            service_cap_warned: false,
+        };
+
+        for service in ["svc-a", "svc-b", "svc-c"] {
+            meter.record(service, &metrics);
+            meter.record(service, &metrics);
+        }
+
+        // svc-c arrived after the cap: both its ops overflow, the two
+        // attributed services keep counting.
+        assert_eq!(metrics.service_io_ops_overflow_total.get(), 2);
+        for service in ["svc-a", "svc-b"] {
+            let count = metrics
+                .service_io_ops_total
+                .with_label_values(&[service])
+                .get();
+            assert!((count - 2.0).abs() < f64::EPSILON);
+        }
+        assert!(meter.service_cap_warned);
     }
 
     #[tokio::test]

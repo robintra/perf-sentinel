@@ -338,7 +338,14 @@ pub struct MetricsState {
     /// by every measured-energy scraper to compute per-service op deltas
     /// without running a parallel counter (see
     /// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff`]).
+    /// The only production writer is the daemon's `ServiceMeter`, which
+    /// enforces a service-cardinality cap before any label is created.
     pub service_io_ops_total: CounterVec,
+    /// I/O ops that received no per-service attribution because the
+    /// `ServiceMeter` cardinality cap was already reached. An ongoing
+    /// increase means per-service throughput and measured-energy
+    /// attribution are undercounting newly seen services.
+    pub service_io_ops_overflow_total: IntCounter,
     /// age in seconds since the last successful Scaphandre
     /// scrape. Reset to 0 on each successful scrape and incremented
     /// every scrape interval by the scraper task. Useful for
@@ -552,12 +559,20 @@ impl MetricsState {
         // truth for per-service op counts, the Scaphandre scraper
         // reads this via snapshot-diff instead of maintaining a
         // parallel counter that would drift under concurrent writes.
+        // The daemon's ServiceMeter is the only production writer and
+        // enforces its cardinality cap before any label is created.
         let service_io_ops_total = CounterVec::new(
             Opts::new(
                 "perf_sentinel_service_io_ops_total",
                 "Cumulative I/O ops attributed to each service",
             ),
             &["service"],
+        )
+        .expect("metric creation should not fail");
+
+        let service_io_ops_overflow_total = IntCounter::new(
+            "perf_sentinel_service_io_ops_overflow_total",
+            "I/O ops not attributed to a per-service counter because the service cardinality cap was reached",
         )
         .expect("metric creation should not fail");
 
@@ -603,6 +618,9 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(service_io_ops_total.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(service_io_ops_overflow_total.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(scaphandre_last_scrape_age_seconds.clone()))
@@ -867,6 +885,7 @@ impl MetricsState {
             analysis_shed_batches_total,
             analysis_shed_traces_total,
             service_io_ops_total,
+            service_io_ops_overflow_total,
             scaphandre_last_scrape_age_seconds,
             cloud_energy_last_scrape_age_seconds,
             slow_duration_seconds,
