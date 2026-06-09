@@ -501,10 +501,11 @@ impl Provider {
 /// recent sustainability report (AWS 2024 global, GCP 2024 fleet TTM,
 /// Azure FY25 owned-and-controlled), refreshed in the 2026 cycle.
 ///
-/// Methodology note on Paris (eu-west-3, ~56 g): tracks Electricity
-/// Maps consumption-based-with-imports rather than RTE's lower
-/// production-based figure, keeping the table internally consistent
-/// with the other European regions.
+/// Methodology note on Paris (eu-west-3, ~41 g): tracks Electricity
+/// Maps consumption-based-with-imports (mean of 2023 = 49 and
+/// 2024 = 33) rather than RTE's lower production-based figure,
+/// keeping the table internally consistent with the other European
+/// regions.
 static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     // AWS regions
     ("us-east-1", 379.0, Provider::Aws),
@@ -513,7 +514,7 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("us-west-2", 89.0, Provider::Aws),
     ("eu-west-1", 296.0, Provider::Aws),      // Ireland
     ("eu-west-2", 231.0, Provider::Aws),      // London
-    ("eu-west-3", 56.0, Provider::Aws),       // Paris
+    ("eu-west-3", 41.0, Provider::Aws),       // Paris
     ("eu-central-1", 338.0, Provider::Aws),   // Frankfurt
     ("eu-north-1", 8.0, Provider::Aws),       // Stockholm
     ("ap-northeast-1", 462.0, Provider::Aws), // Tokyo
@@ -523,14 +524,14 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("ap-southeast-2", 550.0, Provider::Aws), // Sydney
     ("ap-south-1", 708.0, Provider::Aws),     // Mumbai
     ("ca-central-1", 13.0, Provider::Aws),    // Canada
-    ("sa-east-1", 62.0, Provider::Aws),       // São Paulo
+    ("sa-east-1", 96.0, Provider::Aws),       // São Paulo
     // GCP regions
     ("us-central1", 426.0, Provider::Gcp),
     ("us-east1", 379.0, Provider::Gcp),
     ("us-west1", 89.0, Provider::Gcp),
-    ("europe-west1", 187.0, Provider::Gcp),      // Belgium
+    ("europe-west1", 165.0, Provider::Gcp),      // Belgium
     ("europe-west4", 328.0, Provider::Gcp),      // Netherlands
-    ("europe-west9", 56.0, Provider::Gcp),       // Paris
+    ("europe-west9", 41.0, Provider::Gcp),       // Paris
     ("europe-north1", 8.0, Provider::Gcp),       // Finland
     ("europe-west8", 370.0, Provider::Gcp),      // Milan (Italy)
     ("europe-southwest1", 200.0, Provider::Gcp), // Madrid (Spain)
@@ -542,10 +543,10 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("westus2", 89.0, Provider::Azure),
     ("westeurope", 328.0, Provider::Azure),  // Netherlands
     ("northeurope", 296.0, Provider::Azure), // Ireland
-    ("francecentral", 56.0, Provider::Azure),
+    ("francecentral", 41.0, Provider::Azure),
     ("uksouth", 231.0, Provider::Azure),
     // Country / ISO codes (generic PUE)
-    ("fr", 56.0, Provider::Generic),
+    ("fr", 41.0, Provider::Generic),
     ("de", 338.0, Provider::Generic),
     ("gb", 231.0, Provider::Generic),
     ("uk", 231.0, Provider::Generic),
@@ -557,10 +558,10 @@ static CARBON_TABLE: &[(&str, f64, Provider)] = &[
     ("jp", 462.0, Provider::Generic),
     ("in", 708.0, Provider::Generic),
     ("au", 550.0, Provider::Generic),
-    ("br", 62.0, Provider::Generic),
+    ("br", 96.0, Provider::Generic),
     ("sg", 408.0, Provider::Generic),
     ("nl", 328.0, Provider::Generic),
-    ("be", 187.0, Provider::Generic),
+    ("be", 165.0, Provider::Generic),
     ("fi", 8.0, Provider::Generic),
     ("it", 370.0, Provider::Generic),
     ("es", 200.0, Provider::Generic),
@@ -1158,12 +1159,17 @@ mod tests {
     }
 
     #[test]
-    fn hourly_profile_de_known_divergence_from_annual() {
+    fn hourly_profile_de_mean_close_to_annual() {
+        // The 2022-vintage profile level (grand mean ~431) was rescaled
+        // to the Electricity Maps 2024 level, so the historical ~31%
+        // divergence from the annual table is resolved.
         let pr = hourly_profile_for_region_lower("eu-central-1").unwrap();
         let mean = profile_grand_mean(pr);
+        let annual = lookup_region_lower("eu-central-1").unwrap().0;
+        let deviation = (mean - annual).abs() / annual;
         assert!(
-            (420.0..=460.0).contains(&mean),
-            "eu-central-1 grand mean {mean:.1} should be in [420, 460] (known divergence from annual 338)"
+            deviation < 0.05,
+            "eu-central-1 grand mean {mean:.1} deviates {deviation:.3} from annual {annual}"
         );
     }
 
@@ -1187,9 +1193,6 @@ mod tests {
     #[test]
     fn hourly_profile_mean_close_to_annual_for_all_monthly_regions() {
         for &(key, ref months) in crate::score::carbon_profiles::MONTHLY_PROFILES {
-            if key == "eu-central-1" {
-                continue; // Known ~31% divergence, covered by separate test
-            }
             let total: f64 = months.iter().flat_map(|m| m.iter()).sum();
             let mean = total / (12.0 * 24.0);
             let (annual, _) = lookup_region_lower(key).unwrap_or_else(|| {
@@ -1421,7 +1424,7 @@ mod tests {
         let result = lookup_region("eu-west-3");
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
-        assert!((intensity - 56.0).abs() < f64::EPSILON);
+        assert!((intensity - 41.0).abs() < f64::EPSILON);
         assert!((pue - 1.15).abs() < f64::EPSILON);
     }
 
@@ -1430,7 +1433,7 @@ mod tests {
         let result = lookup_region("europe-west9");
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
-        assert!((intensity - 56.0).abs() < f64::EPSILON);
+        assert!((intensity - 41.0).abs() < f64::EPSILON);
         assert!((pue - 1.09).abs() < f64::EPSILON);
     }
 
@@ -1439,7 +1442,7 @@ mod tests {
         let result = lookup_region("FR");
         assert!(result.is_some());
         let (intensity, pue) = result.unwrap();
-        assert!((intensity - 56.0).abs() < f64::EPSILON);
+        assert!((intensity - 41.0).abs() < f64::EPSILON);
         assert!((pue - 1.2).abs() < f64::EPSILON);
     }
 
@@ -1462,8 +1465,8 @@ mod tests {
         let co2 = io_ops_to_co2_grams(1000, "eu-west-3");
         assert!(co2.is_some());
         let val = co2.unwrap();
-        // 1000 * 0.0000001 * 56.0 * 1.15 = 0.006440
-        assert!((val - 0.006_440).abs() < 1e-9);
+        // 1000 * 0.0000001 * 41.0 * 1.15 = 0.004715
+        assert!((val - 0.004_715).abs() < 1e-9);
     }
 
     #[test]

@@ -142,7 +142,6 @@ fn build_single_region_row(region: String, acc: RegionAccumulator) -> RegionBrea
         let intensity_source = acc.max_intensity_source;
         let total_ops = acc.total_ops;
         let co2_gco2 = acc.co2_gco2;
-        maybe_warn_eu_central_1_profile(&region, intensity_source);
         let (intensity_estimated, intensity_estimation_method) =
             realtime_metadata_for_row(intensity_source, acc);
         return RegionBreakdown {
@@ -213,27 +212,6 @@ fn realtime_metadata_for_row(
         (acc.realtime_estimated, acc.realtime_estimation_method)
     } else {
         (None, None)
-    }
-}
-
-/// One-shot operator hint for the `eu-central-1` hourly profile, whose
-/// mean is ~31% above the flat annual value. Logged once per process
-/// to help users understand v1 -> v2 / v3 divergences.
-fn maybe_warn_eu_central_1_profile(region: &str, intensity_source: IntensitySource) {
-    if intensity_source > IntensitySource::Annual && region == "eu-central-1" {
-        use std::sync::Once;
-        static WARN: Once = Once::new();
-        WARN.call_once(|| {
-            tracing::debug!(
-                region = "eu-central-1",
-                annual_gco2_kwh = 338.0,
-                hourly_mean_gco2_kwh = 442.0,
-                "Hourly carbon profile for eu-central-1 (DE) averages \
-                 ~31% above the flat annual value. This reflects recent \
-                 grid data. Disable with [green] use_hourly_profiles = false \
-                 to use the annual baseline instead."
-            );
-        });
     }
 }
 

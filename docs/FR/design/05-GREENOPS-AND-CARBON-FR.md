@@ -334,7 +334,7 @@ La valeur annuelle plate par région écarte la variance diurne qui peut être i
 - **Royaume-Uni (`eu-west-2`)** : éolien + gaz, pics jumeaux modérés.
 - **US-East (`us-east-1`)** : gaz + charbon, plateau diurne 13h-18h UTC (9h-14h heure Est).
 
-La moyenne arithmétique de chaque profil approxime la valeur annuelle plate correspondante dans les ±5%, préservant la continuité méthodologique. Exception : l'Allemagne (`eu-central-1`) où la moyenne du profil (~442 gCO₂/kWh) est ~31% au-dessus de la valeur annuelle embarquée (338), reflétant les données récentes 2023-2024. Les utilisateurs peuvent désactiver les profils horaires avec `use_hourly_profiles = false`.
+La moyenne arithmétique de chaque profil approxime la valeur annuelle plate correspondante dans les ±5%, préservant la continuité méthodologique. Le profil Allemagne (`eu-central-1`) violait historiquement cet invariant (moyenne ~431 gCO₂/kWh, figée au niveau de la crise charbon 2022, contre 338 en annuel) : depuis 0.8.7 il est recalibré sur le niveau Electricity Maps 2024 (~341) et l'invariant tient pour toutes les régions sans exception. Les utilisateurs peuvent désactiver les profils horaires avec `use_hourly_profiles = false`.
 
 Sources : rapports open-data annuels Electricity Maps (2023-2024), ENTSO-E Transparency Platform, RTE eco2mix (France), Fraunhofer ISE Energy-Charts (Allemagne), NGESO carbonintensity.org.uk (Royaume-Uni), EIA hourly generation data (US-East).
 
