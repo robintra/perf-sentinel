@@ -183,18 +183,24 @@ tarball.
 Each release ships an SPDX SBOM as a GitHub Release asset and as a
 signed attestation on the repository's attestation store.
 
-Fetch and verify:
+The SBOM attestation's subject is the chart tarball, not the SBOM file, so
+verify it against the tarball, exactly like the provenance check above. The
+`--predicate-type` filter picks the SPDX SBOM attestation over the
+build-provenance one:
 
 ```bash
 gh release download chart-v0.2.0 --repo robintra/perf-sentinel \
+  --pattern 'perf-sentinel-*.tgz' \
   --pattern 'perf-sentinel-chart-*.spdx.json'
 
-gh attestation verify perf-sentinel-chart-0.2.0.spdx.json \
+gh attestation verify perf-sentinel-0.2.0.tgz \
   --repo robintra/perf-sentinel \
   --predicate-type https://spdx.dev/Document/v2.3
 ```
 
-The SBOM captures the chart's declared dependencies at release time.
+The downloaded `perf-sentinel-chart-0.2.0.spdx.json` is the human-readable
+copy of that attested SBOM. It captures the chart's declared dependencies at
+release time.
 
 ## Install from a local checkout
 
