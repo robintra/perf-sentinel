@@ -44,11 +44,14 @@ const HTTP_LARGE_COEFF: f64 = 2.0; // payload > 1 MB
 const HTTP_SMALL_THRESHOLD: u64 = 10 * 1024; // 10 KB
 const HTTP_LARGE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
-/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, midpoint of
-/// 0.03-0.06 kWh/GB range from Mytton, Lunden & Malmodin (2024) and
-/// Sustainable Web Design (2024). Previous Shift Project 2019 value (0.07)
-/// was on the high end; see Mytton 2024 "power model" critique.
-/// Only for cross-region HTTP calls when `include_network_transport` is enabled.
+/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, a
+/// conservative default below recent whole-network averages: SWD Model
+/// v4 (2024) gives 0.059 kWh/GB operational for networks, and Mytton,
+/// Lunden & Malmodin (2024, J. Industrial Ecology 28(4), Table 2) show
+/// kWh/GB coefficients are only valid retrospectively (power-model
+/// critique), with inter-datacenter figures as low as 0.001 kWh/Gb
+/// (Cloud Carbon Footprint). Treat as an upper bound for cross-region
+/// server traffic, only when `include_network_transport` is enabled.
 pub const DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH: f64 = 0.000_000_000_04;
 
 /// Lower bound factor for the CO₂ confidence interval (`low = mid × 0.5`).

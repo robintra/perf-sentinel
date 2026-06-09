@@ -581,7 +581,7 @@ Set `per_operation_coefficients = false` to disable this feature and use the fla
 
 ### Network transport energy
 
-The optional network transport energy term estimates the energy cost of moving bytes between regions. The default coefficient (0.04 kWh/GB) is the midpoint of the 0.03-0.06 kWh/GB range from recent studies (Mytton, Lunden & Malmodin, J. Industrial Ecology, 2024; Sustainable Web Design, 2024).
+The optional network transport energy term estimates the energy cost of moving bytes between regions. The default coefficient (0.04 kWh/GB) is a conservative default below recent whole-network averages (Sustainable Web Design Model v4, 2024: 0.059 kWh/GB operational for networks) and an upper bound for cross-region server traffic, where inter-datacenter coefficients run as low as 0.001 kWh/Gb (Cloud Carbon Footprint).
 
 Key limitations:
 
