@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.51
-appVersion: "0.8.6"
+version: 0.2.52
+appVersion: "0.8.7"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -61,7 +61,7 @@ annotations:
       description: "appVersion 0.8.6: the daemon's ingestion channel and analysis-worker queue depths are now configurable via [daemon] ingest_queue_capacity and analysis_queue_capacity (both default 1024), and the base CarbonContext is shared across analysis batches by Arc instead of being deep-cloned on every evicted batch. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.6
+      image: ghcr.io/robintra/perf-sentinel:0.8.7
       platforms:
         - linux/amd64
         - linux/arm64
