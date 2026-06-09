@@ -1403,6 +1403,62 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shed_traces_are_excluded_from_analysis_outputs() {
+        let metrics = Arc::new(MetricsState::new());
+        let store = Arc::new(findings_store::FindingsStore::new(100));
+        let cell = fresh_green_cell();
+        let base = Arc::new(empty_carbon_ctx());
+        let sources = no_scrapers(&base);
+
+        // Capacity-1 queue with the worker not yet started: the first
+        // batch queues, the second is shed before analysis ever runs.
+        let (work_tx, work_rx) = mpsc::channel::<AnalysisBatch>(1);
+        let n_plus_one_events = |trace_id: &str| -> Vec<normalize::NormalizedEvent> {
+            (1..=6)
+                .map(|i| {
+                    make_normalized(
+                        trace_id,
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                    )
+                })
+                .collect()
+        };
+        enqueue_for_analysis(
+            vec![("kept".to_string(), n_plus_one_events("kept"))],
+            &sources,
+            &work_tx,
+            &metrics,
+        );
+        enqueue_for_analysis(
+            vec![("shed".to_string(), n_plus_one_events("shed"))],
+            &sources,
+            &work_tx,
+            &metrics,
+        );
+        assert_eq!(metrics.analysis_shed_batches_total.get(), 1);
+        assert_eq!(metrics.analysis_shed_traces_total.get(), 1);
+
+        let worker = tokio::spawn(run_analysis_worker(
+            work_rx,
+            test_worker_ctx(&metrics, &store, &cell),
+        ));
+        drop(work_tx);
+        worker.await.expect("worker should drain and exit");
+
+        // Only the kept trace was analyzed, and only it reached the
+        // findings store. The shed trace left no output anywhere.
+        assert!((metrics.traces_analyzed_total.get() - 1.0).abs() < f64::EPSILON);
+        assert!(
+            !store.by_trace_id("kept").await.is_empty(),
+            "kept trace must reach the findings store"
+        );
+        assert!(
+            store.by_trace_id("shed").await.is_empty(),
+            "shed trace must never reach analysis outputs"
+        );
+    }
+
+    #[tokio::test]
     async fn shutdown_drains_window_and_inflight_queue() {
         // A batch already buffered in the queue plus the whole in-flight
         // window must both be fully analyzed before the shutdown handshake
