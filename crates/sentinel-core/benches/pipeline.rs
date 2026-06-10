@@ -43,7 +43,10 @@ fn pattern_traces(pattern: &str, n_traces: usize) -> Vec<Trace> {
         "chatty" => mix.chatty = 1,
         "fanout" => mix.fanout = 1,
         "slow" => mix.slow = 1,
-        _ => mix.clean = 1,
+        "clean" => mix.clean = 1,
+        // A typo must not silently bench the clean mix under the
+        // requested pattern's name.
+        other => panic!("unknown synthetic pattern: {other}"),
     }
     let spec = SynthSpec {
         services: 16,
