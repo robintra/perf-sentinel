@@ -841,8 +841,10 @@ const TUNING_NOT_IO_MIN_RECEIVED: u64 = 1_000;
 /// visible here gives a fast "is the daemon backpressured?" signal.
 ///
 /// The `tuning` entries are the daemon's settings advisor: each rule
-/// compares a lifetime counter against the config knob frozen in
-/// [`TuningSnapshot`] and, when the knob looks undersized for the
+/// compares a metric (lifetime counters, plus the point-in-time
+/// `active_traces` gauge for the trace-window rule, which therefore
+/// appears and disappears with the load) against the config knob frozen
+/// in [`TuningSnapshot`] and, when the knob looks undersized for the
 /// observed load, emits a hint naming the knob, its current value and
 /// the suggested adjustment. All inputs are trusted (Prometheus
 /// counters and parsed config), so `Warning::new` applies.
@@ -896,10 +898,14 @@ fn collect_warning_details(
     if active >= active_cap * TUNING_ACTIVE_TRACES_RATIO {
         let cap = tuning.max_active_traces;
         let ttl = tuning.trace_ttl_ms;
+        // Derive the displayed percentage from the const so the message
+        // cannot drift from the actual threshold.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let pct = (TUNING_ACTIVE_TRACES_RATIO * 100.0).round() as u32;
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
-                "active traces ({active:.0}) are within 90% of [daemon] \
+                "active traces ({active:.0}) are within {pct}% of [daemon] \
                  max_active_traces ({cap}): raise the cap or lower \
                  trace_ttl_ms (currently {ttl} ms) so LRU eviction does \
                  not split live traces"
