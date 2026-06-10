@@ -12,6 +12,7 @@ If you are setting up perf-sentinel for the first time, see [INTEGRATION.md](INT
 - [No traces ingested](#no-traces-ingested)
 - [Sudden drop in ingestion volume](#sudden-drop-in-ingestion-volume)
 - [Spike in critical findings](#spike-in-critical-findings)
+- [Sizing reference (measured)](#sizing-reference-measured)
 - [Daemon memory pressure or OOM](#daemon-memory-pressure-or-oom)
 - [CI quality gate failing unexpectedly](#ci-quality-gate-failing-unexpectedly)
 - [Investigating an unexpected ack](#investigating-an-unexpected-ack)
@@ -261,6 +262,19 @@ Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.
 - **N+1 SQL:** ORM lazy loading; a recent feature iterating a collection without `JOIN FETCH` / `selectinload` / `Include`.
 - **Pool saturation:** connection pool undersized, or a downstream dependency slowed down.
 - **Slow query:** missing index; a data-volume threshold crossed (what ran in 50 ms at 10 k rows now runs in 2 s at 10 M).
+
+---
+
+## Sizing reference (measured)
+
+Measured on 0.8.7 with the simulation lab's saturation ramp (`limit-saturation-curve`: 64 services, realistic anti-pattern mix, ~9 spans per trace, OTLP HTTP) against the default config on a 500m CPU / 256Mi pod:
+
+| Offered load                          | Sustained throughput    | Max RSS   | Behavior                                                                                |
+|---------------------------------------|-------------------------|-----------|-----------------------------------------------------------------------------------------|
+| up to ~400 traces/s (~2 600 events/s) | linear, no loss         | < 100 MiB | clean                                                                                   |
+| 800-1600 traces/s offered             | plateau ~2 500 events/s | < 150 MiB | senders backpressured via the bounded OTLP request concurrency, zero shed, zero restart |
+
+Scaling levers, in order: raise the CPU limit (the plateau is CPU-bound on protobuf decode plus detection), then `[daemon] ingest_queue_capacity` / `analysis_queue_capacity` for burst absorption. Under sustained saturation the whole cgroup throttles in quanta, so give the liveness probe headroom (`timeoutSeconds: 5`, `failureThreshold: 5`): a tight probe budget restarts a functional, backpressuring daemon. Wide service topologies (hundreds of `service.name` values) are bounded by the correlator's pair admission control and the 1024-service metering cap, both observable via `perf_sentinel_correlator_pairs_evicted_total` and `perf_sentinel_service_io_ops_overflow_total`.
 
 ---
 

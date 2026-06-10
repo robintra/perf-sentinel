@@ -12,6 +12,7 @@ Si vous configurez perf-sentinel pour la première fois, consultez [INTEGRATION-
 - [Aucune trace ingérée](#aucune-trace-ingérée)
 - [Chute soudaine du volume d'ingestion](#chute-soudaine-du-volume-dingestion)
 - [Spike de findings critiques](#spike-de-findings-critiques)
+- [Référence de dimensionnement (mesurée)](#référence-de-dimensionnement-mesurée)
 - [Pression mémoire ou OOM du daemon](#pression-mémoire-ou-oom-du-daemon)
 - [Quality gate CI en échec inattendu](#quality-gate-ci-en-échec-inattendu)
 - [Investigation d'un acknowledgment inattendu](#investigation-dun-acknowledgment-inattendu)
@@ -263,6 +264,19 @@ Traitez de haut en bas par élimination. Les cas 1 et 2 représentent la grande 
 - **N+1 SQL :** lazy loading de l'ORM ; une feature récente qui itère sur une collection sans `JOIN FETCH` / `selectinload` / `Include`.
 - **Saturation de pool :** pool de connexions sous-dimensionné, ou une dépendance aval qui a ralenti.
 - **Requête lente :** index manquant ; un seuil de volume de données franchi (ce qui tournait en 50 ms à 10 k lignes tourne en 2 s à 10 M).
+
+---
+
+## Référence de dimensionnement (mesurée)
+
+Mesuré sur 0.8.7 avec la rampe de saturation du simulation lab (`limit-saturation-curve` : 64 services, mix d'anti-patterns réaliste, ~9 spans par trace, OTLP HTTP) contre la config par défaut sur un pod 500m CPU / 256Mi :
+
+| Charge offerte                              | Débit soutenu               | RSS max   | Comportement                                                                                       |
+|---------------------------------------------|-----------------------------|-----------|----------------------------------------------------------------------------------------------------|
+| jusqu'à ~400 traces/s (~2 600 événements/s) | linéaire, sans perte        | < 100 MiB | propre                                                                                             |
+| 800-1600 traces/s offerts                   | plateau ~2 500 événements/s | < 150 MiB | émetteurs mis en backpressure via la concurrence bornée des requêtes OTLP, zéro shed, zéro restart |
+
+Leviers de montée en charge, dans l'ordre : relever la limite CPU (le plateau est borné CPU sur le décodage protobuf plus la détection), puis `[daemon] ingest_queue_capacity` / `analysis_queue_capacity` pour absorber les rafales. Sous saturation soutenue, le cgroup entier est throttlé par quanta, donnez donc de la marge à la sonde liveness (`timeoutSeconds: 5`, `failureThreshold: 5`) : un budget de sonde trop serré redémarre un daemon fonctionnel en backpressure. Les topologies larges (centaines de valeurs `service.name`) sont bornées par le contrôle d'admission des paires du corrélateur et le plafond de 1024 services de la métrologie, observables via `perf_sentinel_correlator_pairs_evicted_total` et `perf_sentinel_service_io_ops_overflow_total`.
 
 ---
 
