@@ -665,6 +665,20 @@ values such as counts.
   restart even after backpressure subsides, the underlying counter is
   cumulative since process start.
 
+- `tuning` (**mixed**, since 0.8.7): the daemon's settings advisor.
+  Each entry names a config knob whose current value looks undersized
+  for the observed load, with the suggested adjustment in the message
+  (for example "raise `[daemon] analysis_queue_capacity` (currently
+  1024) or give the daemon more CPU"). Counter-driven hints (queue
+  sheds, ingest rejects, service-cap overflow, correlation-pair
+  evictions, dominant `not_io` filtering) are sticky like
+  `ingestion_drops`. The trace-window hint reads the live
+  `active_traces` gauge against `[daemon] max_active_traces`, so it
+  clears on its own when the load drops. The full rule table is in
+  [METRICS.md](METRICS.md) section "Warning kinds: transient vs
+  sticky". Apply the suggestion, restart the daemon, and confirm the
+  hint stays gone under the same load.
+
 The legacy `Report.warnings: Vec<String>` field (0.5.16+) still ships
 for backward compatibility. CLI and HTML renderers prefer
 `warning_details` when non-empty, fall back to `warnings` otherwise.
@@ -672,9 +686,9 @@ The HTML dashboard exposes `warning_details` in the embedded JSON
 payload (`payload.report.warning_details`), a dedicated banner in the
 dashboard UI is on the roadmap.
 
-When acknowledging findings via the daemon ack API (since 0.5.20), the
-`cold_start` and `ingestion_drops` warnings are not affected by acks:
-they reflect daemon state, not detection output.
+When acknowledging findings via the daemon ack API (since 0.5.20), no
+warning kind is affected by acks: they reflect daemon state, not
+detection output.
 
 ## Acknowledging findings at runtime
 
