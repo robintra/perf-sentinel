@@ -495,6 +495,26 @@ Re-run on perf-sentinel **0.8.0** with **rustc 1.96.0** (the MSRV bump) on the s
 
 Daemon RSS on the musl + mimalloc build during the 156 000-event end-to-end run: ~17 MB idle after the listeners come up (the native build idles ~10 MB — mimalloc's preallocated arenas cost the difference), peak ~165–193 MB at sustained ingest (10 000 findings stored), comfortably under the 200 MB ceiling and down from the 237 MB measured on 0.6.1. The in-memory `bench` peak RSS on 31 200 events stays ~641 MB (the harness loads the full vector up front, unchanged from 0.6.1). Figures carry ~3% run-to-run noise and depend on the Docker Desktop VM allocation — use them for regression tracking, not absolute capacity planning. The first invocation in a fresh container reads ~10% low (VM/cache warm-up); the numbers above are warm.
 
+#### v0.8.7 measurement campaign
+
+0.8.7 replaces ad-hoc fixtures with permanent measurement infrastructure: a seeded synthetic generator (`sentinel_core::synth`, doc-hidden), a criterion suite over every pipeline stage (`crates/sentinel-core/benches/pipeline.rs`, baselines via `cargo bench -p perf-sentinel-core -- --save-baseline main`), `bench --synthetic-events N` for fixture-free runs, and a `profiling` build profile (release plus symbols) for flamegraphs: `cargo flamegraph --profile profiling -- bench --synthetic-events 1000000` on Linux, `samply record` on macOS.
+
+The synthetic corpus is heavier than the historical demo-derived fixtures (realistic anti-pattern mix, multi-service, carbon scoring active), so its numbers form a new reference series rather than extending the tables above: ~1.0-1.1M events/s on `bench --synthetic-events 100000` (macOS native, host noise included), criterion medians at 85 ms / 100k events and 926 ms / 1M events for the full pipeline.
+
+Landed optimizations, each with before/after criterion evidence:
+
+- ISO 8601 parse: fixed-layout fast path plus alloc-free general path, 69.5 ns to 8.4 ns per parse (-88%); detector benches -4% to -9% (timestamps are parsed several times per span across detect and carbon).
+- ServiceMeter: cached per-service counter children, 11.9 ns to 1.0 ns per event on the metering path (micro bench `service_counter/`).
+- `bench` harness: clone moved inside the iteration loop, peak RSS drops from `iterations x input` to `2 x input` (the historical ~641 MB at 31.2k x 30 reads ~10x lower on the same workload; annotate comparisons across this boundary).
+- Batch CLI frees the raw input buffer before analysis (peak RSS minus the input file size on `analyze`/`diff`).
+
+Evaluated and deliberately not taken, with the measurements that closed them:
+
+- Template interning in normalize: `normalize_all` is 15.2 ms of the 85.2 ms / 100k pipeline (18%); an optimistic 30% cut yields ~5% end-to-end for a real complexity cost (explicit interner threading through the pure pipeline). Re-open only if normalization dominates a future flamegraph.
+- `timestamp_ms` caching on `NormalizedEvent`: after the parse fast path, residual parse cost is ~3% of the pipeline, under the 5% gate.
+- NDJSON streaming ingest for the batch CLI: deferred; the 1 GiB batch input cap (decoupled from the daemon payload limit in 0.8.7) covers current corpus sizes, and batch correlation is whole-set by design so streaming only saves the raw-buffer share of RSS.
+- `snapshot_service_io_ops`: collects one `CounterVec` family per scraper tick, not the whole registry; bounded by the 1024-service cap. Non-issue.
+
 ## Distribution strategy
 
 1. **GitHub Releases** (primary): cross-platform binaries for 4 targets (linux/amd64, linux/arm64, macOS/arm64, windows/amd64) with SHA256 checksums. macOS Intel users can run the arm64 binary via Rosetta 2
