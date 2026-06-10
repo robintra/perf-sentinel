@@ -83,7 +83,9 @@ Valeurs du label `reason` :
   fermé et le daemon n'a pas pu enqueuer le batch. L'enqueue attend
   jusqu'à 2 secondes avant de rejeter, les rafales courtes sont donc
   absorbées sans rejet tandis qu'une saturation soutenue ressort vite.
-  La voie HTTP renvoie 503, la voie gRPC renvoie `INTERNAL`.
+  La voie HTTP renvoie 503, la voie gRPC renvoie `UNAVAILABLE` en
+  saturation (les deux sont retryables selon la spec OTLP) et
+  `INTERNAL` seulement quand le canal est fermé pendant l'arrêt.
 
 Les 3 reasons sont pré-warmées à 0 au démarrage pour que les dashboards
 puissent plotter la ligne zéro avant le premier rejet.
@@ -306,7 +308,7 @@ Six règles tournent à chaque appel `/api/export/report` :
 | `perf_sentinel_active_traces` à 90 % ou plus de `max_active_traces`         | `[daemon] max_active_traces` ou un `trace_ttl_ms` plus bas                   |
 | `perf_sentinel_service_io_ops_overflow_total > 0`                           | Agréger ou réduire les noms de services (le plafond de 1024 séries est fixe) |
 | `perf_sentinel_correlator_pairs_evicted_total > 0` avec corrélation activée | `[daemon.correlation] max_tracked_pairs`                                     |
-| Plus de 90 % des spans OTLP reçus filtrés `not_io` (après 1000 spans)       | Corriger les attributs de spans ou cesser d'exporter les spans non-I/O ici   |
+| Tous les spans OTLP reçus filtrés comme non analysables (après 1000 spans)  | Corriger les attributs de spans ou pointer les services instrumentés vers cet endpoint |
 
 Les règles à compteurs sont collantes (les compteurs lifetime ne se
 réinitialisent qu'au redémarrage). La règle de fenêtre de traces lit

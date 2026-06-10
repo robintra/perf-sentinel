@@ -671,7 +671,7 @@ values such as counts.
   (for example "raise `[daemon] analysis_queue_capacity` (currently
   1024) or give the daemon more CPU"). Counter-driven hints (queue
   sheds, ingest rejects, service-cap overflow, correlation-pair
-  evictions, dominant `not_io` filtering) are sticky like
+  evictions, zero analyzable-span retention) are sticky like
   `ingestion_drops`. The trace-window hint reads the live
   `active_traces` gauge against `[daemon] max_active_traces`, so it
   clears on its own when the load drops. The full rule table is in
