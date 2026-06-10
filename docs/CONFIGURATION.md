@@ -438,6 +438,14 @@ Daemon limits accept any value inside their hard bounds (rejected at config load
 | `trace_ttl_ms`          | 1,000 to 600,000         | Below 1s flushes traces before slow spans land; above 10min keeps near-dead traces                                          |
 | `max_fanout`            | 5 to 1,000               | Smaller floods the findings store with noise; larger suppresses most fanout detections                                      |
 
+Comfort zones judge the static value at startup. At runtime the daemon
+complements them with a settings advisor: when lifetime counters show a
+knob undersized for the observed load (queue sheds, ingest rejects,
+near-full trace window...), `/api/export/report` emits `tuning` entries
+in `Report.warning_details` naming the knob, its current value, and the
+suggested adjustment. See [METRICS.md](METRICS.md) section "Warning
+kinds: transient vs sticky" for the rule table.
+
 #### `[daemon.correlation]` (optional)
 
 Cross-trace temporal correlation in daemon mode. When enabled, the daemon detects recurring co-occurrences between findings from different services or traces (e.g. "every time the N+1 in order-svc fires, pool saturation appears in payment-svc within 2 seconds").

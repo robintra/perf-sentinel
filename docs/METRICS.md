@@ -288,36 +288,58 @@ values on top of the shared HTTP set: `invalid_json`, `path_missing`,
 
 ## GreenOps metrics
 
-| Metric                                               | Type    | Labels    | Description                                                                                                                        |
-|------------------------------------------------------|---------|-----------|------------------------------------------------------------------------------------------------------------------------------------|
-| `perf_sentinel_io_waste_ratio`                       | gauge   | (none)    | Cumulative I/O waste ratio (avoidable / total) since daemon start. Use `rate()` on the underlying counters for windowed values.    |
-| `perf_sentinel_total_io_ops`                         | counter | (none)    | Cumulative total I/O ops processed.                                                                                                |
-| `perf_sentinel_avoidable_io_ops`                     | counter | (none)    | Cumulative avoidable I/O ops detected.                                                                                             |
-| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Per-service cumulative I/O ops (read by every measured-energy scraper for per-service energy attribution). Label cardinality is capped at 1024 distinct services per daemon run, new services beyond the cap are not attributed. |
+| Metric                                               | Type    | Labels    | Description                                                                                                                                                                                                                          |
+|------------------------------------------------------|---------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_io_waste_ratio`                       | gauge   | (none)    | Cumulative I/O waste ratio (avoidable / total) since daemon start. Use `rate()` on the underlying counters for windowed values.                                                                                                      |
+| `perf_sentinel_total_io_ops`                         | counter | (none)    | Cumulative total I/O ops processed.                                                                                                                                                                                                  |
+| `perf_sentinel_avoidable_io_ops`                     | counter | (none)    | Cumulative avoidable I/O ops detected.                                                                                                                                                                                               |
+| `perf_sentinel_service_io_ops_total`                 | counter | `service` | Per-service cumulative I/O ops (read by every measured-energy scraper for per-service energy attribution). Label cardinality is capped at 1024 distinct services per daemon run, new services beyond the cap are not attributed.     |
 | `perf_sentinel_service_io_ops_overflow_total`        | counter | (none)    | I/O ops not attributed to a per-service counter because the 1024-service cardinality cap was reached (since 0.8.7). An ongoing increase means per-service throughput and measured-energy attribution undercount newly seen services. |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (none)    | Seconds since the last successful Scaphandre scrape. Stays at 0 when Scaphandre is not configured. Useful for hung-scraper alerts. |
-| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (none)    | Same pattern for the cloud SPECpower scraper.                                                                                      |
-| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (none)    | Same pattern for the Kepler scraper. See the zero-sample staleness pitfall above.                                                  |
-| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (none)    | Same pattern for the Redfish BMC scraper.                                                                                          |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (none)    | Seconds since the last successful Scaphandre scrape. Stays at 0 when Scaphandre is not configured. Useful for hung-scraper alerts.                                                                                                   |
+| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (none)    | Same pattern for the cloud SPECpower scraper.                                                                                                                                                                                        |
+| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (none)    | Same pattern for the Kepler scraper. See the zero-sample staleness pitfall above.                                                                                                                                                    |
+| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (none)    | Same pattern for the Redfish BMC scraper.                                                                                                                                                                                            |
 
 ## Warning kinds: transient vs sticky
 
-`Report.warning_details` (since 0.5.19) has two stable kinds today,
+`Report.warning_details` (since 0.5.19) has three stable kinds today,
 each with a different lifecycle. The distinction matters for
 monitoring strategies: a transient warning self-resolves, a sticky one
 persists until the daemon restarts.
 
-| Kind              | Lifecycle | Emitted when                                                                      | Cleared by                                               |
-|-------------------|-----------|-----------------------------------------------------------------------------------|----------------------------------------------------------|
-| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon       | First successful batch (both counters strictly positive) |
-| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start | Daemon restart (counter reset)                           |
+| Kind              | Lifecycle | Emitted when                                                                        | Cleared by                                                                   |
+|-------------------|-----------|-------------------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `cold_start`      | Transient | `events_processed_total == 0` or `traces_analyzed_total == 0` on the daemon         | First successful batch (both counters strictly positive)                     |
+| `ingestion_drops` | Sticky    | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` since daemon start   | Daemon restart (counter reset)                                               |
+| `tuning`          | Mixed     | A lifetime counter shows a config knob undersized for the observed load (see below) | Daemon restart for counter-driven rules, load drop for the trace-window rule |
 
 `cold_start` is a state warning: "the snapshot is not meaningful right
 now". `ingestion_drops` is an audit warning: "at some point since
 daemon start the channel saturated, here is the count for the
 post-mortem". Acknowledging findings via the daemon ack API does not
-clear either kind, they reflect daemon state rather than detection
+clear any kind, they reflect daemon state rather than detection
 output.
+
+### The `tuning` advisor (since 0.8.7)
+
+`tuning` entries are configuration advice: each message names the
+config knob, its current value, and the suggested adjustment. Six
+rules run on every `/api/export/report` call:
+
+| Trigger                                                                     | Suggested knob                                                   |
+|-----------------------------------------------------------------------------|------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                 |
+| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` or more CPU                   |
+| `perf_sentinel_active_traces` at 90% or more of `max_active_traces`         | `[daemon] max_active_traces` or a lower `trace_ttl_ms`           |
+| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Aggregate or reduce service names (the 1024-series cap is fixed) |
+| `perf_sentinel_correlator_pairs_evicted_total > 0` with correlation enabled | `[daemon.correlation] max_tracked_pairs`                         |
+| Over 90% of received OTLP spans filtered as `not_io` (after 1000 spans)     | Fix span attributes or stop exporting non-I/O spans here         |
+
+Counter-driven rules are sticky (lifetime counters only reset on
+restart). The trace-window rule reads a gauge, so it appears and
+disappears with the load. The advisor reads the config snapshot taken
+at daemon startup, so a hint always reflects the values the running
+process actually uses.
 
 Lab tooling that asserts on `warning_details[].kind == "cold_start"`
 should account for the transient nature: any background traffic, even

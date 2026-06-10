@@ -442,6 +442,15 @@ Les limites du daemon acceptent toute valeur à l'intérieur de leurs bornes dur
 | `trace_ttl_ms`          | 1 000 à 600 000         | Sous 1s, les traces sont vidées avant que les spans lents n'arrivent ; au-dessus de 10min, des traces presque mortes restent en mémoire                            |
 | `max_fanout`            | 5 à 1 000               | Plus petit inonde le store de findings de bruit ; plus grand supprime la plupart des détections de fanout                                                          |
 
+Les zones de confort jugent la valeur statique au démarrage. Au
+runtime, le daemon les complète avec un conseiller de réglages : quand
+les compteurs lifetime montrent un réglage sous-dimensionné pour la
+charge observée (sheds de file, rejets d'ingestion, fenêtre de traces
+presque pleine...), `/api/export/report` émet des entrées `tuning`
+dans `Report.warning_details` nommant le réglage, sa valeur actuelle
+et l'ajustement suggéré. Voir [METRICS-FR.md](METRICS-FR.md) section
+"Kinds de warning : transitoire vs collant" pour la table des règles.
+
 #### `[daemon.correlation]` (optionnel)
 
 Corrélation temporelle cross-trace en mode daemon. Quand activé, le daemon détecte les co-occurrences récurrentes entre findings de services ou traces différents (ex. "chaque fois que le N+1 dans order-svc se déclenche, une saturation du pool apparaît dans payment-svc dans les 2 secondes").

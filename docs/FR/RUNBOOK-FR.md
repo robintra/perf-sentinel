@@ -671,6 +671,21 @@ valeurs dynamiques telles que des compteurs.
   redémarrage du daemon même après que la backpressure soit retombée,
   le compteur sous-jacent est cumulatif depuis le démarrage du process.
 
+- `tuning` (**mixte**, depuis 0.8.7) : le conseiller de réglages du
+  daemon. Chaque entrée nomme un réglage de config dont la valeur
+  actuelle paraît sous-dimensionnée pour la charge observée, avec
+  l'ajustement suggéré dans le message (par exemple "raise `[daemon]
+  analysis_queue_capacity` (currently 1024) or give the daemon more
+  CPU"). Les hints pilotés par compteurs (sheds de la file d'analyse,
+  rejets d'ingestion, débordement du plafond de services, évictions de
+  paires de corrélation, filtrage `not_io` dominant) sont collants
+  comme `ingestion_drops`. Le hint de fenêtre de traces lit la gauge
+  `active_traces` en direct contre `[daemon] max_active_traces`, il
+  s'efface donc de lui-même quand la charge retombe. La table complète
+  des règles est dans [METRICS-FR.md](METRICS-FR.md). Appliquer la
+  suggestion, redémarrer le daemon, puis confirmer que le hint ne
+  revient pas sous la même charge.
+
 Le champ legacy `Report.warnings: Vec<String>` (0.5.16+) reste émis
 pour la backward compat. Les renderers CLI et HTML préfèrent
 `warning_details` quand non vide, fallback sur `warnings` sinon.
@@ -679,9 +694,8 @@ embarqué (`payload.report.warning_details`), un banner dédié dans
 l'UI dashboard est dans la roadmap.
 
 Quand on acquitte des findings via l'API ack du daemon (depuis
-0.5.20), les warnings `cold_start` et `ingestion_drops` ne sont pas
-affectés par les acks, ils reflètent l'état du daemon, pas la sortie
-de détection.
+0.5.20), aucun kind de warning n'est affecté par les acks, ils
+reflètent l'état du daemon, pas la sortie de détection.
 
 ## Acquitter des findings au runtime
 

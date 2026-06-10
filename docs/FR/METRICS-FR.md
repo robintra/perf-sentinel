@@ -67,10 +67,10 @@ daemon librement.
 
 ## Metrics d'ingestion OTLP
 
-| Metric                                    | Type    | Labels   | Description                                                                                     |
-|-------------------------------------------|---------|----------|---------------------------------------------------------------------------------------------------|
-| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total des requêtes OTLP rejetées par le daemon depuis le démarrage, par raison (depuis 0.5.19). |
-| `perf_sentinel_otlp_spans_received_total` | counter | (aucun)  | Total des spans OTLP reçus toutes requêtes confondues, avant le filtrage I/O (depuis 0.8.7).    |
+| Metric                                    | Type    | Labels   | Description                                                                                                  |
+|-------------------------------------------|---------|----------|--------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total`       | counter | `reason` | Total des requêtes OTLP rejetées par le daemon depuis le démarrage, par raison (depuis 0.5.19).              |
+| `perf_sentinel_otlp_spans_received_total` | counter | (aucun)  | Total des spans OTLP reçus toutes requêtes confondues, avant le filtrage I/O (depuis 0.8.7).                 |
 | `perf_sentinel_otlp_spans_filtered_total` | counter | `reason` | Spans OTLP écartés par la conversion parce qu'ils ne sont pas des opérations I/O analysables (depuis 0.8.7). |
 
 Valeurs du label `reason` :
@@ -117,18 +117,18 @@ analysable. Valeurs du label `reason` de
 
 ## Metrics d'analyse et de findings
 
-| Metric                                       | Type      | Labels             | Description                                                                                                                                                                                                                                                                  |
-|----------------------------------------------|-----------|--------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `perf_sentinel_findings_total`               | counter   | `type`, `severity` | Findings détectés depuis le démarrage. `type` reflète l'enum `Finding.finding_type`, `severity` vaut `critical` / `warning` / `info`. Porte des exemplars OpenMetrics quand un `trace_id` est disponible.                                                                    |
-| `perf_sentinel_traces_analyzed_total`        | counter   | (aucun)            | Compte cumulatif de traces traitées par l'event loop.                                                                                                                                                                                                                        |
-| `perf_sentinel_events_processed_total`       | counter   | (aucun)            | Compte cumulatif d'events traités par l'event loop.                                                                                                                                                                                                                          |
-| `perf_sentinel_active_traces`                | gauge     | (aucun)            | Traces actuellement actives dans la fenêtre glissante.                                                                                                                                                                                                                       |
-| `perf_sentinel_analysis_queue_depth`         | gauge     | (aucun)            | Lots en attente dans la file du worker d'analyse (incrémenté à l'enfilement, décrémenté quand le worker prend un lot). Une valeur non nulle durable signifie que detect+score prend du retard sur l'ingestion.                                                               |
-| `perf_sentinel_analysis_shed_batches_total`  | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alerte sur `rate(...) > 0`.                                                                          |
-| `perf_sentinel_analysis_shed_traces_total`   | counter   | (aucun)            | Traces abandonnées par les lots délestés comptés dans `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                           |
-| `perf_sentinel_correlator_pairs_evicted_total` | counter | (aucun)            | Paires du corrélateur inter-traces évincées par le plafond `max_tracked_pairs` (depuis 0.8.7). Un taux soutenu signifie que la topologie de corrélation dépasse le plafond et que les paires les moins comptées sont recyclées, `/api/correlations` peut donc perdre des entrées entre deux lectures. |
-| `perf_sentinel_slow_duration_seconds`        | histogram | `type`             | Histogramme de durée pour les spans dépassant le seuil slow, par `type` (`sql` ou `http_out`). Buckets : 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 secondes. Utilisé par `histogram_quantile()` Grafana pour des percentiles précis sur des déploiements daemon shardés. |
-| `perf_sentinel_export_report_requests_total` | counter   | (aucun)            | Total des requêtes `GET /api/export/report`. Inclut les réponses cold-start (200 avec enveloppe vide).                                                                                                                                                                       |
+| Metric                                         | Type      | Labels             | Description                                                                                                                                                                                                                                                                                           |
+|------------------------------------------------|-----------|--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_findings_total`                 | counter   | `type`, `severity` | Findings détectés depuis le démarrage. `type` reflète l'enum `Finding.finding_type`, `severity` vaut `critical` / `warning` / `info`. Porte des exemplars OpenMetrics quand un `trace_id` est disponible.                                                                                             |
+| `perf_sentinel_traces_analyzed_total`          | counter   | (aucun)            | Compte cumulatif de traces traitées par l'event loop.                                                                                                                                                                                                                                                 |
+| `perf_sentinel_events_processed_total`         | counter   | (aucun)            | Compte cumulatif d'events traités par l'event loop.                                                                                                                                                                                                                                                   |
+| `perf_sentinel_active_traces`                  | gauge     | (aucun)            | Traces actuellement actives dans la fenêtre glissante.                                                                                                                                                                                                                                                |
+| `perf_sentinel_analysis_queue_depth`           | gauge     | (aucun)            | Lots en attente dans la file du worker d'analyse (incrémenté à l'enfilement, décrémenté quand le worker prend un lot). Une valeur non nulle durable signifie que detect+score prend du retard sur l'ingestion.                                                                                        |
+| `perf_sentinel_analysis_shed_batches_total`    | counter   | (aucun)            | Lots d'analyse délestés parce que la file du worker était pleine ou que le worker s'est arrêté. Remplace le drop implicite précédent : chaque délestage est compté ici. Alerte sur `rate(...) > 0`.                                                                                                   |
+| `perf_sentinel_analysis_shed_traces_total`     | counter   | (aucun)            | Traces abandonnées par les lots délestés comptés dans `perf_sentinel_analysis_shed_batches_total`.                                                                                                                                                                                                    |
+| `perf_sentinel_correlator_pairs_evicted_total` | counter   | (aucun)            | Paires du corrélateur inter-traces évincées par le plafond `max_tracked_pairs` (depuis 0.8.7). Un taux soutenu signifie que la topologie de corrélation dépasse le plafond et que les paires les moins comptées sont recyclées, `/api/correlations` peut donc perdre des entrées entre deux lectures. |
+| `perf_sentinel_slow_duration_seconds`          | histogram | `type`             | Histogramme de durée pour les spans dépassant le seuil slow, par `type` (`sql` ou `http_out`). Buckets : 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 5, 10, 30 secondes. Utilisé par `histogram_quantile()` Grafana pour des percentiles précis sur des déploiements daemon shardés.                          |
+| `perf_sentinel_export_report_requests_total`   | counter   | (aucun)            | Total des requêtes `GET /api/export/report`. Inclut les réponses cold-start (200 avec enveloppe vide).                                                                                                                                                                                                |
 
 ## Metrics d'ack (depuis 0.5.21)
 
@@ -259,17 +259,59 @@ touché, ils ne sont visibles que dans les logs daemon au niveau
 
 ## Metrics GreenOps
 
-| Metric                                               | Type    | Labels    | Description                                                                                                                                      |
-|------------------------------------------------------|---------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre. |
-| `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                              |
-| `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                   |
+| Metric                                               | Type    | Labels    | Description                                                                                                                                                                                                                                                                |
+|------------------------------------------------------|---------|-----------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `perf_sentinel_io_waste_ratio`                       | gauge   | (aucun)   | Ratio I/O waste cumulatif (avoidable / total) depuis le démarrage. Utiliser `rate()` sur les counters sous-jacents pour des valeurs sur fenêtre.                                                                                                                           |
+| `perf_sentinel_total_io_ops`                         | counter | (aucun)   | Total cumulatif d'ops I/O traitées.                                                                                                                                                                                                                                        |
+| `perf_sentinel_avoidable_io_ops`                     | counter | (aucun)   | Total cumulatif d'ops I/O évitables détectées.                                                                                                                                                                                                                             |
 | `perf_sentinel_service_io_ops_total`                 | counter | `service` | Ops I/O cumulatives par service (lu par chaque scraper d'énergie mesurée pour l'attribution énergie par service). La cardinalité du label est plafonnée à 1024 services distincts par exécution du daemon, les nouveaux services au-delà du plafond ne sont pas attribués. |
-| `perf_sentinel_service_io_ops_overflow_total`        | counter | (aucun)   | Ops I/O non attribuées à un counter par service parce que le plafond de cardinalité de 1024 services était atteint (depuis 0.8.7). Une hausse continue signifie que le débit par service et l'attribution d'énergie mesurée sous-comptent les services nouvellement vus. |
-| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (aucun)   | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.      |
-| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (aucun)   | Même pattern pour le scraper cloud SPECpower.                                                                                                    |
-| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Kepler. Voir le piège de staleness zéro-échantillon plus haut.                                                      |
-| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (aucun)   | Même pattern pour le scraper BMC Redfish.                                                                                                        |
+| `perf_sentinel_service_io_ops_overflow_total`        | counter | (aucun)   | Ops I/O non attribuées à un counter par service parce que le plafond de cardinalité de 1024 services était atteint (depuis 0.8.7). Une hausse continue signifie que le débit par service et l'attribution d'énergie mesurée sous-comptent les services nouvellement vus.   |
+| `perf_sentinel_scaphandre_last_scrape_age_seconds`   | gauge   | (aucun)   | Secondes depuis le dernier scrape Scaphandre réussi. Reste à 0 quand Scaphandre n'est pas configuré. Utile pour des alertes scraper bloqué.                                                                                                                                |
+| `perf_sentinel_cloud_energy_last_scrape_age_seconds` | gauge   | (aucun)   | Même pattern pour le scraper cloud SPECpower.                                                                                                                                                                                                                              |
+| `perf_sentinel_kepler_last_scrape_age_seconds`       | gauge   | (aucun)   | Même pattern pour le scraper Kepler. Voir le piège de staleness zéro-échantillon plus haut.                                                                                                                                                                                |
+| `perf_sentinel_redfish_last_scrape_age_seconds`      | gauge   | (aucun)   | Même pattern pour le scraper BMC Redfish.                                                                                                                                                                                                                                  |
+
+## Kinds de warning : transitoire vs collant
+
+`Report.warning_details` (depuis 0.5.19) compte trois kinds stables,
+chacun avec un cycle de vie différent. La distinction compte pour la
+stratégie de monitoring : un warning transitoire se résout seul, un
+collant persiste jusqu'au redémarrage du daemon.
+
+| Kind              | Cycle de vie | Émis quand                                                                            | Effacé par                                                                         |
+|-------------------|--------------|---------------------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `cold_start`      | Transitoire  | `events_processed_total == 0` ou `traces_analyzed_total == 0` sur le daemon           | Premier batch réussi (les deux compteurs strictement positifs)                     |
+| `ingestion_drops` | Collant      | `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0` depuis le démarrage    | Redémarrage du daemon (reset du compteur)                                          |
+| `tuning`          | Mixte        | Un compteur lifetime montre un réglage sous-dimensionné pour la charge (voir dessous) | Redémarrage pour les règles à compteurs, baisse de charge pour la règle de fenêtre |
+
+`cold_start` est un warning d'état : "le snapshot n'est pas
+significatif maintenant". `ingestion_drops` est un warning d'audit :
+"à un moment depuis le démarrage le canal a saturé, voici le count
+pour le post-mortem". Acquitter des findings via l'API ack du daemon
+n'efface aucun kind, ils reflètent l'état du daemon, pas la sortie de
+détection.
+
+### Le conseiller `tuning` (depuis 0.8.7)
+
+Les entrées `tuning` sont des conseils de configuration : chaque
+message nomme le réglage, sa valeur actuelle et l'ajustement suggéré.
+Six règles tournent à chaque appel `/api/export/report` :
+
+| Déclencheur                                                                 | Réglage suggéré                                                              |
+|-----------------------------------------------------------------------------|------------------------------------------------------------------------------|
+| `perf_sentinel_otlp_rejected_total{reason="channel_full"} > 0`              | `[daemon] ingest_queue_capacity`                                             |
+| `perf_sentinel_analysis_shed_batches_total > 0`                             | `[daemon] analysis_queue_capacity` ou plus de CPU                            |
+| `perf_sentinel_active_traces` à 90 % ou plus de `max_active_traces`         | `[daemon] max_active_traces` ou un `trace_ttl_ms` plus bas                   |
+| `perf_sentinel_service_io_ops_overflow_total > 0`                           | Agréger ou réduire les noms de services (le plafond de 1024 séries est fixe) |
+| `perf_sentinel_correlator_pairs_evicted_total > 0` avec corrélation activée | `[daemon.correlation] max_tracked_pairs`                                     |
+| Plus de 90 % des spans OTLP reçus filtrés `not_io` (après 1000 spans)       | Corriger les attributs de spans ou cesser d'exporter les spans non-I/O ici   |
+
+Les règles à compteurs sont collantes (les compteurs lifetime ne se
+réinitialisent qu'au redémarrage). La règle de fenêtre de traces lit
+une gauge, elle apparaît et disparaît donc avec la charge. Le
+conseiller lit le snapshot de config pris au démarrage du daemon, un
+hint reflète donc toujours les valeurs réellement utilisées par le
+process en cours.
 
 ## Références croisées
 
