@@ -308,8 +308,9 @@ impl CrossTraceCorrelator {
     ///
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
-    /// Returns the number of pairs evicted by the `max_tracked_pairs`
-    /// cap so the caller can surface the drop (counter and warn).
+    /// Returns the number of pairs lost to the `max_tracked_pairs` cap
+    /// (evicted at batch end, plus new pairs not admitted while the map
+    /// sat at the cap) so the caller can surface the drop.
     ///
     /// `source_totals` is maintained incrementally: increment on
     /// `push_back`, decrement on `pop_front`. Removing an entry when its
@@ -324,13 +325,15 @@ impl CrossTraceCorrelator {
         self.pair_counts
             .retain(|_, state| state.last_seen_ms >= cutoff);
 
+        let mut not_admitted = 0;
         for finding in findings {
             let endpoint = std::sync::Arc::new(CorrelationEndpoint {
                 finding_type: finding.finding_type.clone(),
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
             });
-            self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str());
+            not_admitted +=
+                self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str());
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
             self.occurrences.push_back(FindingOccurrence {
                 endpoint,
@@ -338,7 +341,7 @@ impl CrossTraceCorrelator {
             });
         }
 
-        self.enforce_pair_cap()
+        self.enforce_pair_cap() + not_admitted
     }
 
     /// Drop occurrences older than `cutoff`, decrementing `source_totals`.
@@ -364,12 +367,19 @@ impl CrossTraceCorrelator {
     /// `trace_id` is the incoming target-side finding's trace id. It is
     /// stored on every matching [`PairState`] so [`active_correlations`]
     /// can surface a representative trace id for UI jump-through.
+    /// Returns the number of new pairs NOT admitted because the map sat
+    /// at `max_tracked_pairs`. Admission control here is what keeps a
+    /// wide topology (hundreds of services, almost every pair new) from
+    /// inserting millions of entries inside one batch: the batch-end
+    /// eviction alone cannot bound intra-batch growth, and the map's
+    /// high-water capacity is never returned to the allocator.
     fn record_co_occurrences(
         &mut self,
         endpoint: &std::sync::Arc<CorrelationEndpoint>,
         now_ms: u64,
         trace_id: &str,
-    ) {
+    ) -> usize {
+        let mut not_admitted = 0;
         for occ in self.occurrences.iter().rev() {
             let age = now_ms.saturating_sub(occ.timestamp_ms);
             if age > self.config.lag_threshold_ms {
@@ -387,6 +397,17 @@ impl CrossTraceCorrelator {
             // precision only for values above 2^53 ms (~285k years).
             #[allow(clippy::cast_precision_loss)]
             let lag = age as f64;
+            if let Some(state) = self.pair_counts.get_mut(&key) {
+                state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
+                state.record_lag(lag);
+                state.last_seen_ms = now_ms;
+                state.update_sample_trace_id(trace_id);
+                continue;
+            }
+            if self.pair_counts.len() >= self.config.max_tracked_pairs {
+                not_admitted += 1;
+                continue;
+            }
             let state = self.pair_counts.entry(key).or_insert_with(|| PairState {
                 co_occurrence_count: 0,
                 lags_ms: Vec::new(),
@@ -405,6 +426,7 @@ impl CrossTraceCorrelator {
             state.last_seen_ms = now_ms;
             state.update_sample_trace_id(trace_id);
         }
+        not_admitted
     }
 
     /// Enforce `max_tracked_pairs` cap. Evicts the pairs with the lowest
@@ -712,6 +734,42 @@ mod tests {
         assert!(
             evicted_total > 0,
             "cap trips should report the evicted pair count"
+        );
+    }
+
+    #[test]
+    fn wide_topology_single_batch_stays_at_cap() {
+        // Regression: one batch of findings from MANY distinct services
+        // used to insert every cross-service pair before the batch-end
+        // eviction ran, exploding the map (and the process RSS) inside
+        // a single ingest call. Admission control bounds it at the cap.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            max_tracked_pairs: 50,
+            lag_threshold_ms: 100_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let findings: Vec<Finding> = (0..200)
+            .map(|i| {
+                make_finding(
+                    &format!("svc-{i:03}"),
+                    FindingType::NPlusOneSql,
+                    &format!("tpl-{i:03}"),
+                )
+            })
+            .collect();
+
+        let lost = correlator.ingest(&findings, 1_000);
+
+        assert!(
+            correlator.pair_counts.len() <= 50,
+            "pair map must never exceed the cap inside one batch, got {}",
+            correlator.pair_counts.len()
+        );
+        assert!(
+            lost > 0,
+            "pairs lost to the cap must be reported for the eviction counter"
         );
     }
 
