@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.52]
+
+### Changed
+
+- `appVersion` bumped to `0.8.7` to track four new daemon loss-observability counters (`perf_sentinel_otlp_spans_received_total`, `perf_sentinel_otlp_spans_filtered_total{reason}`, `perf_sentinel_service_io_ops_overflow_total`, `perf_sentinel_correlator_pairs_evicted_total`), a primary-source refresh of the embedded carbon data (Paris 56 to 41 gCO2eq/kWh, Sao Paulo 62 to 96, Belgium 187 to 165, the eu-central-1 hourly profile rescaled to current grid levels, generic PUE 1.2 to 1.5), and the high-scale hardening from the new limit-testing campaign: the cross-trace correlator admission-controls pairs inside a batch (a 1500-service topology used to OOM the 256Mi pod in about a minute, now flat at ~57 MiB), and the OTLP HTTP route bounds concurrent decode so `/health` stays responsive under saturation floods (excess requests wait on an in-process semaphore and the ingest enqueue rejects after a 2-second bounded wait, so senders get fast retryable 503s instead of the kubelet restarting a functional daemon). The daemon also gains a settings advisor: `/api/export/report` emits `tuning` entries in `Report.warning_details` when lifetime counters show a config knob undersized for the observed load, naming the knob, its current value and the suggested adjustment. Carbon outputs shift for the affected regions. Deployments under sustained saturation should give the liveness probe headroom (`timeoutSeconds: 5`, `failureThreshold: 5`). No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.7` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.51]
 
 ### Changed
