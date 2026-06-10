@@ -825,29 +825,15 @@ mod tests {
         service: &str,
         target: &str,
     ) -> normalize::NormalizedEvent {
-        normalize::normalize(SpanEvent {
-            timestamp: "2025-07-10T14:32:01.123Z".to_string(),
-            trace_id: trace_id.to_string(),
-            span_id: "s1".to_string(),
-            parent_span_id: None,
-            service: Arc::from(service),
-            cloud_region: None,
-            event_type: EventType::Sql,
-            operation: "SELECT".to_string(),
-            target: target.to_string(),
-            duration_us: 100,
-            source: EventSource {
-                endpoint: "GET /test".to_string(),
-                method: "Test::test".to_string(),
-            },
-            status_code: None,
-            response_size_bytes: None,
-            code_function: None,
-            code_filepath: None,
-            code_lineno: None,
-            code_namespace: None,
-            instrumentation_scopes: Vec::new(),
-        })
+        let mut event = crate::test_helpers::make_sql_event_with_duration(
+            trace_id,
+            "s1",
+            target,
+            "2025-07-10T14:32:01.123Z",
+            100,
+        );
+        event.service = Arc::from(service);
+        normalize::normalize(event)
     }
 
     fn default_detect_config() -> DetectConfig {
