@@ -339,8 +339,9 @@ async fn ingest_event_batch(
     let mut lru_evicted = Vec::new();
     {
         // Lock held for O(batch_size) push() calls. Each push is O(1)
-        // amortized (LRU insert/promote). Batch size is bounded by the
-        // mpsc channel capacity (1024) and max_payload_size.
+        // amortized (LRU insert/promote). Per-batch event count is
+        // bounded by max_payload_size; the configurable
+        // ingest_queue_capacity bounds how many batches queue up.
         let mut w = window.lock().await;
         for event in normalized {
             if let Some(evicted) = w.push(event, now_ms) {

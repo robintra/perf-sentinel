@@ -2744,6 +2744,8 @@ fn compute_throughput(durations_ns: &[u64], event_count: usize, iterations: u32)
 }
 
 /// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
+/// On macOS `ru_maxrss` is the process-lifetime PEAK, not current usage,
+/// so before/peak deltas are only meaningful on Linux (`VmRSS`).
 #[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
 fn current_rss_bytes() -> Option<usize> {
     #[cfg(target_os = "linux")]
