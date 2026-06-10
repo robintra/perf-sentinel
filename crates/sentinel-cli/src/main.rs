@@ -2305,7 +2305,6 @@ fn cmd_bench(
 
     let rss_before = current_rss_bytes();
     let mut durations_ns: Vec<u64> = Vec::with_capacity(iterations as usize);
-    let mut rss_peak: Option<usize> = None;
 
     for _ in 0..iterations {
         // Clone inside the loop, before the timer starts: the clone cost
@@ -2317,11 +2316,12 @@ fn cmd_bench(
         let _ = pipeline::analyze(batch, &config);
         let elapsed = start.elapsed();
         durations_ns.push(elapsed.as_nanos() as u64);
-
-        if let Some(rss) = current_rss_bytes() {
-            rss_peak = Some(rss_peak.map_or(rss, |prev: usize| prev.max(rss)));
-        }
     }
+
+    // OS high-water mark, not a post-iteration sample: sampling current
+    // RSS after analyze returns misses the in-flight allocation peak
+    // (the analysis output is already dropped at the sampling point).
+    let rss_peak = peak_rss_bytes();
 
     let (p50_us, p99_us) = compute_latency_percentiles(&durations_ns, event_count);
     let (throughput, total_elapsed_ms) = compute_throughput(&durations_ns, event_count, iterations);
@@ -2743,24 +2743,46 @@ fn compute_throughput(durations_ns: &[u64], event_count: usize, iterations: u32)
     (throughput, total_elapsed_ms)
 }
 
+/// Parse a kB-valued field of `/proc/self/status` into bytes.
+#[cfg(target_os = "linux")]
+fn proc_status_bytes(field: &str) -> Option<usize> {
+    let s = std::fs::read_to_string("/proc/self/status").ok()?;
+    s.lines().find(|l| l.starts_with(field)).and_then(|l| {
+        l.split_whitespace()
+            .nth(1)?
+            .parse::<usize>()
+            .ok()
+            .map(|kb| kb * 1024)
+    })
+}
+
+/// Process-lifetime peak RSS in bytes (high-water mark). Linux reads
+/// `VmHWM`; on macOS `ru_maxrss` already is the lifetime peak, so this
+/// matches [`current_rss_bytes`] there. The lifetime scope means the
+/// value includes input generation/parsing before the measured loop.
+fn peak_rss_bytes() -> Option<usize> {
+    #[cfg(target_os = "linux")]
+    {
+        proc_status_bytes("VmHWM:")
+    }
+    #[cfg(target_os = "macos")]
+    {
+        current_rss_bytes()
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        None
+    }
+}
+
 /// Get current RSS (Resident Set Size) in bytes. Best-effort, platform-specific.
 /// On macOS `ru_maxrss` is the process-lifetime PEAK, not current usage,
-/// so before/peak deltas are only meaningful on Linux (`VmRSS`).
+/// so the `rss_before` reading is only a true "current" value on Linux.
 #[allow(clippy::missing_const_for_fn)] // not const on Linux (reads /proc)
 fn current_rss_bytes() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
-        std::fs::read_to_string("/proc/self/status")
-            .ok()
-            .and_then(|s| {
-                s.lines().find(|l| l.starts_with("VmRSS:")).and_then(|l| {
-                    l.split_whitespace()
-                        .nth(1)?
-                        .parse::<usize>()
-                        .ok()
-                        .map(|kb| kb * 1024)
-                })
-            })
+        proc_status_bytes("VmRSS:")
     }
     #[cfg(target_os = "windows")]
     {
