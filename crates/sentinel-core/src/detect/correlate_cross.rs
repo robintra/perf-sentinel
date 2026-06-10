@@ -603,6 +603,33 @@ mod tests {
         }
     }
 
+    /// A correlator with the permissive thresholds the cap/admission
+    /// tests share (long lag window, count 1, confidence 0), varying
+    /// only `max_tracked_pairs`.
+    fn capped_correlator(max_tracked_pairs: usize) -> CrossTraceCorrelator {
+        CrossTraceCorrelator::new(CorrelationConfig {
+            max_tracked_pairs,
+            lag_threshold_ms: 100_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        })
+    }
+
+    /// `n` findings each from a distinct service and template, so every
+    /// cross-service pair is new (the wide-topology stress shape).
+    fn wide_batch(n: usize) -> Vec<Finding> {
+        (0..n)
+            .map(|i| {
+                make_finding(
+                    &format!("svc-{i:03}"),
+                    FindingType::NPlusOneSql,
+                    &format!("tpl-{i:03}"),
+                )
+            })
+            .collect()
+    }
+
     #[test]
     fn detects_simple_a_then_b_pattern() {
         let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
@@ -725,13 +752,7 @@ mod tests {
 
     #[test]
     fn max_tracked_pairs_enforced() {
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            max_tracked_pairs: 5,
-            lag_threshold_ms: 100_000,
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            ..Default::default()
-        });
+        let mut correlator = capped_correlator(5);
 
         // Create many distinct pairs, summing the reported evictions.
         let mut evicted_total = 0;
@@ -766,22 +787,8 @@ mod tests {
         // used to insert every cross-service pair before the batch-end
         // eviction ran, exploding the map (and the process RSS) inside
         // a single ingest call. Admission control bounds it at the cap.
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            max_tracked_pairs: 50,
-            lag_threshold_ms: 100_000,
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            ..Default::default()
-        });
-        let findings: Vec<Finding> = (0..200)
-            .map(|i| {
-                make_finding(
-                    &format!("svc-{i:03}"),
-                    FindingType::NPlusOneSql,
-                    &format!("tpl-{i:03}"),
-                )
-            })
-            .collect();
+        let mut correlator = capped_correlator(50);
+        let findings = wide_batch(200);
 
         let lost = correlator.ingest(&findings, 1_000);
 
@@ -801,23 +808,9 @@ mod tests {
         // Refused newcomers must trigger a batch-end eviction (lowest
         // co-occurrence first) so the NEXT batch admits new pairs,
         // instead of early-window noise squatting the map until TTL.
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            max_tracked_pairs: 50,
-            lag_threshold_ms: 100_000,
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            ..Default::default()
-        });
-        let wide_batch: Vec<Finding> = (0..200)
-            .map(|i| {
-                make_finding(
-                    &format!("svc-{i:03}"),
-                    FindingType::NPlusOneSql,
-                    &format!("tpl-{i:03}"),
-                )
-            })
-            .collect();
-        let lost = correlator.ingest(&wide_batch, 1_000);
+        let mut correlator = capped_correlator(50);
+        let batch = wide_batch(200);
+        let lost = correlator.ingest(&batch, 1_000);
         assert!(lost > 0, "the wide batch must hit the cap");
         assert!(
             correlator.pair_counts.len() <= 45,
@@ -843,13 +836,7 @@ mod tests {
         // max_tracked_pairs = 0 passes config validation: every pair is
         // refused, the map stays empty, and the batch-end eviction must
         // not panic on the empty selection.
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            max_tracked_pairs: 0,
-            lag_threshold_ms: 100_000,
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            ..Default::default()
-        });
+        let mut correlator = capped_correlator(0);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
         assert_eq!(correlator.ingest(&[fa], 1_000), 0);
@@ -866,13 +853,7 @@ mod tests {
         // One source endpoint with several occurrences inside the lag
         // window must count a refused pair once per batch, not once per
         // matching occurrence.
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            max_tracked_pairs: 0,
-            lag_threshold_ms: 100_000,
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            ..Default::default()
-        });
+        let mut correlator = capped_correlator(0);
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         for i in 0..5 {
             assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000 + i), 0);
@@ -887,12 +868,7 @@ mod tests {
 
     #[test]
     fn ingest_under_cap_reports_zero_evictions() {
-        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
-            min_co_occurrences: 1,
-            min_confidence: 0.0,
-            lag_threshold_ms: 100_000,
-            ..Default::default()
-        });
+        let mut correlator = capped_correlator(CorrelationConfig::default().max_tracked_pairs);
 
         let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
         let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
