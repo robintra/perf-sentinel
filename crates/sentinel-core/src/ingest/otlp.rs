@@ -645,16 +645,26 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
             m.record_otlp_spans(stats);
         }
         if !events.is_empty()
-            && self
+            && let Err(e) = self
                 .sender
                 .send_timeout(events, INGEST_ENQUEUE_TIMEOUT)
                 .await
-                .is_err()
         {
             if let Some(m) = self.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
             }
-            return Err(Status::internal("event channel full or closed"));
+            // Saturation must map to a status the OTLP spec lists as
+            // retryable (UNAVAILABLE); INTERNAL is non-retryable and
+            // would make compliant exporters drop the batch for good.
+            // A closed channel means shutdown: INTERNAL is accurate.
+            return Err(match e {
+                tokio::sync::mpsc::error::SendTimeoutError::Timeout(_) => {
+                    Status::unavailable("ingest queue full, retry")
+                }
+                tokio::sync::mpsc::error::SendTimeoutError::Closed(_) => {
+                    Status::internal("event channel closed")
+                }
+            });
         }
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
@@ -2142,7 +2152,39 @@ mod tests {
             // pulled in by the surrounding axum test module.
             let req = tonic::Request::new(make_request("svc", vec![span]));
             let result = svc.export(req).await;
-            assert!(result.is_err());
+            assert_eq!(
+                result.expect_err("closed channel rejects").code(),
+                tonic::Code::Internal,
+                "shutdown (closed channel) is a genuine internal state"
+            );
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["channel_full"])
+                    .get(),
+                1
+            );
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn grpc_handler_returns_unavailable_when_channel_full_but_open() {
+            use opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::TraceService;
+
+            // Saturation, not shutdown: the OTLP spec lists UNAVAILABLE
+            // as retryable, INTERNAL is not. A saturated daemon must not
+            // make compliant exporters drop the batch permanently.
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(1);
+            tx.try_send(vec![]).expect("fill the only slot");
+            let metrics = Arc::new(MetricsState::new());
+            let svc = OtlpGrpcService::new(tx, Some(metrics.clone()));
+
+            let span = make_sql_span(&[1; 16], &[2; 8], &[], "SELECT 1", 0, 1_000_000);
+            let req = tonic::Request::new(make_request("svc", vec![span]));
+            let result = svc.export(req).await;
+            assert_eq!(
+                result.expect_err("full channel rejects").code(),
+                tonic::Code::Unavailable
+            );
             assert_eq!(
                 metrics
                     .otlp_rejected_total
