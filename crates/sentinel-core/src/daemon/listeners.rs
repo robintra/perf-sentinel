@@ -39,6 +39,13 @@ use super::tls::{build_tls_acceptor, load_tls_pem, serve_https, tls_tcp_incoming
 /// plenty of headroom for legitimate OTLP exporters batching spans.
 const GRPC_MAX_CONCURRENT_STREAMS: u32 = 256;
 
+/// Hard cap on concurrently processed gRPC export requests across ALL
+/// connections, mirroring `MAX_CONCURRENT_OTLP_HTTP` on the HTTP route.
+/// The per-connection limits above do not bound a flood of connections,
+/// which would monopolize protobuf decode CPU and starve the /health
+/// liveness probe exactly like the HTTP saturation observed in the lab.
+const GRPC_MAX_CONCURRENT_REQUESTS: usize = 32;
+
 /// Assemble the optional TLS acceptor and spawn the gRPC, HTTP (or HTTPS),
 /// and JSON socket listeners. All three handles are returned so the caller
 /// can abort them on Ctrl-C.
@@ -139,6 +146,9 @@ fn spawn_grpc_listener(
             .timeout(Duration::from_mins(1))
             .max_concurrent_streams(Some(GRPC_MAX_CONCURRENT_STREAMS))
             .concurrency_limit_per_connection(GRPC_MAX_CONCURRENT_STREAMS as usize)
+            .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+                GRPC_MAX_CONCURRENT_REQUESTS,
+            ))
             .add_service(
                 TraceServiceServer::new(grpc_service).max_decoding_message_size(max_payload),
             )
