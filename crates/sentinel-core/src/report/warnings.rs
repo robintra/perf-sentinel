@@ -28,9 +28,10 @@ pub const COLD_START: &str = "cold_start";
 pub const INGESTION_DROPS: &str = "ingestion_drops";
 
 /// Stable kind for configuration tuning hints. Emitted by the daemon
-/// when lifetime counters show the current settings are undersized for
-/// the observed load (queue sheds, cap evictions, near-full trace
-/// window). Each message names the config knob and its current value.
+/// when its metrics show the current settings are undersized for the
+/// observed load (queue sheds, cap evictions, near-full trace window).
+/// Messages name the relevant config knob and its current value where
+/// one exists; two rules point at fixed caps or instrumentation instead.
 pub const TUNING: &str = "tuning";
 
 /// Operator-facing snapshot warning with a stable category.
@@ -106,10 +107,11 @@ mod tests {
 
     #[test]
     fn warning_kind_constants_match_documented_values() {
-        // Lock the wire-format value of the two stable kinds shipped in
-        // 0.5.19. Operators write alert rules against these strings, so
+        // Lock the wire-format value of the stable kinds (0.5.19 +
+        // 0.8.7). Operators write alert rules against these strings, so
         // a rename is a breaking change.
         assert_eq!(COLD_START, "cold_start");
         assert_eq!(INGESTION_DROPS, "ingestion_drops");
+        assert_eq!(TUNING, "tuning");
     }
 }
