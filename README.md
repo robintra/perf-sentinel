@@ -498,7 +498,7 @@ Every GitHub Action is pinned to a 40-character commit SHA; the production image
 
 ## Releasing
 
-Releases follow a documented procedure with a mandatory simulation-lab validation gate. Step-by-step in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md) ([FR](docs/FR/RELEASE-PROCEDURE-FR.md)).
+Releases follow a documented procedure with a mandatory simulation-lab validation gate. Step-by-step in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md).
 
 ## License
 
