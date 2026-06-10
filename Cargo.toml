@@ -19,6 +19,13 @@ strip = true
 panic = "abort"
 opt-level = 3
 
+# Release-grade build with symbols, for flamegraphs and samply runs.
+# The release profile strips symbols, which makes profiles unreadable.
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
+
 # Catch cognitive-complexity regressions at pre-commit time rather
 # than at SonarCloud time five sprints later. Clippy's
 # `cognitive_complexity` lint uses the same algorithm class as
