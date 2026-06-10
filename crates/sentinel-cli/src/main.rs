@@ -1400,6 +1400,19 @@ fn read_file_capped(path: &std::path::Path, max_size: u64) -> Vec<u8> {
             std::process::exit(1);
         }
     };
+    // Metadata pre-check: reject oversized regular files without reading
+    // them. The take() below stays as the defense for special files
+    // whose metadata lies (pipes, device files).
+    if let Ok(meta) = file.metadata()
+        && meta.is_file()
+        && meta.len() > max_size
+    {
+        eprintln!(
+            "Error: file {} exceeds maximum of {max_size} bytes",
+            path.display()
+        );
+        std::process::exit(1);
+    }
     let mut buf = Vec::new();
     if let Err(e) = file.take(max_size + 1).read_to_end(&mut buf) {
         eprintln!("Error reading {}: {e}", path.display());
@@ -1494,9 +1507,9 @@ fn cmd_analyze(
     show_acknowledged: bool,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(input, config.daemon.max_payload_size);
+    let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
+    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
     let mut report = pipeline::analyze(events, &config);
     apply_acknowledgments_or_exit(
@@ -1520,12 +1533,12 @@ fn cmd_diff(
     let config = load_config(config_path);
     // Run analyze on both trace files with the SAME config so per-endpoint
     // counts and severity assignments are comparable.
-    let before_raw = read_events(Some(before), config.daemon.max_payload_size);
-    let before_events = ingest_json_or_exit(&before_raw, config.daemon.max_payload_size);
+    let before_raw = read_events(Some(before), limits::MAX_BATCH_INPUT_BYTES);
+    let before_events = ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES);
     let mut before_report = pipeline::analyze(before_events, &config);
 
-    let after_raw = read_events(Some(after), config.daemon.max_payload_size);
-    let after_events = ingest_json_or_exit(&after_raw, config.daemon.max_payload_size);
+    let after_raw = read_events(Some(after), limits::MAX_BATCH_INPUT_BYTES);
+    let after_events = ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES);
     let mut after_report = pipeline::analyze(after_events, &config);
 
     // Apply the same ack file to both runs so the diff stays meaningful:
@@ -1625,7 +1638,7 @@ fn load_report_from_input(
     let first_byte = raw.iter().find(|b| !b.is_ascii_whitespace()).copied();
     match first_byte {
         Some(b'[') => {
-            let events = ingest_json_or_exit(raw, config.daemon.max_payload_size);
+            let events = ingest_json_or_exit(raw, limits::MAX_BATCH_INPUT_BYTES);
             pipeline::analyze_with_traces(events, config)
         }
         Some(b'{') => {
@@ -1640,7 +1653,7 @@ fn load_report_from_input(
                 sentinel_core::acknowledgments::enrich_with_signatures(&mut report.findings);
                 return (report, Vec::new());
             }
-            let ingest = JsonIngest::new(config.daemon.max_payload_size);
+            let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
             match ingest.ingest(raw) {
                 Ok(events) => pipeline::analyze_with_traces(events, config),
                 Err(e) => {
@@ -1683,14 +1696,13 @@ const PROMETHEUS_SCRAPE_FLOOR: usize = 200;
 /// ranking report the HTML dashboard embeds. Exits 1 on parse failure.
 fn load_pg_stat_from_file(
     path: &std::path::Path,
-    config: &Config,
     top_n: usize,
 ) -> sentinel_core::ingest::pg_stat::PgStatReport {
     let raw_pg = read_file_capped(
         path,
-        u64::try_from(config.daemon.max_payload_size).unwrap_or(u64::MAX),
+        u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
     );
-    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, config.daemon.max_payload_size) {
+    match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw_pg, limits::MAX_BATCH_INPUT_BYTES) {
         Ok(entries) => sentinel_core::ingest::pg_stat::rank_pg_stat(&entries, top_n),
         Err(e) => {
             eprintln!("Error parsing --pg-stat {}: {e}", path.display());
@@ -1768,7 +1780,7 @@ fn load_diff_against_baseline(
 ) -> sentinel_core::diff::DiffReport {
     let raw_before = read_file_capped(
         before_path,
-        u64::try_from(config.daemon.max_payload_size).unwrap_or(u64::MAX),
+        u64::try_from(limits::MAX_BATCH_INPUT_BYTES).unwrap_or(u64::MAX),
     );
     let slice = strip_bom(&raw_before);
     let source_label = format!("--before {}", before_path.display());
@@ -1811,7 +1823,7 @@ async fn cmd_report(
 
     let stdin_mode = is_stdin_input(input);
     let effective_input = if stdin_mode { None } else { input };
-    let raw_bytes = read_events(effective_input, config.daemon.max_payload_size);
+    let raw_bytes = read_events(effective_input, limits::MAX_BATCH_INPUT_BYTES);
     let raw = strip_bom(&raw_bytes);
 
     let (mut report, traces) = load_report_from_input(raw, &config);
@@ -1850,7 +1862,7 @@ async fn cmd_report(
     // behind the daemon feature, mirroring the existing pg-stat
     // subcommand surface.
     let pg_stat = if let Some(path) = pg_stat_path {
-        Some(load_pg_stat_from_file(path, &config, top_n))
+        Some(load_pg_stat_from_file(path, top_n))
     } else {
         #[cfg(feature = "daemon")]
         {
@@ -2047,10 +2059,12 @@ fn cmd_calibrate(
     output_path: &std::path::Path,
     config_path: Option<&std::path::Path>,
 ) {
-    let config = load_config(config_path);
-    let raw = read_events(Some(traces_path), config.daemon.max_payload_size);
+    // Load (and so validate) --config even though calibrate only needs
+    // the trace file: a broken config should fail loudly here too.
+    let _config = load_config(config_path);
+    let raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
+    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
     // Cap the energy CSV size the same way `read_events` caps trace files.
     // A 10 GB CSV passed as `--measured-energy` would otherwise load
@@ -2159,9 +2173,9 @@ fn cmd_explain(
     format: ExplainFormat,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
 
-    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
+    let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
 
     let normalized = sentinel_core::normalize::normalize_all(events);
     let traces = sentinel_core::correlate::correlate(normalized);
@@ -2272,8 +2286,8 @@ fn cmd_bench(
             seed,
         )
     } else {
-        let raw = read_events(input, config.daemon.max_payload_size);
-        ingest_json_or_exit(&raw, config.daemon.max_payload_size)
+        let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
+        ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES)
         // `raw` drops here: holding the file bytes during the timed runs
         // would inflate every RSS sample by the input size.
     };
@@ -2425,7 +2439,7 @@ fn cmd_inspect(
 ) {
     require_terminal_or_exit();
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
 
     // Auto-detect events array vs pre-computed Report object, same shape
@@ -2454,7 +2468,7 @@ fn cmd_analyze_tui(
 ) {
     require_terminal_or_exit();
     let config = load_config(config_path);
-    let raw = read_events(input, config.daemon.max_payload_size);
+    let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
     let (mut report, traces) = load_report_from_input(&raw, &config);
     apply_acknowledgments_or_exit(
@@ -2473,7 +2487,7 @@ fn cmd_analyze_tui(
 fn cmd_explain_tui(input: &std::path::Path, trace_id: &str, config_path: Option<&std::path::Path>) {
     require_terminal_or_exit();
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
     let detect_config = sentinel_core::detect::DetectConfig::from(&config);
     let (mut report, traces) = load_report_from_input(&raw, &config);
     // Validate the trace exists before entering the TUI, mirroring the
@@ -2574,10 +2588,10 @@ fn cmd_pg_stat(
     format: PgStatOutputFormat,
 ) {
     let config = load_config(config_path);
-    let raw = read_events(Some(input), config.daemon.max_payload_size);
+    let raw = read_events(Some(input), limits::MAX_BATCH_INPUT_BYTES);
 
     let entries =
-        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, config.daemon.max_payload_size) {
+        match sentinel_core::ingest::pg_stat::parse_pg_stat(&raw, limits::MAX_BATCH_INPUT_BYTES) {
             Ok(entries) => entries,
             Err(e) => {
                 eprintln!("Error parsing pg_stat_statements: {e}");
@@ -2616,8 +2630,8 @@ fn run_pg_stat_pipeline(
 
     // Cross-reference with trace findings if --traces is provided.
     if let Some(traces_path) = traces {
-        let traces_raw = read_events(Some(traces_path), config.daemon.max_payload_size);
-        let ingest = JsonIngest::new(config.daemon.max_payload_size);
+        let traces_raw = read_events(Some(traces_path), limits::MAX_BATCH_INPUT_BYTES);
+        let ingest = JsonIngest::new(limits::MAX_BATCH_INPUT_BYTES);
         match ingest.ingest(&traces_raw) {
             Ok(events) => {
                 let report = pipeline::analyze(events, config);
