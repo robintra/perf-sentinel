@@ -26,3 +26,4 @@ v0.8.3	c5948c6	2026-06-06	PASS
 # was not gate-validated, so it has no ledger line.
 v0.8.5	97a961b	2026-06-07	PASS
 v0.8.6	2cb3bd5	2026-06-08	PASS
+v0.8.7	777f5ff	2026-06-10	PASS
