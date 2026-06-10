@@ -202,14 +202,25 @@ enum Commands {
         tui: bool,
     },
 
-    /// Benchmark perf-sentinel on a trace file.
+    /// Benchmark perf-sentinel on a trace file or a synthetic dataset.
     Bench {
-        /// Path to a JSON trace file. Reads from stdin if omitted.
-        #[arg(short, long)]
+        /// Path to a JSON trace file. Reads from stdin if omitted
+        /// (unless --synthetic-events is set).
+        #[arg(short, long, conflicts_with = "synthetic_events")]
         input: Option<PathBuf>,
         /// Number of iterations (default 10).
         #[arg(long, default_value = "10")]
         iterations: u32,
+        /// Generate a seeded synthetic dataset of this many events
+        /// in-process instead of reading a file.
+        #[arg(long)]
+        synthetic_events: Option<usize>,
+        /// Number of distinct services in the synthetic dataset.
+        #[arg(long, default_value = "16", requires = "synthetic_events")]
+        services: usize,
+        /// Seed for the synthetic dataset (same seed, same events).
+        #[arg(long, default_value = "42", requires = "synthetic_events")]
+        seed: u64,
     },
 
     /// Interactive TUI to inspect traces and findings.
@@ -972,7 +983,19 @@ async fn dispatch_command(command: Commands) {
             .await;
         }
         Commands::Demo { config } => cmd_demo(config.as_deref()),
-        Commands::Bench { input, iterations } => cmd_bench(input.as_deref(), iterations),
+        Commands::Bench {
+            input,
+            iterations,
+            synthetic_events,
+            services,
+            seed,
+        } => cmd_bench(
+            input.as_deref(),
+            iterations,
+            synthetic_events,
+            services,
+            seed,
+        ),
         #[cfg(feature = "tui")]
         Commands::Inspect {
             input,
@@ -2224,16 +2247,36 @@ fn cmd_demo(config_path: Option<&std::path::Path>) {
     print_colored_report(&report, "demo");
 }
 
-fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
+fn cmd_bench(
+    input: Option<&std::path::Path>,
+    iterations: u32,
+    synthetic_events: Option<usize>,
+    services: usize,
+    seed: u64,
+) {
     if iterations == 0 {
         eprintln!("Error: iterations must be >= 1");
         std::process::exit(1);
     }
 
     let config = Config::default();
-    let raw = read_events(input, config.daemon.max_payload_size);
-
-    let events = ingest_json_or_exit(&raw, config.daemon.max_payload_size);
+    let events = if let Some(target) = synthetic_events {
+        if target == 0 {
+            eprintln!("Error: --synthetic-events must be >= 1");
+            std::process::exit(1);
+        }
+        sentinel_core::synth::generate_target_events(
+            target,
+            services.max(1),
+            &sentinel_core::synth::PatternMix::default(),
+            seed,
+        )
+    } else {
+        let raw = read_events(input, config.daemon.max_payload_size);
+        ingest_json_or_exit(&raw, config.daemon.max_payload_size)
+        // `raw` drops here: holding the file bytes during the timed runs
+        // would inflate every RSS sample by the input size.
+    };
 
     let event_count = events.len();
     if event_count == 0 {
@@ -2241,14 +2284,16 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
         std::process::exit(1);
     }
 
-    // Pre-clone all batches so clone cost is excluded from timing
-    let batches: Vec<Vec<sentinel_core::event::SpanEvent>> =
-        (0..iterations).map(|_| events.clone()).collect();
-
+    let rss_before = current_rss_bytes();
     let mut durations_ns: Vec<u64> = Vec::with_capacity(iterations as usize);
     let mut rss_peak: Option<usize> = None;
 
-    for batch in batches {
+    for _ in 0..iterations {
+        // Clone inside the loop, before the timer starts: the clone cost
+        // stays excluded from timing while the working set stays at two
+        // copies instead of `iterations` copies (the previous pre-clone
+        // harness peaked at iterations x events of RSS).
+        let batch = events.clone();
         let start = std::time::Instant::now();
         let _ = pipeline::analyze(batch, &config);
         let elapsed = start.elapsed();
@@ -2268,8 +2313,10 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
         events_per_iteration: usize,
         throughput_events_per_sec: f64,
         latency_per_event_us: LatencyPercentiles,
+        rss_before_bytes: Option<usize>,
         rss_peak_bytes: Option<usize>,
         total_elapsed_ms: u64,
+        durations_ns: Vec<u64>,
     }
 
     #[derive(serde::Serialize)]
@@ -2286,8 +2333,10 @@ fn cmd_bench(input: Option<&std::path::Path>, iterations: u32) {
             p50: p50_us,
             p99: p99_us,
         },
+        rss_before_bytes: rss_before,
         rss_peak_bytes: rss_peak,
         total_elapsed_ms,
+        durations_ns,
     };
 
     match serde_json::to_string_pretty(&report) {
