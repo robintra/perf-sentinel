@@ -90,47 +90,10 @@ pub struct QueryApiState {
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
     pub ack_api_key: Option<String>,
-    /// Config knobs frozen at daemon startup, read by the tuning
-    /// advisor so its hints can name the current value of each knob.
-    pub tuning: TuningSnapshot,
-}
-
-/// The daemon config knobs the tuning advisor compares against the
-/// lifetime counters. Copied from [`crate::config::DaemonConfig`] at
-/// startup: the daemon never reloads config, so a snapshot is exact.
-#[derive(Debug, Clone)]
-pub struct TuningSnapshot {
-    /// `[daemon] ingest_queue_capacity`.
-    pub ingest_queue_capacity: usize,
-    /// `[daemon] analysis_queue_capacity`.
-    pub analysis_queue_capacity: usize,
-    /// `[daemon] max_active_traces`.
-    pub max_active_traces: usize,
-    /// `[daemon] trace_ttl_ms`.
-    pub trace_ttl_ms: u64,
-    /// `[daemon.correlation] enabled`.
-    pub correlation_enabled: bool,
-    /// `[daemon.correlation] max_tracked_pairs`.
-    pub max_tracked_pairs: usize,
-}
-
-impl From<&crate::config::DaemonConfig> for TuningSnapshot {
-    fn from(daemon: &crate::config::DaemonConfig) -> Self {
-        Self {
-            ingest_queue_capacity: daemon.ingest_queue_capacity,
-            analysis_queue_capacity: daemon.analysis_queue_capacity,
-            max_active_traces: daemon.max_active_traces,
-            trace_ttl_ms: daemon.trace_ttl_ms,
-            correlation_enabled: daemon.correlation.enabled,
-            max_tracked_pairs: daemon.correlation.max_tracked_pairs,
-        }
-    }
-}
-
-impl Default for TuningSnapshot {
-    fn default() -> Self {
-        Self::from(&crate::config::DaemonConfig::default())
-    }
+    /// Daemon config frozen at startup (the daemon never reloads
+    /// config), read by the tuning advisor so its hints can name the
+    /// current value of each knob.
+    pub daemon_config: crate::config::DaemonConfig,
 }
 
 /// Build the query API router.
@@ -578,7 +541,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         usize::MAX
     });
 
-    let warning_details = collect_warning_details(&state.metrics, &state.tuning);
+    let warning_details = collect_warning_details(&state.metrics, &state.daemon_config);
 
     let report = Report {
         analysis: Analysis {
@@ -827,13 +790,8 @@ impl IntoResponse for ErrorResponse {
 /// `max_active_traces` as undersized.
 const TUNING_ACTIVE_TRACES_RATIO: f64 = 0.9;
 
-/// Share of received OTLP spans filtered as `not_io` above which the
-/// tuning advisor flags the instrumentation, once at least
-/// [`TUNING_NOT_IO_MIN_RECEIVED`] spans have been seen.
-const TUNING_NOT_IO_RATIO: f64 = 0.9;
-
-/// Minimum received-span count before the `not_io` ratio is meaningful.
-const TUNING_NOT_IO_MIN_RECEIVED: u64 = 1_000;
+/// Minimum received-span count before zero retention is meaningful.
+const TUNING_ZERO_RETENTION_MIN_RECEIVED: u64 = 1_000;
 
 /// Surface aggregated soft conditions in `Report.warning_details`, on
 /// top of the /metrics counters. Operators reading `/api/export/report`
@@ -843,8 +801,8 @@ const TUNING_NOT_IO_MIN_RECEIVED: u64 = 1_000;
 /// The `tuning` entries are the daemon's settings advisor: each rule
 /// compares a metric (lifetime counters, plus the point-in-time
 /// `active_traces` gauge for the trace-window rule, which therefore
-/// appears and disappears with the load) against the config knob frozen
-/// in [`TuningSnapshot`] and, when the knob looks undersized for the
+/// appears and disappears with the load) against the daemon config
+/// frozen at startup and, when a knob looks undersized for the
 /// observed load, emits a hint naming the knob, its current value and
 /// the suggested adjustment. All inputs are trusted (Prometheus
 /// counters and parsed config), so `Warning::new` applies.
@@ -854,7 +812,7 @@ const TUNING_NOT_IO_MIN_RECEIVED: u64 = 1_000;
 /// these kinds in a single response by design.
 fn collect_warning_details(
     metrics: &MetricsState,
-    tuning: &TuningSnapshot,
+    daemon: &crate::config::DaemonConfig,
 ) -> Vec<crate::report::Warning> {
     use crate::report::warnings::{INGESTION_DROPS, TUNING};
 
@@ -868,7 +826,7 @@ fn collect_warning_details(
                  (channel saturation, see perf_sentinel_otlp_rejected_total)"
             ),
         ));
-        let cap = tuning.ingest_queue_capacity;
+        let cap = daemon.ingest_queue_capacity;
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
@@ -881,7 +839,7 @@ fn collect_warning_details(
 
     let shed = metrics.analysis_shed_batches_total.get();
     if shed > 0 {
-        let cap = tuning.analysis_queue_capacity;
+        let cap = daemon.analysis_queue_capacity;
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
@@ -893,11 +851,11 @@ fn collect_warning_details(
     }
 
     #[allow(clippy::cast_precision_loss)]
-    let active_cap = tuning.max_active_traces as f64;
+    let active_cap = daemon.max_active_traces as f64;
     let active = metrics.active_traces.get();
     if active >= active_cap * TUNING_ACTIVE_TRACES_RATIO {
-        let cap = tuning.max_active_traces;
-        let ttl = tuning.trace_ttl_ms;
+        let cap = daemon.max_active_traces;
+        let ttl = daemon.trace_ttl_ms;
         // Derive the displayed percentage from the const so the message
         // cannot drift from the actual threshold.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -927,8 +885,8 @@ fn collect_warning_details(
     }
 
     let evicted = metrics.correlator_pairs_evicted_total.get();
-    if tuning.correlation_enabled && evicted > 0 {
-        let cap = tuning.max_tracked_pairs;
+    if daemon.correlation.enabled && evicted > 0 {
+        let cap = daemon.correlation.max_tracked_pairs;
         details.push(crate::report::Warning::new(
             TUNING,
             format!(
@@ -939,23 +897,29 @@ fn collect_warning_details(
         ));
     }
 
+    // A high not_io share is healthy on a well-instrumented fleet
+    // exporting all its spans; the actionable signal is ZERO retention:
+    // spans keep arriving and not one is analyzable.
     let received = metrics.otlp_spans_received_total.get();
-    if received >= TUNING_NOT_IO_MIN_RECEIVED {
-        let not_io = metrics
-            .otlp_spans_filtered_total
-            .with_label_values(&[crate::report::metrics::OtlpSpanFilterReason::NotIo.as_str()])
-            .get();
-        #[allow(clippy::cast_precision_loss)]
-        let ratio = not_io as f64 / received as f64;
-        if ratio > TUNING_NOT_IO_RATIO {
-            let pct = (ratio * 100.0).round();
+    if received >= TUNING_ZERO_RETENTION_MIN_RECEIVED {
+        let filtered: u64 = crate::report::metrics::OtlpSpanFilterReason::ALL
+            .iter()
+            .map(|r| {
+                metrics
+                    .otlp_spans_filtered_total
+                    .with_label_values(&[r.as_str()])
+                    .get()
+            })
+            .sum();
+        if filtered >= received {
             details.push(crate::report::Warning::new(
                 TUNING,
                 format!(
-                    "{pct:.0}% of received OTLP spans carried no I/O \
-                     semantics (no db.statement, no http.url): point only \
-                     instrumented services at this endpoint or fix the \
-                     span attributes"
+                    "all {received} received OTLP spans were filtered as \
+                     non-analyzable (no db.statement, no http.url): the \
+                     daemon will never produce findings, check the \
+                     instrumentation exports I/O attributes or point \
+                     instrumented services at this endpoint"
                 ),
             ));
         }
@@ -1004,7 +968,7 @@ mod tests {
             ack_store: None,
             toml_acks: Arc::new(HashMap::new()),
             ack_api_key: None,
-            tuning: TuningSnapshot::default(),
+            daemon_config: crate::config::DaemonConfig::default(),
         })
     }
 
@@ -1610,8 +1574,11 @@ mod tests {
     }
 
     /// Collect only the `tuning` messages for the given state.
-    fn tuning_messages(metrics: &MetricsState, tuning: &TuningSnapshot) -> Vec<String> {
-        collect_warning_details(metrics, tuning)
+    fn tuning_messages(
+        metrics: &MetricsState,
+        daemon: &crate::config::DaemonConfig,
+    ) -> Vec<String> {
+        collect_warning_details(metrics, daemon)
             .into_iter()
             .filter(|w| w.kind == crate::report::warnings::TUNING)
             .map(|w| w.message)
@@ -1621,14 +1588,14 @@ mod tests {
     #[test]
     fn tuning_advisor_stays_silent_on_healthy_counters() {
         let metrics = MetricsState::new();
-        assert!(tuning_messages(&metrics, &TuningSnapshot::default()).is_empty());
+        assert!(tuning_messages(&metrics, &crate::config::DaemonConfig::default()).is_empty());
     }
 
     #[test]
     fn tuning_advisor_flags_analysis_sheds_with_queue_capacity() {
         let metrics = MetricsState::new();
         metrics.analysis_shed_batches_total.inc_by(7);
-        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
         assert_eq!(msgs.len(), 1);
         assert!(
             msgs[0].contains("shed 7 batches")
@@ -1643,7 +1610,7 @@ mod tests {
     fn tuning_advisor_flags_trace_window_near_cap() {
         let metrics = MetricsState::new();
         metrics.active_traces.set(9_500.0);
-        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
         assert_eq!(msgs.len(), 1);
         assert!(
             msgs[0].contains("max_active_traces")
@@ -1656,7 +1623,7 @@ mod tests {
 
         metrics.active_traces.set(8_000.0);
         assert!(
-            tuning_messages(&metrics, &TuningSnapshot::default()).is_empty(),
+            tuning_messages(&metrics, &crate::config::DaemonConfig::default()).is_empty(),
             "below 90% of the cap must not warn"
         );
     }
@@ -1665,7 +1632,7 @@ mod tests {
     fn tuning_advisor_flags_service_cardinality_overflow() {
         let metrics = MetricsState::new();
         metrics.service_io_ops_overflow_total.inc_by(42);
-        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
         assert_eq!(msgs.len(), 1);
         assert!(
             msgs[0].contains("42 ") && msgs[0].contains("1024-service"),
@@ -1679,17 +1646,15 @@ mod tests {
         let metrics = MetricsState::new();
         metrics.correlator_pairs_evicted_total.inc_by(900);
 
-        let disabled = TuningSnapshot::default();
-        assert!(!disabled.correlation_enabled, "default is opt-in");
+        let disabled = crate::config::DaemonConfig::default();
+        assert!(!disabled.correlation.enabled, "default is opt-in");
         assert!(
             tuning_messages(&metrics, &disabled).is_empty(),
             "no correlator wired, the counter cannot be actionable"
         );
 
-        let enabled = TuningSnapshot {
-            correlation_enabled: true,
-            ..TuningSnapshot::default()
-        };
+        let mut enabled = crate::config::DaemonConfig::default();
+        enabled.correlation.enabled = true;
         let msgs = tuning_messages(&metrics, &enabled);
         assert_eq!(msgs.len(), 1);
         assert!(
@@ -1700,24 +1665,45 @@ mod tests {
     }
 
     #[test]
-    fn tuning_advisor_flags_dominant_not_io_filtering() {
+    fn tuning_advisor_flags_zero_span_retention() {
         let metrics = MetricsState::new();
         metrics.otlp_spans_received_total.inc_by(10_000);
         metrics
             .otlp_spans_filtered_total
             .with_label_values(&["not_io"])
-            .inc_by(9_500);
-        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+            .inc_by(9_000);
+        metrics
+            .otlp_spans_filtered_total
+            .with_label_values(&["missing_db_statement"])
+            .inc_by(1_000);
+        let msgs = tuning_messages(&metrics, &crate::config::DaemonConfig::default());
         assert_eq!(msgs.len(), 1);
         assert!(
-            msgs[0].contains("95% ") && msgs[0].contains("no I/O"),
+            msgs[0].contains("all 10000 received") && msgs[0].contains("never produce findings"),
             "got: {}",
             msgs[0]
         );
     }
 
     #[test]
-    fn tuning_advisor_ignores_not_io_ratio_below_min_volume() {
+    fn tuning_advisor_tolerates_dominant_but_partial_filtering() {
+        // A well-instrumented fleet exporting every span legitimately
+        // filters most of them as not_io. As long as SOME spans are
+        // retained, the advisor must stay silent.
+        let metrics = MetricsState::new();
+        metrics.otlp_spans_received_total.inc_by(10_000);
+        metrics
+            .otlp_spans_filtered_total
+            .with_label_values(&["not_io"])
+            .inc_by(9_990);
+        assert!(
+            tuning_messages(&metrics, &crate::config::DaemonConfig::default()).is_empty(),
+            "10 retained spans out of 10000 is a healthy fleet, not a defect"
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_ignores_zero_retention_below_min_volume() {
         let metrics = MetricsState::new();
         metrics.otlp_spans_received_total.inc_by(999);
         metrics
@@ -1725,8 +1711,8 @@ mod tests {
             .with_label_values(&["not_io"])
             .inc_by(999);
         assert!(
-            tuning_messages(&metrics, &TuningSnapshot::default()).is_empty(),
-            "under {TUNING_NOT_IO_MIN_RECEIVED} received spans the ratio is noise"
+            tuning_messages(&metrics, &crate::config::DaemonConfig::default()).is_empty(),
+            "under {TUNING_ZERO_RETENTION_MIN_RECEIVED} received spans the signal is noise"
         );
     }
 
@@ -2152,7 +2138,7 @@ mod tests {
                 ack_store: self.ack_store.clone(),
                 toml_acks: Arc::clone(&self.toml_acks),
                 ack_api_key: self.ack_api_key.clone(),
-                tuning: self.tuning.clone(),
+                daemon_config: self.daemon_config.clone(),
             }
         }
     }

@@ -339,7 +339,7 @@ fn build_http_router(
             ack_store,
             toml_acks,
             ack_api_key: config.daemon.ack.api_key.clone(),
-            tuning: query_api::TuningSnapshot::from(&config.daemon),
+            daemon_config: config.daemon.clone(),
         });
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.
