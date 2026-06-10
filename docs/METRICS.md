@@ -78,7 +78,9 @@ sibling Pod cannot read the daemon's process state freely.
   JSON-encoded OTLP variant.
 - `parse_error` (HTTP only): protobuf decode failed.
 - `channel_full` (HTTP and gRPC): the event channel is saturated or
-  closed and the daemon could not enqueue the batch. The HTTP path
+  closed and the daemon could not enqueue the batch. The enqueue waits
+  up to 2 seconds before rejecting, so short bursts absorb without a
+  rejection while sustained saturation surfaces quickly. The HTTP path
   returns 503, the gRPC path returns `INTERNAL`.
 
 All 3 reasons are pre-warmed to 0 at startup so dashboards can plot
