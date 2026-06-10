@@ -27,6 +27,12 @@ pub const COLD_START: &str = "cold_start";
 /// due to channel saturation.
 pub const INGESTION_DROPS: &str = "ingestion_drops";
 
+/// Stable kind for configuration tuning hints. Emitted by the daemon
+/// when lifetime counters show the current settings are undersized for
+/// the observed load (queue sheds, cap evictions, near-full trace
+/// window). Each message names the config knob and its current value.
+pub const TUNING: &str = "tuning";
+
 /// Operator-facing snapshot warning with a stable category.
 ///
 /// `kind` is suitable for alerting and aggregation across runs (e.g.
