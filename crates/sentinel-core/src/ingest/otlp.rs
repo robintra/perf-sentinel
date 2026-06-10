@@ -725,9 +725,22 @@ pub fn otlp_http_router(
         StatusCode::OK
     }
 
+    // Hard cap on concurrently processed OTLP HTTP requests. Bounds the
+    // CPU monopolized by protobuf decode and the transient memory of
+    // buffered bodies under a saturation flood: without it the kubelet
+    // liveness probe on /health starves behind decode work and restarts
+    // the daemon before shedding gets a chance (observed at ~800
+    // traces/s on a 500m-CPU pod). Excess requests wait in the socket
+    // backlog, which is the backpressure OTLP senders expect. Scoped to
+    // this route so /health and the query API stay responsive.
+    const MAX_CONCURRENT_OTLP_HTTP: usize = 32;
+
     let state = OtlpHttpState { sender, metrics };
     let router = Router::new()
         .route("/v1/traces", post(handle_traces))
+        .route_layer(tower::limit::GlobalConcurrencyLimitLayer::new(
+            MAX_CONCURRENT_OTLP_HTTP,
+        ))
         .with_state(state)
         .layer(axum::extract::DefaultBodyLimit::max(max_payload_size));
 
