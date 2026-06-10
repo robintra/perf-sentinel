@@ -34,6 +34,9 @@ pub mod report;
 pub mod score;
 #[cfg(any(feature = "daemon", feature = "tempo"))]
 pub(crate) mod shutdown;
+// Hidden: benchmark and fixture tooling, not a supported library API.
+#[doc(hidden)]
+pub mod synth;
 pub mod text_safety;
 pub(crate) mod time;
 
