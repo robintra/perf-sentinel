@@ -172,7 +172,14 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
         }
     }
     let sanitized_label = sanitize_input_label(&options.input_label);
-    let payload = build_payload_with_label(report, traces, options, &sanitized_label);
+    let (report_embed, trimmed_findings) = trim_findings_for_embed(report, options);
+    let payload = build_payload_with_label(
+        report_embed.as_ref(),
+        traces,
+        options,
+        &sanitized_label,
+        trimmed_findings,
+    );
     let kept = payload.embedded_traces.len();
     let total = payload.trimmed_traces.as_ref().map_or(kept, |s| s.total);
     // Serialization of our fixed-shape payload cannot fail: all nested
@@ -218,6 +225,8 @@ struct Payload<'a> {
     embedded_traces: Vec<EmbeddedTrace<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     trimmed_traces: Option<TrimSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    trimmed_findings: Option<TrimSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pg_stat: Option<&'a PgStatReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -392,6 +401,7 @@ fn build_payload_with_label<'a>(
     traces: &'a [Trace],
     options: &'a RenderOptions,
     input_label: &'a str,
+    trimmed_findings: Option<TrimSummary>,
 ) -> Payload<'a> {
     let ordered = order_candidates_by_iis(report, traces);
     let total = ordered.len();
@@ -416,6 +426,7 @@ fn build_payload_with_label<'a>(
         report,
         embedded_traces,
         trimmed_traces: trimmed,
+        trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),
         diff: options.diff.as_ref(),
         daemon: options
@@ -463,6 +474,67 @@ fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
         .unwrap_or(usize::MAX)
 }
 
+/// Findings share of the JSON budget when the sink targets a file size.
+/// Traces get whatever remains; without this bound a large batch (tens of
+/// thousands of findings) ships a multi-MB envelope no matter how many
+/// traces are trimmed.
+const FINDINGS_BUDGET_SHARE_PCT: usize = 70;
+
+/// Bound the findings embedded in the HTML payload. Critical findings are
+/// kept first, then warning, then info, preserving the canonical report
+/// order inside each band. The JSON report keeps the full set; only the
+/// dashboard embed is trimmed, and the trim is surfaced as a banner.
+/// Skipped when the operator pinned `--max-traces-embedded` explicitly
+/// (that flag opts out of size targeting).
+fn trim_findings_for_embed<'a>(
+    report: &'a Report,
+    options: &RenderOptions,
+) -> (std::borrow::Cow<'a, Report>, Option<TrimSummary>) {
+    use std::borrow::Cow;
+    if options.max_traces_embedded.is_some() {
+        return (Cow::Borrowed(report), None);
+    }
+    let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
+    let findings_budget = json_budget * FINDINGS_BUDGET_SHARE_PCT / 100;
+    let total_len = serde_json::to_string(&report.findings).map_or(usize::MAX, |s| s.len());
+    if total_len <= findings_budget {
+        return (Cow::Borrowed(report), None);
+    }
+
+    let severity_rank = |f: &crate::detect::Finding| match f.severity {
+        crate::detect::Severity::Critical => 0u8,
+        crate::detect::Severity::Warning => 1,
+        crate::detect::Severity::Info => 2,
+    };
+    let mut order: Vec<usize> = (0..report.findings.len()).collect();
+    // Stable sort: severity bands first, canonical order within a band.
+    order.sort_by_key(|&i| severity_rank(&report.findings[i]));
+
+    let mut running = 2usize; // the [] array brackets
+    let mut keep: Vec<usize> = Vec::new();
+    for &i in &order {
+        let len = serde_json::to_string(&report.findings[i]).map_or(usize::MAX, |s| s.len());
+        let next = running.saturating_add(len.saturating_add(1));
+        if next > findings_budget {
+            break;
+        }
+        running = next;
+        keep.push(i);
+    }
+    keep.sort_unstable();
+
+    let summary = TrimSummary {
+        kept: keep.len(),
+        total: report.findings.len(),
+    };
+    let mut owned = report.clone();
+    owned.findings = keep
+        .into_iter()
+        .map(|i| report.findings[i].clone())
+        .collect();
+    (Cow::Owned(owned), Some(summary))
+}
+
 /// Greedy trim-to-size loop: serialize, measure, drop the lowest-ranked
 /// trace if over budget. Bounded by the number of input traces. On
 /// realistic inputs (few dozen traces, report JSON under ~200 KB) the
@@ -504,6 +576,7 @@ fn trim_to_size_target<'a>(
         report,
         embedded_traces: Vec::new(),
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
+        trimmed_findings: None,
         pg_stat: options.pg_stat.as_ref(),
         diff: options.diff.as_ref(),
         daemon: options
@@ -862,6 +935,65 @@ mod tests {
         assert_eq!(summary["total"].as_u64().unwrap(), 100);
         assert_eq!(stats.kept, 10);
         assert_eq!(stats.total, 100);
+    }
+
+    #[test]
+    fn oversized_findings_are_trimmed_critical_first() {
+        // Enough large findings to blow the findings budget: ~3000
+        // findings with 4 KB templates is ~12 MB of findings JSON
+        // against a ~3.5 MB findings budget.
+        let big_template = format!("SELECT * FROM t WHERE x = '{}'", "p".repeat(4096));
+        let mut findings = Vec::new();
+        for i in 0..3000 {
+            let mut f = finding(&format!("t{i:04}"), "svc", "/ep", &big_template);
+            // Interleave severities: the trim must keep critical first.
+            f.severity = match i % 3 {
+                0 => Severity::Critical,
+                1 => Severity::Warning,
+                _ => Severity::Info,
+            };
+            findings.push(f);
+        }
+        let report = minimal_report(findings);
+
+        let (html, _) = render(&report, &[], &opts("-", None));
+        assert!(
+            html.len() <= DEFAULT_SIZE_TARGET_BYTES + 512 * 1024,
+            "html is {} bytes, expected near the {} target",
+            html.len(),
+            DEFAULT_SIZE_TARGET_BYTES
+        );
+        let json_blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+        let summary = &value["trimmed_findings"];
+        let kept = summary["kept"].as_u64().expect("kept") as usize;
+        assert_eq!(summary["total"].as_u64().unwrap(), 3000);
+        assert!(kept > 0 && kept < 3000, "kept {kept} of 3000");
+        // Critical-first: every kept finding must be critical, because
+        // the 1000 critical findings alone exceed the budget.
+        let embedded = value["report"]["findings"].as_array().expect("findings");
+        assert_eq!(embedded.len(), kept);
+        assert!(
+            embedded
+                .iter()
+                .all(|f| f["severity"].as_str() == Some("critical")),
+            "trim must keep critical findings first"
+        );
+    }
+
+    #[test]
+    fn explicit_trace_cap_keeps_findings_whole() {
+        let big_template = format!("SELECT * FROM t WHERE x = '{}'", "p".repeat(4096));
+        let findings: Vec<Finding> = (0..2000)
+            .map(|i| finding(&format!("t{i:04}"), "svc", "/ep", &big_template))
+            .collect();
+        let report = minimal_report(findings);
+        // --max-traces-embedded opts out of size targeting entirely.
+        let (html, _) = render(&report, &[], &opts("-", Some(5)));
+        let json_blob = extract_payload_json(&html);
+        let value: serde_json::Value = serde_json::from_str(&json_blob).unwrap();
+        assert!(value.get("trimmed_findings").is_none());
+        assert_eq!(value["report"]["findings"].as_array().unwrap().len(), 2000);
     }
 
     #[test]
