@@ -724,15 +724,21 @@ async fn process_traces(
     if let Some(correlator) = ctx.correlator {
         let evicted = correlator.lock().await.ingest(&findings, now_ms);
         if evicted > 0 {
-            // Bounded warn: at most one constant-size line per analysis
-            // batch, amortized to once per 10% of the cap for real caps.
+            // Warn once per process: under steady cap pressure every
+            // batch loses pairs, and the counter already carries the
+            // ongoing magnitude (same policy as the service cap warn).
+            static CAP_WARNED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             ctx.metrics
                 .correlator_pairs_evicted_total
                 .inc_by(evicted as u64);
-            tracing::warn!(
-                evicted,
-                "correlator pair cap reached, evicting lowest-count pairs"
-            );
+            if !CAP_WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!(
+                    evicted,
+                    "correlator pair cap reached, dropping pairs (see \
+                     perf_sentinel_correlator_pairs_evicted_total)"
+                );
+            }
         }
     }
 
