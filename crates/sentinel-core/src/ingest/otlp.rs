@@ -456,13 +456,20 @@ pub fn convert_otlp_request_counted(
 
 /// Classify why a span was skipped: distinguishes "internal span" from
 /// "I/O span missing the attribute that carries its statement or url".
-fn span_filter_reason(classified: &ClassifiedAttrs<'_>) -> OtlpSpanFilterReason {
+fn span_filter_reason(classified: &ClassifiedAttrs<'_>, kind: i32) -> OtlpSpanFilterReason {
+    // Stable OTel semconv puts `url.full` on CLIENT spans only; SERVER
+    // spans legitimately carry just `http.request.method` + `url.path`.
+    // A server span without a full URL is inbound work, not a stripped
+    // outbound call, so it must count as `not_io`, not as an
+    // instrumentation gap.
+    let server = kind == opentelemetry_proto::tonic::trace::v1::span::SpanKind::Server as i32;
     if classified.db_system.is_some() {
         OtlpSpanFilterReason::MissingDbStatement
-    } else if classified
-        .http_method
-        .or(classified.http_request_method)
-        .is_some()
+    } else if !server
+        && classified
+            .http_method
+            .or(classified.http_request_method)
+            .is_some()
     {
         OtlpSpanFilterReason::MissingHttpUrl
     } else {
@@ -498,7 +505,7 @@ fn convert_span(
                 .to_string();
             (EventType::HttpOut, url.to_string(), method)
         } else {
-            return Err(span_filter_reason(&classified));
+            return Err(span_filter_reason(&classified, span.kind));
         };
 
     // Timestamps and duration
@@ -1022,6 +1029,33 @@ mod tests {
                 received: 4,
                 filtered_not_io: 1,
                 filtered_missing_db_statement: 1,
+                filtered_missing_http_url: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn server_span_without_url_counts_not_io_not_missing_url() {
+        // Stable semconv: SERVER spans carry http.request.method +
+        // url.path, url.full is CLIENT-only. A server span without a
+        // full URL is inbound work, not stripped instrumentation.
+        use opentelemetry_proto::tonic::trace::v1::span::SpanKind;
+
+        let mut server = make_bare_span(&[5; 8], vec![make_kv("http.request.method", "GET")]);
+        server.kind = SpanKind::Server as i32;
+        let mut client = make_bare_span(&[6; 8], vec![make_kv("http.request.method", "GET")]);
+        client.kind = SpanKind::Client as i32;
+        let req = make_request("order-svc", vec![server, client]);
+
+        let (events, stats) = convert_otlp_request_counted(&req);
+
+        assert!(events.is_empty());
+        assert_eq!(
+            stats,
+            SpanConversionStats {
+                received: 2,
+                filtered_not_io: 1,
+                filtered_missing_db_statement: 0,
                 filtered_missing_http_url: 1,
             }
         );
