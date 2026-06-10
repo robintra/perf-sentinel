@@ -1510,6 +1510,9 @@ fn cmd_analyze(
     let raw = read_events(input, limits::MAX_BATCH_INPUT_BYTES);
 
     let events = ingest_json_or_exit(&raw, limits::MAX_BATCH_INPUT_BYTES);
+    // Free the raw bytes before analysis: holding a multi-hundred-MB
+    // input buffer through the whole pipeline doubles peak RSS.
+    drop(raw);
 
     let mut report = pipeline::analyze(events, &config);
     apply_acknowledgments_or_exit(
@@ -1535,10 +1538,12 @@ fn cmd_diff(
     // counts and severity assignments are comparable.
     let before_raw = read_events(Some(before), limits::MAX_BATCH_INPUT_BYTES);
     let before_events = ingest_json_or_exit(&before_raw, limits::MAX_BATCH_INPUT_BYTES);
+    drop(before_raw);
     let mut before_report = pipeline::analyze(before_events, &config);
 
     let after_raw = read_events(Some(after), limits::MAX_BATCH_INPUT_BYTES);
     let after_events = ingest_json_or_exit(&after_raw, limits::MAX_BATCH_INPUT_BYTES);
+    drop(after_raw);
     let mut after_report = pipeline::analyze(after_events, &config);
 
     // Apply the same ack file to both runs so the diff stays meaningful:
