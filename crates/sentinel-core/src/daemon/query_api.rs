@@ -90,6 +90,47 @@ pub struct QueryApiState {
     /// (the documented loopback-only deployment), `Some(key)` enforces
     /// constant-time `X-API-Key` comparison.
     pub ack_api_key: Option<String>,
+    /// Config knobs frozen at daemon startup, read by the tuning
+    /// advisor so its hints can name the current value of each knob.
+    pub tuning: TuningSnapshot,
+}
+
+/// The daemon config knobs the tuning advisor compares against the
+/// lifetime counters. Copied from [`crate::config::DaemonConfig`] at
+/// startup: the daemon never reloads config, so a snapshot is exact.
+#[derive(Debug, Clone)]
+pub struct TuningSnapshot {
+    /// `[daemon] ingest_queue_capacity`.
+    pub ingest_queue_capacity: usize,
+    /// `[daemon] analysis_queue_capacity`.
+    pub analysis_queue_capacity: usize,
+    /// `[daemon] max_active_traces`.
+    pub max_active_traces: usize,
+    /// `[daemon] trace_ttl_ms`.
+    pub trace_ttl_ms: u64,
+    /// `[daemon.correlation] enabled`.
+    pub correlation_enabled: bool,
+    /// `[daemon.correlation] max_tracked_pairs`.
+    pub max_tracked_pairs: usize,
+}
+
+impl From<&crate::config::DaemonConfig> for TuningSnapshot {
+    fn from(daemon: &crate::config::DaemonConfig) -> Self {
+        Self {
+            ingest_queue_capacity: daemon.ingest_queue_capacity,
+            analysis_queue_capacity: daemon.analysis_queue_capacity,
+            max_active_traces: daemon.max_active_traces,
+            trace_ttl_ms: daemon.trace_ttl_ms,
+            correlation_enabled: daemon.correlation.enabled,
+            max_tracked_pairs: daemon.correlation.max_tracked_pairs,
+        }
+    }
+}
+
+impl Default for TuningSnapshot {
+    fn default() -> Self {
+        Self::from(&crate::config::DaemonConfig::default())
+    }
 }
 
 /// Build the query API router.
@@ -537,7 +578,7 @@ async fn handle_export_report(State(state): State<Arc<QueryApiState>>) -> Json<R
         usize::MAX
     });
 
-    let warning_details = collect_warning_details(&state.metrics);
+    let warning_details = collect_warning_details(&state.metrics, &state.tuning);
 
     let report = Report {
         analysis: Analysis {
@@ -782,26 +823,138 @@ impl IntoResponse for ErrorResponse {
     }
 }
 
+/// Trace-window occupancy ratio above which the tuning advisor flags
+/// `max_active_traces` as undersized.
+const TUNING_ACTIVE_TRACES_RATIO: f64 = 0.9;
+
+/// Share of received OTLP spans filtered as `not_io` above which the
+/// tuning advisor flags the instrumentation, once at least
+/// [`TUNING_NOT_IO_MIN_RECEIVED`] spans have been seen.
+const TUNING_NOT_IO_RATIO: f64 = 0.9;
+
+/// Minimum received-span count before the `not_io` ratio is meaningful.
+const TUNING_NOT_IO_MIN_RECEIVED: u64 = 1_000;
+
 /// Surface aggregated soft conditions in `Report.warning_details`, on
-/// top of the /metrics counter. Operators reading `/api/export/report`
+/// top of the /metrics counters. Operators reading `/api/export/report`
 /// do not always scrape Prometheus, so a count of dropped requests
 /// visible here gives a fast "is the daemon backpressured?" signal.
 ///
+/// The `tuning` entries are the daemon's settings advisor: each rule
+/// compares a lifetime counter against the config knob frozen in
+/// [`TuningSnapshot`] and, when the knob looks undersized for the
+/// observed load, emits a hint naming the knob, its current value and
+/// the suggested adjustment. All inputs are trusted (Prometheus
+/// counters and parsed config), so `Warning::new` applies.
+///
 /// Note: the cold-start branch in `handle_export_report` returns before
-/// reaching this helper, so `cold_start` and `ingestion_drops` never
-/// appear together in a single response by design.
-fn collect_warning_details(metrics: &MetricsState) -> Vec<crate::report::Warning> {
+/// reaching this helper, so `cold_start` never appears together with
+/// these kinds in a single response by design.
+fn collect_warning_details(
+    metrics: &MetricsState,
+    tuning: &TuningSnapshot,
+) -> Vec<crate::report::Warning> {
+    use crate::report::warnings::{INGESTION_DROPS, TUNING};
+
     let mut details = Vec::new();
     let dropped = metrics.otlp_rejected_channel_full.get();
     if dropped > 0 {
         details.push(crate::report::Warning::new(
-            crate::report::warnings::INGESTION_DROPS,
+            INGESTION_DROPS,
             format!(
                 "{dropped} OTLP requests rejected since daemon start \
                  (channel saturation, see perf_sentinel_otlp_rejected_total)"
             ),
         ));
+        let cap = tuning.ingest_queue_capacity;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{dropped} OTLP requests hit a full ingest queue: raise \
+                 [daemon] ingest_queue_capacity (currently {cap}) or \
+                 spread ingestion across more daemons"
+            ),
+        ));
     }
+
+    let shed = metrics.analysis_shed_batches_total.get();
+    if shed > 0 {
+        let cap = tuning.analysis_queue_capacity;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "analysis worker shed {shed} batches since daemon start: \
+                 raise [daemon] analysis_queue_capacity (currently {cap}) \
+                 or give the daemon more CPU so detection keeps up"
+            ),
+        ));
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    let active_cap = tuning.max_active_traces as f64;
+    let active = metrics.active_traces.get();
+    if active >= active_cap * TUNING_ACTIVE_TRACES_RATIO {
+        let cap = tuning.max_active_traces;
+        let ttl = tuning.trace_ttl_ms;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "active traces ({active:.0}) are within 90% of [daemon] \
+                 max_active_traces ({cap}): raise the cap or lower \
+                 trace_ttl_ms (currently {ttl} ms) so LRU eviction does \
+                 not split live traces"
+            ),
+        ));
+    }
+
+    let overflow = metrics.service_io_ops_overflow_total.get();
+    if overflow > 0 {
+        let cap = super::event_loop::MAX_SERVICE_CARDINALITY;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{overflow} I/O operations landed beyond the {cap}-service \
+                 metering cap: per-service GreenOps attribution is \
+                 undercounting, aggregate or reduce service names upstream"
+            ),
+        ));
+    }
+
+    let evicted = metrics.correlator_pairs_evicted_total.get();
+    if tuning.correlation_enabled && evicted > 0 {
+        let cap = tuning.max_tracked_pairs;
+        details.push(crate::report::Warning::new(
+            TUNING,
+            format!(
+                "{evicted} service pairs dropped at the correlation cap: \
+                 raise [daemon.correlation] max_tracked_pairs (currently \
+                 {cap}) or disable correlation on wide topologies"
+            ),
+        ));
+    }
+
+    let received = metrics.otlp_spans_received_total.get();
+    if received >= TUNING_NOT_IO_MIN_RECEIVED {
+        let not_io = metrics
+            .otlp_spans_filtered_total
+            .with_label_values(&[crate::report::metrics::OtlpSpanFilterReason::NotIo.as_str()])
+            .get();
+        #[allow(clippy::cast_precision_loss)]
+        let ratio = not_io as f64 / received as f64;
+        if ratio > TUNING_NOT_IO_RATIO {
+            let pct = (ratio * 100.0).round();
+            details.push(crate::report::Warning::new(
+                TUNING,
+                format!(
+                    "{pct:.0}% of received OTLP spans carried no I/O \
+                     semantics (no db.statement, no http.url): point only \
+                     instrumented services at this endpoint or fix the \
+                     span attributes"
+                ),
+            ));
+        }
+    }
+
     details
 }
 
@@ -845,6 +998,7 @@ mod tests {
             ack_store: None,
             toml_acks: Arc::new(HashMap::new()),
             ack_api_key: None,
+            tuning: TuningSnapshot::default(),
         })
     }
 
@@ -1437,6 +1591,137 @@ mod tests {
             "message should reference the count and OTLP, got: {}",
             drops.message
         );
+        let tuning = report
+            .warning_details
+            .iter()
+            .find(|w| w.kind == "tuning")
+            .expect("channel saturation also yields a tuning hint");
+        assert!(
+            tuning.message.contains("ingest_queue_capacity") && tuning.message.contains("1024"),
+            "hint should name the knob and its current value, got: {}",
+            tuning.message
+        );
+    }
+
+    /// Collect only the `tuning` messages for the given state.
+    fn tuning_messages(metrics: &MetricsState, tuning: &TuningSnapshot) -> Vec<String> {
+        collect_warning_details(metrics, tuning)
+            .into_iter()
+            .filter(|w| w.kind == crate::report::warnings::TUNING)
+            .map(|w| w.message)
+            .collect()
+    }
+
+    #[test]
+    fn tuning_advisor_stays_silent_on_healthy_counters() {
+        let metrics = MetricsState::new();
+        assert!(tuning_messages(&metrics, &TuningSnapshot::default()).is_empty());
+    }
+
+    #[test]
+    fn tuning_advisor_flags_analysis_sheds_with_queue_capacity() {
+        let metrics = MetricsState::new();
+        metrics.analysis_shed_batches_total.inc_by(7);
+        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        assert_eq!(msgs.len(), 1);
+        assert!(
+            msgs[0].contains("shed 7 batches")
+                && msgs[0].contains("analysis_queue_capacity")
+                && msgs[0].contains("1024"),
+            "got: {}",
+            msgs[0]
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_flags_trace_window_near_cap() {
+        let metrics = MetricsState::new();
+        metrics.active_traces.set(9_500.0);
+        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        assert_eq!(msgs.len(), 1);
+        assert!(
+            msgs[0].contains("max_active_traces")
+                && msgs[0].contains("10000")
+                && msgs[0].contains("trace_ttl_ms")
+                && msgs[0].contains("30000 ms"),
+            "got: {}",
+            msgs[0]
+        );
+
+        metrics.active_traces.set(8_000.0);
+        assert!(
+            tuning_messages(&metrics, &TuningSnapshot::default()).is_empty(),
+            "below 90% of the cap must not warn"
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_flags_service_cardinality_overflow() {
+        let metrics = MetricsState::new();
+        metrics.service_io_ops_overflow_total.inc_by(42);
+        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        assert_eq!(msgs.len(), 1);
+        assert!(
+            msgs[0].contains("42 ") && msgs[0].contains("1024-service"),
+            "got: {}",
+            msgs[0]
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_flags_pair_evictions_only_when_correlation_enabled() {
+        let metrics = MetricsState::new();
+        metrics.correlator_pairs_evicted_total.inc_by(900);
+
+        let disabled = TuningSnapshot::default();
+        assert!(!disabled.correlation_enabled, "default is opt-in");
+        assert!(
+            tuning_messages(&metrics, &disabled).is_empty(),
+            "no correlator wired, the counter cannot be actionable"
+        );
+
+        let enabled = TuningSnapshot {
+            correlation_enabled: true,
+            ..TuningSnapshot::default()
+        };
+        let msgs = tuning_messages(&metrics, &enabled);
+        assert_eq!(msgs.len(), 1);
+        assert!(
+            msgs[0].contains("900 service pairs") && msgs[0].contains("max_tracked_pairs"),
+            "got: {}",
+            msgs[0]
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_flags_dominant_not_io_filtering() {
+        let metrics = MetricsState::new();
+        metrics.otlp_spans_received_total.inc_by(10_000);
+        metrics
+            .otlp_spans_filtered_total
+            .with_label_values(&["not_io"])
+            .inc_by(9_500);
+        let msgs = tuning_messages(&metrics, &TuningSnapshot::default());
+        assert_eq!(msgs.len(), 1);
+        assert!(
+            msgs[0].contains("95% ") && msgs[0].contains("no I/O"),
+            "got: {}",
+            msgs[0]
+        );
+    }
+
+    #[test]
+    fn tuning_advisor_ignores_not_io_ratio_below_min_volume() {
+        let metrics = MetricsState::new();
+        metrics.otlp_spans_received_total.inc_by(999);
+        metrics
+            .otlp_spans_filtered_total
+            .with_label_values(&["not_io"])
+            .inc_by(999);
+        assert!(
+            tuning_messages(&metrics, &TuningSnapshot::default()).is_empty(),
+            "under {TUNING_NOT_IO_MIN_RECEIVED} received spans the ratio is noise"
+        );
     }
 
     #[allow(clippy::unused_async)]
@@ -1861,6 +2146,7 @@ mod tests {
                 ack_store: self.ack_store.clone(),
                 toml_acks: Arc::clone(&self.toml_acks),
                 ack_api_key: self.ack_api_key.clone(),
+                tuning: self.tuning.clone(),
             }
         }
     }

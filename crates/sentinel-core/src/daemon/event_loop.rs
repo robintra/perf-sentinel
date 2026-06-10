@@ -204,7 +204,7 @@ async fn drive_event_loop(
     // `service.name` values.
     let mut service_meter = ServiceMeter {
         known_services: std::collections::HashMap::new(),
-        max_service_cardinality: 1024,
+        max_service_cardinality: MAX_SERVICE_CARDINALITY,
         service_cap_warned: false,
     };
 
@@ -277,6 +277,10 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
         .await;
     }
 }
+
+/// Cardinality cap on `perf_sentinel_service_io_ops_total`. Shared with
+/// the tuning advisor in `query_api` so its hint names the real cap.
+pub(crate) const MAX_SERVICE_CARDINALITY: usize = 1024;
 
 /// Per-service I/O op counter state with a cardinality cap. Prevents OOM
 /// from a malicious OTLP sender injecting millions of unique
