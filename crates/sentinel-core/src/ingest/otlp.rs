@@ -62,6 +62,25 @@ impl SpanConversionStats {
             OtlpSpanFilterReason::MissingHttpUrl => self.filtered_missing_http_url += 1,
         }
     }
+
+    /// The filtered tallies keyed by their reason, the single place
+    /// that zips the named fields back to the enum (consumed by the
+    /// metrics sink). Kept next to [`Self::count_filtered`] so the two
+    /// directions of the mapping cannot drift apart.
+    #[must_use]
+    pub fn filtered_counts(&self) -> [(OtlpSpanFilterReason, u64); 3] {
+        [
+            (OtlpSpanFilterReason::NotIo, self.filtered_not_io),
+            (
+                OtlpSpanFilterReason::MissingDbStatement,
+                self.filtered_missing_db_statement,
+            ),
+            (
+                OtlpSpanFilterReason::MissingHttpUrl,
+                self.filtered_missing_http_url,
+            ),
+        ]
+    }
 }
 
 // ── Conversion helpers ──────────────────────────────────────────────

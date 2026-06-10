@@ -1308,18 +1308,7 @@ impl crate::ingest::otlp::MetricsSink for MetricsState {
 
     fn record_otlp_spans(&self, stats: crate::ingest::otlp::SpanConversionStats) {
         self.otlp_spans_received_total.inc_by(stats.received);
-        let filtered = [
-            (OtlpSpanFilterReason::NotIo, stats.filtered_not_io),
-            (
-                OtlpSpanFilterReason::MissingDbStatement,
-                stats.filtered_missing_db_statement,
-            ),
-            (
-                OtlpSpanFilterReason::MissingHttpUrl,
-                stats.filtered_missing_http_url,
-            ),
-        ];
-        for (reason, count) in filtered {
+        for (reason, count) in stats.filtered_counts() {
             if count > 0 {
                 self.otlp_spans_filtered_total
                     .with_label_values(&[reason.as_str()])
