@@ -165,6 +165,14 @@ pub(crate) fn parse_utc_month(ts: &str) -> Option<u8> {
 /// 1970.
 pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let s = s.trim();
+    // Fast path: the canonical 24-byte layout every converter in this
+    // crate emits (nanos_to_iso8601), "YYYY-MM-DDTHH:MM:SS.mmmZ".
+    // Detectors and carbon scoring parse timestamps several times per
+    // span, so this path is hot; anything non-canonical falls through
+    // to the general parser below.
+    if let Some(ms) = parse_fixed_layout(s.as_bytes()) {
+        return Ok(ms);
+    }
     if !s.ends_with('Z') {
         return Err("only UTC timestamps (ending with 'Z') are supported".to_string());
     }
@@ -174,6 +182,50 @@ pub(crate) fn parse_iso8601_utc_to_ms(s: &str) -> Result<u64, String> {
     let (hours, minutes, seconds, millis) = parse_time_hms(time_part)?;
     let days = civil_date_to_days(year, month, day);
     Ok(days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
+}
+
+/// Decimal digit value, or `None` for any non-digit byte.
+#[inline]
+const fn digit(b: u8) -> Option<u64> {
+    let d = b.wrapping_sub(b'0');
+    if d <= 9 { Some(d as u64) } else { None }
+}
+
+/// Branch-light parse of the exact `YYYY-MM-DDTHH:MM:SS.mmmZ` layout
+/// (space accepted instead of `T`). Returns `None` on any deviation so
+/// the caller falls back to the general parser, keeping semantics
+/// identical (same range checks as `parse_date_ymd`/`parse_time_hms`).
+#[inline]
+fn parse_fixed_layout(b: &[u8]) -> Option<u64> {
+    if b.len() != 24
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || (b[10] != b'T' && b[10] != b' ')
+        || b[13] != b':'
+        || b[16] != b':'
+        || b[19] != b'.'
+        || b[23] != b'Z'
+    {
+        return None;
+    }
+    let year = digit(b[0])? * 1000 + digit(b[1])? * 100 + digit(b[2])? * 10 + digit(b[3])?;
+    let month = digit(b[5])? * 10 + digit(b[6])?;
+    let day = digit(b[8])? * 10 + digit(b[9])?;
+    let hours = digit(b[11])? * 10 + digit(b[12])?;
+    let minutes = digit(b[14])? * 10 + digit(b[15])?;
+    let seconds = digit(b[17])? * 10 + digit(b[18])?;
+    let millis = digit(b[20])? * 100 + digit(b[21])? * 10 + digit(b[22])?;
+    if year < 1970
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hours >= 24
+        || minutes >= 60
+        || seconds >= 60
+    {
+        return None;
+    }
+    let days = civil_date_to_days(year, month, day);
+    Some(days * 86_400_000 + hours * 3_600_000 + minutes * 60_000 + seconds * 1_000 + millis)
 }
 
 /// Split the pre-`Z`-stripped timestamp into its date and time halves.
@@ -192,19 +244,19 @@ fn split_date_time(without_z: &str) -> Result<(&str, &str), String> {
 /// Parse the `YYYY-MM-DD` half into its numeric components. Rejects
 /// years before 1970 and out-of-range month/day values.
 fn parse_date_ymd(date_part: &str) -> Result<(u64, u64, u64), String> {
-    let date_parts: Vec<&str> = date_part.split('-').collect();
-    if date_parts.len() != 3 {
+    // split_once chain: no Vec allocation on the success path.
+    let Some((year_s, rest)) = date_part.split_once('-') else {
+        return Err("expected date format YYYY-MM-DD".to_string());
+    };
+    let Some((month_s, day_s)) = rest.split_once('-') else {
+        return Err("expected date format YYYY-MM-DD".to_string());
+    };
+    if day_s.contains('-') {
         return Err("expected date format YYYY-MM-DD".to_string());
     }
-    let year: u64 = date_parts[0]
-        .parse()
-        .map_err(|_| "invalid year".to_string())?;
-    let month: u64 = date_parts[1]
-        .parse()
-        .map_err(|_| "invalid month".to_string())?;
-    let day: u64 = date_parts[2]
-        .parse()
-        .map_err(|_| "invalid day".to_string())?;
+    let year: u64 = year_s.parse().map_err(|_| "invalid year".to_string())?;
+    let month: u64 = month_s.parse().map_err(|_| "invalid month".to_string())?;
+    let day: u64 = day_s.parse().map_err(|_| "invalid day".to_string())?;
     if year < 1970 {
         return Err("year must be >= 1970".to_string());
     }
@@ -218,17 +270,21 @@ fn parse_date_ymd(date_part: &str) -> Result<(u64, u64, u64), String> {
 /// seconds shorter than 3 digits are left-padded; longer ones are truncated.
 fn parse_time_hms(time_part: &str) -> Result<(u64, u64, u64, u64), String> {
     let (time_no_frac, millis) = parse_fractional_seconds(time_part)?;
-    let time_parts: Vec<&str> = time_no_frac.split(':').collect();
-    if time_parts.len() != 3 {
+    // split_once chain: no Vec allocation on the success path.
+    let Some((hours_s, rest)) = time_no_frac.split_once(':') else {
+        return Err("expected time format HH:MM:SS".to_string());
+    };
+    let Some((minutes_s, seconds_s)) = rest.split_once(':') else {
+        return Err("expected time format HH:MM:SS".to_string());
+    };
+    if seconds_s.contains(':') {
         return Err("expected time format HH:MM:SS".to_string());
     }
-    let hours: u64 = time_parts[0]
-        .parse()
-        .map_err(|_| "invalid hours".to_string())?;
-    let minutes: u64 = time_parts[1]
+    let hours: u64 = hours_s.parse().map_err(|_| "invalid hours".to_string())?;
+    let minutes: u64 = minutes_s
         .parse()
         .map_err(|_| "invalid minutes".to_string())?;
-    let seconds: u64 = time_parts[2]
+    let seconds: u64 = seconds_s
         .parse()
         .map_err(|_| "invalid seconds".to_string())?;
     if hours >= 24 || minutes >= 60 || seconds >= 60 {
