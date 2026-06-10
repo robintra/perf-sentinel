@@ -333,6 +333,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fixed_layout_agrees_with_general_parser() {
+        // Differential lock: for canonical 24-byte strings the fast
+        // path and the general component path must return the same
+        // milliseconds, including leap years and epoch boundaries.
+        let cases = [
+            "1970-01-01T00:00:00.000Z",
+            "2000-02-29T23:59:59.999Z",
+            "2024-07-10T14:32:01.123Z",
+            "2024-12-31 23:59:59.001Z",
+            "2100-01-01T00:00:00.500Z",
+        ];
+        for s in cases {
+            let fast = parse_fixed_layout(s.as_bytes()).expect("canonical layout parses");
+            let without_z = &s[..s.len() - 1];
+            let (date_part, time_part) = split_date_time(without_z).expect("split");
+            let (year, month, day) = parse_date_ymd(date_part).expect("date");
+            let (hours, minutes, seconds, millis) = parse_time_hms(time_part).expect("time");
+            let general = civil_date_to_days(year, month, day) * 86_400_000
+                + hours * 3_600_000
+                + minutes * 60_000
+                + seconds * 1_000
+                + millis;
+            assert_eq!(fast, general, "paths diverge on {s}");
+        }
+    }
+
+    #[test]
     fn nanos_basic() {
         let ts = nanos_to_iso8601(1_720_621_921_123_000_000);
         assert_eq!(ts, "2024-07-10T14:32:01.123Z");
