@@ -608,6 +608,14 @@ fn convert_span(
 
 // ── gRPC service implementation ─────────────────────────────────────
 
+/// Bounded wait when enqueueing a converted batch on the ingest channel.
+/// Short bursts absorb silently; sustained saturation surfaces as a fast
+/// retryable rejection that moves the `channel_full` counter. A plain
+/// `send().await` only errors on a closed channel, so saturation would
+/// otherwise park senders until the router request timeout with no
+/// rejection ever counted.
+const INGEST_ENQUEUE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// OTLP gRPC trace service that converts spans and sends them through a channel.
 pub struct OtlpGrpcService {
     sender: tokio::sync::mpsc::Sender<Vec<SpanEvent>>,
@@ -636,11 +644,17 @@ impl opentelemetry_proto::tonic::collector::trace::v1::trace_service_server::Tra
         if let Some(m) = self.metrics.as_ref() {
             m.record_otlp_spans(stats);
         }
-        if !events.is_empty() && self.sender.send(events).await.is_err() {
+        if !events.is_empty()
+            && self
+                .sender
+                .send_timeout(events, INGEST_ENQUEUE_TIMEOUT)
+                .await
+                .is_err()
+        {
             if let Some(m) = self.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
             }
-            return Err(Status::internal("event channel closed"));
+            return Err(Status::internal("event channel full or closed"));
         }
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
@@ -715,7 +729,13 @@ pub fn otlp_http_router(
         if let Some(m) = state.metrics.as_ref() {
             m.record_otlp_spans(stats);
         }
-        if !events.is_empty() && state.sender.send(events).await.is_err() {
+        if !events.is_empty()
+            && state
+                .sender
+                .send_timeout(events, INGEST_ENQUEUE_TIMEOUT)
+                .await
+                .is_err()
+        {
             tracing::warn!("OTLP HTTP: event channel full or closed, dropping events");
             if let Some(m) = state.metrics.as_ref() {
                 m.record_otlp_reject(OtlpRejectReason::ChannelFull);
@@ -730,8 +750,9 @@ pub fn otlp_http_router(
     // buffered bodies under a saturation flood: without it the kubelet
     // liveness probe on /health starves behind decode work and restarts
     // the daemon before shedding gets a chance (observed at ~800
-    // traces/s on a 500m-CPU pod). Excess requests wait in the socket
-    // backlog, which is the backpressure OTLP senders expect. Scoped to
+    // traces/s on a 500m-CPU pod). Excess requests wait on this
+    // in-process semaphore, bounded by the router-level request
+    // timeout, which is the backpressure OTLP senders expect. Scoped to
     // this route so /health and the query API stay responsive.
     const MAX_CONCURRENT_OTLP_HTTP: usize = 32;
 
@@ -2044,6 +2065,35 @@ mod tests {
             // counter.
             let (tx, rx) = mpsc::channel::<Vec<SpanEvent>>(1);
             drop(rx);
+            let (metrics, sink) = fresh_metrics_sink();
+            let router = otlp_http_router(tx, 1_048_576, Some(sink));
+
+            let body = build_minimal_request_bytes();
+            let req = Request::builder()
+                .method("POST")
+                .uri("/v1/traces")
+                .header(header::CONTENT_TYPE, "application/x-protobuf")
+                .body(Body::from(body))
+                .expect("build request");
+            let response = router.oneshot(req).await.expect("router runs");
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                metrics
+                    .otlp_rejected_total
+                    .with_label_values(&["channel_full"])
+                    .get(),
+                1
+            );
+        }
+
+        #[tokio::test(start_paused = true)]
+        async fn http_handler_rejects_when_channel_full_but_open() {
+            // Saturation, not closure: the receiver stays alive but the
+            // queue is full. The enqueue must time out, reject with 503
+            // and bump channel_full instead of parking forever (paused
+            // time auto-advances past INGEST_ENQUEUE_TIMEOUT).
+            let (tx, _rx) = mpsc::channel::<Vec<SpanEvent>>(1);
+            tx.try_send(vec![]).expect("fill the only slot");
             let (metrics, sink) = fresh_metrics_sink();
             let router = otlp_http_router(tx, 1_048_576, Some(sink));
 
