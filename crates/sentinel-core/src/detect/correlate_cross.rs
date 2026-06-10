@@ -308,9 +308,9 @@ impl CrossTraceCorrelator {
     ///
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
-    /// Returns the number of pairs lost to the `max_tracked_pairs` cap
-    /// (evicted at batch end, plus new pairs not admitted while the map
-    /// sat at the cap) so the caller can surface the drop.
+    /// Returns the number of pairs lost to the `max_tracked_pairs` cap:
+    /// new pairs refused while the map sat at the cap, plus incumbents
+    /// evicted at batch end to make room for the next batch.
     ///
     /// `source_totals` is maintained incrementally: increment on
     /// `push_back`, decrement on `pop_front`. Removing an entry when its
@@ -341,7 +341,16 @@ impl CrossTraceCorrelator {
             });
         }
 
-        self.enforce_pair_cap() + not_admitted
+        // Under admission pressure, free room at batch end (lowest
+        // co-occurrence first) so refused newcomers are admitted on the
+        // next batch instead of letting early-window noise squat the
+        // map for a full window.
+        let evicted = if not_admitted > 0 {
+            self.enforce_pair_cap()
+        } else {
+            0
+        };
+        evicted + not_admitted
     }
 
     /// Drop occurrences older than `cutoff`, decrementing `source_totals`.
@@ -429,25 +438,27 @@ impl CrossTraceCorrelator {
         not_admitted
     }
 
-    /// Enforce `max_tracked_pairs` cap. Evicts the pairs with the lowest
-    /// `co_occurrence_count` and returns how many were removed.
+    /// Evict the pairs with the lowest `co_occurrence_count` down to 90%
+    /// of `max_tracked_pairs` and return how many were removed. Called
+    /// when a batch hit admission refusals with the map at the cap
+    /// (admission control keeps the map from ever exceeding it).
     ///
     /// Two optimizations over the naive "clone all keys then select":
     ///
-    /// 1. **Amortization**: when we overflow, evict down to 90% of the
-    ///    cap in one pass so the O(n) work is paid once per 10% of
-    ///    overflow rather than once per insert beyond the cap.
+    /// 1. **Amortization**: evict down to 90% of the cap in one pass so
+    ///    the O(n) work is paid once per 10% of churn rather than once
+    ///    per refused insert.
     /// 2. **Lazy cloning**: find the eviction threshold via a
     ///    `select_nth_unstable` on a `Vec<u32>` (Copy, no String pair
     ///    clones), then clone keys only for the ~10% we'll actually
     ///    remove. Previously we cloned every `PairKey` in the map
     ///    (two `CorrelationEndpoint` strings each) on every cap hit.
     fn enforce_pair_cap(&mut self) -> usize {
-        if self.pair_counts.len() <= self.config.max_tracked_pairs {
+        if self.pair_counts.len() < self.config.max_tracked_pairs {
             return 0;
         }
-        // Evict down to 90% of cap so subsequent inserts don't re-trip
-        // the cap after a single-element overflow.
+        // Evict down to 90% of cap so the next batches have room before
+        // admission control re-trips.
         let cap = self.config.max_tracked_pairs;
         let target = cap - cap / 10;
         let to_remove = self.pair_counts.len().saturating_sub(target).max(1);
@@ -770,6 +781,48 @@ mod tests {
         assert!(
             lost > 0,
             "pairs lost to the cap must be reported for the eviction counter"
+        );
+    }
+
+    #[test]
+    fn admission_pressure_frees_room_for_the_next_batch() {
+        // Refused newcomers must trigger a batch-end eviction (lowest
+        // co-occurrence first) so the NEXT batch admits new pairs,
+        // instead of early-window noise squatting the map until TTL.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            max_tracked_pairs: 50,
+            lag_threshold_ms: 100_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let wide_batch: Vec<Finding> = (0..200)
+            .map(|i| {
+                make_finding(
+                    &format!("svc-{i:03}"),
+                    FindingType::NPlusOneSql,
+                    &format!("tpl-{i:03}"),
+                )
+            })
+            .collect();
+        let lost = correlator.ingest(&wide_batch, 1_000);
+        assert!(lost > 0, "the wide batch must hit the cap");
+        assert!(
+            correlator.pair_counts.len() <= 45,
+            "batch-end eviction must leave headroom below the cap, got {}",
+            correlator.pair_counts.len()
+        );
+
+        // Past the lag threshold so the fresh pair only matches itself,
+        // not the 200 occurrences still in the window.
+        let before = correlator.pair_counts.len();
+        let fa = make_finding("svc-new-a", FindingType::NPlusOneSql, "tpl-new");
+        let fb = make_finding("svc-new-b", FindingType::RedundantSql, "tpl-new");
+        assert_eq!(correlator.ingest(&[fa], 200_000), 0);
+        assert_eq!(correlator.ingest(&[fb], 200_001), 0);
+        assert!(
+            correlator.pair_counts.len() > before,
+            "a fresh pair must be admitted after the eviction freed room"
         );
     }
 
