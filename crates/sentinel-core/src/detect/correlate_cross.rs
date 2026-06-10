@@ -308,9 +308,12 @@ impl CrossTraceCorrelator {
     ///
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
-    /// Returns the number of pairs lost to the `max_tracked_pairs` cap:
-    /// new pairs refused while the map sat at the cap, plus incumbents
-    /// evicted at batch end to make room for the next batch.
+    /// Returns the number of pairs lost to the `max_tracked_pairs` cap
+    /// in this batch: distinct new pairs refused while the map sat at
+    /// the cap, plus incumbents evicted at batch end to make room for
+    /// the next batch. A pair still refused on a later batch counts
+    /// again there, so the lifetime counter reads as "pair-batches
+    /// lost", not unique pairs forever.
     ///
     /// `source_totals` is maintained incrementally: increment on
     /// `push_back`, decrement on `pop_front`. Removing an entry when its
@@ -325,21 +328,21 @@ impl CrossTraceCorrelator {
         self.pair_counts
             .retain(|_, state| state.last_seen_ms >= cutoff);
 
-        let mut not_admitted = 0;
+        let mut refused = std::collections::HashSet::new();
         for finding in findings {
             let endpoint = std::sync::Arc::new(CorrelationEndpoint {
                 finding_type: finding.finding_type.clone(),
                 service: finding.service.clone(),
                 template: finding.pattern.template.clone(),
             });
-            not_admitted +=
-                self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str());
+            self.record_co_occurrences(&endpoint, now_ms, finding.trace_id.as_str(), &mut refused);
             *self.source_totals.entry((*endpoint).clone()).or_insert(0) += 1;
             self.occurrences.push_back(FindingOccurrence {
                 endpoint,
                 timestamp_ms: now_ms,
             });
         }
+        let not_admitted = refused.len();
 
         // Under admission pressure, free room at batch end (lowest
         // co-occurrence first) so refused newcomers are admitted on the
@@ -376,9 +379,10 @@ impl CrossTraceCorrelator {
     /// `trace_id` is the incoming target-side finding's trace id. It is
     /// stored on every matching [`PairState`] so [`active_correlations`]
     /// can surface a representative trace id for UI jump-through.
-    /// Returns the number of new pairs NOT admitted because the map sat
-    /// at `max_tracked_pairs`. Admission control here is what keeps a
-    /// wide topology (hundreds of services, almost every pair new) from
+    /// New pairs NOT admitted because the map sat at `max_tracked_pairs`
+    /// are collected into `refused` (a set, so each distinct pair counts
+    /// once per batch). Admission control here is what keeps a wide
+    /// topology (hundreds of services, almost every pair new) from
     /// inserting millions of entries inside one batch: the batch-end
     /// eviction alone cannot bound intra-batch growth, and the map's
     /// high-water capacity is never returned to the allocator.
@@ -387,8 +391,8 @@ impl CrossTraceCorrelator {
         endpoint: &std::sync::Arc<CorrelationEndpoint>,
         now_ms: u64,
         trace_id: &str,
-    ) -> usize {
-        let mut not_admitted = 0;
+        refused: &mut std::collections::HashSet<PairKey>,
+    ) {
         for occ in self.occurrences.iter().rev() {
             let age = now_ms.saturating_sub(occ.timestamp_ms);
             if age > self.config.lag_threshold_ms {
@@ -406,36 +410,40 @@ impl CrossTraceCorrelator {
             // precision only for values above 2^53 ms (~285k years).
             #[allow(clippy::cast_precision_loss)]
             let lag = age as f64;
-            if let Some(state) = self.pair_counts.get_mut(&key) {
-                state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
-                state.record_lag(lag);
-                state.last_seen_ms = now_ms;
-                state.update_sample_trace_id(trace_id);
-                continue;
-            }
-            if self.pair_counts.len() >= self.config.max_tracked_pairs {
-                not_admitted += 1;
-                continue;
-            }
-            let state = self.pair_counts.entry(key).or_insert_with(|| PairState {
-                co_occurrence_count: 0,
-                lags_ms: Vec::new(),
-                total_observations: 0,
-                // Seed the PRNG from first_seen_ms so different pairs
-                // evolve independent sample streams. Pairs created at
-                // the same tick get the same seed; we mix in the
-                // endpoint's hash to diversify.
-                rng_state: now_ms ^ (hash_endpoint(&occ.endpoint) << 17) ^ hash_endpoint(endpoint),
-                first_seen_ms: now_ms,
-                last_seen_ms: now_ms,
-                last_trace_id: None,
-            });
+            // Single-hash admission: read the length before `entry` so
+            // the vacant arm can refuse without a second lookup.
+            let len = self.pair_counts.len();
+            let state = match self.pair_counts.entry(key) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(v) => {
+                    if len >= self.config.max_tracked_pairs {
+                        // A refused pair counts once per batch however
+                        // many window occurrences matched it.
+                        refused.insert(v.into_key());
+                        continue;
+                    }
+                    v.insert(PairState {
+                        co_occurrence_count: 0,
+                        lags_ms: Vec::new(),
+                        total_observations: 0,
+                        // Seed the PRNG from first_seen_ms so different pairs
+                        // evolve independent sample streams. Pairs created at
+                        // the same tick get the same seed; we mix in the
+                        // endpoint's hash to diversify.
+                        rng_state: now_ms
+                            ^ (hash_endpoint(&occ.endpoint) << 17)
+                            ^ hash_endpoint(endpoint),
+                        first_seen_ms: now_ms,
+                        last_seen_ms: now_ms,
+                        last_trace_id: None,
+                    })
+                }
+            };
             state.co_occurrence_count = state.co_occurrence_count.saturating_add(1);
             state.record_lag(lag);
             state.last_seen_ms = now_ms;
             state.update_sample_trace_id(trace_id);
         }
-        not_admitted
     }
 
     /// Evict the pairs with the lowest `co_occurrence_count` down to 90%
@@ -454,7 +462,11 @@ impl CrossTraceCorrelator {
     ///    remove. Previously we cloned every `PairKey` in the map
     ///    (two `CorrelationEndpoint` strings each) on every cap hit.
     fn enforce_pair_cap(&mut self) -> usize {
-        if self.pair_counts.len() < self.config.max_tracked_pairs {
+        // The emptiness guard matters for `max_tracked_pairs = 0`
+        // (admitted by config): the map stays empty while admission
+        // refuses everything, and `select_nth_unstable` below would
+        // panic on an empty slice.
+        if self.pair_counts.is_empty() || self.pair_counts.len() < self.config.max_tracked_pairs {
             return 0;
         }
         // Evict down to 90% of cap so the next batches have room before
@@ -823,6 +835,53 @@ mod tests {
         assert!(
             correlator.pair_counts.len() > before,
             "a fresh pair must be admitted after the eviction freed room"
+        );
+    }
+
+    #[test]
+    fn cap_zero_refuses_everything_without_panicking() {
+        // max_tracked_pairs = 0 passes config validation: every pair is
+        // refused, the map stays empty, and the batch-end eviction must
+        // not panic on the empty selection.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            max_tracked_pairs: 0,
+            lag_threshold_ms: 100_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        assert_eq!(correlator.ingest(&[fa], 1_000), 0);
+        assert_eq!(
+            correlator.ingest(&[fb], 1_001),
+            1,
+            "one distinct pair refused"
+        );
+        assert!(correlator.pair_counts.is_empty());
+    }
+
+    #[test]
+    fn refused_pairs_count_distinct_keys_not_occurrences() {
+        // One source endpoint with several occurrences inside the lag
+        // window must count a refused pair once per batch, not once per
+        // matching occurrence.
+        let mut correlator = CrossTraceCorrelator::new(CorrelationConfig {
+            max_tracked_pairs: 0,
+            lag_threshold_ms: 100_000,
+            min_co_occurrences: 1,
+            min_confidence: 0.0,
+            ..Default::default()
+        });
+        let fa = make_finding("svc-a", FindingType::NPlusOneSql, "tpl");
+        for i in 0..5 {
+            assert_eq!(correlator.ingest(std::slice::from_ref(&fa), 1_000 + i), 0);
+        }
+        let fb = make_finding("svc-b", FindingType::RedundantSql, "tpl");
+        assert_eq!(
+            correlator.ingest(&[fb], 1_010),
+            1,
+            "five matching occurrences of the same refused pair must count once"
         );
     }
 
