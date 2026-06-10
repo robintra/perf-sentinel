@@ -80,8 +80,10 @@ Valeurs du label `reason` :
   OTLP encodée en JSON.
 - `parse_error` (HTTP uniquement) : décodage protobuf raté.
 - `channel_full` (HTTP et gRPC) : le canal d'événements est saturé ou
-  fermé et le daemon n'a pas pu enqueuer le batch. La voie HTTP renvoie
-  503, la voie gRPC renvoie `INTERNAL`.
+  fermé et le daemon n'a pas pu enqueuer le batch. L'enqueue attend
+  jusqu'à 2 secondes avant de rejeter, les rafales courtes sont donc
+  absorbées sans rejet tandis qu'une saturation soutenue ressort vite.
+  La voie HTTP renvoie 503, la voie gRPC renvoie `INTERNAL`.
 
 Les 3 reasons sont pré-warmées à 0 au démarrage pour que les dashboards
 puissent plotter la ligne zéro avant le premier rejet.
