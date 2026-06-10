@@ -172,9 +172,13 @@ pub fn render(report: &Report, traces: &[Trace], options: &RenderOptions) -> (St
         }
     }
     let sanitized_label = sanitize_input_label(&options.input_label);
-    let (report_embed, trimmed_findings) = trim_findings_for_embed(report, options);
+    let (report_embed, trimmed_findings) = slim_report_for_embed(report, options);
+    // Trace ranking reads the un-slimmed `top_offenders` so the ordering
+    // is accurate even past the embed cap; the payload serializes the
+    // slim report.
     let payload = build_payload_with_label(
-        report_embed.as_ref(),
+        &report_embed,
+        &report.green_summary.top_offenders,
         traces,
         options,
         &sanitized_label,
@@ -398,12 +402,16 @@ fn is_unsafe_format_char(c: char) -> bool {
 
 fn build_payload_with_label<'a>(
     report: &'a Report,
+    full_top_offenders: &[crate::report::TopOffender],
     traces: &'a [Trace],
     options: &'a RenderOptions,
     input_label: &'a str,
     trimmed_findings: Option<TrimSummary>,
 ) -> Payload<'a> {
-    let ordered = order_candidates_by_iis(report, traces);
+    // Candidate set from the embedded findings (so every embedded trace
+    // has its finding shown), ranked by the full offender list (so the
+    // ordering does not degrade past the embed cap).
+    let ordered = order_candidates_by_iis(&report.findings, full_top_offenders, traces);
     let total = ordered.len();
 
     let (kept_refs, trimmed) = if let Some(cap) = options.max_traces_embedded {
@@ -440,15 +448,15 @@ fn build_payload_with_label<'a>(
 /// per-trace IIS (highest first). Lower `top_offenders` index means
 /// higher IIS. Traces whose `(service, endpoint)` pairs are absent from
 /// `top_offenders` rank as `usize::MAX` and sort last.
-fn order_candidates_by_iis<'a>(report: &Report, traces: &'a [Trace]) -> Vec<&'a Trace> {
-    let finding_trace_ids: HashSet<&str> = report
-        .findings
-        .iter()
-        .map(|f| f.trace_id.as_str())
-        .collect();
+fn order_candidates_by_iis<'a>(
+    findings: &[crate::detect::Finding],
+    top_offenders: &[crate::report::TopOffender],
+    traces: &'a [Trace],
+) -> Vec<&'a Trace> {
+    let finding_trace_ids: HashSet<&str> = findings.iter().map(|f| f.trace_id.as_str()).collect();
 
     let mut rank: HashMap<(&str, &str), usize> = HashMap::new();
-    for (i, off) in report.green_summary.top_offenders.iter().enumerate() {
+    for (i, off) in top_offenders.iter().enumerate() {
         rank.insert((off.service.as_str(), off.endpoint.as_str()), i);
     }
 
@@ -480,19 +488,64 @@ fn trace_rank(trace: &Trace, rank: &HashMap<(&str, &str), usize>) -> usize {
 /// traces are trimmed.
 const FINDINGS_BUDGET_SHARE_PCT: usize = 70;
 
-/// Bound the findings embedded in the HTML payload. Critical findings are
-/// kept first, then warning, then info, preserving the canonical report
-/// order inside each band. The JSON report keeps the full set; only the
-/// dashboard embed is trimmed, and the trim is surfaced as a banner.
-/// Skipped when the operator pinned `--max-traces-embedded` explicitly
-/// (that flag opts out of size targeting).
-fn trim_findings_for_embed<'a>(
-    report: &'a Report,
+/// Cap on `green_summary.top_offenders` embedded in the HTML payload. The
+/// dashboard only ever reads `top_offenders[0]` (the "Top offender" card),
+/// so a high-endpoint-cardinality report would otherwise embed thousands
+/// of rows nothing renders. The full ranking still drives trace ordering
+/// (from the un-slimmed report) and stays in `analyze --format json`. The
+/// cap leaves headroom for a future top-N table without re-bloating.
+const TOP_OFFENDERS_EMBED_CAP: usize = 25;
+
+/// Build the slimmed `Report` embedded in the HTML payload. Three sections
+/// the dashboard does not fully render are bounded so a high-volume report
+/// does not bloat the self-contained file, while `analyze --format json`
+/// keeps every one of them in full:
+///   - `findings`: trimmed critical-first when over the size budget
+///     (surfaced as a banner), full otherwise;
+///   - `per_endpoint_io_ops`: dropped entirely (no dashboard view reads it);
+///   - `green_summary.top_offenders`: capped to [`TOP_OFFENDERS_EMBED_CAP`].
+fn slim_report_for_embed(
+    report: &Report,
     options: &RenderOptions,
-) -> (std::borrow::Cow<'a, Report>, Option<TrimSummary>) {
-    use std::borrow::Cow;
+) -> (Report, Option<TrimSummary>) {
+    let (findings, trimmed_findings) = select_embedded_findings(report, options);
+    // Clone-then-truncate: the transient full clone is freed immediately,
+    // and a one-shot HTML render is not a hot path. What matters is that
+    // the serialized payload carries at most the cap.
+    let mut green_summary = report.green_summary.clone();
+    green_summary
+        .top_offenders
+        .truncate(TOP_OFFENDERS_EMBED_CAP);
+    // Exhaustive literal, not `report.clone()`: it makes the dropped
+    // `per_endpoint_io_ops` explicit (never cloning the big vec) and turns
+    // a future new `Report` field into a compile error here.
+    let embed = Report {
+        analysis: report.analysis.clone(),
+        findings,
+        green_summary,
+        quality_gate: report.quality_gate.clone(),
+        per_endpoint_io_ops: Vec::new(),
+        correlations: report.correlations.clone(),
+        warnings: report.warnings.clone(),
+        warning_details: report.warning_details.clone(),
+        acknowledged_findings: report.acknowledged_findings.clone(),
+        binary_version: report.binary_version.clone(),
+        disclosure_waste: report.disclosure_waste.clone(),
+    };
+    (embed, trimmed_findings)
+}
+
+/// Select the findings to embed. Critical findings are kept first, then
+/// warning, then info, preserving the canonical report order inside each
+/// band. Returns the full set (and no summary) when `--max-traces-embedded`
+/// opts out of size targeting or the set already fits; otherwise the
+/// critical-first prefix that fits, with a [`TrimSummary`].
+fn select_embedded_findings(
+    report: &Report,
+    options: &RenderOptions,
+) -> (Vec<crate::detect::Finding>, Option<TrimSummary>) {
     if options.max_traces_embedded.is_some() {
-        return (Cow::Borrowed(report), None);
+        return (report.findings.clone(), None);
     }
     let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
     let findings_budget = json_budget * FINDINGS_BUDGET_SHARE_PCT / 100;
@@ -508,7 +561,7 @@ fn trim_findings_for_embed<'a>(
         .iter()
         .fold(2usize, |acc, len| acc.saturating_add(len.saturating_add(1)));
     if total_len <= findings_budget {
-        return (Cow::Borrowed(report), None);
+        return (report.findings.clone(), None);
     }
 
     let mut order: Vec<usize> = (0..report.findings.len()).collect();
@@ -532,26 +585,11 @@ fn trim_findings_for_embed<'a>(
         kept: keep.len(),
         total: report.findings.len(),
     };
-    // Exhaustive literal instead of `report.clone()`: cloning the whole
-    // report would copy every un-kept finding only to drop it, on the
-    // exact path that exists because findings are oversized.
-    let owned = Report {
-        analysis: report.analysis.clone(),
-        findings: keep
-            .into_iter()
-            .map(|i| report.findings[i].clone())
-            .collect(),
-        green_summary: report.green_summary.clone(),
-        quality_gate: report.quality_gate.clone(),
-        per_endpoint_io_ops: report.per_endpoint_io_ops.clone(),
-        correlations: report.correlations.clone(),
-        warnings: report.warnings.clone(),
-        warning_details: report.warning_details.clone(),
-        acknowledged_findings: report.acknowledged_findings.clone(),
-        binary_version: report.binary_version.clone(),
-        disclosure_waste: report.disclosure_waste.clone(),
-    };
-    (Cow::Owned(owned), Some(summary))
+    let kept = keep
+        .into_iter()
+        .map(|i| report.findings[i].clone())
+        .collect();
+    (kept, Some(summary))
 }
 
 /// Greedy trim-to-size loop: serialize, measure, drop the lowest-ranked
@@ -997,6 +1035,87 @@ mod tests {
                 .iter()
                 .all(|f| f["severity"].as_str() == Some("critical")),
             "trim must keep critical findings first"
+        );
+    }
+
+    #[test]
+    fn per_endpoint_io_ops_dropped_from_embed() {
+        // The dashboard never reads per_endpoint_io_ops, so it must not
+        // ship in the embedded payload regardless of cardinality. The
+        // JSON report (analyze --format json) keeps it; this only asserts
+        // the HTML embed.
+        use crate::report::PerEndpointIoOps;
+        let mut report = minimal_report(vec![finding("t0", "svc", "/ep", "SELECT 1")]);
+        report.per_endpoint_io_ops = (0..5000)
+            .map(|i| PerEndpointIoOps {
+                service: format!("svc-{i}"),
+                endpoint: format!("/ep-{i}"),
+                io_ops: i,
+            })
+            .collect();
+
+        let (html, _) = render(&report, &[], &opts("-", None));
+        let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
+        let embedded = &value["report"]["per_endpoint_io_ops"];
+        let len = embedded.as_array().map_or(0, Vec::len);
+        assert_eq!(
+            len, 0,
+            "per_endpoint_io_ops must not be embedded, got {len}"
+        );
+    }
+
+    #[test]
+    fn top_offenders_capped_in_embed_but_full_ranking_preserved() {
+        // 40 offenders (ranks 0..40); the embed cap is 25. Two candidate
+        // traces: one whose endpoint is offender rank 30 (beyond the cap)
+        // and one whose endpoint is not an offender at all (rank MAX).
+        let mut offenders = Vec::new();
+        for i in 0..40 {
+            offenders.push(TopOffender {
+                endpoint: format!("/ep-{i}"),
+                service: "svc".into(),
+                io_intensity_score: 100.0 - f64::from(i),
+                io_intensity_band: InterpretationLevel::High,
+                co2_grams: None,
+            });
+        }
+        let findings = vec![
+            finding("t-beyond", "svc", "/ep-30", "SELECT 1"),
+            finding("t-none", "svc", "/ep-absent", "SELECT 2"),
+        ];
+        let mut report = minimal_report(findings);
+        report.green_summary.top_offenders = offenders;
+        let traces = vec![
+            Trace {
+                trace_id: "t-beyond".into(),
+                spans: vec![span("t-beyond", "s", None, "svc", "/ep-30", "SELECT 1")],
+            },
+            Trace {
+                trace_id: "t-none".into(),
+                spans: vec![span("t-none", "s", None, "svc", "/ep-absent", "SELECT 2")],
+            },
+        ];
+
+        // Cap embedding at 1 trace: only the better-ranked one survives.
+        let (html, _) = render(&report, &traces, &opts("-", Some(1)));
+        let value: serde_json::Value = serde_json::from_str(&extract_payload_json(&html)).unwrap();
+
+        let embedded_offenders = value["report"]["green_summary"]["top_offenders"]
+            .as_array()
+            .expect("top_offenders array");
+        assert_eq!(
+            embedded_offenders.len(),
+            TOP_OFFENDERS_EMBED_CAP,
+            "top_offenders must be capped in the embed"
+        );
+
+        let embedded_traces = value["embedded_traces"].as_array().expect("traces");
+        assert_eq!(embedded_traces.len(), 1);
+        assert_eq!(
+            embedded_traces[0]["trace_id"].as_str(),
+            Some("t-beyond"),
+            "ranking must use the full offender list: rank-30 beats a non-offender, \
+             which only holds if ranking read past the embed cap"
         );
     }
 
