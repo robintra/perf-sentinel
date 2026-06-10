@@ -177,23 +177,24 @@ pub fn generate_target_events(
     mix: &PatternMix,
     seed: u64,
 ) -> Vec<SpanEvent> {
-    // Mean events per trace under the default mix is ~9; over-ask and
-    // truncate so the output length is exact and deterministic.
-    let spec = SynthSpec {
+    // Under-ask first, then top up using the measured mean events per
+    // trace: a fixed low divisor over-asked by ~37% under the default
+    // mix (~8.2 events per trace), building events only to truncate.
+    let mut spec = SynthSpec {
         services,
-        traces: target_events / 6 + 1,
+        traces: target_events / 9 + 1,
         spans_per_trace: 6,
         mix: mix.clone(),
         seed,
     };
     let mut events = generate(&spec);
+    let mut traces_done = spec.traces;
     while events.len() < target_events {
-        let extra = SynthSpec {
-            traces: (target_events - events.len()) / 6 + 1,
-            seed: seed.wrapping_add(events.len() as u64),
-            ..spec.clone()
-        };
-        events.extend(generate(&extra));
+        let mean = (events.len() / traces_done.max(1)).max(1);
+        spec.traces = (target_events - events.len()) / mean + 1;
+        spec.seed = seed.wrapping_add(events.len() as u64);
+        traces_done += spec.traces;
+        events.extend(generate(&spec));
     }
     events.truncate(target_events);
     events
