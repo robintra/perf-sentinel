@@ -203,7 +203,7 @@ async fn drive_event_loop(
     // from a malicious OTLP sender injecting millions of unique
     // `service.name` values.
     let mut service_meter = ServiceMeter {
-        known_services: std::collections::HashSet::new(),
+        known_services: std::collections::HashMap::new(),
         max_service_cardinality: 1024,
         service_cap_warned: false,
     };
@@ -280,26 +280,24 @@ async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: A
 
 /// Per-service I/O op counter state with a cardinality cap. Prevents OOM
 /// from a malicious OTLP sender injecting millions of unique
-/// `service.name` values.
+/// `service.name` values. Caches the labeled counter children so the
+/// per-event path is one `HashMap` lookup plus an atomic add, instead of
+/// the label-hash plus `MetricVec` lock of `with_label_values` (the same
+/// cached-children pattern as the OTLP reject counters).
 struct ServiceMeter {
-    known_services: std::collections::HashSet<String>,
+    known_services: std::collections::HashMap<String, prometheus::Counter>,
     max_service_cardinality: usize,
     service_cap_warned: bool,
 }
 
 impl ServiceMeter {
     fn record(&mut self, service: &str, metrics: &MetricsState) {
-        if self.known_services.contains(service) {
-            metrics
-                .service_io_ops_total
-                .with_label_values(&[service])
-                .inc();
+        if let Some(child) = self.known_services.get(service) {
+            child.inc();
         } else if self.known_services.len() < self.max_service_cardinality {
-            self.known_services.insert(service.to_string());
-            metrics
-                .service_io_ops_total
-                .with_label_values(&[service])
-                .inc();
+            let child = metrics.service_io_ops_total.with_label_values(&[service]);
+            child.inc();
+            self.known_services.insert(service.to_string(), child);
         } else {
             // Keep the ongoing drop visible: the warn fires once, the
             // overflow counter moves on every unattributed op.
@@ -1379,7 +1377,7 @@ mod tests {
     fn service_meter_overflow_counts_unattributed_ops() {
         let metrics = MetricsState::new();
         let mut meter = ServiceMeter {
-            known_services: std::collections::HashSet::new(),
+            known_services: std::collections::HashMap::new(),
             max_service_cardinality: 2,
             service_cap_warned: false,
         };
