@@ -375,7 +375,7 @@ Là où un calcul entier précis sur entrée hostile pourrait déborder et où u
 
 ### Allocateur sur les builds musl
 
-Les binaires Linux de release ciblent `x86_64-unknown-linux-musl` et `aarch64-unknown-linux-musl` pour que l'artefact soit entièrement statique et tourne sur n'importe quelle distribution quelle que soit la glibc hôte. La libc musl embarque son propre allocateur, simple et compact mais sensiblement plus lent que celui de la glibc sous contention. Sur la release v0.4.6 (musl + allocateur par défaut), un bench de 500 itérations sur le dataset de démo de 78 événements mesurait 1,08M événements/sec sur aarch64 Linux, contre 1,47M pour un build `aarch64-unknown-linux-gnu` du même code. C'est largement au-dessus de la cible documentée de 100k événements/sec, mais c'est aussi le seul vrai coût du choix musl vs glibc.
+Les binaires Linux de release ciblent `x86_64-unknown-linux-musl` et `aarch64-unknown-linux-musl` pour que l'artefact soit entièrement statique et tourne sur n'importe quelle distribution quelle que soit la glibc hôte. La libc musl embarque son propre allocateur, simple et compact mais sensiblement plus lent que celui de la glibc sous contention : sur v0.4.6, l'allocateur musl par défaut faisait tourner le bench à environ 70 % du débit du build glibc, le seul vrai coût du choix musl vs glibc.
 
 Plutôt que de ressusciter une matrice de release dual glibc/musl pour combler l'écart, le crate CLI déclare `mimalloc` comme dépendance target-gated :
 
@@ -394,75 +394,38 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 Conséquences :
 
-- **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Le bench v0.4.7 (même workload 500 x 78, aarch64 Linux) mesure **2,00M événements/sec**, contre 1,54M pour le build glibc du même code. mimalloc ne se contente pas de combler l'écart musl, il dépasse le baseline glibc d'environ 30%, porté par sa disposition en segments/pages qui surpasse à la fois ptmalloc2 (glibc) et l'allocateur naïf de musl sur les allocations petites-à-moyennes qui dominent le chemin chaud de perf-sentinel.
+- **Sur les cibles musl** (artefacts Linux de release) : mimalloc remplace automatiquement l'allocateur système au moment du link. Les benchs de décision v0.4.7 le montraient non seulement combler l'écart musl mais dépasser le baseline glibc d'environ 30 % (et l'allocateur Darwin de macOS d'un facteur ~2 sur le microbench), porté par sa disposition en segments/pages sur les allocations petites-à-moyennes qui dominent le chemin chaud de perf-sentinel. Re-mesuré sur 0.6.1 et 0.8.0 avec la même conclusion, les tables par campagne vivent dans l'historique git.
 - **Sur macOS, Windows et n'importe quelle future cible `*-linux-gnu`** : le garde `cfg(target_env = "musl")` vaut faux, `mimalloc` n'est même pas compilé, l'allocateur système reste en place. Aucun changement de surface pour ces plateformes.
-- **Coût RSS** : environ +21% (mesuré 42 Mo vs 34 Mo sur le même bench). Tradeoff attendu pour un allocateur plus rapide qui pré-alloue ses arenas, toujours un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits recommandées dans les values Helm.
+- **Coût RSS** : environ +21 % sur le workload du bench. Tradeoff attendu pour un allocateur plus rapide qui pré-alloue ses arenas, toujours un ordre de grandeur sous le plafond de 200 Mo documenté pour le daemon et bien dans les plages requests/limits recommandées dans les values Helm.
 
 La forme sans feature flag, target-gated, a été retenue plutôt qu'une feature cargo opt-in parce que (1) il n'y a pas de raison plausible, sur un build musl, de garder le défaut plus lent, et (2) le swap n'a aucune surface visible utilisateur, donc l'exposer en toggle alourdirait la doc sans bénéfice correspondant.
 
-#### Re-mesure 0.6.1
+#### Méthodologie de mesure
 
-Les chiffres v0.4.7 ci-dessus ont été re-mesurés sur perf-sentinel **0.6.1** pour confirmer que la décision d'allocateur tient toujours et pour exposer un chiffre end-to-end réaliste, en plus du microbench in-memory.
+- *Microbench in-memory* : `perf-sentinel bench` chronomètre `pipeline::analyze` (fonction pure, sans I/O ni dispatch async). Le bon chiffre pour le tracking de régression allocateur et pipeline, pas pour le sizing capacitaire.
+- *End-to-end via le daemon* : `perf-sentinel watch` alimenté par le chemin NDJSON `[daemon] json_socket`, débit mesuré côté émission, exactitude validée en sondant `/api/status` jusqu'au drain de `active_traces` à 0. Ce chemin JSON-socket est lui-même une borne haute du vrai chemin d'ingestion OTLP (le décodage protobuf coûte plus que le parse JSON serde).
 
-**Matériel** : Apple **Mac16,11** (M4 Pro, 12 cœurs CPU, 24 Go de mémoire unifiée). **OS hôte** : macOS 26.4.1 (build 25E253). **Toolchain** : rustc 1.95.0, profil `release` (`opt-level = 3`, `lto = "thin"`, `codegen-units = 1`).
+Pour citer le débit de perf-sentinel à l'extérieur, préférer le chiffre end-to-end (ou les deux, avec leurs conditions). Les tables des campagnes historiques (décision allocateur v0.4.7, re-mesure 0.6.1, contrôle de toolchain 0.8.0) ont été retirées de cette page, elles vivent dans l'historique git, et leur conclusion commune tient : la décision d'allocateur est stable d'une release à l'autre et le chemin chaud de `pipeline::analyze` n'a porté aucune régression entre 0.4.7 et 0.8.0.
 
-**Matrice de builds** :
+#### Campagne de mesure v0.8.7
 
-| Build | Triple cible | Allocateur | Environnement d'exécution | Mémoire disponible |
-|-------|--------------|------------|---------------------------|--------------------|
-| Natif macOS | `aarch64-apple-darwin` | système (Darwin) | macOS hôte | 24 Go unifiés (partagés avec l'OS hôte) |
-| Artefact release (musl) | `aarch64-unknown-linux-musl` | mimalloc 0.1.49 | Docker Desktop 29.4.2, `--platform linux/arm64` (VM LinuxKit, virtio passthrough) | 15,6 Gio alloués à la VM, 12 vCPU, 1 Gio de swap |
+0.8.7 remplace les fixtures ad hoc par une infrastructure de mesure permanente : un générateur synthétique avec graine (`sentinel_core::synth`, masqué de la doc), une suite criterion sur chaque étape du pipeline (`crates/sentinel-core/benches/pipeline.rs`, baselines via `cargo bench -p perf-sentinel-core -- --save-baseline main`), `bench --synthetic-events N` pour des runs sans fixture, et un profil de build `profiling` (release plus symboles) pour les flamegraphs : `cargo flamegraph --profile profiling -- bench --synthetic-events 1000000` sous Linux, `samply record` sous macOS.
 
-Le build musl est exécuté dans Docker car c'est la forme effectivement déployée : les artefacts release Linux officiels sont des binaires statiques `aarch64-unknown-linux-musl` (ELF), typiquement lancés depuis un conteneur `FROM scratch` sur Kubernetes. Docker Desktop sur macOS ne donne pas toute la RAM hôte à la VM, il en a alloué 15,6 Gio sur cette machine, le reste est réservé à macOS. Les deux runs ont une marge confortable. La VM LinuxKit ajoute aussi une légère taxe virtio sur les syscalls et les I/O par rapport à du Linux arm64 sur métal nu.
+Le corpus synthétique est plus lourd que les fixtures historiques dérivées de la démo (mix d'anti-patterns réaliste, multi-services, scoring carbone actif), ses chiffres forment donc une nouvelle série de référence plutôt qu'un prolongement des tables précédentes : ~1,0-1,1M événements/s sur `bench --synthetic-events 100000` (macOS natif, bruit hôte inclus), médianes criterion à 85 ms / 100k événements et 926 ms / 1M événements pour le pipeline complet.
 
-**Empreinte mémoire mesurée** (RSS échantillonné à 100 ms de cadence sur le daemon musl + mimalloc pendant le run end-to-end de 156 000 événements) :
+Optimisations livrées, chacune avec sa preuve criterion avant/après :
 
-| Phase | RSS daemon | Note |
-|-------|-----------|------|
-| Idle, juste démarré | 17,5 Mo | Après que les listeners soient up, avant tout trafic |
-| Pic pendant l'ingest sustained (926 k événements/s) | **237 Mo** | 156 000 événements, 20 000 traces, 10 000 findings stockés |
-| Plateau après drain (`active_traces` retombé à 0) | 237 Mo | TraceWindow relâchée, findings store toujours résident |
+- Parse ISO 8601 : chemin rapide sur layout fixe plus chemin général sans allocation, 69,5 ns vers 8,4 ns par parse (−88 %), benchs détecteurs −4 % à −9 % (les timestamps sont parsés plusieurs fois par span entre la détection et le carbone).
+- ServiceMeter : enfants de counter par service pré-cachés, 11,9 ns vers 1,0 ns par événement sur le chemin de métrologie (micro bench `service_counter/`).
+- Harnais `bench` : le clone passe dans la boucle d'itération, le pic RSS tombe de `itérations x entrée` à `2 x entrée` (l'ancien ~641 Mo à 31,2k x 30 lit ~10x plus bas sur le même workload, annoter les comparaisons qui traversent cette frontière).
+- Le CLI batch libère le buffer d'entrée brut avant l'analyse (pic RSS moins la taille du fichier sur `analyze`/`diff`).
 
-À titre de référence, la sous-commande `bench` in-memory plafonne à environ 648 Mo sur le workload de 31 200 événements parce qu'elle charge le vecteur d'input entier en RAM dès le départ. C'est une propriété du harnais de microbench, pas du daemon. En production, le daemon streame les événements à travers la `TraceWindow` et ne garde jamais tout le set d'input.
+Évaluées et délibérément non retenues, avec les mesures qui les ont fermées :
 
-**Méthodologie** :
-- *Microbench in-memory* : `perf-sentinel bench --input <fixture> --iterations N` clone le vecteur d'événements hors de la boucle de chronométrage et mesure uniquement `pipeline::analyze` (fonction pure, sans I/O ni dispatch async).
-- *End-to-end via daemon* : `perf-sentinel watch` avec `[daemon] json_socket` et `trace_ttl_ms = 500`, alimenté par lots NDJSON sur Unix socket. Le throughput est le wall-clock côté envoi. La complétude est validée en pollant `/api/status` jusqu'à ce que `active_traces` retombe à 0 (zéro drop).
-
-**Dataset** : `tests/fixtures/demo.json` (78 événements, 10 traces, mix SQL et HTTP), répliqué par multiplicateur de trace_id pour monter en échelle tout en préservant le signal de détection (chaque réplica génère trace_ids et span_ids distincts, la densité de findings par trace reste constante).
-
-| Workload | Natif macOS | musl + mimalloc | Écart musl |
-|---|---|---|---|
-| In-memory, 78 événements, 500 itérations | 0,92 M evt/s | **1,94 M evt/s** | +112 % |
-| In-memory, 7 800 événements, 30 itérations | 1,38 M evt/s | **1,82 M evt/s** | +32 % |
-| In-memory, 31 200 événements, 30 itérations | 1,14 M evt/s | **1,45 M evt/s** | +27 % |
-| End-to-end socket JSON, 7 800 événements | 0,62 M evt/s | **0,63 M evt/s** | +3 % |
-| End-to-end socket JSON, 39 000 événements | 0,86 M evt/s | **0,93 M evt/s** | +9 % |
-| End-to-end socket JSON, 156 000 événements | 0,80 M evt/s | **0,96 M evt/s** | +20 % |
-
-À retenir :
-
-- Le chiffre v0.4.7 de 2,00M événements/sec se reproduit à environ 3 % de bruit près sur le microbench 78 événements d'origine : **1,94M événements/sec**. La décision d'allocateur tient toujours et reste une victoire d'un facteur 2 sur l'allocateur Darwin de macOS sur ce microbench.
-- À des tailles de dataset réalistes (>30 k événements), la pipeline in-memory plafonne à **~1,5 à 1,8 M événements/s** sur le build musl+mimalloc, le bénéfice allocateur diminue dès que la working set sort du L2.
-- En end-to-end via le daemon (le path effectivement déployé), le pic est de **~960 k événements/s sustained** sur un dataset de 156 k événements. L'écart in-memory vs end-to-end est le coût réel de la désérialisation JSON, du dispatch async via Tokio, de la `TraceWindow` LRU+TTL en streaming et des écritures dans le `findings_store`, tout ce que la sous-commande `bench` ne mesure pas.
-- Le path JSON socket en end-to-end est lui-même un plafond optimiste pour l'ingest OTLP réel : le décodage protobuf en OTLP gRPC ou HTTP est plus lourd que le parse JSON serde utilisé ici.
-
-Pour citer le throughput de perf-sentinel à l'extérieur, privilégier le chiffre end-to-end (ou les deux, avec leurs conditions). Le microbench in-memory est le bon chiffre pour le tracking de régression d'allocateur et de pipeline, pas pour le sizing capacitaire.
-
-#### Re-mesure 0.8.0 / rustc 1.96.0
-
-Re-mesuré sur perf-sentinel **0.8.0** avec **rustc 1.96.0** (le bump de MSRV), sur le même Mac16,11 / Docker Desktop `linux/arm64`, pour confirmer que le bump de toolchain n'introduit aucune régression de débit ni de mémoire. Les chiffres reproduisent ceux de 0.6.1 au bruit de mesure près : le passage 1.95 → 1.96 et le travail de fonctionnalités 0.6.1 → 0.8.0 laissent le chemin chaud `pipeline::analyze` inchangé.
-
-| Charge | macOS natif | musl + mimalloc |
-|---|---|---|
-| In-memory, 78 évts, 500 iter | 1,23M évts/s | **1,94M évts/s** |
-| In-memory, 7 800 évts, 30 iter | 1,25M évts/s | **1,82M évts/s** |
-| In-memory, 31 200 évts, 30 iter | 1,10M évts/s | **1,29M évts/s** |
-| End-to-end JSON socket, 7 800 évts | 0,69M évts/s | **0,77M évts/s** |
-| End-to-end JSON socket, 39 000 évts | 0,74M évts/s | **0,93M évts/s** |
-| End-to-end JSON socket, 156 000 évts | 0,78M évts/s | **1,01M évts/s** |
-
-RSS du daemon sur le build musl + mimalloc pendant le run end-to-end de 156 000 évènements : ~17 Mo au repos une fois les listeners démarrés (le build natif tourne à ~10 Mo — les arènes préallouées de mimalloc coûtent la différence), pic ~165–193 Mo à l'ingest soutenu (10 000 findings stockés), confortablement sous le plafond de 200 Mo et en baisse par rapport aux 237 Mo mesurés sur 0.6.1. Le pic RSS du `bench` in-memory sur 31 200 évènements reste ~641 Mo (le harness charge tout le vecteur en amont, inchangé depuis 0.6.1). Les chiffres portent ~3 % de bruit run-to-run et dépendent de l'allocation de la VM Docker Desktop, à utiliser pour le tracking de régression, pas pour le sizing capacitaire absolu. La première invocation dans un conteneur frais lit ~10 % en dessous (warm-up VM/caches), les chiffres ci-dessus sont à chaud.
+- Interning des templates dans normalize : `normalize_all` représente 15,2 ms des 85,2 ms / 100k du pipeline (18 %), une coupe optimiste de 30 % rapporte ~5 % de bout en bout pour un vrai coût de complexité (interner explicite à enfiler dans le pipeline pur). À rouvrir seulement si la normalisation domine un futur flamegraph.
+- Cache `timestamp_ms` sur `NormalizedEvent` : après le chemin rapide du parse, le coût résiduel est ~3 % du pipeline, sous la barre des 5 %.
+- Ingestion NDJSON en streaming pour le CLI batch : différée, le cap d'entrée batch de 1 GiB (découplé de la limite de payload du daemon en 0.8.7) couvre les tailles de corpus actuelles, et la corrélation batch travaille sur l'ensemble complet par conception, le streaming n'économiserait que la part du buffer brut dans la RSS.
+- `snapshot_service_io_ops` : collecte une seule famille de `CounterVec` par tick de scraper, pas le registre entier, borné par le cap de 1024 services. Non-problème.
 
 ## Stratégie de distribution
 
