@@ -1764,11 +1764,20 @@
   // -------- trim banner --------
   function renderTrimBanner() {
     var t = payload.trimmed_traces;
-    if (!t) return;
+    var f = payload.trimmed_findings;
+    if (!t && !f) return;
+    var parts = [];
+    if (f) {
+      parts.push("Showing " + f.kept + " of " + f.total +
+        " findings (trimmed for file size, critical first; the JSON report keeps the full set).");
+    }
+    if (t) {
+      parts.push("Showing " + t.kept + " of " + t.total +
+        " traces (trimmed for file size). Rerun with --max-traces-embedded <higher> to see more.");
+    }
     var b = document.getElementById("trim-banner");
     b.style.display = "";
-    b.textContent = "Showing " + t.kept + " of " + t.total +
-      " traces (trimmed for file size). Rerun with --max-traces-embedded <higher> to see more.";
+    b.textContent = parts.join(" ");
   }
 
   // -------- theme toggle --------
