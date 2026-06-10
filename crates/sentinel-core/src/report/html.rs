@@ -496,25 +496,30 @@ fn trim_findings_for_embed<'a>(
     }
     let json_budget = DEFAULT_SIZE_TARGET_BYTES.saturating_sub(TEMPLATE.len());
     let findings_budget = json_budget * FINDINGS_BUDGET_SHARE_PCT / 100;
-    let total_len = serde_json::to_string(&report.findings).map_or(usize::MAX, |s| s.len());
+    // Serialize each finding exactly once: the same sizes serve the
+    // whole-array early exit (sum + commas + brackets) and the budget
+    // loop below, instead of serializing the array a second time.
+    let sizes: Vec<usize> = report
+        .findings
+        .iter()
+        .map(|f| serde_json::to_string(f).map_or(usize::MAX, |s| s.len()))
+        .collect();
+    let total_len = sizes
+        .iter()
+        .fold(2usize, |acc, len| acc.saturating_add(len.saturating_add(1)));
     if total_len <= findings_budget {
         return (Cow::Borrowed(report), None);
     }
 
-    let severity_rank = |f: &crate::detect::Finding| match f.severity {
-        crate::detect::Severity::Critical => 0u8,
-        crate::detect::Severity::Warning => 1,
-        crate::detect::Severity::Info => 2,
-    };
     let mut order: Vec<usize> = (0..report.findings.len()).collect();
-    // Stable sort: severity bands first, canonical order within a band.
-    order.sort_by_key(|&i| severity_rank(&report.findings[i]));
+    // Stable sort on the derived Severity ordering (Critical < Warning
+    // < Info): severity bands first, canonical order within a band.
+    order.sort_by_key(|&i| &report.findings[i].severity);
 
     let mut running = 2usize; // the [] array brackets
     let mut keep: Vec<usize> = Vec::new();
     for &i in &order {
-        let len = serde_json::to_string(&report.findings[i]).map_or(usize::MAX, |s| s.len());
-        let next = running.saturating_add(len.saturating_add(1));
+        let next = running.saturating_add(sizes[i].saturating_add(1));
         if next > findings_budget {
             break;
         }
@@ -527,11 +532,25 @@ fn trim_findings_for_embed<'a>(
         kept: keep.len(),
         total: report.findings.len(),
     };
-    let mut owned = report.clone();
-    owned.findings = keep
-        .into_iter()
-        .map(|i| report.findings[i].clone())
-        .collect();
+    // Exhaustive literal instead of `report.clone()`: cloning the whole
+    // report would copy every un-kept finding only to drop it, on the
+    // exact path that exists because findings are oversized.
+    let owned = Report {
+        analysis: report.analysis.clone(),
+        findings: keep
+            .into_iter()
+            .map(|i| report.findings[i].clone())
+            .collect(),
+        green_summary: report.green_summary.clone(),
+        quality_gate: report.quality_gate.clone(),
+        per_endpoint_io_ops: report.per_endpoint_io_ops.clone(),
+        correlations: report.correlations.clone(),
+        warnings: report.warnings.clone(),
+        warning_details: report.warning_details.clone(),
+        acknowledged_findings: report.acknowledged_findings.clone(),
+        binary_version: report.binary_version.clone(),
+        disclosure_waste: report.disclosure_waste.clone(),
+    };
     (Cow::Owned(owned), Some(summary))
 }
 
