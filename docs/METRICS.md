@@ -81,7 +81,9 @@ sibling Pod cannot read the daemon's process state freely.
   closed and the daemon could not enqueue the batch. The enqueue waits
   up to 2 seconds before rejecting, so short bursts absorb without a
   rejection while sustained saturation surfaces quickly. The HTTP path
-  returns 503, the gRPC path returns `INTERNAL`.
+  returns 503, the gRPC path returns `UNAVAILABLE` on saturation
+  (both retryable per the OTLP spec) and `INTERNAL` only when the
+  channel is closed during shutdown.
 
 All 3 reasons are pre-warmed to 0 at startup so dashboards can plot
 zero-values before the first rejection.
@@ -335,7 +337,7 @@ rules run on every `/api/export/report` call:
 | `perf_sentinel_active_traces` at 90% or more of `max_active_traces`         | `[daemon] max_active_traces` or a lower `trace_ttl_ms`           |
 | `perf_sentinel_service_io_ops_overflow_total > 0`                           | Aggregate or reduce service names (the 1024-series cap is fixed) |
 | `perf_sentinel_correlator_pairs_evicted_total > 0` with correlation enabled | `[daemon.correlation] max_tracked_pairs`                         |
-| Over 90% of received OTLP spans filtered as `not_io` (after 1000 spans)     | Fix span attributes or stop exporting non-I/O spans here         |
+| Every received OTLP span filtered as non-analyzable (after 1000 spans)      | Fix span attributes or point instrumented services at this endpoint |
 
 Counter-driven rules are sticky (lifetime counters only reset on
 restart). The trace-window rule reads a gauge, so it appears and

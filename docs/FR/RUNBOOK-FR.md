@@ -678,7 +678,7 @@ valeurs dynamiques telles que des compteurs.
   analysis_queue_capacity` (currently 1024) or give the daemon more
   CPU"). Les hints pilotés par compteurs (sheds de la file d'analyse,
   rejets d'ingestion, débordement du plafond de services, évictions de
-  paires de corrélation, filtrage `not_io` dominant) sont collants
+  paires de corrélation, rétention nulle de spans analysables) sont collants
   comme `ingestion_drops`. Le hint de fenêtre de traces lit la gauge
   `active_traces` en direct contre `[daemon] max_active_traces`, il
   s'efface donc de lui-même quand la charge retombe. La table complète
