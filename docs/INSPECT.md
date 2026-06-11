@@ -23,13 +23,15 @@ and revoke findings interactively from the terminal.
 
 This TUI is the developer's trace and finding browser. For deployment
 monitoring there is a separate live operator TUI,
-`perf-sentinel query monitor` (since 0.8.8): four tabs cycled with
+`perf-sentinel query monitor` (since 0.8.8): five tabs cycled with
 Tab, **Advisor** (the daemon's settings-advisor hints), **Energy**
 (the effective energy/carbon mix per service and per region),
 **Trends** (live braille charts of the energy/carbon per window and of
-the runtime gauges as a share of their configured caps) and
-**Scrapers** (live health of the energy backends from `/api/energy`),
-auto-refreshed from the daemon every `--refresh` seconds (default 5).
+the runtime gauges as a share of their configured caps), **Scrapers**
+(live health of the energy backends from `/api/energy`) and **Config**
+(the read-only daemon parameters with their defaults and a one-line
+explanation each), auto-refreshed from the daemon every `--refresh`
+seconds (default 5).
 When the daemon becomes unreachable, the last good snapshot stays on
 screen with a stale indicator. Read-only: no acknowledgments, no API
 key needed.
@@ -221,12 +223,12 @@ the TOML file. For permanent acks, edit the file via PR review per
 `perf-sentinel query monitor` (since 0.8.8) is the operator-side
 counterpart to the developer's Inspect browser above. It runs against a
 live daemon, polls it on a fixed cadence (`--refresh` seconds, default
-5) and is read-only. `Tab` cycles the four tabs, `j`/`k` scroll, `q`
+5) and is read-only. `Tab` cycles the five tabs, `j`/`k` scroll, `q`
 quits. The data each tab surfaces (config hints, source provenance,
 per-region intensities) is categorical and high-cardinality, which is
 exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 
-![query monitor cycles four tabs over a live daemon: Advisor, Energy, Trends, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor cycles five tabs over a live daemon: Advisor, Energy, Trends, Scrapers, Config](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 - **Advisor** renders the daemon's settings-advisor hints
   (`warning_details`), color-coded by kind. A well-dimensioned daemon
@@ -263,6 +265,16 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
   freshness age climbs while the unconfigured backends stay dashed.
 
   ![Scrapers tab: backend health, cloud_energy configured with a climbing freshness age](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/scrapers.png)
+
+- **Config** reads `/api/config` for the daemon's effective `[daemon]`
+  settings, read-only. Each parameter shows its current value, the
+  compiled-in default (computed locally), and a one-line explanation of
+  what it does; values that differ from the default are flagged
+  `modified`. Secrets are summarized server-side (TLS as
+  configured/not, the ack API key as set/unset) and never shown in
+  clear. Needs a 0.8.8+ daemon; older ones show a hint.
+
+  ![Config tab: daemon parameters with current value, default and description; modified values flagged](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/config.png)
 
 When the daemon becomes unreachable, the last good snapshot stays on
 screen with a `[STALE]` indicator instead of going blank.

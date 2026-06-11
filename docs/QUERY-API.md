@@ -23,6 +23,7 @@ first-class product surface with a stability contract.
 | Method | Path                            | Purpose                                                                           |
 |--------|---------------------------------|-----------------------------------------------------------------------------------|
 | GET    | `/api/status`                   | Daemon liveness, version, uptime, in-flight counts                                |
+| GET    | `/api/config`                   | Effective `[daemon]` configuration, read-only, secrets summarized (since 0.8.8)   |
 | GET    | `/api/energy`                   | Live health of the energy/intensity backends (since 0.8.8)                        |
 | GET    | `/api/findings`                 | Recent findings from the ring buffer, with service, type and severity filters     |
 | GET    | `/api/findings/{trace_id}`      | All findings for one trace                                                        |
@@ -82,7 +83,7 @@ The rule the proxy enforces:
 
 | Path                                                                                 | GET                    | POST / DELETE         |
 |--------------------------------------------------------------------------------------|------------------------|-----------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/energy`, `/api/acks` | any authenticated user | not applicable        |
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`, `/api/acks` | any authenticated user | not applicable        |
 | `/api/findings/{signature}/ack`                                                      | not applicable         | privileged group only |
 | `/api/export/report`                                                                 | privileged group only  | not applicable        |
 
@@ -243,6 +244,57 @@ curl -sS http://127.0.0.1:4318/api/status
   "max_retained_findings": 10000
 }
 ```
+
+### GET /api/config
+
+The daemon's effective `[daemon]` configuration, read-only (since
+0.8.8). Backs the Config tab of `perf-sentinel query monitor`. Built as
+an explicit allowlist, never a blanket serialization of the internal
+config, so **no secret is exposed**: TLS cert/key paths and the ack API
+key are summarized to booleans (`tls_configured`, `ack_api_key_set`)
+and never echoed. The values are frozen at daemon startup.
+
+**Query parameters:** none.
+
+**Response shape:** an object with the `[daemon]` scalars
+(`listen_addr`, `listen_port`, `listen_port_grpc`, `json_socket`,
+`max_active_traces`, `trace_ttl_ms`, `sampling_rate`,
+`max_events_per_trace`, `max_payload_size`, `environment`,
+`max_retained_findings`, `ingest_queue_capacity`,
+`analysis_queue_capacity`, `api_enabled`), the summarized sub-systems
+(`tls_configured`, `ack_enabled`, `ack_api_key_set`,
+`cors_allowed_origins`, `archive_configured`), and the correlation
+block (`correlation_enabled`, `correlation_window_ms`,
+`correlation_lag_threshold_ms`, `correlation_min_co_occurrences`,
+`correlation_min_confidence`, `correlation_max_tracked_pairs`).
+
+**Example:**
+
+```bash
+curl -sS http://127.0.0.1:4318/api/config
+```
+
+```json
+{
+  "listen_addr": "127.0.0.1",
+  "listen_port": 4318,
+  "max_active_traces": 10000,
+  "trace_ttl_ms": 30000,
+  "sampling_rate": 1.0,
+  "environment": "staging",
+  "api_enabled": true,
+  "tls_configured": false,
+  "ack_enabled": true,
+  "ack_api_key_set": false,
+  "cors_allowed_origins": [],
+  "archive_configured": false,
+  "correlation_enabled": false,
+  "correlation_max_tracked_pairs": 10000
+}
+```
+
+(Fields elided above for brevity; the live response carries the full
+set listed under **Response shape**.)
 
 ### GET /api/energy
 

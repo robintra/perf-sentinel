@@ -25,6 +25,7 @@ surface produit de premier plan, avec un contrat de stabilité.
 | Méthode | Chemin                          | Rôle                                                                            |
 |---------|---------------------------------|---------------------------------------------------------------------------------|
 | GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                         |
+| GET     | `/api/config`                   | Configuration `[daemon]` effective, lecture seule, secrets résumés (depuis 0.8.8) |
 | GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                       |
 | GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity  |
 | GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                   |
@@ -86,7 +87,7 @@ La règle appliquée par le proxy :
 
 | Chemin                                                                               | GET                          | POST / DELETE                |
 |--------------------------------------------------------------------------------------|------------------------------|------------------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/energy`, `/api/acks` | tout utilisateur authentifié | sans objet                   |
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/config`, `/api/energy`, `/api/acks` | tout utilisateur authentifié | sans objet                   |
 | `/api/findings/{signature}/ack`                                                      | sans objet                   | groupe privilégié uniquement |
 | `/api/export/report`                                                                 | groupe privilégié uniquement | sans objet                   |
 
@@ -251,6 +252,58 @@ curl -sS http://127.0.0.1:4318/api/status
   "max_retained_findings": 10000
 }
 ```
+
+### GET /api/config
+
+La configuration `[daemon]` effective du daemon, en lecture seule
+(depuis 0.8.8). Alimente l'onglet Config de `perf-sentinel query
+monitor`. Construite en liste blanche explicite, jamais une
+sérialisation brute de la config interne, donc **aucun secret n'est
+exposé** : les chemins de cert/clé TLS et la clé d'API ack sont résumés
+en booléens (`tls_configured`, `ack_api_key_set`) et jamais renvoyés.
+Les valeurs sont figées au démarrage du daemon.
+
+**Paramètres de requête :** aucun.
+
+**Forme de réponse :** un objet avec les scalaires `[daemon]`
+(`listen_addr`, `listen_port`, `listen_port_grpc`, `json_socket`,
+`max_active_traces`, `trace_ttl_ms`, `sampling_rate`,
+`max_events_per_trace`, `max_payload_size`, `environment`,
+`max_retained_findings`, `ingest_queue_capacity`,
+`analysis_queue_capacity`, `api_enabled`), les sous-systèmes résumés
+(`tls_configured`, `ack_enabled`, `ack_api_key_set`,
+`cors_allowed_origins`, `archive_configured`) et le bloc de corrélation
+(`correlation_enabled`, `correlation_window_ms`,
+`correlation_lag_threshold_ms`, `correlation_min_co_occurrences`,
+`correlation_min_confidence`, `correlation_max_tracked_pairs`).
+
+**Exemple :**
+
+```bash
+curl -sS http://127.0.0.1:4318/api/config
+```
+
+```json
+{
+  "listen_addr": "127.0.0.1",
+  "listen_port": 4318,
+  "max_active_traces": 10000,
+  "trace_ttl_ms": 30000,
+  "sampling_rate": 1.0,
+  "environment": "staging",
+  "api_enabled": true,
+  "tls_configured": false,
+  "ack_enabled": true,
+  "ack_api_key_set": false,
+  "cors_allowed_origins": [],
+  "archive_configured": false,
+  "correlation_enabled": false,
+  "correlation_max_tracked_pairs": 10000
+}
+```
+
+(Champs abrégés ci-dessus, la réponse live porte l'ensemble complet
+listé sous **Forme de réponse**.)
 
 ### GET /api/energy
 
