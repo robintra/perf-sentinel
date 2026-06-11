@@ -857,7 +857,10 @@ mod help_examples {
   perf-sentinel query findings --service order-svc
 
   # Show daemon status
-  perf-sentinel query status";
+  perf-sentinel query status
+
+  # Live operator monitor (advisor hints, energy mix, scraper health)
+  perf-sentinel query monitor --refresh 5";
 
     #[cfg(feature = "daemon")]
     pub const ACK: &str = "Examples:

@@ -22,6 +22,17 @@ Points d'entrée :
 En mode live (0.5.24+), le TUI permet aussi à l'opérateur d'acknowledger
 et de révoquer des findings interactivement depuis le terminal.
 
+Ce TUI est le navigateur de traces et de findings du développeur. Pour
+le monitoring d'exploitation, il existe un TUI opérateur live séparé,
+`perf-sentinel query monitor` (depuis 0.8.8) : trois onglets cyclés par
+Tab, **Advisor** (les hints du conseiller de réglages du daemon),
+**Energy** (le mix énergie/carbone effectif par service et par région)
+et **Scrapers** (santé live des backends énergie via `/api/energy`),
+auto-rafraîchis depuis le daemon toutes les `--refresh` secondes
+(défaut 5). Quand le daemon devient injoignable, le dernier instantané
+valide reste affiché avec un indicateur. Lecture seule : pas
+d'acknowledgment, pas de clé d'API requise.
+
 ![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
 ## Vues et drill-down

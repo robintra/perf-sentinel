@@ -21,6 +21,17 @@ Entry points:
 In live mode (0.5.24+), the TUI also lets the operator acknowledge
 and revoke findings interactively from the terminal.
 
+This TUI is the developer's trace and finding browser. For deployment
+monitoring there is a separate live operator TUI,
+`perf-sentinel query monitor` (since 0.8.8): three tabs cycled with
+Tab, **Advisor** (the daemon's settings-advisor hints), **Energy**
+(the effective energy/carbon mix per service and per region) and
+**Scrapers** (live health of the energy backends from `/api/energy`),
+auto-refreshed from the daemon every `--refresh` seconds (default 5).
+When the daemon becomes unreachable, the last good snapshot stays on
+screen with a stale indicator. Read-only: no acknowledgments, no API
+key needed.
+
 ![all-in-one TUI: Analyze drills into Inspect then Explain, Esc walks back up](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
 ## Views and drill-down
