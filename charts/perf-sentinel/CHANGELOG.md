@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.53]
+
+### Changed
+
+- `appVersion` bumped to `0.8.8` to track `query monitor`, a new read-only live operator TUI (`perf-sentinel query --daemon <URL> monitor`) with five Tab-cycled tabs (settings-advisor hints, the effective energy/carbon mix per service and per region, live Trends charts for energy, carbon and runtime headroom, per-backend energy-scraper health, and every `[daemon]` parameter with its default and an explanation), and the daemon surface behind it: two new read-only endpoints (`GET /api/config`, an explicit allowlist that summarizes TLS and ack secrets to booleans and never echoes paths or keys, and `GET /api/energy`, per-backend scraper health), an extended `GET /api/status` (runtime caps and live queue, window and findings depths), and six new scalar `/metrics` gauges (`perf_sentinel_energy_kwh`, `perf_sentinel_carbon_gco2`, `perf_sentinel_max_active_traces`, `perf_sentinel_analysis_queue_capacity`, `perf_sentinel_max_retained_findings`, `perf_sentinel_stored_findings`) with three matching Grafana panels (energy and carbon per scoring window, runtime headroom against a 90% threshold). Terminal-output sanitization now also strips BiDi reordering and invisible characters, and the self-contained HTML dashboard embed is lighter (about 6.4 MB down to 5.0 MB on a 15k-finding report). All additions are backward compatible, older daemons degrade gracefully. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.8` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.52]
 
 ### Changed
