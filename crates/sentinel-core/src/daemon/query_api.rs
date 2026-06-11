@@ -94,6 +94,24 @@ pub struct QueryApiState {
     /// config), read by the tuning advisor so its hints can name the
     /// current value of each knob.
     pub daemon_config: crate::config::DaemonConfig,
+    /// Which measured-energy backends are configured, frozen at startup.
+    /// Lets `/api/energy` report `configured` truthfully instead of
+    /// inferring it from zero-valued metrics (the gauges are
+    /// pre-registered at 0 whether or not a backend exists).
+    pub energy_backends: EnergyBackendsConfigured,
+}
+
+/// Configured-or-not flags for the four scraped energy backends.
+/// Electricity Maps is not here: its presence is already carried by
+/// `QueryApiState.scoring_config`.
+// Four genuinely independent flags, not a disguised state machine.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EnergyBackendsConfigured {
+    pub scaphandre: bool,
+    pub kepler: bool,
+    pub redfish: bool,
+    pub cloud_energy: bool,
 }
 
 /// Build the query API router.
@@ -104,6 +122,7 @@ pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
         .route("/api/explain/{trace_id}", get(handle_explain))
         .route("/api/correlations", get(handle_correlations))
         .route("/api/status", get(handle_status))
+        .route("/api/energy", get(handle_energy))
         .route("/api/export/report", get(handle_export_report))
         .route(
             "/api/findings/{signature}/ack",
@@ -367,6 +386,83 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
         active_traces,
         stored_findings,
     })
+}
+
+/// One energy backend's live health on `/api/energy`.
+///
+/// `last_scrape_age_seconds` and the scrape counters are `None` when the
+/// backend is not configured (its pre-registered metrics would read as a
+/// misleading fresh 0) or when the backend has no such metric at all
+/// (`cloud_energy` has no scrape counters, `electricity_maps` has no
+/// freshness gauge: its liveness shows as `intensity_source = real_time`
+/// on the report's region breakdown).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnergyBackendStatus {
+    /// Stable backend name: `scaphandre`, `kepler`, `redfish`,
+    /// `cloud_energy` or `electricity_maps`.
+    pub backend: String,
+    pub configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_scrape_age_seconds: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrapes_ok: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scrapes_failed: Option<u64>,
+}
+
+/// `GET /api/energy` response: the five energy/intensity backends in a
+/// fixed order. Additive surface for operator tooling (`query monitor`);
+/// the per-service/per-region mix itself lives on `/api/export/report`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnergyStatusResponse {
+    pub backends: Vec<EnergyBackendStatus>,
+}
+
+/// Live health of the energy backends, from the shared metrics registry
+/// plus the configured flags frozen at startup.
+async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergyStatusResponse> {
+    let m = &state.metrics;
+    let b = state.energy_backends;
+    let gauge = |configured: bool, g: &prometheus::Gauge| configured.then(|| g.get());
+    let counter = |configured: bool, c: &prometheus::IntCounter| configured.then(|| c.get());
+    let backends = vec![
+        EnergyBackendStatus {
+            backend: "scaphandre".to_string(),
+            configured: b.scaphandre,
+            last_scrape_age_seconds: gauge(b.scaphandre, &m.scaphandre_last_scrape_age_seconds),
+            scrapes_ok: counter(b.scaphandre, &m.scaphandre_scrape_success),
+            scrapes_failed: counter(b.scaphandre, &m.scaphandre_scrape_failed),
+        },
+        EnergyBackendStatus {
+            backend: "kepler".to_string(),
+            configured: b.kepler,
+            last_scrape_age_seconds: gauge(b.kepler, &m.kepler_last_scrape_age_seconds),
+            scrapes_ok: counter(b.kepler, &m.kepler_scrape_success),
+            scrapes_failed: counter(b.kepler, &m.kepler_scrape_failed),
+        },
+        EnergyBackendStatus {
+            backend: "redfish".to_string(),
+            configured: b.redfish,
+            last_scrape_age_seconds: gauge(b.redfish, &m.redfish_last_scrape_age_seconds),
+            scrapes_ok: counter(b.redfish, &m.redfish_scrape_success),
+            scrapes_failed: counter(b.redfish, &m.redfish_scrape_failed),
+        },
+        EnergyBackendStatus {
+            backend: "cloud_energy".to_string(),
+            configured: b.cloud_energy,
+            last_scrape_age_seconds: gauge(b.cloud_energy, &m.cloud_energy_last_scrape_age_seconds),
+            scrapes_ok: None,
+            scrapes_failed: None,
+        },
+        EnergyBackendStatus {
+            backend: "electricity_maps".to_string(),
+            configured: state.scoring_config.is_some(),
+            last_scrape_age_seconds: None,
+            scrapes_ok: None,
+            scrapes_failed: None,
+        },
+    ];
+    Json(EnergyStatusResponse { backends })
 }
 
 /// Snapshot the daemon's in-memory state as a [`Report`].
@@ -969,6 +1065,7 @@ mod tests {
             toml_acks: Arc::new(HashMap::new()),
             ack_api_key: None,
             daemon_config: crate::config::DaemonConfig::default(),
+            energy_backends: EnergyBackendsConfigured::default(),
         })
     }
 
@@ -1716,6 +1813,98 @@ mod tests {
         );
     }
 
+    /// GET /api/energy against the given state, parsed.
+    async fn fetch_energy(state: Arc<QueryApiState>) -> EnergyStatusResponse {
+        let app = query_api_router(state);
+        let req = Request::builder()
+            .uri("/api/energy")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).expect("parses as EnergyStatusResponse")
+    }
+
+    #[tokio::test]
+    async fn energy_endpoint_reports_unconfigured_backends_without_metrics() {
+        // No backend configured: every row is configured=false with no
+        // age/counter fields (the pre-registered zero gauges must not
+        // read as a misleading fresh scrape).
+        let energy = fetch_energy(make_state()).await;
+        assert_eq!(energy.backends.len(), 5);
+        for b in &energy.backends {
+            assert!(!b.configured, "{} should be unconfigured", b.backend);
+            assert!(b.last_scrape_age_seconds.is_none(), "{}", b.backend);
+            assert!(b.scrapes_ok.is_none(), "{}", b.backend);
+        }
+        let names: Vec<&str> = energy.backends.iter().map(|b| b.backend.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "scaphandre",
+                "kepler",
+                "redfish",
+                "cloud_energy",
+                "electricity_maps"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn energy_endpoint_reports_configured_backend_metrics() {
+        let mut state = (*make_state()).clone_for_test();
+        state.energy_backends.scaphandre = true;
+        state.metrics.scaphandre_scrape_success.inc_by(7);
+        state.metrics.scaphandre_scrape_failed.inc_by(2);
+        state.metrics.scaphandre_last_scrape_age_seconds.set(3.5);
+
+        let energy = fetch_energy(Arc::new(state)).await;
+        let scaphandre = energy
+            .backends
+            .iter()
+            .find(|b| b.backend == "scaphandre")
+            .expect("scaphandre row");
+        assert!(scaphandre.configured);
+        assert_eq!(scaphandre.scrapes_ok, Some(7));
+        assert_eq!(scaphandre.scrapes_failed, Some(2));
+        assert!((scaphandre.last_scrape_age_seconds.unwrap() - 3.5).abs() < f64::EPSILON);
+        // The others stay unconfigured and field-less.
+        let kepler = energy
+            .backends
+            .iter()
+            .find(|b| b.backend == "kepler")
+            .unwrap();
+        assert!(!kepler.configured);
+        assert!(kepler.scrapes_ok.is_none());
+    }
+
+    #[tokio::test]
+    async fn energy_endpoint_derives_electricity_maps_from_scoring_config() {
+        use crate::score::carbon::ScoringConfig;
+        use crate::score::electricity_maps::config::{
+            ApiVersion, EmissionFactorType, TemporalGranularity,
+        };
+
+        let mut state = (*make_state()).clone_for_test();
+        state.scoring_config = Some(ScoringConfig {
+            api_version: ApiVersion::V4,
+            emission_factor_type: EmissionFactorType::Lifecycle,
+            temporal_granularity: TemporalGranularity::Hourly,
+        });
+        let energy = fetch_energy(Arc::new(state)).await;
+        let emaps = energy
+            .backends
+            .iter()
+            .find(|b| b.backend == "electricity_maps")
+            .expect("electricity_maps row");
+        assert!(emaps.configured);
+        // No freshness gauge exists for the EM API by design.
+        assert!(emaps.last_scrape_age_seconds.is_none());
+    }
+
     #[allow(clippy::unused_async)]
     async fn make_state_with_acks(
         ack_store: Option<Arc<AckStore>>,
@@ -2139,6 +2328,7 @@ mod tests {
                 toml_acks: Arc::clone(&self.toml_acks),
                 ack_api_key: self.ack_api_key.clone(),
                 daemon_config: self.daemon_config.clone(),
+                energy_backends: self.energy_backends,
             }
         }
     }
