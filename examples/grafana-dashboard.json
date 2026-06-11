@@ -583,6 +583,136 @@
           "unit": "ops"
         }
       }
+    },
+    {
+      "title": "Energy per scoring window (kWh)",
+      "description": "Workload energy of the most recent scoring window. The per-service/region breakdown stays on the query monitor (off /metrics for cardinality).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_energy_kwh",
+          "refId": "A",
+          "legendFormat": "energy"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "kwatth",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Carbon per scoring window (gCO2e)",
+      "description": "Operational carbon of the most recent scoring window, summed across regions.",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 60
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_carbon_gco2",
+          "refId": "A",
+          "legendFormat": "carbon"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Runtime headroom (% of configured cap)",
+      "description": "Each runtime gauge as a percentage of its configured cap. The settings advisor starts hinting at 90% (red line).",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 68
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "expr": "perf_sentinel_active_traces / perf_sentinel_max_active_traces * 100",
+          "refId": "A",
+          "legendFormat": "active_traces"
+        },
+        {
+          "expr": "perf_sentinel_analysis_queue_depth / perf_sentinel_analysis_queue_capacity * 100",
+          "refId": "B",
+          "legendFormat": "analysis_queue"
+        },
+        {
+          "expr": "perf_sentinel_stored_findings / perf_sentinel_max_retained_findings * 100",
+          "refId": "C",
+          "legendFormat": "findings_store"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
     }
   ],
   "schemaVersion": 39,
