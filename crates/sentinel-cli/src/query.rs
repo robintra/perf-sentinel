@@ -490,23 +490,36 @@ async fn run_inspect_action(
     }
 }
 
+/// GET `{base_url}{path}` and deserialize the JSON body. Returns `None`
+/// on any failure (bad URL, transport error, non-2xx, parse error), the
+/// graceful-degrade contract every TUI fetch in this crate shares. The
+/// canonical fetch idiom: `query monitor` reuses it for its polling.
+#[cfg(feature = "tui")]
+pub(crate) async fn fetch_json<T: serde::de::DeserializeOwned>(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+    path: &str,
+    timeout: std::time::Duration,
+) -> Option<T> {
+    let uri = format!("{base_url}{path}")
+        .parse::<sentinel_core::http_client::Uri>()
+        .ok()?;
+    let body =
+        sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
+            .await
+            .ok()?;
+    serde_json::from_slice(&body).ok()
+}
+
 #[cfg(feature = "tui")]
 async fn fetch_correlations(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
     timeout: std::time::Duration,
 ) -> Vec<sentinel_core::detect::correlate_cross::CrossTraceCorrelation> {
-    let Ok(uri) = format!("{base_url}/api/correlations").parse::<sentinel_core::http_client::Uri>()
-    else {
-        return Vec::new();
-    };
-    let Ok(body) =
-        sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
-            .await
-    else {
-        return Vec::new();
-    };
-    serde_json::from_slice(&body).unwrap_or_default()
+    fetch_json(client, base_url, "/api/correlations", timeout)
+        .await
+        .unwrap_or_default()
 }
 
 /// Fetch the daemon's report snapshot from `/api/export/report` to back
@@ -519,12 +532,5 @@ async fn fetch_report(
     base_url: &str,
     timeout: std::time::Duration,
 ) -> Option<sentinel_core::report::Report> {
-    let uri = format!("{base_url}/api/export/report")
-        .parse::<sentinel_core::http_client::Uri>()
-        .ok()?;
-    let body =
-        sentinel_core::http_client::fetch_get(client, &uri, "perf-sentinel-query", timeout, None)
-            .await
-            .ok()?;
-    serde_json::from_slice(&body).ok()
+    fetch_json(client, base_url, "/api/export/report", timeout).await
 }

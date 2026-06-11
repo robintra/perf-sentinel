@@ -1501,14 +1501,10 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         if i > 0 {
             spans.push(Span::styled(" \u{25b8} ", dim));
         }
-        let style = if app.view == *view {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-        } else {
-            dim
-        };
-        spans.push(Span::styled(format!(" {label} "), style));
+        spans.push(Span::styled(
+            format!(" {label} "),
+            tab_label_style(app.view == *view),
+        ));
     }
     spans.push(Span::styled(
         "    Enter \u{2193} \u{00b7} Esc \u{2191} \u{00b7} q quit".to_string(),
@@ -2719,19 +2715,6 @@ mod tests {
             .with_focus_trace("trace-2");
         assert_eq!(app.view, View::Explain);
         assert_eq!(app.trace_ids[app.selected_trace], "trace-2");
-    }
-
-    fn line_text(lines: &[Line]) -> String {
-        lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
     }
 
     #[test]
