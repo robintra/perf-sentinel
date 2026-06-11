@@ -122,6 +122,7 @@ pub fn query_api_router(state: Arc<QueryApiState>) -> Router {
         .route("/api/explain/{trace_id}", get(handle_explain))
         .route("/api/correlations", get(handle_correlations))
         .route("/api/status", get(handle_status))
+        .route("/api/config", get(handle_config))
         .route("/api/energy", get(handle_energy))
         .route("/api/export/report", get(handle_export_report))
         .route(
@@ -400,6 +401,77 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
         analysis_queue_capacity: state.daemon_config.analysis_queue_capacity,
         stored_findings,
         max_retained_findings: state.daemon_config.max_retained_findings,
+    })
+}
+
+/// `GET /api/config` response: the daemon's effective `[daemon]`
+/// configuration, read-only, for the monitor's Config tab. Built as an
+/// explicit allowlist (never a blanket `Serialize` of `DaemonConfig`)
+/// so no current or future secret leaks: TLS paths and the ack API key
+/// are summarized to booleans, never echoed. Additive since 0.8.8.
+// Independent config flags mirrored verbatim, not a state machine.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Serialize)]
+struct ConfigResponse {
+    listen_addr: String,
+    listen_port: u16,
+    listen_port_grpc: u16,
+    json_socket: String,
+    max_active_traces: usize,
+    trace_ttl_ms: u64,
+    sampling_rate: f64,
+    max_events_per_trace: usize,
+    max_payload_size: usize,
+    environment: &'static str,
+    max_retained_findings: usize,
+    ingest_queue_capacity: usize,
+    analysis_queue_capacity: usize,
+    api_enabled: bool,
+    /// True when both TLS cert and key paths are set (paths themselves
+    /// never exposed).
+    tls_configured: bool,
+    ack_enabled: bool,
+    /// True when an ack API key is configured (the key itself never
+    /// exposed).
+    ack_api_key_set: bool,
+    cors_allowed_origins: Vec<String>,
+    archive_configured: bool,
+    correlation_enabled: bool,
+    correlation_window_ms: u64,
+    correlation_lag_threshold_ms: u64,
+    correlation_min_co_occurrences: u32,
+    correlation_min_confidence: f64,
+    correlation_max_tracked_pairs: usize,
+}
+
+async fn handle_config(State(state): State<Arc<QueryApiState>>) -> Json<ConfigResponse> {
+    let d = &state.daemon_config;
+    Json(ConfigResponse {
+        listen_addr: d.listen_addr.clone(),
+        listen_port: d.listen_port,
+        listen_port_grpc: d.listen_port_grpc,
+        json_socket: d.json_socket.clone(),
+        max_active_traces: d.max_active_traces,
+        trace_ttl_ms: d.trace_ttl_ms,
+        sampling_rate: d.sampling_rate,
+        max_events_per_trace: d.max_events_per_trace,
+        max_payload_size: d.max_payload_size,
+        environment: d.environment.as_str(),
+        max_retained_findings: d.max_retained_findings,
+        ingest_queue_capacity: d.ingest_queue_capacity,
+        analysis_queue_capacity: d.analysis_queue_capacity,
+        api_enabled: d.api_enabled,
+        tls_configured: d.tls.cert_path.is_some() && d.tls.key_path.is_some(),
+        ack_enabled: d.ack.enabled,
+        ack_api_key_set: d.ack.api_key.is_some(),
+        cors_allowed_origins: d.cors.allowed_origins.clone(),
+        archive_configured: d.archive.is_some(),
+        correlation_enabled: d.correlation.enabled,
+        correlation_window_ms: d.correlation.window_ms,
+        correlation_lag_threshold_ms: d.correlation.lag_threshold_ms,
+        correlation_min_co_occurrences: d.correlation.min_co_occurrences,
+        correlation_min_confidence: d.correlation.min_confidence,
+        correlation_max_tracked_pairs: d.correlation.max_tracked_pairs,
     })
 }
 
@@ -1164,6 +1236,36 @@ mod tests {
         assert!(status["analysis_queue_capacity"].as_u64().unwrap() > 0);
         assert!(status["max_retained_findings"].as_u64().unwrap() > 0);
         assert!(status.get("analysis_queue_depth").is_some());
+    }
+
+    #[tokio::test]
+    async fn config_exposes_daemon_params_without_secrets() {
+        let app = query_api_router(make_state());
+        let req = Request::builder()
+            .uri("/api/config")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let cfg: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        // Representative scalars and the correlation sub-block round-trip.
+        assert!(cfg["max_active_traces"].as_u64().unwrap() > 0);
+        assert_eq!(cfg["environment"], "staging");
+        assert!(cfg.get("trace_ttl_ms").is_some());
+        assert!(cfg.get("sampling_rate").is_some());
+        assert!(cfg.get("correlation_enabled").is_some());
+        // Secrets are summarized to booleans, never echoed: no raw key
+        // or path fields exist on the response at all.
+        assert_eq!(cfg["tls_configured"], false);
+        assert_eq!(cfg["ack_api_key_set"], false);
+        assert!(cfg.get("api_key").is_none());
+        assert!(cfg.get("cert_path").is_none());
+        assert!(cfg.get("key_path").is_none());
+        assert!(cfg.get("tls").is_none());
     }
 
     #[tokio::test]
