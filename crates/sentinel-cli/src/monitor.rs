@@ -28,7 +28,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
-use sentinel_core::report::{GreenSummary, Report, Warning};
+use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
 use sentinel_core::text_safety::sanitize_for_terminal;
 use tokio::sync::mpsc;
@@ -50,11 +50,27 @@ enum Tab {
     Scrapers,
 }
 
-const TABS: &[(Tab, &str)] = &[
+const TABS: [(Tab, &str); 3] = [
     (Tab::Advisor, "Advisor"),
     (Tab::Energy, "Energy"),
     (Tab::Scrapers, "Scrapers"),
 ];
+
+/// Partial deserialization target for `/api/export/report`: only the
+/// fields the monitor renders. Serde skips the heavy remainder
+/// (findings, correlations, per-endpoint ops) without materializing it,
+/// which matters on a polling path.
+#[derive(serde::Deserialize)]
+struct ReportSlim {
+    green_summary: GreenSummary,
+    #[serde(default)]
+    warning_details: Vec<Warning>,
+    /// Legacy free-text warnings (pre-0.5.19 daemons). Rendered by the
+    /// Advisor tab when `warning_details` is empty, matching the
+    /// renderer convention in `report/mod.rs`.
+    #[serde(default)]
+    warnings: Vec<String>,
+}
 
 /// One successful poll tick, reduced to the fields the monitor renders.
 /// `scrapers` is `None` when `/api/energy` is unavailable (daemon
@@ -62,6 +78,7 @@ const TABS: &[(Tab, &str)] = &[
 struct Snapshot {
     green_summary: GreenSummary,
     warning_details: Vec<Warning>,
+    warnings: Vec<String>,
     scrapers: Option<EnergyStatusResponse>,
 }
 
@@ -82,6 +99,13 @@ struct MonitorState {
     /// last good data.
     stale: bool,
     last_update: Option<Instant>,
+    /// Body line count per tab (TABS order), recomputed once per
+    /// snapshot instead of rebuilding the line vectors on every
+    /// keypress for the scroll clamp.
+    line_counts: [u16; TABS.len()],
+    /// Something visible changed (snapshot, tab, scroll): repaint on
+    /// the next loop turn. The header age repaints on its own clock.
+    dirty: bool,
 }
 
 impl MonitorState {
@@ -94,19 +118,49 @@ impl MonitorState {
             latest: None,
             stale: false,
             last_update: None,
+            line_counts: [0; TABS.len()],
+            dirty: true,
         }
+    }
+
+    /// Recompute the cached body line counts for all tabs. Called once
+    /// per applied snapshot.
+    fn refresh_line_counts(&mut self) {
+        let latest = self.latest.as_ref();
+        let count = |lines: Vec<Line<'static>>| u16::try_from(lines.len()).unwrap_or(u16::MAX);
+        self.line_counts = [
+            count(build_advisor_lines(latest)),
+            count(build_energy_lines(latest)),
+            count(build_scrapers_lines(latest)),
+        ];
     }
 
     fn apply(&mut self, outcome: FetchOutcome) {
         match outcome {
             FetchOutcome::Snapshot(s) => {
-                self.latest = Some(*s);
+                let mut s = *s;
+                // A transient /api/energy failure on an otherwise good
+                // tick must not wipe the last scraper table (nor render
+                // the misleading old-daemon hint): carry the previous
+                // value forward. A genuinely old daemon never produced
+                // Some, so its hint is unaffected.
+                if s.scrapers.is_none()
+                    && let Some(prev) = self.latest.as_mut().and_then(|p| p.scrapers.take())
+                {
+                    s.scrapers = Some(prev);
+                }
+                self.latest = Some(s);
                 self.stale = false;
                 self.last_update = Some(Instant::now());
+                self.refresh_line_counts();
                 // The new snapshot may be shorter than the scroll position.
                 self.scroll = self.scroll.min(self.line_count().saturating_sub(1));
+                self.dirty = true;
             }
-            FetchOutcome::Unreachable => self.stale = true,
+            FetchOutcome::Unreachable => {
+                self.dirty = self.dirty || !self.stale;
+                self.stale = true;
+            }
         }
     }
 
@@ -123,25 +177,30 @@ impl MonitorState {
         };
         self.tab = TABS[next].0;
         self.scroll = 0;
+        self.dirty = true;
     }
 
     /// Logical line count of the active tab body, for the scroll clamp.
+    /// Reads the per-snapshot cache, never rebuilds the lines.
     fn line_count(&self) -> u16 {
-        let lines = match self.tab {
-            Tab::Advisor => build_advisor_lines(self.latest.as_ref()),
-            Tab::Energy => build_energy_lines(self.latest.as_ref()),
-            Tab::Scrapers => build_scrapers_lines(self.latest.as_ref()),
-        };
-        u16::try_from(lines.len()).unwrap_or(u16::MAX)
+        let i = TABS
+            .iter()
+            .position(|(t, _)| *t == self.tab)
+            .unwrap_or_default();
+        self.line_counts[i]
     }
 }
 
 /// Entry point for `query monitor`. `base_url` is already validated and
 /// trimmed by `cmd_query`. Spawns the poller, runs the sync event loop,
 /// aborts the poller on exit. Synchronous but must be called inside the
-/// tokio runtime (`tokio::spawn` and `block_in_place` both require it).
+/// multi-thread tokio runtime: `tokio::spawn` needs a runtime and
+/// `block_in_place` panics on the `current_thread` flavor.
 pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64) {
-    let (tx, mut rx) = mpsc::unbounded_channel::<FetchOutcome>();
+    // Bounded: only the newest snapshot matters, and the UI thread can
+    // stall on terminal writes (hung SSH peer). An unbounded queue
+    // would then grow by one boxed snapshot per tick without limit.
+    let (tx, mut rx) = mpsc::channel::<FetchOutcome>(4);
     let poller = tokio::spawn(poll_loop(
         base_url.to_string(),
         Duration::from_secs(refresh_secs),
@@ -160,12 +219,15 @@ pub(crate) fn cmd_monitor(base_url: &str, refresh_secs: u64) {
 
 /// Background poller: fetch, push, sleep, repeat. Exits when the UI side
 /// of the channel is gone.
-async fn poll_loop(base_url: String, refresh: Duration, tx: mpsc::UnboundedSender<FetchOutcome>) {
+async fn poll_loop(base_url: String, refresh: Duration, tx: mpsc::Sender<FetchOutcome>) {
     let client = sentinel_core::http_client::build_client();
     loop {
         let outcome = fetch_snapshot(&client, &base_url).await;
-        if tx.send(outcome).is_err() {
-            return;
+        match tx.try_send(outcome) {
+            // Full: the UI stalled with a full queue, drop this
+            // snapshot, the next tick brings a fresher one anyway.
+            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+            Err(mpsc::error::TrySendError::Closed(_)) => return,
         }
         tokio::time::sleep(refresh).await;
     }
@@ -175,56 +237,38 @@ async fn fetch_snapshot(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
 ) -> FetchOutcome {
-    let Ok(uri) =
-        format!("{base_url}/api/export/report").parse::<sentinel_core::http_client::Uri>()
-    else {
-        return FetchOutcome::Unreachable;
-    };
-    let Ok(body) = sentinel_core::http_client::fetch_get(
-        client,
-        &uri,
-        "perf-sentinel-query",
-        FETCH_TIMEOUT,
-        None,
-    )
-    .await
-    else {
-        return FetchOutcome::Unreachable;
-    };
-    match serde_json::from_slice::<Report>(&body) {
-        Ok(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
+    // Concurrent: the tick latency is the slower of the two requests,
+    // not their sum. The energy fetch is best-effort: `None` covers both
+    // a daemon predating /api/energy and a transient failure; `apply`
+    // carries the previous value forward so only the former shows the
+    // old-daemon hint persistently.
+    let (report, scrapers) = tokio::join!(
+        crate::query::fetch_json::<ReportSlim>(
+            client,
+            base_url,
+            "/api/export/report",
+            FETCH_TIMEOUT
+        ),
+        crate::query::fetch_json::<EnergyStatusResponse>(
+            client,
+            base_url,
+            "/api/energy",
+            FETCH_TIMEOUT
+        ),
+    );
+    match report {
+        Some(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
             green_summary: report.green_summary,
             warning_details: report.warning_details,
-            scrapers: fetch_energy_status(client, base_url).await,
+            warnings: report.warnings,
+            scrapers,
         })),
-        Err(_) => FetchOutcome::Unreachable,
+        None => FetchOutcome::Unreachable,
     }
 }
 
-/// Best-effort fetch of `/api/energy`. `None` (degraded Scrapers tab)
-/// when the endpoint is missing, e.g. a daemon predating it; the report
-/// fetch above already proved the daemon itself is reachable.
-async fn fetch_energy_status(
-    client: &sentinel_core::http_client::HttpClient,
-    base_url: &str,
-) -> Option<EnergyStatusResponse> {
-    let uri = format!("{base_url}/api/energy")
-        .parse::<sentinel_core::http_client::Uri>()
-        .ok()?;
-    let body = sentinel_core::http_client::fetch_get(
-        client,
-        &uri,
-        "perf-sentinel-query",
-        FETCH_TIMEOUT,
-        None,
-    )
-    .await
-    .ok()?;
-    serde_json::from_slice(&body).ok()
-}
-
 /// Terminal scaffold around [`run_loop`], mirroring `tui::run`.
-fn run(state: &mut MonitorState, rx: &mut mpsc::UnboundedReceiver<FetchOutcome>) -> io::Result<()> {
+fn run(state: &mut MonitorState, rx: &mut mpsc::Receiver<FetchOutcome>) -> io::Result<()> {
     crate::tui::install_terminal_restore_panic_hook();
     enable_raw_mode()?;
     // Restores raw mode + alternate screen on every exit path,
@@ -244,13 +288,22 @@ fn run(state: &mut MonitorState, rx: &mut mpsc::UnboundedReceiver<FetchOutcome>)
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut MonitorState,
-    rx: &mut mpsc::UnboundedReceiver<FetchOutcome>,
+    rx: &mut mpsc::Receiver<FetchOutcome>,
 ) -> io::Result<()> {
+    // Repaint only when something visible changed: a new snapshot, a
+    // key action, or the header's whole-second age counter ticking.
+    // Otherwise the 250ms poll would rebuild the body 4x/second idle.
+    let mut last_age: Option<Option<u64>> = None;
     loop {
         while let Ok(outcome) = rx.try_recv() {
             state.apply(outcome);
         }
-        terminal.draw(|f| draw(f, state))?;
+        let age = state.last_update.map(|t| t.elapsed().as_secs());
+        if state.dirty || last_age != Some(age) {
+            terminal.draw(|f| draw(f, state))?;
+            state.dirty = false;
+            last_age = Some(age);
+        }
 
         // Short-timeout poll instead of a blocking read: fresh snapshots
         // and the header age counter repaint without a keypress.
@@ -265,12 +318,15 @@ fn run_loop(
                 KeyCode::Tab => state.cycle_tab(true),
                 KeyCode::BackTab => state.cycle_tab(false),
                 KeyCode::Up | KeyCode::Char('k') => {
+                    let prev = state.scroll;
                     state.scroll = state.scroll.saturating_sub(1);
+                    state.dirty = state.dirty || state.scroll != prev;
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     let max = state.line_count().saturating_sub(1);
                     if state.scroll < max {
                         state.scroll = state.scroll.saturating_add(1);
+                        state.dirty = true;
                     }
                 }
                 _ => {}
@@ -286,16 +342,22 @@ fn draw(f: &mut Frame, state: &MonitorState) {
         .split(f.area());
     draw_header(f, state, outer[0]);
 
+    // Key hints live in the block title rather than the header line,
+    // which must stay short enough for 80-column terminals.
     let (title, lines, wrap) = match state.tab {
         Tab::Advisor => (
-            " Advisor ",
+            " Advisor \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
             build_advisor_lines(state.latest.as_ref()),
             true,
         ),
         // No wrap on the table tabs: fixed-width columns must not reflow.
-        Tab::Energy => (" Energy ", build_energy_lines(state.latest.as_ref()), false),
+        Tab::Energy => (
+            " Energy \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
+            build_energy_lines(state.latest.as_ref()),
+            false,
+        ),
         Tab::Scrapers => (
-            " Scrapers ",
+            " Scrapers \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
             build_scrapers_lines(state.latest.as_ref()),
             false,
         ),
@@ -311,8 +373,10 @@ fn draw(f: &mut Frame, state: &MonitorState) {
     f.render_widget(paragraph, outer[1]);
 }
 
-/// One-line header: tabs, daemon URL, refresh cadence, snapshot age and
-/// the stale indicator when the daemon stopped answering.
+/// One-line header: tabs, daemon URL, refresh cadence, snapshot age,
+/// and a short stale marker when the daemon stopped answering (or sent
+/// an incompatible response). Kept compact so it fits 80-column
+/// terminals; the key hints live in the body block title.
 fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
     let dim = Style::default().fg(Color::DarkGray);
     let mut spans = vec![Span::raw(" ")];
@@ -320,37 +384,44 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
         if i > 0 {
             spans.push(Span::styled(" \u{00b7} ", dim));
         }
-        let style = if state.tab == *tab {
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-        } else {
-            dim
-        };
-        spans.push(Span::styled(format!(" {label} "), style));
+        spans.push(Span::styled(
+            format!(" {label} "),
+            crate::tui::tab_label_style(state.tab == *tab),
+        ));
     }
     let age = state.last_update.map_or_else(
         || "waiting".to_string(),
-        |t| format!("updated {}s ago", t.elapsed().as_secs()),
+        |t| format!("{}s ago", t.elapsed().as_secs()),
     );
     spans.push(Span::styled(
         format!(
-            "    {} \u{00b7} refresh {}s \u{00b7} {age}",
+            "  {} \u{00b7} {}s \u{00b7} {age}",
             state.daemon_url, state.refresh_secs
         ),
         dim,
     ));
     if state.stale {
         spans.push(Span::styled(
-            "  [daemon unreachable or incompatible, showing last data]".to_string(),
+            " [STALE]",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
     }
-    spans.push(Span::styled(
-        "    Tab \u{21c4} \u{00b7} j/k scroll \u{00b7} q quit".to_string(),
-        dim,
-    ));
     f.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// Shared tab preamble guard: when no snapshot has arrived yet, push
+/// the waiting hint and let the caller return its header-only lines.
+fn snapshot_or_waiting<'a>(
+    latest: Option<&'a Snapshot>,
+    lines: &mut Vec<Line<'static>>,
+) -> Option<&'a Snapshot> {
+    if latest.is_none() {
+        lines.push(Line::from(Span::styled(
+            "Waiting for the first snapshot from /api/export/report...",
+            Style::default().fg(Color::DarkGray),
+        )));
+    }
+    latest
 }
 
 /// Body of the Advisor tab: the daemon's settings-advisor hints
@@ -361,40 +432,45 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled(
-            "Settings advisor".to_string(),
+            "Settings advisor",
             Style::default().add_modifier(Modifier::BOLD),
         )),
         Line::from(Span::styled(
-            "Config tuning hints the daemon emits when a setting looks undersized for the load."
-                .to_string(),
+            "Config tuning hints the daemon emits when a setting looks undersized for the load.",
             dim,
         )),
         Line::from(""),
     ];
-    let Some(snapshot) = latest else {
-        lines.push(Line::from(Span::styled(
-            "Waiting for the first snapshot from /api/export/report...".to_string(),
-            dim,
-        )));
+    let Some(snapshot) = snapshot_or_waiting(latest, &mut lines) else {
         return lines;
     };
-    if snapshot.warning_details.is_empty() {
+    if snapshot.warning_details.is_empty() && snapshot.warnings.is_empty() {
         lines.push(Line::from(Span::styled(
-            "No hints: the daemon reports no undersized setting.".to_string(),
+            "No hints: the daemon reports no undersized setting.",
             dim,
         )));
         return lines;
     }
     for w in &snapshot.warning_details {
         lines.push(Line::from(vec![
-            Span::raw("  [".to_string()),
+            Span::raw("  ["),
             Span::styled(
                 sanitize_for_terminal(&w.kind).into_owned(),
-                Style::default().fg(interpret_warning_color(&w.kind)),
+                Style::default().fg(warning_kind_color(&w.kind)),
             ),
-            Span::raw("] ".to_string()),
+            Span::raw("] "),
             Span::raw(sanitize_for_terminal(&w.message).into_owned()),
         ]));
+    }
+    if snapshot.warning_details.is_empty() {
+        // Pre-0.5.19 daemons only carry the legacy free-text field;
+        // renderers fall back to it, matching report/mod.rs.
+        for w in &snapshot.warnings {
+            lines.push(Line::from(Span::raw(format!(
+                "  {}",
+                sanitize_for_terminal(w)
+            ))));
+        }
     }
     lines
 }
@@ -407,43 +483,37 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     let bold = Style::default().add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line<'static>> = vec![
-        Line::from(Span::styled("Energy / carbon mix".to_string(), bold)),
+        Line::from(Span::styled("Energy / carbon mix", bold)),
         Line::from(Span::styled(
-            "Effective source per service and grid intensity per region (cold embedded vs hot scraped)."
-                .to_string(),
+            "Effective source per service, grid intensity per region (cold vs hot).",
             dim,
         )),
         Line::from(""),
     ];
-    let Some(snapshot) = latest else {
-        lines.push(Line::from(Span::styled(
-            "Waiting for the first snapshot from /api/export/report...".to_string(),
-            dim,
-        )));
+    let Some(snapshot) = snapshot_or_waiting(latest, &mut lines) else {
         return lines;
     };
     let gs = &snapshot.green_summary;
     if gs.per_service_energy_kwh.is_empty() && gs.regions.is_empty() {
         lines.push(Line::from(Span::styled(
-            "No energy/carbon data (green scoring disabled, or no events analyzed yet)."
-                .to_string(),
+            "No energy/carbon data (green scoring disabled, or no events analyzed yet).",
             dim,
         )));
         return lines;
     }
 
     lines.push(Line::from(vec![
-        Span::styled("Window energy: ".to_string(), dim),
-        Span::raw(format!("{:.6} kWh", gs.energy_kwh)),
+        Span::styled("Window energy: ", dim),
+        Span::raw(format!("{} kWh", fmt_kwh(gs.energy_kwh))),
         Span::styled(
-            format!("   model: {}", sanitize_for_terminal(&gs.energy_model)),
+            format!("   model: {}", truncate_cell(&gs.energy_model, 32)),
             dim,
         ),
     ]));
     lines.push(Line::from(""));
 
     if !gs.per_service_energy_kwh.is_empty() {
-        lines.push(Line::from(Span::styled("By service".to_string(), bold)));
+        lines.push(Line::from(Span::styled("By service", bold)));
         lines.push(Line::from(Span::styled(
             format!(
                 "  {:<22} {:<14} {:<16} {:>6}  {:>12}  {}",
@@ -458,26 +528,24 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
                 .per_service_energy_model
                 .get(svc)
                 .map_or("-", String::as_str);
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let meas = (gs
+            // "-" when the daemon did not report a ratio for the service:
+            // a fabricated 0% would read as "measured, nothing matched".
+            let meas = gs
                 .per_service_measured_ratio
                 .get(svc)
-                .copied()
-                .unwrap_or(0.0)
-                * 100.0)
-                .round() as u32;
+                .map_or_else(|| "-".to_string(), |r| format!("{:.0}%", r * 100.0));
             let co2 = gs
                 .per_service_carbon_kgco2eq
                 .get(svc)
                 .copied()
                 .unwrap_or(0.0);
             lines.push(Line::from(Span::raw(format!(
-                "  {:<22} {:<14} {:<16} {:>5}% {:>12.6}  {:.9}",
+                "  {:<22} {:<14} {:<16} {:>6}  {:>12}  {:.9}",
                 truncate_cell(svc, 22),
                 truncate_cell(region, 14),
                 truncate_cell(model, 16),
                 meas,
-                kwh,
+                fmt_kwh(*kwh),
                 co2,
             ))));
         }
@@ -485,7 +553,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     }
 
     if !gs.regions.is_empty() {
-        lines.push(Line::from(Span::styled("By region".to_string(), bold)));
+        lines.push(Line::from(Span::styled("By region", bold)));
         lines.push(Line::from(Span::styled(
             format!(
                 "  {:<14} {:>10} {:<22} {:<10} {:>8}  {}",
@@ -521,24 +589,19 @@ fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
     let bold = Style::default().add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line<'static>> = vec![
-        Line::from(Span::styled("Energy scrapers".to_string(), bold)),
+        Line::from(Span::styled("Energy scrapers", bold)),
         Line::from(Span::styled(
-            "Live health of the measured-energy and grid-intensity backends.".to_string(),
+            "Live health of the measured-energy and grid-intensity backends.",
             dim,
         )),
         Line::from(""),
     ];
-    let Some(snapshot) = latest else {
-        lines.push(Line::from(Span::styled(
-            "Waiting for the first snapshot from /api/export/report...".to_string(),
-            dim,
-        )));
+    let Some(snapshot) = snapshot_or_waiting(latest, &mut lines) else {
         return lines;
     };
     let Some(scrapers) = snapshot.scrapers.as_ref() else {
         lines.push(Line::from(Span::styled(
-            "/api/energy unavailable (daemon predates the endpoint?). Scraper freshness is also on /metrics."
-                .to_string(),
+            "/api/energy unavailable (daemon predates the endpoint?). Scraper freshness is also on /metrics.",
             dim,
         )));
         return lines;
@@ -572,8 +635,11 @@ fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "electricity_maps has no freshness gauge: its liveness shows as RealTime intensity sources on the Energy tab."
-            .to_string(),
+        "electricity_maps has no freshness gauge: its liveness shows as",
+        dim,
+    )));
+    lines.push(Line::from(Span::styled(
+        "RealTime intensity sources on the Energy tab.",
         dim,
     )));
     lines
@@ -582,7 +648,7 @@ fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 /// Color for an advisor hint by its stable `kind`. `tuning` is the
 /// actionable yellow, `ingestion_drops` the louder red (data was lost),
 /// `cold_start` dim (transient), anything else neutral.
-fn interpret_warning_color(kind: &str) -> Color {
+fn warning_kind_color(kind: &str) -> Color {
     use sentinel_core::report::warnings::{COLD_START, INGESTION_DROPS, TUNING};
     match kind {
         TUNING => Color::Yellow,
@@ -603,6 +669,17 @@ fn intensity_source_label(src: IntensitySource) -> &'static str {
     }
 }
 
+/// Format an energy value: six fixed decimals down to `1e-5` kWh,
+/// scientific notation below so a tiny-but-real window does not
+/// collapse to a misleading `0.000000`.
+fn fmt_kwh(kwh: f64) -> String {
+    if kwh == 0.0 || kwh >= 1e-5 {
+        format!("{kwh:.6}")
+    } else {
+        format!("{kwh:.3e}")
+    }
+}
+
 /// Sanitize a daemon-sourced cell value and hard-cap its length (with an
 /// ellipsis) so the fixed-width energy tables stay aligned.
 fn truncate_cell(s: &str, max: usize) -> String {
@@ -618,24 +695,13 @@ fn truncate_cell(s: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn line_text(lines: &[Line]) -> String {
-        lines
-            .iter()
-            .map(|l| {
-                l.spans
-                    .iter()
-                    .map(|s| s.content.as_ref())
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
+    use crate::tui::line_text;
 
     fn snapshot_with_warnings(warning_details: Vec<Warning>) -> Snapshot {
         Snapshot {
             green_summary: GreenSummary::disabled(0),
             warning_details,
+            warnings: Vec::new(),
             scrapers: None,
         }
     }
@@ -663,6 +729,7 @@ mod tests {
         Snapshot {
             green_summary,
             warning_details: Vec::new(),
+            warnings: Vec::new(),
             scrapers: None,
         }
     }
@@ -727,11 +794,38 @@ mod tests {
     }
 
     #[test]
-    fn interpret_warning_color_maps_kinds() {
-        assert_eq!(interpret_warning_color("tuning"), Color::Yellow);
-        assert_eq!(interpret_warning_color("ingestion_drops"), Color::Red);
-        assert_eq!(interpret_warning_color("cold_start"), Color::DarkGray);
-        assert_eq!(interpret_warning_color("something_else"), Color::Gray);
+    fn warning_kind_color_maps_kinds() {
+        assert_eq!(warning_kind_color("tuning"), Color::Yellow);
+        assert_eq!(warning_kind_color("ingestion_drops"), Color::Red);
+        assert_eq!(warning_kind_color("cold_start"), Color::DarkGray);
+        assert_eq!(warning_kind_color("something_else"), Color::Gray);
+    }
+
+    #[test]
+    fn fmt_kwh_switches_to_scientific_below_floor() {
+        assert_eq!(fmt_kwh(1.6), "1.600000");
+        assert_eq!(fmt_kwh(0.0), "0.000000");
+        assert_eq!(fmt_kwh(1e-5), "0.000010");
+        let tiny = fmt_kwh(3.2e-7);
+        assert!(tiny.contains('e'), "got: {tiny}");
+        assert!(!tiny.starts_with("0.000000"), "got: {tiny}");
+    }
+
+    #[test]
+    fn energy_meas_dash_when_ratio_missing() {
+        let mut snapshot = snapshot_with_energy_mix();
+        snapshot
+            .green_summary
+            .per_service_measured_ratio
+            .remove("cart-svc");
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        assert!(text.contains("92%"), "order-svc keeps its ratio: {text}");
+        let cart_row = text
+            .lines()
+            .find(|l| l.contains("cart-svc"))
+            .expect("cart-svc row");
+        assert!(!cart_row.contains('%'), "no fabricated 0%: {cart_row}");
+        assert!(cart_row.contains(" - "), "got: {cart_row}");
     }
 
     #[test]
@@ -777,6 +871,69 @@ mod tests {
         assert!(
             state.latest.is_some(),
             "last good snapshot must stay on screen"
+        );
+    }
+
+    #[test]
+    fn transient_energy_failure_keeps_last_scraper_table() {
+        use sentinel_core::daemon::query_api::EnergyBackendStatus;
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        let mut first = snapshot_with_warnings(Vec::new());
+        first.scrapers = Some(EnergyStatusResponse {
+            backends: vec![EnergyBackendStatus {
+                backend: "scaphandre".to_string(),
+                configured: true,
+                last_scrape_age_seconds: Some(1.0),
+                scrapes_ok: Some(10),
+                scrapes_failed: Some(0),
+            }],
+        });
+        state.apply(FetchOutcome::Snapshot(Box::new(first)));
+        // Next tick: report fine, /api/energy transiently failed.
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_warnings(
+            Vec::new(),
+        ))));
+        let scrapers = state
+            .latest
+            .as_ref()
+            .and_then(|s| s.scrapers.as_ref())
+            .expect("previous scraper table carried forward");
+        assert_eq!(scrapers.backends.len(), 1);
+        assert!(!state.stale, "a good report tick is not stale");
+    }
+
+    #[test]
+    fn advisor_falls_back_to_legacy_warnings() {
+        // Pre-0.5.19 daemons only carry the free-text warnings field.
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        snapshot.warnings = vec!["legacy warning text".to_string()];
+        let text = line_text(&build_advisor_lines(Some(&snapshot)));
+        assert!(text.contains("legacy warning text"), "got: {text}");
+        assert!(!text.contains("No hints"), "got: {text}");
+    }
+
+    #[test]
+    fn energy_service_rows_align_with_header() {
+        // The Energy tab renders without wrap: every By-service row must
+        // be column-aligned with its header.
+        let snapshot = snapshot_with_energy_mix();
+        let text = line_text(&build_energy_lines(Some(&snapshot)));
+        let lines: Vec<&str> = text.lines().collect();
+        let header_idx = lines
+            .iter()
+            .position(|l| l.contains("kWh") && l.contains("meas%"))
+            .expect("service table header");
+        let header = lines[header_idx];
+        let row = lines[header_idx + 1];
+        let h_kwh_end = header.find("kWh").expect("kWh in header") + 3;
+        // The row's kWh value is right-aligned: it must END at the same
+        // column the header's kWh label ends. `get` instead of byte
+        // slicing: a multi-byte char at the boundary must fail the
+        // assertion, not panic the test.
+        let row_prefix = row.get(..h_kwh_end).unwrap_or(row);
+        assert!(
+            !row_prefix.ends_with(' '),
+            "kWh value must right-align under its header label:\nH: {header}\nR: {row}"
         );
     }
 
