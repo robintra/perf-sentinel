@@ -20,7 +20,8 @@
 **Detect I/O anti-patterns (N+1, redundant calls, slow SQL/HTTP, fanout) in your services' OpenTelemetry traces, and turn that exact I/O into an energy and carbon estimate. Run it either as a CI quality gate on captured traces, or as a long-running OTLP daemon (Prometheus metrics, query API).**
 
 > **Read this first**
-> - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans), and those spans must carry the query text (`db.statement` / `db.query.text`) and the target URL (`http.url` / `url.full`). Spans that lack them are dropped silently, with no warning, so a thin or empty report can mean *no problems found* or *no usable instrumentation*. Audit your own tracing first: `perf-sentinel inspect` shows what was actually extracted from your traces, and an empty span tree means the carrying attributes are missing upstream. See [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md) for language-specific setup (Java / C# / Rust / Go / Node.js / Python) and [Instrumentation quality bounds findings](docs/LIMITATIONS.md#instrumentation-quality-bounds-findings) for what this caps.
+> - **Prerequisite:** your services must emit **OpenTelemetry traces** (SQL + HTTP spans), and those spans must carry the query text (`db.statement` / `db.query.text`) and the target URL (`http.url` / `url.full`). Language-specific setup (Java / C# / Rust / Go / Node.js / Python): [docs/INSTRUMENTATION.md](docs/INSTRUMENTATION.md).
+> - **Audit your own tracing first:** spans that lack those attributes are dropped silently, with no warning, so a thin or empty report can mean *no problems found* or *no usable instrumentation*. `perf-sentinel inspect` shows what was actually extracted from your traces, an empty span tree means the carrying attributes are missing upstream. For what instrumentation quality caps: [Instrumentation quality bounds findings](docs/LIMITATIONS.md#instrumentation-quality-bounds-findings).
 > - **What it is:** a self-hosted, single-binary (`<20 MB RSS`) anti-pattern detector, runnable in batch mode on captured traces (local exploration, post-mortem, or a CI quality gate that exits 1 on threshold breach) or as a long-running daemon (OTLP ingestion, query API, live dashboard, Prometheus metrics).
 > - **What it is *not*:** a full APM, a continuous profiler, or a standalone regulatory carbon accounting platform (yet). See [What perf-sentinel is not](#what-perf-sentinel-is-not).
 > - **Maturity:** beta, pre-1.0. The CLI surface, config keys and on-disk formats may still change between releases before 1.0, with breaking changes called out in the [release notes](https://github.com/robintra/perf-sentinel/releases). The JSON output enums are the one part under an explicit stability contract (see [Input and output formats](#input-and-output-formats)).
@@ -110,36 +111,6 @@ Ten finding types, plus cross-trace correlations in daemon mode:
 
 Each finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when OTel spans carry `code.*` attributes), and GreenOps impact (see below). For per-detector severity rules and tunable thresholds, see [docs/design/04-DETECTION.md](docs/design/04-DETECTION.md).
 
-## Input and output formats
-
-<details>
-<summary><b>Input formats</b></summary>
-
-- **Trace files** (auto-detected): native perf-sentinel JSON, Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
-- **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
-- **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
-- **Jaeger Query API**: pull from Jaeger upstream or Victoria Traces with `perf-sentinel jaeger-query`. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
-- **`pg_stat_statements`**: rank PostgreSQL hotspots from the catalog view with `perf-sentinel pg-stat`. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
-
-</details>
-
-<details>
-<summary><b>Output formats</b></summary>
-
-- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
-- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
-- **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
-- **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
-- **Interactive TUI**: three keyboard-driven views in one drill-down (Analyze, Inspect, Explain) from `perf-sentinel analyze --tui`, `inspect`, or `explain --tui` (or `query inspect` for live daemon data). See [docs/INSPECT.md](docs/INSPECT.md).
-- **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
-- **Periodic disclosure (optional)**: hash-verifiable `perf-sentinel-report/v1.0` JSON from `perf-sentinel disclose`, signable via Sigstore. See [docs/REPORTING.md](docs/REPORTING.md).
-
-The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions, numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
-
-</details>
-
-Output is deterministic: the same input yields byte-identical JSON and SARIF (findings are sorted on a stable key, not `HashMap` iteration order), so a CI quality gate never flickers and two identical runs produce no spurious PR diff.
-
 ## Install
 
 ```bash
@@ -156,66 +127,6 @@ docker run --rm -p 4317:4317 -p 4318:4318 \
 ```
 
 Linux binaries target musl (fully static, run on any distro and `FROM scratch` images). A Helm chart is available under [`charts/perf-sentinel/`](charts/perf-sentinel/). See [docs/HELM-DEPLOYMENT.md](docs/HELM-DEPLOYMENT.md).
-
-## Deployment
-
-Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md), CI recipes in [docs/CI.md](docs/CI.md), Prometheus metrics in [docs/METRICS.md](docs/METRICS.md), sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
-
-Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging). The central collector is a single stateful daemon: horizontal replicas need trace-id-aware load balancing and do not share correlation state, see [Daemon state model](docs/LIMITATIONS.md#daemon-state-model-in-memory-single-process-no-shared-state).
-
-How detection behaves under trace sampling (head-based vs tail-based) is covered in [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy). The daemon's own `[daemon] sampling_rate` interacts with the count-based detectors the same way: sampling traces before N+1 or repetition-threshold detection undercounts occurrences, see [Sampling in daemon mode](docs/LIMITATIONS.md#sampling-in-daemon-mode).
-
-Under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, and every shed is counted (`perf_sentinel_analysis_shed_batches_total` / `_traces_total`, with `perf_sentinel_analysis_queue_depth` for the live backlog), never a silent drop. Size the bounded queues with `[daemon] ingest_queue_capacity` / `analysis_queue_capacity` and shard when the shed rate stays nonzero, see [Analysis backpressure and load shedding](docs/LIMITATIONS.md#analysis-backpressure-and-load-shedding).
-
-<details>
-<summary><b>Local dev</b></summary>
-
-![Local dev zoom-in: batch on captured trace, local daemon at 127.0.0.1, inspect TUI, report HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
-
-</details>
-
-<details>
-<summary><b>CI/CD</b></summary>
-
-![CI zoom-in: perf integration tests + analyze --ci quality gate, SARIF for code scanning, optional Tempo / jaeger-query nightly](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
-
-</details>
-
-<details>
-<summary><b>Staging</b></summary>
-
-![Staging zoom-in: focus-service pod with sidecar daemon, /api/findings polled by QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
-
-</details>
-
-<details>
-<summary><b>Production</b></summary>
-
-![Production zoom-in: centralized daemon ingesting via OTel Collector and direct OTLP, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
-
-</details>
-
-<details>
-<summary><b>GreenOps (cross-cutting)</b></summary>
-
-![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler eBPF kWh on ARM and x86, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding perf-sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
-
-</details>
-
-<details>
-<summary>End-to-end view: how the four environments fit together</summary>
-
-![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
-
-</details>
-
-The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
-
-### Data handling
-
-perf-sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only: SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
-
-The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
 
 ## Quickstart
 
@@ -272,9 +183,97 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 
 </details>
 
+## Input and output formats
+
+<details>
+<summary><b>Input formats</b></summary>
+
+- **Trace files** (auto-detected): native perf-sentinel JSON, Jaeger JSON export, Zipkin JSON v2. No `--format` flag needed, the shape is sniffed from the first bytes. Passed via `--input` on `analyze`, `diff`, `explain`, `inspect`, `report`, `calibrate` (or read from stdin by `analyze`). See [docs/INTEGRATION.md#ingestion-formats](docs/INTEGRATION.md#ingestion-formats).
+- **OTLP live**: gRPC on `:4317` and HTTP on `:4318`, ingested by the `watch` daemon from your OTel Collector or SDK. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+- **Grafana Tempo**: pull traces straight from a Tempo backend with `perf-sentinel tempo`. See [docs/INTEGRATION.md#tempo-integration](docs/INTEGRATION.md#tempo-integration).
+- **Jaeger Query API**: pull from Jaeger upstream or Victoria Traces with `perf-sentinel jaeger-query`. See [docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces](docs/INTEGRATION.md#jaeger-query-api-integration-jaeger-and-victoria-traces).
+- **`pg_stat_statements`**: rank PostgreSQL hotspots from the catalog view with `perf-sentinel pg-stat`. See [docs/INTEGRATION.md](docs/INTEGRATION.md).
+
+</details>
+
+<details>
+<summary><b>Output formats</b></summary>
+
+- **`text`** (default): severity-grouped colored terminal output. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`.
+- **`json`**: structured report. Available on `analyze`, `diff`, `pg-stat`, `query`, `explain`, `ack`. Full schema in [docs/SCHEMA.md](docs/SCHEMA.md), example fixtures in [docs/schemas/examples/](docs/schemas/examples/).
+- **`sarif`** (SARIF v2.1.0): GitHub/GitLab code scanning with inline PR annotations via `physicalLocations`. Available on `analyze` and `diff`. See [docs/SARIF.md](docs/SARIF.md).
+- **HTML dashboard**: single-file offline report from `perf-sentinel report`, click-through trace trees, dark/light theme, CSV export from Findings / pg_stat / Diff / Correlations tabs. See [docs/HTML-REPORT.md](docs/HTML-REPORT.md).
+- **Interactive TUI**: three keyboard-driven views in one drill-down (Analyze, Inspect, Explain) from `perf-sentinel analyze --tui`, `inspect`, or `explain --tui` (or `query inspect` for live daemon data). See [docs/INSPECT.md](docs/INSPECT.md).
+- **Live daemon**: NDJSON findings on stdout, Prometheus `/metrics` with Grafana Exemplars, `/health` probe, HTTP query API. See [docs/METRICS.md](docs/METRICS.md) and [docs/QUERY-API.md](docs/QUERY-API.md).
+- **Periodic disclosure (optional)**: hash-verifiable `perf-sentinel-report/v1.0` JSON from `perf-sentinel disclose`, signable via Sigstore. See [docs/REPORTING.md](docs/REPORTING.md).
+
+The JSON `io_intensity_band` / `io_waste_ratio_band` enum values (`healthy` / `moderate` / `high` / `critical`) are stable across versions, numeric thresholds behind them may evolve. Reference table and rationale in [docs/LIMITATIONS.md#score-interpretation](docs/LIMITATIONS.md#score-interpretation).
+
+</details>
+
+Output is deterministic: the same input yields byte-identical JSON and SARIF (findings are sorted on a stable key, not `HashMap` iteration order), so a CI quality gate never flickers and two identical runs produce no spurious PR diff.
+
+## Deployment
+
+Four environments, three deployment models. Full setup in [docs/INTEGRATION.md](docs/INTEGRATION.md), CI recipes in [docs/CI.md](docs/CI.md), Prometheus metrics in [docs/METRICS.md](docs/METRICS.md), sidecar example in [`examples/docker-compose-sidecar.yml`](examples/docker-compose-sidecar.yml).
+
+Models: **CI batch** (`analyze --ci` on captured traces, exits 1 on threshold breach), **central collector** (OTel Collector forwards to `watch` daemon, Prometheus metrics and query API), **sidecar** (one daemon per service for isolated debugging). The central collector is a single stateful daemon: horizontal replicas need trace-id-aware load balancing and do not share correlation state, see [Daemon state model](docs/LIMITATIONS.md#daemon-state-model-in-memory-single-process-no-shared-state).
+
+Two behaviours to know before sizing: upstream trace sampling (head-based vs tail-based) and the daemon's own `[daemon] sampling_rate` both undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, every shed counted in the metrics, never a silent drop. Details and bounded-queue sizing: [Upstream sampling and detection accuracy](docs/LIMITATIONS.md#upstream-sampling-and-detection-accuracy), [Sampling in daemon mode](docs/LIMITATIONS.md#sampling-in-daemon-mode) and [Analysis backpressure and load shedding](docs/LIMITATIONS.md#analysis-backpressure-and-load-shedding).
+
+<details>
+<summary><b>Local dev</b></summary>
+
+![Local dev zoom-in: batch on captured trace, local daemon at 127.0.0.1, inspect TUI, report HTML](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg)
+
+</details>
+
+<details>
+<summary><b>CI/CD</b></summary>
+
+![CI zoom-in: perf integration tests + analyze --ci quality gate, SARIF for code scanning, optional Tempo / jaeger-query nightly](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-CI.svg)
+
+</details>
+
+<details>
+<summary><b>Staging</b></summary>
+
+![Staging zoom-in: focus-service pod with sidecar daemon, /api/findings polled by QA / SRE](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-staging.svg)
+
+</details>
+
+<details>
+<summary><b>Production</b></summary>
+
+![Production zoom-in: centralized daemon ingesting via OTel Collector and direct OTLP, /api/* + /metrics + NDJSON](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-production.svg)
+
+</details>
+
+<details>
+<summary><b>GreenOps (cross-cutting)</b></summary>
+
+![GreenOps integration: external real-time sources (Scaphandre RAPL kWh on x86, Kepler eBPF kWh on ARM and x86, Redfish BMC watts for bare-metal, Electricity Maps gCO₂/kWh) plus internal cold sources (Cloud SPECpower kWh, embodied carbon gCO₂e/req via Boavizta + HotCarbon 2024, network transport kWh/GB via Mytton 2024) feeding perf-sentinel in batch or daemon mode, emitting energy and carbon alongside traces](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-GreenOps.svg)
+
+</details>
+
+<details>
+<summary>End-to-end view: how the four environments fit together</summary>
+
+![Global perf-sentinel integration across local dev, CI, staging and prod](https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/global-integration.svg)
+
+</details>
+
+The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
+
+### Data handling
+
+perf-sentinel processes traces in place. It makes no silent outbound calls and ships no usage telemetry. Raw span content (literal SQL values, full URLs) lives **in memory only**, inside the streaming window: a 30 s TTL with a 10,000 active-trace LRU cap by default, both tunable under `[daemon]`. The daemon never writes raw spans to disk. Everything it emits (JSON / SARIF / HTML reports, the query API including `/api/explain`, Prometheus metrics, the opt-in per-window NDJSON archive) carries the **normalized template** only: SQL literals and URL path/query values are replaced with `?` placeholders and reduced to a distinct-params *count*, never the values themselves.
+
+The daemon binds to `127.0.0.1` by default. TLS, CORS and the ack API key are all opt-in. The read-only `GET` endpoints **and the OTLP ingestion listeners** (gRPC `:4317`, HTTP `:4318`) are unauthenticated and trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost. Retention and listener knobs in [docs/CONFIGURATION.md](docs/CONFIGURATION.md), API surface in [docs/QUERY-API.md](docs/QUERY-API.md).
+
 ## Performance
 
-`perf-sentinel bench` times the analysis pipeline only (`normalize -> correlate -> detect -> score`). File reads, JSON parsing and ingestion all happen before the clock starts, and the input batches are cloned up front, so these figures are the pure pipeline cost, not an end-to-end or daemon-under-load benchmark. The pipeline is single-threaded (no rayon), so core count does not change the throughput. Both datasets hold 44,043 synthetic events built by duplicating the demo fixture (`crates/sentinel-cli/src/demo_data.json`), one repeating the same pattern and one with randomized SQL per statement. That isolates pipeline throughput well but does not reflect real production diversity.
+`perf-sentinel bench` times the analysis pipeline only (`normalize -> correlate -> detect -> score`), single-threaded, on synthetic datasets: these figures are the pure pipeline cost, not an end-to-end or daemon-under-load benchmark. The exact clock scope and dataset construction are folded below the table.
 
 | Dataset (44,043 synthetic events) | Platform       | Pipeline throughput  | p50 / p99 per event |
 |-----------------------------------|----------------|----------------------|---------------------|
@@ -287,6 +286,13 @@ perf-sentinel query findings --service order-svc                   # talk to a r
 - **M4**, measured 2026-06-08: Mac mini M4 Pro (12 cores, 24 GB unified memory, macOS 26.5.1), official release 0.8.5 `aarch64-apple-darwin` (system allocator), run natively on the host.
 
 With the per-platform native artifacts the M4 Pro sustains about 2.1x the throughput of one 8481C vCPU (2.14x repeated, 2.08x varied). p50 / p99 are per-event latency (one iteration's wall time divided by the event count), over 10 iterations. Reproduce with `perf-sentinel bench --help`. Rust 2024 edition, rustc 1.96.0 stable.
+
+<details>
+<summary><b>Bench methodology (clock scope, datasets)</b></summary>
+
+File reads, JSON parsing and ingestion all happen before the clock starts, and the input batches are cloned up front. The pipeline is single-threaded (no rayon), so core count does not change the throughput. Both datasets hold 44,043 synthetic events built by duplicating the demo fixture (`crates/sentinel-cli/src/demo_data.json`), one repeating the same pattern and one with randomized SQL per statement. That isolates pipeline throughput well but does not reflect real production diversity.
+
+</details>
 
 <details>
 <summary><b>Same-chip allocator breakdown (native macOS vs Docker musl)</b></summary>
@@ -317,7 +323,7 @@ Every finding carries an **I/O intensity score (IIS)**, total I/O ops for an end
 
 `co2.total` is reported as the [Software Carbon Intensity v1.0 / ISO/IEC 21031:2024](https://github.com/Green-Software-Foundation/sci) numerator `(E × I) + M`, summed over analyzed traces. Multi-region scoring is automatic when OTel spans carry `cloud.region`. In daemon mode, energy can be refined via measured sources (Scaphandre RAPL on x86, Kepler eBPF on ARM and x86, Redfish BMC for bare-metal wall-plug power, or cloud-native CPU% + SPECpower), and grid intensity pulled live from Electricity Maps.
 
-> **perf-sentinel is a specialized carbon calculator for software / compute emissions**, with an activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
+> **The carbon side of perf-sentinel prices the detected I/O with the rigor of a specialized software / compute emissions calculator**: activity-based methodology, region-hourly grid intensity (Electricity Maps, ENTSO-E, RTE, National Grid ESO, EIA, ...), bottom-up embodied carbon (Boavizta + HotCarbon 2024) and Sigstore-signed, hash-verifiable disclosures.
 >
 > It is **suitable as a primary data source** for a horizontal carbon accounting platform, or **as an internal controlling tool** for software-emissions KPIs and RGESN conformance.
 >
@@ -353,7 +359,7 @@ A fair comparison requires naming what perf-sentinel does **not** do:
 - **Not a full APM replacement.** No dashboards, no alerting UI, no RUM, no log aggregation, no distributed profiling. If you need those, Datadog, New Relic and Sentry remain the right tools.
 - **Not a continuous profiler.** It observes I/O patterns at the protocol level; it does not sample on-CPU time, allocations or stack traces. For flame graphs and language-aware CPU/memory profiling, [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) is the open-source counterpart and pairs well: pyroscope tells you where compute time goes, perf-sentinel tells you which I/O patterns drive that time.
 - **Not a real-time monitoring solution.** Daemon mode streams findings, but the project's center of gravity is CI quality gates and post-hoc trace analysis, not live prod observability.
-- **Not a standalone regulatory carbon accounting platform.** perf-sentinel computes activity-based software-emissions numbers from audit-quality sources, but standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and integration with non-IT scopes it does not cover. Pair it with a horizontal carbon platform (Watershed, Sweep, Greenly, Persefoni, ...) or use it directly for RGESN conformance and internal software-emissions KPIs.
+- **Not a standalone regulatory carbon accounting platform.** Standalone CSRD or GHG Protocol Scope 2/3 reporting requires third-party verification and non-IT scopes it does not cover. Exact scope, pairings (Watershed, Sweep, Greenly, Persefoni) and the RGESN case: see [GreenOps](#greenops-io-intensity-score-directional).
 - **Not a replacement for measured energy.** The I/O-to-energy model is an approximation. For accurate measured power, plug in Scaphandre (x86 RAPL), Kepler (eBPF, ARM-friendly) or Redfish (bare-metal BMC wall-plug), all three supported as inputs, or use cloud provider energy APIs. For what software-only attribution can and cannot cover on a typical server, see [docs/LIMITATIONS.md § What software-only attribution covers](docs/LIMITATIONS.md#what-software-only-attribution-covers).
 - **Not zero-config.** Protocol-level detection requires OTel instrumentation in your apps. If your stack does not emit traces, perf-sentinel has nothing to analyze.
 - **Not an IDE plugin.** For in-IDE feedback on JVM/.NET code as you type, [Digma](https://digma.ai/) offers a well-integrated JetBrains experience.
