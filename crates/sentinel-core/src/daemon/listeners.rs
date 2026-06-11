@@ -340,6 +340,12 @@ fn build_http_router(
             toml_acks,
             ack_api_key: config.daemon.ack.api_key.clone(),
             daemon_config: config.daemon.clone(),
+            energy_backends: query_api::EnergyBackendsConfigured {
+                scaphandre: config.green.scaphandre.is_some(),
+                kepler: config.green.kepler.is_some(),
+                redfish: config.green.redfish.is_some(),
+                cloud_energy: config.green.cloud_energy.is_some(),
+            },
         });
         // CORS scoped to /api/* only, never to OTLP/metrics/health.
         // Locked by `cors_layer_does_not_leak_to_otlp_or_metrics_or_health_routes`.
