@@ -367,6 +367,22 @@ impl MonitorState {
             .unwrap_or_default();
         self.line_counts[i]
     }
+
+    /// Scroll one line up, repainting only if the position actually moved.
+    fn scroll_up(&mut self) {
+        let prev = self.scroll;
+        self.scroll = self.scroll.saturating_sub(1);
+        self.dirty = self.dirty || self.scroll != prev;
+    }
+
+    /// Scroll one line down, clamped to the active tab's last line.
+    fn scroll_down(&mut self) {
+        let max = self.line_count().saturating_sub(1);
+        if self.scroll < max {
+            self.scroll = self.scroll.saturating_add(1);
+            self.dirty = true;
+        }
+    }
 }
 
 /// Entry point for `query monitor`. `base_url` is already validated and
@@ -495,27 +511,25 @@ fn run_loop(
         }
         if let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
+            && handle_key(state, key.code)
         {
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Tab => state.cycle_tab(true),
-                KeyCode::BackTab => state.cycle_tab(false),
-                KeyCode::Up | KeyCode::Char('k') => {
-                    let prev = state.scroll;
-                    state.scroll = state.scroll.saturating_sub(1);
-                    state.dirty = state.dirty || state.scroll != prev;
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    let max = state.line_count().saturating_sub(1);
-                    if state.scroll < max {
-                        state.scroll = state.scroll.saturating_add(1);
-                        state.dirty = true;
-                    }
-                }
-                _ => {}
-            }
+            return Ok(());
         }
     }
+}
+
+/// Apply one key press to the monitor state. Returns `true` when the
+/// user asked to quit (`q` or `Esc`).
+fn handle_key(state: &mut MonitorState, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('q') | KeyCode::Esc => return true,
+        KeyCode::Tab => state.cycle_tab(true),
+        KeyCode::BackTab => state.cycle_tab(false),
+        KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
+        KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
+        _ => {}
+    }
+    false
 }
 
 fn draw(f: &mut Frame, state: &MonitorState) {
@@ -1833,6 +1847,36 @@ mod tests {
             state.latest.is_some(),
             "last good snapshot must stay on screen"
         );
+    }
+
+    #[test]
+    fn handle_key_quits_cycles_and_scrolls() {
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_warnings(
+            vec![
+                Warning::new("tuning", "hint one"),
+                Warning::new("cold_start", "hint two"),
+            ],
+        ))));
+        state.tab = Tab::Advisor;
+
+        // q and Esc request quit; every other key returns false.
+        assert!(handle_key(&mut state, KeyCode::Char('q')));
+        assert!(handle_key(&mut state, KeyCode::Esc));
+
+        // Tab advances the active tab without quitting.
+        assert!(!handle_key(&mut state, KeyCode::Tab));
+        assert_eq!(state.tab, Tab::Energy);
+
+        // Down scrolls one line, Up scrolls back and clamps at the top.
+        state.tab = Tab::Advisor;
+        state.scroll = 0;
+        assert!(!handle_key(&mut state, KeyCode::Down));
+        assert_eq!(state.scroll, 1);
+        assert!(!handle_key(&mut state, KeyCode::Up));
+        assert_eq!(state.scroll, 0);
+        assert!(!handle_key(&mut state, KeyCode::Up));
+        assert_eq!(state.scroll, 0, "Up clamps at the top");
     }
 
     #[test]
