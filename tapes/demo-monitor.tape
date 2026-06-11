@@ -3,11 +3,12 @@
 #
 # Showcases the live operator TUI exposed by `perf-sentinel query
 # monitor` (since 0.8.8): a daemon-backed dashboard that polls
-# /api/export/report, /api/energy and /api/status and cycles four tabs
-# with Tab, Advisor (settings-advisor hints), Energy (the effective
-# energy/carbon mix per service and per region), Trends (braille charts
-# of the energy/carbon per window plus runtime gauges as a share of
-# their caps) and Scrapers (live backend health). This tape covers the
+# /api/export/report, /api/energy, /api/status and /api/config and
+# cycles five tabs with Tab: Advisor (settings-advisor hints), Energy
+# (the effective energy/carbon mix per service and per region), Trends
+# (braille charts of the energy/carbon per window plus runtime gauges as
+# a share of their caps), Scrapers (live backend health) and Config (the
+# read-only daemon parameters). This tape covers the
 # nominal, well-dimensioned daemon: the Energy tab is rich and the
 # Advisor tab reads "No hints". The undersized-daemon Advisor hint and
 # the Scrapers still frame are captured separately by
@@ -126,6 +127,13 @@ Sleep 1500ms
 # Tab -> Scrapers: backend health (still frame owned by its own tape).
 Tab
 Sleep 3s
+
+# Tab -> Config: the read-only daemon parameters (current, default, what
+# each does). trace_ttl_ms is flagged "modified" against its default.
+Tab
+Sleep 2500ms
+Screenshot docs/img/monitor/config.png
+Sleep 1500ms
 
 # Tab -> back to Advisor, closing the cycle.
 Tab
