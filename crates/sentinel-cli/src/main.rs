@@ -15,6 +15,8 @@ mod ack;
 mod disclose;
 mod hash_bake;
 mod limits;
+#[cfg(all(feature = "daemon", feature = "tui"))]
+mod monitor;
 #[cfg(feature = "daemon")]
 mod query;
 mod render;
@@ -767,6 +769,16 @@ enum QueryAction {
         /// `[daemon.ack] api_key`.
         #[arg(long, value_name = "PATH")]
         api_key_file: Option<PathBuf>,
+    },
+    /// Live operator monitor: the daemon's settings-advisor hints and
+    /// the effective energy/carbon mix (source per service, grid
+    /// intensity per region), refreshed on an interval. Read-only,
+    /// complements `inspect` (the developer's trace browser).
+    #[cfg(feature = "tui")]
+    Monitor {
+        /// Refresh interval in seconds.
+        #[arg(long, default_value_t = 5, value_parser = clap::value_parser!(u64).range(1..=3600))]
+        refresh: u64,
     },
     /// Show active cross-trace correlations.
     Correlations {
