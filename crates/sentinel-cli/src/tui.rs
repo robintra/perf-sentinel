@@ -1142,6 +1142,33 @@ fn is_modal_input_char_acceptable(c: char) -> bool {
     !matches!(c as u32, 0x202A..=0x202E | 0x2066..=0x2069)
 }
 
+/// Best-effort terminal restore shared by the panic hook and
+/// [`RawModeGuard`]. The raw-mode probe makes it idempotent: on a
+/// panic, the hook restores first and the guard's later drop becomes a
+/// no-op instead of re-sending `LeaveAlternateScreen` (whose implied
+/// cursor restore could reposition over the just-printed panic
+/// message).
+fn restore_terminal_if_raw() {
+    // Fail open: if the probe itself errors, attempt the restore anyway.
+    // A spurious restore on a cooked terminal is harmless, a leaked raw
+    // mode is not.
+    if crossterm::terminal::is_raw_mode_enabled().unwrap_or(true) {
+        let _ = disable_raw_mode();
+        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+    }
+}
+
+/// RAII terminal restore: leaves the alternate screen and disables raw
+/// mode on drop, so an `Err` between terminal setup and loop exit (a
+/// path the panic hook does not cover) cannot leak a raw-mode shell.
+pub(crate) struct RawModeGuard;
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        restore_terminal_if_raw();
+    }
+}
+
 /// Install a panic hook that restores the terminal before the
 /// standard hook prints the panic message. Without this, a panic
 /// inside `run_loop` (e.g. from a future ratatui upgrade or from a
@@ -1153,28 +1180,45 @@ fn is_modal_input_char_acceptable(c: char) -> bool {
 /// (test re-entry, future embedding) does not stack hooks. The chain
 /// to the previous hook is captured at first install and persists for
 /// the process lifetime.
-/// RAII terminal restore: leaves the alternate screen and disables raw
-/// mode on drop, so an `Err` between terminal setup and loop exit (a
-/// path the panic hook does not cover) cannot leak a raw-mode shell.
-pub(crate) struct RawModeGuard;
-
-impl Drop for RawModeGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
-    }
-}
-
 pub(crate) fn install_terminal_restore_panic_hook() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| {
         let prev_hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
-            let _ = disable_raw_mode();
-            let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+            restore_terminal_if_raw();
             prev_hook(info);
         }));
     });
+}
+
+/// Style for a tab label in a one-line tab bar: the active tab is
+/// highlighted, the others dimmed. Shared by the inspect drill-down
+/// bar and the `query monitor` header so the two TUIs stay visually
+/// consistent.
+pub(crate) fn tab_label_style(active: bool) -> Style {
+    if active {
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
+/// Concatenate rendered lines into plain text, for assertions. Shared
+/// by the tui and monitor test modules.
+#[cfg(test)]
+pub(crate) fn line_text(lines: &[Line]) -> String {
+    lines
+        .iter()
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Run the TUI event loop.
