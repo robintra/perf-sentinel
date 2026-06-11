@@ -215,12 +215,23 @@ pub struct FindingResponse {
 
 // ── Response types ────────────────────────────────────────────────
 
+/// `GET /api/status` response. The gauge/capacity pairs (`active_traces`
+/// vs `max_active_traces`, `analysis_queue_depth` vs
+/// `analysis_queue_capacity`, `stored_findings` vs
+/// `max_retained_findings`) back the headroom chart of `query monitor`'s
+/// Trends tab: each pair reads as "how close is this runtime gauge to
+/// its configured cap". Additive since 0.8.8, older clients ignore the
+/// new fields.
 #[derive(Serialize)]
 struct StatusResponse {
     version: &'static str,
     uptime_seconds: u64,
     active_traces: usize,
+    max_active_traces: usize,
+    analysis_queue_depth: i64,
+    analysis_queue_capacity: usize,
     stored_findings: usize,
+    max_retained_findings: usize,
 }
 
 // ── Handlers ──────────────────────────────────────────────────────
@@ -384,7 +395,11 @@ async fn handle_status(State(state): State<Arc<QueryApiState>>) -> Json<StatusRe
         version: env!("CARGO_PKG_VERSION"),
         uptime_seconds: uptime,
         active_traces,
+        max_active_traces: state.daemon_config.max_active_traces,
+        analysis_queue_depth: state.metrics.analysis_queue_depth.get(),
+        analysis_queue_capacity: state.daemon_config.analysis_queue_capacity,
         stored_findings,
+        max_retained_findings: state.daemon_config.max_retained_findings,
     })
 }
 
@@ -1142,6 +1157,13 @@ mod tests {
         assert!(status.get("uptime_seconds").is_some());
         assert!(status.get("active_traces").is_some());
         assert!(status.get("stored_findings").is_some());
+        // Gauge/capacity pairs backing the Trends headroom chart (0.8.8).
+        // The test config uses the DaemonConfig defaults, so the caps
+        // must round-trip as non-zero values.
+        assert!(status["max_active_traces"].as_u64().unwrap() > 0);
+        assert!(status["analysis_queue_capacity"].as_u64().unwrap() > 0);
+        assert!(status["max_retained_findings"].as_u64().unwrap() > 0);
+        assert!(status.get("analysis_queue_depth").is_some());
     }
 
     #[tokio::test]
