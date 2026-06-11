@@ -48,6 +48,14 @@ perf-sentinel analyze --tui --input traces.json
 
 ![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
+...ou, contre un daemon en marche, un moniteur opérateur live qui cycle quatre onglets (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) :
+
+```bash
+perf-sentinel query --daemon http://127.0.0.1:4318 monitor
+```
+
+![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+
 Vous préférez des images fixes à examiner panneau par panneau ? Allez aux [Captures](#captures). Les démos animées par commande sont repliées juste en dessous.
 
 <details>
@@ -408,6 +416,16 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 `inspect --input` accepte aussi un Report JSON pré-calculé (par exemple un snapshot daemon issu de `/api/export/report`). Les panels Findings et Correlations s'allument complètement, le panel Detail affiche un message qui pointe vers les deux chemins qui portent les vrais spans :
 
 ![TUI inspect, mode Report : 4 panels avec corrélations cross-trace et message Detail](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/report-mode.png)
+
+**Moniteur opérateur live** (`perf-sentinel query --daemon <URL> monitor`). Lecture seule, adossé au daemon, quatre onglets cyclés par Tab. Les données qu'il expose (hints de config, provenance des sources, intensités par région) sont catégorielles et à haute cardinalité, exactement ce que la règle des labels bornés garde hors du `/metrics` Prometheus :
+
+![Onglet Advisor : les hints du conseiller de réglages du daemon, ici une fenêtre de traces proche de son plafond](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
+
+![Onglet Energy : le mix énergie/carbone effectif par service et par région, sources froides vs chaudes](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
+
+![Onglet Trends : courbes d'énergie et de carbone sur l'historique de sondage, gauges runtime en part de leur plafond sous le seuil advisor](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/trends.png)
+
+![Onglet Scrapers : santé live des backends énergie via /api/energy](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/scrapers.png)
 
 **Mode pg-stat** (`perf-sentinel pg-stat --input <pg_stat_statements.csv>`) : classe les requêtes SQL par temps d'exécution total, par nombre d'appels, par latence moyenne. Cross-référence avec tes traces via `--traces` pour repérer les requêtes qui dominent la DB sans apparaître dans ton instrumentation :
 
