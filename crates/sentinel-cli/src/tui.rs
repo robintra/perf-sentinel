@@ -1153,6 +1153,18 @@ fn is_modal_input_char_acceptable(c: char) -> bool {
 /// (test re-entry, future embedding) does not stack hooks. The chain
 /// to the previous hook is captured at first install and persists for
 /// the process lifetime.
+/// RAII terminal restore: leaves the alternate screen and disables raw
+/// mode on drop, so an `Err` between terminal setup and loop exit (a
+/// path the panic hook does not cover) cannot leak a raw-mode shell.
+pub(crate) struct RawModeGuard;
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+    }
+}
+
 pub(crate) fn install_terminal_restore_panic_hook() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| {
@@ -1173,6 +1185,9 @@ pub(crate) fn install_terminal_restore_panic_hook() {
 pub fn run(app: &mut App) -> io::Result<()> {
     install_terminal_restore_panic_hook();
     enable_raw_mode()?;
+    // Restores raw mode + alternate screen on every exit path,
+    // including an Err from the setup lines below.
+    let _restore = RawModeGuard;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
@@ -1180,10 +1195,7 @@ pub fn run(app: &mut App) -> io::Result<()> {
 
     let result = run_loop(&mut terminal, app);
 
-    disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-
     result
 }
 
