@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.52
-appVersion: "0.8.7"
+version: 0.2.53
+appVersion: "0.8.8"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -65,7 +65,7 @@ annotations:
       description: "appVersion 0.8.7: four new daemon loss-observability counters (perf_sentinel_otlp_spans_received_total, perf_sentinel_otlp_spans_filtered_total by reason, perf_sentinel_service_io_ops_overflow_total, perf_sentinel_correlator_pairs_evicted_total) make previously silent drop paths visible; a primary-source audit refreshes the embedded carbon data (Paris regions 56 to 41 gCO2eq/kWh, Sao Paulo 62 to 96, Belgium 187 to 165, the eu-central-1 hourly profile rescaled from its stale 2022 level to the Electricity Maps 2024 level, generic PUE 1.2 to 1.5); and the limit-testing campaign hardens wide-topology and saturation behavior (correlator pair admission control fixes a 1500-service OOM, bounded OTLP decode concurrency (HTTP and gRPC) and a 2-second bounded enqueue wait keep /health responsive and rejections observable and retryable under flood, batch CLI inputs up to 1 GiB, HTML dashboard bounds embedded findings critical-first). A settings advisor emits tuning entries in Report.warning_details when lifetime counters show a config knob undersized for the observed load. Carbon outputs shift for the affected regions. Give the liveness probe headroom under sustained saturation (timeoutSeconds 5, failureThreshold 5). No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.7
+      image: ghcr.io/robintra/perf-sentinel:0.8.8
       platforms:
         - linux/amd64
         - linux/arm64
