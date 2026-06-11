@@ -19,9 +19,7 @@ use std::io;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
+use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
 use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -229,6 +227,9 @@ async fn fetch_energy_status(
 fn run(state: &mut MonitorState, rx: &mut mpsc::UnboundedReceiver<FetchOutcome>) -> io::Result<()> {
     crate::tui::install_terminal_restore_panic_hook();
     enable_raw_mode()?;
+    // Restores raw mode + alternate screen on every exit path,
+    // including an Err from the setup lines below.
+    let _restore = crate::tui::RawModeGuard;
     let mut stdout = io::stdout();
     crossterm::execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
@@ -236,8 +237,6 @@ fn run(state: &mut MonitorState, rx: &mut mpsc::UnboundedReceiver<FetchOutcome>)
 
     let result = run_loop(&mut terminal, state, rx);
 
-    disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     result
 }
