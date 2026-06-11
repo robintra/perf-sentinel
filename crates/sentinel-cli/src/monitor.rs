@@ -1,11 +1,11 @@
 //! `perf-sentinel query monitor`: live operator TUI over the daemon.
 //!
-//! Two tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
-//! settings hints) and `Energy` (the effective energy/carbon mix per
-//! service and per region). A background task polls
-//! `/api/export/report` on a fixed interval; when the daemon becomes
-//! unreachable the last good snapshot stays on screen with a stale
-//! indicator instead of going blank.
+//! Three tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
+//! settings hints), `Energy` (the effective energy/carbon mix per
+//! service and per region) and `Scrapers` (live health of the energy
+//! backends from `/api/energy`). A background task polls the daemon on
+//! a fixed interval; when it becomes unreachable the last good snapshot
+//! stays on screen with a stale indicator instead of going blank.
 //!
 //! Deliberately separate from the `inspect` drill-down TUI: `inspect`
 //! is the developer's trace/finding browser, this is the operator's
@@ -29,6 +29,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use sentinel_core::daemon::query_api::EnergyStatusResponse;
 use sentinel_core::report::{GreenSummary, Report, Warning};
 use sentinel_core::score::carbon::IntensitySource;
 use sentinel_core::text_safety::sanitize_for_terminal;
@@ -48,15 +49,22 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 enum Tab {
     Advisor,
     Energy,
+    Scrapers,
 }
 
-const TABS: &[(Tab, &str)] = &[(Tab::Advisor, "Advisor"), (Tab::Energy, "Energy")];
+const TABS: &[(Tab, &str)] = &[
+    (Tab::Advisor, "Advisor"),
+    (Tab::Energy, "Energy"),
+    (Tab::Scrapers, "Scrapers"),
+];
 
-/// One successful `/api/export/report` fetch, reduced to the fields the
-/// monitor renders.
+/// One successful poll tick, reduced to the fields the monitor renders.
+/// `scrapers` is `None` when `/api/energy` is unavailable (daemon
+/// predating the endpoint), independently of the report fetch.
 struct Snapshot {
     green_summary: GreenSummary,
     warning_details: Vec<Warning>,
+    scrapers: Option<EnergyStatusResponse>,
 }
 
 /// Outcome of one poll tick. `Unreachable` keeps the previous snapshot
@@ -124,6 +132,7 @@ impl MonitorState {
         let lines = match self.tab {
             Tab::Advisor => build_advisor_lines(self.latest.as_ref()),
             Tab::Energy => build_energy_lines(self.latest.as_ref()),
+            Tab::Scrapers => build_scrapers_lines(self.latest.as_ref()),
         };
         u16::try_from(lines.len()).unwrap_or(u16::MAX)
     }
@@ -188,9 +197,32 @@ async fn fetch_snapshot(
         Ok(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
             green_summary: report.green_summary,
             warning_details: report.warning_details,
+            scrapers: fetch_energy_status(client, base_url).await,
         })),
         Err(_) => FetchOutcome::Unreachable,
     }
+}
+
+/// Best-effort fetch of `/api/energy`. `None` (degraded Scrapers tab)
+/// when the endpoint is missing, e.g. a daemon predating it; the report
+/// fetch above already proved the daemon itself is reachable.
+async fn fetch_energy_status(
+    client: &sentinel_core::http_client::HttpClient,
+    base_url: &str,
+) -> Option<EnergyStatusResponse> {
+    let uri = format!("{base_url}/api/energy")
+        .parse::<sentinel_core::http_client::Uri>()
+        .ok()?;
+    let body = sentinel_core::http_client::fetch_get(
+        client,
+        &uri,
+        "perf-sentinel-query",
+        FETCH_TIMEOUT,
+        None,
+    )
+    .await
+    .ok()?;
+    serde_json::from_slice(&body).ok()
 }
 
 /// Terminal scaffold around [`run_loop`], mirroring `tui::run`.
@@ -261,8 +293,13 @@ fn draw(f: &mut Frame, state: &MonitorState) {
             build_advisor_lines(state.latest.as_ref()),
             true,
         ),
-        // No wrap on Energy: the fixed-width columns must not reflow.
+        // No wrap on the table tabs: fixed-width columns must not reflow.
         Tab::Energy => (" Energy ", build_energy_lines(state.latest.as_ref()), false),
+        Tab::Scrapers => (
+            " Scrapers ",
+            build_scrapers_lines(state.latest.as_ref()),
+            false,
+        ),
     };
     let block = Block::default()
         .title(title)
@@ -477,6 +514,72 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     lines
 }
 
+/// Body of the Scrapers tab: live health of the energy/intensity
+/// backends from `/api/energy`. One row per backend: configured, last
+/// scrape age, scrape counters. Degrades to a hint when the endpoint is
+/// unavailable (daemon predating it).
+fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
+    let dim = Style::default().fg(Color::DarkGray);
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(Span::styled("Energy scrapers".to_string(), bold)),
+        Line::from(Span::styled(
+            "Live health of the measured-energy and grid-intensity backends.".to_string(),
+            dim,
+        )),
+        Line::from(""),
+    ];
+    let Some(snapshot) = latest else {
+        lines.push(Line::from(Span::styled(
+            "Waiting for the first snapshot from /api/export/report...".to_string(),
+            dim,
+        )));
+        return lines;
+    };
+    let Some(scrapers) = snapshot.scrapers.as_ref() else {
+        lines.push(Line::from(Span::styled(
+            "/api/energy unavailable (daemon predates the endpoint?). Scraper freshness is also on /metrics."
+                .to_string(),
+            dim,
+        )));
+        return lines;
+    };
+
+    lines.push(Line::from(Span::styled(
+        format!(
+            "  {:<18} {:<12} {:>10} {:>8} {:>8}",
+            "backend", "configured", "age (s)", "ok", "failed"
+        ),
+        dim,
+    )));
+    let fmt_u64 = |v: Option<u64>| v.map_or_else(|| "-".to_string(), |n| n.to_string());
+    for b in &scrapers.backends {
+        let configured = if b.configured { "yes" } else { "no" };
+        let age = b
+            .last_scrape_age_seconds
+            .map_or_else(|| "-".to_string(), |a| format!("{a:.0}"));
+        let style = if b.configured { Style::default() } else { dim };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "  {:<18} {:<12} {:>10} {:>8} {:>8}",
+                truncate_cell(&b.backend, 18),
+                configured,
+                age,
+                fmt_u64(b.scrapes_ok),
+                fmt_u64(b.scrapes_failed),
+            ),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "electricity_maps has no freshness gauge: its liveness shows as RealTime intensity sources on the Energy tab."
+            .to_string(),
+        dim,
+    )));
+    lines
+}
+
 /// Color for an advisor hint by its stable `kind`. `tuning` is the
 /// actionable yellow, `ingestion_drops` the louder red (data was lost),
 /// `cold_start` dim (transient), anything else neutral.
@@ -534,6 +637,7 @@ mod tests {
         Snapshot {
             green_summary: GreenSummary::disabled(0),
             warning_details,
+            scrapers: None,
         }
     }
 
@@ -560,6 +664,7 @@ mod tests {
         Snapshot {
             green_summary,
             warning_details: Vec::new(),
+            scrapers: None,
         }
     }
 
@@ -653,9 +758,11 @@ mod tests {
         state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Energy);
         state.cycle_tab(true);
+        assert_eq!(state.tab, Tab::Scrapers);
+        state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Advisor, "Tab wraps back");
         state.cycle_tab(false);
-        assert_eq!(state.tab, Tab::Energy, "Shift-Tab wraps the other way");
+        assert_eq!(state.tab, Tab::Scrapers, "Shift-Tab wraps the other way");
     }
 
     #[test]
@@ -671,6 +778,56 @@ mod tests {
         assert!(
             state.latest.is_some(),
             "last good snapshot must stay on screen"
+        );
+    }
+
+    #[test]
+    fn scrapers_renders_backend_rows() {
+        use sentinel_core::daemon::query_api::EnergyBackendStatus;
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        snapshot.scrapers = Some(EnergyStatusResponse {
+            backends: vec![
+                EnergyBackendStatus {
+                    backend: "scaphandre".to_string(),
+                    configured: true,
+                    last_scrape_age_seconds: Some(3.0),
+                    scrapes_ok: Some(120),
+                    scrapes_failed: Some(2),
+                },
+                EnergyBackendStatus {
+                    backend: "kepler".to_string(),
+                    configured: false,
+                    last_scrape_age_seconds: None,
+                    scrapes_ok: None,
+                    scrapes_failed: None,
+                },
+            ],
+        });
+        let text = line_text(&build_scrapers_lines(Some(&snapshot)));
+        assert!(text.contains("Energy scrapers"), "got: {text}");
+        assert!(text.contains("scaphandre"), "got: {text}");
+        assert!(text.contains("120"), "got: {text}");
+        assert!(text.contains("yes"), "got: {text}");
+        // Unconfigured backend: no, and dash placeholders.
+        assert!(text.contains("kepler"), "got: {text}");
+        assert!(text.contains("no"), "got: {text}");
+        assert!(text.contains('-'), "got: {text}");
+    }
+
+    #[test]
+    fn scrapers_degrades_when_endpoint_missing() {
+        // Report fetched but /api/energy absent (older daemon).
+        let snapshot = snapshot_with_warnings(Vec::new());
+        let text = line_text(&build_scrapers_lines(Some(&snapshot)));
+        assert!(text.contains("/api/energy unavailable"), "got: {text}");
+    }
+
+    #[test]
+    fn scrapers_waits_before_first_snapshot() {
+        let text = line_text(&build_scrapers_lines(None));
+        assert!(
+            text.contains("Waiting for the first snapshot"),
+            "got: {text}"
         );
     }
 }
