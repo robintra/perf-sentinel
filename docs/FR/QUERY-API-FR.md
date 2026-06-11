@@ -25,6 +25,7 @@ surface produit de premier plan, avec un contrat de stabilité.
 | Méthode | Chemin                          | Rôle                                                                            |
 |---------|---------------------------------|---------------------------------------------------------------------------------|
 | GET     | `/api/status`                   | Liveness du daemon, version, uptime, compteurs en cours                         |
+| GET     | `/api/energy`                   | Santé live des backends énergie/intensité (depuis 0.8.8)                       |
 | GET     | `/api/findings`                 | Findings récents depuis le ring buffer, avec filtres service, type et severity  |
 | GET     | `/api/findings/{trace_id}`      | Tous les findings d'une trace                                                   |
 | GET     | `/api/explain/{trace_id}`       | Arbre de spans d'une trace encore en mémoire daemon, findings annotés en ligne  |
@@ -233,6 +234,62 @@ curl -sS http://127.0.0.1:4318/api/status
   "uptime_seconds": 48,
   "active_traces": 0,
   "stored_findings": 5
+}
+```
+
+### GET /api/energy
+
+Santé live des cinq backends énergie/intensité (depuis 0.8.8) : les
+quatre sources d'énergie mesurée scrappées (Scaphandre, Kepler,
+Redfish, SPECpower cloud) et l'API d'intensité temps réel Electricity
+Maps. Alimente l'onglet Scrapers de `perf-sentinel query monitor`. Le
+mix effectif lui-même (quelle source a gagné la chaîne de précédence
+par service, intensité de grille par région) vit sur
+`/api/export/report` sous `green_summary`, cet endpoint répond
+seulement "chaque backend est-il configuré, frais, et en succès".
+
+**Paramètres de requête :** aucun.
+
+**Forme de réponse :** un objet avec un tableau `backends` de cinq
+entrées dans un ordre fixe (`scaphandre`, `kepler`, `redfish`,
+`cloud_energy`, `electricity_maps`), chacune :
+
+| Champ                     | Type    | Description                                                                                                            |
+|---------------------------|---------|--------------------------------------------------------------------------------------------------------------------------|
+| `backend`                 | string  | Nom stable du backend                                                                                                  |
+| `configured`              | boolean | Si le backend est configuré, d'après la config `[green]` figée au démarrage du daemon                                  |
+| `last_scrape_age_seconds` | number  | Secondes depuis le dernier scrape réussi. Omis si non configuré ou si le backend n'a pas de gauge de fraîcheur          |
+| `scrapes_ok`              | number  | Scrapes réussis depuis le démarrage. Omis si non configuré ou non scrappé (`cloud_energy`, `electricity_maps`)          |
+| `scrapes_failed`          | number  | Scrapes échoués depuis le démarrage. Mêmes règles d'omission que `scrapes_ok`                                          |
+
+Les champs optionnels sont omis plutôt que mis à zéro pour les backends
+non configurés : les gauges Prometheus sous-jacentes sont
+pré-enregistrées à 0, et un `0` littéral se lirait comme un scrape
+frais. `electricity_maps` n'a pas de gauge de fraîcheur par
+construction, sa vivacité se lit dans les entrées
+`intensity_source = "real_time"` du breakdown par région du report.
+
+**Exemple :**
+
+```bash
+curl -sS http://127.0.0.1:4318/api/energy
+```
+
+```json
+{
+  "backends": [
+    {
+      "backend": "scaphandre",
+      "configured": true,
+      "last_scrape_age_seconds": 3.0,
+      "scrapes_ok": 120,
+      "scrapes_failed": 2
+    },
+    { "backend": "kepler", "configured": false },
+    { "backend": "redfish", "configured": false },
+    { "backend": "cloud_energy", "configured": false },
+    { "backend": "electricity_maps", "configured": true }
+  ]
 }
 ```
 
