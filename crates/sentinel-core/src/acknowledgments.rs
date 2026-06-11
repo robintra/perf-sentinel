@@ -83,9 +83,9 @@ pub fn compute_signature(finding: &Finding) -> String {
     let mut hasher = Sha256::new();
     hasher.update(finding.pattern.template.as_bytes());
     let digest = hasher.finalize();
-    let safe_service = crate::report::sarif::strip_bidi_and_invisible(&finding.service);
+    let safe_service = crate::text_safety::strip_bidi_and_invisible(&finding.service);
     let sanitized_endpoint = sanitize_endpoint(&finding.source_endpoint);
-    let safe_endpoint = crate::report::sarif::strip_bidi_and_invisible(&sanitized_endpoint);
+    let safe_endpoint = crate::text_safety::strip_bidi_and_invisible(&sanitized_endpoint);
     let kind = finding.finding_type.as_str();
     // Pre-size: type + 2 separators + service + endpoint + ':' + 32 hex.
     let mut out = String::with_capacity(kind.len() + safe_service.len() + safe_endpoint.len() + 35);

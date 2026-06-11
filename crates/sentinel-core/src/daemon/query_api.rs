@@ -864,7 +864,7 @@ fn resolve_by(headers: &HeaderMap, body_by: Option<&str>) -> String {
         .map(str::to_string)
         .or_else(|| body_by.map(str::to_string))
         .unwrap_or_else(|| "anonymous".to_string());
-    crate::report::sarif::strip_bidi_and_invisible(&raw).into_owned()
+    crate::text_safety::strip_bidi_and_invisible(&raw).into_owned()
 }
 
 /// Validate the optional `X-API-Key` header against the configured
