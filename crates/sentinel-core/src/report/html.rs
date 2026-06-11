@@ -122,7 +122,11 @@ pub struct RenderOptions {
 pub struct RenderStats {
     /// Number of traces actually embedded in the rendered HTML.
     pub kept: usize,
-    /// Total candidate traces before any size or cap-driven trim.
+    /// Total candidate traces before the trace-level size or cap trim.
+    /// Candidates come from the findings kept in the embed, so when the
+    /// findings trim fires this is already conservative versus the full
+    /// JSON report (deliberate: every embedded trace has its finding
+    /// visible in the dashboard).
     pub total: usize,
 }
 
@@ -423,7 +427,13 @@ fn build_payload_with_label<'a>(
         };
         (ordered.into_iter().take(take).collect::<Vec<_>>(), summary)
     } else {
-        trim_to_size_target(ordered, report, options, input_label)
+        trim_to_size_target(
+            ordered,
+            report,
+            options,
+            input_label,
+            trimmed_findings.clone(),
+        )
     };
 
     let embedded_traces = kept_refs.iter().copied().map(embed_trace).collect();
@@ -601,6 +611,7 @@ fn trim_to_size_target<'a>(
     report: &Report,
     options: &'a RenderOptions,
     input_label: &'a str,
+    trimmed_findings: Option<TrimSummary>,
 ) -> (Vec<&'a Trace>, Option<TrimSummary>) {
     let total = ordered.len();
 
@@ -625,15 +636,16 @@ fn trim_to_size_target<'a>(
     // is empty, serialize it once, and use its length as the fixed
     // overhead that every kept-trace count shares. `trimmed_traces`
     // is set to a placeholder with realistic digits so its JSON
-    // length is not under-reported; the actual value is written back
-    // in `build_payload` after trimming.
+    // length is not under-reported (the actual value is written back
+    // in `build_payload_with_label` after trimming), and the real
+    // `trimmed_findings` rides along for the same reason.
     let envelope = Payload {
         version: PAYLOAD_VERSION,
         input_label,
         report,
         embedded_traces: Vec::new(),
         trimmed_traces: Some(TrimSummary { kept: 0, total }),
-        trimmed_findings: None,
+        trimmed_findings,
         pg_stat: options.pg_stat.as_ref(),
         diff: options.diff.as_ref(),
         daemon: options
