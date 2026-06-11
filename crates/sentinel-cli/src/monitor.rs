@@ -31,6 +31,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Wrap};
+use sentinel_core::config::DaemonConfig;
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
 use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
@@ -76,13 +77,15 @@ enum Tab {
     Energy,
     Trends,
     Scrapers,
+    Config,
 }
 
-const TABS: [(Tab, &str); 4] = [
+const TABS: [(Tab, &str); 5] = [
     (Tab::Advisor, "Advisor"),
     (Tab::Energy, "Energy"),
     (Tab::Trends, "Trends"),
     (Tab::Scrapers, "Scrapers"),
+    (Tab::Config, "Config"),
 ];
 
 /// Partial deserialization target for `/api/export/report`: only the
@@ -119,6 +122,67 @@ struct StatusSlim {
     max_retained_findings: u64,
 }
 
+/// Deserialization target for `/api/config`: the daemon's effective
+/// `[daemon]` config, read-only. Mirrors the daemon's `ConfigResponse`
+/// (secrets are already summarized to booleans server-side). All fields
+/// `#[serde(default)]` so a daemon predating the endpoint (404) or a
+/// future field never breaks parsing.
+// Independent config flags mirrored from the daemon, not a state machine.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(serde::Deserialize, Default)]
+struct ConfigSlim {
+    #[serde(default)]
+    listen_addr: String,
+    #[serde(default)]
+    listen_port: u16,
+    #[serde(default)]
+    listen_port_grpc: u16,
+    #[serde(default)]
+    json_socket: String,
+    #[serde(default)]
+    max_active_traces: usize,
+    #[serde(default)]
+    trace_ttl_ms: u64,
+    #[serde(default)]
+    sampling_rate: f64,
+    #[serde(default)]
+    max_events_per_trace: usize,
+    #[serde(default)]
+    max_payload_size: usize,
+    #[serde(default)]
+    environment: String,
+    #[serde(default)]
+    max_retained_findings: usize,
+    #[serde(default)]
+    ingest_queue_capacity: usize,
+    #[serde(default)]
+    analysis_queue_capacity: usize,
+    #[serde(default)]
+    api_enabled: bool,
+    #[serde(default)]
+    tls_configured: bool,
+    #[serde(default)]
+    ack_enabled: bool,
+    #[serde(default)]
+    ack_api_key_set: bool,
+    #[serde(default)]
+    cors_allowed_origins: Vec<String>,
+    #[serde(default)]
+    archive_configured: bool,
+    #[serde(default)]
+    correlation_enabled: bool,
+    #[serde(default)]
+    correlation_window_ms: u64,
+    #[serde(default)]
+    correlation_lag_threshold_ms: u64,
+    #[serde(default)]
+    correlation_min_co_occurrences: u32,
+    #[serde(default)]
+    correlation_min_confidence: f64,
+    #[serde(default)]
+    correlation_max_tracked_pairs: usize,
+}
+
 /// One successful poll tick, reduced to the fields the monitor renders.
 /// `scrapers` and `status` are `None` when their endpoint is
 /// unavailable, independently of the report fetch.
@@ -128,6 +192,7 @@ struct Snapshot {
     warnings: Vec<String>,
     scrapers: Option<EnergyStatusResponse>,
     status: Option<StatusSlim>,
+    config: Option<ConfigSlim>,
 }
 
 /// One sample of the Trends time series, recorded per successful poll
@@ -228,6 +293,7 @@ impl MonitorState {
             count(build_energy_lines(latest)),
             0,
             count(build_scrapers_lines(latest)),
+            count(build_config_lines(latest)),
         ];
     }
 
@@ -244,6 +310,15 @@ impl MonitorState {
                     && let Some(prev) = self.latest.as_mut().and_then(|p| p.scrapers.take())
                 {
                     s.scrapers = Some(prev);
+                }
+                // Config is static for the daemon's lifetime, so a transient
+                // /api/config failure must not flip the Config tab to the
+                // misleading old-daemon hint: carry the previous value
+                // forward, same rationale as scrapers above.
+                if s.config.is_none()
+                    && let Some(prev) = self.latest.as_mut().and_then(|p| p.config.take())
+                {
+                    s.config = Some(prev);
                 }
                 // No carry-forward for the trend sample: a tick without
                 // /api/status yields a point with absent percentages
@@ -346,7 +421,7 @@ async fn fetch_snapshot(
     // fields and a transient failure; `apply` carries the previous
     // scraper table forward so only the former shows the old-daemon
     // hint persistently.
-    let (report, scrapers, status) = tokio::join!(
+    let (report, scrapers, status, config) = tokio::join!(
         crate::query::fetch_json::<ReportSlim>(
             client,
             base_url,
@@ -360,6 +435,7 @@ async fn fetch_snapshot(
             FETCH_TIMEOUT
         ),
         crate::query::fetch_json::<StatusSlim>(client, base_url, "/api/status", FETCH_TIMEOUT),
+        crate::query::fetch_json::<ConfigSlim>(client, base_url, "/api/config", FETCH_TIMEOUT),
     );
     match report {
         Some(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
@@ -368,6 +444,7 @@ async fn fetch_snapshot(
             warnings: report.warnings,
             scrapers,
             status,
+            config,
         })),
         None => FetchOutcome::Unreachable,
     }
@@ -471,6 +548,12 @@ fn draw(f: &mut Frame, state: &MonitorState) {
             " Scrapers \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
             build_scrapers_lines(state.latest.as_ref()),
             false,
+        ),
+        // Wrap on: the per-parameter descriptions are prose.
+        Tab::Config => (
+            " Config \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
+            build_config_lines(state.latest.as_ref()),
+            true,
         ),
     };
     let block = Block::default()
@@ -753,6 +836,282 @@ fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
         "RealTime intensity sources on the Energy tab.",
         dim,
     )));
+    lines
+}
+
+/// Append one parameter row to the Config tab: a value line
+/// (`name = current  (default <d>[, modified])`, the suffix colored when
+/// the running value differs from the default) and a dim description
+/// line below it.
+fn config_row(
+    lines: &mut Vec<Line<'static>>,
+    name: &str,
+    current: &str,
+    default: &str,
+    desc: &str,
+) {
+    let dim = crate::tui::dim_style();
+    // `current` comes straight from the daemon's /api/config JSON for the
+    // string-valued rows (listen_addr, environment, ...). A hostile or
+    // compromised daemon could embed ANSI/BiDi sequences, so sanitize
+    // before it reaches the terminal, same as every other tab.
+    let current = sanitize_for_terminal(current);
+    let modified = current.as_ref() != default;
+    let suffix = if modified {
+        Span::styled(
+            format!("  (default {default}, modified)"),
+            Style::default().fg(Color::Yellow),
+        )
+    } else {
+        Span::styled(format!("  (default {default})"), dim)
+    };
+    lines.push(Line::from(vec![
+        Span::styled(
+            format!("{name} = "),
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(current.into_owned()),
+        suffix,
+    ]));
+    lines.push(Line::from(Span::styled(format!("    {desc}"), dim)));
+}
+
+/// Render a byte count as a compact MiB string for the config view.
+#[allow(clippy::cast_precision_loss)]
+fn fmt_mib(bytes: usize) -> String {
+    format!("{:.0} MiB", bytes as f64 / (1024.0 * 1024.0))
+}
+
+/// Body of the Config tab: the daemon's effective `[daemon]` settings
+/// (from `/api/config`), each with its current value, the compiled-in
+/// default (computed locally from `DaemonConfig::default`), and a
+/// one-line explanation. Read-only. Secrets are already summarized to
+/// booleans server-side, never shown in clear.
+#[allow(clippy::too_many_lines)] // one straight-line row per parameter
+fn build_config_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
+    let dim = crate::tui::dim_style();
+    let bold = Style::default().add_modifier(Modifier::BOLD);
+    let mut lines: Vec<Line<'static>> = vec![
+        Line::from(Span::styled("Daemon configuration", bold)),
+        Line::from(Span::styled(
+            "Effective [daemon] settings (read-only), with the compiled-in default and what each does."
+                .to_string(),
+            dim,
+        )),
+        Line::from(""),
+    ];
+    let Some(snapshot) = snapshot_or_waiting(latest, &mut lines) else {
+        return lines;
+    };
+    let Some(c) = snapshot.config.as_ref() else {
+        lines.push(Line::from(Span::styled(
+            "/api/config unavailable (daemon predates the endpoint?). Upgrade the daemon to 0.8.8+."
+                .to_string(),
+            dim,
+        )));
+        return lines;
+    };
+    let d = DaemonConfig::default();
+
+    let bool_str = |b: bool| if b { "yes" } else { "no" }.to_string();
+
+    config_row(
+        &mut lines,
+        "max_active_traces",
+        &c.max_active_traces.to_string(),
+        &d.max_active_traces.to_string(),
+        "Cap of the in-memory correlation window; the oldest trace is evicted (LRU) past it. The advisor hints at 90%.",
+    );
+    config_row(
+        &mut lines,
+        "trace_ttl_ms",
+        &c.trace_ttl_ms.to_string(),
+        &d.trace_ttl_ms.to_string(),
+        "How long a trace waits for more spans before it is evicted and analyzed (ms).",
+    );
+    config_row(
+        &mut lines,
+        "sampling_rate",
+        &format!("{:.2}", c.sampling_rate),
+        &format!("{:.2}", d.sampling_rate),
+        "Fraction of incoming traces analyzed (0.0-1.0); lower it to shed load under heavy traffic.",
+    );
+    config_row(
+        &mut lines,
+        "max_events_per_trace",
+        &c.max_events_per_trace.to_string(),
+        &d.max_events_per_trace.to_string(),
+        "Ring-buffer size per trace; oldest spans drop once exceeded.",
+    );
+    config_row(
+        &mut lines,
+        "max_payload_size",
+        &fmt_mib(c.max_payload_size),
+        &fmt_mib(d.max_payload_size),
+        "Largest JSON payload the daemon will deserialize from one request.",
+    );
+    config_row(
+        &mut lines,
+        "ingest_queue_capacity",
+        &c.ingest_queue_capacity.to_string(),
+        &d.ingest_queue_capacity.to_string(),
+        "Span-event batches buffered between listeners and the event loop; full applies backpressure (OTLP 503).",
+    );
+    config_row(
+        &mut lines,
+        "analysis_queue_capacity",
+        &c.analysis_queue_capacity.to_string(),
+        &d.analysis_queue_capacity.to_string(),
+        "Batches awaiting detect+score; full sheds whole batches (perf_sentinel_analysis_shed_*).",
+    );
+    config_row(
+        &mut lines,
+        "max_retained_findings",
+        &c.max_retained_findings.to_string(),
+        &d.max_retained_findings.to_string(),
+        "Findings kept in the query ring buffer; oldest evicted past it.",
+    );
+    config_row(
+        &mut lines,
+        "environment",
+        &c.environment,
+        d.environment.as_str(),
+        "Deployment label stamped on findings as a Confidence (staging = medium, production = high).",
+    );
+    config_row(
+        &mut lines,
+        "api_enabled",
+        &bool_str(c.api_enabled),
+        &bool_str(d.api_enabled),
+        "Whether the daemon query API (/api/*) is served at all.",
+    );
+    config_row(
+        &mut lines,
+        "listen_addr",
+        &c.listen_addr,
+        &d.listen_addr,
+        "Bind address for OTLP and /metrics. A non-loopback value exposes unauthenticated endpoints.",
+    );
+    config_row(
+        &mut lines,
+        "listen_port",
+        &c.listen_port.to_string(),
+        &d.listen_port.to_string(),
+        "OTLP HTTP receiver and /metrics port.",
+    );
+    config_row(
+        &mut lines,
+        "listen_port_grpc",
+        &c.listen_port_grpc.to_string(),
+        &d.listen_port_grpc.to_string(),
+        "OTLP gRPC receiver port.",
+    );
+    config_row(
+        &mut lines,
+        "json_socket",
+        &c.json_socket,
+        &d.json_socket,
+        "Unix domain socket path for native NDJSON event ingestion.",
+    );
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Sub-systems", bold)));
+    lines.push(Line::from(""));
+    config_row(
+        &mut lines,
+        "tls",
+        if c.tls_configured {
+            "configured"
+        } else {
+            "not configured"
+        },
+        "not configured",
+        "TLS for the OTLP listeners (cert/key paths summarized; never shown).",
+    );
+    config_row(
+        &mut lines,
+        "ack_enabled",
+        &bool_str(c.ack_enabled),
+        &bool_str(d.ack.enabled),
+        "Daemon-side acknowledgment store (JSONL persistence + ack HTTP routes).",
+    );
+    config_row(
+        &mut lines,
+        "ack_api_key",
+        if c.ack_api_key_set { "set" } else { "unset" },
+        "unset",
+        "Whether the ack mutation routes require an X-API-Key (the key itself is never exposed).",
+    );
+    config_row(
+        &mut lines,
+        "cors_allowed_origins",
+        &if c.cors_allowed_origins.is_empty() {
+            "(none)".to_string()
+        } else {
+            c.cors_allowed_origins.join(", ")
+        },
+        "(none)",
+        "Origins allowed by the HTTP API CORS layer; empty emits no CORS headers.",
+    );
+    config_row(
+        &mut lines,
+        "archive",
+        if c.archive_configured {
+            "configured"
+        } else {
+            "not configured"
+        },
+        "not configured",
+        "Per-window Report NDJSON archive writer consumed by `perf-sentinel disclose`.",
+    );
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Correlation", bold)));
+    lines.push(Line::from(""));
+    let cd = d.correlation;
+    config_row(
+        &mut lines,
+        "correlation.enabled",
+        &bool_str(c.correlation_enabled),
+        &bool_str(cd.enabled),
+        "Whether the cross-trace correlator runs; off by default, the fields below apply only when on.",
+    );
+    config_row(
+        &mut lines,
+        "correlation.window_ms",
+        &c.correlation_window_ms.to_string(),
+        &cd.window_ms.to_string(),
+        "Rolling window (ms) over which finding co-occurrences are tracked.",
+    );
+    config_row(
+        &mut lines,
+        "correlation.lag_threshold_ms",
+        &c.correlation_lag_threshold_ms.to_string(),
+        &cd.lag_threshold_ms.to_string(),
+        "Max delay (ms) between two findings to count them as co-occurring.",
+    );
+    config_row(
+        &mut lines,
+        "correlation.min_co_occurrences",
+        &c.correlation_min_co_occurrences.to_string(),
+        &cd.min_co_occurrences.to_string(),
+        "Minimum co-occurrence count before a correlation is reported.",
+    );
+    config_row(
+        &mut lines,
+        "correlation.min_confidence",
+        &format!("{:.2}", c.correlation_min_confidence),
+        &format!("{:.2}", cd.min_confidence),
+        "Minimum confidence (co-occurrences / occurrences of A) to report a correlation.",
+    );
+    config_row(
+        &mut lines,
+        "correlation.max_tracked_pairs",
+        &c.correlation_max_tracked_pairs.to_string(),
+        &cd.max_tracked_pairs.to_string(),
+        "Cap on tracked finding pairs; lowest-co-occurrence pairs are evicted past it.",
+    );
+
     lines
 }
 
@@ -1181,6 +1540,7 @@ mod tests {
             warnings: Vec::new(),
             scrapers: None,
             status: None,
+            config: None,
         }
     }
 
@@ -1210,6 +1570,7 @@ mod tests {
             warnings: Vec::new(),
             scrapers: None,
             status: None,
+            config: None,
         }
     }
 
@@ -1364,9 +1725,98 @@ mod tests {
         state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Scrapers);
         state.cycle_tab(true);
+        assert_eq!(state.tab, Tab::Config);
+        state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Advisor, "Tab wraps back");
         state.cycle_tab(false);
-        assert_eq!(state.tab, Tab::Scrapers, "Shift-Tab wraps the other way");
+        assert_eq!(state.tab, Tab::Config, "Shift-Tab wraps the other way");
+    }
+
+    fn full_config() -> ConfigSlim {
+        // All-default config: nothing should read as "modified".
+        let d = DaemonConfig::default();
+        ConfigSlim {
+            max_active_traces: d.max_active_traces,
+            trace_ttl_ms: d.trace_ttl_ms,
+            sampling_rate: d.sampling_rate,
+            environment: d.environment.as_str().to_string(),
+            listen_addr: d.listen_addr.clone(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn config_renders_params_with_defaults() {
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        snapshot.config = Some(full_config());
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        assert!(text.contains("Daemon configuration"), "got: {text}");
+        assert!(text.contains("max_active_traces ="), "got: {text}");
+        assert!(text.contains("environment ="), "got: {text}");
+        assert!(
+            text.contains("correlation.max_tracked_pairs ="),
+            "got: {text}"
+        );
+        // A param left at its default must not be flagged modified.
+        let dline = text
+            .lines()
+            .find(|l| l.contains("max_active_traces ="))
+            .expect("max_active_traces row");
+        assert!(
+            !dline.contains("modified"),
+            "default value not modified: {dline}"
+        );
+    }
+
+    #[test]
+    fn config_flags_modified_params() {
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut cfg = full_config();
+        cfg.trace_ttl_ms = 400; // differs from the 30000 default
+        snapshot.config = Some(cfg);
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        let ttl = text
+            .lines()
+            .find(|l| l.contains("trace_ttl_ms ="))
+            .expect("trace_ttl_ms row");
+        assert!(ttl.contains("400"), "got: {ttl}");
+        assert!(ttl.contains("modified"), "non-default value flagged: {ttl}");
+    }
+
+    #[test]
+    fn config_degrades_when_endpoint_missing() {
+        let snapshot = snapshot_with_warnings(Vec::new());
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        assert!(text.contains("/api/config unavailable"), "got: {text}");
+    }
+
+    #[test]
+    fn config_never_shows_secret_values() {
+        // The slim type has no api_key/cert/key field at all; the tab can
+        // only ever render the boolean summaries.
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut cfg = full_config();
+        cfg.ack_api_key_set = true;
+        cfg.tls_configured = true;
+        snapshot.config = Some(cfg);
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        assert!(text.contains("ack_api_key = set"), "got: {text}");
+        assert!(text.contains("tls = configured"), "got: {text}");
+    }
+
+    #[test]
+    fn config_sanitizes_daemon_controlled_strings() {
+        // A hostile daemon (--daemon-url can point anywhere) could embed
+        // ANSI/BiDi sequences in string-valued config fields; the Config
+        // tab must strip them like every other tab.
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut cfg = full_config();
+        cfg.listen_addr = "0.0.0.0\u{1b}[31m\u{202e}evil".to_string();
+        cfg.environment = "prod\u{1b}[0m".to_string();
+        snapshot.config = Some(cfg);
+        let text = line_text(&build_config_lines(Some(&snapshot)));
+        assert!(!text.contains('\u{1b}'), "ANSI escape leaked: {text:?}");
+        assert!(!text.contains('\u{202e}'), "BiDi override leaked: {text:?}");
     }
 
     #[test]
