@@ -12,6 +12,8 @@
 # only care about the PNG it produces via Screenshot. The GIF is unused.
 /tapes/demo-config-unused.gif
 /tapes/demo-inspect-report-unused.gif
+/tapes/demo-monitor-advisor-unused.gif
+/tapes/demo-monitor-scrapers-unused.gif
 
 # Playwright browser test suite artifacts
 /crates/sentinel-cli/tests/browser/node_modules/
