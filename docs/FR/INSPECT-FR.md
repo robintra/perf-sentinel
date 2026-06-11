@@ -219,6 +219,44 @@ TOML ni éditer le fichier TOML. Pour les acks permanents, éditer le
 fichier via revue PR comme décrit dans
 [`ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md).
 
+## Le moniteur opérateur live
+
+`perf-sentinel query monitor` (depuis 0.8.8) est le pendant côté
+exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
+contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
+défaut 5) et fonctionne en lecture seule. `Tab` cycle les trois onglets,
+`j`/`k` défilent, `q` quitte. Les données de chaque onglet (hints de
+config, provenance des sources, intensités par région) sont
+catégorielles et à haute cardinalité, ce que la règle des labels bornés
+garde précisément hors du `/metrics` Prometheus.
+
+![query monitor cycle trois onglets sur un daemon vivant : Advisor, Energy, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+
+- **Advisor** affiche les hints du conseiller de réglages du daemon
+  (`warning_details`), colorés par type. Un daemon bien dimensionné ne
+  signale aucun hint, la capture ci-dessous montre un daemon
+  sous-dimensionné dont la fenêtre de traces est bloquée près de son
+  plafond.
+
+  ![Onglet Advisor : un hint de réglage, traces actives à 90% de max_active_traces](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
+
+- **Energy** montre le mix énergie/carbone effectif directement depuis
+  le `green_summary` live : par service (source effective, part mesurée,
+  énergie, région) et par région (intensité de grille, source froide
+  embarquée vs chaude temps réel).
+
+  ![Onglet Energy : mix énergie/carbone par service et par région avec sources froides](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
+
+- **Scrapers** lit `/api/energy` pour la santé live des backends. Ici
+  `cloud_energy` est configuré mais son endpoint est injoignable, donc
+  son âge de fraîcheur grimpe tandis que les backends non configurés
+  restent en tiret.
+
+  ![Onglet Scrapers : santé des backends, cloud_energy configuré avec un âge de fraîcheur qui grimpe](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/scrapers.png)
+
+Quand le daemon devient injoignable, le dernier instantané valide reste
+affiché avec un indicateur `[STALE]` au lieu de devenir blanc.
+
 ## Voir aussi
 
 - [`ACK-WORKFLOW-FR.md`](./ACK-WORKFLOW-FR.md) pour la relation entre
@@ -228,5 +266,8 @@ fichier via revue PR comme décrit dans
   `perf-sentinel ack` (équivalent CLI de `a`/`u`).
 - [`HTML-REPORT-FR.md`](./HTML-REPORT-FR.md) pour le flow ack
   navigateur via `--daemon-url`.
+- [`QUERY-API-FR.md`](./QUERY-API-FR.md) pour l'endpoint `/api/energy`
+  que lit l'onglet Scrapers, et la surface HTTP en lecture seule du
+  daemon.
 - [`CONFIGURATION-FR.md`](./CONFIGURATION-FR.md) pour la référence
   config `[daemon.ack]` côté serveur.

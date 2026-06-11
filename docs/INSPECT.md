@@ -214,6 +214,41 @@ set to `toml`. The TUI cannot promote a daemon ack to TOML or edit
 the TOML file. For permanent acks, edit the file via PR review per
 [`ACK-WORKFLOW.md`](./ACK-WORKFLOW.md).
 
+## The live operator monitor
+
+`perf-sentinel query monitor` (since 0.8.8) is the operator-side
+counterpart to the developer's Inspect browser above. It runs against a
+live daemon, polls it on a fixed cadence (`--refresh` seconds, default
+5) and is read-only. `Tab` cycles the three tabs, `j`/`k` scroll, `q`
+quits. The data each tab surfaces (config hints, source provenance,
+per-region intensities) is categorical and high-cardinality, which is
+exactly what the bounded-label rule keeps off Prometheus `/metrics`.
+
+![query monitor cycles three tabs over a live daemon: Advisor, Energy, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+
+- **Advisor** renders the daemon's settings-advisor hints
+  (`warning_details`), color-coded by kind. A well-dimensioned daemon
+  reports no hints; the capture below is an undersized one whose trace
+  window is pinned near its cap.
+
+  ![Advisor tab: a tuning hint, active traces within 90% of max_active_traces](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/advisor.png)
+
+- **Energy** shows the effective energy/carbon mix straight from the
+  live `green_summary`: per service (effective source, measured share,
+  energy, region) and per region (grid intensity, cold embedded vs hot
+  real-time source).
+
+  ![Energy tab: per-service and per-region energy/carbon mix with cold intensity sources](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
+
+- **Scrapers** reads `/api/energy` for live backend health. Here
+  `cloud_energy` is configured but its endpoint is unreachable, so its
+  freshness age climbs while the unconfigured backends stay dashed.
+
+  ![Scrapers tab: backend health, cloud_energy configured with a climbing freshness age](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/scrapers.png)
+
+When the daemon becomes unreachable, the last good snapshot stays on
+screen with a `[STALE]` indicator instead of going blank.
+
 ## See also
 
 - [`ACK-WORKFLOW.md`](./ACK-WORKFLOW.md) for the relationship between
@@ -222,5 +257,7 @@ the TOML file. For permanent acks, edit the file via PR review per
   reference (CLI-side equivalent of `a`/`u`).
 - [`HTML-REPORT.md`](./HTML-REPORT.md) for the browser-side ack flow
   via `--daemon-url`.
+- [`QUERY-API.md`](./QUERY-API.md) for the `/api/energy` endpoint the
+  Scrapers tab reads, and the daemon's read-only HTTP surface.
 - [`CONFIGURATION.md`](./CONFIGURATION.md) for the `[daemon.ack]`
   server-side config reference.
