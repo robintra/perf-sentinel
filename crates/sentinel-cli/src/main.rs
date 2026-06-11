@@ -851,7 +851,9 @@ mod help_examples {
   # Rank SQL hotspots from a pg_stat_statements export
   perf-sentinel pg-stat --input pg_stat.csv --traces traces.json";
 
-    #[cfg(feature = "daemon")]
+    // Two variants: the monitor example only exists when the tui
+    // feature compiles the subcommand it advertises.
+    #[cfg(all(feature = "daemon", feature = "tui"))]
     pub const QUERY: &str = "Examples:
   # List recent findings for a service from a running daemon
   perf-sentinel query findings --service order-svc
@@ -861,6 +863,14 @@ mod help_examples {
 
   # Live operator monitor (advisor hints, energy mix, scraper health)
   perf-sentinel query monitor --refresh 5";
+
+    #[cfg(all(feature = "daemon", not(feature = "tui")))]
+    pub const QUERY: &str = "Examples:
+  # List recent findings for a service from a running daemon
+  perf-sentinel query findings --service order-svc
+
+  # Show daemon status
+  perf-sentinel query status";
 
     #[cfg(feature = "daemon")]
     pub const ACK: &str = "Examples:
