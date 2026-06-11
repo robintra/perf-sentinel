@@ -419,49 +419,73 @@ pub struct EnergyStatusResponse {
 }
 
 /// Live health of the energy backends, from the shared metrics registry
-/// plus the configured flags frozen at startup.
+/// plus the configured flags frozen at startup. One table row per
+/// backend keeps the name, flag, gauge and counters together: adding a
+/// sixth backend is one row here plus its flag in
+/// [`EnergyBackendsConfigured`], not three uncoupled edits.
+/// Deliberately bumps no request counter: the monitor polls it once per
+/// refresh tick, and the other read-only endpoints are not counted either.
 async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergyStatusResponse> {
+    type CounterPair<'a> = (&'a prometheus::IntCounter, &'a prometheus::IntCounter);
     let m = &state.metrics;
     let b = state.energy_backends;
-    let gauge = |configured: bool, g: &prometheus::Gauge| configured.then(|| g.get());
-    let counter = |configured: bool, c: &prometheus::IntCounter| configured.then(|| c.get());
-    let backends = vec![
-        EnergyBackendStatus {
-            backend: "scaphandre".to_string(),
-            configured: b.scaphandre,
-            last_scrape_age_seconds: gauge(b.scaphandre, &m.scaphandre_last_scrape_age_seconds),
-            scrapes_ok: counter(b.scaphandre, &m.scaphandre_scrape_success),
-            scrapes_failed: counter(b.scaphandre, &m.scaphandre_scrape_failed),
-        },
-        EnergyBackendStatus {
-            backend: "kepler".to_string(),
-            configured: b.kepler,
-            last_scrape_age_seconds: gauge(b.kepler, &m.kepler_last_scrape_age_seconds),
-            scrapes_ok: counter(b.kepler, &m.kepler_scrape_success),
-            scrapes_failed: counter(b.kepler, &m.kepler_scrape_failed),
-        },
-        EnergyBackendStatus {
-            backend: "redfish".to_string(),
-            configured: b.redfish,
-            last_scrape_age_seconds: gauge(b.redfish, &m.redfish_last_scrape_age_seconds),
-            scrapes_ok: counter(b.redfish, &m.redfish_scrape_success),
-            scrapes_failed: counter(b.redfish, &m.redfish_scrape_failed),
-        },
-        EnergyBackendStatus {
-            backend: "cloud_energy".to_string(),
-            configured: b.cloud_energy,
-            last_scrape_age_seconds: gauge(b.cloud_energy, &m.cloud_energy_last_scrape_age_seconds),
-            scrapes_ok: None,
-            scrapes_failed: None,
-        },
-        EnergyBackendStatus {
-            backend: "electricity_maps".to_string(),
-            configured: state.scoring_config.is_some(),
-            last_scrape_age_seconds: None,
-            scrapes_ok: None,
-            scrapes_failed: None,
-        },
+    let rows: [(&str, bool, Option<&prometheus::Gauge>, Option<CounterPair>); 5] = [
+        (
+            "scaphandre",
+            b.scaphandre,
+            Some(&m.scaphandre_last_scrape_age_seconds),
+            Some((&m.scaphandre_scrape_success, &m.scaphandre_scrape_failed)),
+        ),
+        (
+            "kepler",
+            b.kepler,
+            Some(&m.kepler_last_scrape_age_seconds),
+            Some((&m.kepler_scrape_success, &m.kepler_scrape_failed)),
+        ),
+        (
+            "redfish",
+            b.redfish,
+            Some(&m.redfish_last_scrape_age_seconds),
+            Some((&m.redfish_scrape_success, &m.redfish_scrape_failed)),
+        ),
+        // No scrape counters by design (interval evaluation, not a scrape).
+        (
+            "cloud_energy",
+            b.cloud_energy,
+            Some(&m.cloud_energy_last_scrape_age_seconds),
+            None,
+        ),
+        // No freshness gauge by design: liveness shows as real_time
+        // intensity sources on the report's region breakdown.
+        (
+            "electricity_maps",
+            state.scoring_config.is_some(),
+            None,
+            None,
+        ),
     ];
+    let backends = rows
+        .into_iter()
+        .map(|(name, configured, age, counters)| EnergyBackendStatus {
+            backend: name.to_string(),
+            configured,
+            last_scrape_age_seconds: if configured {
+                age.map(prometheus::Gauge::get)
+            } else {
+                None
+            },
+            scrapes_ok: if configured {
+                counters.map(|(ok, _)| ok.get())
+            } else {
+                None
+            },
+            scrapes_failed: if configured {
+                counters.map(|(_, failed)| failed.get())
+            } else {
+                None
+            },
+        })
+        .collect();
     Json(EnergyStatusResponse { backends })
 }
 
