@@ -342,7 +342,7 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
     ));
     if state.stale {
         spans.push(Span::styled(
-            "  [daemon unreachable, showing last data]".to_string(),
+            "  [daemon unreachable or incompatible, showing last data]".to_string(),
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ));
     }
