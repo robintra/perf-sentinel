@@ -631,6 +631,13 @@ fn emit_findings_and_update_metrics(
             .io_waste_ratio
             .set(metrics.avoidable_io_ops.get() / cumulative_total);
     }
+    // Window-scoped energy/carbon scalars for the Grafana Trends panels.
+    // Per-service/region breakdown stays off /metrics (cardinality); the
+    // totals are bounded and safe to expose as gauges.
+    metrics.energy_kwh.set(green_summary.energy_kwh);
+    metrics
+        .carbon_gco2
+        .set(green_summary.regions.iter().map(|r| r.co2_gco2).sum());
     metrics.record_exemplars(findings, green_summary);
 
     let stdout = std::io::stdout();
@@ -719,6 +726,12 @@ async fn process_traces(
     let now_ms = current_time_ms();
     if !findings.is_empty() {
         ctx.findings_store.push_batch(&findings, now_ms).await;
+        // Refresh the ring-buffer occupancy gauge (paired with the
+        // max_retained_findings cap for the Grafana headroom panel).
+        #[allow(clippy::cast_precision_loss)] // bounded by max_retained_findings
+        ctx.metrics
+            .stored_findings
+            .set(ctx.findings_store.len().await as f64);
     }
 
     if let Some(correlator) = ctx.correlator {
