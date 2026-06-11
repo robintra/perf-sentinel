@@ -95,6 +95,10 @@ pub(crate) async fn cmd_query(daemon_url: &str, action: QueryAction) {
             let body = fetch(&path).await;
             run_inspect_action(&body, &client, &trimmed, timeout, api_key).await;
         }
+        #[cfg(feature = "tui")]
+        QueryAction::Monitor { refresh } => {
+            crate::monitor::cmd_monitor(&trimmed, refresh);
+        }
         QueryAction::Correlations { format } => {
             let body = fetch("/api/correlations").await;
             render_correlations_response(&body, format);

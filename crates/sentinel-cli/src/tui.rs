@@ -1153,7 +1153,7 @@ fn is_modal_input_char_acceptable(c: char) -> bool {
 /// (test re-entry, future embedding) does not stack hooks. The chain
 /// to the previous hook is captured at first install and persists for
 /// the process lifetime.
-fn install_terminal_restore_panic_hook() {
+pub(crate) fn install_terminal_restore_panic_hook() {
     static INSTALL: std::sync::Once = std::sync::Once::new();
     INSTALL.call_once(|| {
         let prev_hook = std::panic::take_hook();
