@@ -24,11 +24,11 @@ Output tapes/demo-monitor-scrapers-unused.gif
 
 Set Shell "bash"
 Set FontSize 13
-# Sized for the Scrapers tab content: 700 px wide fits the widest line
-# (the top header row of tabs + daemon URL) with a small margin, 320 px
-# tall fits a header row, five backend rows and the two-line
-# electricity_maps note plus the border.
-Set Width 700
+# Sized for the Scrapers tab content: 740 px wide fits the widest line
+# (the top header row of four tabs + daemon URL + age) with a small
+# margin, 320 px tall fits a header row, five backend rows and the
+# two-line electricity_maps note plus the border.
+Set Width 740
 Set Height 320
 Set TypingSpeed 100ms
 Set Padding 15
@@ -59,8 +59,11 @@ Show
 Type "perf-sentinel query --daemon http://127.0.0.1:14318 monitor --refresh 3"
 Sleep 800ms
 Enter
-# Opens on Advisor; Tab twice to reach Scrapers (Advisor -> Energy -> Scrapers).
+# Opens on Advisor; Tab three times to reach Scrapers
+# (Advisor -> Energy -> Trends -> Scrapers).
 Sleep 1500ms
+Tab
+Sleep 1200ms
 Tab
 Sleep 1200ms
 Tab

@@ -24,12 +24,13 @@ et de révoquer des findings interactivement depuis le terminal.
 
 Ce TUI est le navigateur de traces et de findings du développeur. Pour
 le monitoring d'exploitation, il existe un TUI opérateur live séparé,
-`perf-sentinel query monitor` (depuis 0.8.8) : trois onglets cyclés par
+`perf-sentinel query monitor` (depuis 0.8.8) : quatre onglets cyclés par
 Tab, **Advisor** (les hints du conseiller de réglages du daemon),
-**Energy** (le mix énergie/carbone effectif par service et par région)
-et **Scrapers** (santé live des backends énergie via `/api/energy`),
-auto-rafraîchis depuis le daemon toutes les `--refresh` secondes
-(défaut 5). Quand le daemon devient injoignable, le dernier instantané
+**Energy** (le mix énergie/carbone effectif par service et par région),
+**Trends** (courbes braille live de l'énergie/carbone par fenêtre et
+des gauges runtime en part de leur plafond configuré) et **Scrapers**
+(santé live des backends énergie via `/api/energy`), auto-rafraîchis
+depuis le daemon toutes les `--refresh` secondes (défaut 5). Quand le daemon devient injoignable, le dernier instantané
 valide reste affiché avec un indicateur. Lecture seule : pas
 d'acknowledgment, pas de clé d'API requise.
 
@@ -224,13 +225,13 @@ fichier via revue PR comme décrit dans
 `perf-sentinel query monitor` (depuis 0.8.8) est le pendant côté
 exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
 contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
-défaut 5) et fonctionne en lecture seule. `Tab` cycle les trois onglets,
-`j`/`k` défilent, `q` quitte. Les données de chaque onglet (hints de
-config, provenance des sources, intensités par région) sont
+défaut 5) et fonctionne en lecture seule. `Tab` cycle les quatre
+onglets, `j`/`k` défilent, `q` quitte. Les données de chaque onglet
+(hints de config, provenance des sources, intensités par région) sont
 catégorielles et à haute cardinalité, ce que la règle des labels bornés
 garde précisément hors du `/metrics` Prometheus.
 
-![query monitor cycle trois onglets sur un daemon vivant : Advisor, Energy, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor cycle quatre onglets sur un daemon vivant : Advisor, Energy, Trends, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 - **Advisor** affiche les hints du conseiller de réglages du daemon
   (`warning_details`), colorés par type. Un daemon bien dimensionné ne
@@ -247,6 +248,23 @@ garde précisément hors du `/metrics` Prometheus.
 
   ![Onglet Energy : mix énergie/carbone par service et par région avec sources froides](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
 
+- **Trends** trace l'historique de sondage en courbes braille live :
+  l'énergie et le carbone par fenêtre de scoring en haut, et en dessous
+  le graphe Headroom, chaque gauge runtime (`active_traces`,
+  `analysis_queue_depth`, `stored_findings`) en pourcentage de son
+  plafond configuré, avec le seuil de 90 % du conseiller de réglages
+  tracé en référence. Quand l'intensité de grille effective est
+  statique, les deux courbes du haut se suivent ; elles divergent dès
+  que l'intensité bouge, soit par le flux temps réel Electricity Maps,
+  soit par un mix régional qui se déplace (la capture ci-dessous met en
+  scène ce second cas). Un point arrive par tick de rafraîchissement,
+  jusqu'à 240 points (20 minutes au défaut de 5 s), et l'historique vit
+  dans le moniteur seul : le relancer repart d'une fenêtre vierge. Les
+  champs de plafond demandent un daemon 0.8.8, face à un daemon plus
+  ancien le panneau Headroom se dégrade en indication.
+
+  ![Onglet Trends : courbes d'énergie et de carbone sur l'historique de sondage, pourcentages de headroom sous le seuil advisor](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/trends.png)
+
 - **Scrapers** lit `/api/energy` pour la santé live des backends. Ici
   `cloud_energy` est configuré mais son endpoint est injoignable, donc
   son âge de fraîcheur grimpe tandis que les backends non configurés
@@ -256,6 +274,17 @@ garde précisément hors du `/metrics` Prometheus.
 
 Quand le daemon devient injoignable, le dernier instantané valide reste
 affiché avec un indicateur `[STALE]` au lieu de devenir blanc.
+
+## Thème du terminal
+
+Les deux TUI (ce moniteur et le navigateur Inspect) suivent le thème
+du terminal lui-même : ils utilisent les 16 couleurs ANSI nommées et
+n'imposent jamais de fond, donc un terminal en thème clair les rend sur
+fond clair et un terminal sombre sur fond sombre. Le texte secondaire
+(titres, hints, en-têtes de colonnes) utilise l'attribut d'atténuation
+du terminal plutôt qu'un gris figé, pour rester lisible sur l'un comme
+sur l'autre fond. Il n'y a pas de flag `--theme` : configurez les
+couleurs dans votre émulateur de terminal.
 
 ## Voir aussi
 

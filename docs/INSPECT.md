@@ -23,9 +23,11 @@ and revoke findings interactively from the terminal.
 
 This TUI is the developer's trace and finding browser. For deployment
 monitoring there is a separate live operator TUI,
-`perf-sentinel query monitor` (since 0.8.8): three tabs cycled with
+`perf-sentinel query monitor` (since 0.8.8): four tabs cycled with
 Tab, **Advisor** (the daemon's settings-advisor hints), **Energy**
-(the effective energy/carbon mix per service and per region) and
+(the effective energy/carbon mix per service and per region),
+**Trends** (live braille charts of the energy/carbon per window and of
+the runtime gauges as a share of their configured caps) and
 **Scrapers** (live health of the energy backends from `/api/energy`),
 auto-refreshed from the daemon every `--refresh` seconds (default 5).
 When the daemon becomes unreachable, the last good snapshot stays on
@@ -219,12 +221,12 @@ the TOML file. For permanent acks, edit the file via PR review per
 `perf-sentinel query monitor` (since 0.8.8) is the operator-side
 counterpart to the developer's Inspect browser above. It runs against a
 live daemon, polls it on a fixed cadence (`--refresh` seconds, default
-5) and is read-only. `Tab` cycles the three tabs, `j`/`k` scroll, `q`
+5) and is read-only. `Tab` cycles the four tabs, `j`/`k` scroll, `q`
 quits. The data each tab surfaces (config hints, source provenance,
 per-region intensities) is categorical and high-cardinality, which is
 exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 
-![query monitor cycles three tabs over a live daemon: Advisor, Energy, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![query monitor cycles four tabs over a live daemon: Advisor, Energy, Trends, Scrapers](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 - **Advisor** renders the daemon's settings-advisor hints
   (`warning_details`), color-coded by kind. A well-dimensioned daemon
@@ -240,6 +242,22 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 
   ![Energy tab: per-service and per-region energy/carbon mix with cold intensity sources](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/energy.png)
 
+- **Trends** plots the poll history as live braille charts: energy and
+  carbon per scoring window on top, and below them the Headroom chart,
+  each runtime gauge (`active_traces`, `analysis_queue_depth`,
+  `stored_findings`) as a percentage of its configured cap with the
+  settings advisor's 90% threshold drawn in. When the effective grid
+  intensity is static, the two top curves track each other; they
+  diverge when the intensity moves, either from the live Electricity
+  Maps real-time feed or from a shifting regional mix (the capture
+  below stages the latter). One point lands per refresh tick, up to
+  240 points (20 minutes at the default 5 s), and the history lives in
+  the monitor only: restarting it starts a fresh window. The capacity
+  fields need a 0.8.8 daemon; against an older one the Headroom panel
+  degrades to a hint.
+
+  ![Trends tab: energy and carbon curves over the poll history, headroom percentages under the advisor threshold](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/trends.png)
+
 - **Scrapers** reads `/api/energy` for live backend health. Here
   `cloud_energy` is configured but its endpoint is unreachable, so its
   freshness age climbs while the unconfigured backends stay dashed.
@@ -248,6 +266,16 @@ exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 
 When the daemon becomes unreachable, the last good snapshot stays on
 screen with a `[STALE]` indicator instead of going blank.
+
+## Terminal theme
+
+Both TUIs (this monitor and the Inspect browser) follow the terminal's
+own theme: they use the 16 named ANSI colors and never impose a
+background, so a light-themed terminal renders them on a light
+background and a dark one on dark. Secondary text (titles, hints,
+column headers) is drawn with the terminal's dim attribute rather than
+a fixed gray, so it stays legible on either background. There is no
+`--theme` flag: configure the colors in your terminal emulator.
 
 ## See also
 

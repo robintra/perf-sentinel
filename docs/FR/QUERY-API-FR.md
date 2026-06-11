@@ -215,12 +215,23 @@ ou comme moyen le moins coûteux de vérifier que le daemon est up.
 
 **Forme de la réponse :**
 
-| Champ             | Type   | Description                                                  |
-|-------------------|--------|--------------------------------------------------------------|
-| `version`         | string | Version du binaire daemon (version du package Cargo)         |
-| `uptime_seconds`  | number | Secondes depuis le démarrage du processus daemon             |
-| `active_traces`   | number | Traces actuellement présentes dans la fenêtre de corrélation |
-| `stored_findings` | number | Findings actuellement retenus dans le ring buffer            |
+| Champ                     | Type   | Description                                                          |
+|---------------------------|--------|----------------------------------------------------------------------|
+| `version`                 | string | Version du binaire daemon (version du package Cargo)                 |
+| `uptime_seconds`          | number | Secondes depuis le démarrage du processus daemon                     |
+| `active_traces`           | number | Traces actuellement présentes dans la fenêtre de corrélation         |
+| `max_active_traces`       | number | Plafond configuré de la fenêtre de corrélation (depuis 0.8.8)        |
+| `analysis_queue_depth`    | number | Batches en attente dans la file du worker d'analyse (depuis 0.8.8)   |
+| `analysis_queue_capacity` | number | Plafond configuré de cette file (depuis 0.8.8)                       |
+| `stored_findings`         | number | Findings actuellement retenus dans le ring buffer                    |
+| `max_retained_findings`   | number | Plafond configuré de ce ring buffer (depuis 0.8.8)                   |
+
+Les trois paires gauge/plafond alimentent le graphe Headroom de
+l'onglet Trends de `perf-sentinel query monitor` : chaque paire se lit
+comme "à quel point cette gauge runtime approche de son plafond
+configuré". Le conseiller de réglages commence à émettre des hints à
+90 % de `max_active_traces`. Les champs sont additifs, les clients
+écrits contre des daemons plus anciens continuent de parser.
 
 **Exemple :**
 
@@ -230,10 +241,14 @@ curl -sS http://127.0.0.1:4318/api/status
 
 ```json
 {
-  "version": "0.4.0",
+  "version": "0.8.8",
   "uptime_seconds": 48,
-  "active_traces": 0,
-  "stored_findings": 5
+  "active_traces": 12,
+  "max_active_traces": 10000,
+  "analysis_queue_depth": 0,
+  "analysis_queue_capacity": 1024,
+  "stored_findings": 5,
+  "max_retained_findings": 10000
 }
 ```
 

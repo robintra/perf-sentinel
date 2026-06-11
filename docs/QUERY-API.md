@@ -208,12 +208,22 @@ cheapest way to verify the daemon is up.
 
 **Response shape:**
 
-| Field             | Type   | Description                                          |
-|-------------------|--------|------------------------------------------------------|
-| `version`         | string | Daemon binary version (Cargo package version)        |
-| `uptime_seconds`  | number | Seconds since the daemon process started             |
-| `active_traces`   | number | Traces currently held in the correlation window      |
-| `stored_findings` | number | Findings currently retained in the query ring buffer |
+| Field                     | Type   | Description                                                |
+|---------------------------|--------|------------------------------------------------------------|
+| `version`                 | string | Daemon binary version (Cargo package version)              |
+| `uptime_seconds`          | number | Seconds since the daemon process started                   |
+| `active_traces`           | number | Traces currently held in the correlation window            |
+| `max_active_traces`       | number | Configured cap of the correlation window (since 0.8.8)     |
+| `analysis_queue_depth`    | number | Batches waiting in the analysis worker queue (since 0.8.8) |
+| `analysis_queue_capacity` | number | Configured cap of that queue (since 0.8.8)                 |
+| `stored_findings`         | number | Findings currently retained in the query ring buffer       |
+| `max_retained_findings`   | number | Configured cap of that ring buffer (since 0.8.8)           |
+
+The three gauge/capacity pairs back the Headroom chart of
+`perf-sentinel query monitor`'s Trends tab: each pair reads as "how
+close is this runtime gauge to its configured cap". The settings
+advisor starts hinting at 90% of `max_active_traces`. The fields are
+additive; clients written against older daemons keep parsing.
 
 **Example:**
 
@@ -223,10 +233,14 @@ curl -sS http://127.0.0.1:4318/api/status
 
 ```json
 {
-  "version": "0.4.0",
+  "version": "0.8.8",
   "uptime_seconds": 48,
-  "active_traces": 0,
-  "stored_findings": 5
+  "active_traces": 12,
+  "max_active_traces": 10000,
+  "analysis_queue_depth": 0,
+  "analysis_queue_capacity": 1024,
+  "stored_findings": 5,
+  "max_retained_findings": 10000
 }
 ```
 
