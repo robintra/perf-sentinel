@@ -228,7 +228,7 @@ impl AckStore {
             }
             (**active).clone()
         };
-        let mut by = crate::report::sarif::strip_bidi_and_invisible(by).into_owned();
+        let mut by = crate::text_safety::strip_bidi_and_invisible(by).into_owned();
         crate::event::truncate_field(&mut by, MAX_BY_LEN);
         let entry = AckEntry {
             action: AckAction::Unack,
@@ -319,12 +319,12 @@ fn validate_signature(sig: &str) -> Result<(), AckError> {
 }
 
 fn sanitize_entry(entry: &mut AckEntry) {
-    if let Cow::Owned(stripped) = crate::report::sarif::strip_bidi_and_invisible(&entry.by) {
+    if let Cow::Owned(stripped) = crate::text_safety::strip_bidi_and_invisible(&entry.by) {
         entry.by = stripped;
     }
     crate::event::truncate_field(&mut entry.by, MAX_BY_LEN);
     if let Some(reason) = entry.reason.as_mut() {
-        if let Cow::Owned(stripped) = crate::report::sarif::strip_bidi_and_invisible(reason) {
+        if let Cow::Owned(stripped) = crate::text_safety::strip_bidi_and_invisible(reason) {
             *reason = stripped;
         }
         crate::event::truncate_field(reason, MAX_REASON_LEN);

@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::detect::{Finding, FindingType, Severity};
 use crate::report::Report;
+use crate::text_safety::{is_bidi_or_invisible, strip_bidi_and_invisible};
 
 // ── SARIF v2.1.0 structs ───────────────────────────────────────────
 
@@ -425,23 +426,6 @@ fn contains_percent_encoded_dot(fp: &str) -> bool {
     false
 }
 
-/// Return true for Unicode `BiDi` override and invisible format characters
-/// that can confuse text renderers (Trojan Source class of attack,
-/// CVE-2021-42574).
-pub(crate) fn is_bidi_or_invisible(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00AD}' // Soft hyphen (visually invisible mid-word)
-        | '\u{061C}' // Arabic Letter Mark (BiDi formatting)
-        | '\u{180E}' // Mongolian Vowel Separator (deprecated invisible)
-        | '\u{202A}'..='\u{202E}' // LRE, RLE, PDF, LRO, RLO
-        | '\u{2060}'..='\u{2064}' // Word Joiner + invisible operators
-        | '\u{2066}'..='\u{2069}' // LRI, RLI, FSI, PDI
-        | '\u{200B}'..='\u{200F}' // ZWSP, ZWNJ, ZWJ, LRM, RLM
-        | '\u{FEFF}' // BOM / zero-width no-break space
-    )
-}
-
 const SARIF_SCHEMA: &str = "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json";
 
 /// Convert a perf-sentinel Report to a SARIF log.
@@ -493,21 +477,6 @@ fn acknowledged_finding_to_result(ack: &crate::report::AcknowledgedFinding) -> S
             Some(strip_bidi_and_invisible(&ack.acknowledgment.acknowledged_at).into_owned());
     }
     result
-}
-
-/// Drop Unicode BiDi-override and invisible-format characters from a
-/// free-text string before emitting it. Reused at signature construction
-/// time (`acknowledgments::compute_signature`) so canonical signatures
-/// cannot carry trojan characters that would spoof ack matching.
-///
-/// Probe-before-allocate: real-world inputs (service names, endpoints)
-/// are clean, so the common case returns `Cow::Borrowed` zero-copy.
-pub(crate) fn strip_bidi_and_invisible(s: &str) -> std::borrow::Cow<'_, str> {
-    if s.chars().any(is_bidi_or_invisible) {
-        std::borrow::Cow::Owned(s.chars().filter(|c| !is_bidi_or_invisible(*c)).collect())
-    } else {
-        std::borrow::Cow::Borrowed(s)
-    }
 }
 
 /// Convert a slice of findings to a SARIF log. Used by `report_to_sarif`

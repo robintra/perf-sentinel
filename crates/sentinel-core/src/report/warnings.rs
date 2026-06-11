@@ -16,7 +16,7 @@
 //! names, request headers, config strings) MUST construct it via
 //! [`Warning::from_untrusted`]**, which strips `BiDi` format codes and
 //! invisible control characters per the same defense applied to the
-//! SARIF emitter (cf. `report::sarif::strip_bidi_and_invisible`).
+//! SARIF emitter (cf. `text_safety::strip_bidi_and_invisible`).
 
 use serde::{Deserialize, Serialize};
 
@@ -68,8 +68,8 @@ impl Warning {
     #[must_use]
     pub fn from_untrusted(kind: &str, message: &str) -> Self {
         Self {
-            kind: crate::report::sarif::strip_bidi_and_invisible(kind).into_owned(),
-            message: crate::report::sarif::strip_bidi_and_invisible(message).into_owned(),
+            kind: crate::text_safety::strip_bidi_and_invisible(kind).into_owned(),
+            message: crate::text_safety::strip_bidi_and_invisible(message).into_owned(),
         }
     }
 }
