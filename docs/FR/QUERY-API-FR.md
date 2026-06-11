@@ -258,7 +258,7 @@ entrées dans un ordre fixe (`scaphandre`, `kepler`, `redfish`,
 |---------------------------|---------|--------------------------------------------------------------------------------------------------------------------------|
 | `backend`                 | string  | Nom stable du backend                                                                                                  |
 | `configured`              | boolean | Si le backend est configuré, d'après la config `[green]` figée au démarrage du daemon                                  |
-| `last_scrape_age_seconds` | number  | Secondes depuis le dernier scrape réussi. Omis si non configuré ou si le backend n'a pas de gauge de fraîcheur          |
+| `last_scrape_age_seconds` | number  | Secondes depuis le dernier scrape réussi, à la date du dernier tick du scraper (mêmes sémantiques que la gauge `/metrics`). Omis si non configuré ou si le backend n'a pas de gauge de fraîcheur |
 | `scrapes_ok`              | number  | Scrapes réussis depuis le démarrage. Omis si non configuré ou non scrappé (`cloud_energy`, `electricity_maps`)          |
 | `scrapes_failed`          | number  | Scrapes échoués depuis le démarrage. Mêmes règles d'omission que `scrapes_ok`                                          |
 
@@ -268,6 +268,14 @@ pré-enregistrées à 0, et un `0` littéral se lirait comme un scrape
 frais. `electricity_maps` n'a pas de gauge de fraîcheur par
 construction, sa vivacité se lit dans les entrées
 `intensity_source = "real_time"` du breakdown par région du report.
+
+Deux précautions de lecture sur l'âge. Un backend configuré lit encore
+`last_scrape_age_seconds = 0.0` pendant son premier intervalle de
+scrape après le démarrage du daemon, avant le moindre scrape effectif :
+le lire avec `scrapes_ok = 0` pour distinguer "pas encore scrappé" de
+"frais". Et pour `cloud_energy`, l'âge trace la joignabilité de
+l'endpoint Prometheus configuré, pas la couverture par service : un
+tick compte comme réussi dès qu'un service produit une lecture.
 
 **Exemple :**
 

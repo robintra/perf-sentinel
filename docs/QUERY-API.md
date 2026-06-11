@@ -251,7 +251,7 @@ a fixed order (`scaphandre`, `kepler`, `redfish`, `cloud_energy`,
 |---------------------------|---------|------------------------------------------------------------------------------------------------------------------|
 | `backend`                 | string  | Stable backend name                                                                                              |
 | `configured`              | boolean | Whether the backend is configured, from the `[green]` config frozen at daemon startup                            |
-| `last_scrape_age_seconds` | number  | Seconds since the last successful scrape. Omitted when not configured or when the backend has no freshness gauge |
+| `last_scrape_age_seconds` | number  | Seconds since the last successful scrape, as of the backend's most recent scrape tick (same semantics as the `/metrics` gauge). Omitted when not configured or when the backend has no freshness gauge |
 | `scrapes_ok`              | number  | Successful scrapes since daemon start. Omitted when not configured or not scraped (`cloud_energy`, `electricity_maps`) |
 | `scrapes_failed`          | number  | Failed scrapes since daemon start. Same omission rules as `scrapes_ok`                                           |
 
@@ -261,6 +261,14 @@ a literal `0` would read as a fresh scrape. `electricity_maps` carries
 no freshness gauge by design; its liveness shows as
 `intensity_source = "real_time"` entries on the report's region
 breakdown.
+
+Two age-reading caveats. A configured backend still reads
+`last_scrape_age_seconds = 0.0` during its first scrape interval after
+daemon start, before anything has actually been scraped: read it
+together with `scrapes_ok = 0` to tell "not scraped yet" from "fresh".
+And for `cloud_energy` the age tracks the reachability of the
+configured Prometheus endpoint, not per-service coverage: a tick counts
+as successful as soon as one service yields a reading.
 
 **Example:**
 
