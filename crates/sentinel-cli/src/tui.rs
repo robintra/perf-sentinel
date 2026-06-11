@@ -608,7 +608,7 @@ impl App {
     /// sanitized for the terminal. Falls back to a hint when no summary
     /// was supplied (e.g. an older daemon without `/api/export/report`).
     fn build_analyze_lines(&self) -> Vec<Line<'static>> {
-        let dim = Style::default().fg(Color::DarkGray);
+        let dim = dim_style();
         let Some(summary) = &self.summary else {
             return vec![
                 Line::from(Span::styled("Summary unavailable.".to_string(), dim)),
@@ -1201,8 +1201,18 @@ pub(crate) fn tab_label_style(active: bool) -> Style {
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD | Modifier::REVERSED)
     } else {
-        Style::default().fg(Color::DarkGray)
+        dim_style()
     }
+}
+
+/// Style for secondary / "dim" text shared by both TUIs. Uses the `DIM`
+/// modifier on the terminal's default foreground rather than a fixed
+/// gray: `Color::DarkGray` is legible on a light background but too dark
+/// on a dark one, and `Color::Gray` is the reverse. Dimming the default
+/// foreground adapts to either theme (light gray on dark, dark gray on
+/// light).
+pub(crate) fn dim_style() -> Style {
+    Style::default().add_modifier(Modifier::DIM)
 }
 
 /// Concatenate rendered lines into plain text, for assertions. Shared
@@ -1469,7 +1479,7 @@ fn draw(f: &mut Frame, app: &App) {
 /// view-level navigation hint. Purely a visual orientation aid — the keys
 /// that switch views are Enter (down) and Esc (up), bound per view.
 fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = dim_style();
     // The standalone Disclose tab replaces the drill-down bar entirely.
     if app.disclose.is_some() {
         let spans = vec![
@@ -1572,11 +1582,11 @@ fn draw_explain_view(f: &mut Frame, app: &App, area: Rect) {
         _ => vec![
             Line::from(Span::styled(
                 "Span tree not available for this trace.",
-                Style::default().fg(Color::DarkGray),
+                dim_style(),
             )),
             Line::from(Span::styled(
                 "Reports do not carry raw spans. Launch `inspect --input <events>.json` or `query inspect`.",
-                Style::default().fg(Color::DarkGray),
+                dim_style(),
             )),
         ],
     };
@@ -1628,14 +1638,14 @@ fn draw_disclose_view(f: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title(" Equivalent command (run it to write the hashed report) ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(dim_style()),
         )
         .wrap(Wrap { trim: false });
     f.render_widget(footer, chunks[2]);
 }
 
 fn draw_disclose_settings(f: &mut Frame, state: &DiscloseState, area: Rect) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = dim_style();
     let cyan = Style::default().fg(Color::Cyan);
     let (from, to) = state.resolved_dates();
 
@@ -1717,7 +1727,7 @@ fn tone_style(tone: Tone) -> Style {
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD),
         Tone::Normal => Style::default(),
-        Tone::Dim => Style::default().fg(Color::DarkGray),
+        Tone::Dim => dim_style(),
         Tone::Good => Style::default().fg(Color::Green),
         Tone::Warn => Style::default().fg(Color::Yellow),
         Tone::Bad => Style::default().fg(Color::Red),
@@ -1742,7 +1752,7 @@ fn panel_style(app: &App, panel: Panel) -> Style {
     if app.active_panel == panel {
         Style::default().fg(Color::Cyan)
     } else {
-        Style::default().fg(Color::DarkGray)
+        dim_style()
     }
 }
 
@@ -1791,10 +1801,7 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
             // Only the daemon-gated acked-by suffix mutates the vec.
             #[cfg_attr(not(feature = "daemon"), allow(unused_mut))]
             let mut spans = vec![
-                Span::styled(
-                    format!("[{}] ", i + 1),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(format!("[{}] ", i + 1), dim_style()),
                 Span::styled(
                     format!("{type_label} "),
                     Style::default()
@@ -1817,9 +1824,7 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(
                     format!("[acked by {}]", sanitize_for_terminal(by)),
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
+                    dim_style().add_modifier(Modifier::ITALIC),
                 ));
             }
             ListItem::new(Line::from(spans))
@@ -1857,7 +1862,7 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
         )
         .block(block)
         .wrap(Wrap { trim: true })
-        .style(Style::default().fg(Color::DarkGray));
+        .style(dim_style());
         f.render_widget(hint, area);
         return;
     }
@@ -1888,10 +1893,7 @@ fn draw_correlations_panel(f: &mut Frame, app: &App, area: Rect) {
                     format!("{:.0}% ", c.confidence * 100.0),
                     Style::default().add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    format!("{:.0}ms ", c.median_lag_ms),
-                    Style::default().fg(Color::DarkGray),
-                ),
+                Span::styled(format!("{:.0}ms ", c.median_lag_ms), dim_style()),
                 Span::raw(format!("({}x)", c.co_occurrence_count)),
             ]);
             ListItem::new(line)
@@ -1942,11 +1944,11 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Template: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Template: ", dim_style()),
             Span::raw(&finding.pattern.template),
         ]),
         Line::from(vec![
-            Span::styled("Occurrences: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Occurrences: ", dim_style()),
             Span::raw(format!(
                 "{}, {} distinct params, {}ms window",
                 finding.pattern.occurrences,
@@ -1955,11 +1957,11 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             )),
         ]),
         Line::from(vec![
-            Span::styled("Service: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Service: ", dim_style()),
             Span::raw(&finding.service),
         ]),
         Line::from(vec![
-            Span::styled("Endpoint: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Endpoint: ", dim_style()),
             Span::raw(&finding.source_endpoint),
         ]),
         Line::from(vec![
@@ -1974,7 +1976,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
             lines.insert(
                 6,
                 Line::from(vec![
-                    Span::styled("Source:   ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("Source:   ", dim_style()),
                     Span::raw(src),
                 ]),
             );
@@ -1983,7 +1985,7 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
 
     if let Some(ref impact) = finding.green_impact {
         lines.push(Line::from(vec![
-            Span::styled("Extra I/O: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Extra I/O: ", dim_style()),
             Span::raw(format!("{} avoidable ops", impact.estimated_extra_io_ops)),
         ]));
     }
@@ -2016,15 +2018,15 @@ fn draw_detail_panel(f: &mut Frame, app: &App, area: Rect) {
         )));
         lines.push(Line::from(Span::styled(
             "Not available for this trace. Reports do not carry raw spans.",
-            Style::default().fg(Color::DarkGray),
+            dim_style(),
         )));
         lines.push(Line::from(Span::styled(
             "  - perf-sentinel inspect --input <events>.json  (raw events)",
-            Style::default().fg(Color::DarkGray),
+            dim_style(),
         )));
         lines.push(Line::from(Span::styled(
             "  - perf-sentinel query inspect                  (live daemon)",
-            Style::default().fg(Color::DarkGray),
+            dim_style(),
         )));
     }
 
@@ -2156,7 +2158,7 @@ fn draw_unack_form(f: &mut Frame, app: &App, area: Rect, signature: &str) {
 fn render_finding_signature_line(f: &mut Frame, area: Rect, signature: &str) {
     f.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("Finding: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Finding: ", dim_style()),
             Span::raw(sanitize_for_terminal(signature)),
         ])),
         area,
@@ -2176,7 +2178,7 @@ fn render_field_label(
             .fg(Color::Cyan)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        dim_style()
     };
     f.render_widget(Paragraph::new(label).style(style), area);
 }
@@ -2194,9 +2196,13 @@ fn render_field_input(f: &mut Frame, area: Rect, value: &str, focused: bool) {
         std::borrow::Cow::Borrowed(value)
     };
     let style = if focused {
+        // Focused field is a highlight block: white on an imposed dark
+        // background reads on both light and dark terminals.
         Style::default().fg(Color::White).bg(Color::DarkGray)
     } else {
-        Style::default().fg(Color::White)
+        // Reset (not White): the unfocused field takes the terminal's
+        // default foreground, so it stays legible on a light background.
+        Style::default().fg(Color::Reset)
     };
     f.render_widget(Paragraph::new(display).style(style), area);
 }
@@ -2219,10 +2225,7 @@ fn render_modal_buttons(f: &mut Frame, area: Rect, modal: &AckModalState) {
             button_style(Color::Red, modal.focus == AckFormField::Cancel),
         ),
         Span::raw("   "),
-        Span::styled(
-            "Tab/Shift-Tab to switch, Esc to cancel",
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled("Tab/Shift-Tab to switch, Esc to cancel", dim_style()),
     ]);
     f.render_widget(Paragraph::new(line), area);
 }
