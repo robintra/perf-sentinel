@@ -47,6 +47,7 @@ flowchart LR
         q_findings["findings<br/><i>--service --type<br/>--severity --limit<br/>--format text|json</i>"]
         q_explain["explain<br/><i>--trace-id ID<br/>--format text|json</i>"]
         q_inspect["inspect ⚙ tui<br/><i>live TUI from daemon</i>"]
+        q_monitor["monitor ⚙ tui<br/><i>live operator TUI<br/>advisor hints + energy/carbon mix<br/>read-only, --refresh secs</i>"]
         q_correlations["correlations<br/><i>--format text|json</i>"]
         q_status["status<br/><i>--format text|json</i>"]
     end
@@ -116,6 +117,7 @@ flowchart LR
     q_findings --> daemon_api
     q_explain --> daemon_api
     q_inspect --> daemon_api
+    q_monitor --> daemon_api
     q_correlations --> daemon_api
     q_status --> daemon_api
     daemon_api --> report_text
