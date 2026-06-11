@@ -48,18 +48,10 @@ perf-sentinel analyze --tui --input traces.json
 
 ![TUI all-in-one : Analyze descend vers Inspect puis Explain, Esc remonte](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
-...ou, contre un daemon en marche, un moniteur opérateur live qui cycle quatre onglets (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) :
-
-```bash
-perf-sentinel query --daemon http://127.0.0.1:4318 monitor
-```
-
-![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
-
 Vous préférez des images fixes à examiner panneau par panneau ? Allez aux [Captures](#captures). Les démos animées par commande sont repliées juste en dessous.
 
 <details>
-<summary>Plus de démos (analyze, explain, inspect, pg-stat, calibrate, disclose)</summary>
+<summary>Plus de démos (analyze, explain, inspect, monitor, pg-stat, calibrate, disclose)</summary>
 
 Rapport terminal (`perf-sentinel analyze`) :
 
@@ -72,6 +64,10 @@ Explain sur une trace (`perf-sentinel explain --trace-id <id>`) :
 Inspect, le TUI autonome à quatre panneaux (`perf-sentinel inspect`) :
 
 ![démo inspect : couleurs de sévérité et panneau detail scrollable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
+
+Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) via `perf-sentinel query --daemon <URL> monitor` :
+
+![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 Hotspots pg_stat_statements (`perf-sentinel pg-stat`) :
 

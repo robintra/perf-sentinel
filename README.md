@@ -48,18 +48,10 @@ perf-sentinel analyze --tui --input traces.json
 
 ![all-in-one TUI: Analyze drills into Inspect then Explain, Esc walks back up](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/tui/demo.gif)
 
-...or, against a running daemon, a live operator monitor that cycles four tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health):
-
-```bash
-perf-sentinel query --daemon http://127.0.0.1:4318 monitor
-```
-
-![query monitor: four live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
-
 Prefer frozen frames you can zoom into panel by panel? Jump to [Still frames](#still-frames). The per-command animated demos are collapsed just below.
 
 <details>
-<summary>More demos (analyze, explain, inspect, pg-stat, calibrate, disclose)</summary>
+<summary>More demos (analyze, explain, inspect, monitor, pg-stat, calibrate, disclose)</summary>
 
 Terminal report (`perf-sentinel analyze`):
 
@@ -72,6 +64,10 @@ Explain a single trace (`perf-sentinel explain --trace-id <id>`):
 Inspect, the standalone four-panel TUI (`perf-sentinel inspect`):
 
 ![inspect demo: severity colors and the scrollable detail panel](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
+
+Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via `perf-sentinel query --daemon <URL> monitor`:
+
+![query monitor: four live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 pg_stat_statements hotspots (`perf-sentinel pg-stat`):
 
