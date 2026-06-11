@@ -246,6 +246,10 @@ async fn run_cloud_scraper_loop(
     let mut snapshot_diff = OpsSnapshotDiff::default();
     let mut first_failure_warned = false;
     let mut consecutive_failures: u32 = 0;
+    // Anchors the staleness gauge on the failure branch, mirroring the
+    // Scaphandre/Kepler/Redfish scrapers: without it a failing scraper
+    // keeps the gauge frozen at its last healthy value.
+    let mut last_success_ms = monotonic_ms();
     let mut unreachable_warned = false;
 
     tracing::info!(
@@ -323,8 +327,10 @@ async fn run_cloud_scraper_loop(
         if any_success {
             first_failure_warned = false;
             consecutive_failures = 0;
-            apply_cloud_scrape(&state, &cpu_readings, &deltas, &cfg, monotonic_ms());
+            let now_ms = monotonic_ms();
+            apply_cloud_scrape(&state, &cpu_readings, &deltas, &cfg, now_ms);
             metrics.cloud_energy_last_scrape_age_seconds.set(0.0);
+            last_success_ms = now_ms;
             tracing::debug!(
                 readings = cpu_readings.len(),
                 elapsed_ms = tick_start.elapsed().as_millis() as u64,
@@ -332,6 +338,11 @@ async fn run_cloud_scraper_loop(
             );
         } else if !cfg.services.is_empty() {
             consecutive_failures = consecutive_failures.saturating_add(1);
+            // Advance the staleness gauge so hung-scraper alerts (and
+            // /api/energy) see the failure, Scaphandre/Kepler parity.
+            #[allow(clippy::cast_precision_loss)]
+            let age_secs = monotonic_ms().saturating_sub(last_success_ms) as f64 / 1000.0;
+            metrics.cloud_energy_last_scrape_age_seconds.set(age_secs);
             log_scrape_failure(
                 &redacted,
                 &mut first_failure_warned,
@@ -1117,7 +1128,7 @@ mod tests {
         };
         let state = CloudEnergyState::new();
         let metrics = Arc::new(MetricsState::new());
-        let handle = spawn_cloud_scraper(cfg, state.clone(), metrics);
+        let handle = spawn_cloud_scraper(cfg, state.clone(), metrics.clone());
         // Enough ticks to step past the FAILURE_THRESHOLD.
         tokio::time::sleep(Duration::from_millis(220)).await;
         handle.abort();
@@ -1125,6 +1136,12 @@ mod tests {
 
         // State stays empty since nothing ever succeeded.
         assert!(state.snapshot(monotonic_ms(), 5_000).is_empty());
+        // The staleness gauge must advance on the failure branch, not
+        // stay frozen at its pre-registered 0.
+        assert!(
+            metrics.cloud_energy_last_scrape_age_seconds.get() > 0.0,
+            "failed scrapes must advance the staleness gauge"
+        );
     }
 
     #[test]
