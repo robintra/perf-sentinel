@@ -82,7 +82,7 @@ The rule the proxy enforces:
 
 | Path                                                                                 | GET                    | POST / DELETE         |
 |--------------------------------------------------------------------------------------|------------------------|-----------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/acks` | any authenticated user | not applicable        |
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/energy`, `/api/acks` | any authenticated user | not applicable        |
 | `/api/findings/{signature}/ack`                                                      | not applicable         | privileged group only |
 | `/api/export/report`                                                                 | privileged group only  | not applicable        |
 

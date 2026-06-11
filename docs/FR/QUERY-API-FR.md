@@ -86,7 +86,7 @@ La règle appliquée par le proxy :
 
 | Chemin                                                                               | GET                          | POST / DELETE                |
 |--------------------------------------------------------------------------------------|------------------------------|------------------------------|
-| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/acks` | tout utilisateur authentifié | sans objet                   |
+| `/api/findings`, `/api/explain/...`, `/api/correlations`, `/api/status`, `/api/energy`, `/api/acks` | tout utilisateur authentifié | sans objet                   |
 | `/api/findings/{signature}/ack`                                                      | sans objet                   | groupe privilégié uniquement |
 | `/api/export/report`                                                                 | groupe privilégié uniquement | sans objet                   |
 
