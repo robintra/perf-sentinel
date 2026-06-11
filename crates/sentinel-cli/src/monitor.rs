@@ -1,11 +1,13 @@
 //! `perf-sentinel query monitor`: live operator TUI over the daemon.
 //!
-//! Three tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
+//! Four tabs cycled with Tab: `Advisor` (the daemon's `warning_details`
 //! settings hints), `Energy` (the effective energy/carbon mix per
-//! service and per region) and `Scrapers` (live health of the energy
-//! backends from `/api/energy`). A background task polls the daemon on
-//! a fixed interval; when it becomes unreachable the last good snapshot
-//! stays on screen with a stale indicator instead of going blank.
+//! service and per region), `Trends` (braille charts of the energy and
+//! carbon per window plus runtime gauges as a share of their configured
+//! caps) and `Scrapers` (live health of the energy backends from
+//! `/api/energy`). A background task polls the daemon on a fixed
+//! interval; when it becomes unreachable the last good snapshot stays
+//! on screen with a stale indicator instead of going blank.
 //!
 //! Deliberately separate from the `inspect` drill-down TUI: `inspect`
 //! is the developer's trace/finding browser, this is the operator's
@@ -15,6 +17,7 @@
 
 #![cfg(all(feature = "daemon", feature = "tui"))]
 
+use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -25,8 +28,9 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Wrap};
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
 use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
@@ -42,17 +46,30 @@ const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// Per-request timeout of the background poller.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Depth of the Trends history ring: one point per successful poll
+/// tick, so the plotted span is `TREND_CAPACITY x --refresh` (20
+/// minutes at the default 5 s). Bounded so an always-on monitor cannot
+/// grow without limit.
+const TREND_CAPACITY: usize = 240;
+
+/// The settings advisor flags a gauge at 90% of its cap
+/// (`TUNING_ACTIVE_TRACES_RATIO` daemon-side); the headroom chart draws
+/// the same threshold so the curve shows what the hint says.
+const ADVISOR_THRESHOLD_PCT: f64 = 90.0;
+
 /// The monitor's tabs, cycled with Tab/Shift-Tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Tab {
     Advisor,
     Energy,
+    Trends,
     Scrapers,
 }
 
-const TABS: [(Tab, &str); 3] = [
+const TABS: [(Tab, &str); 4] = [
     (Tab::Advisor, "Advisor"),
     (Tab::Energy, "Energy"),
+    (Tab::Trends, "Trends"),
     (Tab::Scrapers, "Scrapers"),
 ];
 
@@ -72,14 +89,74 @@ struct ReportSlim {
     warnings: Vec<String>,
 }
 
+/// Partial deserialization target for `/api/status`: only the gauge and
+/// capacity fields the Trends headroom chart plots. The capacity fields
+/// are 0.8.8 additions; `default` keeps older daemons parseable, and a
+/// zero cap reads as "unknown" and suppresses the ratio.
+#[derive(serde::Deserialize)]
+struct StatusSlim {
+    active_traces: u64,
+    #[serde(default)]
+    max_active_traces: u64,
+    #[serde(default)]
+    analysis_queue_depth: i64,
+    #[serde(default)]
+    analysis_queue_capacity: u64,
+    stored_findings: u64,
+    #[serde(default)]
+    max_retained_findings: u64,
+}
+
 /// One successful poll tick, reduced to the fields the monitor renders.
-/// `scrapers` is `None` when `/api/energy` is unavailable (daemon
-/// predating the endpoint), independently of the report fetch.
+/// `scrapers` and `status` are `None` when their endpoint is
+/// unavailable, independently of the report fetch.
 struct Snapshot {
     green_summary: GreenSummary,
     warning_details: Vec<Warning>,
     warnings: Vec<String>,
     scrapers: Option<EnergyStatusResponse>,
+    status: Option<StatusSlim>,
+}
+
+/// One sample of the Trends time series, recorded per successful poll
+/// tick. The percentages are `None` when `/api/status` was unavailable
+/// on that tick or the daemon predates the capacity fields.
+struct TrendPoint {
+    energy_kwh: f64,
+    carbon_gco2: f64,
+    traces_pct: Option<f64>,
+    queue_pct: Option<f64>,
+    findings_pct: Option<f64>,
+}
+
+/// Reduce a snapshot to its trend sample. Carbon is the sum of the
+/// per-region operational CO2 (grams), the same window scope as
+/// `energy_kwh`.
+#[allow(clippy::cast_precision_loss)] // gauge values are far below 2^52
+fn trend_point(s: &Snapshot) -> TrendPoint {
+    let gs = &s.green_summary;
+    let pct = |value: f64, cap: u64| {
+        if cap == 0 {
+            None
+        } else {
+            Some((value / cap as f64 * 100.0).clamp(0.0, 100.0))
+        }
+    };
+    let st = s.status.as_ref();
+    TrendPoint {
+        energy_kwh: gs.energy_kwh,
+        carbon_gco2: gs.regions.iter().map(|r| r.co2_gco2).sum(),
+        traces_pct: st.and_then(|st| pct(st.active_traces as f64, st.max_active_traces)),
+        queue_pct: st.and_then(|st| {
+            // The depth gauge cannot legitimately go negative; clamp
+            // defensively since it travels as a signed Prometheus value.
+            pct(
+                st.analysis_queue_depth.max(0) as f64,
+                st.analysis_queue_capacity,
+            )
+        }),
+        findings_pct: st.and_then(|st| pct(st.stored_findings as f64, st.max_retained_findings)),
+    }
 }
 
 /// Outcome of one poll tick. `Unreachable` keeps the previous snapshot
@@ -103,6 +180,10 @@ struct MonitorState {
     /// snapshot instead of rebuilding the line vectors on every
     /// keypress for the scroll clamp.
     line_counts: [u16; TABS.len()],
+    /// Trends history ring: one [`TrendPoint`] per successful poll
+    /// tick, capped at [`TREND_CAPACITY`]. Failed polls add nothing,
+    /// the curve freezes alongside the `[STALE]` banner.
+    history: VecDeque<TrendPoint>,
     /// Something visible changed (snapshot, tab, scroll): repaint on
     /// the next loop turn. The header age repaints on its own clock.
     dirty: bool,
@@ -119,18 +200,21 @@ impl MonitorState {
             stale: false,
             last_update: None,
             line_counts: [0; TABS.len()],
+            history: VecDeque::new(),
             dirty: true,
         }
     }
 
     /// Recompute the cached body line counts for all tabs. Called once
-    /// per applied snapshot.
+    /// per applied snapshot. Entries follow TABS order; Trends renders
+    /// charts (no scroll), so its count stays 0.
     fn refresh_line_counts(&mut self) {
         let latest = self.latest.as_ref();
         let count = |lines: Vec<Line<'static>>| u16::try_from(lines.len()).unwrap_or(u16::MAX);
         self.line_counts = [
             count(build_advisor_lines(latest)),
             count(build_energy_lines(latest)),
+            0,
             count(build_scrapers_lines(latest)),
         ];
     }
@@ -148,6 +232,13 @@ impl MonitorState {
                     && let Some(prev) = self.latest.as_mut().and_then(|p| p.scrapers.take())
                 {
                     s.scrapers = Some(prev);
+                }
+                // No carry-forward for the trend sample: a tick without
+                // /api/status yields a point with absent percentages
+                // rather than a fabricated repeat of stale gauges.
+                self.history.push_back(trend_point(&s));
+                if self.history.len() > TREND_CAPACITY {
+                    self.history.pop_front();
                 }
                 self.latest = Some(s);
                 self.stale = false;
@@ -237,12 +328,13 @@ async fn fetch_snapshot(
     client: &sentinel_core::http_client::HttpClient,
     base_url: &str,
 ) -> FetchOutcome {
-    // Concurrent: the tick latency is the slower of the two requests,
-    // not their sum. The energy fetch is best-effort: `None` covers both
-    // a daemon predating /api/energy and a transient failure; `apply`
-    // carries the previous value forward so only the former shows the
-    // old-daemon hint persistently.
-    let (report, scrapers) = tokio::join!(
+    // Concurrent: the tick latency is the slowest of the three
+    // requests, not their sum. The energy and status fetches are
+    // best-effort: `None` covers both a daemon predating the endpoint
+    // fields and a transient failure; `apply` carries the previous
+    // scraper table forward so only the former shows the old-daemon
+    // hint persistently.
+    let (report, scrapers, status) = tokio::join!(
         crate::query::fetch_json::<ReportSlim>(
             client,
             base_url,
@@ -255,6 +347,7 @@ async fn fetch_snapshot(
             "/api/energy",
             FETCH_TIMEOUT
         ),
+        crate::query::fetch_json::<StatusSlim>(client, base_url, "/api/status", FETCH_TIMEOUT),
     );
     match report {
         Some(report) => FetchOutcome::Snapshot(Box::new(Snapshot {
@@ -262,6 +355,7 @@ async fn fetch_snapshot(
             warning_details: report.warning_details,
             warnings: report.warnings,
             scrapers,
+            status,
         })),
         None => FetchOutcome::Unreachable,
     }
@@ -356,6 +450,11 @@ fn draw(f: &mut Frame, state: &MonitorState) {
             build_energy_lines(state.latest.as_ref()),
             false,
         ),
+        // Charts, not text: no scroll, dedicated renderer.
+        Tab::Trends => {
+            draw_trends(f, state, outer[1]);
+            return;
+        }
         Tab::Scrapers => (
             " Scrapers \u{00b7} Tab \u{21c4} \u{00b7} j/k \u{2195} \u{00b7} q ",
             build_scrapers_lines(state.latest.as_ref()),
@@ -504,7 +603,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 
     lines.push(Line::from(vec![
         Span::styled("Window energy: ", dim),
-        Span::raw(format!("{} kWh", fmt_kwh(gs.energy_kwh))),
+        Span::raw(format!("{} kWh", fmt_tiny(gs.energy_kwh))),
         Span::styled(
             format!("   model: {}", truncate_cell(&gs.energy_model, 32)),
             dim,
@@ -545,7 +644,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
                 truncate_cell(region, 14),
                 truncate_cell(model, 16),
                 meas,
-                fmt_kwh(*kwh),
+                fmt_tiny(*kwh),
                 co2,
             ))));
         }
@@ -645,6 +744,258 @@ fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
     lines
 }
 
+/// Chart-ready `(x, y)` series extracted from the trend history. The x
+/// coordinate is the tick index in the full history, so the percentage
+/// series stay time-aligned with the energy series even when some
+/// ticks lack `/api/status` data.
+#[derive(Default)]
+struct TrendSeries {
+    energy: Vec<(f64, f64)>,
+    carbon: Vec<(f64, f64)>,
+    traces_pct: Vec<(f64, f64)>,
+    queue_pct: Vec<(f64, f64)>,
+    findings_pct: Vec<(f64, f64)>,
+}
+
+#[allow(clippy::cast_precision_loss)] // tick indices are < TREND_CAPACITY
+fn build_trend_series(history: &VecDeque<TrendPoint>) -> TrendSeries {
+    let mut s = TrendSeries::default();
+    for (i, p) in history.iter().enumerate() {
+        let x = i as f64;
+        s.energy.push((x, p.energy_kwh));
+        s.carbon.push((x, p.carbon_gco2));
+        if let Some(v) = p.traces_pct {
+            s.traces_pct.push((x, v));
+        }
+        if let Some(v) = p.queue_pct {
+            s.queue_pct.push((x, v));
+        }
+        if let Some(v) = p.findings_pct {
+            s.findings_pct.push((x, v));
+        }
+    }
+    s
+}
+
+/// Body of the Trends tab: three braille charts over the poll history.
+/// Top row: energy and carbon per window side by side. Bottom: runtime
+/// gauges as a percentage of their configured caps, with the settings
+/// advisor's threshold drawn in.
+fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
+    let outer_block = Block::default()
+        .title(" Trends \u{00b7} Tab \u{21c4} \u{00b7} q ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let inner = outer_block.inner(area);
+    f.render_widget(outer_block, area);
+
+    if state.history.len() < 2 {
+        // A one-point curve renders as nothing; say so instead.
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(
+                    "Collecting trend points ({}/2): one lands per refresh tick ({}s)...",
+                    state.history.len(),
+                    state.refresh_secs
+                ),
+                Style::default().fg(Color::DarkGray),
+            ))),
+            inner,
+        );
+        return;
+    }
+
+    let series = build_trend_series(&state.history);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(inner);
+    let top = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(rows[0]);
+
+    #[allow(clippy::cast_precision_loss)]
+    let x_max = (state.history.len() - 1).max(1) as f64;
+    let span_label = format!(
+        "-{}",
+        fmt_span_secs((state.history.len() as u64 - 1) * state.refresh_secs)
+    );
+    draw_metric_chart(
+        f,
+        top[0],
+        " Energy \u{00b7} kWh/window ",
+        &series.energy,
+        Color::Yellow,
+        x_max,
+        &span_label,
+    );
+    draw_metric_chart(
+        f,
+        top[1],
+        " Carbon \u{00b7} gCO2e/window ",
+        &series.carbon,
+        Color::Green,
+        x_max,
+        &span_label,
+    );
+    draw_headroom_chart(f, rows[1], &series, x_max, &span_label);
+}
+
+/// One single-series braille chart with adaptive Y bounds. The dataset
+/// legend carries the latest value so the curve needs no Y cursor.
+fn draw_metric_chart(
+    f: &mut Frame,
+    area: Rect,
+    title: &'static str,
+    data: &[(f64, f64)],
+    color: Color,
+    x_max: f64,
+    span_label: &str,
+) {
+    let dim = Style::default().fg(Color::DarkGray);
+    let y_max = data.iter().map(|p| p.1).fold(0.0_f64, f64::max);
+    let y_top = if y_max > 0.0 { y_max * 1.15 } else { 1.0 };
+    let last = data.last().map_or(0.0, |p| p.1);
+    let datasets = vec![
+        Dataset::default()
+            .name(format!("now {}", fmt_tiny(last)))
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(color))
+            .data(data),
+    ];
+    let chart = Chart::new(datasets)
+        .block(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(dim),
+        )
+        // Default constraints hide any legend wider than a quarter of
+        // the chart; the "now <value>" label deserves up to half.
+        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, x_max])
+                .labels([span_label.to_string(), "now".to_string()])
+                .style(dim),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, y_top])
+                .labels(["0".to_string(), fmt_tiny(y_top)])
+                .style(dim),
+        );
+    f.render_widget(chart, area);
+}
+
+/// The gauge-vs-cap chart: each runtime gauge as a percentage of its
+/// configured cap, plus the advisor threshold as a flat reference line.
+/// Degrades to a hint when no tick carried the capacity fields (daemon
+/// predating the 0.8.8 `/api/status` additions).
+fn draw_headroom_chart(
+    f: &mut Frame,
+    area: Rect,
+    series: &TrendSeries,
+    x_max: f64,
+    span_label: &str,
+) {
+    let dim = Style::default().fg(Color::DarkGray);
+    if series.traces_pct.is_empty() && series.queue_pct.is_empty() && series.findings_pct.is_empty()
+    {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "Headroom unavailable: /api/status predates the capacity fields (0.8.8).",
+                dim,
+            )))
+            .block(
+                Block::default()
+                    .title(" Headroom ")
+                    .borders(Borders::ALL)
+                    .border_style(dim),
+            ),
+            area,
+        );
+        return;
+    }
+
+    let threshold = [(0.0, ADVISOR_THRESHOLD_PCT), (x_max, ADVISOR_THRESHOLD_PCT)];
+    let last_pct = |s: &[(f64, f64)]| s.last().map_or(0.0, |p| p.1);
+    let datasets = vec![
+        Dataset::default()
+            .name(format!(
+                "active_traces {:.0}%",
+                last_pct(&series.traces_pct)
+            ))
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Yellow))
+            .data(&series.traces_pct),
+        Dataset::default()
+            .name(format!(
+                "analysis_queue {:.0}%",
+                last_pct(&series.queue_pct)
+            ))
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Blue))
+            .data(&series.queue_pct),
+        Dataset::default()
+            .name(format!(
+                "findings_store {:.0}%",
+                last_pct(&series.findings_pct)
+            ))
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Cyan))
+            .data(&series.findings_pct),
+        Dataset::default()
+            .name("advisor threshold 90%")
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(Style::default().fg(Color::Red))
+            .data(&threshold),
+    ];
+    let chart = Chart::new(datasets)
+        .block(
+            Block::default()
+                .title(" Headroom \u{00b7} % of configured cap ")
+                .borders(Borders::ALL)
+                .border_style(dim),
+        )
+        // The legend names which color is which gauge; the default
+        // quarter-of-chart constraint hides it on narrow terminals.
+        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
+        .x_axis(
+            Axis::default()
+                .bounds([0.0, x_max])
+                .labels([span_label.to_string(), "now".to_string()])
+                .style(dim),
+        )
+        .y_axis(
+            Axis::default()
+                .bounds([0.0, 100.0])
+                .labels(["0", "50", "100%"])
+                .style(dim),
+        );
+    f.render_widget(chart, area);
+}
+
+/// Compact duration label for the chart X axis: seconds under two
+/// minutes, whole minutes under two hours, fractional hours above.
+fn fmt_span_secs(secs: u64) -> String {
+    if secs < 120 {
+        format!("{secs}s")
+    } else if secs < 7200 {
+        format!("{}m", secs / 60)
+    } else {
+        #[allow(clippy::cast_precision_loss)]
+        let hours = secs as f64 / 3600.0;
+        format!("{hours:.1}h")
+    }
+}
+
 /// Color for an advisor hint by its stable `kind`. `tuning` is the
 /// actionable yellow, `ingestion_drops` the louder red (data was lost),
 /// `cold_start` dim (transient), anything else neutral.
@@ -669,14 +1020,18 @@ fn intensity_source_label(src: IntensitySource) -> &'static str {
     }
 }
 
-/// Format an energy value: six fixed decimals down to `1e-5` kWh,
-/// scientific notation below so a tiny-but-real window does not
-/// collapse to a misleading `0.000000`.
-fn fmt_kwh(kwh: f64) -> String {
-    if kwh == 0.0 || kwh >= 1e-5 {
-        format!("{kwh:.6}")
+/// Format a tiny physical quantity (kWh, gCO2e): six fixed decimals
+/// down to `1e-5`, scientific notation below so a tiny-but-real window
+/// does not collapse to a misleading `0.000000`.
+fn fmt_tiny(v: f64) -> String {
+    // Normalize negative zero to positive: an empty `regions` sum (green
+    // disabled, or no region scored yet) yields `-0.0`, which would
+    // otherwise render as a stray "-0.000000" in the chart legend.
+    let v = if v == 0.0 { 0.0 } else { v };
+    if v == 0.0 || v >= 1e-5 {
+        format!("{v:.6}")
     } else {
-        format!("{kwh:.3e}")
+        format!("{v:.3e}")
     }
 }
 
@@ -703,6 +1058,7 @@ mod tests {
             warning_details,
             warnings: Vec::new(),
             scrapers: None,
+            status: None,
         }
     }
 
@@ -731,6 +1087,18 @@ mod tests {
             warning_details: Vec::new(),
             warnings: Vec::new(),
             scrapers: None,
+            status: None,
+        }
+    }
+
+    fn full_status() -> StatusSlim {
+        StatusSlim {
+            active_traces: 62,
+            max_active_traces: 100,
+            analysis_queue_depth: 8,
+            analysis_queue_capacity: 256,
+            stored_findings: 410,
+            max_retained_findings: 1000,
         }
     }
 
@@ -802,13 +1170,23 @@ mod tests {
     }
 
     #[test]
-    fn fmt_kwh_switches_to_scientific_below_floor() {
-        assert_eq!(fmt_kwh(1.6), "1.600000");
-        assert_eq!(fmt_kwh(0.0), "0.000000");
-        assert_eq!(fmt_kwh(1e-5), "0.000010");
-        let tiny = fmt_kwh(3.2e-7);
+    fn fmt_tiny_switches_to_scientific_below_floor() {
+        assert_eq!(fmt_tiny(1.6), "1.600000");
+        assert_eq!(fmt_tiny(0.0), "0.000000");
+        assert_eq!(fmt_tiny(1e-5), "0.000010");
+        let tiny = fmt_tiny(3.2e-7);
         assert!(tiny.contains('e'), "got: {tiny}");
         assert!(!tiny.starts_with("0.000000"), "got: {tiny}");
+    }
+
+    #[test]
+    fn fmt_tiny_normalizes_negative_zero() {
+        // An empty `regions` carbon sum yields -0.0; it must not render
+        // as a stray "-0.000000" in the chart legend.
+        assert_eq!(fmt_tiny(-0.0), "0.000000");
+        let empty: Vec<f64> = Vec::new();
+        let carbon: f64 = empty.iter().sum();
+        assert_eq!(fmt_tiny(carbon), "0.000000");
     }
 
     #[test]
@@ -850,6 +1228,8 @@ mod tests {
         assert_eq!(state.tab, Tab::Advisor);
         state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Energy);
+        state.cycle_tab(true);
+        assert_eq!(state.tab, Tab::Trends);
         state.cycle_tab(true);
         assert_eq!(state.tab, Tab::Scrapers);
         state.cycle_tab(true);
@@ -985,5 +1365,111 @@ mod tests {
             text.contains("Waiting for the first snapshot"),
             "got: {text}"
         );
+    }
+
+    #[test]
+    fn trend_history_caps_at_capacity() {
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        for _ in 0..(TREND_CAPACITY + 10) {
+            state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_warnings(
+                Vec::new(),
+            ))));
+        }
+        assert_eq!(state.history.len(), TREND_CAPACITY);
+    }
+
+    #[test]
+    fn trend_point_computes_percentages() {
+        let mut snapshot = snapshot_with_energy_mix();
+        snapshot.status = Some(full_status());
+        let p = trend_point(&snapshot);
+        assert_eq!(p.traces_pct, Some(62.0));
+        assert!((p.queue_pct.unwrap() - 3.125).abs() < 1e-9);
+        assert_eq!(p.findings_pct, Some(41.0));
+        // Carbon: sum of the per-region co2_gco2 (0.5 + 2.0).
+        assert!((p.carbon_gco2 - 2.5).abs() < 1e-9, "got {}", p.carbon_gco2);
+        assert!((p.energy_kwh - 1.6).abs() < 1e-9);
+    }
+
+    #[test]
+    fn trend_point_clamps_gauge_over_cap_to_100() {
+        // A gauge above its cap (e.g. active_traces briefly exceeding
+        // max_active_traces) must read as a full 100%, not overshoot.
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut status = full_status();
+        status.active_traces = 150;
+        status.max_active_traces = 100;
+        snapshot.status = Some(status);
+        let p = trend_point(&snapshot);
+        assert_eq!(p.traces_pct, Some(100.0));
+    }
+
+    #[test]
+    fn trend_point_suppresses_ratio_on_zero_cap() {
+        // Old daemon: serde defaults leave the caps at 0.
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut status = full_status();
+        status.max_active_traces = 0;
+        status.analysis_queue_capacity = 0;
+        status.max_retained_findings = 0;
+        snapshot.status = Some(status);
+        let p = trend_point(&snapshot);
+        assert_eq!(p.traces_pct, None);
+        assert_eq!(p.queue_pct, None);
+        assert_eq!(p.findings_pct, None);
+    }
+
+    #[test]
+    fn trend_point_clamps_negative_queue_depth() {
+        let mut snapshot = snapshot_with_warnings(Vec::new());
+        let mut status = full_status();
+        status.analysis_queue_depth = -3;
+        snapshot.status = Some(status);
+        let p = trend_point(&snapshot);
+        assert_eq!(p.queue_pct, Some(0.0));
+    }
+
+    #[test]
+    fn trend_series_keeps_x_aligned_across_missing_status() {
+        // Tick 0 carries status, tick 1 does not: the percentage series
+        // must keep the global tick index as x, not re-densify.
+        let mut state = MonitorState::new("http://localhost:4318".into(), 5);
+        let mut first = snapshot_with_warnings(Vec::new());
+        first.status = Some(full_status());
+        state.apply(FetchOutcome::Snapshot(Box::new(first)));
+        state.apply(FetchOutcome::Snapshot(Box::new(snapshot_with_warnings(
+            Vec::new(),
+        ))));
+        let mut third = snapshot_with_warnings(Vec::new());
+        third.status = Some(full_status());
+        state.apply(FetchOutcome::Snapshot(Box::new(third)));
+
+        let series = build_trend_series(&state.history);
+        assert_eq!(series.energy.len(), 3);
+        assert_eq!(series.traces_pct.len(), 2, "middle tick lacks status");
+        // x coordinates are exact small integers, compare as such.
+        #[allow(clippy::cast_possible_truncation)]
+        let xs: Vec<i64> = series.traces_pct.iter().map(|p| p.0 as i64).collect();
+        assert_eq!(xs, vec![0, 2], "x is the global tick index");
+    }
+
+    #[test]
+    fn status_slim_parses_old_daemon_payload() {
+        // Pre-0.8.8 /api/status: no capacity fields. serde defaults
+        // must fill the caps with 0 ("unknown").
+        let old =
+            r#"{"version":"0.8.7","uptime_seconds":12,"active_traces":4,"stored_findings":7}"#;
+        let parsed: StatusSlim = serde_json::from_str(old).unwrap();
+        assert_eq!(parsed.active_traces, 4);
+        assert_eq!(parsed.max_active_traces, 0);
+        assert_eq!(parsed.analysis_queue_capacity, 0);
+        assert_eq!(parsed.max_retained_findings, 0);
+    }
+
+    #[test]
+    fn fmt_span_secs_picks_compact_unit() {
+        assert_eq!(fmt_span_secs(90), "90s");
+        assert_eq!(fmt_span_secs(600), "10m");
+        assert_eq!(fmt_span_secs(7200), "2.0h");
     }
 }
