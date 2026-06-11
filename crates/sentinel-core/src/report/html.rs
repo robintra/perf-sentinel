@@ -1097,14 +1097,19 @@ mod tests {
         ];
         let mut report = minimal_report(findings);
         report.green_summary.top_offenders = offenders;
+        // t-none first on purpose: if ranking wrongly used the capped
+        // list, both traces would rank usize::MAX and the stable sort
+        // would keep input order, embedding t-none and failing the
+        // assertion below. With t-beyond first, the regression would be
+        // invisible.
         let traces = vec![
-            Trace {
-                trace_id: "t-beyond".into(),
-                spans: vec![span("t-beyond", "s", None, "svc", "/ep-30", "SELECT 1")],
-            },
             Trace {
                 trace_id: "t-none".into(),
                 spans: vec![span("t-none", "s", None, "svc", "/ep-absent", "SELECT 2")],
+            },
+            Trace {
+                trace_id: "t-beyond".into(),
+                spans: vec![span("t-beyond", "s", None, "svc", "/ep-30", "SELECT 1")],
             },
         ];
 
