@@ -30,7 +30,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Wrap};
+use ratatui::widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Wrap};
 use sentinel_core::daemon::query_api::EnergyStatusResponse;
 use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
@@ -56,6 +56,18 @@ const TREND_CAPACITY: usize = 240;
 /// (`TUNING_ACTIVE_TRACES_RATIO` daemon-side); the headroom chart draws
 /// the same threshold so the curve shows what the hint says.
 const ADVISOR_THRESHOLD_PCT: f64 = 90.0;
+
+/// Carbon legend bullet, the "true" vivid green the carbon curve should
+/// read as.
+const CARBON_BULLET: Color = Color::Rgb(0x27, 0xBE, 0x6E);
+
+/// Carbon CURVE color, deliberately brighter and more saturated than
+/// [`CARBON_BULLET`]. VHS renders braille as sub-cell dots blended into
+/// the dark background, which drains a pure green toward gray (yellow,
+/// having two bright channels, survives; green does not). Feeding the
+/// curve an oversaturated green makes the braille dots land near the
+/// bullet's vivid green instead of a dull olive.
+const CARBON_CURVE: Color = Color::Rgb(0x00, 0xF5, 0x66);
 
 /// The monitor's tabs, cycled with Tab/Shift-Tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -477,7 +489,7 @@ fn draw(f: &mut Frame, state: &MonitorState) {
 /// an incompatible response). Kept compact so it fits 80-column
 /// terminals; the key hints live in the body block title.
 fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = crate::tui::dim_style();
     let mut spans = vec![Span::raw(" ")];
     for (i, (tab, label)) in TABS.iter().enumerate() {
         if i > 0 {
@@ -517,7 +529,7 @@ fn snapshot_or_waiting<'a>(
     if latest.is_none() {
         lines.push(Line::from(Span::styled(
             "Waiting for the first snapshot from /api/export/report...",
-            Style::default().fg(Color::DarkGray),
+            crate::tui::dim_style(),
         )));
     }
     latest
@@ -528,7 +540,7 @@ fn snapshot_or_waiting<'a>(
 /// kind. Both fields are sanitized for the terminal, matching the other
 /// daemon-sourced strings the TUIs render.
 fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = crate::tui::dim_style();
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled(
             "Settings advisor",
@@ -555,7 +567,7 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
             Span::raw("  ["),
             Span::styled(
                 sanitize_for_terminal(&w.kind).into_owned(),
-                Style::default().fg(warning_kind_color(&w.kind)),
+                warning_kind_style(&w.kind),
             ),
             Span::raw("] "),
             Span::raw(sanitize_for_terminal(&w.message).into_owned()),
@@ -579,7 +591,7 @@ fn build_advisor_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 /// (effective source, measured share, energy, region) and per region
 /// (grid intensity, cold embedded vs hot scraped source).
 fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = crate::tui::dim_style();
     let bold = Style::default().add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("Energy / carbon mix", bold)),
@@ -685,7 +697,7 @@ fn build_energy_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
 /// scrape age, scrape counters. Degrades to a hint when the endpoint is
 /// unavailable (daemon predating it).
 fn build_scrapers_lines(latest: Option<&Snapshot>) -> Vec<Line<'static>> {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = crate::tui::dim_style();
     let bold = Style::default().add_modifier(Modifier::BOLD);
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(Span::styled("Energy scrapers", bold)),
@@ -798,7 +810,7 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
                     state.history.len(),
                     state.refresh_secs
                 ),
-                Style::default().fg(Color::DarkGray),
+                crate::tui::dim_style(),
             ))),
             inner,
         );
@@ -826,7 +838,7 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         top[0],
         " Energy \u{00b7} kWh/window ",
         &series.energy,
-        Color::Yellow,
+        (Color::Yellow, Color::Yellow),
         x_max,
         &span_label,
     );
@@ -835,35 +847,124 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         top[1],
         " Carbon \u{00b7} gCO2e/window ",
         &series.carbon,
-        Color::Green,
+        (CARBON_CURVE, CARBON_BULLET),
         x_max,
         &span_label,
     );
     draw_headroom_chart(f, rows[1], &series, x_max, &span_label);
 }
 
+/// Style for a trend curve. Bold promotes a named ANSI color to its
+/// bright variant on a dark terminal (the normals are muddy there) while
+/// staying legible on a light one. Truecolor (`Rgb`) and green are the
+/// exceptions: green bolds toward a dull olive on the VHS palette, and
+/// `Rgb` values are already picked for their exact rendered shade, so
+/// both keep their plain color.
+fn curve_style(color: Color) -> Style {
+    let style = Style::default().fg(color);
+    if matches!(color, Color::Green | Color::LightGreen | Color::Rgb(..)) {
+        style
+    } else {
+        style.add_modifier(Modifier::BOLD)
+    }
+}
+
+/// Vertical offset, in data units, of one braille sub-row for `area`.
+/// Each curve is drawn together with a twin shifted up by this much, so
+/// the line reads as a ~2-dot-thick band instead of a faint single dot.
+fn thicken_dy(area: Rect, y_span: f64) -> f64 {
+    // Chart plot area = height minus the two borders and the x-axis
+    // label row; braille packs 4 dots per cell row.
+    let plot_rows = f64::from(area.height.saturating_sub(3)).max(1.0);
+    y_span / (plot_rows * 4.0)
+}
+
+/// Copy a series shifted up by `dy` (its thickening twin).
+fn offset_series(data: &[(f64, f64)], dy: f64) -> Vec<(f64, f64)> {
+    data.iter().map(|(x, y)| (*x, y + dy)).collect()
+}
+
+/// Draw a chart legend by hand in the top-right of `area`, overlaying
+/// the chart's plot. ratatui's native legend forces the dataset (curve)
+/// color onto the label text, which renders darker than the thick curve
+/// itself; here the label uses the terminal's default foreground (light
+/// on a dark background, dark on a light one) and a leading colored
+/// bullet carries the curve color for identification. `area` is the
+/// chart's full rect, borders included.
+fn draw_chart_legend(f: &mut Frame, area: Rect, entries: &[(Color, String)]) {
+    if entries.is_empty() || area.width < 6 || area.height < 4 {
+        return;
+    }
+    let lines: Vec<Line<'static>> = entries
+        .iter()
+        .map(|(color, label)| {
+            Line::from(vec![
+                Span::styled("\u{25cf} ", Style::default().fg(*color)),
+                // Explicit Reset, not a bare Span: the legend overlays the
+                // plot, and a curve crossing the cell (e.g. the red 90%
+                // threshold line) would otherwise tint the label with its
+                // leftover foreground. Reset forces the terminal default.
+                Span::styled(label.clone(), Style::default().fg(Color::Reset)),
+            ])
+        })
+        .collect();
+    #[allow(clippy::cast_possible_truncation)]
+    let want_w = (entries
+        .iter()
+        .map(|(_, l)| l.chars().count() + 2)
+        .max()
+        .unwrap_or(0) as u16)
+        .min(area.width.saturating_sub(2));
+    #[allow(clippy::cast_possible_truncation)]
+    let want_h = (entries.len() as u16).min(area.height.saturating_sub(2));
+    // Inside the border, flush to the top-right corner.
+    let rect = Rect {
+        x: area.right().saturating_sub(want_w + 1),
+        y: area.y + 1,
+        width: want_w,
+        height: want_h,
+    };
+    // Clear the cells first so the curves underneath (the threshold line
+    // in particular) do not bleed through between glyphs.
+    f.render_widget(Clear, rect);
+    f.render_widget(Paragraph::new(lines), rect);
+}
+
 /// One single-series braille chart with adaptive Y bounds. The dataset
-/// legend carries the latest value so the curve needs no Y cursor.
+/// legend carries the latest value so the curve needs no Y cursor. The
+/// curve is drawn as two parallel sub-pixel-apart lines for thickness.
 fn draw_metric_chart(
     f: &mut Frame,
     area: Rect,
     title: &'static str,
     data: &[(f64, f64)],
-    color: Color,
+    // (curve color, legend bullet color). Usually the same; they differ
+    // for carbon, whose braille curve is oversaturated to render as the
+    // bullet's vivid green (see CARBON_CURVE).
+    colors: (Color, Color),
     x_max: f64,
     span_label: &str,
 ) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let (curve_color, bullet_color) = colors;
+    let dim = crate::tui::dim_style();
     let y_max = data.iter().map(|p| p.1).fold(0.0_f64, f64::max);
     let y_top = if y_max > 0.0 { y_max * 1.15 } else { 1.0 };
     let last = data.last().map_or(0.0, |p| p.1);
+    let twin = offset_series(data, thicken_dy(area, y_top));
+    // Two parallel lines one sub-row apart so the curve reads thick, not
+    // a faint single dot. No legend name on the datasets: the legend is
+    // drawn by hand below so its text can stay light.
     let datasets = vec![
         Dataset::default()
-            .name(format!("now {}", fmt_tiny(last)))
             .marker(symbols::Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(Style::default().fg(color))
+            .style(curve_style(curve_color))
             .data(data),
+        Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+            .style(curve_style(curve_color))
+            .data(&twin),
     ];
     let chart = Chart::new(datasets)
         .block(
@@ -872,9 +973,6 @@ fn draw_metric_chart(
                 .borders(Borders::ALL)
                 .border_style(dim),
         )
-        // Default constraints hide any legend wider than a quarter of
-        // the chart; the "now <value>" label deserves up to half.
-        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
         .x_axis(
             Axis::default()
                 .bounds([0.0, x_max])
@@ -888,6 +986,11 @@ fn draw_metric_chart(
                 .style(dim),
         );
     f.render_widget(chart, area);
+    draw_chart_legend(
+        f,
+        area,
+        &[(bullet_color, format!("now {}", fmt_tiny(last)))],
+    );
 }
 
 /// The gauge-vs-cap chart: each runtime gauge as a percentage of its
@@ -901,7 +1004,7 @@ fn draw_headroom_chart(
     x_max: f64,
     span_label: &str,
 ) {
-    let dim = Style::default().fg(Color::DarkGray);
+    let dim = crate::tui::dim_style();
     if series.traces_pct.is_empty() && series.queue_pct.is_empty() && series.findings_pct.is_empty()
     {
         f.render_widget(
@@ -922,39 +1025,42 @@ fn draw_headroom_chart(
 
     let threshold = [(0.0, ADVISOR_THRESHOLD_PCT), (x_max, ADVISOR_THRESHOLD_PCT)];
     let last_pct = |s: &[(f64, f64)]| s.last().map_or(0.0, |p| p.1);
+    // Thickening twins (one braille sub-row up) for the three gauges; the
+    // flat threshold line needs no thickening. The Y span is the fixed
+    // 0..100 axis.
+    let dy = thicken_dy(area, 100.0);
+    let twin_traces = offset_series(&series.traces_pct, dy);
+    let twin_queue = offset_series(&series.queue_pct, dy);
+    let twin_findings = offset_series(&series.findings_pct, dy);
+    // No legend names on the datasets: each gauge is a thick pair (curve
+    // + twin one sub-row up), and the legend is drawn by hand below so
+    // its text stays light instead of taking the curve color.
+    let braille_line = || {
+        Dataset::default()
+            .marker(symbols::Marker::Braille)
+            .graph_type(GraphType::Line)
+    };
     let datasets = vec![
-        Dataset::default()
-            .name(format!(
-                "active_traces {:.0}%",
-                last_pct(&series.traces_pct)
-            ))
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Yellow))
+        braille_line()
+            .style(curve_style(Color::Yellow))
             .data(&series.traces_pct),
-        Dataset::default()
-            .name(format!(
-                "analysis_queue {:.0}%",
-                last_pct(&series.queue_pct)
-            ))
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Blue))
+        braille_line()
+            .style(curve_style(Color::Yellow))
+            .data(&twin_traces),
+        braille_line()
+            .style(curve_style(Color::LightBlue))
             .data(&series.queue_pct),
-        Dataset::default()
-            .name(format!(
-                "findings_store {:.0}%",
-                last_pct(&series.findings_pct)
-            ))
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Cyan))
+        braille_line()
+            .style(curve_style(Color::LightBlue))
+            .data(&twin_queue),
+        braille_line()
+            .style(curve_style(Color::Cyan))
             .data(&series.findings_pct),
-        Dataset::default()
-            .name("advisor threshold 90%")
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(Color::Red))
+        braille_line()
+            .style(curve_style(Color::Cyan))
+            .data(&twin_findings),
+        braille_line()
+            .style(curve_style(Color::Red))
             .data(&threshold),
     ];
     let chart = Chart::new(datasets)
@@ -964,9 +1070,6 @@ fn draw_headroom_chart(
                 .borders(Borders::ALL)
                 .border_style(dim),
         )
-        // The legend names which color is which gauge; the default
-        // quarter-of-chart constraint hides it on narrow terminals.
-        .hidden_legend_constraints((Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)))
         .x_axis(
             Axis::default()
                 .bounds([0.0, x_max])
@@ -980,6 +1083,25 @@ fn draw_headroom_chart(
                 .style(dim),
         );
     f.render_widget(chart, area);
+    draw_chart_legend(
+        f,
+        area,
+        &[
+            (
+                Color::Yellow,
+                format!("active_traces {:.0}%", last_pct(&series.traces_pct)),
+            ),
+            (
+                Color::LightBlue,
+                format!("analysis_queue {:.0}%", last_pct(&series.queue_pct)),
+            ),
+            (
+                Color::Cyan,
+                format!("findings_store {:.0}%", last_pct(&series.findings_pct)),
+            ),
+            (Color::Red, "advisor threshold 90%".to_string()),
+        ],
+    );
 }
 
 /// Compact duration label for the chart X axis: seconds under two
@@ -996,16 +1118,16 @@ fn fmt_span_secs(secs: u64) -> String {
     }
 }
 
-/// Color for an advisor hint by its stable `kind`. `tuning` is the
+/// Style for an advisor hint by its stable `kind`. `tuning` is the
 /// actionable yellow, `ingestion_drops` the louder red (data was lost),
-/// `cold_start` dim (transient), anything else neutral.
-fn warning_kind_color(kind: &str) -> Color {
+/// `cold_start` theme-adaptive dim (transient), anything else neutral.
+fn warning_kind_style(kind: &str) -> Style {
     use sentinel_core::report::warnings::{COLD_START, INGESTION_DROPS, TUNING};
     match kind {
-        TUNING => Color::Yellow,
-        INGESTION_DROPS => Color::Red,
-        COLD_START => Color::DarkGray,
-        _ => Color::Gray,
+        TUNING => Style::default().fg(Color::Yellow),
+        INGESTION_DROPS => Style::default().fg(Color::Red),
+        COLD_START => crate::tui::dim_style(),
+        _ => Style::default().fg(Color::Gray),
     }
 }
 
@@ -1162,11 +1284,20 @@ mod tests {
     }
 
     #[test]
-    fn warning_kind_color_maps_kinds() {
-        assert_eq!(warning_kind_color("tuning"), Color::Yellow);
-        assert_eq!(warning_kind_color("ingestion_drops"), Color::Red);
-        assert_eq!(warning_kind_color("cold_start"), Color::DarkGray);
-        assert_eq!(warning_kind_color("something_else"), Color::Gray);
+    fn warning_kind_style_maps_kinds() {
+        assert_eq!(
+            warning_kind_style("tuning"),
+            Style::default().fg(Color::Yellow)
+        );
+        assert_eq!(
+            warning_kind_style("ingestion_drops"),
+            Style::default().fg(Color::Red)
+        );
+        assert_eq!(warning_kind_style("cold_start"), crate::tui::dim_style());
+        assert_eq!(
+            warning_kind_style("something_else"),
+            Style::default().fg(Color::Gray)
+        );
     }
 
     #[test]
