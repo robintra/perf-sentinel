@@ -310,6 +310,30 @@ pub struct MetricsState {
     /// Cumulative I/O waste ratio since daemon start.
     /// Use Prometheus `rate()` on `total_io_ops` and `avoidable_io_ops` for windowed ratios.
     pub io_waste_ratio: Gauge,
+    /// Energy attributed to the workload in the most recent scoring
+    /// window, kWh. Scalar (no per-service/region labels, which stay
+    /// off `/metrics` for cardinality), the Grafana counterpart of the
+    /// monitor's Energy/Trends total.
+    pub energy_kwh: Gauge,
+    /// Operational carbon of the most recent scoring window, grams
+    /// `CO2e`, summed across regions. Scalar, same rationale as
+    /// `energy_kwh`.
+    pub carbon_gco2: Gauge,
+    /// Configured cap of the correlation window (`[daemon]
+    /// max_active_traces`), set once at startup. Pairs with
+    /// `active_traces` for a headroom panel.
+    pub max_active_traces: Gauge,
+    /// Configured cap of the findings ring buffer (`[daemon]
+    /// max_retained_findings`), set once at startup. Pairs with
+    /// `stored_findings`.
+    pub max_retained_findings: Gauge,
+    /// Configured cap of the analysis worker queue (`[daemon]
+    /// analysis_queue_capacity`), set once at startup. Pairs with
+    /// `analysis_queue_depth`.
+    pub analysis_queue_capacity: Gauge,
+    /// Findings currently retained in the query ring buffer. Pairs with
+    /// `max_retained_findings` for a headroom panel.
+    pub stored_findings: Gauge,
     /// Total traces analyzed since daemon start.
     pub traces_analyzed_total: Counter,
     /// Total events processed since daemon start.
@@ -514,6 +538,42 @@ impl MetricsState {
         )
         .expect("metric creation should not fail");
 
+        let energy_kwh = Gauge::new(
+            "perf_sentinel_energy_kwh",
+            "Workload energy of the most recent scoring window, kWh",
+        )
+        .expect("metric creation should not fail");
+
+        let carbon_gco2 = Gauge::new(
+            "perf_sentinel_carbon_gco2",
+            "Operational carbon of the most recent scoring window, grams CO2e (excludes embodied and network transport)",
+        )
+        .expect("metric creation should not fail");
+
+        let max_active_traces = Gauge::new(
+            "perf_sentinel_max_active_traces",
+            "Configured cap of the correlation window ([daemon] max_active_traces)",
+        )
+        .expect("metric creation should not fail");
+
+        let analysis_queue_capacity = Gauge::new(
+            "perf_sentinel_analysis_queue_capacity",
+            "Configured cap of the analysis worker queue ([daemon] analysis_queue_capacity)",
+        )
+        .expect("metric creation should not fail");
+
+        let max_retained_findings = Gauge::new(
+            "perf_sentinel_max_retained_findings",
+            "Configured cap of the findings ring buffer ([daemon] max_retained_findings)",
+        )
+        .expect("metric creation should not fail");
+
+        let stored_findings = Gauge::new(
+            "perf_sentinel_stored_findings",
+            "Findings currently retained in the query ring buffer",
+        )
+        .expect("metric creation should not fail");
+
         let traces_analyzed_total = Counter::new(
             "perf_sentinel_traces_analyzed_total",
             "Total traces analyzed since start",
@@ -604,6 +664,24 @@ impl MetricsState {
             .expect("registration should not fail");
         registry
             .register(Box::new(io_waste_ratio.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(energy_kwh.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(carbon_gco2.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(max_active_traces.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(analysis_queue_capacity.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(max_retained_findings.clone()))
+            .expect("registration should not fail");
+        registry
+            .register(Box::new(stored_findings.clone()))
             .expect("registration should not fail");
         registry
             .register(Box::new(traces_analyzed_total.clone()))
@@ -892,6 +970,12 @@ impl MetricsState {
             registry,
             findings_total,
             io_waste_ratio,
+            energy_kwh,
+            carbon_gco2,
+            max_active_traces,
+            analysis_queue_capacity,
+            max_retained_findings,
+            stored_findings,
             traces_analyzed_total,
             events_processed_total,
             active_traces,
@@ -1599,6 +1683,13 @@ mod tests {
         assert!(output.contains("perf_sentinel_traces_analyzed_total"));
         assert!(output.contains("perf_sentinel_events_processed_total"));
         assert!(output.contains("perf_sentinel_active_traces"));
+        // Trends gauges backing the Grafana energy/carbon and headroom panels.
+        assert!(output.contains("perf_sentinel_energy_kwh"));
+        assert!(output.contains("perf_sentinel_carbon_gco2"));
+        assert!(output.contains("perf_sentinel_max_active_traces"));
+        assert!(output.contains("perf_sentinel_analysis_queue_capacity"));
+        assert!(output.contains("perf_sentinel_max_retained_findings"));
+        assert!(output.contains("perf_sentinel_stored_findings"));
     }
 
     #[test]

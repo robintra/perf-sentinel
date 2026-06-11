@@ -145,6 +145,23 @@ pub enum TlsConfigError {
     ServerConfig(#[source] tokio_rustls::rustls::Error),
 }
 
+/// Publish the configured caps once at startup. They are constant for
+/// the daemon's lifetime and pair with the live gauges (`active_traces`,
+/// `analysis_queue_depth`, `stored_findings`) for the Grafana headroom
+/// panels.
+#[allow(clippy::cast_precision_loss)] // caps are small config values
+fn publish_config_caps(metrics: &MetricsState, daemon: &crate::config::DaemonConfig) {
+    metrics
+        .max_active_traces
+        .set(daemon.max_active_traces as f64);
+    metrics
+        .analysis_queue_capacity
+        .set(daemon.analysis_queue_capacity as f64);
+    metrics
+        .max_retained_findings
+        .set(daemon.max_retained_findings as f64);
+}
+
 /// Run the daemon: start all listeners and process events in a loop.
 ///
 /// # Errors
@@ -164,6 +181,7 @@ pub async fn run(config: Config) -> Result<(), DaemonError> {
             .expect("config validates max_active_traces >= 1"),
     })));
     let metrics = Arc::new(MetricsState::new());
+    publish_config_caps(&metrics, &config.daemon);
     let findings_store = Arc::new(findings_store::FindingsStore::new(
         config.daemon.max_retained_findings,
     ));
