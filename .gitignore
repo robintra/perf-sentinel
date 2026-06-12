@@ -23,5 +23,3 @@
 /crates/sentinel-cli/tests/browser/demo-videos/
 # Playwright MCP console-log scratch directory
 /.playwright-mcp/
-
-/CHANGELOG.md
