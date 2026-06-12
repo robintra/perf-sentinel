@@ -269,7 +269,9 @@ pub(crate) fn format_colored_report_with_acks(
     }
 
     print_green_summary(&report.green_summary, force_color);
-    print_quality_gate(&report.quality_gate, force_color);
+    // Demo never enforces the gate (always exits 0), so flag its verdict as
+    // informational. Only `cmd_demo` renders with the "demo" title.
+    print_quality_gate(&report.quality_gate, force_color, title == "demo");
     print_acknowledged_summary(report, force_color, show_acknowledged);
 }
 
@@ -658,7 +660,11 @@ fn print_green_summary(summary: &sentinel_core::report::GreenSummary, force_colo
     println!();
 }
 
-fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bool) {
+fn print_quality_gate(
+    gate: &sentinel_core::report::QualityGate,
+    force_color: bool,
+    demo_context: bool,
+) {
     let AnsiColors {
         bold,
         red,
@@ -670,7 +676,13 @@ fn print_quality_gate(gate: &sentinel_core::report::QualityGate, force_color: bo
 
     let gate_color = if gate.passed { green } else { red };
     let gate_label = if gate.passed { "PASSED" } else { "FAILED" };
-    println!("{bold}Quality gate: {gate_color}{gate_label}{reset}");
+    // Appended after `{reset}` so the note stays uncolored and ANSI-free in pipes.
+    let demo_note = if demo_context && !gate.passed {
+        " (informational in demo, would exit 1 under analyze --ci)"
+    } else {
+        ""
+    };
+    println!("{bold}Quality gate: {gate_color}{gate_label}{reset}{demo_note}");
     for rule in &gate.rules {
         let status_color = if rule.passed { green } else { red };
         let status_label = if rule.passed { "PASS" } else { "FAIL" };
