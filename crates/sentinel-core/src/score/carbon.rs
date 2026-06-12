@@ -44,14 +44,11 @@ const HTTP_LARGE_COEFF: f64 = 2.0; // payload > 1 MB
 const HTTP_SMALL_THRESHOLD: u64 = 10 * 1024; // 10 KB
 const HTTP_LARGE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
 
-/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, a
-/// conservative default below recent whole-network averages: SWD Model
-/// v4 (2024) gives 0.059 kWh/GB operational for networks, and Mytton,
-/// Lunden & Malmodin (2024, J. Industrial Ecology 28(4), Table 2) show
-/// kWh/GB coefficients are only valid retrospectively (power-model
-/// critique), with inter-datacenter figures as low as 0.001 kWh/Gb
-/// (Cloud Carbon Footprint). Treat as an upper bound for cross-region
-/// server traffic, only when `include_network_transport` is enabled.
+/// Network transport energy per byte (kWh/byte). 0.04 kWh/GB, an upper
+/// bound for cross-region server traffic, applied only when
+/// `include_network_transport` is enabled. Sources and the power-model
+/// critique are in `docs/design/05-GREENOPS-AND-CARBON.md` § "Network
+/// transport energy".
 pub const DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH: f64 = 0.000_000_000_04;
 
 /// Lower bound factor for the CO₂ confidence interval (`low = mid × 0.5`).
@@ -120,15 +117,12 @@ pub const METHODOLOGY_OPERATIONAL_RATIO: &str = "sci_v1_operational_ratio";
 /// `[green] embodied_carbon_per_request_gco2`. Derivation in design doc.
 pub const DEFAULT_EMBODIED_CARBON_PER_REQUEST_GCO2: f64 = 0.001;
 
-/// Generic PUE (Power Usage Effectiveness) for regions not associated
-/// with a specific cloud provider. Used as fallback for out-of-table
-/// regions that have a custom hourly profile. Tracks the Uptime
-/// Institute Global Data Center Survey weighted average (1.54 in 2025,
-/// flat for six consecutive years): the Generic bucket is the
-/// self-hosted, colocation and non-hyperscaler population, hyperscaler
-/// regions carry their own provider PUE. Deliberately rounded to one
-/// decimal, the survey plateau spans 1.5-1.6 and finer precision would
-/// be illusory.
+/// Generic PUE for regions not associated with a specific cloud
+/// provider, also the fallback for out-of-table regions with a custom
+/// hourly profile. Tracks the Uptime Institute survey average,
+/// deliberately rounded to one decimal (the survey plateau spans
+/// 1.5-1.6). Sources in `docs/design/05-GREENOPS-AND-CARBON.md`
+/// § "PUE values".
 pub const GENERIC_PUE: f64 = 1.5;
 
 /// Vintage of the per-provider PUE constants embedded in `Provider::pue`.

@@ -59,10 +59,8 @@ struct EndpointStats {
 type EndpointKey<'a> = (&'a str, &'a str);
 
 /// Count I/O ops per `(service, endpoint)` and invocations (distinct
-/// traces per `(service, endpoint)`) in a single pass. `invocation_count`
-/// is bumped on the first span of a given trace that hits the endpoint,
-/// using `last_seen_trace` as a per-trace sentinel (initialized to
-/// `usize::MAX` so trace index `0` still triggers the bump).
+/// traces per `(service, endpoint)`) in a single pass, using
+/// [`EndpointStats::last_seen_trace`] as the per-trace sentinel.
 fn count_endpoint_stats(traces: &[Trace]) -> (HashMap<EndpointKey<'_>, EndpointStats>, usize) {
     let mut endpoint_stats: HashMap<EndpointKey<'_>, EndpointStats> =
         HashMap::with_capacity(traces.len().min(64));
@@ -118,33 +116,21 @@ fn endpoint_stats_to_per_endpoint_io_ops(
 
 /// Compute `GreenOps` scores: enrich findings with `green_impact` and produce a `GreenSummary`.
 ///
-/// I/O operation counts are used as a proxy for energy consumption.
-/// This is an approximation; actual energy depends on I/O type, latency,
-/// and infrastructure, and is not measured directly.
+/// I/O operation counts are a proxy for energy consumption, not a
+/// measurement (actual energy depends on I/O type, latency and
+/// infrastructure).
 ///
-/// When `carbon` is `Some`, the function additionally computes:
-/// - **Operational CO₂** per region using the SCI `O = E × I` term, with
-///   per-region bucketing via [`resolve_region`].
-/// - **Embodied CO₂** via the SCI `M` term (`traces.len() × embodied_per_request_gco2`).
-/// - **Confidence intervals** (low/mid/high), 2× multiplicative uncertainty
-///   bracket around the I/O proxy midpoint.
-/// - **Avoidable CO₂** via the region-blind ratio
-///   `operational × (avoidable_io_ops / accounted_io_ops)`, where
-///   `accounted_io_ops` excludes the synthetic unknown bucket.
+/// When `carbon` is `Some`, additionally computes operational CO₂ per
+/// region (SCI `O = E × I`, bucketed via [`resolve_region`]), embodied
+/// CO₂ (SCI `M`, `traces.len() × embodied_per_request_gco2`), 2×
+/// multiplicative confidence intervals, and avoidable CO₂
+/// (`operational × avoidable_io_ops / accounted_io_ops`, excluding the
+/// synthetic unknown bucket). When `None`, the deprecated scalar fields
+/// and the `co2` / `regions` fields are all left empty.
 ///
-/// When `carbon` is `None`, no CO₂ is computed; the deprecated scalar
-/// fields and the new `co2` / `regions` fields are all left empty.
-///
-/// Algorithm:
-/// 1. Count I/O ops per source endpoint across all traces.
-/// 2. Compute IIS (I/O Intensity Score) per endpoint.
-/// 3. Dedup avoidable I/O ops using max per trace/template pair.
-/// 4. Populate `green_impact` on each finding.
-/// 5. Build top offenders ranking sorted by IIS descending.
-///    Per-offender `co2_grams` is `None` when multi-region scoring is active.
-/// 6. (If `carbon` is `Some` and `traces` non-empty) bucket I/O ops per region,
-///    compute operational + embodied CO₂, build the structured `CarbonReport`
-///    and the per-region breakdown (sorted by `co2_gco2` DESC).
+/// The step-by-step algorithm (count, IIS, dedup, enrich, rank, then
+/// per-region carbon) is documented in
+/// `docs/design/05-GREENOPS-AND-CARBON.md`.
 #[must_use]
 pub fn score_green(
     traces: &[Trace],
