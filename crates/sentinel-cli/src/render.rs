@@ -23,10 +23,9 @@ use crate::OutputFormat;
 /// `show_acknowledged` is true.
 ///
 /// Takes `&mut Report` so the JSON / SARIF emit paths can hide
-/// `acknowledged_findings` via a zero-copy `mem::take`+restore around the
-/// emit call. The previous `Report::clone()` strategy deep-cloned the
-/// entire `findings` vector and friends just to clear one field, which is
-/// wasteful on large baselines (perf-greenops 0.5.17 review).
+/// `acknowledged_findings` via a zero-copy `mem::take`+restore around
+/// the emit call, avoiding a deep clone of the whole report on large
+/// baselines.
 pub(crate) fn emit_report_and_gate(
     report: &mut Report,
     format: Option<OutputFormat>,

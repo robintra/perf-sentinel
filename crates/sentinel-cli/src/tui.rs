@@ -458,7 +458,7 @@ impl App {
                 // Clamp to `line_count - 1` so the last logical line stays
                 // at least partially visible at the top of the viewport
                 // when fully scrolled down. Prevents infinite scroll past
-                // the content, which used to leave the panel blank.
+                // the content (which would leave the panel blank).
                 let max_offset = self.detail_panel_line_count().saturating_sub(1);
                 if self.scroll_offset < max_offset {
                     self.scroll_offset = self.scroll_offset.saturating_add(1);
