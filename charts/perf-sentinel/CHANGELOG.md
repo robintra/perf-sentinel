@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.54]
+
+### Changed
+
+- `appVersion` bumped to `0.8.9` to track the demo quality-gate annotation: `perf-sentinel demo` now marks its failed gate verdict as informational ("Quality gate: FAILED (informational in demo, would exit 1 under analyze --ci)"), since the demo never enforces the gate and always exits 0. The annotation is console-only and demo-only, `analyze --ci` exit behavior and every machine export (JSON, SARIF, HTML, NDJSON) are unchanged. The documented crates.io install command now recommends `cargo install perf-sentinel --locked` for reproducible installs. CLI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.9` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.53]
 
 ### Changed
