@@ -263,7 +263,7 @@ Two behaviours to know before sizing: upstream trace sampling (head-based vs tai
 
 </details>
 
-The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) validates eight operational modes end to end on a real Kubernetes cluster, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
+The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) is the mandatory pre-tag release gate: 36 end-to-end scenarios on a local Kubernetes (k3d) cluster, covering nine deployment modes plus CI templates, failure modes and load limits, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
 
 ### Data handling
 

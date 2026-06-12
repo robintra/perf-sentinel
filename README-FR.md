@@ -263,7 +263,7 @@ Deux comportements à connaître avant de dimensionner : l'échantillonnage de t
 
 </details>
 
-Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) valide huit modes opérationnels de bout en bout sur un vrai cluster Kubernetes, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
+Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) est le release gate obligatoire pre-tag : 36 scénarios de bout en bout sur un cluster Kubernetes local (k3d), couvrant neuf modes de déploiement plus les templates CI, les modes de défaillance et les limites de charge, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
 
 ### Traitement des données
 
