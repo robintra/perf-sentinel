@@ -48,27 +48,18 @@ pub fn compute_energy_per_op_kwh(
 
 /// Apply a freshly-scraped batch of process-power readings to a
 /// [`ScaphandreState`], updating each mapped service's energy-per-op
-/// coefficient.
+/// coefficient via [`compute_energy_per_op_kwh`].
 ///
-/// Takes the already-parsed `power_readings` (from
-/// [`super::parser::parse_scaphandre_metrics`]), the per-service op
-/// delta (from
-/// [`crate::score::ops_snapshot_diff::OpsSnapshotDiff::delta_and_advance`]),
-/// the scraper config, and a `multi_match_warned` set carried by the
-/// caller across ticks so the ambiguous-matcher warning fires at most
-/// once per service per misconfiguration streak (cleared when the
-/// service starts matching cleanly again, so a freshly broken config
-/// re-warns). Iterates the config's `process_map` to find each mapped
-/// service, looks up its process's current power, and calls
-/// [`compute_energy_per_op_kwh`] to derive the coefficient. If the
-/// op delta is 0 for a service, the existing entry (if any) is left
-/// unchanged, see the rationale in [`compute_energy_per_op_kwh`].
+/// `multi_match_warned` is carried by the caller across ticks so the
+/// ambiguous-matcher warning fires at most once per service per
+/// misconfiguration streak (cleared when the service matches cleanly
+/// again, so a freshly broken config re-warns). A zero op delta leaves
+/// the service's existing entry unchanged, see
+/// [`compute_energy_per_op_kwh`].
 ///
-/// Uses the `ArcSwap` pattern: builds a new `HashMap` starting from
-/// the current published one (so previous entries that don't get
-/// updated this tick are inherited), mutates it locally, and
-/// publishes the result atomically at the end via
-/// `ScaphandreState::publish`.
+/// `ArcSwap` pattern: builds a new `HashMap` from the current published
+/// one (entries not updated this tick are inherited) and publishes it
+/// atomically via `ScaphandreState::publish`.
 // `clippy::implicit_hasher` would want `op_deltas` generic over the
 // hasher (`<S: BuildHasher>`). We take it as a concrete `HashMap`
 // because the only caller is the scraper loop, which gets the map
