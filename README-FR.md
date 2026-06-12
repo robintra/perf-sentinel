@@ -115,7 +115,7 @@ Chaque finding embarque : type, sévérité, template normalisé, occurrences, e
 
 ```bash
 # depuis crates.io
-cargo install perf-sentinel
+cargo install perf-sentinel --locked
 
 # ou télécharger un binaire pré-construit (Linux amd64/arm64, macOS arm64, Windows amd64)
 curl -LO https://github.com/robintra/perf-sentinel/releases/latest/download/perf-sentinel-linux-amd64
