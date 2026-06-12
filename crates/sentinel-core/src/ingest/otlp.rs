@@ -21,7 +21,7 @@ use crate::report::metrics::{OtlpRejectReason, OtlpSpanFilterReason};
 /// implements it in `report::metrics`; alternative sinks (counting
 /// fakes in tests, other metrics stacks) plug in without touching
 /// `ingest`. Decoupling rationale in
-/// `docs/design/06-INGESTION-AND-DAEMON.md` § "The MetricsSink trait".
+/// `docs/design/06-INGESTION-AND-DAEMON.md` § "The `MetricsSink` trait".
 ///
 /// `Send + Sync` because the gRPC and HTTP paths share the sink across
 /// tokio tasks via `Arc<dyn MetricsSink>`.
