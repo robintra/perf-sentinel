@@ -254,9 +254,8 @@ async fn drive_event_loop(
 }
 
 /// Single analysis worker: pulls batches in FIFO order and runs the
-/// CPU-heavy detect+score path that used to run inline on the select!
-/// loop. Exits when the channel closes (shutdown), after draining every
-/// buffered batch.
+/// CPU-heavy detect+score path off the `select!` loop. Exits when the
+/// channel closes (shutdown), after draining every buffered batch.
 async fn run_analysis_worker(mut work_rx: mpsc::Receiver<AnalysisBatch>, wctx: AnalysisWorkerCtx) {
     while let Some(batch) = work_rx.recv().await {
         wctx.metrics.analysis_queue_depth.dec();

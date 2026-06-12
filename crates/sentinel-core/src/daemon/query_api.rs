@@ -576,60 +576,21 @@ async fn handle_energy(State(state): State<Arc<QueryApiState>>) -> Json<EnergySt
     Json(EnergyStatusResponse { backends })
 }
 
-/// Snapshot the daemon's in-memory state as a [`Report`].
+/// Snapshot the daemon's in-memory state as a [`Report`], in the same
+/// JSON shape as `analyze --format json` (pipeable into
+/// `perf-sentinel report --input -`).
 ///
-/// Returns the same JSON shape that `analyze --format json` produces,
-/// which allows piping the response directly into `perf-sentinel
-/// report --input -` to materialize an HTML dashboard from a live
-/// daemon:
-///
-/// ```text
-/// curl -s http://daemon.internal:4318/api/export/report \
-///     | perf-sentinel report --input - --output report.html
-/// ```
-///
-/// `green_summary` is refreshed by the event loop after each completed
-/// batch (regions, top offenders, avoidable I/O ratio, CO2 numbers).
-/// **Per-batch view:** every numeric field under `green_summary`
-/// (`total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`, `co2.*`,
-/// `regions`, `top_offenders`, `transport_gco2`) reflects the most
-/// recent batch only, not a daemon-lifetime aggregate. The
-/// `analysis.events_processed` and `analysis.traces_analyzed` fields
-/// are lifetime counters for context. Operators wanting cumulative
-/// `GreenOps` numbers should scrape `/metrics` (Prometheus counters
-/// `total_io_ops`, `avoidable_io_ops`, `io_waste_ratio`).
-///
-/// The HTML dashboard's `GreenOps` tab renders only when
-/// `green_summary.co2` is non-null, daemons configured with Electricity
-/// Maps surface the chip banner naturally once at least one batch has
-/// been processed.
-///
-/// `analysis.duration_ms` is `0`, not daemon uptime. The batch-pipeline
-/// value is the cost of a single analysis run, a daemon snapshot has
-/// no such single run to time.
-///
-/// Cold start returns `200 OK` with an empty `Report` envelope. Pre-0.5.16
-/// this path returned `503 Service Unavailable`, which tripped Kubernetes
-/// probes and confused CI scripts that treated 5xx as a daemon health
-/// problem. The empty envelope (`findings: []`,
-/// `green_summary: GreenSummary::disabled(0)`,
-/// `warnings: ["daemon has not yet processed any events"]`) lets clients
-/// detect cold-start without a status code mismatch, while preserving the
-/// double-counter check (`events_processed_total > 0` AND
-/// `traces_analyzed_total > 0`) so the snapshot is meaningful: events can
-/// be ingested seconds before the first eviction tick fires
-/// (`trace_ttl_ms / 2`, default 15s), gating only on `events_processed > 0`
-/// would expose a window where the cell is still `disabled(0)`. The
-/// `export_report_requests_total` counter is bumped before the cold-start
-/// check, so cold-start responses are counted too (consistent with HTTP
-/// access-log conventions).
-///
-/// Response size is bounded by `MAX_FINDINGS_LIMIT` + `MAX_CORRELATIONS_LIMIT`
-/// (1000 + 1000 entries) plus a bounded `green_summary` (`top_offenders`
-/// capped, `regions` limited by cloud-region cardinality), worst-case
-/// body ~3.5 MB. Acceptable on a loopback bind (the documented
-/// posture), review the cap if the daemon is ever bound to a
-/// non-loopback interface.
+/// Contract highlights (full semantics in
+/// `docs/design/06-INGESTION-AND-DAEMON.md` § "/api/export/report
+/// snapshot semantics"):
+/// - `green_summary` is a **per-batch view** (most recent batch only);
+///   `analysis.events_processed` / `traces_analyzed` are lifetime
+///   counters; `analysis.duration_ms` is `0`.
+/// - Cold start returns `200 OK` with an empty envelope, gated on the
+///   double counter check (`events_processed > 0` AND
+///   `traces_analyzed > 0`).
+/// - Response size bounded (~3.5 MB worst case), sized for the
+///   documented loopback posture.
 ///
 /// TODO: the `Report` assembly below duplicates the one in
 /// `pipeline::analyze`. When a third call site lands, factor into
