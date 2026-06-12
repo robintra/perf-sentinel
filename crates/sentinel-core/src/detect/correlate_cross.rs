@@ -13,10 +13,9 @@ use crate::detect::Finding;
 /// Configuration for cross-trace correlation.
 #[derive(Debug, Clone)]
 pub struct CorrelationConfig {
-    /// Whether cross-trace correlation runs at all. When `false`, the
-    /// daemon never builds a `CrossTraceCorrelator` and the other fields
-    /// are irrelevant. Opt-in: keeping it `false` by default preserves
-    /// the pre-0.5 behavior for users who do not wire correlation up.
+    /// Whether cross-trace correlation runs at all. Opt-in, `false` by
+    /// default: the daemon then never builds a `CrossTraceCorrelator`
+    /// and the other fields are irrelevant.
     pub enabled: bool,
     /// Rolling window in milliseconds (default 600,000 = 10 min).
     pub window_ms: u64,
@@ -153,19 +152,12 @@ struct PairState {
 }
 
 impl PairState {
-    /// Append a lag sample using Algorithm R reservoir sampling.
-    ///
-    /// While the reservoir has space, append. Once full, draw a random
-    /// replacement probability `k/n` (k = `MAX_LAG_SAMPLES`, n =
-    /// `total_observations`). When the draw succeeds, the slot itself
-    /// is chosen uniformly in `[0, k)`.
-    ///
-    /// Uses `SplitMix64` (10 lines, no `rand` dependency) which has
-    /// excellent statistical properties over its full period. A prior
-    /// implementation used `fnv1a(total_observations) % total_observations`
-    /// which is biased (FNV of consecutive integers is not uniform in
-    /// small-range modulos) and caused the reservoir to freeze after a
-    /// few thousand observations.
+    /// Append a lag sample using Algorithm R reservoir sampling:
+    /// append while the reservoir has space, then replace slot `r`
+    /// when a uniform draw `r` in `[0, n)` lands below
+    /// `MAX_LAG_SAMPLES`. Driven by `SplitMix64` (no `rand`
+    /// dependency); a biased draw freezes the reservoir, see the
+    /// `reservoir_continues_to_sample_after_many_observations` test.
     fn record_lag(&mut self, lag_ms: f64) {
         self.total_observations = self.total_observations.saturating_add(1);
         if self.lags_ms.len() < MAX_LAG_SAMPLES {
@@ -223,16 +215,10 @@ fn splitmix64(state: &mut u64) -> u64 {
 }
 
 /// Cheap 64-bit hash of a `CorrelationEndpoint`, used only to diversify
-/// `PairState` PRNG seeds. Not cryptographic, not exposed externally.
-///
-/// Uses FNV-1a rather than `std::hash::DefaultHasher` on purpose: the
-/// default hasher is seeded with a per-process `RandomState`, which
-/// makes the correlator produce different reservoir samples across runs
-/// given identical traffic. Determinism matters here because users debug
-/// correlations by replaying trace files: two runs on the same input
-/// should produce the same median-lag values. FNV-1a has a fixed seed
-/// and no observable security-relevant side channel (the correlator is
-/// not adversarial, inputs come from our own detectors).
+/// `PairState` PRNG seeds. FNV-1a rather than `DefaultHasher` because
+/// the latter's per-process `RandomState` would make reservoir samples
+/// (and median lags) differ across runs on the same replayed input;
+/// determinism is what users rely on when debugging by replay.
 fn hash_endpoint(ep: &CorrelationEndpoint) -> u64 {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x100_0000_01b3;
@@ -309,18 +295,13 @@ impl CrossTraceCorrelator {
     /// Evicts stale entries, then checks for co-occurrences between
     /// the new findings and recent ones from different services.
     /// Returns the number of pairs lost to the `max_tracked_pairs` cap
-    /// in this batch: distinct new pairs refused while the map sat at
-    /// the cap, plus incumbents evicted at batch end to make room for
-    /// the next batch. A pair still refused on a later batch counts
-    /// again there, so the lifetime counter reads as "pair-batches
-    /// lost", not unique pairs forever.
+    /// in this batch (distinct refused newcomers + incumbents evicted
+    /// at batch end). A pair refused again on a later batch counts
+    /// again: the lifetime counter reads as "pair-batches lost".
     ///
-    /// `source_totals` is maintained incrementally: increment on
-    /// `push_back`, decrement on `pop_front`. Removing an entry when its
-    /// count drops to 0 keeps the map size bounded by the number of
-    /// distinct endpoints currently in the window. This avoids the
-    /// O(occurrences) per-tick rebuild that a `clear + repopulate`
-    /// approach would require.
+    /// `source_totals` is maintained incrementally (increment on
+    /// `push_back`, decrement on `pop_front`, remove at 0), avoiding an
+    /// O(occurrences) per-tick rebuild.
     #[must_use = "the eviction count feeds perf_sentinel_correlator_pairs_evicted_total"]
     pub fn ingest(&mut self, findings: &[Finding], now_ms: u64) -> usize {
         let cutoff = now_ms.saturating_sub(self.config.window_ms);
@@ -376,16 +357,14 @@ impl CrossTraceCorrelator {
     /// Scan recent occurrences for entries from a different service within
     /// `lag_threshold_ms` and increment the matching pair counters.
     ///
-    /// `trace_id` is the incoming target-side finding's trace id. It is
-    /// stored on every matching [`PairState`] so [`active_correlations`]
-    /// can surface a representative trace id for UI jump-through.
-    /// New pairs NOT admitted because the map sat at `max_tracked_pairs`
-    /// are collected into `refused` (a set, so each distinct pair counts
-    /// once per batch). Admission control here is what keeps a wide
-    /// topology (hundreds of services, almost every pair new) from
-    /// inserting millions of entries inside one batch: the batch-end
-    /// eviction alone cannot bound intra-batch growth, and the map's
-    /// high-water capacity is never returned to the allocator.
+    /// `trace_id` (the incoming target-side finding's) is stored on every
+    /// matching [`PairState`] so [`active_correlations`] can surface a
+    /// representative trace for UI jump-through. Pairs refused at the
+    /// `max_tracked_pairs` cap go into `refused` (a set: one count per
+    /// distinct pair per batch). This admission control is what bounds
+    /// intra-batch growth on wide topologies; batch-end eviction alone
+    /// cannot, and the map's high-water capacity is never returned to
+    /// the allocator.
     fn record_co_occurrences(
         &mut self,
         endpoint: &std::sync::Arc<CorrelationEndpoint>,
@@ -448,19 +427,12 @@ impl CrossTraceCorrelator {
 
     /// Evict the pairs with the lowest `co_occurrence_count` down to 90%
     /// of `max_tracked_pairs` and return how many were removed. Called
-    /// when a batch hit admission refusals with the map at the cap
-    /// (admission control keeps the map from ever exceeding it).
+    /// when a batch hit admission refusals with the map at the cap.
     ///
-    /// Two optimizations over the naive "clone all keys then select":
-    ///
-    /// 1. **Amortization**: evict down to 90% of the cap in one pass so
-    ///    the O(n) work is paid once per 10% of churn rather than once
-    ///    per refused insert.
-    /// 2. **Lazy cloning**: find the eviction threshold via a
-    ///    `select_nth_unstable` on a `Vec<u32>` (Copy, no String pair
-    ///    clones), then clone keys only for the ~10% we'll actually
-    ///    remove. Previously we cloned every `PairKey` in the map
-    ///    (two `CorrelationEndpoint` strings each) on every cap hit.
+    /// Evicting down to 90% in one pass amortizes the O(n) work over
+    /// 10% of churn, and the threshold comes from `select_nth_unstable`
+    /// on a `Vec<u32>` so only the ~10% of keys actually removed pay
+    /// the `PairKey` clone cost.
     fn enforce_pair_cap(&mut self) -> usize {
         // The emptiness guard matters for `max_tracked_pairs = 0`
         // (admitted by config): the map stays empty while admission

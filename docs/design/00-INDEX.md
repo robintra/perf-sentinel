@@ -37,6 +37,12 @@ For user-facing documentation, see the parent [`docs/`](../00-INDEX.md) director
 | `detect/redundant.rs`          | [04: Detection](04-DETECTION.md)                                                                 |
 | `detect/slow.rs`               | [04: Detection](04-DETECTION.md)                                                                 |
 | `detect/correlate_cross.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/fanout.rs`             | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/chatty.rs`             | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/pool_saturation.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/serialized.rs`         | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/sanitizer_aware.rs`    | [04: Detection](04-DETECTION.md)                                                                 |
+| `detect/suggestions.rs`        | [04: Detection](04-DETECTION.md)                                                                 |
 | `score/mod.rs`                 | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |
 | `score/carbon.rs`              | [05: GreenOps](05-GREENOPS-AND-CARBON.md)                                                        |
 | `score/carbon_compute.rs`      | [05: GreenOps](05-GREENOPS-AND-CARBON.md), [09: Carbon Attribution](09-CARBON-ATTRIBUTION.md)    |

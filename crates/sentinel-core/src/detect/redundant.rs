@@ -311,8 +311,8 @@ mod tests {
 
     #[test]
     fn emits_redundant_when_n_plus_one_findings_empty() {
-        // Non-regression: empty n+1 findings slice must not change the
-        // pre-0.5.7 behavior on a trivially redundant trace.
+        // Non-regression: an empty n+1 findings slice must leave a
+        // trivially redundant trace classified as redundant_sql.
         let events = crate::test_helpers::make_redundant_events();
         let trace = make_trace(events);
         let findings = detect_redundant(&trace, &[]);

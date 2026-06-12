@@ -178,6 +178,8 @@ The configurable `[detection] sanitizer_aware_classification` mode gates emissio
 
 Known limits: a real single-param redundancy whose literal happens to be collapsed by the sanitizer (e.g. `SELECT * FROM config WHERE key = ?` queried 10 times for the same key) cannot be distinguished from an N+1 without scope or variance signal. In `auto` mode it flips to `n_plus_one_sql` whenever an ORM scope is present (harm-reducing direction: batch fetch is a strict superset of "cache one value"). In `strict` mode it stays `redundant_sql` because the timing variance is low. In `always` mode it always flips. In `never` mode the heuristic is bypassed entirely.
 
+The timing-variance signal (`timing_variance_suggests_n_plus_one`, coefficient of variation > 0.5) carries an asymmetric-harm tuning: a false positive merely swaps `redundant_sql` for `n_plus_one_sql` (same `avoidable_io_ops` weight, only the suggestion text differs), while a false negative leaves a real N+1 silent, so the threshold favors false positives. Under `strict` the signal becomes load-bearing as the sole corroborator on the ORM branch below the high-occurrence bar, and it has a warm-cache blind spot: a real ORM-induced N+1 against a fully warm row cache (e.g. 100 primary-key lookups with every row in `shared_buffers`) can cluster within roughly 10% (CV around 0.1) and stay silent. The 0.5 threshold is kept across modes pending empirical validation in the simulation lab; if lab traffic shows it too restrictive under `strict`, the right follow-up is a `[detection] sanitizer_aware_min_cv` knob rather than a new global default.
+
 ## Slow detection
 
 ### Saturation arithmetic
@@ -473,7 +475,9 @@ The correlator is **not** used in batch mode (`perf-sentinel analyze`). Cross-tr
 
 ## Actionable fixes (framework-aware suggestions)
 
-Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`. The first cut shipped Java/JPA only. The current state covers Java (JPA, WebFlux, Quarkus reactive, Quarkus non-reactive, Helidon SE, Helidon MP), C# (.NET 8 to 10 with EF Core / Pomelo MySQL), Python (Django ORM, SQLAlchemy) and Rust (Diesel, SeaORM), with a generic per-language fallback for all 10 anti-patterns. Python scope detection uses the `opentelemetry.instrumentation.*` prefix in addition to the Java-centric `io.opentelemetry.*` prefix.
+Starting in v0.4.2, a `suggested_fix: Option<SuggestedFix>` field on `Finding` carries a framework-specific remediation that goes beyond the generic `suggestion` string. This field is populated by `detect::suggestions::enrich` after the per-trace detectors return, inside `detect()`.
+
+Coverage grew in four steps: v1 shipped Java/JPA only; v2 added Quarkus reactive and non-reactive, WebFlux, Helidon SE/MP, EF Core, Diesel and SeaORM; v3 broadened to the seven anti-patterns that previously returned `suggested_fix = None` (`redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`, `chatty_service`, `pool_saturation`, `serialized_calls`) and added Python (Django ORM, SQLAlchemy) with scope detection via the `opentelemetry.instrumentation.*` prefix; v4 added Go (GORM) and Node.js/TypeScript (Prisma) with scope detection via the `@opentelemetry/instrumentation-*` prefix and language detection via `.go`, `.js`, `.ts` file extensions. New entries lean on the per-language `*Generic` tag when the recommendation is framework-agnostic, and reuse a framework-specific tag when the ecosystem ships a canonical primitive worth pointing at. The current state covers Java, C# (.NET 8 to 10), Python, Rust, Go and Node.js across all 10 anti-patterns, each with a generic per-language fallback.
 
 ### The `SuggestedFix` struct
 
@@ -490,12 +494,13 @@ Serialized in JSON as a nested object under `finding.suggested_fix`, skipped whe
 
 ### Framework detector
 
-The detector is a pure function that only reads `finding.code_location` (already populated by each detector from the span's OTel `code.*` attributes). No span-level access, no extra allocations. Decision chain:
+The detector is a pure function over fields already present on `Finding` (`instrumentation_scopes`, `code_location`, `service`), all populated at detection time from the span's OTel attributes. No span-level access, no extra allocations. It inspects five signals in order, most reliable first:
 
-1. No `code_location` or no `filepath` → return `None`.
-2. Map the file extension to a language: `.java` → Java, `.cs` → C#, `.rs` → Rust. Anything else → return `None`.
-3. Walk that language's rules in declared order (most specific first). Return the first framework whose namespace hint matches.
-4. Fall back to the language's generic framework (`JavaGeneric`, `CsharpGeneric`, `RustGeneric`) when no rule matches.
+1. **Instrumentation scope chain**, captured at OTLP ingest from the originating span and its ancestors (e.g. `io.opentelemetry.spring-data-3.0`). Most reliable: the scope name is emitted by the agent regardless of how the user names their classes, so it survives user-code naming quirks. Vendor-specific scopes (`io.quarkus.*`, `Microsoft.EntityFrameworkCore`) are checked before the standard `io.opentelemetry.*` / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*` convention scopes. Go and Node are deliberately absent from the convention scope rules: their instrumentations use ecosystem-native scope names (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`), and the `-` segment boundary used for Java version suffixes would false-positive on npm package names (`pg` vs `instrumentation-pg-pool`).
+2. **Language from ecosystem-native scope prefix.** When the scope-chain check misses, the prefix still reveals the language (`github.com/` = Go module path, `@opentelemetry/instrumentation-` or `@prisma/` = npm, `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*` = NuGet). The language-generic fallback then fires, so even a span without `code.filepath` or `code.namespace` gets a language-appropriate suggestion.
+3. **`code_location` namespace with filepath-derived language** (`.java` → Java, `.cs` → C#, `.rs` → Rust, `.py` → Python, `.go` → Go, `.js`/`.ts` → Node). Walks that language's rules in declared order; falls back to the language generic when no rule matches.
+4. **`code_location` namespace alone** when filepath is absent: tries every language's rules in order and returns the first hit. No generic fallback in this path because the language cannot be known.
+5. **Service name** as a last resort, only for framework names distinctive enough to avoid false positives in arbitrary service names (e.g. `helidon` in `helidon-se-svc`). Lowest confidence, only reached when all OTel signals are absent.
 
 The namespace match is segment-boundary-aware on **both** sides: the hint must start at the namespace root or immediately after a separator and must end at the namespace end or immediately before another separator. Boundary characters are `.` (Java, C#) and `::` (Rust). Examples:
 

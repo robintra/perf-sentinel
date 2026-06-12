@@ -110,20 +110,17 @@ pub struct Finding {
     /// `None` when the instrumentation agent does not emit these attributes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_location: Option<crate::event::CodeLocation>,
-    /// OpenTelemetry instrumentation scope chain captured from the
-    /// originating span and its ancestors (leaf to root, deduplicated).
-    /// Used by [`suggestions::enrich`] as a primary framework signal:
-    /// the scope name (e.g. `io.opentelemetry.spring-data-3.0`) is
-    /// emitted by the agent regardless of how the user names their
-    /// repository class, so it survives user-code naming quirks.
-    /// Empty when the upstream format does not carry scope info
-    /// (Jaeger, Zipkin) or when the trace is synthetic.
+    /// OpenTelemetry instrumentation scope chain from the originating
+    /// span and its ancestors (leaf to root, deduplicated). Primary
+    /// framework signal for [`suggestions::enrich`]. Empty when the
+    /// upstream format carries no scope info (Jaeger, Zipkin) or the
+    /// trace is synthetic.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub instrumentation_scopes: Vec<String>,
     /// Framework-specific actionable fix, populated by
     /// [`suggestions::enrich`] after the per-trace detectors run. `None`
-    /// when no framework can be inferred from `code_location` or when the
-    /// `(finding_type, framework)` pair has no mapping in the v1 table.
+    /// when no framework can be inferred or the `(finding_type,
+    /// framework)` pair has no mapping in the fixes table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub suggested_fix: Option<suggestions::SuggestedFix>,
     /// Canonical signature for ack matching, e.g.
@@ -341,17 +338,10 @@ impl FindingType {
 
     /// Whether this finding type represents avoidable I/O operations.
     ///
-    /// N+1 and redundant patterns are avoidable (can be batched or cached).
-    /// Slow and fanout findings are not avoidable: slow operations need
-    /// optimization (indexing, caching), and fanout detection cannot distinguish
-    /// necessary parallel work from batchable sequential work, so it
-    /// conservatively excludes fanout from waste scoring.
-    ///
-    /// Chatty service, pool saturation, and serialized calls are also excluded:
-    /// chatty is an architectural concern (service decomposition granularity,
-    /// not a per-query batching opportunity), pool saturation is a resource
-    /// tuning issue, and serialized calls are a latency optimization that does
-    /// not reduce I/O count.
+    /// Only N+1 and redundant qualify (batchable or cacheable). Slow,
+    /// fanout, chatty, pool saturation and serialized calls are excluded
+    /// from waste scoring; the per-type rationale is in the "Not part of
+    /// waste ratio" sections of `docs/design/04-DETECTION.md`.
     #[must_use]
     pub const fn is_avoidable_io(&self) -> bool {
         matches!(
@@ -544,18 +534,13 @@ pub fn run_full_detection(traces: &[Trace], config: &DetectConfig) -> Vec<Findin
 pub fn detect(traces: &[Trace], config: &DetectConfig) -> Vec<Finding> {
     let mut findings = Vec::new();
     for trace in traces {
-        // Build the span-relationship indices once per trace and hand
-        // them to the detectors that need them (fanout and serialized
-        // today). Halves the per-trace HashMap cost vs the previous
-        // per-detector-build pattern.
+        // Span-relationship indices are built once per trace and shared
+        // by the detectors that need them (fanout, serialized).
         let indices = TraceIndices::build(trace);
-        // Each detector returns a Vec<Finding>. Using append() instead of
-        // extend() avoids iterator overhead: append moves the backing
-        // allocation in O(1) when the source Vec owns its buffer.
-        // n_plus_one runs before redundant, and the resulting findings
-        // are passed to redundant so it can skip templates already
-        // classified as N+1 (including those reclassified by the
-        // sanitizer-aware heuristic).
+        // append() moves the backing allocation in O(1), no iterator
+        // overhead. n_plus_one must run before redundant: redundant
+        // receives its findings to skip templates already classified
+        // as N+1 (including sanitizer-heuristic reclassifications).
         let mut n_plus_one_findings = n_plus_one::detect_n_plus_one(
             trace,
             config.n_plus_one_threshold,

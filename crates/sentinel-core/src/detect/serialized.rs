@@ -99,40 +99,12 @@ pub fn detect_serialized(
     findings
 }
 
-/// Find the longest non-overlapping subsequence via dynamic programming.
-///
-/// This is a variant of **Weighted Interval Scheduling** with unit weights
-/// (we maximize the *count* of selected intervals, not a weighted sum).
-///
-/// ## Precondition
-///
-/// `timed` must be sorted by end time (ascending).
-///
-/// ## Algorithm
-///
-/// 1. **Predecessor computation.** For each span `i`, binary-search the
-///    sorted `timed` slice to find `p(i)`: the index of the rightmost span
-///    whose end time is <= span `i`'s start time. This is the latest
-///    span that does not overlap with `i`. O(log n) per span.
-///
-/// 2. **DP recurrence.** `dp[i]` = length of the longest non-overlapping
-///    subsequence considering only spans `0..=i`.
-///    - If we **exclude** span `i`: `dp[i] = dp[i-1]`
-///    - If we **include** span `i`: `dp[i] = dp[p(i)] + 1`
-///      (where `dp[-1] = 0` by convention, handled via the `Option`)
-///    - Take the max of both choices. Track the choice in `included[i]`.
-///
-/// 3. **Backtrack.** Walk backwards from `i = n-1`. If `included[i]` is
-///    true, add `i` to the result and jump to `p(i)`. Otherwise, move to
-///    `i-1`. Reverse the result to get chronological order.
-///
-/// ## Complexity
-///
-/// - Sort: O(n log n) (done by caller)
-/// - Predecessor search: O(n log n) total (n binary searches)
-/// - DP fill: O(n)
-/// - Backtrack: O(n)
-/// - **Total: O(n log n)**
+/// Find the longest non-overlapping subsequence via dynamic
+/// programming (Weighted Interval Scheduling with unit weights):
+/// predecessor binary search, recurrence
+/// `dp[i] = max(dp[i-1], dp[p(i)] + 1)`, then backtrack. O(n log n)
+/// total. Precondition: `timed` sorted by end time ascending.
+/// Step-by-step walkthrough in `docs/design/04-DETECTION.md`.
 fn longest_non_overlapping(timed: &[TimedSpan<'_>]) -> Vec<usize> {
     let n = timed.len();
     if n == 0 {

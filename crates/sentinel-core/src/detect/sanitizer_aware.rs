@@ -138,15 +138,11 @@ const ORM_SCOPE_MARKERS: &[&str] = &[
 
 /// Returns `true` when every span in the group looks like the `OTel`
 /// SQL sanitizer (or native driver) collapsed its literals: the
-/// template carries at least one recognized placeholder (`?`, `%s`,
-/// `@param`, `:name`, `$1`), and `params` is empty (because
-/// `normalize_sql` only extracts literal numbers and strings, not
-/// pre-existing placeholders). A non-sanitized N+1 has `params`
-/// populated with one entry per literal, a sanitized N+1 has
-/// `params == []` on every span. See [`template_has_placeholder`] for
-/// the full list of recognized placeholder styles.
-///
-/// See the module-level note for the JSONB `?` operator caveat.
+/// template carries a recognized placeholder (see
+/// [`template_has_placeholder`]) and `params` is empty
+/// (`normalize_sql` extracts literals, not placeholders, so a
+/// sanitized N+1 has `params == []` on every span). JSONB `?` caveat
+/// in the module-level note.
 #[must_use]
 pub fn looks_sanitized(spans: &[&NormalizedEvent]) -> bool {
     !spans.is_empty()
@@ -256,30 +252,15 @@ pub fn collect_scopes(spans: &[&NormalizedEvent]) -> Vec<String> {
     out
 }
 
-/// Returns `true` when the coefficient of variation (std-dev / mean) of
-/// the per-span `duration_us` values exceeds `0.5`. True N+1 hits
-/// different rows with different cache states, so durations spread out,
-/// truly redundant calls hit the same cache lines and cluster tightly.
+/// Returns `true` when the coefficient of variation (std-dev / mean)
+/// of the per-span `duration_us` values exceeds `0.5`: true N+1 hits
+/// different rows with different cache states (durations spread),
+/// redundant calls hit the same cache lines (durations cluster).
+/// Requires at least 3 spans; `false` for fewer, zero mean, or empty.
 ///
-/// Requires at least 3 spans for a stable variance estimate. Returns
-/// `false` for fewer spans, zero mean, or empty input.
-///
-/// Asymmetric harm under `Auto`: a false positive flips a sanitized
-/// `redundant_sql` group to `n_plus_one_sql` (same `avoidable_io_ops`
-/// weight, the suggestion text differs), a false negative leaves a real
-/// N+1 silent for the redundant detector to pick up. Threshold tuned to
-/// favor false positives over silent misses.
-///
-/// Under `Strict` mode this signal becomes load-bearing: it is the
-/// only gate that lets a sanitized group reach `LikelyNPlusOne` once
-/// the ORM scope check has passed. A real ORM-induced N+1 against a
-/// fully warm row cache (e.g. 100 lookups by primary key with all rows
-/// in `shared_buffers`) can cluster within ±10% (CV ~ 0.1) and stay
-/// silent under `Strict`. The 0.5 threshold is preserved across modes
-/// pending empirical validation in the simulation lab. If lab traffic
-/// shows the threshold to be too restrictive under `Strict`, the right
-/// follow-up is exposing a `[detection] sanitizer_aware_min_cv` knob
-/// rather than picking a new global default.
+/// The threshold favors false positives over silent misses; the harm
+/// asymmetry and the Strict-mode warm-cache limit are discussed in
+/// `docs/design/04-DETECTION.md`.
 #[must_use]
 pub fn timing_variance_suggests_n_plus_one(spans: &[&NormalizedEvent]) -> bool {
     if spans.len() < 3 {
@@ -347,9 +328,6 @@ pub fn classify_sanitized_sql_group_strict(
     high_occurrence: bool,
 ) -> SanitizerVerdict {
     let orm = has_orm_scope(scopes);
-    // high_occurrence is both primary and corroborator: 15+ sanitized
-    // identical templates in one trace is structurally n+1 under the
-    // looks_sanitized guard, even without ORM scope or parent linkage.
     let primary_ok = orm || high_occurrence || sequential();
     if !primary_ok {
         return SanitizerVerdict::Inconclusive;
@@ -364,20 +342,13 @@ pub fn classify_sanitized_sql_group_strict(
 }
 
 /// Index-based variant for the detection hot path: borrows directly
-/// from the trace's span vector without an intermediate
-/// `Vec<&NormalizedEvent>`. Dispatches to the OR-logic
-/// (`classify_sanitized_sql_group`) or AND-logic
-/// (`classify_sanitized_sql_group_strict`) entry point based on `mode`.
+/// from the trace's span vector, no intermediate `Vec<&NormalizedEvent>`.
+/// Dispatches to the OR-logic (Auto) or AND-logic (Strict) classifier.
 ///
 /// `sequential_siblings` is a lazy closure consulted only by the Strict
-/// branch (Auto/Always/Never accept variance alone or short-circuit
-/// upstream). Passing a closure rather than a bool lets callers skip the
-/// per-trace sibling walk entirely when the mode does not need it.
-///
-/// `Never` is filtered upstream in [`super::n_plus_one`] before reaching
-/// here, and `Always` short-circuits upstream too, so in production this
-/// dispatcher only sees `Auto` and `Strict`. The match stays exhaustive
-/// (no `_`) so a future fifth variant on [`SanitizerAwareMode`] fails to
+/// branch, so other modes skip the per-trace sibling walk entirely.
+/// `Never` and `Always` short-circuit upstream in [`super::n_plus_one`];
+/// the match stays exhaustive (no `_`) so a future variant fails to
 /// compile rather than silently picking the OR fallback.
 pub(super) fn classify_sanitized_sql_group_indexed(
     spans: &[NormalizedEvent],

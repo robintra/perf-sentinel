@@ -1,30 +1,17 @@
 //! Framework-aware actionable fixes for findings.
 //!
-//! Enriches detected findings with a [`SuggestedFix`] when the finding's
-//! `code_location` lets us infer which framework produced the
-//! anti-pattern. v1 covered Java/JPA. v2 added Quarkus reactive +
-//! non-reactive, `WebFlux`, Helidon SE/MP, EF Core, Diesel, `SeaORM`. v3
-//! (this module's current state) broadens coverage to the seven
-//! anti-patterns that previously returned `suggested_fix = None`:
-//! `redundant_http`, `slow_sql`, `slow_http`, `excessive_fanout`,
-//! `chatty_service`, `pool_saturation`, `serialized_calls`. v3 also
-//! adds Python support (`PythonDjango`, `PythonSqlAlchemy`,
-//! `PythonGeneric`) with scope detection via the
-//! `opentelemetry.instrumentation.*` prefix and the `django.db` /
-//! `sqlalchemy` namespace hints. v4 adds Go (`GoGorm`, `GoGeneric`)
-//! and Node.js/TypeScript (`NodePrisma`, `NodeGeneric`) with scope
-//! detection via the `@opentelemetry/instrumentation-*` prefix and
-//! language detection via `.go`, `.js`, `.ts` file extensions. New
-//! entries lean on the per-language `*Generic` framework tag when
-//! the recommendation is largely framework-agnostic, and reuse a
-//! framework-specific tag (e.g. `JavaQuarkus`, `JavaWebFlux`,
-//! `PythonDjango`, `GoGorm`, `NodePrisma`) when the ecosystem ships
-//! a canonical primitive worth pointing at.
+//! Enriches detected findings with a [`SuggestedFix`] when the
+//! instrumentation scopes, `code_location` or service name reveal the
+//! framework that produced the anti-pattern. Covers Java, C#, Rust,
+//! Python, Go and Node.js/TypeScript across all ten anti-patterns,
+//! with a per-language `*Generic` fallback when no framework-specific
+//! recommendation applies. Coverage history is in
+//! `docs/design/04-DETECTION.md`.
 //!
-//! The detection is intentionally cheap and deterministic: we only look
-//! at fields already present on [`Finding`] (no span-level
-//! access, no extra heap allocations on the hot path), and missing
-//! information always degrades gracefully to `suggested_fix = None`.
+//! Detection is cheap and deterministic: only fields already present
+//! on [`Finding`] are read (no span-level access, no hot-path
+//! allocations), and missing information degrades to
+//! `suggested_fix = None`.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -107,30 +94,23 @@ impl Framework {
 
 /// Pattern for matching a hint against a namespace string.
 ///
-/// `Substring` keeps the existing segment-boundary-aware substring
-/// match: the hint must sit between segment delimiters (`.` for Java
-/// and C#, `::` for Rust). `LastSegmentEndsWith` matches the suffix of
-/// the namespace's last segment only, used for user-code naming
-/// conventions like Spring Data's `*Repository` where the framework
-/// package itself does not appear in the span's `code.namespace`.
+/// `Substring` is segment-boundary-aware: the hint must sit between
+/// segment delimiters (`.` for Java and C#, `::` for Rust).
+/// `LastSegmentEndsWith` matches the suffix of the last segment only,
+/// for user-code naming conventions like Spring Data's `*Repository`
+/// where the framework package never appears in `code.namespace`.
 #[derive(Clone, Copy)]
 enum Hint {
     Substring(&'static str),
     LastSegmentEndsWith(&'static str),
 }
 
-/// Per-language detection tables. Each entry is `(framework, namespace
-/// hints)`. Order matters within a language: more-specific frameworks
-/// first, user-code conventions and generic last. The detector returns
-/// the first match.
-///
+/// Per-language detection tables: `(framework, namespace hints)`.
+/// Order matters within a language: more-specific frameworks first,
+/// user-code conventions and generic last; the first match wins.
 /// `Substring` hints embed enough of the package path to keep false
-/// positives rare. For Rust we anchor on the `::` separator to
-/// distinguish `diesel::` from user crates that happen to contain
-/// `diesel` in a name. `LastSegmentEndsWith` hints recognise user-code
-/// naming conventions when the framework package is not in the
-/// span's `code.namespace` (e.g. an OpenTelemetry agent attaches `code.*` to
-/// the user's Spring Data repository class).
+/// positives rare (Rust hints anchor on `::` so `diesel::` does not
+/// match user crates containing `diesel` in a name).
 const JAVA_RULES: &[(Framework, &[Hint])] = &[
     // Helidon MP must come before Helidon SE: `io.helidon.microprofile`
     // is a sub-package of `io.helidon`, so the catch-all SE hint would
@@ -225,40 +205,30 @@ const SERVICE_NAME_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaHelidonSe, &["helidon"]),
 ];
 
-/// OpenTelemetry instrumentation scope rules. The scope name string
-/// (e.g. `io.opentelemetry.spring-data-3.0`) is emitted by the agent
-/// regardless of how the user names their classes, so this is the most
-/// reliable framework signal when available. We match short-name
-/// substrings against any scope in the leaf-to-root chain captured by
-/// the OTLP ingest walker.
+/// OpenTelemetry instrumentation scope rules. Agent-emitted scope
+/// names (e.g. `io.opentelemetry.spring-data-3.0`) are immune to user
+/// naming quirks, making this the most reliable framework signal.
+/// Matched against every scope in the leaf-to-root chain.
 ///
-/// Order matters: more-specific scopes first. `hibernate-reactive`
-/// must win over `hibernate`. `quarkus` (the Quarkus REST/JAX-RS
-/// short name) must win over `hibernate` so a Quarkus non-reactive
-/// app gets Quarkus-specific advice rather than raw JPA. Helidon and
-/// Rust ORMs are not listed here because the upstream agent emits
-/// the same `helidon` scope for both SE and MP, and Rust apps name
-/// their tracers themselves. Both are better disambiguated through
-/// the namespace heuristics below.
+/// Order matters: `hibernate-reactive` must win over `hibernate`, and
+/// `quarkus` over `hibernate` (a non-reactive Quarkus app gets Quarkus
+/// advice, not raw JPA). Helidon SE/MP and Rust ORMs are disambiguated
+/// by namespace hints instead: the agent emits one `helidon` scope for
+/// both variants, and Rust tracer names are user-defined.
 const SCOPE_RULES: &[(Framework, &[&str])] = &[
     (Framework::JavaQuarkusReactive, &["hibernate-reactive"]),
     (Framework::JavaQuarkus, &["quarkus"]),
     (Framework::JavaWebFlux, &["spring-webflux", "r2dbc"]),
     (Framework::JavaJpa, &["spring-data", "hibernate"]),
-    // Helidon: the Java agent emits `io.opentelemetry.helidon-<version>`.
-    // No MP-specific scope exists today, so both resolve to HelidonSe
-    // (the generic Helidon variant). Namespace hints in JAVA_RULES
-    // disambiguate MP vs SE if code_location is available.
+    // One `helidon` scope covers both SE and MP; JAVA_RULES namespace
+    // hints disambiguate when code_location is available.
     (Framework::JavaHelidonSe, &["helidon"]),
     (Framework::PythonDjango, &["django"]),
     (Framework::PythonSqlAlchemy, &["sqlalchemy"]),
-    // Go and Node.js are NOT listed here: their OTel instrumentations
-    // use ecosystem-native scope names (e.g. `gorm.io/plugin/opentelemetry`,
-    // `@prisma/instrumentation`) that do not match the `io.opentelemetry.*`
-    // / `opentelemetry.instrumentation.*` / `@opentelemetry/instrumentation-*`
-    // prefixes checked by `scope_matches`. Framework detection for Go and
-    // Node falls through to namespace hints (GO_RULES, JS_RULES) and the
-    // language-from-filepath generic fallback.
+    // Go and Node use ecosystem-native scope names (`gorm.io/...`,
+    // `@prisma/instrumentation`) that the `scope_matches` prefixes never
+    // match; they fall through to namespace hints (GO_RULES, JS_RULES)
+    // and the language-from-scope-prefix fallback.
 ];
 
 /// Vendor-specific `OTel` integration scopes that do not follow the
@@ -333,16 +303,12 @@ fn detect_framework_from_scopes(scopes: &[String]) -> Option<Framework> {
 
 /// Boundary-aware match against an OpenTelemetry scope name.
 ///
-/// Restricts matches to the canonical `io.opentelemetry.<short>` form
-/// emitted by the upstream agent, with optional version suffix
-/// (`-1.8`, `-3.0`, ...) and optional sub-scope (`-server`, `-client`,
-/// `-mutiny`, ...). Rejects third-party tracer names that happen to
-/// contain a needle as a substring (e.g. `com.acme.quarkus-monitoring`
-/// would no longer match the `quarkus` rule).
+/// Only the canonical SDK prefixes match (Java `io.opentelemetry.`,
+/// Python `opentelemetry.instrumentation.`, Node
+/// `@opentelemetry/instrumentation-`), with optional version (`-3.0`)
+/// or sub-scope (`-client`) suffix. Rejects third-party tracer names
+/// that merely contain a needle (e.g. `com.acme.quarkus-monitoring`).
 fn scope_matches(scope: &str, needle: &str) -> bool {
-    // Java agents emit `io.opentelemetry.<short>`, Python SDK emits
-    // `opentelemetry.instrumentation.<short>`, Node.js SDK emits
-    // `@opentelemetry/instrumentation-<short>`. Support all prefixes.
     let Some(rest) = scope
         .strip_prefix("io.opentelemetry.")
         .or_else(|| scope.strip_prefix("opentelemetry.instrumentation."))
@@ -353,17 +319,10 @@ fn scope_matches(scope: &str, needle: &str) -> bool {
     let Some(after) = rest.strip_prefix(needle) else {
         return false;
     };
-    // The needle must end at a segment boundary: either the end of
-    // the scope name, a version suffix `-...`, or another sub-scope
-    // separator. This rejects partial-segment matches like `quarkus`
-    // against `quarkus-resteasy-classic` if we ever decide we want
-    // only the reactive variant. Today every entry is a full segment,
-    // so end-of-string and `-` are the natural anchors.
-    //
-    // NOTE: the `-` boundary works for Java version suffixes but would
-    // false-positive on Node.js package names (e.g. needle `pg` would
-    // match scope `@opentelemetry/instrumentation-pg-pool`). This is
-    // why Go/Node are excluded from SCOPE_RULES (see comment above).
+    // The needle must end at a segment boundary (end of string or `-`),
+    // rejecting partial-segment matches. The `-` boundary would
+    // false-positive on Node package names (`pg` vs `...-pg-pool`),
+    // which is why Go/Node are excluded from SCOPE_RULES.
     after.is_empty() || after.starts_with('-')
 }
 
@@ -1214,29 +1173,17 @@ fn lookup_fix(finding: &Finding) -> Option<&'static SuggestedFix> {
     FIXES.get(&(finding.finding_type.clone(), framework))
 }
 
-/// Pure framework detector. Inspects five signals in order:
+/// Pure framework detector. Inspects five signals in order, most
+/// reliable first (full rationale in `docs/design/04-DETECTION.md`):
 ///
-/// 1. **Instrumentation scope chain** captured at OTLP ingest time
-///    (`io.opentelemetry.spring-data-3.0`, `io.opentelemetry.hibernate-6.0`,
-///    etc.). Most reliable, agent-emitted, naming-quirk-immune.
-/// 2. **Language from scope prefix.** When the scope-chain framework
-///    check misses (Go/Node scopes use ecosystem-native names, not
-///    the `OTel` convention), the scope prefix still reveals the language
-///    (`github.com/` = Go, `@opentelemetry/instrumentation-` = Node,
-///    etc.). The language generic fallback fires so even a span without
-///    `code.filepath` or `code.namespace` gets a language-appropriate
-///    suggestion.
-/// 3. **`code_location` namespace** with filepath-derived language.
-///    Returns the language-generic fallback when no namespace rule
-///    matches but the language is known.
-/// 4. **`code_location` namespace alone** when filepath is absent.
-///    Tries every language's rules in order and returns the first hit.
-///    No generic fallback in this path because we cannot know which
-///    language to fall back to.
-/// 5. **Service name** (`Finding.service`) as a last resort. Known
-///    framework substrings (e.g. `helidon` in `helidon-se-svc`) produce
-///    a framework-specific match. Lowest confidence, only reached when
-///    all `OTel` signals are absent.
+/// 1. Instrumentation scope chain (agent-emitted, naming-quirk-immune).
+/// 2. Language from ecosystem-native scope prefix, then namespace rules
+///    or the language-generic fallback.
+/// 3. `code_location` namespace with filepath-derived language, falling
+///    back to the language generic.
+/// 4. `code_location` namespace alone: first hit across all languages,
+///    no generic fallback (language unknown).
+/// 5. Service name substrings, lowest confidence.
 ///
 /// `None` when no signal is available.
 fn detect_framework(finding: &Finding) -> Option<Framework> {
@@ -1279,22 +1226,13 @@ fn detect_framework(finding: &Finding) -> Option<Framework> {
     detect_framework_from_service_name(&finding.service)
 }
 
-/// Deduce the programming language from ecosystem-native scope name
-/// prefixes that `SCOPE_RULES` cannot handle (because the scopes do
-/// not use the `io.opentelemetry.*` / `opentelemetry.instrumentation.*`
-/// convention). This is a lower-confidence signal than `SCOPE_RULES`
-/// and fires only for scope prefixes that unambiguously identify the
-/// language:
-///
-/// - `github.com/` → Go (Go module paths).
-/// - `@opentelemetry/instrumentation-` or `@prisma/` → Node.js (npm).
-/// - `Microsoft.EntityFrameworkCore` → C# (`NuGet` package name).
-/// - `OpenTelemetry.Instrumentation.*` → C# (.NET `OTel` SDK convention).
-///
-/// Java scopes use the `OTel` convention handled by `SCOPE_RULES`, or
-/// vendor prefixes handled by `VENDOR_SCOPE_RULES` (`io.quarkus.*`).
-/// Python scopes use the `OTel` convention. Rust scopes are
-/// user-defined and have no reliable prefix convention.
+/// Deduce the language from ecosystem-native scope prefixes that
+/// `SCOPE_RULES` cannot handle: `github.com/` (Go module path),
+/// `@opentelemetry/instrumentation-` or `@prisma/` (npm),
+/// `Microsoft.EntityFrameworkCore` / `OpenTelemetry.Instrumentation.*`
+/// (`NuGet`). Lower confidence than `SCOPE_RULES`, fires only on
+/// prefixes that unambiguously identify the language. Java and Python
+/// use the `OTel` convention; Rust tracer names have no usable prefix.
 fn language_from_scope_prefix(scopes: &[String]) -> Option<Language> {
     for scope in scopes {
         if scope.starts_with("github.com/") {
@@ -1350,19 +1288,15 @@ fn last_segment(ns: &str) -> &str {
     }
 }
 
-/// Segment-boundary-aware substring match. Returns `true` when `hint`
-/// appears between segment boundaries on both sides: it must start at
-/// `ns` start or immediately after a `.` (Java, C#) / `::` (Rust), and
-/// must end at `ns` end or immediately before another segment delimiter
-/// (`.` or `::`). Prevents false positives in both directions:
-/// `orders::mydiesel::query` on `diesel::` (leading boundary) and
-/// `io.helidongrpc.Foo` on `io.helidon` (trailing boundary).
+/// Segment-boundary-aware substring match: `hint` must start at `ns`
+/// start or right after a `.`/`::` delimiter, and end at `ns` end or
+/// right before another delimiter. Rejects `orders::mydiesel::query`
+/// for `diesel::` (leading) and `io.helidongrpc.Foo` for `io.helidon`
+/// (trailing).
 ///
-/// Advances `start` by `hint.len()` after a non-matching candidate so we
-/// skip overlapping re-scans (the same hint can never match twice over a
-/// single occurrence) and so we always land on a `char` boundary, since
-/// `str::find` returns indices aligned to the start of the matched
-/// substring.
+/// `start` advances by `hint.len()` after a miss: skips overlapping
+/// re-scans and always lands on a `char` boundary (`str::find` returns
+/// match-aligned indices).
 fn namespace_contains_segment(ns: &str, hint: &str) -> bool {
     let bytes = ns.as_bytes();
     let mut start = 0;

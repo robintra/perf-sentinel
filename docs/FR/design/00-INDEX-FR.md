@@ -36,6 +36,12 @@ Pour la documentation orientée utilisateur, voir le répertoire parent [`docs/F
 | `detect/n_plus_one.rs`         | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/redundant.rs`          | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `detect/slow.rs`               | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/fanout.rs`             | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/chatty.rs`             | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/pool_saturation.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/serialized.rs`         | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/sanitizer_aware.rs`    | [04 : Détection](04-DETECTION-FR.md)                                                                    |
+| `detect/suggestions.rs`        | [04 : Détection](04-DETECTION-FR.md)                                                                    |
 | `score/mod.rs`                 | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
 | `score/carbon.rs`              | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md)                                                           |
 | `score/carbon_compute.rs`      | [05 : GreenOps](05-GREENOPS-AND-CARBON-FR.md), [09 : Attribution carbone](09-CARBON-ATTRIBUTION-FR.md)  |
