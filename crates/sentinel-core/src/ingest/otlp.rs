@@ -16,22 +16,15 @@ use tonic::{Request, Response, Status, async_trait};
 use crate::event::{EventSource, EventType, SpanEvent};
 use crate::report::metrics::{OtlpRejectReason, OtlpSpanFilterReason};
 
-/// Sink for the rejection counters this module emits.
+/// Sink for the rejection counters this module emits, decoupling
+/// `ingest` from the concrete metrics implementation. `MetricsState`
+/// implements it in `report::metrics`; alternative sinks (counting
+/// fakes in tests, other metrics stacks) plug in without touching
+/// `ingest`. Decoupling rationale in
+/// `docs/design/06-INGESTION-AND-DAEMON.md` § "The MetricsSink trait".
 ///
-/// `ingest::otlp` produced runtime telemetry on every rejection path
-/// (unsupported media type, decode failure, channel full). Before
-/// 0.6.0 these calls reached straight into `report::metrics::MetricsState`,
-/// which leaked the downstream metrics implementation upstream and made
-/// `ingest` impossible to use without paying for the Prometheus registry.
-///
-/// This trait is the abstraction. `MetricsState` implements it (in
-/// `report::metrics`) so daemon callers keep the same wiring; alternative
-/// builds (e.g. a future fork that wants OpenTelemetry metrics, or
-/// tests that want a counting fake) can plug their own sink without
-/// touching `ingest`.
-///
-/// `Send + Sync` are required because the gRPC and HTTP paths share
-/// the sink across tokio tasks via `Arc<dyn MetricsSink>`.
+/// `Send + Sync` because the gRPC and HTTP paths share the sink across
+/// tokio tasks via `Arc<dyn MetricsSink>`.
 pub trait MetricsSink: Send + Sync {
     /// Record one rejected OTLP request, labeled by reason.
     fn record_otlp_reject(&self, reason: OtlpRejectReason);

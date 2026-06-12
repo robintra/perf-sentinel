@@ -1373,11 +1373,10 @@ impl MetricsState {
 
 /// Plug `MetricsState` into the upstream `ingest::otlp` sink contract.
 ///
-/// The trait is defined in `ingest::otlp` (the only emitter today) so the
-/// upstream module no longer imports the concrete metrics state. The
-/// branchless match below is the same hot-path dispatch the inherent
-/// method used to inline; calling either entry point reaches the cached
-/// `IntCounter` children with no label-hashmap lookup.
+/// The trait is defined in `ingest::otlp` (the only emitter today) so
+/// the upstream module does not import the concrete metrics state. The
+/// branchless match keeps the hot path on the cached `IntCounter`
+/// children, no label-hashmap lookup.
 impl crate::ingest::otlp::MetricsSink for MetricsState {
     #[inline]
     fn record_otlp_reject(&self, reason: OtlpRejectReason) {
