@@ -172,6 +172,63 @@ fn cli_demo_piped_no_ansi() {
 }
 
 #[test]
+fn cli_demo_annotates_quality_gate_as_informational() {
+    // The demo gate fails (io_waste_ratio) but the process exits 0, so the
+    // FAILED line must carry the informational annotation, in plain text.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .arg("demo")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "demo should exit 0, got: {output:?}"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(
+            "Quality gate: FAILED (informational in demo, would exit 1 under analyze --ci)"
+        ),
+        "demo gate line must be annotated as informational, got:\n{stdout}"
+    );
+}
+
+#[test]
+fn cli_analyze_gate_not_annotated_as_demo() {
+    // The demo-only annotation must never leak into the analyze path.
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args([
+            "analyze",
+            "--format",
+            "text",
+            "--input",
+            &fixture_path(ACK_FIXTURE),
+        ])
+        .env("RUST_LOG", "error")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "analyze failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Quality gate:"),
+        "analyze text output should still print the gate, got:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("informational in demo"),
+        "analyze output must not carry the demo annotation, got:\n{stdout}"
+    );
+}
+
+#[test]
 fn cli_analyze_rejects_oversized_file() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     // Local batch reads are capped at MAX_BATCH_INPUT_BYTES (1 GiB),
