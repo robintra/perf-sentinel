@@ -1535,8 +1535,8 @@ fn draw_inspect_view(f: &mut Frame, app: &App, area: Rect) {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(20),
-            Constraint::Percentage(45),
-            Constraint::Percentage(35),
+            Constraint::Percentage(30),
+            Constraint::Percentage(50),
         ])
         .split(chunks[0]);
 
