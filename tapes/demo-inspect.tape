@@ -48,9 +48,10 @@
 #   # Post-process the GIF. Required: the raw VHS output grows past
 #   # 1.5 MB because the tape is long (3 severity tours + a scroll
 #   # animation) and the full-width terminal has lots of varied pixels.
-#   # The filter below cuts it to ~950 KB while keeping text readable.
+#   # fps=20 keeps motion smooth; the filter lands it around 1.7 MB while
+#   # keeping text readable.
 #   ffmpeg -y -i docs/img/inspect/demo.gif \
-#     -vf "fps=10,scale=1200:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+#     -vf "fps=20,scale=1200:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=64[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
 #     -loop 0 /tmp/demo-inspect-opt.gif
 #   mv /tmp/demo-inspect-opt.gif docs/img/inspect/demo.gif
 

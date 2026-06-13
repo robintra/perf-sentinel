@@ -12,16 +12,16 @@ OUT_DIR="$REPO_ROOT/docs/img/report"
 
 mkdir -p "$OUT_DIR"
 
-# 15 fps keeps cursor motion smooth without bloating the GIF. The
+# 20 fps keeps cursor motion smooth without bloating the GIF. The
 # palette split avoids the 256-colour cliff on gradient-heavy tabs.
-# max_colors=96 plus Bayer dithering lands each file around 2-3 MB
+# max_colors=96 plus Bayer dithering lands each file around 3-4 MB
 # for a ~25 s recording at 1000 px wide.
 convert_webm() {
   local webm="$1"
   local out="$2"
   echo "build-gif: $webm -> $out"
   ffmpeg -y -i "$webm" -vf \
-    "fps=15,scale=1000:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+    "fps=20,scale=1000:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=96[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
     -loop 0 "$out" 2> /tmp/build-gif.log
   local sz
   sz="$(du -k "$out" | awk '{print $1}')"
