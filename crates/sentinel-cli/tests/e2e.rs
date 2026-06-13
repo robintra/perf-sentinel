@@ -229,6 +229,57 @@ fn cli_analyze_gate_not_annotated_as_demo() {
 }
 
 #[test]
+fn cli_demo_html_writes_dashboard() {
+    // `demo --html <path>` writes the same HTML dashboard as `report`,
+    // built from the embedded demo dataset, and exits 0.
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out_path = dir.path().join("demo.html");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_perf-sentinel"))
+        .args(["demo", "--html", out_path.to_str().unwrap()])
+        .output()
+        .expect("failed to execute perf-sentinel");
+
+    assert!(
+        output.status.success(),
+        "demo --html should exit 0, got: {output:?}"
+    );
+    assert!(out_path.exists(), "HTML output must exist");
+    let html = fs::read_to_string(&out_path).expect("read html");
+    assert!(html.starts_with("<!DOCTYPE html>"));
+    assert!(html.contains("<script id=\"report-data\""));
+    let payload = extract_payload_json_from_html(&html);
+    assert!(
+        payload["report"]["findings"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "demo dashboard must embed findings"
+    );
+    // The demo is a showcase: synthesized correlations plus pg_stat and diff
+    // fixtures must populate the Correlations, pg_stat and Diff tabs.
+    assert!(
+        payload["report"]["correlations"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "demo dashboard must embed synthesized correlations"
+    );
+    assert!(
+        payload["pg_stat"]["rankings"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "demo dashboard must embed pg_stat rankings"
+    );
+    assert!(
+        !payload["diff"]["new_findings"].is_null()
+            && !payload["diff"]["resolved_findings"].is_null(),
+        "demo dashboard must embed a diff against the baseline"
+    );
+}
+
+#[test]
 fn cli_analyze_rejects_oversized_file() {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     // Local batch reads are capped at MAX_BATCH_INPUT_BYTES (1 GiB),

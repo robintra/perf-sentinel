@@ -132,7 +132,9 @@ Linux binaries target musl (fully static, run on any distro and `FROM scratch` i
 
 ```bash
 # 1. Try the bundled demo (no setup required)
-perf-sentinel demo
+perf-sentinel demo                       # colored terminal report
+perf-sentinel demo --tui                 # interactive TUI report
+perf-sentinel demo --html demo.html      # HTML dashboard
 
 # 2. Analyze a captured trace file
 perf-sentinel analyze --input traces.json
@@ -143,6 +145,8 @@ perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 # 4. Stream traces from your apps (daemon mode)
 perf-sentinel watch
 ```
+
+`demo --html` is a full showcase: every dashboard tab is populated (findings, Explain, GreenOps, pg_stat, Diff and synthesized cross-trace correlations). Live ack/revoke is daemon-only, see `watch` plus `query --daemon <URL> monitor`.
 
 Minimal `.perf-sentinel.toml` at the repo root:
 
