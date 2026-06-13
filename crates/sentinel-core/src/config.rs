@@ -178,7 +178,8 @@ pub struct GreenConfig {
     /// HTTP calls. Default: `false` (opt-in).
     pub include_network_transport: bool,
     /// Energy per byte for network transport (kWh/byte).
-    /// Default: 0.04 kWh/GB (Mytton et al. 2024).
+    /// Default: 0.04 kWh/GB, a conservative upper bound below recent
+    /// whole-network averages (see `DEFAULT_NETWORK_ENERGY_PER_BYTE_KWH`).
     pub network_energy_per_byte_kwh: f64,
     /// Path to user-supplied hourly profiles JSON file. `None` when not
     /// configured (uses only embedded profiles).
@@ -4443,12 +4444,12 @@ hourly_profiles_file = "/tmp/does-not-exist-perfsentinel-test.json"
 
     // --- convert_electricity_maps_section branches ---
 
+    use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
     // Local imports used by all the electricity_maps tests below.
     // `HashMap` and `Duration` are already in scope via `use super::*;`
     // at the top of this module, but Qodana flags the fully-qualified
     // forms as unnecessary; using the short names reads cleaner anyway.
     use crate::score::electricity_maps::ElectricityMapsConfig;
-    use crate::score::electricity_maps::config::{EmissionFactorType, TemporalGranularity};
 
     #[test]
     fn electricity_maps_empty_api_key_returns_none() {
