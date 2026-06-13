@@ -93,10 +93,12 @@ Enter
 Type `python3 "$OLDPWD/scripts/demo-seed-loop.py" /tmp/demo-monitor-dir/perf-sentinel.sock "$OLDPWD/tests/fixtures/demo.json" > /dev/null 2>&1 &`
 Enter
 # Wait > trace_ttl_ms so windows flush, and long enough for a few cloud
-# scrape failures so the Scrapers age column is visibly non-zero.
+# scrape failures so the Scrapers age column is visibly non-zero. The VHS
+# sleep must outlast the shell `sleep 6` so `clear` runs before Show,
+# otherwise the hidden setup commands leak into the first frames.
 Type `sleep 6 && clear`
 Enter
-Sleep 1s
+Sleep 6500ms
 Show
 
 # Open the live monitor against the daemon. --daemon is explicit because
