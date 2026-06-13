@@ -13,6 +13,7 @@ All notable changes to perf-sentinel are documented in this file. Format loosely
 ### Changed
 
 - The embedded demo dataset now exercises all ten detector types across the three severity levels, so the demo report (and the TUI/HTML showcase built from it) reflects the full detection surface.
+- The Inspect view gives the Correlations panel more width by narrowing the Findings panel. When the Findings column is too slim for the full "[acked by <who>]" ack suffix it collapses to a compact "[acked]" marker, so the ack status stays visible in narrow terminals.
 - Dark-mode contrast tuned across all HTML reports: lighter muted (secondary and tertiary) text, more visible control borders and elevated surfaces, and the footer "perf-sentinel" credit link now uses the success-green accent.
 
 
