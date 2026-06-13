@@ -132,7 +132,9 @@ Les binaires Linux ciblent musl (statiques, fonctionnent sur n'importe quelle di
 
 ```bash
 # 1. Essayer la démo intégrée (aucune installation côté apps)
-perf-sentinel demo
+perf-sentinel demo                       # rapport terminal en couleurs
+perf-sentinel demo --tui                 # rapport TUI interactif
+perf-sentinel demo --html demo.html      # tableau de bord HTML
 
 # 2. Analyser un fichier de traces capturées
 perf-sentinel analyze --input traces.json
@@ -143,6 +145,8 @@ perf-sentinel analyze --input traces.json --ci --config .perf-sentinel.toml
 # 4. Streamer les traces de vos apps (mode daemon)
 perf-sentinel watch
 ```
+
+`demo --html` est une vitrine complète : tous les onglets du tableau de bord sont remplis (findings, Explain, GreenOps, pg_stat, Diff et corrélations inter-traces synthétisées). L'acquittement en direct reste réservé au daemon, voir `watch` puis `query --daemon <URL> monitor`.
 
 `.perf-sentinel.toml` minimal à la racine du repo :
 

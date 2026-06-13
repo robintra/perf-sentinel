@@ -1,0 +1,92 @@
+[
+  {
+    "query": "SELECT * FROM order_item WHERE order_id = 42",
+    "calls": 18500,
+    "total_exec_time": 55500.00,
+    "mean_exec_time": 3.000,
+    "rows": 18500,
+    "shared_blks_hit": 148000,
+    "shared_blks_read": 1850
+  },
+  {
+    "query": "SELECT * FROM order_status WHERE order_id = 44",
+    "calls": 320,
+    "total_exec_time": 41600.00,
+    "mean_exec_time": 130.000,
+    "rows": 320,
+    "shared_blks_hit": 2560,
+    "shared_blks_read": 9600
+  },
+  {
+    "query": "SELECT * FROM feature_flags WHERE name = 'beta'",
+    "calls": 9000,
+    "total_exec_time": 13500.00,
+    "mean_exec_time": 1.500,
+    "rows": 9000,
+    "shared_blks_hit": 72000,
+    "shared_blks_read": 90
+  },
+  {
+    "query": "SELECT * FROM accounts WHERE id = 42",
+    "calls": 4200,
+    "total_exec_time": 21000.00,
+    "mean_exec_time": 5.000,
+    "rows": 4200,
+    "shared_blks_hit": 33600,
+    "shared_blks_read": 840
+  },
+  {
+    "query": "SELECT balance FROM wallets WHERE user_id = 42",
+    "calls": 4200,
+    "total_exec_time": 16800.00,
+    "mean_exec_time": 4.000,
+    "rows": 4200,
+    "shared_blks_hit": 33600,
+    "shared_blks_read": 420
+  },
+  {
+    "query": "INSERT INTO audit_log (event, user_id) VALUES ('charge_attempt', 42)",
+    "calls": 4200,
+    "total_exec_time": 8400.00,
+    "mean_exec_time": 2.000,
+    "rows": 4200,
+    "shared_blks_hit": 0,
+    "shared_blks_read": 4200
+  },
+  {
+    "query": "SELECT * FROM transactions WHERE account_id = 42 ORDER BY created_at DESC LIMIT 10",
+    "calls": 1500,
+    "total_exec_time": 22500.00,
+    "mean_exec_time": 15.000,
+    "rows": 15000,
+    "shared_blks_hit": 12000,
+    "shared_blks_read": 3000
+  },
+  {
+    "query": "SELECT rate FROM exchange_rates WHERE currency = 'EUR'",
+    "calls": 8000,
+    "total_exec_time": 4000.00,
+    "mean_exec_time": 0.500,
+    "rows": 8000,
+    "shared_blks_hit": 64000,
+    "shared_blks_read": 8
+  },
+  {
+    "query": "UPDATE accounts SET last_charged_at = NOW() WHERE id = 42",
+    "calls": 4200,
+    "total_exec_time": 12600.00,
+    "mean_exec_time": 3.000,
+    "rows": 4200,
+    "shared_blks_hit": 33600,
+    "shared_blks_read": 420
+  },
+  {
+    "query": "SELECT * FROM compliance_rules WHERE region = 'EU'",
+    "calls": 4200,
+    "total_exec_time": 33600.00,
+    "mean_exec_time": 8.000,
+    "rows": 42000,
+    "shared_blks_hit": 16800,
+    "shared_blks_read": 4200
+  }
+]
