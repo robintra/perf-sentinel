@@ -52,7 +52,10 @@ const BRAND_LOGO_PLACEHOLDER: &str = "{{BRAND_LOGO}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
 // Brand wordmark, embedded so the self-contained report needs no network
 // fetch. Light variant for light backgrounds, light-colored variant for
-// dark. The template swaps them by `data-theme` in pure CSS.
+// dark. The template swaps them by `data-theme` in pure CSS. Kept inside this
+// crate (not referenced from the repo-root `logo/`) so `cargo publish`
+// packages them; an out-of-package `include_str!` would break the published
+// crate's compile.
 const BRAND_LOGO_LIGHT_SVG: &str = include_str!("Logo-backgroundless.svg");
 const BRAND_LOGO_DARK_SVG: &str = include_str!("Logo-light-backgroundless.svg");
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
@@ -63,16 +66,24 @@ const STATIC_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
                           style-src 'unsafe-inline'; img-src data:; \
                           base-uri 'none'; form-action 'none'";
 
-const _: () = {
-    let bytes = STATIC_CSP.as_bytes();
+/// Compile-time guard: a value substituted into the document before the JSON
+/// marker (the CSP, the brand SVGs) must not contain `{{`, which would shadow
+/// a later `{{...}}` placeholder during [`inject`].
+const fn assert_no_double_brace(s: &str) {
+    let bytes = s.as_bytes();
     let mut i = 0;
     while i + 1 < bytes.len() {
         assert!(
             !(bytes[i] == b'{' && bytes[i + 1] == b'{'),
-            "STATIC_CSP must not contain `{{{{`, it would shadow placeholder substitution"
+            "embedded asset must not contain `{{{{`, it would shadow placeholder substitution"
         );
         i += 1;
     }
+}
+const _: () = {
+    assert_no_double_brace(STATIC_CSP);
+    assert_no_double_brace(BRAND_LOGO_LIGHT_SVG);
+    assert_no_double_brace(BRAND_LOGO_DARK_SVG);
 };
 /// Embedded in every payload as the `version` field. Extracted from the
 /// environment at compile time via `env!`, kept as a single constant so
@@ -298,14 +309,16 @@ struct TrimSummary {
 ///
 /// Substitution order is critical and verified by
 /// `hostile_input_label_with_json_placeholder_does_not_double_substitute`
-/// and friends: the JSON payload is substituted first because no
-/// user-controlled data has been laid down yet, so the only
-/// `{{REPORT_JSON}}` occurrence is the static template marker. The CSP
-/// and title placeholders are substituted afterwards. By that point the
-/// only `{{CONTENT_SECURITY_POLICY}}` and `{{PAGE_TITLE}}` matches
-/// `replacen(..., 1)` can find are the static template ones (which
-/// appear early in the document, before the JSON block), so a hostile
-/// title or JSON payload cannot shadow them.
+/// and friends:
+/// - the brand SVG is substituted first; it is trusted compile-time content
+///   guaranteed `{{`-free (see [`assert_no_double_brace`]), so it cannot lay
+///   down a fake placeholder for the later passes to match;
+/// - the JSON payload is substituted before the title, so a hostile
+///   `input_label` carrying `{{REPORT_JSON}}` (injected only at the title
+///   pass) cannot trigger a second JSON substitution;
+/// - the CSP and title markers sit in `<head>`, ahead of both the JSON block
+///   and the brand marker, so a hostile title or JSON payload cannot shadow
+///   the static `replacen(..., 1)` matches.
 fn inject(json: &str, title: &str, csp: &str) -> String {
     // Defense-in-depth: a `{{` byte sequence in the CSP would shadow a
     // template placeholder during the title substitution. `validate_url`
@@ -1268,6 +1281,90 @@ mod tests {
             !no_ws.contains("setAttribute('on"),
             "template contains forbidden attribute-sink: setAttribute('on*', ...)"
         );
+    }
+
+    /// Find an `on*=` event-handler attribute in raw SVG markup. An attribute
+    /// name follows whitespace in well-formed markup, so scan forward from each
+    /// whitespace boundary: a letter run starting with `on` followed by `=`
+    /// (whitespace allowed before the `=`) is a handler. Scanning from the
+    /// boundary avoids fusing a tag name into a following first attribute, the
+    /// `<svg onload=...>` case a whitespace-stripping scan would miss.
+    fn svg_event_handler(svg: &str) -> Option<String> {
+        let lower = svg.to_ascii_lowercase();
+        let bytes = lower.as_bytes();
+        for k in 0..bytes.len() {
+            if !bytes[k].is_ascii_whitespace() {
+                continue;
+            }
+            let start = k + 1;
+            let mut p = start;
+            while p < bytes.len() && bytes[p].is_ascii_alphabetic() {
+                p += 1;
+            }
+            let attr = &lower[start..p];
+            if attr.len() <= 2 || !attr.starts_with("on") {
+                continue;
+            }
+            let mut q = p;
+            while q < bytes.len() && bytes[q].is_ascii_whitespace() {
+                q += 1;
+            }
+            if q < bytes.len() && bytes[q] == b'=' {
+                return Some(attr.to_string());
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn brand_svgs_have_no_active_content() {
+        // The brand SVGs are injected verbatim into the report body and ship
+        // in every render under a CSP that allows inline scripts, so a
+        // re-exported logo carrying active content would execute. Guard the
+        // embedded assets the way `no_forbidden_apis_in_template` guards the
+        // template (which only scans TEMPLATE, not these constants).
+        for (name, svg) in [
+            ("BRAND_LOGO_LIGHT_SVG", BRAND_LOGO_LIGHT_SVG),
+            ("BRAND_LOGO_DARK_SVG", BRAND_LOGO_DARK_SVG),
+        ] {
+            let lower = svg.to_ascii_lowercase();
+            for needle in ["<script", "javascript:", "<foreignobject", "<iframe"] {
+                assert!(
+                    !lower.contains(needle),
+                    "{name} contains disallowed active content: {needle}"
+                );
+            }
+            assert!(
+                svg_event_handler(svg).is_none(),
+                "{name} contains a forbidden event-handler attribute: {:?}",
+                svg_event_handler(svg)
+            );
+        }
+    }
+
+    #[test]
+    fn svg_event_handler_scan_catches_first_attribute() {
+        // The common XSS form is a handler as the first attribute of an element;
+        // the previous whitespace-stripping scan fused the tag name and missed it.
+        assert_eq!(
+            svg_event_handler(r#"<svg onload="x">"#).as_deref(),
+            Some("onload")
+        );
+        assert_eq!(
+            svg_event_handler(r#"<rect onclick="x"/>"#).as_deref(),
+            Some("onclick")
+        );
+        assert_eq!(
+            svg_event_handler(r#"<svg width="1" onerror="x">"#).as_deref(),
+            Some("onerror")
+        );
+        assert_eq!(
+            svg_event_handler("<svg onload =\"x\">").as_deref(),
+            Some("onload")
+        );
+        // Benign attributes and `on...=` substrings inside values must not trip it.
+        assert!(svg_event_handler(r#"<svg width="10" viewBox="0 0 1 1">"#).is_none());
+        assert!(svg_event_handler(r#"<a href="https://x/?online=1">"#).is_none());
     }
 
     /// Visual validation artifact for the 0.5.10 estimation surface.
