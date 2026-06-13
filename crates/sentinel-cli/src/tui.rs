@@ -15,7 +15,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 // `Clear` only backs the ack modal, which is daemon-gated.
@@ -1455,10 +1455,15 @@ fn open_ack_modal_for_current(app: &mut App, revoke: bool) {
 }
 
 fn draw(f: &mut Frame, app: &App) {
-    // One-line tab bar on top, the active view fills the rest.
+    // One-line tab bar on top, the active view fills the middle, and a
+    // centered brand credit line is pinned to the bottom on every view.
     let outer = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
         .split(f.area());
 
     draw_tab_bar(f, app, outer[0]);
@@ -1468,11 +1473,30 @@ fn draw(f: &mut Frame, app: &App) {
         View::Explain => draw_explain_view(f, app, outer[1]),
         View::Disclose => draw_disclose_view(f, app, outer[1]),
     }
+    draw_brand_footer(f, outer[2]);
 
     #[cfg(feature = "daemon")]
     if app.ack_modal.is_visible() {
         draw_ack_modal(f, app);
     }
+}
+
+/// Centered "Powered by perf-sentinel (...)" credit pinned to the bottom of
+/// every view, mirroring the HTML dashboard footer. "perf-sentinel" and the
+/// repo link are brand green and the link is underlined; "Powered by" and the
+/// parentheses use the dimmed default foreground so they stay legible on both
+/// light and dark terminals.
+fn draw_brand_footer(f: &mut Frame, area: Rect) {
+    let green = Style::default().fg(Color::Rgb(11, 166, 113));
+    let green_link = green.add_modifier(Modifier::UNDERLINED);
+    let line = Line::from(vec![
+        Span::styled("Powered by ", dim_style()),
+        Span::styled("perf-sentinel", green),
+        Span::styled(" (", dim_style()),
+        Span::styled("github.com/robintra/perf-sentinel", green_link),
+        Span::styled(")", dim_style()),
+    ]);
+    f.render_widget(Paragraph::new(line).alignment(Alignment::Center), area);
 }
 
 /// Top tab bar: the three views with the active one highlighted, plus the
@@ -3055,6 +3079,16 @@ mod tests {
         assert!(text.contains("Traces"), "trace panel missing");
         assert!(text.contains("Findings"), "findings panel missing");
         assert!(text.contains("Detail"), "detail panel missing");
+    }
+
+    #[test]
+    fn draw_renders_brand_footer() {
+        let mut app = make_test_app();
+        let buf = render_once(&mut app, 120, 40);
+        assert!(
+            buffer_text(&buf).contains("Powered by perf-sentinel"),
+            "brand footer missing"
+        );
     }
 
     #[test]
