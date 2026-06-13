@@ -1815,6 +1815,9 @@ fn draw_traces_panel(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
     let indices = app.current_finding_indices();
+    // Inner width inside the block borders, used to pick the ack suffix form.
+    #[cfg_attr(not(feature = "daemon"), allow(unused_variables))]
+    let inner_width = area.width.saturating_sub(2) as usize;
     let items: Vec<ListItem> = indices
         .iter()
         .enumerate()
@@ -1822,20 +1825,19 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
             let finding = &app.all_findings[idx];
             let severity_color = severity_color(&finding.severity);
             let type_label = finding_type_label(&finding.finding_type);
+            let sev_label = severity_label(&finding.severity);
+            let idx_label = format!("[{}] ", i + 1);
             // Only the daemon-gated acked-by suffix mutates the vec.
             #[cfg_attr(not(feature = "daemon"), allow(unused_mut))]
             let mut spans = vec![
-                Span::styled(format!("[{}] ", i + 1), dim_style()),
+                Span::styled(idx_label.clone(), dim_style()),
                 Span::styled(
                     format!("{type_label} "),
                     Style::default()
                         .fg(severity_color)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(
-                    severity_label(&finding.severity),
-                    Style::default().fg(severity_color),
-                ),
+                Span::styled(sev_label, Style::default().fg(severity_color)),
             ];
             #[cfg(feature = "daemon")]
             if let Some(ack) = app.acks_by_signature.get(&finding.signature) {
@@ -1845,9 +1847,22 @@ fn draw_findings_panel(f: &mut Frame, app: &App, area: Rect) {
                     } => acknowledged_by.as_str(),
                     AckSource::Daemon { by, .. } => by.as_str(),
                 };
+                // Prefer the full "[acked by <who>]" suffix, but fall back to a
+                // compact "[acked]" when the panel is too narrow to fit it, so
+                // the ack status stays visible even in a slim Findings column.
+                let full = format!("[acked by {}]", sanitize_for_terminal(by));
+                let base = idx_label.chars().count()
+                    + type_label.chars().count()
+                    + 1
+                    + sev_label.chars().count();
+                let suffix = if base + 1 + full.chars().count() <= inner_width {
+                    full
+                } else {
+                    "[acked]".to_string()
+                };
                 spans.push(Span::raw(" "));
                 spans.push(Span::styled(
-                    format!("[acked by {}]", sanitize_for_terminal(by)),
+                    suffix,
                     dim_style().add_modifier(Modifier::ITALIC),
                 ));
             }
@@ -3662,14 +3677,26 @@ mod tests {
                 expires_at: None,
             },
         );
-        let backend = TestBackend::new(120, 30);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|f| draw(f, &app)).unwrap();
-        let buffer = terminal.backend().buffer().clone();
-        let rendered = render_buffer_to_string(&buffer);
+        let render_at = |width: u16| {
+            let backend = TestBackend::new(width, 30);
+            let mut terminal = Terminal::new(backend).unwrap();
+            terminal.draw(|f| draw(f, &app)).unwrap();
+            render_buffer_to_string(terminal.backend().buffer())
+        };
+
+        // Wide terminal: the full "[acked by <who>]" suffix fits.
+        let wide = render_at(200);
         assert!(
-            rendered.contains("acked by alice"),
-            "expected ack indicator in rendered TUI buffer, got:\n{rendered}"
+            wide.contains("acked by alice"),
+            "expected full ack indicator on a wide terminal, got:\n{wide}"
+        );
+
+        // Narrow terminal: the Findings panel is too slim for the full suffix,
+        // so it degrades to the compact "[acked]" marker (still visible).
+        let narrow = render_at(120);
+        assert!(
+            narrow.contains("[acked]"),
+            "expected compact ack marker on a narrow terminal, got:\n{narrow}"
         );
     }
 
