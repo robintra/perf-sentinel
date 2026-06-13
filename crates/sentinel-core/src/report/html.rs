@@ -48,7 +48,13 @@ const TEMPLATE: &str = include_str!("html_template.html");
 const JSON_PLACEHOLDER: &str = "{{REPORT_JSON}}";
 const TITLE_PLACEHOLDER: &str = "{{PAGE_TITLE}}";
 const CSP_PLACEHOLDER: &str = "{{CONTENT_SECURITY_POLICY}}";
+const BRAND_LOGO_PLACEHOLDER: &str = "{{BRAND_LOGO}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
+// Brand wordmark, embedded so the self-contained report needs no network
+// fetch. Light variant for light backgrounds, light-colored variant for
+// dark. The template swaps them by `data-theme` in pure CSS.
+const BRAND_LOGO_LIGHT_SVG: &str = include_str!("Logo-backgroundless.svg");
+const BRAND_LOGO_DARK_SVG: &str = include_str!("Logo-light-backgroundless.svg");
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
 /// Static-mode Content-Security-Policy. See `docs/design/07-CLI-CONFIG-RELEASE.md`
 /// § "`STATIC_CSP` compile-time invariant" for the substitution-shadowing
@@ -310,7 +316,19 @@ fn inject(json: &str, title: &str, csp: &str) -> String {
         "CSP must not contain `{{{{` placeholder bytes, got: {csp}"
     );
     let safe = json.replace("</", "<\\/");
+    // Brand wordmark as raw inline SVG (light + dark variants), substituted
+    // into the static <span> in the topbar. Server-side substitution, not a
+    // runtime `innerHTML`, so the template keeps its textContent-only XSS
+    // invariant. The SVG is trusted compile-time content and lives in the
+    // body (not a <script>), so no `</` escaping is needed. Substituted
+    // before the report JSON so a hostile `{{BRAND_LOGO}}` inside report
+    // content cannot shadow this one.
+    let brand_logo = format!(
+        "<span class=\"ps-logo ps-logo-light\">{BRAND_LOGO_LIGHT_SVG}</span>\
+         <span class=\"ps-logo ps-logo-dark\">{BRAND_LOGO_DARK_SVG}</span>"
+    );
     TEMPLATE
+        .replacen(BRAND_LOGO_PLACEHOLDER, &brand_logo, 1)
         .replacen(JSON_PLACEHOLDER, &safe, 1)
         .replacen(CSP_PLACEHOLDER, csp, 1)
         .replacen(TITLE_PLACEHOLDER, title, 1)
