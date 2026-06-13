@@ -15,8 +15,8 @@
     --color-background-warning: #3d2f1f;
     --color-background-success: #1f3d2f;
     --color-text-primary: #e8e8e8;
-    --color-text-secondary: #a0a0a0;
-    --color-text-tertiary: #707070;
+    --color-text-secondary: #b4b4b4;
+    --color-text-tertiary: #8c8c8c;
     --color-text-info: #6babff;
     --color-text-danger: #ff7a7a;
     --color-text-warning: #f0b05f;
@@ -61,7 +61,15 @@
   .ps-theme-toggle { background: transparent; border: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); padding: 4px 10px; border-radius: var(--border-radius-md); cursor: pointer; font-size: 11px; font-family: inherit; }
   .ps-theme-toggle:hover { border-color: var(--color-border-secondary); }
   .ps-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); margin-bottom: 12px; flex-wrap: wrap; }
-  .ps-brand { font-weight: 500; font-size: 14px; }
+  .ps-brand { display: inline-flex; align-items: center; text-decoration: none; }
+  .ps-logo { display: inline-flex; }
+  .ps-logo svg { height: 65px; width: auto; display: block; }
+  /* Theme-swapped wordmark: light variant by default (and when light),
+     light-colored variant on dark. data-theme is always resolved to a
+     concrete light/dark by applyTheme. */
+  .ps-logo-dark { display: none; }
+  :root[data-theme="dark"] .ps-logo-light { display: none; }
+  :root[data-theme="dark"] .ps-logo-dark { display: inline-flex; }
   .ps-meta { color: var(--color-text-secondary); font-size: 12px; font-family: var(--font-mono); }
   .ps-gate-pass { margin-left: auto; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
   .ps-gate-fail { margin-left: auto; background: var(--color-background-danger); color: var(--color-text-danger); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
@@ -127,7 +135,7 @@
   #pgstat-body tr.hilite td:first-child { color: var(--color-text-danger); font-weight: 500; }
   .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
   .ps-credit { margin-top: 8px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
-  .ps-credit a { color: var(--color-text-secondary); text-decoration: underline; }
+  .ps-credit a { color: var(--color-text-success); text-decoration: underline; }
   .ps-credit a:hover { color: var(--color-text-primary); }
   .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
   .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
@@ -236,7 +244,7 @@
     <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
   </div>
 
-  <div class="ps-topbar" id="topbar"></div>
+  <div class="ps-topbar" id="topbar"><a class="ps-brand" href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel">{{BRAND_LOGO}}</a></div>
 
   <div class="ps-tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></div>
 
@@ -578,9 +586,10 @@
   function typeLabel(t) { return TYPE_LABEL[t] || String(t); }
 
   // -------- top bar --------
+  // The brand wordmark is static markup in #topbar (inline SVG, theme-swapped
+  // by CSS); renderTopbar only appends the dynamic meta/badge after it.
   function renderTopbar() {
     var bar = document.getElementById("topbar");
-    var brand = el("span", "ps-brand", "perf-sentinel");
     var version = el("span", "ps-meta", "v" + (payload.version || ""));
     var analysis = report.analysis || { events_processed: 0, traces_analyzed: 0 };
     var meta = el(
@@ -596,7 +605,6 @@
       gate.passed ? "ps-gate-pass" : "ps-gate-fail",
       gate.passed ? "Quality gate passed" : "Quality gate failed"
     );
-    bar.appendChild(brand);
     bar.appendChild(version);
     bar.appendChild(meta);
     bar.appendChild(badge);
