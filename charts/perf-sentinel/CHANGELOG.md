@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.55]
+
+### Changed
+
+- `appVersion` bumped to `0.8.10` to track `perf-sentinel demo --tui` and `--html`: the bundled demo can now open the interactive TUI report or write the self-contained HTML dashboard in addition to the colored terminal report. The `--html` output is a full showcase with every dashboard tab populated from embedded fixtures (findings across all detector types, Explain span trees, GreenOps, a pg_stat ranking, a Diff against an embedded baseline run, and synthesized cross-trace correlations), and the embedded demo dataset now exercises all ten detector types across the three severity levels. CLI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.10` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.54]
 
 ### Changed

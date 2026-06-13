@@ -2,6 +2,20 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.10]
+
+### Added
+
+- `perf-sentinel demo` gains `--tui` and `--html`. The bundled demo can now open the interactive TUI report or write the self-contained HTML dashboard, in addition to the colored terminal report. The `--html` output is a full showcase: every dashboard tab is populated from embedded fixtures, with findings spanning all detector types, Explain span trees, the GreenOps summary, a pg_stat ranking, a Diff against an embedded baseline run, and synthesized cross-trace correlations. Live ack/revoke stays daemon-only.
+- The HTML dashboard header now renders the perf-sentinel wordmark logo (embedded inline, with theme-aware light and dark variants) as a link to the project repository, replacing the plain-text brand. Applies to every HTML report, not just the demo.
+- The interactive TUI (`inspect`, `analyze --tui`, `explain --tui`, `demo --tui`) shows a centered `Powered by perf-sentinel` credit with the repository link pinned to the bottom of every view, mirroring the HTML dashboard footer. The brand name and link are green (the link underlined where the terminal supports it) and the muted text adapts to light and dark terminals.
+
+### Changed
+
+- The embedded demo dataset now exercises all ten detector types across the three severity levels, so the demo report (and the TUI/HTML showcase built from it) reflects the full detection surface.
+- Dark-mode contrast tuned across all HTML reports: lighter muted (secondary and tertiary) text, more visible control borders and elevated surfaces, and the footer "perf-sentinel" credit link now uses the success-green accent.
+
+
 ## [0.8.9]
 
 ### Fixed
