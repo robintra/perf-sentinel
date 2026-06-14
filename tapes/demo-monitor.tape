@@ -1,5 +1,7 @@
-# VHS script, generates docs/img/monitor/demo.gif plus two still frames
-# (energy.png, trends.png).
+# VHS script, generates docs/img/monitor/demo.gif plus the energy.png and
+# config.png still frames. The Trends still is captured separately by
+# demo-monitor-trends.tape: its fixed plotting window needs ~4 min of
+# points to fill, too long for this tour GIF.
 #
 # Showcases the live operator TUI exposed by `perf-sentinel query
 # monitor` (since 0.8.8): a daemon-backed dashboard that polls
@@ -37,7 +39,7 @@
 #
 #   cargo build --release
 #   vhs tapes/demo-monitor.tape   # generates monitor/demo.gif + 2 *.png
-#   python3 scripts/trim-bottom-png.py docs/img/monitor/energy.png docs/img/monitor/trends.png
+#   python3 scripts/trim-bottom-png.py docs/img/monitor/energy.png
 #
 #   # Post-process the GIF to keep it well under ~1 MB. Keep fps=20 (do not
 #   # decimate) so the typed command stays smooth letter-by-letter. The
@@ -117,14 +119,12 @@ Sleep 2500ms
 Screenshot docs/img/monitor/energy.png
 Sleep 1500ms
 
-# Tab -> Trends: let the poller accumulate points so the energy/carbon
-# curves cover about two regional-mix swings of the seed loop (the
-# carbon curve visibly decorrelates from energy) and the headroom
-# percentages move before the shot.
+# Tab -> Trends: the energy/carbon and headroom charts. The poller fills
+# the fixed window from empty, so the tour only shows the right edge
+# building up; the filled-window still is captured by
+# demo-monitor-trends.tape.
 Tab
-Sleep 22s
-Screenshot docs/img/monitor/trends.png
-Sleep 1500ms
+Sleep 6s
 
 # Tab -> Scrapers: backend health (still frame owned by its own tape).
 Tab
