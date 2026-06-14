@@ -6,8 +6,8 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.55
-appVersion: "0.8.10"
+version: 0.2.56
+appVersion: "0.8.11"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
 icon: https://raw.githubusercontent.com/robintra/perf-sentinel/main/logo/logo-horizontal.svg
@@ -69,9 +69,11 @@ annotations:
       description: "appVersion 0.8.9: the demo subcommand marks its failed quality-gate verdict as informational (Quality gate: FAILED (informational in demo, would exit 1 under analyze --ci)), since the demo never enforces the gate and always exits 0. Console-only and demo-only, analyze --ci exit behavior and machine exports (JSON, SARIF, HTML, NDJSON) are unchanged. The documented crates.io install command now recommends cargo install perf-sentinel --locked. CLI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion."
     - kind: added
       description: "appVersion 0.8.10: the demo subcommand gains --tui and --html. perf-sentinel demo can now open the interactive TUI report or write the self-contained HTML dashboard in addition to the colored terminal report, and the --html output is a full showcase with every dashboard tab populated from embedded fixtures (findings across all detector types, Explain span trees, GreenOps, a pg_stat ranking, a Diff against an embedded baseline run, and synthesized cross-trace correlations). The embedded demo dataset now exercises all ten detector types across the three severity levels. CLI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion."
+    - kind: added
+      description: "appVersion 0.8.11: the interactive TUIs gain mouse-drag-resizable panels. The inspect drill-down (Traces, Findings, Correlations, Detail) and the query monitor Trends tab let you drag panel borders to redistribute space, m toggles mouse capture (opt-in, native copy-paste preserved when off), r resets the layout, and hovering a border highlights it with a handle glyph (a terminal cannot change the OS mouse pointer). Panel sizes are per-session, not persisted. No chart template change, this bump only tracks the new appVersion."
   artifacthub.io/images: |
     - name: perf-sentinel
-      image: ghcr.io/robintra/perf-sentinel:0.8.10
+      image: ghcr.io/robintra/perf-sentinel:0.8.11
       platforms:
         - linux/amd64
         - linux/arm64

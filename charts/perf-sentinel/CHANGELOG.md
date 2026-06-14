@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.56]
+
+### Changed
+
+- `appVersion` bumped to `0.8.11` to track mouse-drag-resizable panels in the interactive TUIs: the `inspect` drill-down (Traces, Findings, Correlations, Detail) and the `query monitor` Trends tab let you drag panel borders to redistribute space, `m` toggles mouse capture (opt-in, so native terminal copy-paste stays available when off), `r` resets the layout, and hovering a border highlights it with a handle glyph (the in-app stand-in for a resize cursor, since a terminal cannot change the OS mouse pointer). Panel sizes are per-session. CLI/TUI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.11` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.55]
 
 ### Changed

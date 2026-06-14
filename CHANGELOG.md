@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.11]
+
+### Added
+
+- The interactive TUIs gain mouse-drag-resizable panels. In `inspect` (and `analyze --tui` / `demo --tui`) the borders between the Traces, Findings, Correlations and Detail panels can be dragged with the mouse to redistribute space, and in `query monitor` the Trends tab resizes its Energy/Carbon split and its charts/headroom split the same way. Press `m` to toggle mouse mode (mouse capture is opt-in, so native terminal selection and copy-paste stay available while it is off), drag a border to resize, and `r` to reset the layout to its defaults. Hovering a border highlights it with a heavy accent line and a handle glyph at the grab point, the in-app stand-in for a resize cursor since a terminal application cannot change the OS mouse pointer. Panel sizes are per-session and not persisted. CLI/TUI-only change, no daemon behavior change.
+
 ## [0.8.10]
 
 ### Added
