@@ -2948,7 +2948,7 @@ mod tests {
             kind: MouseEventKind::Moved,
             column,
             row,
-            modifiers: crossterm::event::KeyModifiers::empty(),
+            modifiers: event::KeyModifiers::empty(),
         }
     }
 
