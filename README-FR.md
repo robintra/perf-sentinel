@@ -58,17 +58,13 @@ Rapport terminal (`perf-sentinel analyze`) :
 
 ![rapport terminal analyze](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
-Explain sur une trace (`perf-sentinel explain --trace-id <id>`) :
-
-![démo explain : arbre de spans annoté et findings de niveau trace](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
-
 Inspect, le TUI autonome à quatre panneaux (`perf-sentinel inspect`) :
 
 ![démo inspect : couleurs de sévérité et panneau detail scrollable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
 
-Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) via `perf-sentinel query --daemon <URL> monitor` :
+Explain sur une trace (`perf-sentinel explain --trace-id <id>`) :
 
-![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![démo explain : arbre de spans annoté et findings de niveau trace](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
 
 Hotspots pg_stat_statements (`perf-sentinel pg-stat`) :
 
@@ -267,7 +263,9 @@ Deux comportements à connaître avant de dimensionner : l'échantillonnage de t
 
 </details>
 
-Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) est le release gate obligatoire pre-tag : 36 scénarios de bout en bout sur un cluster Kubernetes local (k3d), couvrant neuf modes de déploiement plus les templates CI, les modes de défaillance et les limites de charge, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation.
+Moniteur opérateur live sur un daemon en marche, pour les DevOps / SRE, quatre onglets cyclés par Tab (hints Advisor, mix énergie/carbone, courbes Trends, santé des Scrapers) via `perf-sentinel query --daemon <URL> monitor` :
+
+![query monitor : quatre onglets live cyclés par Tab sur un daemon en marche](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 ### Traitement des données
 
@@ -520,9 +518,9 @@ La section [Aperçu rapide](#aperçu-rapide) en haut de page affiche les GIFs an
 
 Chaque GitHub Action est figée sur un SHA de commit de 40 caractères, l'image de prod est `FROM scratch`, `Cargo.lock` est committé et audité quotidiennement par `cargo audit`, les permissions `GITHUB_TOKEN` des workflows sont par défaut `contents: read`. Dependabot ouvre des PRs groupées chaque semaine. Les binaires de release embarquent une provenance SLSA Build L3 (Sigstore + Rekor) et les données de dépendances `cargo-auditable` (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Politique complète et commandes de vérification : [docs/FR/SUPPLY-CHAIN-FR.md](docs/FR/SUPPLY-CHAIN-FR.md).
 
-## Releasing
+## Publication des versions
 
-Les releases suivent une procédure documentée avec un gate obligatoire de validation simulation-lab. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md).
+Les publications suivent une procédure documentée. Le dépôt compagnon [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) est le palier de validation obligatoire avant tag : 36 scénarios de bout en bout sur un cluster Kubernetes local (k3d), couvrant neuf modes de déploiement plus les templates CI, les modes de défaillance et les limites de charge, chacun avec un diagramme Mermaid, les entrées/sorties exactes et les pièges rencontrés lors de la validation. Pas-à-pas dans [docs/FR/RELEASE-PROCEDURE-FR.md](docs/FR/RELEASE-PROCEDURE-FR.md).
 
 ## Licence
 

@@ -58,17 +58,13 @@ Terminal report (`perf-sentinel analyze`):
 
 ![analyze terminal report](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/analyze/demo.gif)
 
-Explain a single trace (`perf-sentinel explain --trace-id <id>`):
-
-![explain demo: annotated span tree and trace-level findings](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
-
 Inspect, the standalone four-panel TUI (`perf-sentinel inspect`):
 
 ![inspect demo: severity colors and the scrollable detail panel](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/inspect/demo.gif)
 
-Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via `perf-sentinel query --daemon <URL> monitor`:
+Explain a single trace (`perf-sentinel explain --trace-id <id>`):
 
-![query monitor: four live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
+![explain demo: annotated span tree and trace-level findings](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/explain/demo.gif)
 
 pg_stat_statements hotspots (`perf-sentinel pg-stat`):
 
@@ -267,7 +263,9 @@ Two behaviours to know before sizing: upstream trace sampling (head-based vs tai
 
 </details>
 
-The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) is the mandatory pre-tag release gate: 36 end-to-end scenarios on a local Kubernetes (k3d) cluster, covering nine deployment modes plus CI templates, failure modes and load limits, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation.
+Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via `perf-sentinel query --daemon <URL> monitor`:
+
+![query monitor: four live tabs cycled with Tab over a running daemon](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif)
 
 ### Data handling
 
@@ -522,7 +520,7 @@ Every GitHub Action is pinned to a 40-character commit SHA; the production image
 
 ## Releasing
 
-Releases follow a documented procedure with a mandatory simulation-lab validation gate. Step-by-step in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md).
+Releases follow a documented procedure. The companion repo [perf-sentinel-simulation-lab](https://github.com/robintra/perf-sentinel-simulation-lab/blob/main/docs/SCENARIOS.md) is the mandatory pre-tag release gate: 36 end-to-end scenarios on a local Kubernetes (k3d) cluster, covering nine deployment modes plus CI templates, failure modes and load limits, each shipping a Mermaid diagram, the exact inputs/outputs, and the gotchas hit during validation. Step-by-step in [docs/RELEASE-PROCEDURE.md](docs/RELEASE-PROCEDURE.md).
 
 ## License
 
