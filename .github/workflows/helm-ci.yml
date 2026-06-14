@@ -128,9 +128,13 @@ jobs:
           fetch-depth: 0 # the script needs the base ref to diff
 
       - name: Assert Chart.yaml:version bumped when chart changes
-        run: scripts/check-chart-version-bumped.sh
+        # Pass the base ref as arg 1 via a non-reserved var. GITHUB_BASE_REF is
+        # a built-in (empty outside pull_request), so an env: override is
+        # ignored at runtime and the script saw no base ref on workflow_dispatch.
+        # arg 1 takes priority in the script and works on both event types.
+        run: scripts/check-chart-version-bumped.sh "${BASE_REF}"
         env:
-          GITHUB_BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
+          BASE_REF: ${{ github.base_ref || github.event.repository.default_branch }}
 
   # Catches drift between Chart.yaml:appVersion and the image tag
   # inside the `artifacthub.io/images` annotation. Artifact Hub would
