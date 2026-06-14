@@ -199,3 +199,49 @@ jobs:
             --framework kubernetes \
             --compact \
             --soft-fail
+
+  # Live smoke test: spin up a kind cluster, `helm install --wait`, then
+  # `helm test`. Every job above only renders and schema-checks, nothing
+  # installs the chart against a real API server. This is the only leg
+  # that catches an admission rejection, a pod that never goes ready, or a
+  # rendered config the daemon refuses to parse. It also runs the
+  # templates/tests/test-connection.yaml hook, which has no other home.
+  install-test:
+    name: Install on kind + helm test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+
+      - uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+
+      # kind as a direct binary download, same rationale as kubeconform above.
+      - name: Install kind
+        run: |
+          curl -fsSL -o /tmp/kind \
+            https://kind.sigs.k8s.io/dl/v0.26.0/kind-linux-amd64
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version
+
+      - name: Create cluster
+        run: kind create cluster --wait 60s
+
+      - name: helm install --wait
+        run: |
+          helm install perf-sentinel charts/perf-sentinel/ \
+            --namespace perf-sentinel --create-namespace \
+            --wait --timeout 180s
+
+      - name: helm test
+        run: helm test perf-sentinel --namespace perf-sentinel --logs
+
+      # Surface why the install or test failed instead of a bare non-zero exit.
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n perf-sentinel get pods -o wide || true
+          kubectl -n perf-sentinel describe pods || true
+          kubectl -n perf-sentinel logs -l app.kubernetes.io/name=perf-sentinel --tail=100 || true
