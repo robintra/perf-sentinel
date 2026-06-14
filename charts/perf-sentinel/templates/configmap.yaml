@@ -12,3 +12,15 @@ metadata:
 data:
   perf-sentinel.toml: |
     {{- .Values.config.toml | nindent 4 }}
+    {{- if eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
+
+    # Appended by the chart because persistence is enabled: point the runtime
+    # ack store and the disclose archive at the mounted PVC so they survive
+    # restarts. Do not also set [daemon.ack] or [daemon.archive] in config.toml
+    # above, TOML rejects duplicate tables.
+    [daemon.ack]
+    storage_path = "{{ include "perf-sentinel.dataDir" . }}/acks.jsonl"
+
+    [daemon.archive]
+    path = "{{ include "perf-sentinel.dataDir" . }}/archive.ndjson"
+    {{- end }}

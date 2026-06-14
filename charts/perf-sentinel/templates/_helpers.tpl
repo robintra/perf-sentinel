@@ -89,6 +89,24 @@ Defaults to the full release name.
 {{- end -}}
 
 {{/*
+Persistence mount path. Single source for the PVC mount and the ack/archive
+paths the ConfigMap points at it.
+*/}}
+{{- define "perf-sentinel.dataDir" -}}
+/var/lib/perf-sentinel
+{{- end -}}
+
+{{/*
+"true" when the workload is a StatefulSet with persistence enabled, i.e. the
+data dir is actually mounted. Empty otherwise.
+*/}}
+{{- define "perf-sentinel.persistenceEnabled" -}}
+{{- if and (eq .Values.workload.kind "StatefulSet") .Values.workload.statefulset.persistence.enabled -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{/*
 ConfigMap name. Derived from the fullname, truncated at 63 chars to stay
 within the DNS-1123 label limit even for long release names.
 */}}
@@ -160,9 +178,9 @@ containers:
         readOnly: true
       - name: tmp
         mountPath: /tmp
-      {{- if and (eq .Values.workload.kind "StatefulSet") .Values.workload.statefulset.persistence.enabled }}
+      {{- if eq (include "perf-sentinel.persistenceEnabled" .) "true" }}
       - name: data
-        mountPath: /var/lib/perf-sentinel
+        mountPath: {{ include "perf-sentinel.dataDir" . }}
       {{- end }}
       {{- with .Values.extraVolumeMounts }}
       {{- toYaml . | nindent 6 }}

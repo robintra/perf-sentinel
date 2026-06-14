@@ -35,16 +35,18 @@ workload:
   # -- updateStrategy for DaemonSet/StatefulSet. Ignored for Deployment.
   updateStrategy:
     type: RollingUpdate
-  # StatefulSet-specific settings. Reserved for future on-disk persistence;
-  # currently no daemon feature writes here, the toggle is provisioned so
-  # existing users can enable it without chart changes.
+  # StatefulSet-specific settings. Enabling persistence gives the daemon a
+  # durable PVC and points the runtime ack store and the public-disclosure
+  # archive at it, so both survive restarts and pod rescheduling.
   statefulset:
     # -- Headless Service name used by the StatefulSet. Defaults to the
     # release fullname when empty.
     serviceName: ""
     persistence:
-      # -- When true, the StatefulSet renders a volumeClaimTemplate mounted
-      # at /var/lib/perf-sentinel. No daemon feature uses this path yet.
+      # -- When true (StatefulSet only), render a volumeClaimTemplate mounted
+      # at /var/lib/perf-sentinel and point [daemon.ack] storage_path plus
+      # [daemon.archive] path at it (see templates/configmap.yaml). Acks and
+      # the disclosure archive then persist across restarts. Off by default.
       enabled: false
       size: 1Gi
       accessModes:
