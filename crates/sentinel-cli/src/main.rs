@@ -22,6 +22,8 @@ mod query;
 mod render;
 #[cfg(feature = "tui")]
 mod tui;
+#[cfg(feature = "tui")]
+mod tui_resize;
 mod verify_hash;
 
 use clap::{CommandFactory, Parser, Subcommand};

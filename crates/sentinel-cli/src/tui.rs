@@ -10,7 +10,10 @@ use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, MouseButton,
+    MouseEvent, MouseEventKind,
+};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -36,6 +39,9 @@ use sentinel_core::report::{Analysis, GreenSummary, QualityGate};
 use sentinel_core::text_safety::sanitize_for_terminal;
 
 use crate::disclose::{CustomField, DiscloseState, Granularity, Tone};
+use crate::tui_resize::{
+    Axis, DragTarget, MIN_PCT, boundary_cell, in_range, near, pos_to_pct, set_cut,
+};
 
 #[cfg(feature = "daemon")]
 use chrono::{DateTime, Utc};
@@ -140,7 +146,29 @@ pub struct App {
     /// just the standalone Disclose tab and the app opens on it; the
     /// analyze/inspect/explain drill-down is unused.
     disclose: Option<DiscloseState>,
+
+    /// Inspect-view panel split ratios (percentages summing to 100),
+    /// adjustable at runtime by dragging borders in mouse mode. `rows` is
+    /// the vertical top/Detail split, `cols` is the Traces/Findings/
+    /// Correlations top row. Reset to the defaults by `r`, not persisted.
+    inspect_rows: [u16; 2],
+    inspect_cols: [u16; 3],
+    /// Mouse capture is opt-in (toggled by `m`): off preserves native
+    /// terminal copy-paste, on lets borders be dragged.
+    mouse_mode: bool,
+    /// Border currently being dragged, set on mouse-down over a border.
+    drag: Option<DragTarget>,
+    /// Border currently under the cursor, set on mouse motion. Drives the
+    /// resize-affordance highlight so the user sees a border is grabbable.
+    hover: Option<DragTarget>,
+    /// Inspect content area from the last frame, for hit-testing a drag.
+    /// `Cell` lets `draw_inspect_view` store it through `&App`.
+    inspect_area: std::cell::Cell<Rect>,
 }
+
+/// Default Inspect split ratios, also the `r`-reset target.
+const INSPECT_ROWS_DEFAULT: [u16; 2] = [50, 50];
+const INSPECT_COLS_DEFAULT: [u16; 3] = [20, 30, 50];
 
 impl App {
     /// Create a new app from analysis findings and traces.
@@ -209,6 +237,12 @@ impl App {
             #[cfg(feature = "daemon")]
             ack_modal: AckModalState::default(),
             disclose: None,
+            inspect_rows: INSPECT_ROWS_DEFAULT,
+            inspect_cols: INSPECT_COLS_DEFAULT,
+            mouse_mode: false,
+            drag: None,
+            hover: None,
+            inspect_area: std::cell::Cell::new(Rect::default()),
         }
     }
 
@@ -490,6 +524,105 @@ impl App {
             Panel::Detail => Panel::Findings,
             Panel::Correlations => Panel::Detail,
         };
+    }
+
+    /// Flip mouse mode and, when turning it off, cancel any in-progress
+    /// drag. The terminal capture side-effect is applied by the caller via
+    /// [`set_mouse_capture`], keeping this pure and unit-testable.
+    fn toggle_mouse_mode(&mut self) {
+        self.mouse_mode = !self.mouse_mode;
+        if !self.mouse_mode {
+            self.drag = None;
+            self.hover = None;
+        }
+    }
+
+    /// Reset the Inspect split ratios to their defaults (`r`).
+    fn reset_layout(&mut self) {
+        self.inspect_rows = INSPECT_ROWS_DEFAULT;
+        self.inspect_cols = INSPECT_COLS_DEFAULT;
+    }
+
+    /// Whether a mouse drag should resize panels right now. Only in the
+    /// Inspect view (the sole resizable layout) and never behind the ack
+    /// modal, which captures keys but not the mouse.
+    fn accepts_panel_drag(&self) -> bool {
+        if self.view != View::Inspect {
+            return false;
+        }
+        #[cfg(feature = "daemon")]
+        if self.ack_modal.is_visible() {
+            return false;
+        }
+        true
+    }
+
+    /// Border (if any) under the cursor, using the last drawn Inspect area.
+    fn hit_test(&self, col: u16, row: u16) -> Option<DragTarget> {
+        let area = self.inspect_area.get();
+        if area.width == 0 || area.height == 0 {
+            return None;
+        }
+        // Horizontal borders live in the top row; checked before the
+        // vertical border so the vertical ±1 tolerance can't shadow the
+        // top row's bottom cell.
+        let top_h = u16::try_from(u32::from(area.height) * u32::from(self.inspect_rows[0]) / 100)
+            .unwrap_or(area.height);
+        if in_range(row, area.y, top_h) {
+            for b in 0..self.inspect_cols.len() - 1 {
+                if near(
+                    col,
+                    boundary_cell(&self.inspect_cols, b, area.x, area.width),
+                ) {
+                    return Some(DragTarget {
+                        axis: Axis::Horizontal,
+                        boundary: b,
+                    });
+                }
+            }
+        }
+        // Vertical border between the top row and the Detail panel.
+        let vy = boundary_cell(&self.inspect_rows, 0, area.y, area.height);
+        if near(row, vy) && in_range(col, area.x, area.width) {
+            return Some(DragTarget {
+                axis: Axis::Vertical,
+                boundary: 0,
+            });
+        }
+        None
+    }
+
+    /// Mouse-down: if the cursor is on a panel border, start dragging it.
+    fn begin_drag(&mut self, col: u16, row: u16) {
+        self.drag = self.hit_test(col, row);
+    }
+
+    /// The border highlighted right now: the one being dragged, else the
+    /// one hovered. Drives the resize-affordance overlay.
+    fn resize_target(&self) -> Option<DragTarget> {
+        self.drag.or(self.hover)
+    }
+
+    /// Mouse-drag: move the active border to the cursor.
+    fn apply_drag(&mut self, col: u16, row: u16) {
+        let Some(target) = self.drag else {
+            return;
+        };
+        let area = self.inspect_area.get();
+        match target.axis {
+            Axis::Vertical => set_cut(
+                &mut self.inspect_rows,
+                target.boundary,
+                pos_to_pct(row, area.y, area.height),
+                MIN_PCT,
+            ),
+            Axis::Horizontal => set_cut(
+                &mut self.inspect_cols,
+                target.boundary,
+                pos_to_pct(col, area.x, area.width),
+                MIN_PCT,
+            ),
+        }
     }
 
     /// Handle Enter key: drill into the next panel.
@@ -1154,8 +1287,21 @@ fn restore_terminal_if_raw() {
     // mode is not.
     if crossterm::terminal::is_raw_mode_enabled().unwrap_or(true) {
         let _ = disable_raw_mode();
-        let _ = crossterm::execute!(io::stdout(), LeaveAlternateScreen);
+        // DisableMouseCapture is harmless when capture was never enabled.
+        let _ = crossterm::execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen);
     }
+}
+
+/// Enable or disable terminal mouse capture, shared by both TUIs. On lets
+/// them receive drag events for border resizing, at the cost of native
+/// copy-paste. Best-effort: a write failure leaves the in-memory flag
+/// authoritative, and teardown always issues `DisableMouseCapture`.
+pub(crate) fn set_mouse_capture(on: bool) {
+    let _ = if on {
+        crossterm::execute!(io::stdout(), EnableMouseCapture)
+    } else {
+        crossterm::execute!(io::stdout(), DisableMouseCapture)
+    };
 }
 
 /// RAII terminal restore: leaves the alternate screen and disables raw
@@ -1295,17 +1441,40 @@ fn run_loop(
         if submitting && !event::poll(Duration::from_millis(50))? {
             continue;
         }
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-        {
-            #[cfg(feature = "daemon")]
-            let outcome = handle_keystroke(app, key.code, &tx_outcome);
-            #[cfg(not(feature = "daemon"))]
-            let outcome = handle_keystroke(app, key.code);
-            if matches!(outcome, KeyOutcome::Quit) {
-                return Ok(());
+        match event::read()? {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                #[cfg(feature = "daemon")]
+                let outcome = handle_keystroke(app, key.code, &tx_outcome);
+                #[cfg(not(feature = "daemon"))]
+                let outcome = handle_keystroke(app, key.code);
+                if matches!(outcome, KeyOutcome::Quit) {
+                    return Ok(());
+                }
             }
+            // Border dragging, only when a panel drag is currently
+            // accepted (Inspect view, no modal up); the stored area is
+            // stale otherwise. Resize repaints on the next loop turn,
+            // which redraws unconditionally.
+            Event::Mouse(me) if app.mouse_mode && app.accepts_panel_drag() => {
+                handle_mouse(app, me);
+            }
+            _ => {}
         }
+    }
+}
+
+/// Route a mouse event to the border-drag state machine. Motion updates
+/// the hovered border so the resize affordance highlights under the cursor.
+fn handle_mouse(app: &mut App, me: MouseEvent) {
+    match me.kind {
+        MouseEventKind::Down(MouseButton::Left) => app.begin_drag(me.column, me.row),
+        MouseEventKind::Drag(MouseButton::Left) => app.apply_drag(me.column, me.row),
+        MouseEventKind::Up(MouseButton::Left) => {
+            app.drag = None;
+            app.hover = app.hit_test(me.column, me.row);
+        }
+        MouseEventKind::Moved => app.hover = app.hit_test(me.column, me.row),
+        _ => {}
     }
 }
 
@@ -1322,12 +1491,29 @@ fn handle_keystroke(
         dispatch_modal_key(app, code, tx_outcome);
         return KeyOutcome::Continue;
     }
-    match app.view {
+    // Mouse mode is app-global state: toggle it from any drill-down view so
+    // enabling it in Inspect then stepping into Explain can't trap capture
+    // on. The standalone Disclose preview keeps its own key map.
+    if app.disclose.is_none() && code == KeyCode::Char('m') {
+        app.toggle_mouse_mode();
+        set_mouse_capture(app.mouse_mode);
+        return KeyOutcome::Continue;
+    }
+    let prev_view = app.view;
+    let outcome = match app.view {
         View::Analyze => dispatch_analyze_key(app, code),
         View::Inspect => dispatch_panel_key(app, code),
         View::Explain => dispatch_explain_key(app, code),
         View::Disclose => dispatch_disclose_key(app, code),
+    };
+    // A view change invalidates the hovered/dragged border, which is only
+    // tracked while in Inspect; clear it so re-entry doesn't paint a
+    // phantom highlight with no cursor under it.
+    if app.view != prev_view {
+        app.hover = None;
+        app.drag = None;
     }
+    outcome
 }
 
 /// Keys for the standalone Disclose preview: `g` cycles granularity,
@@ -1430,6 +1616,7 @@ fn dispatch_panel_key(app: &mut App, code: KeyCode) -> KeyOutcome {
         KeyCode::Left | KeyCode::BackTab | KeyCode::Char('h') => app.prev_panel(),
         KeyCode::Enter => app.enter(),
         KeyCode::Esc => app.escape(),
+        KeyCode::Char('r') => app.reset_layout(),
         #[cfg(feature = "daemon")]
         KeyCode::Char('a') => open_ack_modal_for_current(app, false),
         #[cfg(feature = "daemon")]
@@ -1544,23 +1731,45 @@ fn draw_tab_bar(f: &mut Frame, app: &App, area: Rect) {
         "    Enter \u{2193} \u{00b7} Esc \u{2191} \u{00b7} q quit".to_string(),
         dim,
     ));
+    // The MOUSE badge shows in every drill-down view so capture can never
+    // be silently trapped on; the drag/reset hint is Inspect-only.
+    if app.mouse_mode {
+        // Unstyled gap so the reversed badge doesn't butt against "q quit".
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(" MOUSE ", tab_label_style(true)));
+        spans.push(Span::styled(
+            if app.view == View::Inspect {
+                " drag \u{00b7} r reset \u{00b7} m off"
+            } else {
+                " m off"
+            },
+            dim,
+        ));
+    } else if app.view == View::Inspect {
+        spans.push(Span::styled(" \u{00b7} m resize", dim));
+    }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// The Inspect view: the 4-panel browser (traces, findings, correlations,
 /// detail). Body of the former top-level `draw`.
 fn draw_inspect_view(f: &mut Frame, app: &App, area: Rect) {
+    // Stored for the next frame's mouse hit-testing (see `begin_drag`).
+    app.inspect_area.set(area);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(app.inspect_rows[0]),
+            Constraint::Percentage(app.inspect_rows[1]),
+        ])
         .split(area);
 
     let top = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Percentage(20),
-            Constraint::Percentage(30),
-            Constraint::Percentage(50),
+            Constraint::Percentage(app.inspect_cols[0]),
+            Constraint::Percentage(app.inspect_cols[1]),
+            Constraint::Percentage(app.inspect_cols[2]),
         ])
         .split(chunks[0]);
 
@@ -1568,6 +1777,22 @@ fn draw_inspect_view(f: &mut Frame, app: &App, area: Rect) {
     draw_findings_panel(f, app, top[1]);
     draw_correlations_panel(f, app, top[2]);
     draw_detail_panel(f, app, chunks[1]);
+
+    // Light up the border under the cursor (or being dragged) so the user
+    // sees the grab line, since the OS mouse pointer can't be changed.
+    if app.mouse_mode
+        && let Some(t) = app.resize_target()
+    {
+        let hl = resize_highlight_style();
+        match t.axis {
+            // Divider between the top row and the Detail panel.
+            Axis::Vertical => highlight_hline(f, area.x, chunks[1].y, area.width, hl),
+            // Shared edge between top panel b and b + 1.
+            Axis::Horizontal => {
+                highlight_vline(f, top[t.boundary + 1].x, chunks[0].y, chunks[0].height, hl);
+            }
+        }
+    }
 }
 
 /// The Analyze view: `GreenOps` summary dashboard, scrollable.
@@ -1777,6 +2002,45 @@ fn panel_style(app: &App, panel: Panel) -> Style {
         Style::default().fg(Color::Cyan)
     } else {
         dim_style()
+    }
+}
+
+/// Brand-accent style for the highlighted (hovered/dragged) resize border.
+pub(crate) fn resize_highlight_style() -> Style {
+    Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD)
+}
+
+/// Highlight a draggable VERTICAL border: a terminal can't change the OS
+/// mouse pointer, so the in-app affordance (same idea as ratatui-hypertile)
+/// is to redraw the grab line heavy + accent, with a `\u{256b}` handle at
+/// its midpoint. The handle is a box-drawing glyph (guaranteed single-cell
+/// width, unlike arrow glyphs which some terminals render double-width),
+/// its horizontal stubs hinting the left-right drag. Skips the panel
+/// corners (first/last cell) so they stay `\u{250c}`/`\u{2514}`.
+pub(crate) fn highlight_vline(f: &mut Frame, x: u16, y: u16, height: u16, style: Style) {
+    let buf = f.buffer_mut();
+    let mid = y.saturating_add(height / 2);
+    for row in y.saturating_add(1)..y.saturating_add(height).saturating_sub(1) {
+        if let Some(cell) = buf.cell_mut((x, row)) {
+            cell.set_style(style)
+                .set_symbol(if row == mid { "\u{256b}" } else { "\u{2503}" });
+        }
+    }
+}
+
+/// Highlight a draggable HORIZONTAL border, heavy + accent with a
+/// `\u{256a}` handle at its midpoint (vertical stubs hint the up-down drag);
+/// see [`highlight_vline`].
+pub(crate) fn highlight_hline(f: &mut Frame, x: u16, y: u16, width: u16, style: Style) {
+    let buf = f.buffer_mut();
+    let mid = x.saturating_add(width / 2);
+    for col in x.saturating_add(1)..x.saturating_add(width).saturating_sub(1) {
+        if let Some(cell) = buf.cell_mut((col, y)) {
+            cell.set_style(style)
+                .set_symbol(if col == mid { "\u{256a}" } else { "\u{2501}" });
+        }
     }
 }
 
@@ -2588,6 +2852,135 @@ mod tests {
         App::new(findings, traces, detect_config)
     }
 
+    /// A 100x20 Inspect area at the origin: vertical border at row 10
+    /// (`rows = [50,50]`), top row spans rows 0..10, column borders at
+    /// x=20 and x=50 (`cols = [20,30,50]`).
+    fn app_with_inspect_area() -> App {
+        let app = make_test_app();
+        app.inspect_area.set(Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 20,
+        });
+        app
+    }
+
+    #[test]
+    fn resize_drag_vertical_changes_rows_from_the_row_coord() {
+        let mut app = app_with_inspect_area();
+        // Click the vertical border (row 10) below the top row.
+        app.begin_drag(50, 10);
+        assert_eq!(
+            app.drag,
+            Some(DragTarget {
+                axis: Axis::Vertical,
+                boundary: 0,
+            })
+        );
+        // Drag to row 15 -> top grows to 75%. Columns untouched.
+        app.apply_drag(50, 15);
+        assert_eq!(app.inspect_rows, [75, 25]);
+        assert_eq!(app.inspect_cols, INSPECT_COLS_DEFAULT);
+    }
+
+    #[test]
+    fn resize_drag_horizontal_changes_cols_from_the_col_coord() {
+        let mut app = app_with_inspect_area();
+        // Click the first column border (x=20) inside the top row.
+        app.begin_drag(20, 5);
+        assert_eq!(
+            app.drag,
+            Some(DragTarget {
+                axis: Axis::Horizontal,
+                boundary: 0,
+            })
+        );
+        // Drag to x=30 -> Traces grows to 30%, Findings shrinks. Rows untouched.
+        app.apply_drag(30, 5);
+        assert_eq!(app.inspect_cols, [30, 20, 50]);
+        assert_eq!(app.inspect_rows, INSPECT_ROWS_DEFAULT);
+    }
+
+    #[test]
+    fn begin_drag_prefers_horizontal_on_top_rows_bottom_cell() {
+        // Regression: the vertical border's +/-1 tolerance must not shadow
+        // a column border on the top row's bottom cell (row 9, near vy=10).
+        let mut app = app_with_inspect_area();
+        app.begin_drag(20, 9);
+        assert_eq!(
+            app.drag,
+            Some(DragTarget {
+                axis: Axis::Horizontal,
+                boundary: 0,
+            })
+        );
+    }
+
+    #[test]
+    fn toggle_mouse_mode_flips_and_clears_drag() {
+        let mut app = app_with_inspect_area();
+        app.begin_drag(20, 5);
+        assert!(app.drag.is_some());
+        app.toggle_mouse_mode();
+        assert!(app.mouse_mode);
+        app.toggle_mouse_mode();
+        assert!(!app.mouse_mode);
+        assert!(
+            app.drag.is_none(),
+            "turning mouse mode off cancels the drag"
+        );
+    }
+
+    #[test]
+    fn reset_layout_restores_defaults() {
+        let mut app = app_with_inspect_area();
+        app.begin_drag(20, 5);
+        app.apply_drag(35, 5);
+        assert_ne!(app.inspect_cols, INSPECT_COLS_DEFAULT);
+        app.reset_layout();
+        assert_eq!(app.inspect_rows, INSPECT_ROWS_DEFAULT);
+        assert_eq!(app.inspect_cols, INSPECT_COLS_DEFAULT);
+    }
+
+    fn moved(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        }
+    }
+
+    #[test]
+    fn hover_tracks_border_under_cursor() {
+        let mut app = app_with_inspect_area();
+        app.mouse_mode = true;
+        // Over the first column border (x=20) in the top row.
+        handle_mouse(&mut app, moved(20, 5));
+        assert_eq!(
+            app.resize_target(),
+            Some(DragTarget {
+                axis: Axis::Horizontal,
+                boundary: 0,
+            })
+        );
+        // Off any border: nothing to highlight.
+        handle_mouse(&mut app, moved(100, 5));
+        assert_eq!(app.resize_target(), None);
+    }
+
+    #[test]
+    fn accepts_panel_drag_only_in_inspect_view() {
+        let mut app = make_test_app();
+        app.view = View::Inspect;
+        assert!(app.accepts_panel_drag());
+        app.view = View::Explain;
+        assert!(!app.accepts_panel_drag());
+        app.view = View::Analyze;
+        assert!(!app.accepts_panel_drag());
+    }
+
     #[test]
     fn app_initial_state() {
         let app = make_test_app();
@@ -3094,6 +3487,31 @@ mod tests {
         assert!(text.contains("Traces"), "trace panel missing");
         assert!(text.contains("Findings"), "findings panel missing");
         assert!(text.contains("Detail"), "detail panel missing");
+    }
+
+    #[test]
+    fn draw_shows_resize_indicator_on_hover() {
+        let mut app = make_test_app();
+        app.mouse_mode = true;
+        // First render establishes `inspect_area` so the hit-test has geometry.
+        render_once(&mut app, 120, 40);
+        let area = app.inspect_area.get();
+        let bx = area.x + area.width * 20 / 100; // first column border (cols[0]=20)
+        let top_h = area.height * 50 / 100; // rows[0]=50
+        handle_mouse(&mut app, moved(bx, area.y + top_h / 2));
+        assert!(
+            matches!(
+                app.resize_target(),
+                Some(DragTarget {
+                    axis: Axis::Horizontal,
+                    ..
+                })
+            ),
+            "hover over the column border should arm a horizontal resize"
+        );
+        let text = buffer_text(&render_once(&mut app, 120, 40));
+        assert!(text.contains('\u{256b}'), "resize handle glyph missing");
+        assert!(text.contains('\u{2503}'), "heavy grab line missing");
     }
 
     #[test]

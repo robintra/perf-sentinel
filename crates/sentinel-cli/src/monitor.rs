@@ -21,7 +21,9 @@ use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, MouseButton, MouseEvent, MouseEventKind,
+};
 use crossterm::terminal::{EnterAlternateScreen, enable_raw_mode};
 use ratatui::Frame;
 use ratatui::Terminal;
@@ -37,6 +39,11 @@ use sentinel_core::report::{GreenSummary, Warning};
 use sentinel_core::score::carbon::IntensitySource;
 use sentinel_core::text_safety::sanitize_for_terminal;
 use tokio::sync::mpsc;
+
+// `Axis` aliased: ratatui's chart `Axis` is already in scope here.
+use crate::tui_resize::{
+    Axis as DragAxis, DragTarget, MIN_PCT, boundary_cell, in_range, near, pos_to_pct, set_cut,
+};
 
 /// How often the sync event loop wakes up to drain fresh snapshots and
 /// repaint (the header age counter included). Keystrokes interrupt the
@@ -264,7 +271,23 @@ struct MonitorState {
     /// Something visible changed (snapshot, tab, scroll): repaint on
     /// the next loop turn. The header age repaints on its own clock.
     dirty: bool,
+    /// Trends-tab split ratios (percentages summing to 100): `rows` is the
+    /// charts/headroom vertical split, `cols` the Energy/Carbon horizontal
+    /// split. Drag-adjustable in mouse mode, reset by `r`, not persisted.
+    trends_rows: [u16; 2],
+    trends_cols: [u16; 2],
+    /// Mouse capture toggle (`m`); off preserves native copy-paste.
+    mouse_mode: bool,
+    /// Border being dragged, set on mouse-down over a Trends border.
+    drag: Option<DragTarget>,
+    /// Border under the cursor, set on motion. Drives the resize highlight.
+    hover: Option<DragTarget>,
+    /// Trends chart area from the last frame, for drag hit-testing.
+    trends_area: std::cell::Cell<Rect>,
 }
+
+/// Default Trends split ratios, also the `r`-reset target.
+const TRENDS_SPLIT_DEFAULT: [u16; 2] = [50, 50];
 
 impl MonitorState {
     fn new(daemon_url: String, refresh_secs: u64) -> Self {
@@ -279,6 +302,89 @@ impl MonitorState {
             line_counts: [0; TABS.len()],
             history: VecDeque::new(),
             dirty: true,
+            trends_rows: TRENDS_SPLIT_DEFAULT,
+            trends_cols: TRENDS_SPLIT_DEFAULT,
+            mouse_mode: false,
+            drag: None,
+            hover: None,
+            trends_area: std::cell::Cell::new(Rect::default()),
+        }
+    }
+
+    /// Flip mouse mode and, when turning it off, cancel any in-progress
+    /// drag. The terminal capture side-effect is applied by the caller via
+    /// [`crate::tui::set_mouse_capture`], keeping this pure and testable.
+    fn toggle_mouse_mode(&mut self) {
+        self.mouse_mode = !self.mouse_mode;
+        if !self.mouse_mode {
+            self.drag = None;
+            self.hover = None;
+        }
+        // Repaint so the [MOUSE] marker / Trends hint shows at once; the
+        // repaint is otherwise gated on `dirty` or the per-second age tick.
+        self.dirty = true;
+    }
+
+    /// Reset the Trends split ratios to their defaults (`r`).
+    fn reset_layout(&mut self) {
+        self.trends_rows = TRENDS_SPLIT_DEFAULT;
+        self.trends_cols = TRENDS_SPLIT_DEFAULT;
+        self.dirty = true;
+    }
+
+    /// Border (if any) under the cursor, using the last drawn Trends area.
+    fn hit_test(&self, col: u16, row: u16) -> Option<DragTarget> {
+        let area = self.trends_area.get();
+        if area.width == 0 || area.height == 0 {
+            return None;
+        }
+        // The horizontal border lives in the top (charts) row; checked
+        // before the vertical border so the vertical ±1 tolerance can't
+        // shadow the top row's bottom cell.
+        let top_h = u16::try_from(u32::from(area.height) * u32::from(self.trends_rows[0]) / 100)
+            .unwrap_or(area.height);
+        if in_range(row, area.y, top_h)
+            && near(col, boundary_cell(&self.trends_cols, 0, area.x, area.width))
+        {
+            return Some(DragTarget {
+                axis: DragAxis::Horizontal,
+                boundary: 0,
+            });
+        }
+        let vy = boundary_cell(&self.trends_rows, 0, area.y, area.height);
+        if near(row, vy) && in_range(col, area.x, area.width) {
+            return Some(DragTarget {
+                axis: DragAxis::Vertical,
+                boundary: 0,
+            });
+        }
+        None
+    }
+
+    /// Mouse-down: start dragging a Trends border under the cursor.
+    fn begin_drag(&mut self, col: u16, row: u16) {
+        self.drag = self.hit_test(col, row);
+    }
+
+    /// Mouse-drag: move the active Trends border to the cursor.
+    fn apply_drag(&mut self, col: u16, row: u16) {
+        let Some(target) = self.drag else {
+            return;
+        };
+        let area = self.trends_area.get();
+        match target.axis {
+            DragAxis::Vertical => set_cut(
+                &mut self.trends_rows,
+                target.boundary,
+                pos_to_pct(row, area.y, area.height),
+                MIN_PCT,
+            ),
+            DragAxis::Horizontal => set_cut(
+                &mut self.trends_cols,
+                target.boundary,
+                pos_to_pct(col, area.x, area.width),
+                MIN_PCT,
+            ),
         }
     }
 
@@ -355,6 +461,10 @@ impl MonitorState {
         };
         self.tab = TABS[next].0;
         self.scroll = 0;
+        // Leaving Trends invalidates the hovered/dragged border, so a later
+        // return doesn't paint a phantom highlight with no cursor on it.
+        self.drag = None;
+        self.hover = None;
         self.dirty = true;
     }
 
@@ -509,12 +619,54 @@ fn run_loop(
         if !event::poll(EVENT_POLL_INTERVAL)? {
             continue;
         }
-        if let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-            && handle_key(state, key.code)
-        {
-            return Ok(());
+        match event::read()? {
+            Event::Key(key) if key.kind == KeyEventKind::Press => {
+                if handle_key(state, key.code) {
+                    return Ok(());
+                }
+            }
+            // Only on the Trends tab (the only resizable layout): elsewhere
+            // the stored area is stale. Repaint only when the drag state
+            // actually changed, so bare motion events don't defeat the
+            // dirty-flag repaint throttle.
+            Event::Mouse(me) if state.mouse_mode && state.tab == Tab::Trends => {
+                if handle_mouse(state, me) {
+                    state.dirty = true;
+                }
+            }
+            Event::Resize(_, _) => state.dirty = true,
+            _ => {}
         }
+    }
+}
+
+/// Route a mouse event to the Trends border-drag state machine. Returns
+/// true when something visible changed (and thus needs a repaint), so bare
+/// motion that doesn't cross a border doesn't defeat the dirty throttle.
+fn handle_mouse(state: &mut MonitorState, me: MouseEvent) -> bool {
+    match me.kind {
+        MouseEventKind::Down(MouseButton::Left) => {
+            state.begin_drag(me.column, me.row);
+            true
+        }
+        MouseEventKind::Drag(MouseButton::Left) => {
+            state.apply_drag(me.column, me.row);
+            true
+        }
+        MouseEventKind::Up(MouseButton::Left) => {
+            state.drag = None;
+            state.hover = state.hit_test(me.column, me.row);
+            true
+        }
+        MouseEventKind::Moved => {
+            let next = state.hit_test(me.column, me.row);
+            if next == state.hover {
+                return false;
+            }
+            state.hover = next;
+            true
+        }
+        _ => false,
     }
 }
 
@@ -527,6 +679,13 @@ fn handle_key(state: &mut MonitorState, code: KeyCode) -> bool {
         KeyCode::BackTab => state.cycle_tab(false),
         KeyCode::Up | KeyCode::Char('k') => state.scroll_up(),
         KeyCode::Down | KeyCode::Char('j') => state.scroll_down(),
+        KeyCode::Char('m') => {
+            state.toggle_mouse_mode();
+            crate::tui::set_mouse_capture(state.mouse_mode);
+        }
+        // Reset only the Trends layout, and only from that tab, so `r`
+        // can't silently discard it from an unrelated tab.
+        KeyCode::Char('r') if state.tab == Tab::Trends => state.reset_layout(),
         _ => {}
     }
     false
@@ -612,6 +771,16 @@ fn draw_header(f: &mut Frame, state: &MonitorState, area: Rect) {
         spans.push(Span::styled(
             " [STALE]",
             Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ));
+    }
+    // Global reminder that mouse capture is on (copy-paste grabbed),
+    // since it can be toggled from any tab even though only Trends resizes.
+    if state.mouse_mode {
+        spans.push(Span::styled(
+            " [MOUSE]",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         ));
     }
     f.render_widget(Paragraph::new(Line::from(spans)), area);
@@ -1167,12 +1336,21 @@ fn build_trend_series(history: &VecDeque<TrendPoint>) -> TrendSeries {
 /// gauges as a percentage of their configured caps, with the settings
 /// advisor's threshold drawn in.
 fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
+    let resize_hint = if state.mouse_mode {
+        " MOUSE drag \u{00b7} r reset \u{00b7} m off \u{00b7} "
+    } else {
+        " m resize \u{00b7} "
+    };
     let outer_block = Block::default()
-        .title(" Trends \u{00b7} Tab \u{21c4} \u{00b7} q ")
+        .title(format!(
+            " Trends \u{00b7} Tab \u{21c4} \u{00b7}{resize_hint}q "
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let inner = outer_block.inner(area);
     f.render_widget(outer_block, area);
+    // Default: no draggable area until the charts are actually laid out.
+    state.trends_area.set(Rect::default());
 
     if state.history.len() < 2 {
         // A one-point curve renders as nothing; say so instead.
@@ -1191,13 +1369,21 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
     }
 
     let series = build_trend_series(&state.history);
+    // Stored for the next frame's mouse hit-testing (see `begin_drag`).
+    state.trends_area.set(inner);
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(state.trends_rows[0]),
+            Constraint::Percentage(state.trends_rows[1]),
+        ])
         .split(inner);
     let top = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Percentage(state.trends_cols[0]),
+            Constraint::Percentage(state.trends_cols[1]),
+        ])
         .split(rows[0]);
 
     #[allow(clippy::cast_precision_loss)]
@@ -1225,6 +1411,24 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         &span_label,
     );
     draw_headroom_chart(f, rows[1], &series, x_max, &span_label);
+
+    // Light up the border under the cursor (or being dragged): a terminal
+    // can't change the OS mouse pointer, so this is the grab affordance.
+    if state.mouse_mode
+        && let Some(t) = state.drag.or(state.hover)
+    {
+        let hl = crate::tui::resize_highlight_style();
+        match t.axis {
+            // Divider between the charts row and the Headroom gauge.
+            DragAxis::Vertical => {
+                crate::tui::highlight_hline(f, inner.x, rows[1].y, inner.width, hl);
+            }
+            // Shared edge between the Energy and Carbon charts.
+            DragAxis::Horizontal => {
+                crate::tui::highlight_vline(f, top[1].x, rows[0].y, rows[0].height, hl);
+            }
+        }
+    }
 }
 
 /// Style for a trend curve. Bold promotes a named ANSI color to its
@@ -1546,6 +1750,108 @@ fn truncate_cell(s: &str, max: usize) -> String {
 mod tests {
     use super::*;
     use crate::tui::line_text;
+
+    /// A monitor state with a 100x20 Trends chart area at the origin:
+    /// vertical border at row 10 (`rows = [50,50]`), top row spans rows
+    /// 0..10, column border at x=50 (`cols = [50,50]`).
+    fn state_with_trends_area() -> MonitorState {
+        let state = MonitorState::new("http://localhost:4318".into(), 5);
+        state.trends_area.set(Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 20,
+        });
+        state
+    }
+
+    #[test]
+    fn trends_drag_vertical_changes_rows() {
+        let mut state = state_with_trends_area();
+        state.begin_drag(50, 10);
+        assert_eq!(
+            state.drag,
+            Some(DragTarget {
+                axis: DragAxis::Vertical,
+                boundary: 0,
+            })
+        );
+        state.apply_drag(50, 15);
+        assert_eq!(state.trends_rows, [75, 25]);
+        assert_eq!(state.trends_cols, TRENDS_SPLIT_DEFAULT);
+    }
+
+    #[test]
+    fn trends_drag_horizontal_changes_cols() {
+        let mut state = state_with_trends_area();
+        state.begin_drag(50, 5);
+        assert_eq!(
+            state.drag,
+            Some(DragTarget {
+                axis: DragAxis::Horizontal,
+                boundary: 0,
+            })
+        );
+        state.apply_drag(30, 5);
+        assert_eq!(state.trends_cols, [30, 70]);
+        assert_eq!(state.trends_rows, TRENDS_SPLIT_DEFAULT);
+    }
+
+    fn moved(column: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind: MouseEventKind::Moved,
+            column,
+            row,
+            modifiers: crossterm::event::KeyModifiers::empty(),
+        }
+    }
+
+    #[test]
+    fn trends_hover_repaints_only_on_border_change() {
+        let mut state = state_with_trends_area();
+        // Move onto the Energy|Carbon border (x=50): hover set, needs repaint.
+        assert!(handle_mouse(&mut state, moved(50, 5)));
+        assert_eq!(
+            state.hover,
+            Some(DragTarget {
+                axis: DragAxis::Horizontal,
+                boundary: 0,
+            })
+        );
+        // Still on the border: no change, no repaint (motion throttle).
+        assert!(!handle_mouse(&mut state, moved(50, 6)));
+        // Off the border: hover cleared, repaint.
+        assert!(handle_mouse(&mut state, moved(100, 5)));
+        assert_eq!(state.hover, None);
+    }
+
+    #[test]
+    fn cycle_tab_clears_hover() {
+        let mut state = state_with_trends_area();
+        handle_mouse(&mut state, moved(50, 5));
+        assert!(state.hover.is_some());
+        // Leaving the tab must drop the phantom highlight.
+        state.cycle_tab(true);
+        assert_eq!(state.hover, None);
+        assert_eq!(state.drag, None);
+    }
+
+    #[test]
+    fn toggle_and_reset_mark_dirty() {
+        let mut state = state_with_trends_area();
+        state.dirty = false;
+        state.toggle_mouse_mode();
+        assert!(state.mouse_mode);
+        assert!(state.dirty, "the [MOUSE] marker must repaint at once");
+
+        state.begin_drag(50, 5);
+        state.apply_drag(20, 5);
+        assert_ne!(state.trends_cols, TRENDS_SPLIT_DEFAULT);
+        state.dirty = false;
+        state.reset_layout();
+        assert_eq!(state.trends_cols, TRENDS_SPLIT_DEFAULT);
+        assert!(state.dirty, "a reset must repaint at once");
+    }
 
     fn snapshot_with_warnings(warning_details: Vec<Warning>) -> Snapshot {
         Snapshot {
