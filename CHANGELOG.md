@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.12]
+
+### Fixed
+
+- The `query monitor` Trends tab now plots its Energy, Carbon and headroom charts in a fixed-width time window instead of compressing the curves as history accumulates. The x-axis spans a full window of points behind "now" from the start, so each new sample scrolls the curves leftward at a constant rate and the time-span axis labels stay put. Before the window fills, its left part stays empty rather than showing a zoomed-in view of the few points collected so far. CLI/TUI-only change, no daemon behavior change.
+
 ## [0.8.11]
 
 ### Added

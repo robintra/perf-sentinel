@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.58]
+
+### Changed
+
+- `appVersion` bumped to `0.8.12` to track the `query monitor` Trends tab fix. The Energy, Carbon and headroom charts now plot in a fixed-width time window instead of compressing the curves as history accumulates, so each new sample scrolls them leftward at a constant rate and the time-span axis labels stay put. Before the window fills, its left part stays empty rather than zooming in on the few points collected so far. CLI/TUI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.12` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.57]
 
 ### Fixed
