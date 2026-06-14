@@ -233,10 +233,16 @@ jobs:
       - name: Create cluster
         run: kind create cluster --wait 60s
 
+      # Pin the smoke test to the :latest published image rather than the
+      # chart's appVersion. On a release-bump PR the appVersion already
+      # points at the new version whose image is only pushed at tag time,
+      # so the default would ImagePullBackOff. :latest is the last released
+      # daemon and is enough to exercise chart install and readiness.
       - name: helm install --wait
         run: |
           helm install perf-sentinel charts/perf-sentinel/ \
             --namespace perf-sentinel --create-namespace \
+            --set image.tag=latest \
             --wait --timeout 180s
 
       # No --logs: the test pod has hook-delete-policy hook-succeeded, so it is
