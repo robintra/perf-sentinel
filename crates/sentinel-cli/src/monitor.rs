@@ -619,25 +619,29 @@ fn run_loop(
         if !event::poll(EVENT_POLL_INTERVAL)? {
             continue;
         }
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if handle_key(state, key.code) {
-                    return Ok(());
-                }
-            }
-            // Only on the Trends tab (the only resizable layout): elsewhere
-            // the stored area is stale. Repaint only when the drag state
-            // actually changed, so bare motion events don't defeat the
-            // dirty-flag repaint throttle.
-            Event::Mouse(me) if state.mouse_mode && state.tab == Tab::Trends => {
-                if handle_mouse(state, me) {
-                    state.dirty = true;
-                }
-            }
-            Event::Resize(_, _) => state.dirty = true,
-            _ => {}
+        if handle_event(state, &event::read()?) {
+            return Ok(());
         }
     }
+}
+
+/// Apply one input event to the monitor state. Returns `true` when the
+/// user asked to quit.
+fn handle_event(state: &mut MonitorState, event: &Event) -> bool {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => return handle_key(state, key.code),
+        // Only on the Trends tab (the only resizable layout): elsewhere the
+        // stored area is stale. Repaint only when the drag state actually
+        // changed, so bare motion events don't defeat the dirty throttle.
+        Event::Mouse(me) if state.mouse_mode && state.tab == Tab::Trends => {
+            if handle_mouse(state, *me) {
+                state.dirty = true;
+            }
+        }
+        Event::Resize(_, _) => state.dirty = true,
+        _ => {}
+    }
+    false
 }
 
 /// Route a mouse event to the Trends border-drag state machine. Returns
