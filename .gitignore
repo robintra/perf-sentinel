@@ -14,6 +14,7 @@
 /tapes/demo-inspect-report-unused.gif
 /tapes/demo-monitor-advisor-unused.gif
 /tapes/demo-monitor-scrapers-unused.gif
+/tapes/demo-monitor-trends-unused.gif
 
 # Playwright browser test suite artifacts
 /crates/sentinel-cli/tests/browser/node_modules/
