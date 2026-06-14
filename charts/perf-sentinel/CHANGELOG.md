@@ -6,6 +6,12 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.57]
+
+### Fixed
+
+- Enabling StatefulSet persistence now wires the daemon's durable state to the mounted PVC. The ConfigMap points `[daemon.ack] storage_path` at `/var/lib/perf-sentinel/acks.jsonl` and `[daemon.archive] path` at `/var/lib/perf-sentinel/archive.ndjson` whenever `workload.kind` is `StatefulSet` and `workload.statefulset.persistence.enabled` is true, so runtime acknowledgments and the public-disclosure archive survive pod restarts and rescheduling. Previously the volume mounted at `/var/lib/perf-sentinel` but no config pointed at it, so the PVC stayed empty, the ack store fell back to a non-writable default under `readOnlyRootFilesystem`, and disclose archiving was off. The injection is gated on the volume actually being mounted, since an unwritable `[daemon.archive]` path is a fatal startup error. No application change, `appVersion` stays `0.8.11`.
+
 ## [0.2.56]
 
 ### Changed
