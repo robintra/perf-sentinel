@@ -239,8 +239,11 @@ jobs:
             --namespace perf-sentinel --create-namespace \
             --wait --timeout 180s
 
+      # No --logs: the test pod has hook-delete-policy hook-succeeded, so it is
+      # gone by the time --logs would fetch it, which fails the step on a
+      # passing test. Failure logs are captured by the diagnostics step below.
       - name: helm test
-        run: helm test perf-sentinel --namespace perf-sentinel --logs
+        run: helm test perf-sentinel --namespace perf-sentinel
 
       # Surface why the install or test failed instead of a bare non-zero exit.
       - name: Diagnostics on failure
