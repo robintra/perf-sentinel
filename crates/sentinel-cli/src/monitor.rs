@@ -1390,11 +1390,18 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         ])
         .split(rows[0]);
 
+    // Fixed-width window so the curves scroll at a constant rate instead of
+    // compressing as the ring fills: the left edge is always one full ring
+    // (TREND_CAPACITY) behind "now". Before the ring fills, that left part
+    // of the window is simply empty rather than zoomed-in.
     #[allow(clippy::cast_precision_loss)]
-    let x_max = (state.history.len() - 1).max(1) as f64;
+    let x_bounds: [f64; 2] = {
+        let hi = (state.history.len() - 1).max(1) as f64;
+        [hi - (TREND_CAPACITY - 1) as f64, hi]
+    };
     let span_label = format!(
         "-{}",
-        fmt_span_secs((state.history.len() as u64 - 1) * state.refresh_secs)
+        fmt_span_secs((TREND_CAPACITY as u64 - 1) * state.refresh_secs)
     );
     draw_metric_chart(
         f,
@@ -1402,7 +1409,7 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         " Energy \u{00b7} kWh/window ",
         &series.energy,
         (Color::Yellow, Color::Yellow),
-        x_max,
+        x_bounds,
         &span_label,
     );
     draw_metric_chart(
@@ -1411,10 +1418,10 @@ fn draw_trends(f: &mut Frame, state: &MonitorState, area: Rect) {
         " Carbon \u{00b7} gCO2e/window ",
         &series.carbon,
         (CARBON_CURVE, CARBON_BULLET),
-        x_max,
+        x_bounds,
         &span_label,
     );
-    draw_headroom_chart(f, rows[1], &series, x_max, &span_label);
+    draw_headroom_chart(f, rows[1], &series, x_bounds, &span_label);
 
     // Light up the border under the cursor (or being dragged): a terminal
     // can't change the OS mouse pointer, so this is the grab affordance.
@@ -1523,7 +1530,7 @@ fn draw_metric_chart(
     // for carbon, whose braille curve is oversaturated to render as the
     // bullet's vivid green (see CARBON_CURVE).
     colors: (Color, Color),
-    x_max: f64,
+    x_bounds: [f64; 2],
     span_label: &str,
 ) {
     let (curve_color, bullet_color) = colors;
@@ -1556,7 +1563,7 @@ fn draw_metric_chart(
         )
         .x_axis(
             Axis::default()
-                .bounds([0.0, x_max])
+                .bounds(x_bounds)
                 .labels([span_label.to_string(), "now".to_string()])
                 .style(dim),
         )
@@ -1582,7 +1589,7 @@ fn draw_headroom_chart(
     f: &mut Frame,
     area: Rect,
     series: &TrendSeries,
-    x_max: f64,
+    x_bounds: [f64; 2],
     span_label: &str,
 ) {
     let dim = crate::tui::dim_style();
@@ -1604,7 +1611,10 @@ fn draw_headroom_chart(
         return;
     }
 
-    let threshold = [(0.0, ADVISOR_THRESHOLD_PCT), (x_max, ADVISOR_THRESHOLD_PCT)];
+    let threshold = [
+        (x_bounds[0], ADVISOR_THRESHOLD_PCT),
+        (x_bounds[1], ADVISOR_THRESHOLD_PCT),
+    ];
     let last_pct = |s: &[(f64, f64)]| s.last().map_or(0.0, |p| p.1);
     // Thickening twins (one braille sub-row up) for the three gauges; the
     // flat threshold line needs no thickening. The Y span is the fixed
@@ -1653,7 +1663,7 @@ fn draw_headroom_chart(
         )
         .x_axis(
             Axis::default()
-                .bounds([0.0, x_max])
+                .bounds(x_bounds)
                 .labels([span_label.to_string(), "now".to_string()])
                 .style(dim),
         )
