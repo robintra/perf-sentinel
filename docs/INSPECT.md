@@ -97,8 +97,17 @@ and Explain views.
 | `←` / `BackTab` / `h` | Cycle to previous panel (Inspect)                 |
 | `Enter`               | Drill down one step (see below)                   |
 | `Esc`                 | Walk back up one step                             |
+| `m`                   | Toggle mouse mode to drag-resize panel borders    |
+| `r`                   | Reset panel sizes to their defaults (Inspect)     |
 | `a`                   | Acknowledge the selected finding (live mode)      |
 | `u`                   | Revoke the existing ack (live mode)               |
+
+`m` toggles mouse capture (opt-in, so native terminal selection and
+copy-paste stay available while it is off). With it on, drag the border
+between two panels to redistribute their space, hovering a border
+highlights it with a handle glyph since a terminal application cannot
+change the OS mouse pointer. `r` resets the layout to its defaults. Panel
+sizes are per-session and not persisted.
 
 `Enter` drills down: from Analyze to Inspect, then through the Inspect
 panels (Traces, Findings, Detail), then from Detail to Explain. From the
@@ -224,7 +233,9 @@ the TOML file. For permanent acks, edit the file via PR review per
 counterpart to the developer's Inspect browser above. It runs against a
 live daemon, polls it on a fixed cadence (`--refresh` seconds, default
 5) and is read-only. `Tab` cycles the five tabs, `j`/`k` scroll, `q`
-quits. The data each tab surfaces (config hints, source provenance,
+quits. On the Trends tab, `m` toggles mouse mode to drag-resize the chart
+borders and `r` resets them, the same affordance as the Inspect browser.
+The data each tab surfaces (config hints, source provenance,
 per-region intensities) is categorical and high-cardinality, which is
 exactly what the bounded-label rule keeps off Prometheus `/metrics`.
 

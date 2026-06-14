@@ -98,8 +98,18 @@ scrollent les vues Analyze et Explain.
 | `←` / `BackTab` / `h` | Cycle vers le panneau précédent (Inspect)              |
 | `Enter`               | Descend d'un cran dans le drill-down (voir ci-dessous) |
 | `Esc`                 | Remonte d'un cran                                      |
+| `m`                   | Bascule le mode souris pour glisser les bordures       |
+| `r`                   | Réinitialise les tailles des panneaux (Inspect)        |
 | `a`                   | Acknowledger le finding sélectionné (mode live)        |
 | `u`                   | Révoquer l'ack existant (mode live)                    |
+
+`m` bascule la capture souris (optionnelle, le copier-coller natif du
+terminal reste donc disponible quand elle est coupée). Une fois activée,
+glisser la bordure entre deux panneaux redistribue leur espace, et
+survoler une bordure la met en évidence avec une poignée, car une
+application terminal ne peut pas changer le curseur souris de l'OS. `r`
+réinitialise la disposition par défaut. Les tailles sont propres à la
+session et non persistées.
 
 `Enter` descend : d'Analyze vers Inspect, puis à travers les panneaux
 d'Inspect (Traces, Findings, Detail), puis de Detail vers Explain. Depuis
@@ -228,7 +238,9 @@ fichier via revue PR comme décrit dans
 exploitation du navigateur Inspect du développeur ci-dessus. Il tourne
 contre un daemon vivant, le sonde à cadence fixe (`--refresh` secondes,
 défaut 5) et fonctionne en lecture seule. `Tab` cycle les cinq
-onglets, `j`/`k` défilent, `q` quitte. Les données de chaque onglet
+onglets, `j`/`k` défilent, `q` quitte. Sur l'onglet Trends, `m` bascule
+le mode souris pour glisser les bordures des graphes et `r` les
+réinitialise, la même indication visuelle que le navigateur Inspect. Les données de chaque onglet
 (hints de config, provenance des sources, intensités par région) sont
 catégorielles et à haute cardinalité, ce que la règle des labels bornés
 garde précisément hors du `/metrics` Prometheus.
