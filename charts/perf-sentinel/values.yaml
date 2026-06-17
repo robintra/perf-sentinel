@@ -85,15 +85,20 @@ securityContext:
     drop:
       - ALL
 
-# Resource requests and limits. Defaults match the raw-manifest baseline
+# Resource requests and limits, sized to the measured daemon footprint:
+# it idles near 17Mi but holds ~150-190Mi RSS under sustained ingestion
+# (README "Performance" memory profile, docs/RUNBOOK.md "Sizing reference").
+# The limit must cover the loaded peak, not the idle RSS, or the kernel
+# OOMKills the pod under load. The throughput plateau is CPU-bound, so raise
+# limits.cpu first for heavy traffic. Mirrored by the raw-manifest baseline
 # in docs/INSTRUMENTATION.md.
 resources:
   requests:
     cpu: 50m
-    memory: 16Mi
-  limits:
-    cpu: 200m
     memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
 
 # Scheduling knobs. Empty defaults so nothing is forced on the user.
 nodeSelector: {}

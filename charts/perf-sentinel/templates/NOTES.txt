@@ -28,6 +28,15 @@ Point your OpenTelemetry Collector (or app) at the gRPC endpoint:
         insecure: true
 
 Full integration guide: docs/HELM-DEPLOYMENT.md
+{{- if and (ne .Values.workload.kind "DaemonSet") (gt (int .Values.workload.replicas) 1) }}
+
+Heads up: workload.replicas is {{ .Values.workload.replicas }}. perf-sentinel keeps
+per-trace and correlation state in memory, per pod, with no shared state. A plain
+round-robin Service splits one trace's spans across pods and silently degrades N+1
+and correlation detection. Either run replicas=1, or route trace-aware: consistent
+hashing by trace_id via the OTel Collector loadbalancingexporter. See
+docs/HELM-DEPLOYMENT.md ("Scaling and state").
+{{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 
 Heads up: NetworkPolicy is disabled. Every pod in the cluster can POST

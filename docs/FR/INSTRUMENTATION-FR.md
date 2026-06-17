@@ -78,11 +78,11 @@ spec:
             initialDelaySeconds: 5
           resources:
             requests:
-              memory: "16Mi"
+              memory: "64Mi"
               cpu: "50m"
             limits:
-              memory: "64Mi"
-              cpu: "200m"
+              memory: "256Mi"
+              cpu: "500m"
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
