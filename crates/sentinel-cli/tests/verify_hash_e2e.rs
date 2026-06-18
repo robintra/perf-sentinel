@@ -83,6 +83,48 @@ fn verify_hash_returns_partial_with_exit_2_when_signature_absent() {
 }
 
 #[test]
+fn verify_hash_signed_without_identity_flags_is_untrusted() {
+    // A report carrying a Sigstore signature block but verified WITHOUT
+    // --expected-identity/--expected-issuer must fail closed: an
+    // unconstrained Sigstore bundle can be forged by any OIDC account
+    // holder, so the signature check returns FAIL -> UNTRUSTED (exit 1),
+    // never a silent pass. The identity gate short-circuits before cosign
+    // is invoked, so this needs no cosign binary on PATH. Content hash
+    // still matches because the signature is a post-sign (blanked) field.
+    use sentinel_core::report::periodic::schema::SignatureMetadata;
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let example = workspace_doc("docs/schemas/examples/example-official-public-G2.json");
+    let mut report: PeriodicReport = serde_json::from_slice(&fs::read(&example).unwrap()).unwrap();
+    report.integrity.signature = Some(SignatureMetadata {
+        format: "sigstore-cosign-intoto-v1".to_string(),
+        bundle_url: "https://example.fr/report.bundle".to_string(),
+        signer_identity: "ci@example.fr".to_string(),
+        signer_issuer: "https://token.actions.githubusercontent.com".to_string(),
+        rekor_url: "https://rekor.sigstore.dev".to_string(),
+        rekor_log_index: 1,
+        signed_at: "2026-01-01T00:00:00Z".to_string(),
+    });
+    let hash = compute_content_hash(&report).unwrap();
+    report.integrity.content_hash = hash;
+    let report_path = tmp.path().join("report.json");
+    fs::write(&report_path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+
+    let v = run_verify(&["--report", report_path.to_str().unwrap()]);
+    assert_eq!(
+        v.status.code(),
+        Some(1),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&v.stdout),
+        String::from_utf8_lossy(&v.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&v.stdout);
+    assert!(stdout.contains("[OK] Content hash"), "{stdout}");
+    assert!(stdout.contains("[FAIL] Signature"), "{stdout}");
+    assert!(stdout.contains("UNTRUSTED"), "{stdout}");
+}
+
+#[test]
 fn verify_hash_after_content_tamper_fails() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let report_path = write_example_with_fixed_hash(tmp.path());
