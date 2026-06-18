@@ -511,6 +511,45 @@ when wiring a Prometheus or Grafana panel against the endpoint:
 `perf_sentinel_io_waste_ratio`) are unaffected, they record raw
 detection events without any ack filter.
 
+### Alerting rules (PrometheusRule)
+
+The chart ships a `PrometheusRule` so loss and saturation alerts are
+delivered, not a build-it-yourself wiring exercise. It is gated like the
+ServiceMonitor and off by default:
+
+```yaml
+prometheusRule:
+  enabled: true
+  labels:
+    # Match your Prometheus resource's ruleSelector.
+    release: prometheus
+  # Add the per-backend energy-scraper staleness alerts only when an
+  # energy backend (Scaphandre, Kepler, Redfish, cloud_energy) is configured.
+  energyScrapers: false
+  scraperStaleSeconds: 120
+```
+
+The default group `perf-sentinel.rules` covers the daemon being unreachable
+(`absent(perf_sentinel_active_traces)`), OTLP rejection, analysis shedding and
+queue saturation, the findings store nearing its cap, correlator-pair eviction,
+and service-cardinality overflow. Each alert's `description` names the
+`[daemon]` knob to raise. Append your own with `prometheusRule.additionalRules`
+(rules are passed through verbatim into the same group), no fork needed.
+
+### PodDisruptionBudget
+
+For voluntary-disruption protection (node drains, cluster upgrades), enable the
+PDB. The default is `maxUnavailable: 1`, not `minAvailable: 1`: the daemon runs
+single-replica, so a `minAvailable: 1` PDB would block every drain and wedge node
+maintenance. Set `minAvailable` only when you run a trace-aware sharded topology
+with several replicas.
+
+```yaml
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+```
+
 ### Exemplars
 
 perf-sentinel emits Prometheus exemplars on

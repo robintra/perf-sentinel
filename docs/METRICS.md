@@ -358,6 +358,9 @@ window in well under 60 seconds.
 
 ## Cross-references
 
+- Shipped alerts: the Helm chart packages these alert hints as a
+  `PrometheusRule` (`prometheusRule.enabled`), see
+  [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md#alerting-rules-prometheusrule).
 - `Report.warning_details` field (operator-facing snapshot warnings):
   see [RUNBOOK.md](RUNBOOK.md) section "Reading Report warnings".
 - Acknowledgments workflow (cross-format finding suppression):

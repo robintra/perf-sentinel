@@ -157,6 +157,37 @@ serviceMonitor:
   # -- Prometheus relabeling rules applied after scraping.
   metricRelabelings: []
 
+# Prometheus Operator PrometheusRule. Ships the daemon's loss and saturation
+# alerts so "alerts the moment a problem appears" works out of the box instead
+# of being a build-it-yourself wiring exercise. Gated like serviceMonitor.
+prometheusRule:
+  enabled: false
+  # -- Namespace where the PrometheusRule is created. Defaults to the release
+  # namespace when empty.
+  namespace: ""
+  # -- Extra labels applied to the PrometheusRule (e.g. `release: prometheus`
+  # for the kube-prometheus-stack operator's ruleSelector).
+  labels: {}
+  # -- Also emit per-backend energy-scraper staleness alerts. Only meaningful
+  # when an energy backend (Scaphandre, Kepler, Redfish, cloud_energy) is
+  # configured, off by default so a proxy-only deploy is not alerted on a
+  # backend it does not run.
+  energyScrapers: false
+  # -- Staleness threshold (seconds) for the energy-scraper alerts.
+  scraperStaleSeconds: 120
+  # -- Extra rules appended verbatim to the perf-sentinel.rules group.
+  additionalRules: []
+
+# PodDisruptionBudget. maxUnavailable: 1 by default rather than minAvailable: 1,
+# because the daemon runs single-replica (replicas=1) and a minAvailable: 1 PDB
+# would block every voluntary drain and wedge node maintenance. Set minAvailable
+# only when you run a trace-aware sharded topology with several replicas.
+podDisruptionBudget:
+  enabled: false
+  maxUnavailable: 1
+  # -- Set to take precedence over maxUnavailable. Leave empty for single-replica.
+  minAvailable: ""
+
 # NetworkPolicy. Fail-closed: when enabled without selectors the rendered
 # policy blocks every ingress. Add namespace or pod selectors below to
 # allow-list the collector, Prometheus, or application namespaces.

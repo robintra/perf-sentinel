@@ -141,6 +141,27 @@
         "metricRelabelings": { "type": "array" }
       }
     },
+    "prometheusRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespace": { "type": "string" },
+        "labels": { "type": "object" },
+        "energyScrapers": { "type": "boolean" },
+        "scraperStaleSeconds": { "type": "integer", "minimum": 1 },
+        "additionalRules": { "type": "array" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "maxUnavailable": { "type": ["integer", "string"] },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,
