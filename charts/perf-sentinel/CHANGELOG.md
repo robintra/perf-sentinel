@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.61]
+
+### Changed
+
+- `appVersion` bumped to `0.8.13`. The daemon's carbon report now emits the SCI per-functional-unit intensity (`co2.sci_per_trace`) alongside the numerator footprint, each detector maps to the RGESN 2024 criteria it relates to, and the periodic disclosure schema (`perf-sentinel-report/v1.3`) gains an interpretive ESRS E1 datapoint crosswalk and per-pattern RGESN criteria. All additions are backward compatible. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.13` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.60]
 
 ### Added
