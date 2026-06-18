@@ -2,6 +2,14 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.8.13]
+
+### Added
+
+- The carbon report emits `co2.sci_per_trace`, the SCI v1.0 per-functional-unit intensity `((E × I) + M) / R` with R = 1 trace, alongside the existing `co2.total` numerator footprint. The functional unit is declared on `co2.functional_unit` and the new estimate carries the methodology tag `sci_v1_intensity`. The SCI specification permits average grid intensity, so the figure is SCI-conformant.
+- Each detector type maps to the RGESN 2024 criteria it relates to via `FindingType::rgesn_criteria()`, surfaced per anti-pattern in the periodic disclosure (`applications[].anti_patterns[].rgesn_criteria`) and documented as a crosswalk table in `docs/METHODOLOGY.md`. This is an interpretive mapping, not a compliance certification, and `slow_*` carries no criterion (RGESN family 9 is machine-learning specific).
+- The periodic disclosure schema gains `methodology.standard_crosswalk`, an interpretive ESRS E1 datapoint crosswalk (energy to E1-5, operational carbon to E1-6 Scope 2 location-based, embodied carbon to E1-6 Scope 3) with in-band caveats, bumping the disclosure schema to `perf-sentinel-report/v1.3`. Both schema additions are backward compatible: older readers and reports stay valid and an older report keeps its `content_hash` when re-hashed.
+
 ## [0.8.12]
 
 ### Fixed
