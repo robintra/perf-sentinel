@@ -215,22 +215,22 @@ Where:
 
 ### SCI v1.0 semantics: numerator vs intensity
 
-The SCI v1.0 specification defines `SCI = ((E × I) + M) / R`, an **intensity** expressed per functional unit R. perf-sentinel reports the **numerator** of this formula, summed over all analyzed traces:
+The SCI v1.0 specification defines `SCI = ((E × I) + M) / R`, an **intensity** expressed per functional unit R. perf-sentinel emits both views: the **numerator** of this formula summed over all analyzed traces (`co2.total`), and the **intensity** proper (`co2.sci_per_trace`).
 
 ```
 co2.total.mid = Σ operational_gco2 + embodied_gco2
-              = (E × I) + M   (summed over analyzed traces)
+              = (E × I) + M   (summed over analyzed traces, the footprint)
+
+co2.sci_per_trace.mid = co2.total.mid / traces_analyzed
+                      = the SCI score, with R = 1 trace
 ```
 
-This is a **footprint** (absolute gCO₂eq), not an intensity score. Consumers who want the per-request SCI intensity compute it downstream:
+`co2.total` is a **footprint** (absolute gCO₂eq), `co2.sci_per_trace` is the **intensity** score per functional unit. The functional unit is declared on `co2.functional_unit` (`"trace"`, which maps to the SCI spec's Transaction / database read-or-write functional unit). The SCI spec permits average grid intensity for `I` (it requires location-based, not market-based, and explicitly allows the average), so the figure is SCI-conformant.
 
-```
-sci_per_trace = co2.total.mid / analysis.traces_analyzed
-```
-
-To tag this semantic distinction at the data layer, `CarbonEstimate` carries a `methodology` field with two possible values:
+To tag this semantic distinction at the data layer, `CarbonEstimate` carries a `methodology` field with three possible values:
 
 - `"sci_v1_numerator"`: used on `co2.total`. The `(E × I) + M` footprint summed over traces.
+- `"sci_v1_intensity"`: used on `co2.sci_per_trace`. The per-R intensity `((E × I) + M) / R`, R = 1 trace.
 - `"sci_v1_operational_ratio"`: used on `co2.avoidable`. The region-blind global ratio `operational × (avoidable/accounted)`, excluding embodied carbon.
 
 The two distinct values signal to downstream consumers that `total` and `avoidable` are computed differently and should not be compared as if they were homogeneous quantities.

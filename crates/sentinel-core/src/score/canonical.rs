@@ -117,6 +117,8 @@ mod tests {
                 operational_gco2: 12.0,
                 embodied_gco2: 0.0,
                 transport_gco2: None,
+                sci_per_trace: None,
+                functional_unit: String::new(),
             }),
             ..GreenSummary::disabled(0)
         };

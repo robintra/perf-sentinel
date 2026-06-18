@@ -211,22 +211,22 @@ C'est un **intervalle log-symétrique** : la moyenne géométrique de `low` et `
 
 ### Sémantique SCI v1.0 : numérateur vs intensité
 
-La spécification SCI v1.0 définit `SCI = ((E × I) + M) / R`, une **intensité** exprimée par unité fonctionnelle R. perf-sentinel rapporte le **numérateur** de cette formule, sommé sur toutes les traces analysées :
+La spécification SCI v1.0 définit `SCI = ((E × I) + M) / R`, une **intensité** exprimée par unité fonctionnelle R. perf-sentinel émet les deux vues : le **numérateur** de cette formule sommé sur toutes les traces analysées (`co2.total`), et l'**intensité** proprement dite (`co2.sci_per_trace`).
 
 ```
 co2.total.mid = Σ operational_gco2 + embodied_gco2
-              = (E × I) + M   (sommé sur les traces analysées)
+              = (E × I) + M   (sommé sur les traces analysées, l'empreinte)
+
+co2.sci_per_trace.mid = co2.total.mid / traces_analyzed
+                      = le score SCI, avec R = 1 trace
 ```
 
-C'est une **empreinte** (gCO₂eq absolus), pas un score d'intensité. Les consommateurs qui veulent l'intensité SCI par requête la calculent en aval :
+`co2.total` est une **empreinte** (gCO₂eq absolus), `co2.sci_per_trace` est le score d'**intensité** par unité fonctionnelle. L'unité fonctionnelle est déclarée sur `co2.functional_unit` (`"trace"`, qui correspond à l'unité fonctionnelle Transaction / lecture-ou-écriture base de données de la spec SCI). La spec SCI autorise l'intensité réseau moyenne pour `I` (elle exige le location-based, pas le market-based, et admet explicitement la moyenne), donc le chiffre est conforme SCI.
 
-```
-sci_par_trace = co2.total.mid / analysis.traces_analyzed
-```
-
-Pour taguer cette distinction sémantique au niveau des données, `CarbonEstimate` porte un champ `methodology` avec deux valeurs possibles :
+Pour taguer cette distinction sémantique au niveau des données, `CarbonEstimate` porte un champ `methodology` avec trois valeurs possibles :
 
 - `"sci_v1_numerator"` : utilisé sur `co2.total`. L'empreinte `(E × I) + M` sommée sur les traces.
+- `"sci_v1_intensity"` : utilisé sur `co2.sci_per_trace`. L'intensité par R `((E × I) + M) / R`, R = 1 trace.
 - `"sci_v1_operational_ratio"` : utilisé sur `co2.avoidable`. Le ratio global aveugle à la région `operational × (avoidable/accounted)`, excluant le carbone embodié.
 
 Les deux valeurs distinctes signalent aux consommateurs en aval que `total` et `avoidable` sont calculés différemment et ne doivent pas être comparés comme s'ils étaient des quantités homogènes.
