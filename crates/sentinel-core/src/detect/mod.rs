@@ -875,6 +875,35 @@ mod tests {
     }
 
     #[test]
+    fn from_kind_str_inverts_as_str() {
+        // Lock from_kind_str against as_str drift. as_str is an exhaustive
+        // match (the compiler forces an arm for every new variant), but
+        // from_kind_str matches on `&str` with a `_ => None` fallback, so a
+        // new variant would silently parse to None and drop its rgesn_criteria
+        // from disclosure. This round-trip fails if the two ever disagree.
+        use FindingType::*;
+        for v in [
+            NPlusOneSql,
+            NPlusOneHttp,
+            RedundantSql,
+            RedundantHttp,
+            SlowSql,
+            SlowHttp,
+            ExcessiveFanout,
+            ChattyService,
+            PoolSaturation,
+            SerializedCalls,
+        ] {
+            assert_eq!(
+                FindingType::from_kind_str(v.as_str()),
+                Some(v.clone()),
+                "{v:?}"
+            );
+        }
+        assert_eq!(FindingType::from_kind_str("unknown_pattern"), None);
+    }
+
+    #[test]
     fn finding_type_from_event_type_n_plus_one() {
         use crate::event::EventType;
         assert_eq!(
