@@ -1,4 +1,4 @@
-//! Wire schema (v1.2) for the periodic disclosure report.
+//! Wire schema (v1.3) for the periodic disclosure report.
 //! See `docs/design/08-PERIODIC-DISCLOSURE.md` for ordering and
 //! determinism invariants that any change here must preserve.
 //!
@@ -16,13 +16,19 @@
 //! transparency log. Every addition uses `serde(default)` plus a
 //! `skip_serializing_if` so a pre-v1.2 report re-hashed on a v1.2 binary keeps
 //! its `content_hash`.
+//!
+//! v1.3 adds `Methodology.standard_crosswalk` (an interpretive ESRS E1
+//! datapoint crosswalk, constant per schema version) and per-pattern
+//! `AntiPatternDetail.rgesn_criteria` (RGESN 2024 criteria). Both follow the
+//! same `serde(default)` + `skip_serializing_if` rule, so an older report keeps
+//! its `content_hash` when re-hashed here.
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.2";
+pub const SCHEMA_VERSION: &str = "perf-sentinel-report/v1.3";
 
 /// Scope fields the operator declares by hand in the org config. These are
 /// unaudited inputs: the binary cannot verify the size of the portfolio they
@@ -218,6 +224,67 @@ impl CoverageBasis {
     }
 }
 
+/// Crosswalk between this report's figures and a recognized reporting
+/// standard. Constant per schema version (the field-to-datapoint mapping does
+/// not vary per report), surfaced so a consumer preparing a regulatory filing
+/// sees which datapoints these figures feed without consulting the docs. This
+/// is an interpretive mapping, NOT a certification: see `caveats`. Absent on
+/// pre-v1.3 reports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StandardCrosswalk {
+    /// The reporting standard targeted, e.g. `"ESRS E1"`.
+    pub standard: String,
+    /// Per-field mappings from this report to the standard's datapoints.
+    pub mappings: Vec<CrosswalkEntry>,
+    /// Caveats a reader must apply before using these figures for the standard.
+    pub caveats: Vec<String>,
+}
+
+/// One field-to-datapoint mapping inside a [`StandardCrosswalk`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CrosswalkEntry {
+    /// The perf-sentinel report field that supplies the figure.
+    pub report_field: String,
+    /// The standard's datapoint it feeds.
+    pub datapoint: String,
+    /// One-line note on the mapping's scope or limits.
+    pub note: String,
+}
+
+impl StandardCrosswalk {
+    /// The canonical ESRS E1 (climate change) crosswalk for the current schema
+    /// version. ESRS E1 is the EU climate-reporting standard under the CSRD
+    /// (Delegated Regulation (EU) 2023/5303).
+    #[must_use]
+    pub fn esrs_e1() -> Self {
+        Self {
+            standard: "ESRS E1 (Delegated Regulation (EU) 2023/5303)".to_string(),
+            mappings: vec![
+                CrosswalkEntry {
+                    report_field: "aggregate.total_energy_kwh".to_string(),
+                    datapoint: "E1-5 Energy consumption and mix".to_string(),
+                    note: "Convert kWh to MWh. Not disaggregated by fossil, nuclear or renewable source.".to_string(),
+                },
+                CrosswalkEntry {
+                    report_field: "aggregate.total_carbon_kgco2eq (operational term)".to_string(),
+                    datapoint: "E1-6 Gross Scope 2 GHG emissions (location-based)".to_string(),
+                    note: "Location-based only. ESRS also requires a market-based figure, which SCI excludes.".to_string(),
+                },
+                CrosswalkEntry {
+                    report_field: "embodied carbon (SCI M term, aggregate only)".to_string(),
+                    datapoint: "E1-6 Gross Scope 3 GHG emissions (categories 1 and 2)".to_string(),
+                    note: "Hardware lifecycle. ESRS admits estimates and proxy data for Scope 3.".to_string(),
+                },
+            ],
+            caveats: vec![
+                "Interpretive crosswalk, not a certification or an audited inventory.".to_string(),
+                "Figures carry a 2x directional uncertainty bracket.".to_string(),
+                "Scope is IT compute only. It covers neither non-IT scopes nor the market-based Scope 2 figure.".to_string(),
+            ],
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExcludedApp {
     pub service_name: String,
@@ -240,6 +307,11 @@ pub struct Methodology {
     pub core_patterns_required: Vec<String>,
     pub conformance: Conformance,
     pub calibration_inputs: CalibrationInputs,
+    /// Crosswalk to a recognized reporting standard (ESRS E1). Constant per
+    /// schema version, an interpretive mapping not a certification. Absent on
+    /// pre-v1.3 reports.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standard_crosswalk: Option<StandardCrosswalk>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -463,6 +535,11 @@ pub struct AntiPatternDetail {
     pub estimated_waste_kgco2eq: f64,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,
+    /// RGESN 2024 criteria this anti-pattern relates to (interpretive
+    /// crosswalk, see `docs/METHODOLOGY.md`). Empty for `slow_*` (no direct
+    /// criterion). Absent on pre-v1.3 reports.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rgesn_criteria: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -628,6 +705,7 @@ mod tests {
             core_patterns_required: core_patterns_required(),
             conformance: Conformance::CoreRequired,
             calibration_inputs: super::super::test_fixtures::sample_calibration_inputs(),
+            standard_crosswalk: None,
         }
     }
 
@@ -715,6 +793,7 @@ mod tests {
                 last_seen: DateTime::parse_from_rfc3339("2026-03-29T18:00:00Z")
                     .unwrap()
                     .with_timezone(&Utc),
+                rgesn_criteria: Vec::new(),
             }],
         }
     }
@@ -1035,6 +1114,65 @@ mod tests {
         scope.coverage_basis = None;
         let json = serde_json::to_value(&scope).unwrap();
         assert!(json.get("coverage_basis").is_none());
+    }
+
+    #[test]
+    fn standard_crosswalk_omitted_when_none_and_roundtrips_when_some() {
+        // Absent by default, so omitted from the wire and the content_hash of
+        // pre-v1.3 reports is unaffected.
+        let mut meth = sample_methodology();
+        let json = serde_json::to_value(&meth).unwrap();
+        assert!(json.get("standard_crosswalk").is_none());
+
+        // Populated, it serializes and round-trips losslessly.
+        meth.standard_crosswalk = Some(StandardCrosswalk::esrs_e1());
+        let json = serde_json::to_value(&meth).unwrap();
+        assert!(json.get("standard_crosswalk").is_some());
+        let back: Methodology = serde_json::from_value(json).unwrap();
+        assert_eq!(back.standard_crosswalk, Some(StandardCrosswalk::esrs_e1()));
+    }
+
+    #[test]
+    fn esrs_e1_crosswalk_covers_energy_and_both_carbon_scopes() {
+        let xw = StandardCrosswalk::esrs_e1();
+        let datapoints: Vec<&str> = xw.mappings.iter().map(|m| m.datapoint.as_str()).collect();
+        assert!(
+            datapoints.iter().any(|d| d.contains("E1-5")),
+            "energy -> E1-5"
+        );
+        assert!(
+            datapoints.iter().any(|d| d.contains("Scope 2")),
+            "operational -> Scope 2"
+        );
+        assert!(
+            datapoints.iter().any(|d| d.contains("Scope 3")),
+            "embodied -> Scope 3"
+        );
+        // The location-based vs market-based caveat must be surfaced so the
+        // figure is not mistaken for a complete ESRS Scope 2 disclosure.
+        assert!(
+            xw.mappings.iter().any(|m| m.note.contains("market-based")),
+            "market-based caveat present"
+        );
+    }
+
+    #[test]
+    fn rgesn_criteria_omitted_when_empty() {
+        let detail = AntiPatternDetail {
+            kind: "slow_sql".to_string(),
+            occurrences: 1,
+            estimated_waste_kwh: 0.0,
+            estimated_waste_kgco2eq: 0.0,
+            first_seen: DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            last_seen: DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            rgesn_criteria: Vec::new(),
+        };
+        let json = serde_json::to_value(&detail).unwrap();
+        assert!(json.get("rgesn_criteria").is_none());
     }
 
     #[test]

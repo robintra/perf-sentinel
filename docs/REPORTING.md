@@ -81,6 +81,16 @@ Publishing both keeps the disclosure honest: a reader compares the two and sees 
 
 ![disclose preview, official intent: the validator reports why the report is not yet publishable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/official.png)
 
+## ESRS E1 crosswalk (v1.3)
+
+Every report carries `methodology.standard_crosswalk`, an interpretive map from its figures to the EU climate-reporting standard ESRS E1 (Delegated Regulation (EU) 2023/5303):
+
+- `aggregate.total_energy_kwh` feeds **E1-5** (energy consumption and mix), converted to MWh. perf-sentinel does not split the figure by fossil, nuclear or renewable source.
+- the operational carbon term feeds **E1-6 Scope 2** on a location-based basis. ESRS also requires a market-based Scope 2 figure, which SCI deliberately excludes, so this is a partial input.
+- embodied carbon (the SCI `M` term, aggregate only) feeds **E1-6 Scope 3** (categories 1 and 2). ESRS admits estimates and proxy data for Scope 3.
+
+This is a **mapping aid, not a certification**. It does not make a report a CSRD submission: the figures keep their 2x directional uncertainty bracket, the scope is IT compute only, and an audited inventory by a qualified body is still required. The same caveats ship in-band under `standard_crosswalk.caveats` and in `notes.disclaimers`.
+
 ## Inputs
 
 The aggregator reads NDJSON files that the daemon archives one envelope per scoring window:

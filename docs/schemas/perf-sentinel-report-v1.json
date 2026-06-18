@@ -23,7 +23,8 @@
       "enum": [
         "perf-sentinel-report/v1.0",
         "perf-sentinel-report/v1.1",
-        "perf-sentinel-report/v1.2"
+        "perf-sentinel-report/v1.2",
+        "perf-sentinel-report/v1.3"
       ]
     },
     "report_metadata": { "$ref": "#/$defs/ReportMetadata" },
@@ -263,7 +264,35 @@
           "items": { "$ref": "#/$defs/PatternName" }
         },
         "conformance": { "$ref": "#/$defs/Conformance" },
-        "calibration_inputs": { "$ref": "#/$defs/CalibrationInputs" }
+        "calibration_inputs": { "$ref": "#/$defs/CalibrationInputs" },
+        "standard_crosswalk": {
+          "$ref": "#/$defs/StandardCrosswalk",
+          "description": "Since v1.3. Interpretive crosswalk from this report's figures to a recognized reporting standard (ESRS E1). Constant per schema version, NOT a certification. Absent on pre-v1.3 reports."
+        }
+      }
+    },
+    "StandardCrosswalk": {
+      "type": "object",
+      "required": ["standard", "mappings", "caveats"],
+      "properties": {
+        "standard": { "type": "string", "minLength": 1 },
+        "mappings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/CrosswalkEntry" }
+        },
+        "caveats": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "CrosswalkEntry": {
+      "type": "object",
+      "required": ["report_field", "datapoint", "note"],
+      "properties": {
+        "report_field": { "type": "string", "minLength": 1 },
+        "datapoint": { "type": "string", "minLength": 1 },
+        "note": { "type": "string" }
       }
     },
     "DisabledPattern": {
@@ -536,7 +565,12 @@
         "estimated_waste_kwh": { "type": "number", "minimum": 0 },
         "estimated_waste_kgco2eq": { "type": "number", "minimum": 0 },
         "first_seen": { "$ref": "#/$defs/Iso8601DateTime" },
-        "last_seen": { "$ref": "#/$defs/Iso8601DateTime" }
+        "last_seen": { "$ref": "#/$defs/Iso8601DateTime" },
+        "rgesn_criteria": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Since v1.3. RGESN 2024 criteria this anti-pattern relates to (interpretive crosswalk, see docs/METHODOLOGY.md). Empty/absent for slow_* and on pre-v1.3 reports."
+        }
       }
     },
     "Integrity": {
