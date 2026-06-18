@@ -319,6 +319,45 @@ impl FindingType {
         }
     }
 
+    /// RGESN 2024 criteria (ARCEP/Arcom/ADEME) this finding type relates to.
+    ///
+    /// An interpretive crosswalk, not a compliance certification: the RGESN
+    /// criterion titles do not name "N+1" or "slow query", these are the
+    /// criteria whose intent the anti-pattern bears on. `slow_*` returns an
+    /// empty slice on purpose, RGESN family 9 "Algorithmie" is ML-specific and
+    /// no criterion targets single-operation latency. Rationale and the full
+    /// crosswalk live in `docs/METHODOLOGY.md`.
+    #[must_use]
+    pub const fn rgesn_criteria(&self) -> &'static [&'static str] {
+        match self {
+            Self::NPlusOneSql | Self::NPlusOneHttp => &["7.1", "6.1"],
+            Self::RedundantSql | Self::RedundantHttp => &["7.1", "6.5"],
+            Self::ChattyService => &["4.9", "4.10", "6.1"],
+            Self::ExcessiveFanout | Self::PoolSaturation => &["3.2"],
+            Self::SerializedCalls => &["8.10"],
+            Self::SlowSql | Self::SlowHttp => &[],
+        }
+    }
+
+    /// Parse a `FindingType` from its `snake_case` string, the inverse of
+    /// [`as_str`](Self::as_str). Returns `None` for an unknown string.
+    #[must_use]
+    pub fn from_kind_str(s: &str) -> Option<Self> {
+        match s {
+            "n_plus_one_sql" => Some(Self::NPlusOneSql),
+            "n_plus_one_http" => Some(Self::NPlusOneHttp),
+            "redundant_sql" => Some(Self::RedundantSql),
+            "redundant_http" => Some(Self::RedundantHttp),
+            "slow_sql" => Some(Self::SlowSql),
+            "slow_http" => Some(Self::SlowHttp),
+            "excessive_fanout" => Some(Self::ExcessiveFanout),
+            "chatty_service" => Some(Self::ChattyService),
+            "pool_saturation" => Some(Self::PoolSaturation),
+            "serialized_calls" => Some(Self::SerializedCalls),
+            _ => None,
+        }
+    }
+
     /// Returns a short human-readable label for CLI and TUI display.
     #[must_use]
     pub const fn display_label(&self) -> &'static str {
@@ -816,6 +855,23 @@ mod tests {
         assert_eq!(Severity::Critical.as_str(), "critical");
         assert_eq!(Severity::Warning.as_str(), "warning");
         assert_eq!(Severity::Info.as_str(), "info");
+    }
+
+    #[test]
+    fn rgesn_criteria_crosswalk() {
+        // N+1 and redundant relate to server caching (7.1).
+        assert_eq!(FindingType::NPlusOneSql.rgesn_criteria(), &["7.1", "6.1"]);
+        assert_eq!(FindingType::RedundantHttp.rgesn_criteria(), &["7.1", "6.5"]);
+        assert_eq!(
+            FindingType::ChattyService.rgesn_criteria(),
+            &["4.9", "4.10", "6.1"]
+        );
+        assert_eq!(FindingType::ExcessiveFanout.rgesn_criteria(), &["3.2"]);
+        assert_eq!(FindingType::PoolSaturation.rgesn_criteria(), &["3.2"]);
+        assert_eq!(FindingType::SerializedCalls.rgesn_criteria(), &["8.10"]);
+        // slow_* has no direct RGESN criterion (family 9 is ML-specific).
+        assert!(FindingType::SlowSql.rgesn_criteria().is_empty());
+        assert!(FindingType::SlowHttp.rgesn_criteria().is_empty());
     }
 
     #[test]
