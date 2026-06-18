@@ -6,7 +6,7 @@ description: |
   pool saturation, serialized parallelizable calls, fanout. Scores I/O
   intensity per endpoint (GreenOps).
 type: application
-version: 0.2.58
+version: 0.2.59
 appVersion: "0.8.12"
 kubeVersion: ">=1.24.0-0"
 home: https://github.com/robintra/perf-sentinel
@@ -75,6 +75,8 @@ annotations:
       description: "Chart 0.2.57: enabling StatefulSet persistence now wires the daemon's durable state to the mounted PVC. The ConfigMap points [daemon.ack] storage_path at /var/lib/perf-sentinel/acks.jsonl and [daemon.archive] path at /var/lib/perf-sentinel/archive.ndjson whenever workload.kind is StatefulSet and workload.statefulset.persistence.enabled is true, so runtime acknowledgments and the public-disclosure archive survive pod restarts and rescheduling. Previously the volume mounted at /var/lib/perf-sentinel but nothing pointed at it, so the PVC stayed empty, the ack store fell back to a non-writable default under readOnlyRootFilesystem, and disclose archiving was off. The injection is gated on the volume actually being mounted because an unwritable archive path is a fatal startup error. No application change, appVersion stays 0.8.11."
     - kind: fixed
       description: "appVersion 0.8.12: the query monitor Trends tab plots its Energy, Carbon and headroom charts in a fixed-width time window instead of compressing the curves as history accumulates. Each new sample scrolls the curves leftward at a constant rate and the time-span axis labels stay put, and before the window fills its left part stays empty rather than zooming in on the few points collected so far. CLI/TUI-only change, no daemon behavior change. No chart template change, this bump only tracks the new appVersion."
+    - kind: changed
+      description: "Chart 0.2.59: the post-install notes now warn when workload.replicas exceeds 1 on a non-DaemonSet workload. perf-sentinel keeps per-trace and correlation state in memory, per pod, with no shared state, so a round-robin Service splits one trace's spans across pods and silently degrades N+1 and correlation detection. The note points operators at replicas=1 or trace-aware routing (consistent hashing by trace_id via the OTel Collector loadbalancingexporter). The default resource requests and limits are also raised to match the measured daemon footprint (requests 50m/64Mi, limits 500m/256Mi), which idles near 17Mi but holds 150-190Mi RSS under sustained ingestion, so the kernel no longer OOMKills the pod under load. No application change, appVersion stays 0.8.12."
   artifacthub.io/images: |
     - name: perf-sentinel
       image: ghcr.io/robintra/perf-sentinel:0.8.12

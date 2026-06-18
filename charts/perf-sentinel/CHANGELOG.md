@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.59]
+
+### Changed
+
+- The post-install notes now warn when `workload.replicas` exceeds 1 on a non-DaemonSet workload. perf-sentinel keeps per-trace and correlation state in memory, per pod, with no shared state, so a round-robin Service splits one trace's spans across pods and silently degrades N+1 and correlation detection. The note points operators at `replicas=1` or trace-aware routing (consistent hashing by `trace_id` via the OTel Collector `loadbalancingexporter`).
+- The default resource requests and limits are raised to match the measured daemon footprint (requests `50m`/`64Mi`, limits `500m`/`256Mi`). The daemon idles near 17Mi but holds 150-190Mi RSS under sustained ingestion, so the previous `64Mi` limit risked an OOMKill under load. The raw-manifest baseline in `docs/INSTRUMENTATION.md` is mirrored. No application change, `appVersion` stays `0.8.12`.
+
 ## [0.2.58]
 
 ### Changed
