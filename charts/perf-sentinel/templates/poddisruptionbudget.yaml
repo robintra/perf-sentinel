@@ -11,7 +11,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- if .Values.podDisruptionBudget.minAvailable }}
+  {{- if ne (toString .Values.podDisruptionBudget.minAvailable) "" }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   {{- else }}
   maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
