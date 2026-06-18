@@ -49,14 +49,6 @@ spec:
           annotations:
             summary: "perf-sentinel analysis queue is over 80% full"
             description: "The analysis worker queue has been above 80% of capacity for 10m. Shedding is imminent. Raise daemon.analysis_queue_capacity or limits.cpu."
-        - alert: PerfSentinelFindingsStoreNearCap
-          expr: perf_sentinel_stored_findings / perf_sentinel_max_retained_findings > 0.9
-          for: 15m
-          labels:
-            severity: info
-          annotations:
-            summary: "perf-sentinel findings store is over 90% full"
-            description: "Stored findings are above 90% of max_retained_findings: the oldest findings are about to be evicted and the query API loses history. Raise daemon.max_retained_findings for a longer window."
         - alert: PerfSentinelCorrelatorEvicting
           expr: rate(perf_sentinel_correlator_pairs_evicted_total[5m]) > 0
           for: 15m

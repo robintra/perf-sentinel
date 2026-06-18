@@ -531,9 +531,8 @@ prometheusRule:
 
 The default group `perf-sentinel.rules` covers the daemon being unreachable
 (`absent(perf_sentinel_active_traces)`), OTLP rejection, analysis shedding and
-queue saturation, the findings store nearing its cap, correlator-pair eviction,
-and service-cardinality overflow. Each alert's `description` names the
-`[daemon]` knob to raise. Append your own with `prometheusRule.additionalRules`
+queue saturation, correlator-pair eviction, and service-cardinality overflow.
+Each alert's `description` names the `[daemon]` knob to raise. Append your own with `prometheusRule.additionalRules`
 (rules are passed through verbatim into the same group), no fork needed.
 
 ### PodDisruptionBudget
