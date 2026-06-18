@@ -57,7 +57,7 @@ jobs:
           - leg: statefulset
             args: "--set workload.kind=StatefulSet"
           - leg: flags-on
-            args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true"
+            args: "--set serviceMonitor.enabled=true --set networkPolicy.enabled=true --set prometheusRule.enabled=true --set prometheusRule.energyScrapers=true --set podDisruptionBudget.enabled=true"
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:

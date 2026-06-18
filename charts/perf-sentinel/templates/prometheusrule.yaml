@@ -1,0 +1,93 @@
+{{- if .Values.prometheusRule.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "perf-sentinel.fullname" . }}
+  namespace: {{ default .Release.Namespace .Values.prometheusRule.namespace }}
+  labels:
+    {{- include "perf-sentinel.labels" . | nindent 4 }}
+    {{- with .Values.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  groups:
+    - name: perf-sentinel.rules
+      rules:
+        - alert: PerfSentinelDown
+          expr: absent(perf_sentinel_active_traces)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "perf-sentinel daemon is not reporting metrics"
+            description: "perf_sentinel_active_traces has been absent for 5m. The daemon is down or its /metrics endpoint is not being scraped."
+        - alert: PerfSentinelIngestRejecting
+          expr: rate(perf_sentinel_otlp_rejected_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "perf-sentinel is rejecting OTLP spans"
+            description: "perf_sentinel_otlp_rejected_total is increasing: the ingest channel is full and spans are refused (HTTP 503). Raise daemon.ingest_queue_capacity or limits.cpu."
+        - alert: PerfSentinelAnalysisShedding
+          expr: rate(perf_sentinel_analysis_shed_traces_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "perf-sentinel is shedding traces before analysis"
+            description: "perf_sentinel_analysis_shed_traces_total is increasing: the analysis worker queue overflowed and traces are dropped before detection. Raise daemon.analysis_queue_capacity or limits.cpu."
+        - alert: PerfSentinelAnalysisQueueSaturated
+          expr: perf_sentinel_analysis_queue_depth / perf_sentinel_analysis_queue_capacity > 0.8
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "perf-sentinel analysis queue is over 80% full"
+            description: "The analysis worker queue has been above 80% of capacity for 10m. Shedding is imminent. Raise daemon.analysis_queue_capacity or limits.cpu."
+        - alert: PerfSentinelFindingsStoreNearCap
+          expr: perf_sentinel_stored_findings / perf_sentinel_max_retained_findings > 0.9
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: "perf-sentinel findings store is over 90% full"
+            description: "Stored findings are above 90% of max_retained_findings: the oldest findings are about to be evicted and the query API loses history. Raise daemon.max_retained_findings for a longer window."
+        - alert: PerfSentinelCorrelatorEvicting
+          expr: rate(perf_sentinel_correlator_pairs_evicted_total[5m]) > 0
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: "perf-sentinel is evicting correlator pairs"
+            description: "perf_sentinel_correlator_pairs_evicted_total is increasing: cross-trace correlation pairs are dropped under load. Raise the correlator cap if cross-trace findings matter."
+        - alert: PerfSentinelServiceCardinalityOverflow
+          expr: rate(perf_sentinel_service_io_ops_overflow_total[5m]) > 0
+          for: 15m
+          labels:
+            severity: info
+          annotations:
+            summary: "perf-sentinel service-cardinality cap reached"
+            description: "perf_sentinel_service_io_ops_overflow_total is increasing: more distinct services than the per-meter cap, so some per-service I/O accounting is bucketed. Expected on very wide topologies."
+        {{- if .Values.prometheusRule.energyScrapers }}
+        {{- $stale := .Values.prometheusRule.scraperStaleSeconds }}
+        {{- range $backend := list "scaphandre" "kepler" "redfish" "cloud_energy" }}
+        - alert: PerfSentinelEnergyScraperStale
+          expr: perf_sentinel_{{ $backend }}_last_scrape_age_seconds > {{ $stale }}
+          for: 5m
+          labels:
+            severity: warning
+            backend: {{ $backend }}
+          annotations:
+            summary: "perf-sentinel {{ $backend }} energy scraper is stale"
+            description: "perf_sentinel_{{ $backend }}_last_scrape_age_seconds exceeded {{ $stale }}s: the {{ $backend }} energy backend produced no fresh sample. Carbon attribution falls back to the proxy model."
+        {{- end }}
+        {{- end }}
+        {{- with .Values.prometheusRule.additionalRules }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}
