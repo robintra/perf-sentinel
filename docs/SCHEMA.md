@@ -1,14 +1,14 @@
-# Schema reference: perf-sentinel-report v1.2
+# Schema reference: perf-sentinel-report v1.3
 
 This document describes the JSON shape of a periodic disclosure report in prose. The machine-readable JSON Schema lives at `docs/schemas/perf-sentinel-report-v1.json` (draft 2020-12). Two filled examples sit under `docs/schemas/examples/`.
 
-v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. v1.2 adds `aggregate.temporal_coverage` (a measurement-continuity signal), `scope_manifest.coverage_basis` (a provenance marker), and the reserved `integrity.cross_period_log` hook. The schema accepts `perf-sentinel-report/v1.0`, `v1.1`, and `v1.2`, and every added field defaults when absent, so older readers and reports remain valid and the `content_hash` of a pre-v1.2 report is unchanged when re-hashed on a v1.2 binary.
+v1.1 adds the `canonical_waste` and `operational_waste` tiers to `aggregate`. v1.2 adds `aggregate.temporal_coverage` (a measurement-continuity signal), `scope_manifest.coverage_basis` (a provenance marker), and the reserved `integrity.cross_period_log` hook. v1.3 adds `methodology.standard_crosswalk` (an interpretive ESRS E1 datapoint crosswalk) and per-pattern `applications[].anti_patterns[].rgesn_criteria` (RGESN 2024 criteria). The schema accepts `perf-sentinel-report/v1.0` through `v1.3`, and every added field defaults when absent, so older readers and reports remain valid and the `content_hash` of an older report is unchanged when re-hashed on a newer binary.
 
 ## Top-level keys
 
 | key               | type           | required | notes                                                                    |
 |-------------------|----------------|----------|--------------------------------------------------------------------------|
-| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.2"` (also accepts `"…/v1.1"`, `"…/v1.0"`)      |
+| `schema_version`  | string (enum)  | yes      | `"perf-sentinel-report/v1.3"` (also accepts `"…/v1.2"`, `"…/v1.1"`, `"…/v1.0"`) |
 | `report_metadata` | object         | yes      | see [Report metadata](#report-metadata)                                  |
 | `organisation`    | object         | yes      | see [Organisation](#organisation)                                        |
 | `period`          | object         | yes      | see [Period](#period)                                                    |
@@ -45,7 +45,7 @@ The publication domain (e.g. `transparency.example.fr`) is treated as an implici
 
 ## Methodology
 
-`sci_specification` references the SCI revision (e.g. `"ISO/IEC 21031:2024"`). `perf_sentinel_version` mirrors the report metadata field for consumers that index only the methodology block. `enabled_patterns` and `disabled_patterns` each carry pattern names taken from the closed set defined by `FindingType::as_str()` (10 values). `core_patterns_required` is the closed list of patterns whose remediation directly cuts I/O and carbon: `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`. `conformance` is one of `core-required | extended | partial`; `core-required` is the minimum bar for an `intent = "official"` disclosure. `calibration_inputs.carbon_intensity_source` is one of `electricity_maps | static_tables | mixed`. `specpower_table_version` is the operator-declared version of the embedded SPECpower / CCF coefficient table, set in the org config TOML. `binary_specpower_vintage` (0.7.3+) is the vintage string the running binary embeds at build time, populated automatically by `perf-sentinel disclose`. Consumers may compare both strings to detect drift between operator disclosure and embedded data. `scaphandre_used` flags whether the runtime energy proxy came from Scaphandre RAPL.
+`sci_specification` references the SCI revision (e.g. `"ISO/IEC 21031:2024"`). `perf_sentinel_version` mirrors the report metadata field for consumers that index only the methodology block. `enabled_patterns` and `disabled_patterns` each carry pattern names taken from the closed set defined by `FindingType::as_str()` (10 values). `core_patterns_required` is the closed list of patterns whose remediation directly cuts I/O and carbon: `n_plus_one_sql`, `n_plus_one_http`, `redundant_sql`, `redundant_http`. `conformance` is one of `core-required | extended | partial`; `core-required` is the minimum bar for an `intent = "official"` disclosure. `calibration_inputs.carbon_intensity_source` is one of `electricity_maps | static_tables | mixed`. `specpower_table_version` is the operator-declared version of the embedded SPECpower / CCF coefficient table, set in the org config TOML. `binary_specpower_vintage` (0.7.3+) is the vintage string the running binary embeds at build time, populated automatically by `perf-sentinel disclose`. Consumers may compare both strings to detect drift between operator disclosure and embedded data. `scaphandre_used` flags whether the runtime energy proxy came from Scaphandre RAPL. `standard_crosswalk` (v1.3) is an interpretive map from this report's figures to ESRS E1 datapoints (`total_energy_kwh` to E1-5, the operational carbon term to E1-6 Scope 2 location-based, embodied carbon to E1-6 Scope 3). It carries its own `caveats` array. It is a mapping aid, not a certification, the location-based figure is not the market-based Scope 2 value ESRS also requires, and the 2x uncertainty bracket still applies. Absent on pre-v1.3 reports.
 
 `calibration_applied` (0.7.0+) is `true` if any scoring window in the period had operator-supplied per-service calibration coefficients applied to the proxy energy. The flag is methodologically distinct from `scaphandre_used` and `energy_source_models`: those describe which energy source produced the numbers, this flag describes whether those numbers were further adjusted by operator coefficients.
 
@@ -89,7 +89,7 @@ Two granularities, homogeneous per disclosure. The validator rejects a disclosur
 
 ### G1 (intent `internal`)
 
-Each entry carries the service-level totals plus an `anti_patterns: [...]` array. Every anti-pattern detail has `type` (one of the 10 known patterns), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, and `last_seen`. Timestamps are RFC 3339 UTC. `display_name` and `service_version` are optional hints.
+Each entry carries the service-level totals plus an `anti_patterns: [...]` array. Every anti-pattern detail has `type` (one of the 10 known patterns), `occurrences`, `estimated_waste_kwh`, `estimated_waste_kgco2eq`, `first_seen`, and `last_seen`. Timestamps are RFC 3339 UTC. `rgesn_criteria` (v1.3) is the interpretive list of RGESN 2024 criteria the pattern relates to (see [docs/METHODOLOGY.md](METHODOLOGY.md#rgesn-2024-crosswalk)), empty for `slow_*` and absent on pre-v1.3 reports. `display_name` and `service_version` are optional hints.
 
 ### G2 (intent `official` with confidentiality `public`)
 

@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use chrono::{NaiveDate, Utc};
+use sentinel_core::detect::FindingType;
 use sentinel_core::report::periodic::aggregator::{
     AggregateInputs, AntiPatternAccumulator, ServiceAccumulator, UNATTRIBUTED_SERVICE,
     aggregate_from_paths,
@@ -17,8 +18,8 @@ use sentinel_core::report::periodic::schema::{
     AntiPatternDetail, Application, ApplicationG1, ApplicationG2, CalibrationInputs,
     Confidentiality, CoverageBasis, DisabledPattern, ExcludedApp, ExcludedEnv, Integrity,
     IntegrityLevel, Methodology, Notes, OrgIdentifiers, Organisation, Period, PeriodType,
-    PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, TemporalCoverage,
-    core_patterns_required,
+    PeriodicReport, ReportIntent, ReportMetadata, SCHEMA_VERSION, ScopeManifest, StandardCrosswalk,
+    TemporalCoverage, core_patterns_required,
 };
 use sentinel_core::report::periodic::{
     LOW_TEMPORAL_COVERAGE_WARN_THRESHOLD, MIN_PERIOD_COVERAGE_FOR_OFFICIAL, binary_hash,
@@ -1357,6 +1358,7 @@ pub(crate) fn build_report(
             energy_source_models: aggregate.energy_source_models.clone(),
             calibration_applied: aggregate.calibration_applied,
         },
+        standard_crosswalk: Some(StandardCrosswalk::esrs_e1()),
     };
 
     let measured_services_count = aggregate
@@ -1650,6 +1652,14 @@ fn build_anti_pattern_details(
         let last = last_seen.get(&key).copied().unwrap_or(now);
         let waste_kwh = (accum.avoidable_io_ops as f64) * ENERGY_PER_IO_OP_KWH;
         let waste_kgco2eq = waste_kwh * service_carbon_kwh_ratio;
+        let rgesn_criteria = FindingType::from_kind_str(pattern)
+            .map(|t| {
+                t.rgesn_criteria()
+                    .iter()
+                    .map(|c| (*c).to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
         out.push(AntiPatternDetail {
             kind: pattern.clone(),
             occurrences: accum.occurrences,
@@ -1657,6 +1667,7 @@ fn build_anti_pattern_details(
             estimated_waste_kgco2eq: waste_kgco2eq,
             first_seen: first,
             last_seen: last,
+            rgesn_criteria,
         });
     }
     out
@@ -1671,6 +1682,7 @@ fn default_disclaimers() -> Vec<String> {
         "Energy and carbon attribution per service is runtime-calibrated when the window's energy_model is non-empty; archives written before this feature shipped fall back to proportional I/O share.".to_string(),
         "Not suitable for CSRD or GHG Protocol Scope 3 reporting.".to_string(),
         "Methodology: ISO/IEC 21031:2024 (SCI).".to_string(),
+        "An ESRS E1 datapoint crosswalk is provided under methodology.standard_crosswalk as a mapping aid, not a substitute for an audited CSRD inventory.".to_string(),
     ]
 }
 

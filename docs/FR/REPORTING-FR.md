@@ -81,6 +81,16 @@ Publier les deux garde la disclosure honnête : un lecteur compare les deux et v
 
 ![prévisualisation disclose, intent official : le validateur explique pourquoi le rapport n'est pas encore publiable](https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/disclose/official.png)
 
+## Correspondance ESRS E1 (v1.3)
+
+Chaque rapport porte `methodology.standard_crosswalk`, une correspondance interprétative de ses chiffres vers la norme européenne de reporting climat ESRS E1 (règlement délégué (UE) 2023/5303) :
+
+- `aggregate.total_energy_kwh` alimente **E1-5** (consommation et mix énergétiques), à convertir en MWh. perf-sentinel ne ventile pas ce chiffre par source fossile, nucléaire ou renouvelable.
+- le terme carbone opérationnel alimente **E1-6 Scope 2** en base location-based. ESRS exige aussi un Scope 2 market-based, que SCI exclut volontairement, c'est donc une entrée partielle.
+- le carbone embarqué (le terme SCI `M`, agrégat seulement) alimente **E1-6 Scope 3** (catégories 1 et 2). ESRS admet les estimations et données proxy pour le Scope 3.
+
+C'est une **aide à la correspondance, pas une certification**. Elle ne transforme pas un rapport en déclaration CSRD : les chiffres gardent leur intervalle d'incertitude directionnel 2x, le périmètre est l'IT compute uniquement, et un inventaire audité par un organisme qualifié reste requis. Les mêmes caveats sont publiés en bande sous `standard_crosswalk.caveats` et dans `notes.disclaimers`.
+
 ## Entrées
 
 L'aggregator lit des fichiers NDJSON que le daemon archive à raison d'une enveloppe par fenêtre de scoring :

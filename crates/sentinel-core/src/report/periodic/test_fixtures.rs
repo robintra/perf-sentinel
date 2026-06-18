@@ -53,6 +53,7 @@ pub(super) fn sample_g1_application() -> ApplicationG1 {
             estimated_waste_kgco2eq: 0.003,
             first_seen: parse_rfc3339("2026-01-05T00:00:00Z"),
             last_seen: parse_rfc3339("2026-03-20T00:00:00Z"),
+            rgesn_criteria: Vec::new(),
         }],
     }
 }
@@ -103,6 +104,7 @@ pub(super) fn sample_methodology() -> Methodology {
         core_patterns_required: core_patterns_required(),
         conformance: Conformance::CoreRequired,
         calibration_inputs: sample_calibration_inputs(),
+        standard_crosswalk: None,
     }
 }
 
