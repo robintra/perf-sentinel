@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.60]
+
+### Added
+
+- Opt-in `PrometheusRule` (`prometheusRule.enabled`, off by default) packaging the daemon's loss and saturation alerts so "alerts the moment a problem appears" works out of the box instead of being a build-it-yourself wiring exercise. The `perf-sentinel.rules` group covers the daemon being unreachable (`absent(perf_sentinel_active_traces)`), OTLP rejection, analysis shedding, analysis-queue saturation, the findings store nearing its cap, correlator-pair eviction, and service-cardinality overflow, with each alert's `description` naming the `[daemon]` knob to raise. Per-backend energy-scraper staleness alerts are gated behind `prometheusRule.energyScrapers` (off by default, only meaningful when an energy backend is configured), and `prometheusRule.additionalRules` appends custom rules verbatim. No application change, `appVersion` stays `0.8.12`.
+- Opt-in `PodDisruptionBudget` (`podDisruptionBudget.enabled`, off by default) for voluntary-disruption protection during node drains and cluster upgrades. The default is `maxUnavailable: 1` rather than `minAvailable: 1`, since the daemon runs single-replica and a `minAvailable: 1` PDB would block every drain and wedge node maintenance. Set `minAvailable` only for a trace-aware sharded topology.
+
 ## [0.2.59]
 
 ### Changed
