@@ -6,6 +6,12 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.62]
+
+### Removed
+
+- Dropped the `PerfSentinelFindingsStoreNearCap` alert from the `PrometheusRule`. The findings store is a bounded ring buffer that evicts the oldest entry by design, and `perf_sentinel_findings_total` keeps the authoritative cumulative count, so reaching the cap is normal operation rather than data loss. On a busy daemon the gauge pins at its cap and the alert fired continuously, which is noise. The eviction signal that does matter, `PerfSentinelCorrelatorEvicting` (cross-trace correlations actually dropped), is kept. No `appVersion` change.
+
 ## [0.2.61]
 
 ### Changed
