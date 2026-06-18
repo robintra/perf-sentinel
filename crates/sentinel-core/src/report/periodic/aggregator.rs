@@ -1009,6 +1009,8 @@ mod tests {
             operational_gco2: 0.8,
             embodied_gco2: 0.2,
             transport_gco2: None,
+            sci_per_trace: None,
+            functional_unit: String::new(),
         };
         let waste_ratio = if total_io == 0 {
             0.0

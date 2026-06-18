@@ -112,6 +112,10 @@ pub const METHODOLOGY_SCI_NUMERATOR_TRANSPORT: &str = "sci_v1_numerator+transpor
 /// Region-blind, excludes embodied.
 pub const METHODOLOGY_OPERATIONAL_RATIO: &str = "sci_v1_operational_ratio";
 
+/// Methodology tag: SCI v1.0 per-R intensity `((E x I) + M) / R`, R = 1 trace.
+/// The SCI score proper (an intensity), distinct from the numerator footprint.
+pub const METHODOLOGY_SCI_INTENSITY: &str = "sci_v1_intensity";
+
 /// SCI `M` term: embodied carbon per request in gCO₂eq. Conservative
 /// upper bound for lightly-loaded servers. Override via
 /// `[green] embodied_carbon_per_request_gco2`. Derivation in design doc.
@@ -269,6 +273,16 @@ pub struct CarbonReport {
     /// and at least one cross-region HTTP call had response size data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transport_gco2: Option<f64>,
+    /// SCI v1.0 per-functional-unit intensity: `total / R`, R = 1 trace.
+    /// The SCI score proper (an intensity), distinct from `total` (the
+    /// numerator footprint). Methodology tag `sci_v1_intensity`. Optional
+    /// only for backward-compatible deserialization of pre-0.8.13 baselines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sci_per_trace: Option<CarbonEstimate>,
+    /// SCI functional unit `R`. "trace" maps to the SCI spec's Transaction /
+    /// database read-or-write functional unit. Empty only on old baselines.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub functional_unit: String,
 }
 
 /// Whether a region row used the flat annual, 24-hour, monthly x hourly profile,

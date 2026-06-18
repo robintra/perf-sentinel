@@ -906,6 +906,14 @@ mod tests {
         assert!((co2.total.low - co2.total.mid * 0.5).abs() < f64::EPSILON);
         assert!((co2.total.high - co2.total.mid * 2.0).abs() < f64::EPSILON);
 
+        // SCI per-R intensity emitted. With a single trace R=1, so the
+        // intensity equals the numerator footprint. Methodology and functional
+        // unit are declared.
+        let sci = co2.sci_per_trace.as_ref().expect("sci_per_trace present");
+        assert!((sci.mid - co2.total.mid).abs() < f64::EPSILON);
+        assert_eq!(sci.methodology, "sci_v1_intensity");
+        assert_eq!(co2.functional_unit, "trace");
+
         // Per-region breakdown contains exactly the configured region.
         assert_eq!(summary.regions.len(), 1);
         assert_eq!(summary.regions[0].region, "eu-west-3");
@@ -916,6 +924,36 @@ mod tests {
         assert_eq!(summary.top_offenders.len(), 1);
         assert!(summary.top_offenders[0].co2_grams.is_some());
         assert!(summary.top_offenders[0].co2_grams.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn sci_per_trace_divides_numerator_by_trace_count() {
+        let make_events = |tid: &str| -> Vec<SpanEvent> {
+            (1..=6)
+                .map(|i| {
+                    make_sql_event(
+                        tid,
+                        &format!("span-{i}"),
+                        &format!("SELECT * FROM order_item WHERE order_id = {i}"),
+                        &format!("2025-07-10T14:32:01.{:03}Z", i * 50),
+                    )
+                })
+                .collect()
+        };
+        let traces = vec![
+            make_trace(make_events("trace-1")),
+            make_trace(make_events("trace-2")),
+        ];
+
+        let ctx = ctx_with_region("eu-west-3");
+        let (_, summary, _) = score_green(&traces, vec![], Some(&ctx));
+
+        let co2 = summary.co2.as_ref().expect("co2 should be present");
+        let sci = co2.sci_per_trace.as_ref().expect("sci_per_trace present");
+        // Intensity = numerator / R, with R = 2 traces.
+        assert!((sci.mid - co2.total.mid / 2.0).abs() < f64::EPSILON);
+        assert_eq!(sci.methodology, "sci_v1_intensity");
+        assert_eq!(co2.functional_unit, "trace");
     }
 
     #[test]

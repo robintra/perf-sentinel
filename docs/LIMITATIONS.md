@@ -314,15 +314,16 @@ The bounds reflect aggregate model uncertainty, not per-endpoint variance.
 
 ### SCI v1.0 semantics: numerator vs intensity
 
-The `co2.total` field holds the **SCI v1.0 numerator** `(E × I) + M`, summed over all analyzed traces. This is **not** the per-request intensity score that the SCI specification defines as "SCI". To get the per-request intensity, consumers compute:
+The `co2.total` field holds the **SCI v1.0 numerator** `(E × I) + M`, summed over all analyzed traces (a **footprint**, absolute emissions). The per-functional-unit **intensity** score that the SCI specification calls "SCI" is emitted alongside it on `co2.sci_per_trace`:
 
 ```
-sci_per_trace = co2.total.mid / analysis.traces_analyzed
+co2.sci_per_trace.mid = co2.total.mid / analysis.traces_analyzed
 ```
 
-This distinction matters: perf-sentinel reports a **footprint** (absolute emissions), not an **intensity** (emissions per functional unit). The `methodology` field on each `CarbonEstimate` tags the semantic:
+The functional unit R is declared on `co2.functional_unit` (`"trace"`). Both views are kept because they answer different questions: the footprint sizes the absolute impact, the intensity normalizes it per unit of work. The `methodology` field on each `CarbonEstimate` tags the semantic:
 
 - `co2.total.methodology = "sci_v1_numerator"`: the `(E × I) + M` footprint over analyzed traces.
+- `co2.sci_per_trace.methodology = "sci_v1_intensity"`: the per-R intensity `((E × I) + M) / R`, R = 1 trace.
 - `co2.avoidable.methodology = "sci_v1_operational_ratio"`: `operational × (avoidable_io_ops / accounted_io_ops)`, a region-blind global ratio that excludes embodied carbon by design.
 
 ### Positioning: directional waste counter

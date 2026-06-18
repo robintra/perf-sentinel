@@ -378,15 +378,16 @@ Les bornes reflètent l'incertitude agrégée du modèle, pas la variance par en
 
 ### Sémantique SCI v1.0 : numérateur vs intensité
 
-Le champ `co2.total` contient le **numérateur SCI v1.0** `(E × I) + M`, sommé sur toutes les traces analysées. Ce n'est **pas** le score d'intensité par requête que la spécification SCI définit comme "SCI". Pour obtenir l'intensité par requête, les consommateurs calculent :
+Le champ `co2.total` contient le **numérateur SCI v1.0** `(E × I) + M`, sommé sur toutes les traces analysées (une **empreinte**, émissions absolues). Le score d'**intensité** par unité fonctionnelle que la spécification SCI appelle "SCI" est émis à côté, sur `co2.sci_per_trace` :
 
 ```
-sci_par_trace = co2.total.mid / analysis.traces_analyzed
+co2.sci_per_trace.mid = co2.total.mid / analysis.traces_analyzed
 ```
 
-Cette distinction compte : perf-sentinel rapporte une **empreinte** (émissions absolues), pas une **intensité** (émissions par unité fonctionnelle). Le champ `methodology` de chaque `CarbonEstimate` tague la sémantique :
+L'unité fonctionnelle R est déclarée sur `co2.functional_unit` (`"trace"`). Les deux vues sont conservées car elles répondent à des questions différentes : l'empreinte dimensionne l'impact absolu, l'intensité le normalise par unité de travail. Le champ `methodology` de chaque `CarbonEstimate` tague la sémantique :
 
 - `co2.total.methodology = "sci_v1_numerator"` : l'empreinte `(E × I) + M` sur les traces analysées.
+- `co2.sci_per_trace.methodology = "sci_v1_intensity"` : l'intensité par R `((E × I) + M) / R`, R = 1 trace.
 - `co2.avoidable.methodology = "sci_v1_operational_ratio"` : `operational × (avoidable_io_ops / accounted_io_ops)`, un ratio global aveugle à la région qui exclut le carbone embodié par design.
 
 ### Positionnement : compteur de gaspillage directionnel

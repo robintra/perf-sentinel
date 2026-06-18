@@ -332,12 +332,26 @@ pub(super) fn finalize_carbon_report(
     } else {
         carbon::METHODOLOGY_SCI_NUMERATOR
     };
+
+    // SCI per-R intensity: the numerator divided by the functional unit
+    // R = 1 trace. This is the SCI score proper. traces_len >= 1 here (the
+    // empty case is early-returned in the caller), but guard defensively.
+    let sci_per_trace = (traces_len > 0).then(|| {
+        CarbonEstimate::new_with_model(
+            total_mid / traces_len as f64,
+            model,
+            carbon::METHODOLOGY_SCI_INTENSITY,
+        )
+    });
+
     CarbonReport {
         total: CarbonEstimate::new_with_model(total_mid, model, total_methodology),
         avoidable: CarbonEstimate::operational_ratio_with_model(avoidable_mid, model),
         operational_gco2,
         embodied_gco2,
         transport_gco2,
+        sci_per_trace,
+        functional_unit: "trace".to_string(),
     }
 }
 
