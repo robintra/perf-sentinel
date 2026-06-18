@@ -18,7 +18,7 @@ If you have not implemented carbon scoring for software workloads before, this s
 
 - **CSRD (Corporate Sustainability Reporting Directive)** is the mandatory EU 2024 sustainability-reporting regime. Large EU companies must publish audited emissions inventories along three scopes (direct, energy-purchased, value-chain). perf-sentinel can feed activity data into a CSRD pipeline but is not itself a CSRD reporting tool.
 - **GHG Protocol (Greenhouse Gas Protocol)** is the international corporate-emissions accounting standard published by the WRI/WBCSD, the de-facto reference behind CSRD and most national regulations. Scope 2 covers purchased electricity, Scope 3 covers everything else upstream/downstream including software-purchased compute.
-- **RGESN (Référentiel Général d'Écoconception de Services Numériques)** is the French eco-design framework for digital services published by ARCEP/Ademe/DINUM in 2024. It checks 78 criteria across architecture, content, hosting and lifecycle. perf-sentinel maps onto its anti-pattern and software-optimisation criteria.
+- **RGESN (Référentiel Général d'Écoconception de Services Numériques)** is the French eco-design framework for digital services published by ARCEP, Arcom and ADEME in 2024. It checks 78 criteria across architecture, content, hosting and lifecycle. perf-sentinel maps each detector onto the criteria it bears on, see the [RGESN 2024 crosswalk](#rgesn-2024-crosswalk) below.
 
 **Why SCI v1.0.** Software Carbon Intensity is the standard developed by the Green Software Foundation and published as ISO/IEC 21031:2024 (ISO/IEC JTC 1, March 2024); the GSF-published artifact is the SCI Specification, current revision v1.1. It defines a per-functional-unit carbon score for software, `SCI = (E * I) + M`, expressed in gCO2eq per request (or per any functional unit you choose). The three terms map to three different physical phenomena and each is measured by a different toolchain. perf-sentinel uses SCI v1.0 because (a) it is the most widely-adopted methodology for comparing software-driven emissions across organisations, (b) it cleanly separates marginal/avoidable optimisation from total inventory accounting, (c) it is referenced by RGESN and aligns with GHG Protocol Scope 2/3 boundaries.
 
@@ -101,6 +101,21 @@ Quality signals (0.7.0+) summarise how much of the period was directly measured 
 - `per_service_energy_models` and `per_service_measured_ratio` (in both `GreenSummary` per window and `Aggregate` over the period) surface the per-service fidelity view: which energy model fed each service and what fraction of its spans actually got measured.
 
 The wire-format definitions for these fields live in the "Aggregate" and "Methodology" sections of `docs/SCHEMA.md`.
+
+## RGESN 2024 crosswalk
+
+The [RGESN 2024](https://www.arcep.fr/uploads/tx_gspublication/referentiel_general_ecoconception_des_services_numeriques_version_2024.pdf) (ARCEP, Arcom, ADEME) defines 78 eco-design criteria across nine families, numbered `family.criterion`. The table below maps each perf-sentinel detector to the criteria whose intent it bears on.
+
+This is an **interpretive crosswalk, not a compliance certification**. The RGESN criterion titles do not name "N+1 query" or "slow query". These are the criteria a detection helps satisfy, surfaced so an auditor can connect a finding to the referential. The machine-readable form is `FindingType::rgesn_criteria()` in code and the per-pattern `rgesn_criteria` field on the disclosure report's anti-pattern details.
+
+| Detector | RGESN criteria | Criterion intent |
+|---|---|---|
+| `n_plus_one_sql`, `n_plus_one_http` | 7.1, 6.1 | Server-side cache for most-used data, request budget per screen |
+| `redundant_sql`, `redundant_http` | 7.1, 6.5 | Server-side cache, avoid loading unused resources |
+| `chatty_service` | 4.9, 4.10, 6.1 | Limit and avoid unnecessary server requests, request budget per screen |
+| `excessive_fanout`, `pool_saturation` | 3.2 | Architecture that scales resources to actual demand |
+| `serialized_calls` | 8.10 | Minimize the impact of asynchronous compute and data transfers |
+| `slow_sql`, `slow_http` | (none) | RGESN has no single-operation-latency criterion. Family 9 "Algorithmie" targets machine-learning workloads, not query latency. |
 
 ## Known limitations in schema v1.0
 

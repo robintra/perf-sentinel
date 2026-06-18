@@ -18,7 +18,7 @@ Si vous n'avez jamais implémenté un scoring carbone pour des workloads logicie
 
 - **CSRD (Corporate Sustainability Reporting Directive)** est le régime obligatoire UE 2024 de reporting de durabilité. Les grandes entreprises européennes doivent publier des inventaires d'émissions audités selon trois scopes (directes, électricité achetée, chaîne de valeur). perf-sentinel peut alimenter une pipeline CSRD en données d'activité, mais n'est pas en soi un outil de reporting CSRD.
 - **GHG Protocol (Greenhouse Gas Protocol)** est le standard international de comptabilité des émissions corporate publié par le WRI/WBCSD, la référence de facto derrière la CSRD et la plupart des régulations nationales. Le Scope 2 couvre l'électricité achetée, le Scope 3 couvre tout le reste en amont et aval, y compris le calcul logiciel acheté en cloud.
-- **RGESN (Référentiel Général d'Écoconception de Services Numériques)** est le cadre français d'écoconception des services numériques publié par ARCEP/Ademe/DINUM en 2024. Il vérifie 78 critères couvrant architecture, contenu, hébergement et cycle de vie. perf-sentinel adresse les critères anti-patterns et optimisation logicielle.
+- **RGESN (Référentiel Général d'Écoconception de Services Numériques)** est le cadre français d'écoconception des services numériques publié par ARCEP, Arcom et ADEME en 2024. Il vérifie 78 critères couvrant architecture, contenu, hébergement et cycle de vie. perf-sentinel associe chaque détecteur aux critères qu'il sert, voir la [correspondance RGESN 2024](#correspondance-rgesn-2024) ci-dessous.
 
 **Pourquoi SCI v1.0.** Software Carbon Intensity est le standard développé par la Green Software Foundation et publié comme ISO/IEC 21031:2024 (ISO/IEC JTC 1, mars 2024). L'artefact publié par la GSF est la SCI Specification, révision courante v1.1. Il définit un score carbone par unité fonctionnelle pour le logiciel, `SCI = (E * I) + M`, exprimé en gCO2eq par requête (ou par toute unité fonctionnelle choisie). Les trois termes correspondent à trois phénomènes physiques distincts mesurés chacun par un outillage différent. perf-sentinel utilise SCI v1.0 parce que (a) c'est la méthodologie la plus largement adoptée pour comparer les émissions logicielles entre organisations, (b) elle sépare proprement l'optimisation marginale/évitable de la comptabilité d'inventaire totale, (c) elle est référencée par RGESN et alignée sur les frontières GHG Protocol Scope 2/3.
 
@@ -101,6 +101,21 @@ Les signaux de qualité (0.7.0+) résument quelle part de la période a été me
 - `per_service_energy_models` et `per_service_measured_ratio` (à la fois dans `GreenSummary` par fenêtre et dans `Aggregate` sur la période) surfacent la vue de fidélité par service : quel modèle énergétique a alimenté chaque service et quelle fraction de ses spans a effectivement été mesurée.
 
 Les définitions wire-format de ces champs vivent dans les sections "Agrégat" et "Méthodologie" de `docs/FR/SCHEMA-FR.md`.
+
+## Correspondance RGESN 2024
+
+Le [RGESN 2024](https://www.arcep.fr/uploads/tx_gspublication/referentiel_general_ecoconception_des_services_numeriques_version_2024.pdf) (ARCEP, Arcom, ADEME) définit 78 critères d'écoconception répartis en neuf familles, numérotés `famille.critère`. La table ci-dessous associe chaque détecteur de perf-sentinel aux critères dont il sert l'intention.
+
+C'est une **correspondance interprétative, pas une certification de conformité**. Les titres des critères RGESN ne nomment pas "requête N+1" ni "requête lente". Ce sont les critères qu'une détection aide à satisfaire, exposés pour qu'un auditeur puisse relier un finding au référentiel. La forme exploitable par machine est `FindingType::rgesn_criteria()` dans le code et le champ `rgesn_criteria` par pattern dans les détails d'anti-pattern du rapport de transparence.
+
+| Détecteur | Critères RGESN | Intention du critère |
+|---|---|---|
+| `n_plus_one_sql`, `n_plus_one_http` | 7.1, 6.1 | Cache serveur pour les données les plus utilisées, budget de requêtes par écran |
+| `redundant_sql`, `redundant_http` | 7.1, 6.5 | Cache serveur, éviter le chargement de ressources inutiles |
+| `chatty_service` | 4.9, 4.10, 6.1 | Limiter et éviter les requêtes serveur inutiles, budget de requêtes par écran |
+| `excessive_fanout`, `pool_saturation` | 3.2 | Architecture qui adapte les ressources à la demande réelle |
+| `serialized_calls` | 8.10 | Minimiser l'impact des calculs et transferts de données asynchrones |
+| `slow_sql`, `slow_http` | (aucun) | Le RGESN n'a pas de critère sur la latence d'une opération unique. La famille 9 "Algorithmie" cible les charges de machine learning, pas la latence des requêtes. |
 
 ## Limitations connues du schéma v1.0
 
