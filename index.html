@@ -147,6 +147,17 @@
       </div>
     </section>
 
+    <!-- WHY -->
+    <section id="why" style="padding:64px 0 12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyTitle }}</h2>
+      <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px;max-width:720px">
+        <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
+        <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
+        <p style="margin:0;font-size:15.5px;color:var(--text);line-height:1.65;border-left:2px solid var(--accent);padding-left:18px">{{ whyP3 }}</p>
+      </div>
+    </section>
+
     <!-- DETECTION -->
     <section id="detection" data-screen-label="Détection" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
@@ -419,6 +430,11 @@ class Component extends DCLogic {
           { value: 'exit 1', label: 'deterministic CI quality gate' },
         ],
         detEyebrow: '// what gets detected',
+        whyEyebrow: '// why',
+        whyTitle: 'Why perf-sentinel?',
+        whyP1: 'Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures a single user request cascades across services, each with its own I/O, and nobody has visibility on the full path.',
+        whyP2: 'Existing tools each solve part of the problem: Hypersistence covers JPA only, Datadog and New Relic are heavy proprietary agents, Sentry\u2019s detectors are tied to its SDK. None gives you a protocol-level anti-pattern detector you can self-host, runnable both as a CI quality gate and as a long-running OTLP daemon.',
+        whyP3: 'perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn\u2019t need to understand JPA, EF Core or SeaORM; it sees the queries they generate.',
         detMore: 'What it detects, in the guide',
         goMore: 'GreenOps metrics in the guide',
         cmpMore: 'Full comparison in the guide',
@@ -522,6 +538,11 @@ class Component extends DCLogic {
           { value: 'exit 1', label: 'quality gate CI déterministe' },
         ],
         detEyebrow: '// ce qui est détecté',
+        whyEyebrow: '// pourquoi',
+        whyTitle: 'Pourquoi perf-sentinel ?',
+        whyP1: 'Les anti-patterns de performance comme les N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n\u2019a de visibilité sur le chemin complet.',
+        whyP2: 'Les outils existants résolvent chacun une partie du problème : Hypersistence ne couvre que JPA, Datadog et New Relic sont des agents propriétaires lourds, les détecteurs de Sentry sont liés à son SDK. Aucun ne fournit un détecteur d\u2019anti-patterns au niveau protocole, auto-hébergeable, utilisable à la fois en quality gate CI et en daemon OTLP long-running.',
+        whyP3: 'perf-sentinel observe les traces que votre application émet déjà (requêtes SQL, appels HTTP), quel que soit le langage ou l\u2019ORM. Il n\u2019a pas besoin de comprendre JPA, EF Core ou SeaORM ; il voit les requêtes qu\u2019ils génèrent.',
         detMore: 'Ce qu’il détecte, dans le guide',
         goMore: 'Métriques GreenOps dans le guide',
         cmpMore: 'Comparatif complet dans le guide',
@@ -632,6 +653,7 @@ class Component extends DCLogic {
       stats: t.stats, patterns: t.patterns, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot,
+      whyEyebrow: t.whyEyebrow, whyTitle: t.whyTitle, whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
       perfMore: t.perfMore,

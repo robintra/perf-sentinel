@@ -121,12 +121,6 @@
       <p style="margin:18px 0 0;font-size:18px;line-height:1.6;color:var(--text-2);max-width:640px">{{ docLead }}</p>
 
       <!-- WHY -->
-      <section id="why" style="padding-top:54px">
-        <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ whTitle }}</h2>
-        <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ whIntro1 }}</p>
-        <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ whIntro2 }}</p>
-        <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ whIntro3 }}</p>
-      </section>
 
       <!-- DETECT -->
       <section id="detect" style="padding-top:54px">
@@ -547,7 +541,7 @@ class Component extends DCLogic {
   dict() {
     return {
       en: {
-        navHome: 'Overview', navLicense: 'License', navRef: 'Reference', onThisPage: 'On this page',
+        navHome: 'Overview', navLicense: 'License', navRef: 'Docs', onThisPage: 'On this page',
         nav: ['Why', 'What it detects', 'Quickstart', 'Installation', 'Configuration', 'CLI reference', 'Formats', 'Metrics', 'Performance', 'Comparison', 'Acknowledgments', 'Deployment', 'Privacy', 'Supply chain', 'Docs'],
         docKicker: '// documentation',
         docTitle: 'Get perf-sentinel running',
@@ -634,10 +628,6 @@ class Component extends DCLogic {
         mtNote: 'Directional estimate: a ~2× bracket in proxy mode, tighter with a measured source (Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower with calibration). It is not a standalone regulatory carbon-accounting platform.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
         ftRight: 'Edit on GitHub →',
-        whTitle: 'Why perf-sentinel?',
-        whIntro1: 'Performance anti-patterns like N+1 queries exist in any application that does I/O, monoliths and microservices alike. In distributed architectures a single user request cascades across services, each with its own I/O, and nobody has visibility on the full path.',
-        whIntro2: 'Existing tools each solve part of the problem: Hypersistence covers JPA only, Datadog and New Relic are heavy proprietary agents, Sentry\u2019s detectors are tied to its SDK. None gives you a protocol-level anti-pattern detector you can self-host, runnable both as a CI quality gate and as a long-running OTLP daemon.',
-        whIntro3: 'perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn\u2019t need to understand JPA, EF Core or SeaORM; it sees the queries they generate.',
         dtTitle: 'What it detects',
         dtIntro: 'Ten finding types, plus cross-trace correlations in daemon mode, on the SQL and HTTP requests your services already emit.',
         dtPatterns: [
@@ -736,7 +726,7 @@ class Component extends DCLogic {
         ],
       },
       fr: {
-        navHome: 'Vue d\u2019ensemble', navLicense: 'Licence', navRef: 'Référence', onThisPage: 'Sur cette page',
+        navHome: 'Vue d\u2019ensemble', navLicense: 'Licence', navRef: 'Docs', onThisPage: 'Sur cette page',
         nav: ['Pourquoi', 'Détection', 'Démarrage rapide', 'Installation', 'Configuration', 'Référence CLI', 'Formats', 'Métriques', 'Performance', 'Comparatif', 'Acquittements', 'Déploiement', 'Confidentialité', 'Chaîne & release', 'Documentation'],
         docKicker: '// documentation',
         docTitle: 'Mettre perf-sentinel en route',
@@ -823,10 +813,6 @@ class Component extends DCLogic {
         mtNote: 'Estimation directionnelle : encadrement ~2× en mode proxy, plus serrée avec une source mesurée (Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud avec calibration). Ce n\u2019est pas une plateforme de comptabilité carbone réglementaire standalone.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
         ftRight: 'Éditer sur GitHub →',
-        whTitle: 'Pourquoi perf-sentinel ?',
-        whIntro1: 'Les anti-patterns de performance comme les N+1 existent dans toute application qui fait des I/O, monolithes comme microservices. Dans les architectures distribuées, un appel utilisateur cascade sur plusieurs services, chacun avec ses propres I/O, et personne n\u2019a de visibilité sur le chemin complet.',
-        whIntro2: 'Les outils existants résolvent chacun une partie du problème : Hypersistence ne couvre que JPA, Datadog et New Relic sont des agents propriétaires lourds, les détecteurs de Sentry sont liés à son SDK. Aucun ne fournit un détecteur d\u2019anti-patterns au niveau protocole, auto-hébergeable, utilisable à la fois en quality gate CI et en daemon OTLP long-running.',
-        whIntro3: 'perf-sentinel observe les traces que votre application émet déjà (requêtes SQL, appels HTTP), quel que soit le langage ou l\u2019ORM. Il n\u2019a pas besoin de comprendre JPA, EF Core ou SeaORM ; il voit les requêtes qu\u2019ils génèrent.',
         dtTitle: 'Ce qu\u2019il détecte',
         dtIntro: 'Dix types de findings, plus les corrélations cross-trace en mode daemon, sur les requêtes SQL et HTTP que vos services émettent déjà.',
         dtPatterns: [
@@ -955,7 +941,6 @@ class Component extends DCLogic {
         React.createElement('button', { type: 'button', className: 'ps-lightbox-close', onClick: () => this.setState({ lightbox: null, lbZoom: false }) }, (this.curLang() === 'fr' ? 'Fermer' : 'Close') + ' ✕'),
         React.createElement('img', { src: this.state.lightbox, alt: '', style: (this.state.lbZoom && /global-integration/.test(this.state.lightbox || '')) ? { width: '180vw', maxWidth: 'none', maxHeight: 'none' } : null, onClick: (e) => { e.stopPropagation(); this.setState(s => ({ lbZoom: !s.lbZoom })); } })
       ) : null,
-      whTitle: t.whTitle, whIntro1: t.whIntro1, whIntro2: t.whIntro2, whIntro3: t.whIntro3,
       dtTitle: t.dtTitle, dtIntro: t.dtIntro, dtPatterns: t.dtPatterns, dtFoot: t.dtFoot,
       akTitle: t.akTitle, akIntro: t.akIntro, akMore: t.akMore,
       spTitle: t.spTitle, spIntro: t.spIntro, spRelease: t.spRelease, spMore: t.spMore,
