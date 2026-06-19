@@ -93,7 +93,7 @@
         <a href="#license" style-hover="color:var(--text)">{{ navLicense }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
         <a href="guide.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navDocs }}<span style="font-size:11px;opacity:.7">↗</span></a>
-        <a href="reference/00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="{{ refBase }}00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
@@ -629,6 +629,7 @@ class Component extends DCLogic {
     const lang = this.curLang();
     const t = this.dict()[lang];
     const install = this.props.installCommand || 'cargo install perf-sentinel --locked';
+    const refBase = lang === 'fr' ? 'reference/fr/' : 'reference/';
     return {
       theme,
       themeLabel: theme === 'dark' ? t.themeDark : t.themeLight,
@@ -641,7 +642,7 @@ class Component extends DCLogic {
       heroTitle: t.heroTitle,
       heroSub: t.heroSub,
       ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
-      navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, licEyebrow: t.licEyebrow,licTitle: t.licTitle, licIntro: t.licIntro,
+      navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitle: t.licTitle, licIntro: t.licIntro,
       licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
       licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
       installCommand: install,

@@ -96,7 +96,7 @@
         <a href="index.html#greenops" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">GreenOps<span style="font-size:11px;opacity:.7">↗</span></a>
         <a href="index.html#license" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navLicense }}<span style="font-size:11px;opacity:.7">↗</span></a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
-        <a href="reference/00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="{{ refBase }}00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
@@ -335,7 +335,7 @@
       <section id="ack" style="padding-top:54px">
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ akTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ akIntro }}</p>
-        <a href="reference/00-INDEX.html#/ACK-WORKFLOW" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ akMore }} →</a>
+        <a href="{{ refBase }}ACK-WORKFLOW.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ akMore }} →</a>
       </section>
 
       <!-- DEPLOY -->
@@ -350,7 +350,7 @@
             </div>
           </sc-for>
         </div>
-        <a href="reference/00-INDEX.html#/INTEGRATION" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ dpMore }} →</a>
+        <a href="{{ refBase }}INTEGRATION.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ dpMore }} →</a>
         <div style="display:flex;flex-direction:column;gap:12px;margin-top:24px">
           <sc-for list="{{ dpDiagrams }}" as="d" hint-placeholder-count="6">
             <details style="border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
@@ -376,7 +376,7 @@
             </div>
           </sc-for>
         </div>
-        <a href="reference/00-INDEX.html#/LIMITATIONS" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ pvMore }} →</a>
+        <a href="{{ refBase }}LIMITATIONS.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ pvMore }} →</a>
       </section>
 
       <!-- SUPPLY -->
@@ -384,7 +384,7 @@
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ spTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ spIntro }}</p>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ spRelease }}</p>
-        <a href="reference/00-INDEX.html#/SUPPLY-CHAIN" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ spMore }} →</a>
+        <a href="{{ refBase }}SUPPLY-CHAIN.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ spMore }} →</a>
       </section>
 
       <!-- FURTHER READING -->
@@ -393,7 +393,7 @@
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:660px">{{ frIntro }}</p>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:22px">
           <sc-for list="{{ frLinks }}" as="l" hint-placeholder-count="12">
-            <a href="reference/00-INDEX.html#/{{ l.id }}" style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px" style-hover="border-color:var(--accent)">
+            <a href="{{ l.href }}" style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px" style-hover="border-color:var(--accent)">
               <div style="font-size:14.5px;font-weight:600;color:var(--accent-strong)">{{ l.label }} →</div>
               <div style="margin-top:3px;font-size:13px;color:var(--text-2);line-height:1.45">{{ l.desc }}</div>
             </a>
@@ -879,10 +879,12 @@ class Component extends DCLogic {
     const theme = this.curTheme();
     const lang = this.curLang();
     const t = this.dict()[lang];
+    const refBase = lang === 'fr' ? 'reference/fr/' : 'reference/';
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     const navItems = ids.map((id, i) => ({ id, label: t.nav[i], active: this.state.active === id ? 'true' : 'false' }));
     return {
       theme,
+      refBase,
       themeLabel: theme === 'dark' ? (lang === 'fr' ? 'Clair' : 'Light') : (lang === 'fr' ? 'Sombre' : 'Dark'),
       langLabel: lang === 'fr' ? 'EN' : 'FR',
       toggleTheme: () => { const next = this.curTheme() === 'dark' ? 'light' : 'dark'; this.persist('ps-theme', next); this.setState({ theme: next }); },
@@ -910,7 +912,7 @@ class Component extends DCLogic {
       dpTitle: t.dpTitle, dpIntro: t.dpIntro, dpModes: t.dpModes, dpMore: t.dpMore, dpDiagrams: t.dpDiagrams,
       pvTitle: t.pvTitle, pvIntro: t.pvIntro, pvPoints: t.pvPoints, pvMore: t.pvMore,
       frTitle: t.frTitle, frIntro: t.frIntro,
-      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2] })),
+      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2], href: refBase + m[0].replace(/\//g, '__') + '.html' })),
     };
   }
 }
