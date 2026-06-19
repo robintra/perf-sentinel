@@ -1,0 +1,3196 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="">
+<head>
+<script>try{var k='perf-sentinel:theme';if(!sessionStorage.getItem(k))sessionStorage.setItem(k,'dark')}catch(e){}</script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'" />
+<title>perf-sentinel: report_realistic.json</title>
+<style>
+  :root[data-theme="dark"] {
+    --color-background-primary: #1a1a1a;
+    --color-background-secondary: #2c2c2c;
+    --color-background-tertiary: #383838;
+    --color-background-info: #18324d;
+    --color-background-danger: #3d1f1f;
+    --color-background-warning: #3d2f1f;
+    --color-background-success: #1f3d2f;
+    --color-text-primary: #e8e8e8;
+    --color-text-secondary: #b4b4b4;
+    --color-text-tertiary: #8c8c8c;
+    --color-text-info: #6babff;
+    --color-text-danger: #ff7a7a;
+    --color-text-warning: #f0b05f;
+    --color-text-success: #5fd495;
+    --color-border-tertiary: rgba(255,255,255,0.18);
+    --color-border-secondary: rgba(255,255,255,0.3);
+    --color-border-info: #378add;
+    --color-border-success: #3d7d5c;
+    --page-bg: #121212;
+  }
+  :root[data-theme="light"] {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f5f5f5;
+    --color-background-tertiary: #ececec;
+    --color-background-info: #e6f1fb;
+    --color-background-danger: #fcebeb;
+    --color-background-warning: #faeeda;
+    --color-background-success: #eaf3de;
+    --color-text-primary: #1a1a1a;
+    --color-text-secondary: #555555;
+    --color-text-tertiary: #888888;
+    --color-text-info: #0c447c;
+    --color-text-danger: #791f1f;
+    --color-text-warning: #633806;
+    --color-text-success: #27500a;
+    --color-border-tertiary: rgba(0,0,0,0.1);
+    --color-border-secondary: rgba(0,0,0,0.2);
+    --color-border-info: #378add;
+    --color-border-success: #7ab85a;
+    --page-bg: #fafafa;
+  }
+  :root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, Monaco, monospace;
+    --border-radius-md: 8px;
+    --border-radius-lg: 12px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--page-bg); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
+  .ps-container { max-width: 1100px; margin: 0 auto; }
+  .ps-header-ctrl { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px; font-size: 11px; color: var(--color-text-tertiary); }
+  .ps-theme-toggle { background: transparent; border: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); padding: 4px 10px; border-radius: var(--border-radius-md); cursor: pointer; font-size: 11px; font-family: inherit; }
+  .ps-theme-toggle:hover { border-color: var(--color-border-secondary); }
+  .ps-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); margin-bottom: 12px; flex-wrap: wrap; }
+  .ps-brand { display: inline-flex; align-items: center; text-decoration: none; }
+  .ps-logo { display: inline-flex; }
+  .ps-logo svg { height: 65px; width: auto; display: block; }
+  /* Theme-swapped wordmark: light variant by default (and when light),
+     light-colored variant on dark. data-theme is always resolved to a
+     concrete light/dark by applyTheme. */
+  .ps-logo-dark { display: none; }
+  :root[data-theme="dark"] .ps-logo-light { display: none; }
+  :root[data-theme="dark"] .ps-logo-dark { display: inline-flex; }
+  .ps-meta { color: var(--color-text-secondary); font-size: 12px; font-family: var(--font-mono); }
+  .ps-gate-pass { margin-left: auto; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
+  .ps-gate-fail { margin-left: auto; background: var(--color-background-danger); color: var(--color-text-danger); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
+  .ps-tabs { display: flex; gap: 2px; border-bottom: 0.5px solid var(--color-border-tertiary); margin-bottom: 14px; }
+  .ps-tab { padding: 8px 14px; font-size: 13px; cursor: pointer; border: none; background: transparent; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -0.5px; font-family: inherit; }
+  .ps-tab:hover { color: var(--color-text-primary); }
+  .ps-tab.active { color: var(--color-text-primary); border-bottom-color: var(--color-text-primary); font-weight: 500; }
+  .ps-tab .ps-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 10px; background: var(--color-background-tertiary); color: var(--color-text-secondary); }
+  .ps-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  .ps-metrics-3 { grid-template-columns: repeat(3, 1fr); }
+  .ps-metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
+  .ps-metric-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
+  .ps-metric-value { font-size: 20px; font-weight: 500; font-family: var(--font-mono); word-break: break-word; }
+  .ps-metric-value-sm { font-size: 14px; line-height: 1.4; }
+  .ps-metric-sub { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
+  .ps-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .ps-chip-group { display: contents; }
+  .ps-chip { padding: 4px 10px; font-size: 11px; border-radius: 12px; border: 0.5px solid var(--color-border-tertiary); background: transparent; cursor: pointer; color: var(--color-text-secondary); font-family: inherit; }
+  .ps-chip:hover { background: var(--color-background-secondary); }
+  .ps-chip.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
+  .ps-list { display: flex; flex-direction: column; gap: 6px; }
+  .ps-row { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); cursor: pointer; background: var(--color-background-primary); }
+  .ps-row:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
+  .ps-row.selected { border: 2px solid var(--color-border-info); padding: 9px 11px; }
+  .ps-sev-crit { background: var(--color-background-danger); color: var(--color-text-danger); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-sev-warn { background: var(--color-background-warning); color: var(--color-text-warning); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-sev-info { background: var(--color-background-info); color: var(--color-text-info); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
+  .ps-badge-estimated { display: inline-block; background: var(--color-background-warning); color: var(--color-text-warning); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
+  .ps-badge-measured { display: inline-block; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
+  .ps-scoring-bandeau { display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 8px; font-size: 12px; flex-wrap: wrap; }
+  .ps-scoring-label { color: var(--color-text-secondary); font-weight: 500; }
+  .ps-scoring-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+  .ps-scoring-chip-neutral { background: var(--color-background-secondary); color: var(--color-text-secondary); }
+  .ps-scoring-chip-warning { background: var(--color-background-warning); color: var(--color-text-warning); }
+  .ps-scoring-chip-accent { background: var(--color-background-secondary); color: var(--color-text-info); }
+  .ps-fin-main { min-width: 0; }
+  .ps-fin-type { font-weight: 500; font-size: 13px; margin-bottom: 2px; }
+  .ps-fin-service { color: var(--color-text-tertiary); font-weight: 400; font-size: 11px; }
+  .ps-fin-detail { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-fin-right { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+  .ps-fin-right-sub { color: var(--color-text-tertiary); }
+  .ps-tree-header { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 12px; padding: 8px 12px; background: var(--color-background-tertiary); border-radius: var(--border-radius-md); font-family: var(--font-mono); word-break: break-all; }
+  .ps-tree { font-family: var(--font-mono); font-size: 12px; padding: 10px 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); line-height: 1.9; }
+  .ps-span { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 2px 4px; border-radius: 4px; }
+  .ps-span.dim { color: var(--color-text-tertiary); }
+  .ps-span.hilite { background: var(--color-background-danger); }
+  .ps-span-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-span-dur { color: var(--color-text-tertiary); white-space: nowrap; }
+  .ps-span-find { color: var(--color-text-danger); font-weight: 500; }
+  .ps-drill { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 10px 12px; margin-top: 10px; margin-bottom: 12px; font-size: 12px; color: var(--color-text-info); }
+  .ps-drill-label { font-size: 10px; color: var(--color-text-info); margin-bottom: 4px; opacity: 0.8; }
+  .ps-drill-link { color: var(--color-text-info); }
+  .ps-banner { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 8px 12px; margin-bottom: 10px; font-size: 11px; color: var(--color-text-info); }
+  .ps-empty { padding: 30px; text-align: center; color: var(--color-text-secondary); font-size: 13px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); }
+  .ps-table { width: 100%; font-size: 11px; font-family: var(--font-mono); border-collapse: collapse; }
+  .ps-table th { text-align: left; font-weight: 500; padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 10px; font-family: var(--font-sans); }
+  .ps-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; }
+  /* Highlight row on Explain -> pg_stat cross-nav. Scoped to the
+     pg_stat table so other .ps-table instances (diff, green regions)
+     stay unaffected if they ever adopt a .hilite class for another
+     purpose. */
+  #pgstat-body tr.hilite { background: var(--color-background-danger); }
+  #pgstat-body tr.hilite td:first-child { color: var(--color-text-danger); font-weight: 500; }
+  .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
+  .ps-credit { margin-top: 8px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
+  .ps-credit a { color: var(--color-text-success); text-decoration: underline; }
+  .ps-credit a:hover { color: var(--color-text-primary); }
+  .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
+  .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
+  .ps-search:focus { outline: none; border-color: var(--color-border-info); }
+  .ps-span.ps-span-pgstat-link { cursor: pointer; }
+  .ps-span.ps-span-pgstat-link:hover .ps-span-text { text-decoration: underline; }
+  .ps-drill-clear { color: var(--color-text-info); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+  .ps-diff-section { margin-bottom: 18px; }
+  .ps-diff-section-header { font-size: 12px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
+  .ps-diff-section-header.red { color: var(--color-text-danger); }
+  .ps-diff-section-header.green { color: var(--color-text-success); }
+  .ps-quality-gate { margin: 12px 0 18px 0; }
+  .ps-section-title { font-size: 12px; font-weight: 500; margin: 0 0 8px 0; color: var(--color-text-primary); }
+  .ps-panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+  .ps-export-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; }
+  .ps-export-btn:hover { background: var(--color-background-info); }
+  .ps-copy-link-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; margin-left: 6px; }
+  .ps-copy-link-btn:hover { background: var(--color-background-info); }
+  .ps-correlation-clickable { cursor: pointer; }
+  .ps-correlation-clickable:hover { background: var(--color-background-tertiary); }
+  .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
+  .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
+  /* Centered via the modern `inset: 0 + margin: auto` pattern. The
+     previous `top/left + transform: translate(-50%, -50%)` recipe
+     interacted badly with the user-agent's `dialog:modal` defaults
+     (`inset: 0` stays on the unset edges, fighting the explicit
+     top/left), drifting the box right of center on wider viewports. */
+  /* `max-height` + `overflow-y: auto` keep the Cancel/Submit row in
+     view when an operator pastes a tall reason into the ack textarea
+     (which is `resize: vertical`). Without the cap, the dialog would
+     extend past the viewport and the bottom buttons would land
+     off-screen with no internal scroll. */
+  dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 520px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+  dialog.ps-modal::backdrop { background: rgba(0,0,0,0.6); }
+  dialog.ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
+  .ps-modal-close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--color-text-secondary); font-family: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 8px; }
+  .ps-modal-close:hover { color: var(--color-text-primary); }
+  dialog.ps-modal table { width: 100%; border-collapse: collapse; }
+  dialog.ps-modal th { text-align: left; padding: 4px 6px; font-size: 10px; font-weight: 500; color: var(--color-text-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); font-family: var(--font-sans); }
+  dialog.ps-modal th:first-child { width: 90px; }
+  dialog.ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
+  dialog.ps-modal td:first-child { width: 90px; white-space: nowrap; }
+
+  /* -------- live mode (since 0.5.23) -------- */
+  /* Header status badge: hidden by default, revealed in live mode. */
+  .ps-daemon-status { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-right: 12px; }
+  body.ps-live .ps-daemon-status { display: inline-flex; }
+  .ps-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-tertiary); display: inline-block; }
+  .ps-daemon-dot.connected { background: #2ea043; }
+  .ps-daemon-dot.disconnected { background: #cf222e; }
+  .ps-daemon-dot.unauthorized { background: #d4a72c; }
+  /* Header refresh button: hidden by default, revealed in live mode.
+     `[hidden]` adds attribute specificity over the live-mode class
+     reveal, so the HTML `hidden` attribute set by
+     `syncLogoutButtonVisibility` for the Forget-key button wins
+     regardless of source order. */
+  .ps-refresh-btn { display: none; padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; margin-right: 8px; }
+  body.ps-live .ps-refresh-btn { display: inline-block; }
+  body.ps-live .ps-refresh-btn[hidden] { display: none; }
+  .ps-refresh-btn:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); color: var(--color-text-primary); }
+  .ps-refresh-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+  /* Per-row Ack/Revoke action button: hidden by default. */
+  .ps-fin-actions { display: none; margin-left: 8px; }
+  body.ps-live .ps-fin-actions { display: inline-flex; gap: 6px; }
+  .ps-fin-action-btn { padding: 3px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; color: var(--color-text-info); cursor: pointer; font-family: inherit; }
+  .ps-fin-action-btn:hover { background: var(--color-background-info); }
+  .ps-fin-action-btn.revoke { border-color: var(--color-border-tertiary); color: var(--color-text-secondary); }
+  .ps-fin-action-btn.revoke:hover { background: var(--color-background-secondary); }
+  .ps-fin-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+  /* Findings filter toggle: hidden by default. The toolbar uses
+     `justify-content: flex-end`, so push the toggle further from the
+     adjacent Export CSV button via `margin-right` (the toggle sits to
+     the LEFT of Export CSV in document order, so the right margin is
+     what creates breathing room between them). `cursor: pointer` on
+     the wrapping `<label>` extends the click affordance to the text
+     gap between the checkbox and its label, not just the input itself. */
+  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-left: 8px; margin-right: 14px; cursor: pointer; }
+  body.ps-live .ps-include-acked-wrap { display: inline-flex; }
+  /* Acknowledgments panel toolbar (table layout reused from .ps-table). */
+  .ps-acks-footer { margin-top: 10px; font-size: 11px; color: var(--color-text-tertiary); }
+  /* Modal form layout (auth + ack). */
+  dialog.ps-modal label { display: block; font-size: 11px; color: var(--color-text-secondary); margin: 10px 0 4px 0; }
+  dialog.ps-modal input[type="password"], dialog.ps-modal input[type="text"], dialog.ps-modal textarea, dialog.ps-modal select { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 12px; font-family: inherit; background: var(--color-background-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
+  dialog.ps-modal textarea { min-height: 60px; resize: vertical; }
+  dialog.ps-modal .ps-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  dialog.ps-modal .ps-modal-btn { padding: 5px 14px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
+  dialog.ps-modal .ps-modal-btn:hover { background: var(--color-background-tertiary); color: var(--color-text-primary); }
+  dialog.ps-modal .ps-modal-btn.primary { border-color: var(--color-border-info); color: var(--color-text-info); }
+  dialog.ps-modal .ps-modal-btn.primary:hover { background: var(--color-background-info); }
+  dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--color-background-danger); color: var(--color-text-danger); border-radius: var(--border-radius-md); }
+  /* Toast bar for transient feedback. */
+  .ps-toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; font-size: 12px; background: var(--color-background-secondary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 9999; max-width: 380px; }
+  .ps-toast.error { border-color: var(--color-border-tertiary); background: var(--color-background-danger); color: var(--color-text-danger); }
+  .ps-toast.success { border-color: var(--color-border-tertiary); background: var(--color-background-tertiary); color: var(--color-text-primary); }
+</style>
+</head>
+<body>
+<div class="ps-container">
+  <div class="ps-header-ctrl">
+    <output class="ps-daemon-status" id="ps-daemon-status" aria-live="polite">
+      <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
+      <span id="ps-daemon-status-text">Connecting...</span>
+    </output>
+    <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
+    <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
+    <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
+  </div>
+
+  <div class="ps-topbar" id="topbar"><a class="ps-brand" href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel"><span class="ps-logo ps-logo-light"><svg width="154" height="166" viewBox="0 0 154 166" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M58.9903 6.86496C81.6172 -5.6056 113.459 2.15947 134.451 5.05494C135.275 5.16866 135.758 6.03957 135.418 6.79862C125.655 28.598 116.278 57.1161 93.5809 69.6258C72.8389 81.0576 53.4743 72.5861 34.2809 67.0338C36.0788 61.6034 38.8683 56.3252 42.442 51.4786C42.899 50.8372 43.3478 50.2192 43.8231 49.5873C43.2183 50.0965 42.6368 50.5943 42.044 51.1199C31.9499 59.6612 23.6919 72.673 22.8092 87.4156C22.6824 87.5743 22.5354 87.7189 22.3686 87.8446C21.8026 88.272 21.0602 88.4526 20.3242 88.3496C19.5883 88.2464 18.9241 87.869 18.4973 87.3026C18.0694 86.736 17.9138 86.0267 18.0454 85.3286C18.2307 84.3276 18.443 83.3465 18.6862 82.3635C20.2863 75.7364 23.228 69.9058 26.9913 64.6955C28.1839 62.7817 29.1561 60.2383 29.9954 57.5821C30.3175 56.5261 30.6319 55.4561 30.9431 54.3757C31.6653 51.8007 32.2978 49.3134 32.9167 47.3797C37.2415 32.0745 42.4995 15.9538 58.9903 6.86496Z" fill="url(#paint0_linear_12034_573)"/>
+<path d="M100.657 36.2674C100.657 24.5576 91.1646 15.065 79.4549 15.065C67.7451 15.065 58.2525 24.5576 58.2525 36.2674C58.2525 47.9771 67.7451 57.4697 79.4549 57.4697L79.4549 60.3516C66.1535 60.3516 55.3706 49.5687 55.3706 36.2674C55.3706 22.966 66.1535 12.1831 79.4549 12.1831C92.7562 12.1831 103.539 22.966 103.539 36.2674C103.539 49.5687 92.7562 60.3516 79.4549 60.3516L79.4549 57.4697C91.1646 57.4697 100.657 47.9771 100.657 36.2674Z" fill="#E0F4ED"/>
+<path d="M79.4094 22.1887C81.1502 22.1888 82.8168 22.5063 84.3547 23.0862L80.4592 35.3069C80.1997 36.1208 81.0141 36.865 81.801 36.5325L92.7542 31.9036C93.1917 33.2605 93.4299 34.7077 93.4299 36.2102C93.4297 43.9533 87.1525 50.2305 79.4094 50.2307C71.6661 50.2307 65.3882 43.9535 65.3879 36.2102C65.3879 28.4667 71.666 22.1887 79.4094 22.1887Z" fill="#0B523A"/>
+<path d="M87.4331 13.4298C94.2358 15.826 99.6422 21.1818 102.106 27.9523L92.7544 31.9034C91.444 27.8396 88.3302 24.5861 84.355 23.087L87.4331 13.4298Z" fill="#E0F4ED"/>
+<path d="M38 136.8V107.84H42.8L43.4 110.64C43.8267 110.053 44.3333 109.52 44.92 109.04C45.5067 108.533 46.2 108.133 47 107.84C47.8267 107.52 48.7867 107.36 49.88 107.36C51.7733 107.36 53.44 107.827 54.88 108.76C56.32 109.693 57.4533 110.96 58.28 112.56C59.1333 114.133 59.56 115.933 59.56 117.96C59.56 119.987 59.1333 121.8 58.28 123.4C57.4267 124.973 56.28 126.213 54.84 127.12C53.4 128.027 51.76 128.48 49.92 128.48C48.4267 128.48 47.1333 128.213 46.04 127.68C44.9733 127.12 44.0933 126.36 43.4 125.4V136.8H38ZM48.64 123.76C49.7067 123.76 50.64 123.52 51.44 123.04C52.2667 122.56 52.9067 121.88 53.36 121C53.8133 120.12 54.04 119.107 54.04 117.96C54.04 116.813 53.8133 115.8 53.36 114.92C52.9067 114.013 52.2667 113.32 51.44 112.84C50.64 112.333 49.7067 112.08 48.64 112.08C47.6 112.08 46.6667 112.333 45.84 112.84C45.04 113.32 44.4 114 43.92 114.88C43.4667 115.76 43.24 116.773 43.24 117.92C43.24 119.067 43.4667 120.093 43.92 121C44.4 121.88 45.04 122.56 45.84 123.04C46.6667 123.52 47.6 123.76 48.64 123.76Z" fill="#0B523A"/>
+<path d="M73.8909 128.48C71.8643 128.48 70.0643 128.053 68.4909 127.2C66.9443 126.32 65.7309 125.107 64.8509 123.56C63.9976 121.987 63.5709 120.173 63.5709 118.12C63.5709 116.013 63.9976 114.16 64.8509 112.56C65.7309 110.933 66.9443 109.667 68.4909 108.76C70.0376 107.827 71.8376 107.36 73.8909 107.36C75.8909 107.36 77.6376 107.8 79.1309 108.68C80.6243 109.56 81.7843 110.747 82.6109 112.24C83.4376 113.733 83.8509 115.427 83.8509 117.32C83.8509 117.587 83.8509 117.893 83.8509 118.24C83.8509 118.56 83.8243 118.893 83.7709 119.24H67.4109V115.96H78.4109C78.3309 114.653 77.8643 113.627 77.0109 112.88C76.1843 112.133 75.1443 111.76 73.8909 111.76C72.9843 111.76 72.1443 111.973 71.3709 112.4C70.5976 112.8 69.9843 113.427 69.5309 114.28C69.1043 115.133 68.8909 116.213 68.8909 117.52V118.68C68.8909 119.773 69.0909 120.733 69.4909 121.56C69.9176 122.36 70.5043 122.987 71.2509 123.44C71.9976 123.867 72.8643 124.08 73.8509 124.08C74.8376 124.08 75.6509 123.867 76.2909 123.44C76.9576 123.013 77.4509 122.467 77.7709 121.8H83.2909C82.9176 123.053 82.2909 124.187 81.4109 125.2C80.5309 126.213 79.4509 127.013 78.1709 127.6C76.8909 128.187 75.4643 128.48 73.8909 128.48Z" fill="#0B523A"/>
+<path d="M88.2734 128V107.84H93.0734L93.5934 111.56C94.0734 110.68 94.6734 109.933 95.3934 109.32C96.1401 108.707 96.9801 108.227 97.9134 107.88C98.8734 107.533 99.9268 107.36 101.073 107.36V113.08H99.2334C98.4334 113.08 97.6868 113.173 96.9934 113.36C96.3268 113.547 95.7401 113.853 95.2334 114.28C94.7268 114.68 94.3401 115.24 94.0734 115.96C93.8068 116.68 93.6734 117.587 93.6734 118.68V128H88.2734Z" fill="#0B523A"/>
+<path d="M105.561 128V106.04C105.561 104.36 105.841 103.027 106.401 102.04C106.961 101.053 107.761 100.333 108.801 99.88C109.867 99.4266 111.107 99.2 112.521 99.2H115.001V103.8H113.321C112.467 103.8 111.854 103.973 111.481 104.32C111.134 104.64 110.961 105.213 110.961 106.04V128H105.561ZM102.801 112.36V107.84H115.321V112.36H102.801Z" fill="#0B523A"/>
+<path d="M9.32 165.48C7.48 165.48 5.88 165.187 4.52 164.6C3.16 164.013 2.09333 163.2 1.32 162.16C0.546667 161.12 0.106667 159.947 0 158.64H5.36C5.49333 159.147 5.72 159.613 6.04 160.04C6.36 160.44 6.78667 160.76 7.32 161C7.85333 161.24 8.49333 161.36 9.24 161.36C9.96 161.36 10.5467 161.267 11 161.08C11.4533 160.867 11.7867 160.587 12 160.24C12.24 159.893 12.36 159.533 12.36 159.16C12.36 158.6 12.2 158.173 11.88 157.88C11.56 157.56 11.0933 157.307 10.48 157.12C9.86667 156.933 9.12 156.747 8.24 156.56C7.28 156.373 6.33333 156.147 5.4 155.88C4.49333 155.587 3.68 155.227 2.96 154.8C2.24 154.373 1.66667 153.827 1.24 153.16C0.813333 152.493 0.6 151.667 0.6 150.68C0.6 149.48 0.92 148.413 1.56 147.48C2.2 146.52 3.13333 145.76 4.36 145.2C5.58667 144.64 7.06667 144.36 8.8 144.36C11.2267 144.36 13.1467 144.907 14.56 146C15.9733 147.093 16.8133 148.6 17.08 150.52H12C11.84 149.907 11.48 149.427 10.92 149.08C10.3867 148.707 9.66667 148.52 8.76 148.52C7.8 148.52 7.06667 148.693 6.56 149.04C6.05333 149.387 5.8 149.84 5.8 150.4C5.8 150.773 5.96 151.107 6.28 151.4C6.62667 151.693 7.10667 151.947 7.72 152.16C8.33333 152.347 9.08 152.533 9.96 152.72C11.5067 153.04 12.8667 153.413 14.04 153.84C15.2133 154.24 16.1333 154.827 16.8 155.6C17.4667 156.347 17.8 157.44 17.8 158.88C17.8 160.16 17.4533 161.307 16.76 162.32C16.0667 163.307 15.08 164.08 13.8 164.64C12.5467 165.2 11.0533 165.48 9.32 165.48Z" fill="#0BA671"/>
+<path d="M32.0491 165.48C30.0224 165.48 28.2224 165.053 26.6491 164.2C25.1024 163.32 23.8891 162.107 23.0091 160.56C22.1557 158.987 21.7291 157.173 21.7291 155.12C21.7291 153.013 22.1557 151.16 23.0091 149.56C23.8891 147.933 25.1024 146.667 26.6491 145.76C28.1957 144.827 29.9957 144.36 32.0491 144.36C34.0491 144.36 35.7957 144.8 37.2891 145.68C38.7824 146.56 39.9424 147.747 40.7691 149.24C41.5957 150.733 42.0091 152.427 42.0091 154.32C42.0091 154.587 42.0091 154.893 42.0091 155.24C42.0091 155.56 41.9824 155.893 41.9291 156.24H25.5691V152.96H36.5691C36.4891 151.653 36.0224 150.627 35.1691 149.88C34.3424 149.133 33.3024 148.76 32.0491 148.76C31.1424 148.76 30.3024 148.973 29.5291 149.4C28.7557 149.8 28.1424 150.427 27.6891 151.28C27.2624 152.133 27.0491 153.213 27.0491 154.52V155.68C27.0491 156.773 27.2491 157.733 27.6491 158.56C28.0757 159.36 28.6624 159.987 29.4091 160.44C30.1557 160.867 31.0224 161.08 32.0091 161.08C32.9957 161.08 33.8091 160.867 34.4491 160.44C35.1157 160.013 35.6091 159.467 35.9291 158.8H41.4491C41.0757 160.053 40.4491 161.187 39.5691 162.2C38.6891 163.213 37.6091 164.013 36.3291 164.6C35.0491 165.187 33.6224 165.48 32.0491 165.48Z" fill="#0BA671"/>
+<path d="M46.4316 165V144.84H51.1916L51.5916 148.12C52.2049 147 53.0716 146.093 54.1916 145.4C55.3382 144.707 56.6982 144.36 58.2716 144.36C59.9516 144.36 61.3649 144.707 62.5116 145.4C63.6582 146.093 64.5249 147.107 65.1116 148.44C65.7249 149.773 66.0316 151.413 66.0316 153.36V165H60.6716V153.88C60.6716 152.28 60.3249 151.053 59.6316 150.2C58.9649 149.347 57.9249 148.92 56.5116 148.92C55.6049 148.92 54.7916 149.133 54.0716 149.56C53.3782 149.987 52.8316 150.6 52.4316 151.4C52.0316 152.173 51.8316 153.12 51.8316 154.24V165H46.4316Z" fill="#0BA671"/>
+<path d="M80.1991 165C78.7857 165 77.5457 164.787 76.4791 164.36C75.4391 163.907 74.6257 163.173 74.0391 162.16C73.4524 161.12 73.1591 159.707 73.1591 157.92V149.36H69.7191V144.84H73.1591L73.7591 139.36H78.5591V144.84H83.8791V149.36H78.5591V158C78.5591 158.907 78.7591 159.533 79.1591 159.88C79.5591 160.227 80.2391 160.4 81.1991 160.4H83.8391V165H80.1991Z" fill="#0BA671"/>
+<path d="M88.5437 165V144.84H93.9437V165H88.5437ZM91.2637 142.08C90.3037 142.08 89.5037 141.8 88.8637 141.24C88.2504 140.653 87.9437 139.92 87.9437 139.04C87.9437 138.16 88.2504 137.44 88.8637 136.88C89.5037 136.293 90.3037 136 91.2637 136C92.2504 136 93.0504 136.293 93.6637 136.88C94.3037 137.44 94.6237 138.16 94.6237 139.04C94.6237 139.92 94.3037 140.653 93.6637 141.24C93.0504 141.8 92.2504 142.08 91.2637 142.08Z" fill="#0BA671"/>
+<path d="M99.4003 165V144.84H104.16L104.56 148.12C105.174 147 106.04 146.093 107.16 145.4C108.307 144.707 109.667 144.36 111.24 144.36C112.92 144.36 114.334 144.707 115.48 145.4C116.627 146.093 117.494 147.107 118.08 148.44C118.694 149.773 119 151.413 119 153.36V165H113.64V153.88C113.64 152.28 113.294 151.053 112.6 150.2C111.934 149.347 110.894 148.92 109.48 148.92C108.574 148.92 107.76 149.133 107.04 149.56C106.347 149.987 105.8 150.6 105.4 151.4C105 152.173 104.8 153.12 104.8 154.24V165H99.4003Z" fill="#0BA671"/>
+<path d="M133.768 165.48C131.741 165.48 129.941 165.053 128.368 164.2C126.821 163.32 125.608 162.107 124.728 160.56C123.874 158.987 123.448 157.173 123.448 155.12C123.448 153.013 123.874 151.16 124.728 149.56C125.608 147.933 126.821 146.667 128.368 145.76C129.914 144.827 131.714 144.36 133.768 144.36C135.768 144.36 137.514 144.8 139.008 145.68C140.501 146.56 141.661 147.747 142.488 149.24C143.314 150.733 143.728 152.427 143.728 154.32C143.728 154.587 143.728 154.893 143.728 155.24C143.728 155.56 143.701 155.893 143.648 156.24H127.288V152.96H138.288C138.208 151.653 137.741 150.627 136.888 149.88C136.061 149.133 135.021 148.76 133.768 148.76C132.861 148.76 132.021 148.973 131.248 149.4C130.474 149.8 129.861 150.427 129.408 151.28C128.981 152.133 128.768 153.213 128.768 154.52V155.68C128.768 156.773 128.968 157.733 129.368 158.56C129.794 159.36 130.381 159.987 131.128 160.44C131.874 160.867 132.741 161.08 133.728 161.08C134.714 161.08 135.528 160.867 136.168 160.44C136.834 160.013 137.328 159.467 137.648 158.8H143.168C142.794 160.053 142.168 161.187 141.288 162.2C140.408 163.213 139.328 164.013 138.048 164.6C136.768 165.187 135.341 165.48 133.768 165.48Z" fill="#0BA671"/>
+<path d="M148.15 165V136.2H153.55V165H148.15Z" fill="#0BA671"/>
+<defs>
+<linearGradient id="paint0_linear_12034_573" x1="114.033" y1="5.55803" x2="27.9841" y2="73.9127" gradientUnits="userSpaceOnUse">
+<stop stop-color="#0BA671"/>
+<stop offset="1" stop-color="#365C6C"/>
+</linearGradient>
+</defs>
+</svg>
+</span><span class="ps-logo ps-logo-dark"><svg width="154" height="166" viewBox="0 0 154 166" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M58.9903 6.86496C81.6172 -5.6056 113.459 2.15947 134.451 5.05494C135.275 5.16866 135.758 6.03957 135.418 6.79862C125.655 28.598 116.278 57.1161 93.5809 69.6258C72.8389 81.0576 53.4743 72.5861 34.2809 67.0338C36.0788 61.6034 38.8683 56.3252 42.442 51.4786C42.899 50.8372 43.3478 50.2192 43.8231 49.5873C43.2183 50.0965 42.6368 50.5943 42.044 51.1199C31.9499 59.6612 23.6919 72.673 22.8092 87.4156C22.6824 87.5743 22.5354 87.7189 22.3686 87.8446C21.8026 88.272 21.0602 88.4526 20.3242 88.3496C19.5883 88.2464 18.9241 87.869 18.4973 87.3026C18.0694 86.736 17.9138 86.0267 18.0454 85.3286C18.2307 84.3276 18.443 83.3465 18.6862 82.3635C20.2863 75.7364 23.228 69.9058 26.9913 64.6955C28.1839 62.7817 29.1561 60.2383 29.9954 57.5821C30.3175 56.5261 30.6319 55.4561 30.9431 54.3757C31.6653 51.8007 32.2978 49.3134 32.9167 47.3797C37.2415 32.0745 42.4995 15.9538 58.9903 6.86496Z" fill="url(#paint0_linear_12034_603)"/>
+<path d="M100.657 36.2674C100.657 24.5576 91.1646 15.065 79.4549 15.065C67.7451 15.065 58.2525 24.5576 58.2525 36.2674C58.2525 47.9771 67.7451 57.4697 79.4549 57.4697L79.4549 60.3516C66.1535 60.3516 55.3706 49.5687 55.3706 36.2674C55.3706 22.966 66.1535 12.1831 79.4549 12.1831C92.7562 12.1831 103.539 22.966 103.539 36.2674C103.539 49.5687 92.7562 60.3516 79.4549 60.3516L79.4549 57.4697C91.1646 57.4697 100.657 47.9771 100.657 36.2674Z" fill="#E0F4ED"/>
+<path d="M79.4094 22.1887C81.1502 22.1888 82.8168 22.5063 84.3547 23.0862L80.4592 35.3069C80.1997 36.1208 81.0141 36.865 81.801 36.5325L92.7542 31.9036C93.1917 33.2605 93.4299 34.7077 93.4299 36.2102C93.4297 43.9533 87.1525 50.2305 79.4094 50.2307C71.6661 50.2307 65.3882 43.9535 65.3879 36.2102C65.3879 28.4667 71.666 22.1887 79.4094 22.1887Z" fill="#0B523A"/>
+<path d="M87.4331 13.4298C94.2358 15.826 99.6422 21.1818 102.106 27.9523L92.7544 31.9034C91.444 27.8396 88.3302 24.5861 84.355 23.087L87.4331 13.4298Z" fill="#E0F4ED"/>
+<path d="M38 136.8V107.84H42.8L43.4 110.64C43.8267 110.053 44.3333 109.52 44.92 109.04C45.5067 108.533 46.2 108.133 47 107.84C47.8267 107.52 48.7867 107.36 49.88 107.36C51.7733 107.36 53.44 107.827 54.88 108.76C56.32 109.693 57.4533 110.96 58.28 112.56C59.1333 114.133 59.56 115.933 59.56 117.96C59.56 119.987 59.1333 121.8 58.28 123.4C57.4267 124.973 56.28 126.213 54.84 127.12C53.4 128.027 51.76 128.48 49.92 128.48C48.4267 128.48 47.1333 128.213 46.04 127.68C44.9733 127.12 44.0933 126.36 43.4 125.4V136.8H38ZM48.64 123.76C49.7067 123.76 50.64 123.52 51.44 123.04C52.2667 122.56 52.9067 121.88 53.36 121C53.8133 120.12 54.04 119.107 54.04 117.96C54.04 116.813 53.8133 115.8 53.36 114.92C52.9067 114.013 52.2667 113.32 51.44 112.84C50.64 112.333 49.7067 112.08 48.64 112.08C47.6 112.08 46.6667 112.333 45.84 112.84C45.04 113.32 44.4 114 43.92 114.88C43.4667 115.76 43.24 116.773 43.24 117.92C43.24 119.067 43.4667 120.093 43.92 121C44.4 121.88 45.04 122.56 45.84 123.04C46.6667 123.52 47.6 123.76 48.64 123.76Z" fill="#E0F4ED"/>
+<path d="M73.8909 128.48C71.8643 128.48 70.0643 128.053 68.4909 127.2C66.9443 126.32 65.7309 125.107 64.8509 123.56C63.9976 121.987 63.5709 120.173 63.5709 118.12C63.5709 116.013 63.9976 114.16 64.8509 112.56C65.7309 110.933 66.9443 109.667 68.4909 108.76C70.0376 107.827 71.8376 107.36 73.8909 107.36C75.8909 107.36 77.6376 107.8 79.1309 108.68C80.6243 109.56 81.7843 110.747 82.6109 112.24C83.4376 113.733 83.8509 115.427 83.8509 117.32C83.8509 117.587 83.8509 117.893 83.8509 118.24C83.8509 118.56 83.8243 118.893 83.7709 119.24H67.4109V115.96H78.4109C78.3309 114.653 77.8643 113.627 77.0109 112.88C76.1843 112.133 75.1443 111.76 73.8909 111.76C72.9843 111.76 72.1443 111.973 71.3709 112.4C70.5976 112.8 69.9843 113.427 69.5309 114.28C69.1043 115.133 68.8909 116.213 68.8909 117.52V118.68C68.8909 119.773 69.0909 120.733 69.4909 121.56C69.9176 122.36 70.5043 122.987 71.2509 123.44C71.9976 123.867 72.8643 124.08 73.8509 124.08C74.8376 124.08 75.6509 123.867 76.2909 123.44C76.9576 123.013 77.4509 122.467 77.7709 121.8H83.2909C82.9176 123.053 82.2909 124.187 81.4109 125.2C80.5309 126.213 79.4509 127.013 78.1709 127.6C76.8909 128.187 75.4643 128.48 73.8909 128.48Z" fill="#E0F4ED"/>
+<path d="M88.2734 128V107.84H93.0734L93.5934 111.56C94.0734 110.68 94.6734 109.933 95.3934 109.32C96.1401 108.707 96.9801 108.227 97.9134 107.88C98.8734 107.533 99.9268 107.36 101.073 107.36V113.08H99.2334C98.4334 113.08 97.6868 113.173 96.9934 113.36C96.3268 113.547 95.7401 113.853 95.2334 114.28C94.7268 114.68 94.3401 115.24 94.0734 115.96C93.8068 116.68 93.6734 117.587 93.6734 118.68V128H88.2734Z" fill="#E0F4ED"/>
+<path d="M105.561 128V106.04C105.561 104.36 105.841 103.027 106.401 102.04C106.961 101.053 107.761 100.333 108.801 99.88C109.867 99.4266 111.107 99.2 112.521 99.2H115.001V103.8H113.321C112.467 103.8 111.854 103.973 111.481 104.32C111.134 104.64 110.961 105.213 110.961 106.04V128H105.561ZM102.801 112.36V107.84H115.321V112.36H102.801Z" fill="#E0F4ED"/>
+<path d="M9.32 165.48C7.48 165.48 5.88 165.187 4.52 164.6C3.16 164.013 2.09333 163.2 1.32 162.16C0.546667 161.12 0.106667 159.947 0 158.64H5.36C5.49333 159.147 5.72 159.613 6.04 160.04C6.36 160.44 6.78667 160.76 7.32 161C7.85333 161.24 8.49333 161.36 9.24 161.36C9.96 161.36 10.5467 161.267 11 161.08C11.4533 160.867 11.7867 160.587 12 160.24C12.24 159.893 12.36 159.533 12.36 159.16C12.36 158.6 12.2 158.173 11.88 157.88C11.56 157.56 11.0933 157.307 10.48 157.12C9.86667 156.933 9.12 156.747 8.24 156.56C7.28 156.373 6.33333 156.147 5.4 155.88C4.49333 155.587 3.68 155.227 2.96 154.8C2.24 154.373 1.66667 153.827 1.24 153.16C0.813333 152.493 0.6 151.667 0.6 150.68C0.6 149.48 0.92 148.413 1.56 147.48C2.2 146.52 3.13333 145.76 4.36 145.2C5.58667 144.64 7.06667 144.36 8.8 144.36C11.2267 144.36 13.1467 144.907 14.56 146C15.9733 147.093 16.8133 148.6 17.08 150.52H12C11.84 149.907 11.48 149.427 10.92 149.08C10.3867 148.707 9.66667 148.52 8.76 148.52C7.8 148.52 7.06667 148.693 6.56 149.04C6.05333 149.387 5.8 149.84 5.8 150.4C5.8 150.773 5.96 151.107 6.28 151.4C6.62667 151.693 7.10667 151.947 7.72 152.16C8.33333 152.347 9.08 152.533 9.96 152.72C11.5067 153.04 12.8667 153.413 14.04 153.84C15.2133 154.24 16.1333 154.827 16.8 155.6C17.4667 156.347 17.8 157.44 17.8 158.88C17.8 160.16 17.4533 161.307 16.76 162.32C16.0667 163.307 15.08 164.08 13.8 164.64C12.5467 165.2 11.0533 165.48 9.32 165.48Z" fill="#26CD94"/>
+<path d="M32.0491 165.48C30.0224 165.48 28.2224 165.053 26.6491 164.2C25.1024 163.32 23.8891 162.107 23.0091 160.56C22.1557 158.987 21.7291 157.173 21.7291 155.12C21.7291 153.013 22.1557 151.16 23.0091 149.56C23.8891 147.933 25.1024 146.667 26.6491 145.76C28.1957 144.827 29.9957 144.36 32.0491 144.36C34.0491 144.36 35.7957 144.8 37.2891 145.68C38.7824 146.56 39.9424 147.747 40.7691 149.24C41.5957 150.733 42.0091 152.427 42.0091 154.32C42.0091 154.587 42.0091 154.893 42.0091 155.24C42.0091 155.56 41.9824 155.893 41.9291 156.24H25.5691V152.96H36.5691C36.4891 151.653 36.0224 150.627 35.1691 149.88C34.3424 149.133 33.3024 148.76 32.0491 148.76C31.1424 148.76 30.3024 148.973 29.5291 149.4C28.7557 149.8 28.1424 150.427 27.6891 151.28C27.2624 152.133 27.0491 153.213 27.0491 154.52V155.68C27.0491 156.773 27.2491 157.733 27.6491 158.56C28.0757 159.36 28.6624 159.987 29.4091 160.44C30.1557 160.867 31.0224 161.08 32.0091 161.08C32.9957 161.08 33.8091 160.867 34.4491 160.44C35.1157 160.013 35.6091 159.467 35.9291 158.8H41.4491C41.0757 160.053 40.4491 161.187 39.5691 162.2C38.6891 163.213 37.6091 164.013 36.3291 164.6C35.0491 165.187 33.6224 165.48 32.0491 165.48Z" fill="#26CD94"/>
+<path d="M46.4316 165V144.84H51.1916L51.5916 148.12C52.2049 147 53.0716 146.093 54.1916 145.4C55.3382 144.707 56.6982 144.36 58.2716 144.36C59.9516 144.36 61.3649 144.707 62.5116 145.4C63.6582 146.093 64.5249 147.107 65.1116 148.44C65.7249 149.773 66.0316 151.413 66.0316 153.36V165H60.6716V153.88C60.6716 152.28 60.3249 151.053 59.6316 150.2C58.9649 149.347 57.9249 148.92 56.5116 148.92C55.6049 148.92 54.7916 149.133 54.0716 149.56C53.3782 149.987 52.8316 150.6 52.4316 151.4C52.0316 152.173 51.8316 153.12 51.8316 154.24V165H46.4316Z" fill="#26CD94"/>
+<path d="M80.1991 165C78.7857 165 77.5457 164.787 76.4791 164.36C75.4391 163.907 74.6257 163.173 74.0391 162.16C73.4524 161.12 73.1591 159.707 73.1591 157.92V149.36H69.7191V144.84H73.1591L73.7591 139.36H78.5591V144.84H83.8791V149.36H78.5591V158C78.5591 158.907 78.7591 159.533 79.1591 159.88C79.5591 160.227 80.2391 160.4 81.1991 160.4H83.8391V165H80.1991Z" fill="#26CD94"/>
+<path d="M88.5437 165V144.84H93.9437V165H88.5437ZM91.2637 142.08C90.3037 142.08 89.5037 141.8 88.8637 141.24C88.2504 140.653 87.9437 139.92 87.9437 139.04C87.9437 138.16 88.2504 137.44 88.8637 136.88C89.5037 136.293 90.3037 136 91.2637 136C92.2504 136 93.0504 136.293 93.6637 136.88C94.3037 137.44 94.6237 138.16 94.6237 139.04C94.6237 139.92 94.3037 140.653 93.6637 141.24C93.0504 141.8 92.2504 142.08 91.2637 142.08Z" fill="#26CD94"/>
+<path d="M99.4003 165V144.84H104.16L104.56 148.12C105.174 147 106.04 146.093 107.16 145.4C108.307 144.707 109.667 144.36 111.24 144.36C112.92 144.36 114.334 144.707 115.48 145.4C116.627 146.093 117.494 147.107 118.08 148.44C118.694 149.773 119 151.413 119 153.36V165H113.64V153.88C113.64 152.28 113.294 151.053 112.6 150.2C111.934 149.347 110.894 148.92 109.48 148.92C108.574 148.92 107.76 149.133 107.04 149.56C106.347 149.987 105.8 150.6 105.4 151.4C105 152.173 104.8 153.12 104.8 154.24V165H99.4003Z" fill="#26CD94"/>
+<path d="M133.768 165.48C131.741 165.48 129.941 165.053 128.368 164.2C126.821 163.32 125.608 162.107 124.728 160.56C123.874 158.987 123.448 157.173 123.448 155.12C123.448 153.013 123.874 151.16 124.728 149.56C125.608 147.933 126.821 146.667 128.368 145.76C129.914 144.827 131.714 144.36 133.768 144.36C135.768 144.36 137.514 144.8 139.008 145.68C140.501 146.56 141.661 147.747 142.488 149.24C143.314 150.733 143.728 152.427 143.728 154.32C143.728 154.587 143.728 154.893 143.728 155.24C143.728 155.56 143.701 155.893 143.648 156.24H127.288V152.96H138.288C138.208 151.653 137.741 150.627 136.888 149.88C136.061 149.133 135.021 148.76 133.768 148.76C132.861 148.76 132.021 148.973 131.248 149.4C130.474 149.8 129.861 150.427 129.408 151.28C128.981 152.133 128.768 153.213 128.768 154.52V155.68C128.768 156.773 128.968 157.733 129.368 158.56C129.794 159.36 130.381 159.987 131.128 160.44C131.874 160.867 132.741 161.08 133.728 161.08C134.714 161.08 135.528 160.867 136.168 160.44C136.834 160.013 137.328 159.467 137.648 158.8H143.168C142.794 160.053 142.168 161.187 141.288 162.2C140.408 163.213 139.328 164.013 138.048 164.6C136.768 165.187 135.341 165.48 133.768 165.48Z" fill="#26CD94"/>
+<path d="M148.15 165V136.2H153.55V165H148.15Z" fill="#26CD94"/>
+<defs>
+<linearGradient id="paint0_linear_12034_603" x1="114.033" y1="5.55803" x2="27.9841" y2="73.9127" gradientUnits="userSpaceOnUse">
+<stop stop-color="#0BA671"/>
+<stop offset="1" stop-color="#365C6C"/>
+</linearGradient>
+</defs>
+</svg>
+</span></a></div>
+
+  <div class="ps-tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></div>
+
+  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+    <div class="ps-banner" id="trim-banner" style="display: none;"></div>
+    <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
+    <div class="ps-metrics" id="findings-metrics"></div>
+    <div class="ps-quality-gate" id="quality-gate-rules" style="display: none;"></div>
+    <div class="ps-filters" id="findings-filters"></div>
+    <div class="ps-panel-toolbar">
+      <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
+        <input type="checkbox" id="findings-include-acked" />
+        <span>Show acknowledged</span>
+      </label>
+      <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
+    </div>
+    <div class="ps-list" id="findings-list"></div>
+    <button type="button" class="ps-show-more" id="findings-show-more" style="display: none;"></button>
+    <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
+  </div>
+
+  <div id="panel-explain" role="tabpanel" aria-labelledby="tab-explain" style="display: none;">
+    <div class="ps-empty" id="explain-empty">Click a finding to view its trace tree here.</div>
+    <div id="explain-content" style="display: none;">
+      <div class="ps-tree-header" id="explain-breadcrumb"></div>
+      <div class="ps-tree" id="explain-tree"></div>
+      <div class="ps-drill" id="explain-fix" style="display: none;"></div>
+    </div>
+    <div class="ps-empty" id="explain-not-embedded" style="display: none;"></div>
+  </div>
+
+  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" style="display: none;">
+    <div class="ps-drill" id="pgstat-drill" style="display: none;">
+      <div class="ps-drill-label">Filtered from Explain</div>
+      <span id="pgstat-drill-text"></span>
+      <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
+    </div>
+    <div class="ps-filters" id="pgstat-rankings"></div>
+    <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
+    </div>
+    <table class="ps-table" id="pgstat-table">
+      <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
+      <tbody id="pgstat-body"></tbody>
+    </table>
+    <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
+  </div>
+
+  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" style="display: none;">
+    <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="diff-copy-link" data-copy-link-tab="diff">Copy link</button>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
+      <div class="ps-list" id="diff-new-list"></div>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
+      <div class="ps-list" id="diff-resolved-list"></div>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header" id="diff-sev-header">Severity changes (0)</div>
+      <table class="ps-table" id="diff-sev-table" style="display: none;">
+        <thead><tr><th>Type</th><th>Service</th><th>Endpoint</th><th>Before</th><th>After</th></tr></thead>
+        <tbody id="diff-sev-body"></tbody>
+      </table>
+    </div>
+    <div class="ps-diff-section">
+      <div class="ps-diff-section-header" id="diff-endp-header">Endpoint metric deltas (0)</div>
+      <table class="ps-table" id="diff-endp-table" style="display: none;">
+        <thead><tr><th>Service</th><th>Endpoint</th><th>Before I/O</th><th>After I/O</th><th>Delta</th></tr></thead>
+        <tbody id="diff-endp-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" style="display: none;">
+    <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
+    <div class="ps-panel-toolbar">
+      <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
+      <button type="button" class="ps-copy-link-btn" id="correlations-copy-link" data-copy-link-tab="correlations">Copy link</button>
+    </div>
+    <div class="ps-list" id="correlations-list"></div>
+  </div>
+
+  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" style="display: none;">
+    <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
+    <div id="green-scoring-config" class="ps-scoring-bandeau" style="display: none;" aria-label="Carbon scoring configuration"></div>
+    <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
+    <table class="ps-table" id="green-regions-table" style="display: none;">
+      <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th><th>Estimated</th></tr></thead>
+      <tbody id="green-regions-body"></tbody>
+    </table>
+    <div class="ps-empty" id="green-regions-empty" style="display: none;">No region breakdown available.</div>
+  </div>
+
+  <div id="panel-acknowledgments" role="tabpanel" aria-labelledby="tab-acknowledgments" style="display: none;">
+    <table class="ps-table" id="acks-table">
+      <thead><tr><th>Signature</th><th style="width: 140px;">By</th><th>Reason</th><th style="width: 120px;">Expires</th><th style="width: 90px;"></th></tr></thead>
+      <tbody id="acks-body"></tbody>
+    </table>
+    <div class="ps-empty" id="acks-empty" style="display: none;">No daemon acknowledgments active.</div>
+    <div class="ps-acks-footer" id="acks-footer"></div>
+  </div>
+
+  <div class="ps-footer">
+    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back . <span class="ps-kbd">?</span> shortcuts
+  </div>
+  <div class="ps-credit">
+    Powered by <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer">perf-sentinel</a>
+  </div>
+</div>
+
+<dialog id="cheatsheet" class="ps-modal" aria-labelledby="cheatsheet-title">
+  <button type="button" class="ps-modal-close" id="cheatsheet-close" aria-label="Close">x</button>
+  <h2 id="cheatsheet-title">Keyboard shortcuts</h2>
+  <table id="cheatsheet-table">
+    <thead><tr><th scope="col">Key</th><th scope="col">Action</th></tr></thead>
+    <tbody id="cheatsheet-body"></tbody>
+  </table>
+</dialog>
+
+<dialog id="auth-modal" class="ps-modal" aria-labelledby="auth-modal-title">
+  <button type="button" class="ps-modal-close" id="auth-modal-close" aria-label="Close">x</button>
+  <h2 id="auth-modal-title">Daemon authentication required</h2>
+  <p id="auth-modal-hint" style="margin: 0 0 8px 0; font-size: 11px; color: var(--color-text-warning);">The daemon rejected the request with 401. Enter the API key to retry. The key is held in browser memory only for this tab session and cleared when the tab closes.</p>
+  <form id="auth-modal-form">
+    <label for="auth-modal-key">API key</label>
+    <input type="password" id="auth-modal-key" autocomplete="off" />
+    <div class="ps-modal-error" id="auth-modal-error" role="alert"></div>
+    <div class="ps-modal-actions">
+      <button type="button" class="ps-modal-btn" id="auth-modal-cancel">Cancel</button>
+      <button type="submit" class="ps-modal-btn primary" id="auth-modal-submit">Submit</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="ack-modal" class="ps-modal" aria-labelledby="ack-modal-title">
+  <button type="button" class="ps-modal-close" id="ack-modal-close" aria-label="Close">x</button>
+  <h2 id="ack-modal-title">Acknowledge finding</h2>
+  <form id="ack-modal-form">
+    <label for="ack-modal-sig">Signature</label>
+    <input type="text" id="ack-modal-sig" readonly />
+    <label for="ack-modal-reason">Reason</label>
+    <textarea id="ack-modal-reason" required></textarea>
+    <label for="ack-modal-expires">Expires</label>
+    <select id="ack-modal-expires">
+      <option value="">Never (permanent)</option>
+      <option value="24h">24 hours</option>
+      <option value="7d" selected>7 days</option>
+      <option value="30d">30 days</option>
+    </select>
+    <label for="ack-modal-by">Acknowledged by</label>
+    <input type="text" id="ack-modal-by" placeholder="optional" />
+    <div class="ps-modal-error" id="ack-modal-error" role="alert"></div>
+    <div class="ps-modal-actions">
+      <button type="button" class="ps-modal-btn" id="ack-modal-cancel">Cancel</button>
+      <button type="submit" class="ps-modal-btn primary" id="ack-modal-submit">Acknowledge</button>
+    </div>
+  </form>
+</dialog>
+
+<script id="report-data" type="application/json">
+{"version":"0.8.13","input_label":"report_realistic.json","report":{"analysis":{"duration_ms":0,"events_processed":29,"traces_analyzed":14},"findings":[{"type":"n_plus_one_sql","severity":"warning","trace_id":"trace-order-01","service":"order-svc","source_endpoint":"POST /api/orders/7/checkout","pattern":{"template":"SELECT * FROM order_item WHERE order_id = ?","occurrences":5,"window_ms":40,"distinct_params":5,"span_duration_us_p50":810,"span_duration_us_p99":830,"span_duration_cv_x1000":17},"suggestion":"Use WHERE ... IN (?) to batch 5 queries into one","first_timestamp":"2026-04-20T10:00:00.010Z","last_timestamp":"2026-04-20T10:00:00.050Z","green_impact":{"estimated_extra_io_ops":4,"io_intensity_score":6.0,"io_intensity_band":"high"},"confidence":"ci_batch","code_location":{"filepath":"com/example/order/OrderService.java","lineno":158,"namespace":"org.hibernate.internal.SessionImpl"},"suggested_fix":{"pattern":"n_plus_one_sql","framework":"java_jpa","recommendation":"Use JOIN FETCH on the relationship or annotate the repository method with @EntityGraph to load associations in a single query.","reference_url":"https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching"},"signature":"n_plus_one_sql:order-svc:POST__api_orders_7_checkout:c69d2f3ae7f5c6cdb2c6762367852ec7"},{"type":"n_plus_one_sql","severity":"warning","trace_id":"trace-order-02","service":"order-svc","source_endpoint":"POST /api/orders/8/checkout","pattern":{"template":"SELECT * FROM order_item WHERE order_id = ?","occurrences":5,"window_ms":40,"distinct_params":5,"span_duration_us_p50":800,"span_duration_us_p99":820,"span_duration_cv_x1000":18},"suggestion":"Use WHERE ... IN (?) to batch 5 queries into one","first_timestamp":"2026-04-20T10:00:01.010Z","last_timestamp":"2026-04-20T10:00:01.050Z","green_impact":{"estimated_extra_io_ops":4,"io_intensity_score":6.0,"io_intensity_band":"high"},"confidence":"ci_batch","code_location":{"filepath":"com/example/order/OrderService.java","lineno":158,"namespace":"org.hibernate.internal.SessionImpl"},"suggested_fix":{"pattern":"n_plus_one_sql","framework":"java_jpa","recommendation":"Use JOIN FETCH on the relationship or annotate the repository method with @EntityGraph to load associations in a single query.","reference_url":"https://docs.jboss.org/hibernate/orm/current/userguide/html_single/Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching"},"signature":"n_plus_one_sql:order-svc:POST__api_orders_8_checkout:c69d2f3ae7f5c6cdb2c6762367852ec7"},{"type":"redundant_sql","severity":"info","trace_id":"trace-payment-01","service":"payment-svc","source_endpoint":"GET /api/payment/555","pattern":{"template":"SELECT id, status FROM payment WHERE id = ?","occurrences":4,"window_ms":30,"distinct_params":1},"suggestion":"Identical operation executed 4 times: cache result or deduplicate","first_timestamp":"2026-04-20T10:00:02.000Z","last_timestamp":"2026-04-20T10:00:02.030Z","green_impact":{"estimated_extra_io_ops":3,"io_intensity_score":4.0,"io_intensity_band":"moderate"},"confidence":"ci_batch","signature":"redundant_sql:payment-svc:GET__api_payment_555:48b668a2479a4b5b068b0cc99041abec"},{"type":"redundant_sql","severity":"info","trace_id":"trace-payment-02","service":"payment-svc","source_endpoint":"GET /api/payment/999","pattern":{"template":"SELECT id, status FROM payment WHERE id = ?","occurrences":3,"window_ms":20,"distinct_params":1},"suggestion":"Identical operation executed 3 times: cache result or deduplicate","first_timestamp":"2026-04-20T10:00:03.000Z","last_timestamp":"2026-04-20T10:00:03.020Z","green_impact":{"estimated_extra_io_ops":2,"io_intensity_score":3.0,"io_intensity_band":"moderate"},"confidence":"ci_batch","signature":"redundant_sql:payment-svc:GET__api_payment_999:48b668a2479a4b5b068b0cc99041abec"},{"type":"slow_http","severity":"warning","trace_id":"trace-chat-05","service":"chat-svc","source_endpoint":"POST /api/chat/send","pattern":{"template":"POST /api/notify","occurrences":8,"window_ms":7000,"distinct_params":0},"suggestion":"Cross-trace analysis: p50=1280.0ms, p95=1350.0ms, p99=1350.0ms across 8 occurrences. Consider caching or optimizing endpoint","first_timestamp":"2026-04-20T10:00:04.000Z","last_timestamp":"2026-04-20T10:00:11.000Z","green_impact":{"estimated_extra_io_ops":0,"io_intensity_score":1.0,"io_intensity_band":"healthy"},"confidence":"ci_batch","signature":"slow_http:chat-svc:POST__api_chat_send:5e35a0e005ee19f3a02169ed764b106d"}],"green_summary":{"total_io_ops":29,"avoidable_io_ops":13,"io_waste_ratio":0.4482758620689655,"io_waste_ratio_band":"high","top_offenders":[{"endpoint":"POST /api/orders/7/checkout","service":"order-svc","io_intensity_score":6.0,"io_intensity_band":"high"},{"endpoint":"POST /api/orders/8/checkout","service":"order-svc","io_intensity_score":6.0,"io_intensity_band":"high"},{"endpoint":"GET /api/payment/555","service":"payment-svc","io_intensity_score":4.0,"io_intensity_band":"moderate"},{"endpoint":"GET /api/payment/999","service":"payment-svc","io_intensity_score":3.0,"io_intensity_band":"moderate"},{"endpoint":"POST /api/chat/send","service":"chat-svc","io_intensity_score":1.0,"io_intensity_band":"healthy"},{"endpoint":"GET /api/orders/12","service":"order-svc","io_intensity_score":1.0,"io_intensity_band":"healthy"},{"endpoint":"GET /api/payment/summary","service":"payment-svc","io_intensity_score":1.0,"io_intensity_band":"healthy"}],"co2":{"total":{"low":0.007,"mid":0.014,"high":0.028,"model":"io_proxy_v1","methodology":"sci_v1_numerator"},"avoidable":{"low":0.0,"mid":0.0,"high":0.0,"model":"io_proxy_v1","methodology":"sci_v1_operational_ratio"},"operational_gco2":0.0,"embodied_gco2":0.014,"sci_per_trace":{"low":0.0005,"mid":0.001,"high":0.002,"model":"io_proxy_v1","methodology":"sci_v1_intensity"},"functional_unit":"trace"},"regions":[{"status":"unresolved","region":"unknown","grid_intensity_gco2_kwh":0.0,"pue":0.0,"io_ops":29,"co2_gco2":0.0,"intensity_source":"annual"}],"energy_kwh":0.0,"energy_model":""},"quality_gate":{"passed":false,"rules":[{"rule":"n_plus_one_sql_critical_max","threshold":0.0,"actual":0.0,"passed":true},{"rule":"n_plus_one_http_warning_max","threshold":3.0,"actual":0.0,"passed":true},{"rule":"io_waste_ratio_max","threshold":0.3,"actual":0.4482758620689655,"passed":false}]},"binary_version":"0.8.13"},"embedded_traces":[{"trace_id":"trace-order-01","spans":[{"span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM customers WHERE id = 7","template":"SELECT * FROM customers WHERE id = ?","duration_us":1200},{"span_id":"o1-n1-1","parent_span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 101","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":820},{"span_id":"o1-n1-2","parent_span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 102","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":810},{"span_id":"o1-n1-3","parent_span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 103","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":830},{"span_id":"o1-n1-4","parent_span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 104","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":790},{"span_id":"o1-n1-5","parent_span_id":"o1-root","service":"order-svc","endpoint":"POST /api/orders/7/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 105","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":800}]},{"trace_id":"trace-order-02","spans":[{"span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM customers WHERE id = 8","template":"SELECT * FROM customers WHERE id = ?","duration_us":1100},{"span_id":"o2-n1-1","parent_span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 201","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":800},{"span_id":"o2-n1-2","parent_span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 202","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":810},{"span_id":"o2-n1-3","parent_span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 203","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":820},{"span_id":"o2-n1-4","parent_span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 204","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":780},{"span_id":"o2-n1-5","parent_span_id":"o2-root","service":"order-svc","endpoint":"POST /api/orders/8/checkout","event_type":"sql","operation":"SELECT","target":"SELECT * FROM order_item WHERE order_id = 205","template":"SELECT * FROM order_item WHERE order_id = ?","duration_us":790}]},{"trace_id":"trace-payment-01","spans":[{"span_id":"p1-root","service":"payment-svc","endpoint":"GET /api/payment/555","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 555","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":450},{"span_id":"p1-dup1","parent_span_id":"p1-root","service":"payment-svc","endpoint":"GET /api/payment/555","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 555","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":440},{"span_id":"p1-dup2","parent_span_id":"p1-root","service":"payment-svc","endpoint":"GET /api/payment/555","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 555","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":430},{"span_id":"p1-dup3","parent_span_id":"p1-root","service":"payment-svc","endpoint":"GET /api/payment/555","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 555","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":435}]},{"trace_id":"trace-payment-02","spans":[{"span_id":"p2-root","service":"payment-svc","endpoint":"GET /api/payment/999","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 999","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":440},{"span_id":"p2-dup1","parent_span_id":"p2-root","service":"payment-svc","endpoint":"GET /api/payment/999","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 999","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":430},{"span_id":"p2-dup2","parent_span_id":"p2-root","service":"payment-svc","endpoint":"GET /api/payment/999","event_type":"sql","operation":"SELECT","target":"SELECT id, status FROM payment WHERE id = 999","template":"SELECT id, status FROM payment WHERE id = ?","duration_us":445}]},{"trace_id":"trace-chat-05","spans":[{"span_id":"c5-root","service":"chat-svc","endpoint":"POST /api/chat/send","event_type":"http_out","operation":"POST","target":"http://notification-svc/api/notify","template":"POST /api/notify","duration_us":1350000,"status_code":200}]}]}
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // -------- persistence (sessionStorage, scoped to this browser tab) --------
+  // sessionStorage throws in Safari private mode and some enterprise
+  // policies. Every access is wrapped so a failure degrades gracefully
+  // to in-memory defaults rather than surfacing a runtime error.
+  var STORAGE_KEYS = {
+    theme: "perf-sentinel:theme",
+    pgstatRanking: "perf-sentinel:pgstat-ranking"
+  };
+  function sessionGet(key) {
+    try {
+      return globalThis.sessionStorage.getItem(key);
+    } catch {
+      // Safari private mode or a locked-down enterprise policy:
+      // fall back to the in-memory default rather than surfacing
+      // a runtime error to the user.
+      return null;
+    }
+  }
+  function sessionSet(key, value) {
+    try {
+      globalThis.sessionStorage.setItem(key, value);
+    } catch {
+      // See sessionGet: silent fallback is the intended posture.
+      return;
+    }
+  }
+  // -------- theme (tri-state: auto | dark | light) --------
+  // "auto" follows prefers-color-scheme live. Legacy "dark"/"light"
+  // sessions keep their forced modes. Applied before DOM render so
+  // the body background does not flash.
+  var THEME_MODES = ["auto", "dark", "light"];
+  var prefersDarkMQ = null;
+  try {
+    prefersDarkMQ = globalThis.matchMedia
+      ? globalThis.matchMedia("(prefers-color-scheme: dark)")
+      : null;
+  } catch {
+    prefersDarkMQ = null;
+  }
+  function currentThemeMode() {
+    var stored = sessionGet(STORAGE_KEYS.theme);
+    return THEME_MODES.includes(stored) ? stored : "auto";
+  }
+  function resolveThemeColor(mode) {
+    if (mode === "dark" || mode === "light") return mode;
+    return prefersDarkMQ && prefersDarkMQ.matches ? "dark" : "light";
+  }
+  function applyTheme(mode) {
+    document.documentElement.dataset.theme = resolveThemeColor(mode);
+    var btn = document.getElementById("theme-toggle");
+    if (btn) btn.textContent = "Theme: " + mode;
+  }
+  applyTheme(currentThemeMode());
+  if (prefersDarkMQ && typeof prefersDarkMQ.addEventListener === "function") {
+    try {
+      prefersDarkMQ.addEventListener("change", function () {
+        if (currentThemeMode() === "auto") applyTheme("auto");
+      });
+    } catch {
+      // Older browsers expose addListener instead, not worth wiring.
+    }
+  }
+
+  // -------- load payload --------
+  function loadPayload() {
+    var raw = document.getElementById("report-data").textContent || "";
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      document.body.textContent = "Failed to parse embedded report data: " + e.message;
+      return null;
+    }
+  }
+  function indexTracesById(list) {
+    // Null-prototype map so a hostile trace_id like "__proto__" or
+    // "toString" cannot corrupt the lookup by reparenting Object's
+    // prototype chain. Not currently exploitable to code execution
+    // (downstream consumption is textContent-only), but the fix is
+    // a one-liner and removes the family of defects.
+    var map = Object.create(null);
+    list.forEach(function (trace) { map[trace.trace_id] = trace; });
+    return map;
+  }
+
+  var payload = loadPayload();
+  if (!payload) return;
+
+  var report = payload.report || {};
+  var findings = report.findings || [];
+  var greenSummary = report.green_summary || null;
+  var hasGreen = !!(greenSummary && greenSummary.co2);
+  var embeddedTraces = payload.embedded_traces || [];
+  var tracesById = indexTracesById(embeddedTraces);
+
+  // -------- small DOM helpers (textContent only) --------
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined && text !== null) n.textContent = String(text);
+    return n;
+  }
+  function setAttr(node, name, value) { node.setAttribute(name, String(value)); }
+  function safeHttpsHref(url) {
+    if (typeof url !== "string") return null;
+    if (!url.startsWith("https://")) return null;
+    if (/[\x00-\x1f\x7f-\x9f]/.test(url)) return null;
+    return url;
+  }
+  /// Reusable metric card builder. Hoisted to the outer scope so it is
+  /// not re-created on every render of `renderFindingsMetrics` and
+  /// `renderGreenPanel` (Sonar S7721).
+  function metricCard(label, value, sub, smallValue) {
+    var wrap = el("div", "ps-metric");
+    wrap.appendChild(el("div", "ps-metric-label", label));
+    var v = el("div", "ps-metric-value", value);
+    if (smallValue) v.classList.add("ps-metric-value-sm");
+    wrap.appendChild(v);
+    wrap.appendChild(el("div", "ps-metric-sub", sub));
+    return wrap;
+  }
+
+  // -------- formatters --------
+  function formatGco2(grams) {
+    if (!Number.isFinite(grams)) return "-";
+    var abs = Math.abs(grams);
+    if (abs >= 1) return grams.toFixed(3) + " g";
+    if (abs >= 0.001) return (grams * 1000).toFixed(3) + " mg";
+    if (abs >= 0.000001) return (grams * 1000000).toFixed(3) + " ug";
+    if (abs === 0) return "0 g";
+    return grams.toExponential(2) + " g";
+  }
+  function formatDurationUs(us) {
+    if (!Number.isFinite(us)) return "-";
+    var ms = us / 1000;
+    if (ms < 1) return ms.toFixed(2) + " ms";
+    if (ms < 10) return ms.toFixed(2) + " ms";
+    return Math.round(ms) + " ms";
+  }
+  function truncate(s, max) {
+    if (typeof s !== "string") return "";
+    if (s.length <= max) return s;
+    return s.slice(0, max - 1) + "...";
+  }
+  function percent(num, denom) {
+    if (!denom) return "0%";
+    return Math.round((num * 100) / denom) + "%";
+  }
+
+  // severity + finding-type display maps
+  var SEV_CLASS = { critical: "ps-sev-crit", warning: "ps-sev-warn", info: "ps-sev-info" };
+  var SEV_LABEL = { critical: "CRIT", warning: "WARN", info: "INFO" };
+  var TYPE_LABEL = {
+    n_plus_one_sql: "N+1 SQL",
+    n_plus_one_http: "N+1 HTTP",
+    redundant_sql: "Redundant SQL",
+    redundant_http: "Redundant HTTP",
+    slow_sql: "Slow SQL",
+    slow_http: "Slow HTTP",
+    excessive_fanout: "Excessive fanout",
+    chatty_service: "Chatty service",
+    pool_saturation: "Pool saturation",
+    serialized_calls: "Serialized calls"
+  };
+  function typeLabel(t) { return TYPE_LABEL[t] || String(t); }
+
+  // -------- top bar --------
+  // The brand wordmark is static markup in #topbar (inline SVG, theme-swapped
+  // by CSS); renderTopbar only appends the dynamic meta/badge after it.
+  function renderTopbar() {
+    var bar = document.getElementById("topbar");
+    var version = el("span", "ps-meta", "v" + (payload.version || ""));
+    var analysis = report.analysis || { events_processed: 0, traces_analyzed: 0 };
+    var meta = el(
+      "span",
+      "ps-meta",
+      (payload.input_label || "-") +
+        " . " + analysis.traces_analyzed + " traces" +
+        " . " + analysis.events_processed + " spans"
+    );
+    var gate = report.quality_gate || { passed: true };
+    var badge = el(
+      "span",
+      gate.passed ? "ps-gate-pass" : "ps-gate-fail",
+      gate.passed ? "Quality gate passed" : "Quality gate failed"
+    );
+    bar.appendChild(version);
+    bar.appendChild(meta);
+    bar.appendChild(badge);
+  }
+
+  // -------- tabs (generic) --------
+  var tabs = [];
+  // Used by g-prefixed shortcuts and deep-link hash application to bail
+  // out silently when a tab is not present in the current report.
+  var registeredTabs = Object.create(null);
+  function registerTab(key, label, countFn) {
+    tabs.push({ key: key, label: label, countFn: countFn });
+    registeredTabs[key] = true;
+  }
+  function tabIsRegistered(key) { return !!registeredTabs[key]; }
+  function renderTabs() {
+    var bar = document.getElementById("tabs");
+    tabs.forEach(function (t) {
+      var btn = el("button", "ps-tab", t.label);
+      btn.type = "button";
+      // ARIA tab pattern: each button is a `role="tab"` that controls
+      // its tabpanel. tabindex rotates between 0 (active) and -1
+      // (inactive) so keyboard users traverse the tablist exactly once
+      // when tabbing through the page, then use arrow keys inside.
+      setAttr(btn, "role", "tab");
+      setAttr(btn, "data-tab", t.key);
+      setAttr(btn, "id", "tab-" + t.key);
+      setAttr(btn, "aria-controls", "panel-" + t.key);
+      setAttr(btn, "aria-selected", "false");
+      setAttr(btn, "tabindex", "-1");
+      if (t.countFn) {
+        var c = t.countFn();
+        if (c !== null && c !== undefined) {
+          var badge = el("span", "ps-badge", String(c));
+          btn.appendChild(document.createTextNode(" "));
+          btn.appendChild(badge);
+        }
+      }
+      btn.addEventListener("click", function () { switchTab(t.key); });
+      bar.appendChild(btn);
+    });
+    wireTablistKeyboardNav(bar);
+    // default to first tab
+    if (tabs.length > 0) switchTab(tabs[0].key);
+  }
+
+  function wireTablistKeyboardNav(bar) {
+    // WAI-ARIA arrow-key pattern on the tablist. Coexists with the
+    // g-prefixed shortcuts since they listen on different keys.
+    bar.addEventListener("keydown", function (event) {
+      var target = event.target;
+      if (!target || target.getAttribute("role") !== "tab") return;
+      var buttons = Array.prototype.slice.call(
+        bar.querySelectorAll("button[role=\"tab\"]")
+      );
+      if (buttons.length === 0) return;
+      var idx = buttons.indexOf(target);
+      if (idx < 0) return;
+
+      var next = -1;
+      switch (event.key) {
+        case "ArrowRight":
+        case "ArrowDown":
+          next = (idx + 1) % buttons.length;
+          break;
+        case "ArrowLeft":
+        case "ArrowUp":
+          next = (idx - 1 + buttons.length) % buttons.length;
+          break;
+        case "Home":
+          next = 0;
+          break;
+        case "End":
+          next = buttons.length - 1;
+          break;
+        case "Enter":
+        case " ":
+          event.preventDefault();
+          switchTab(target.dataset.tab, true);
+          return;
+        default:
+          return;
+      }
+      event.preventDefault();
+      var targetBtn = buttons[next];
+      if (targetBtn) {
+        targetBtn.focus();
+        switchTab(targetBtn.dataset.tab, true);
+      }
+    });
+  }
+
+  var currentTab = null;
+  function switchTab(key, fromKeyboard) {
+    // Clear open search filters so a stale one does not resurface
+    // when the user comes back to a tab.
+    if (typeof clearAllSearchFilters === "function") clearAllSearchFilters();
+    currentTab = key;
+    document.querySelectorAll(".ps-tab").forEach(function (btn) {
+      var active = btn.dataset.tab === key;
+      btn.classList.toggle("active", active);
+      setAttr(btn, "aria-selected", active ? "true" : "false");
+      setAttr(btn, "tabindex", active ? "0" : "-1");
+    });
+    tabs.forEach(function (t) {
+      var panel = document.getElementById("panel-" + t.key);
+      if (panel) panel.style.display = t.key === key ? "" : "none";
+    });
+    // Move focus only for keyboard activation. Clicks and hash
+    // restoration must not steal focus.
+    if (fromKeyboard) {
+      var active = document.getElementById("tab-" + key);
+      if (active && typeof active.focus === "function") {
+        try { active.focus(); } catch { /* detached node */ }
+      }
+    }
+    scheduleHashWrite();
+  }
+
+  // -------- findings metrics --------
+  function countBySeverity() {
+    var c = { critical: 0, warning: 0, info: 0 };
+    findings.forEach(function (f) { if (c[f.severity] !== undefined) c[f.severity] += 1; });
+    return c;
+  }
+  function renderFindingsMetrics() {
+    var root = document.getElementById("findings-metrics");
+    var sev = countBySeverity();
+    var total = findings.length;
+
+    root.appendChild(metricCard(
+      "Findings",
+      String(total),
+      sev.critical + " crit . " + sev.warning + " warn . " + sev.info + " info"
+    ));
+
+    var avoidable = greenSummary ? (greenSummary.avoidable_io_ops || 0) : 0;
+    var ratio = greenSummary ? Math.round((greenSummary.io_waste_ratio || 0) * 100) : 0;
+    root.appendChild(metricCard(
+      "Avoidable I/O",
+      String(avoidable),
+      ratio + "% waste ratio"
+    ));
+
+    if (hasGreen) {
+      var co2 = greenSummary.co2;
+      root.appendChild(metricCard(
+        "CO2 estimate",
+        formatGco2(co2.total.mid),
+        String(co2.total.model || "")
+      ));
+    }
+
+    var offender = greenSummary && greenSummary.top_offenders && greenSummary.top_offenders[0];
+    if (offender) {
+      root.appendChild(metricCard(
+        "Top offender",
+        truncate(offender.service, 24),
+        "IIS " + (offender.io_intensity_score || 0).toFixed(1),
+        true
+      ));
+    }
+  }
+
+  // -------- quality gate rules --------
+  function formatRuleNumber(n) {
+    if (!Number.isFinite(n)) return "-";
+    if (Number.isInteger(n)) return String(n);
+    return n.toFixed(3);
+  }
+
+  function renderQualityGateRules() {
+    var host = document.getElementById("quality-gate-rules");
+    if (!host) return;
+    // Clear before any early return so a re-render that drops to zero
+    // rules removes stale rows instead of leaving them visible.
+    host.replaceChildren();
+    var rules = (report.quality_gate && report.quality_gate.rules) || [];
+    if (rules.length === 0) {
+      host.style.display = "none";
+      return;
+    }
+    host.style.display = "";
+
+    host.appendChild(el("h3", "ps-section-title", "Quality gate rules"));
+
+    var table = el("table", "ps-table");
+    var thead = el("thead");
+    var headRow = el("tr");
+    ["Rule", "Threshold", "Actual", "Status"].forEach(function (label) {
+      headRow.appendChild(el("th", null, label));
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = el("tbody");
+    rules.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(el("td", null, r.rule));
+      tr.appendChild(el("td", null, formatRuleNumber(r.threshold)));
+      tr.appendChild(el("td", null, formatRuleNumber(r.actual)));
+      var statusTd = el("td");
+      statusTd.appendChild(el(
+        "span",
+        r.passed ? "ps-gate-pass" : "ps-gate-fail",
+        r.passed ? "PASS" : "FAIL"
+      ));
+      tr.appendChild(statusTd);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    host.appendChild(table);
+  }
+
+  // -------- filters --------
+  var filterState = { severity: null, service: null };
+  function renderFilterChips() {
+    var root = document.getElementById("findings-filters");
+    root.textContent = "";
+
+    // Severity chips (All / Critical / Warning) behave as a single
+    // mutually-exclusive selector, so they go inside a radiogroup.
+    // Service chips are independent toggles: each one is pressable and
+    // can be cleared by re-clicking, but they don't form a group in
+    // the ARIA sense.
+    var severityGroup = el("span", "ps-chip-group", null);
+    setAttr(severityGroup, "role", "radiogroup");
+    setAttr(severityGroup, "aria-label", "Finding severity");
+    root.appendChild(severityGroup);
+
+    var serviceGroup = el("span", "ps-chip-group", null);
+    setAttr(serviceGroup, "role", "group");
+    setAttr(serviceGroup, "aria-label", "Finding service");
+    root.appendChild(serviceGroup);
+
+    function appendChip(parent, label, key, chipRole, stateAttr) {
+      var btn = el("button", "ps-chip", label);
+      btn.type = "button";
+      setAttr(btn, "role", chipRole);
+      setAttr(btn, "data-key", key);
+      setAttr(btn, stateAttr, "false");
+      btn.addEventListener("click", function () { onFilterClick(key); });
+      parent.appendChild(btn);
+    }
+
+    appendChip(severityGroup, "All", "all", "radio", "aria-checked");
+    var hasCrit = findings.some(function (f) { return f.severity === "critical"; });
+    var hasWarn = findings.some(function (f) { return f.severity === "warning"; });
+    if (hasCrit) appendChip(severityGroup, "Critical", "sev:critical", "radio", "aria-checked");
+    if (hasWarn) appendChip(severityGroup, "Warning", "sev:warning", "radio", "aria-checked");
+
+    var services = Object.create(null);
+    findings.forEach(function (f) { services[f.service] = true; });
+    Object.keys(services).sort().forEach(function (s) {
+      appendChip(serviceGroup, s, "svc:" + s, "button", "aria-pressed");
+    });
+
+    syncFilterChips();
+  }
+  function onFilterClick(key) {
+    if (key === "all") {
+      filterState.severity = null;
+      filterState.service = null;
+    } else if (key.startsWith("sev:")) {
+      var sv = key.slice(4);
+      filterState.severity = filterState.severity === sv ? null : sv;
+    } else if (key.startsWith("svc:")) {
+      var svc = key.slice(4);
+      filterState.service = filterState.service === svc ? null : svc;
+    }
+    syncFilterChips();
+    resetShownCount();
+    renderFindingsList();
+    scheduleHashWrite();
+  }
+  function syncFilterChips() {
+    var anyActive = !!(filterState.severity || filterState.service);
+    document.querySelectorAll("#findings-filters .ps-chip").forEach(function (chip) {
+      var key = chip.dataset.key;
+      var active = false;
+      if (key === "all") active = !anyActive;
+      else if (key === "sev:" + filterState.severity) active = true;
+      else if (key === "svc:" + filterState.service) active = true;
+      chip.classList.toggle("active", active);
+      // Severity chips and "All" are radio-role, service chips are
+      // toggle buttons. Pick the right ARIA state attribute per chip.
+      var role = chip.getAttribute("role");
+      var stateAttr = role === "radio" ? "aria-checked" : "aria-pressed";
+      setAttr(chip, stateAttr, active ? "true" : "false");
+    });
+  }
+
+  // -------- findings list --------
+  // Cap the initial render at LIST_CAP rows to keep the DOM small.
+  // Additional rows are revealed LIST_CAP at a time via the
+  // `findings-show-more` button, tracked by `shownCount`. Every filter,
+  // search or hash apply resets `shownCount` to LIST_CAP so the user
+  // never ends up paginated into rows that no longer match.
+  var LIST_CAP = 500;
+  var visibleFindings = [];
+  var selectedIndex = -1;
+  var shownCount = LIST_CAP;
+
+  function applyFilters() {
+    return findings.filter(function (f) {
+      if (filterState.severity && f.severity !== filterState.severity) return false;
+      if (filterState.service && f.service !== filterState.service) return false;
+      return true;
+    });
+  }
+
+  function renderFindingsList() {
+    var root = document.getElementById("findings-list");
+    var empty = document.getElementById("findings-empty");
+    root.textContent = "";
+    var filtered = applyFilters();
+    visibleFindings = filtered.slice(0, shownCount);
+    selectedIndex = visibleFindings.length > 0 ? 0 : -1;
+
+    if (visibleFindings.length === 0) {
+      empty.style.display = "";
+      syncShowMore(filtered.length);
+      return;
+    }
+    empty.style.display = "none";
+
+    visibleFindings.forEach(function (f, idx) {
+      root.appendChild(buildFindingRow(f, idx));
+    });
+    syncSelection();
+    syncShowMore(filtered.length);
+  }
+
+  function syncShowMore(totalMatching) {
+    var btn = document.getElementById("findings-show-more");
+    if (!btn) return;
+    if (visibleFindings.length >= totalMatching) {
+      btn.style.display = "none";
+      return;
+    }
+    var remaining = totalMatching - visibleFindings.length;
+    var next = Math.min(LIST_CAP, remaining);
+    btn.style.display = "";
+    btn.textContent = "Show " + next + " more findings (" + remaining + " remaining)";
+  }
+
+  function resetShownCount() { shownCount = LIST_CAP; }
+
+  function buildFindingRow(f, idx) {
+    var row = el("div", "ps-row");
+    setAttr(row, "data-idx", idx);
+    // Exposed for the live-mode JS so click handlers on the per-row
+    // Ack/Revoke buttons can resolve the signature via DOM lookup. The
+    // attribute is harmless in static mode (the buttons stay hidden).
+    if (f.signature) setAttr(row, "data-sig", f.signature);
+
+    var sev = el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO");
+    row.appendChild(sev);
+
+    var main = el("div", "ps-fin-main");
+    var typeRow = el("div", "ps-fin-type");
+    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
+    var svc = el("span", "ps-fin-service", " in " + (f.service || "-"));
+    typeRow.appendChild(svc);
+    main.appendChild(typeRow);
+
+    var tpl = (f.pattern && f.pattern.template) || "";
+    main.appendChild(el("div", "ps-fin-detail", tpl));
+    row.appendChild(main);
+
+    var right = el("div", "ps-fin-right");
+    var occ = (f.pattern && f.pattern.occurrences) || 0;
+    right.appendChild(document.createTextNode(occ + " occ"));
+    right.appendChild(document.createElement("br"));
+    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
+    row.appendChild(right);
+
+    // Live-mode action container. Always rendered, hidden by CSS in
+    // static mode (`.ps-fin-actions { display: none }`). The
+    // `body.ps-live` class flipped at boot reveals it.
+    var actions = el("div", "ps-fin-actions");
+    var btn = el("button", "ps-fin-action-btn", "Ack");
+    btn.type = "button";
+    setAttr(btn, "data-action", "ack");
+    setAttr(btn, "aria-label", "Acknowledge this finding");
+    actions.appendChild(btn);
+    row.appendChild(actions);
+
+    row.addEventListener("click", function (event) {
+      var t = event.target;
+      // Bail when the click landed on the live-mode action button so
+      // its own handler runs without ALSO opening the Explain tab.
+      if (t && (t.classList.contains("ps-fin-action-btn") || t.closest && t.closest(".ps-fin-actions"))) {
+        return;
+      }
+      selectedIndex = idx;
+      syncSelection();
+      openExplain(f);
+    });
+    return row;
+  }
+
+  function syncSelection() {
+    document.querySelectorAll("#findings-list .ps-row").forEach(function (row, idx) {
+      row.classList.toggle("selected", idx === selectedIndex);
+    });
+  }
+
+  // -------- explain tree --------
+  // Shared empty state for cap-reached, resolved-diff, and
+  // Correlations clickthroughs whose trace is not in embedded_traces.
+  function renderExplainEmpty(message) {
+    document.getElementById("explain-empty").style.display = "none";
+    var content = document.getElementById("explain-content");
+    var notEmbedded = document.getElementById("explain-not-embedded");
+    content.style.display = "none";
+    notEmbedded.style.display = "";
+    notEmbedded.textContent = message;
+    switchTab("explain");
+  }
+
+  function openExplain(f) {
+    document.getElementById("explain-empty").style.display = "none";
+    var content = document.getElementById("explain-content");
+    var notEmbedded = document.getElementById("explain-not-embedded");
+    notEmbedded.style.display = "none";
+    notEmbedded.textContent = "";
+
+    var trace = tracesById[f.trace_id];
+    if (!trace) {
+      // Happens when the finding's trace was dropped by the size cap.
+      renderExplainEmpty(
+        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it."
+      );
+      return;
+    }
+
+    content.style.display = "";
+    var breadcrumb = document.getElementById("explain-breadcrumb");
+    var shortTraceId = (f.trace_id || "").slice(0, 12);
+    breadcrumb.textContent =
+      "trace_id = " + shortTraceId + " . " + (f.service || "-") + " . " + (f.source_endpoint || "-");
+
+    var treeRoot = document.getElementById("explain-tree");
+    treeRoot.textContent = "";
+    renderTree(treeRoot, trace, f);
+
+    var fix = document.getElementById("explain-fix");
+    fix.textContent = "";
+    if (f.suggested_fix) {
+      fix.style.display = "";
+      renderSuggestedFix(fix, f.suggested_fix);
+    } else {
+      fix.style.display = "none";
+    }
+
+    switchTab("explain");
+  }
+
+  /// Build the parent -> children adjacency for a span list plus the
+  /// roots array. Extracted from `renderTree` to keep its cognitive
+  /// complexity under Sonar's 15-point threshold.
+  function buildSpanTree(spans) {
+    // Null-prototype maps for all user-controlled keys (span_id,
+    // parent_span_id) so hostile identifiers like "__proto__" cannot
+    // corrupt the lookup chain. Mirrors the indexTracesById fix.
+    var byId = Object.create(null);
+    spans.forEach(function (s) { byId[s.span_id] = s; });
+    var childrenByParent = Object.create(null);
+    var roots = [];
+    spans.forEach(function (s, idx) {
+      var parent = s.parent_span_id;
+      if (parent && byId[parent]) {
+        if (!childrenByParent[parent]) childrenByParent[parent] = [];
+        childrenByParent[parent].push(idx);
+      } else {
+        roots.push(idx);
+      }
+    });
+    return { roots: roots, childrenByParent: childrenByParent };
+  }
+
+  /// Iterative DFS walker that appends one row per span. Depth is
+  /// capped at 64 to cut cycles if any, the total row count is capped
+  /// at 2000 to bound worst-case DOM size.
+  function emitSpanTreeRows(root, spans, tree, targetTpl) {
+    var stack = [];
+    for (var r = tree.roots.length - 1; r >= 0; r--) {
+      stack.push({ idx: tree.roots[r], depth: 0 });
+    }
+    var emitted = 0;
+    var HARD_SPAN_CAP = 2000;
+    var MAX_DEPTH = 64;
+    while (stack.length > 0 && emitted < HARD_SPAN_CAP) {
+      var frame = stack.pop();
+      if (frame.depth > MAX_DEPTH) continue;
+      var span = spans[frame.idx];
+      root.appendChild(buildSpanRow(span, frame.depth, targetTpl));
+      emitted += 1;
+      var kids = tree.childrenByParent[span.span_id] || [];
+      for (var k = kids.length - 1; k >= 0; k--) {
+        stack.push({ idx: kids[k], depth: frame.depth + 1 });
+      }
+    }
+  }
+
+  function renderTree(root, trace, finding) {
+    var spans = trace.spans || [];
+    if (spans.length === 0) {
+      root.appendChild(el("div", "ps-span dim", "(empty trace)"));
+      return;
+    }
+    var tree = buildSpanTree(spans);
+    var targetTpl = (finding.pattern && finding.pattern.template) || null;
+    emitSpanTreeRows(root, spans, tree, targetTpl);
+  }
+
+  function buildSpanRow(span, depth, targetTpl) {
+    var row = el("div", "ps-span");
+    var isFinding = targetTpl && span.template === targetTpl;
+    if (isFinding) row.classList.add("hilite");
+    else row.classList.add("dim");
+    row.style.paddingLeft = (depth * 20) + "px";
+
+    // Cross-nav to pg_stat: a SQL span whose normalized template matches
+    // a row in pg_stat becomes clickable. The click switches to the
+    // pg_stat tab with the matching row highlighted and the filter
+    // banner shown.
+    var pgStatMatch =
+      hasPgStat && span.event_type === "sql" && pgStatByTemplate[span.template]
+        ? span.template
+        : null;
+    if (pgStatMatch) {
+      row.classList.add("ps-span-pgstat-link");
+      row.addEventListener("click", function () {
+        switchTab("pgstat");
+        showPgStatDrill(pgStatMatch);
+      });
+    }
+
+    var text = el("span", "ps-span-text");
+    if (isFinding) text.classList.add("ps-span-find");
+    text.textContent = describeSpan(span);
+    row.appendChild(text);
+
+    row.appendChild(el("span", "ps-span-dur", formatDurationUs(span.duration_us)));
+    return row;
+  }
+
+  function describeSpan(span) {
+    if (span.event_type === "sql") {
+      return span.template || span.target || span.operation || "(sql)";
+    }
+    if (span.event_type === "http_out") {
+      var op = (span.operation || "GET").toUpperCase();
+      return op + " " + (span.template || span.target || "");
+    }
+    return span.operation || span.target || "(span)";
+  }
+
+  function renderSuggestedFix(root, fix) {
+    var label = el("div", "ps-drill-label", "Suggested fix . " + (fix.framework || "-"));
+    root.appendChild(label);
+    root.appendChild(document.createTextNode(fix.recommendation || ""));
+    var href = safeHttpsHref(fix.reference_url);
+    if (href) {
+      root.appendChild(document.createTextNode(" "));
+      var a = el("a", "ps-drill-link", "See documentation");
+      setAttr(a, "href", href);
+      setAttr(a, "target", "_blank");
+      setAttr(a, "rel", "noopener noreferrer");
+      root.appendChild(a);
+    }
+  }
+
+  // -------- green panel --------
+  function renderGreenPanel() {
+    if (!hasGreen) return;
+    var co2 = greenSummary.co2;
+
+    var metrics = document.getElementById("green-metrics");
+    metrics.appendChild(metricCard(
+      "Operational CO2",
+      formatGco2(co2.operational_gco2),
+      "low " + formatGco2(co2.total.low) + " . high " + formatGco2(co2.total.high)
+    ));
+    metrics.appendChild(metricCard(
+      "Embodied CO2",
+      formatGco2(co2.embodied_gco2),
+      "SCI v1.0 M term"
+    ));
+    var avoidMid = co2.avoidable.mid;
+    var ratio = percent(avoidMid, co2.operational_gco2);
+    metrics.appendChild(metricCard(
+      "Avoidable",
+      formatGco2(avoidMid),
+      ratio + " of operational"
+    ));
+
+    renderScoringConfigBandeau(greenSummary.scoring_config);
+
+    var regions = greenSummary.regions || [];
+    var header = document.getElementById("green-regions-header");
+    header.textContent = "Regions (" + regions.length + ")";
+    if (regions.length === 0) {
+      document.getElementById("green-regions-empty").style.display = "";
+      return;
+    }
+    document.getElementById("green-regions-table").style.display = "";
+    var tbody = document.getElementById("green-regions-body");
+    regions.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, r.region || "-"));
+      tr.appendChild(el("td", null, (r.grid_intensity_gco2_kwh || 0).toFixed(0)));
+      tr.appendChild(el("td", null, String(r.io_ops || 0)));
+      tr.appendChild(el("td", null, formatGco2(r.co2_gco2 || 0)));
+      tr.appendChild(el("td", null, r.intensity_source || "-"));
+      tr.appendChild(buildEstimatedCell(r));
+      tbody.appendChild(tr);
+    });
+  }
+
+  // Renders three chips above the green-regions table: API version,
+  // emission factor type, temporal granularity. Hidden when the
+  // payload carries no scoring_config (Electricity Maps not configured).
+  // The 3 fields are bounded enums on the Rust side, no escaping needed.
+  function renderScoringConfigBandeau(cfg) {
+    var bandeau = document.getElementById("green-scoring-config");
+    if (!bandeau) return;
+    if (!cfg) {
+      bandeau.style.display = "none";
+      return;
+    }
+    bandeau.replaceChildren(
+      el("span", "ps-scoring-label", "Carbon scoring:"),
+      buildApiVersionChip(cfg.api_version),
+      buildEmissionFactorChip(cfg.emission_factor_type),
+      buildTemporalGranularityChip(cfg.temporal_granularity)
+    );
+    bandeau.style.display = "";
+  }
+
+  function buildScoringChip(label, modifier, tooltip) {
+    var chip = el("span", "ps-scoring-chip ps-scoring-chip-" + modifier, label);
+    chip.setAttribute("title", tooltip);
+    return chip;
+  }
+
+  // The three chip builders below pattern-match on the known wire
+  // values and fall through to a verbatim-text neutral chip on
+  // anything else. This keeps a forward-rolled enum variant (a
+  // future EmissionFactorType added in a later perf-sentinel
+  // release) from silently masquerading as the default chip when an
+  // older dashboard renders a newer baseline. The bounded-input
+  // invariant on the Rust side (typed enum, no #[serde(other)])
+  // keeps the textContent path safe for in-version rendering.
+  function buildApiVersionChip(version) {
+    if (version === "v3") {
+      return buildScoringChip(
+        "Electricity Maps v3",
+        "warning",
+        "v3 is in legacy mode. Migrate to v4 to silence the deprecation warning."
+      );
+    }
+    if (version === "v4") {
+      return buildScoringChip(
+        "Electricity Maps v4",
+        "neutral",
+        "API v4 is the current default."
+      );
+    }
+    if (version === "custom") {
+      return buildScoringChip(
+        "Electricity Maps custom",
+        "neutral",
+        "Custom endpoint without /vN suffix (proxy or mock)."
+      );
+    }
+    return buildScoringChip(
+      "Electricity Maps " + String(version),
+      "neutral",
+      "Unrecognized API version, displayed verbatim."
+    );
+  }
+
+  function buildEmissionFactorChip(factor) {
+    if (factor === "direct") {
+      return buildScoringChip(
+        "direct",
+        "accent",
+        "Direct emissions only. Used by some Scope 2 frameworks."
+      );
+    }
+    if (factor === "lifecycle") {
+      return buildScoringChip(
+        "lifecycle",
+        "neutral",
+        "Default. Includes upstream emissions (manufacturing, transport)."
+      );
+    }
+    return buildScoringChip(
+      String(factor),
+      "neutral",
+      "Unrecognized emission factor type, displayed verbatim."
+    );
+  }
+
+  function buildTemporalGranularityChip(granularity) {
+    if (granularity === "5_minutes" || granularity === "15_minutes") {
+      return buildScoringChip(
+        granularity,
+        "accent",
+        "Sub-hour granularity. Requires a paid Electricity Maps plan."
+      );
+    }
+    if (granularity === "hourly") {
+      return buildScoringChip(
+        "hourly",
+        "neutral",
+        "Default. Hourly average carbon intensity."
+      );
+    }
+    return buildScoringChip(
+      String(granularity),
+      "neutral",
+      "Unrecognized temporal granularity, displayed verbatim."
+    );
+  }
+
+  function buildEstimatedCell(r) {
+    var td = document.createElement("td");
+    if (r.intensity_estimated === true) {
+      var badge = el("span", "ps-badge-estimated", "Estimated");
+      var tip = r.intensity_estimation_method
+        ? "Method: " + r.intensity_estimation_method +
+          ". Estimated by Electricity Maps using their internal model. " +
+          "Less precise than measured data but reliable for trend analysis."
+        : "Estimated by Electricity Maps. Less precise than measured data " +
+          "but reliable for trend analysis.";
+      badge.setAttribute("title", tip);
+      td.appendChild(badge);
+    } else if (r.intensity_estimated === false) {
+      var measured = el("span", "ps-badge-measured", "Measured");
+      measured.setAttribute("title", "Source data measured directly from the grid operator.");
+      td.appendChild(measured);
+    } else {
+      td.textContent = "-";
+    }
+    return td;
+  }
+
+  // -------- pg_stat / diff / correlations state --------
+  var pgStat = payload.pg_stat || null;
+  // Cross-nav lookup indexed across every ranking's entries so the
+  // Explain-to-pg_stat hotlink fires regardless of which ranking the
+  // user switches to.
+  var pgStatByTemplate = Object.create(null);
+  if (pgStat && Array.isArray(pgStat.rankings)) {
+    pgStat.rankings.forEach(function (r) {
+      (r.entries || []).forEach(function (entry) {
+        pgStatByTemplate[entry.normalized_template] = entry;
+      });
+    });
+  }
+  var hasPgStat = Object.keys(pgStatByTemplate).length > 0;
+
+  var diffData = payload.diff || null;
+  var hasDiff = !!diffData;
+
+  // Correlations are populated only in daemon-produced reports. The batch
+  // pipeline does not emit them. This branch lights up automatically
+  // when a future daemon report is fed into
+  // `perf-sentinel report --input <daemon.json>`.
+  var correlations =
+    report.correlations && report.correlations.length > 0 ? report.correlations : [];
+  var hasCorrelations = correlations.length > 0;
+
+  // -------- pg_stat panel --------
+  // Rankings stay in the stable order `rank_pg_stat` emits:
+  // [by_total_time, by_calls, by_mean_time, by_io_blocks]. The
+  // sub-switcher chips are built from `pgStatRankings` so new rankings
+  // appended server-side surface automatically without any JS change.
+  var pgStatRankings =
+    pgStat && Array.isArray(pgStat.rankings) ? pgStat.rankings : [];
+  var activeRankingIndex = 0;
+  // Template currently highlighted by the drill banner, if any. Used
+  // to decide whether to re-apply the hilite after a ranking switch.
+  var pgStatHiliteTemplate = null;
+
+  // Human-friendly chip labels for the four known rankings. Unknown
+  // labels fall through to the raw server-side string so an older or
+  // customized PgStatReport still renders something sensible.
+  var PGSTAT_LABELS = {
+    "top by total_exec_time": "Total time",
+    "top by calls": "Calls",
+    "top by mean_exec_time": "Mean time",
+    "top by shared_blks_total": "I/O blocks"
+  };
+
+  function activePgStatEntries() {
+    if (pgStatRankings.length === 0) return [];
+    var idx = Math.min(activeRankingIndex, pgStatRankings.length - 1);
+    return pgStatRankings[idx].entries || [];
+  }
+
+  function renderPgStatPanel() {
+    if (!hasPgStat) {
+      document.getElementById("pgstat-empty").style.display = "";
+      return;
+    }
+    renderPgStatRankings();
+    renderPgStatTable();
+  }
+
+  function renderPgStatRankings() {
+    var root = document.getElementById("pgstat-rankings");
+    root.textContent = "";
+    if (pgStatRankings.length <= 1) {
+      // Hide the chip row when there is nothing to switch between.
+      root.style.display = "none";
+      return;
+    }
+    root.style.display = "";
+    // Mutually-exclusive chip group. ARIA radiogroup pattern: the
+    // container carries role="radiogroup", each chip is role="radio"
+    // with aria-checked rewritten on every selection.
+    setAttr(root, "role", "radiogroup");
+    setAttr(root, "aria-label", "pg_stat ranking");
+    pgStatRankings.forEach(function (r, idx) {
+      var label = PGSTAT_LABELS[r.label] || r.label || ("Ranking " + (idx + 1));
+      var btn = el("button", "ps-chip", label);
+      btn.type = "button";
+      setAttr(btn, "role", "radio");
+      setAttr(btn, "data-ranking-index", String(idx));
+      var isActive = idx === activeRankingIndex;
+      setAttr(btn, "aria-checked", isActive ? "true" : "false");
+      if (isActive) btn.classList.add("active");
+      btn.addEventListener("click", function () {
+        selectPgStatRanking(idx);
+      });
+      root.appendChild(btn);
+    });
+  }
+
+  function selectPgStatRanking(idx) {
+    // Persist the choice even when idx already matches activeRankingIndex.
+    // This covers the deep-link restore path where the hash carries the
+    // current ranking but sessionStorage was empty, so we still honor
+    // the user's implicit intent to remember this ranking.
+    sessionSet(STORAGE_KEYS.pgstatRanking, rankingSlugForIndex(idx));
+    if (idx === activeRankingIndex) return;
+    activeRankingIndex = idx;
+    var chips = document.querySelectorAll("#pgstat-rankings .ps-chip");
+    for (var i = 0; i < chips.length; i++) {
+      var isActive = i === idx;
+      chips[i].classList.toggle("active", isActive);
+      setAttr(chips[i], "aria-checked", isActive ? "true" : "false");
+    }
+    renderPgStatTable();
+    scheduleHashWrite();
+    // Preserve the hilite when the previously-hilited template exists
+    // in the new ranking; else silently clear the drill + hilite.
+    if (pgStatHiliteTemplate) {
+      var stillPresent = activePgStatEntries().some(function (entry) {
+        return entry.normalized_template === pgStatHiliteTemplate;
+      });
+      if (stillPresent) {
+        highlightPgStatRow(pgStatHiliteTemplate);
+      } else {
+        clearPgStatDrill();
+      }
+    }
+    // Re-apply the search filter against the new rowset. Null-guard
+    // covers the boot path where the filter init has not run yet.
+    if (SEARCHABLE_TABS && SEARCHABLE_TABS.pgstat) {
+      applySearchFilter(SEARCHABLE_TABS.pgstat);
+    }
+  }
+
+  function renderPgStatTable() {
+    var body = document.getElementById("pgstat-body");
+    body.textContent = "";
+    activePgStatEntries().forEach(function (entry) {
+      var tr = document.createElement("tr");
+      setAttr(tr, "data-template", entry.normalized_template);
+      tr.appendChild(el("td", null, entry.normalized_template));
+      tr.appendChild(el("td", null, String(entry.calls || 0)));
+      tr.appendChild(el("td", null, (entry.total_exec_time_ms || 0).toFixed(1)));
+      tr.appendChild(el("td", null, (entry.mean_exec_time_ms || 0).toFixed(2)));
+      body.appendChild(tr);
+    });
+  }
+
+  function showPgStatDrill(template) {
+    var drill = document.getElementById("pgstat-drill");
+    var txt = document.getElementById("pgstat-drill-text");
+    drill.style.display = "";
+    txt.textContent = template;
+    pgStatHiliteTemplate = template;
+    highlightPgStatRow(template);
+  }
+  function clearPgStatDrill() {
+    document.getElementById("pgstat-drill").style.display = "none";
+    pgStatHiliteTemplate = null;
+    document.querySelectorAll("#pgstat-body tr").forEach(function (row) {
+      row.classList.remove("hilite");
+    });
+  }
+  function highlightPgStatRow(template) {
+    var matched = null;
+    document.querySelectorAll("#pgstat-body tr").forEach(function (row) {
+      if (row.dataset.template === template) {
+        row.classList.add("hilite");
+        matched = row;
+      } else {
+        row.classList.remove("hilite");
+      }
+    });
+    if (matched) matched.scrollIntoView({ block: "nearest" });
+  }
+
+  // -------- diff panel --------
+  function renderDiffPanel() {
+    if (!hasDiff) return;
+    renderDiffFindingsList(
+      "diff-new-list",
+      "diff-new-header",
+      "New findings",
+      diffData.new_findings || [],
+      true
+    );
+    renderDiffFindingsList(
+      "diff-resolved-list",
+      "diff-resolved-header",
+      "Resolved findings",
+      diffData.resolved_findings || [],
+      "resolved"
+    );
+    renderDiffSevTable(diffData.severity_changes || []);
+    renderDiffEndpTable(diffData.endpoint_metric_deltas || []);
+  }
+  function renderDiffFindingsList(listId, headerId, label, items, kind) {
+    var list = document.getElementById(listId);
+    var hdr = document.getElementById(headerId);
+    hdr.textContent = label + " (" + items.length + ")";
+    list.textContent = "";
+    items.forEach(function (f) {
+      list.appendChild(buildDiffFindingRow(f, kind));
+    });
+  }
+  function buildDiffFindingRow(f, kind) {
+    var row = el("div", "ps-row");
+    row.appendChild(
+      el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO")
+    );
+    var main = el("div", "ps-fin-main");
+    var typeRow = el("div", "ps-fin-type");
+    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
+    typeRow.appendChild(el("span", "ps-fin-service", " in " + (f.service || "-")));
+    main.appendChild(typeRow);
+    main.appendChild(el("div", "ps-fin-detail", (f.pattern && f.pattern.template) || ""));
+    row.appendChild(main);
+    var right = el("div", "ps-fin-right");
+    right.appendChild(document.createTextNode(((f.pattern && f.pattern.occurrences) || 0) + " occ"));
+    right.appendChild(document.createElement("br"));
+    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
+    row.appendChild(right);
+    if (kind === "resolved") {
+      // Resolved findings have no trace in the current run. Route the
+      // click through the shared empty-state helper so the user ends
+      // up on Explain with a clear explanation rather than on an
+      // empty panel.
+      row.addEventListener("click", function () {
+        renderExplainEmpty(
+          "This finding was resolved. Its trace lives in the baseline report, not in the current run. Open the baseline report separately to explore its traces."
+        );
+      });
+    } else if (kind === true || kind === "new") {
+      row.addEventListener("click", function () {
+        openExplain(f);
+      });
+    } else {
+      row.style.cursor = "default";
+    }
+    return row;
+  }
+  function renderDiffSevTable(items) {
+    var hdr = document.getElementById("diff-sev-header");
+    var tbl = document.getElementById("diff-sev-table");
+    var body = document.getElementById("diff-sev-body");
+    hdr.textContent = "Severity changes (" + items.length + ")";
+    body.textContent = "";
+    if (items.length === 0) {
+      tbl.style.display = "none";
+      return;
+    }
+    tbl.style.display = "";
+    items.forEach(function (c) {
+      var f = c.finding || {};
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, typeLabel(f.type || f.finding_type)));
+      tr.appendChild(el("td", null, f.service || "-"));
+      tr.appendChild(el("td", null, f.source_endpoint || "-"));
+      tr.appendChild(el("td", null, SEV_LABEL[c.before_severity] || String(c.before_severity)));
+      tr.appendChild(el("td", null, SEV_LABEL[c.after_severity] || String(c.after_severity)));
+      body.appendChild(tr);
+    });
+  }
+  function renderDiffEndpTable(items) {
+    var hdr = document.getElementById("diff-endp-header");
+    var tbl = document.getElementById("diff-endp-table");
+    var body = document.getElementById("diff-endp-body");
+    hdr.textContent = "Endpoint metric deltas (" + items.length + ")";
+    body.textContent = "";
+    if (items.length === 0) {
+      tbl.style.display = "none";
+      return;
+    }
+    tbl.style.display = "";
+    items.forEach(function (d) {
+      var tr = document.createElement("tr");
+      tr.appendChild(el("td", null, d.service || "-"));
+      tr.appendChild(el("td", null, d.endpoint || "-"));
+      tr.appendChild(el("td", null, String(d.before_io_ops || 0)));
+      tr.appendChild(el("td", null, String(d.after_io_ops || 0)));
+      var delta = d.delta || 0;
+      tr.appendChild(el("td", null, (delta > 0 ? "+" : "") + String(delta)));
+      body.appendChild(tr);
+    });
+  }
+
+  // -------- correlations panel --------
+  // Renders `CrossTraceCorrelation` entries emitted by the daemon,
+  // matching the Rust struct shape: `source` and `target` are
+  // `CorrelationEndpoint { finding_type, service, template }`,
+  // timing is `median_lag_ms` and `co_occurrence_count`.
+  function renderCorrelationsPanel() {
+    if (!hasCorrelations) return;
+    var list = document.getElementById("correlations-list");
+    list.textContent = "";
+    correlations.forEach(function (c) {
+      var src = c.source || {};
+      var tgt = c.target || {};
+      var row = el("div", "ps-row ps-correlation-row");
+      var leftLabel =
+        (src.service || "?") + ":" + typeLabel(src.finding_type || "?");
+      var rightLabel =
+        (tgt.service || "?") + ":" + typeLabel(tgt.finding_type || "?");
+      var main = el("div", "ps-fin-main");
+      main.appendChild(el("div", "ps-fin-type", leftLabel + " -> " + rightLabel));
+      var conf = Math.round((c.confidence || 0) * 100);
+      var lag = (c.median_lag_ms || 0).toFixed(0);
+      main.appendChild(
+        el(
+          "div",
+          "ps-fin-detail",
+          "confidence " + conf + "% . median lag " + lag + " ms"
+        )
+      );
+      row.appendChild(el("div", "ps-sev-info", "CORR"));
+      row.appendChild(main);
+      row.appendChild(
+        el("div", "ps-fin-right", String(c.co_occurrence_count || 0) + "x")
+      );
+      // Daemon-produced correlations carry sample_trace_id. When set,
+      // clicking jumps to Explain. openExplain falls back to the
+      // shared empty state when the trace is not embedded.
+      if (c.sample_trace_id) {
+        row.classList.add("ps-correlation-clickable");
+        row.addEventListener("click", function () {
+          openExplain(syntheticFindingFromCorrelation(c));
+        });
+      } else {
+        row.style.cursor = "default";
+      }
+      list.appendChild(row);
+    });
+  }
+
+  function syntheticFindingFromCorrelation(c) {
+    // Minimum shape openExplain reads: trace_id plus the fields used
+    // by the breadcrumb.
+    var tgt = c.target || {};
+    return {
+      trace_id: c.sample_trace_id,
+      service: tgt.service || "-",
+      source_endpoint: "-",
+      pattern: { template: tgt.template || "" }
+    };
+  }
+
+  // -------- search --------
+  // Filter state is cleared on tab switch. The current panel's search
+  // input stays empty and hidden on activation, so switching away and
+  // back resets the filter implicitly. Simple, no cross-tab carryover.
+  function matchRowByText(row, q) {
+    return (row.textContent || "").toLowerCase().includes(q);
+  }
+  var SEARCHABLE_TABS = {
+    findings: {
+      inputId: "findings-search",
+      rowsSelector: "#findings-list .ps-row"
+    },
+    pgstat: {
+      inputId: "pgstat-search",
+      rowsSelector: "#pgstat-body tr"
+    },
+    diff: {
+      inputId: "diff-search",
+      // Filter only the two findings lists; the severity_changes and
+      // endpoint_metric_deltas tables stay unfiltered (short lists).
+      rowsSelector: "#diff-new-list .ps-row, #diff-resolved-list .ps-row"
+    },
+    correlations: {
+      inputId: "correlations-search",
+      rowsSelector: "#correlations-list .ps-row"
+    }
+  };
+  function initSearchInputs() {
+    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
+      var cfg = SEARCHABLE_TABS[tabKey];
+      var input = document.getElementById(cfg.inputId);
+      if (!input) return;
+      input.addEventListener("input", function () {
+        applySearchFilter(cfg);
+        scheduleHashWrite();
+      });
+    });
+  }
+  function applySearchFilter(cfg) {
+    var input = document.getElementById(cfg.inputId);
+    var q = (input.value || "").toLowerCase();
+    document.querySelectorAll(cfg.rowsSelector).forEach(function (row) {
+      row.style.display = !q || matchRowByText(row, q) ? "" : "none";
+    });
+  }
+  function openSearchForActiveTab() {
+    var cfg = SEARCHABLE_TABS[currentTab];
+    if (!cfg) return;
+    var input = document.getElementById(cfg.inputId);
+    if (!input) return;
+    input.style.display = "block";
+    input.focus();
+    input.select();
+  }
+  function closeSearch(input) {
+    input.value = "";
+    applySearchFilter(SEARCHABLE_TABS[currentTab]);
+    input.style.display = "none";
+    input.blur();
+  }
+  function clearAllSearchFilters() {
+    Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
+      var cfg = SEARCHABLE_TABS[tabKey];
+      var input = document.getElementById(cfg.inputId);
+      if (!input) return;
+      if (input.value) {
+        input.value = "";
+        applySearchFilter(cfg);
+      }
+      input.style.display = "none";
+    });
+  }
+
+  // -------- trim banner --------
+  function renderTrimBanner() {
+    var t = payload.trimmed_traces;
+    var f = payload.trimmed_findings;
+    if (!t && !f) return;
+    var parts = [];
+    if (f) {
+      parts.push("Showing " + f.kept + " of " + f.total +
+        " findings (trimmed for file size, critical first; the JSON report keeps the full set).");
+    }
+    if (t) {
+      parts.push("Showing " + t.kept + " of " + t.total +
+        " traces (trimmed for file size). Rerun with --max-traces-embedded <higher> to see more.");
+    }
+    var b = document.getElementById("trim-banner");
+    b.style.display = "";
+    b.textContent = parts.join(" ");
+  }
+
+  // -------- theme toggle --------
+  // Click cycles through auto -> dark -> light -> auto. The actual
+  // data-theme attribute and button label are handled by applyTheme,
+  // defined above alongside the initial boot-time resolution.
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var idx = THEME_MODES.indexOf(currentThemeMode());
+    var next = THEME_MODES[(idx + 1) % THEME_MODES.length];
+    sessionSet(STORAGE_KEYS.theme, next);
+    applyTheme(next);
+  });
+
+  // -------- CSV export --------
+  // Rows are assembled as arrays of cell values, then each cell is
+  // RFC 4180 escaped and the joined line is written to a Blob. No DOM
+  // injection involved, so this bypasses the innerHTML hazard entirely.
+  function csvEscape(value) {
+    if (value === null || value === undefined) return "";
+    var s = String(value);
+    // Formula-injection guard (OWASP CSV Injection). Excel, LibreOffice
+    // and Google Sheets all interpret a cell that starts with =, +, -,
+    // @ or a tab as a formula. A hostile SQL template or service name
+    // that begins with one of those characters would execute on open.
+    // The apostrophe prefix neutralizes the formula without losing the
+    // original text: spreadsheets display the cell as-is and drop the
+    // leading apostrophe, consumers that parse the CSV literally keep
+    // it. Strict first-byte check: do not strip leading whitespace
+    // (a leading tab is itself a formula trigger on some clients).
+    if (s.length > 0 && "=+-@\t".includes(s.charAt(0))) {
+      s = "'" + s;
+    }
+    if (s.includes(",") || s.includes("\"") ||
+        s.includes("\n") || s.includes("\r")) {
+      return "\"" + s.replaceAll("\"", "\"\"") + "\"";
+    }
+    return s;
+  }
+  function csvLine(cells) {
+    return cells.map(csvEscape).join(",");
+  }
+  // Note on numeric cells: producers pass JS numbers straight through
+  // csvEscape, which calls String(n). That drops trailing zeros
+  // (`840.0` -> `"840"`) because V8 Number.toString() normalizes the
+  // decimal representation. Excel and every major CSV consumer handle
+  // this correctly, so we keep the cheap path rather than forcing
+  // `.toFixed(n)` per column.
+  function buildCsv(header, rows) {
+    var lines = [csvLine(header)];
+    rows.forEach(function (r) { lines.push(csvLine(r)); });
+    return lines.join("\r\n") + "\r\n";
+  }
+  function sanitizeLabelForFilename(s) {
+    if (!s) return "";
+    var cleaned = String(s).replaceAll(/[^A-Za-z0-9]+/g, "-");
+    cleaned = cleaned.replaceAll(/-+/g, "-").replaceAll(/^-|-$/g, "");
+    return cleaned;
+  }
+  function pad2(n) { return n < 10 ? "0" + n : String(n); }
+  function timestampForFilename() {
+    var d = new Date();
+    return d.getFullYear() +
+      pad2(d.getMonth() + 1) +
+      pad2(d.getDate()) + "-" +
+      pad2(d.getHours()) +
+      pad2(d.getMinutes()) +
+      pad2(d.getSeconds());
+  }
+  function buildCsvFilename(tabName) {
+    var label = sanitizeLabelForFilename(payload.input_label || "");
+    var prefix = label ? "perf-sentinel-" + label : "perf-sentinel";
+    return prefix + "-" + tabName + "-" + timestampForFilename() + ".csv";
+  }
+  function downloadCsv(tabName, csvText) {
+    var blob = new Blob([csvText], { type: "text/csv;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = buildCsvFilename(tabName);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Delay the revoke so the browser has the URL in hand when it
+    // kicks off the download. Immediate revoke breaks the download on
+    // some browsers. 0ms is enough to escape the current task.
+    setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+  }
+
+  function searchTermFor(tabKey) {
+    var cfg = SEARCHABLE_TABS && SEARCHABLE_TABS[tabKey];
+    if (!cfg) return "";
+    var input = document.getElementById(cfg.inputId);
+    if (!input) return "";
+    return (input.value || "").toLowerCase();
+  }
+  function matchesSearch(haystack, term) {
+    if (!term) return true;
+    return String(haystack || "").toLowerCase().includes(term);
+  }
+
+  function exportFindingsCsv() {
+    var term = searchTermFor("findings");
+    var header = [
+      "severity", "type", "service", "endpoint", "template",
+      "occurrences", "first_timestamp", "last_timestamp",
+      "code_function", "code_filepath", "code_lineno",
+      "suggested_fix_framework", "suggested_fix_recommendation",
+      "confidence"
+    ];
+    var rows = applyFilters().filter(function (f) {
+      var blob = [
+        f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
+        f.pattern && f.pattern.template
+      ].join(" ");
+      return matchesSearch(blob, term);
+    }).map(function (f) {
+      var p = f.pattern || {};
+      var loc = f.code_location || {};
+      var fix = f.suggested_fix || {};
+      return [
+        f.severity || "",
+        f.type || f.finding_type || "",
+        f.service || "",
+        f.source_endpoint || "",
+        p.template || "",
+        p.occurrences ?? "",
+        f.first_timestamp || "",
+        f.last_timestamp || "",
+        loc.function || "",
+        loc.filepath || "",
+        loc.lineno ?? "",
+        fix.framework || "",
+        fix.recommendation || "",
+        f.confidence ?? ""
+      ];
+    });
+    downloadCsv("findings", buildCsv(header, rows));
+  }
+
+  function exportPgStatCsv() {
+    var term = searchTermFor("pgstat");
+    var header = [
+      "template", "calls", "total_exec_time_ms", "mean_exec_time_ms",
+      "rows", "shared_blks_hit", "shared_blks_read", "seen_in_traces"
+    ];
+    var rows = activePgStatEntries().filter(function (e) {
+      return matchesSearch(e.normalized_template, term);
+    }).map(function (e) {
+      return [
+        e.normalized_template || "",
+        e.calls ?? "",
+        e.total_exec_time_ms ?? "",
+        e.mean_exec_time_ms ?? "",
+        e.rows ?? "",
+        e.shared_blks_hit ?? "",
+        e.shared_blks_read ?? "",
+        e.seen_in_traces ? "true" : "false"
+      ];
+    });
+    downloadCsv("pgstat", buildCsv(header, rows));
+  }
+
+  function diffFindingMatchBlob(f) {
+    return [
+      f.severity, f.type || f.finding_type, f.service, f.source_endpoint,
+      f.pattern && f.pattern.template
+    ].join(" ");
+  }
+  function exportDiffCsv() {
+    if (!hasDiff) return;
+    var term = searchTermFor("diff");
+    var header = [
+      "section", "severity", "type", "service", "endpoint", "template",
+      "occurrences", "before_severity", "after_severity",
+      "before_io_ops", "after_io_ops", "delta"
+    ];
+    var rows = [];
+    (diffData.new_findings || []).forEach(function (f) {
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "new", f.severity || "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences ?? "",
+        "", "", "", "", ""
+      ]);
+    });
+    (diffData.resolved_findings || []).forEach(function (f) {
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "resolved", f.severity || "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences ?? "",
+        "", "", "", "", ""
+      ]);
+    });
+    (diffData.severity_changes || []).forEach(function (c) {
+      var f = c.finding || {};
+      if (!matchesSearch(diffFindingMatchBlob(f), term)) return;
+      var p = f.pattern || {};
+      rows.push([
+        "severity_change", "", f.type || f.finding_type || "",
+        f.service || "", f.source_endpoint || "", p.template || "",
+        p.occurrences ?? "",
+        c.before_severity || "", c.after_severity || "",
+        "", "", ""
+      ]);
+    });
+    (diffData.endpoint_metric_deltas || []).forEach(function (d) {
+      var blob = [d.service, d.endpoint].join(" ");
+      if (!matchesSearch(blob, term)) return;
+      rows.push([
+        "endpoint_delta", "", "",
+        d.service || "", d.endpoint || "", "",
+        "", "", "",
+        d.before_io_ops ?? "",
+        d.after_io_ops ?? "",
+        d.delta ?? ""
+      ]);
+    });
+    downloadCsv("diff", buildCsv(header, rows));
+  }
+
+  function exportCorrelationsCsv() {
+    var term = searchTermFor("correlations");
+    var header = [
+      "service_a", "type_a", "template_a",
+      "service_b", "type_b", "template_b",
+      "confidence", "co_occurrence_count",
+      "source_total_occurrences", "median_lag_ms",
+      "first_seen", "last_seen"
+    ];
+    var rows = correlations.filter(function (c) {
+      var src = c.source || {};
+      var tgt = c.target || {};
+      var blob = [
+        src.service, src.finding_type, tgt.service, tgt.finding_type
+      ].join(" ");
+      return matchesSearch(blob, term);
+    }).map(function (c) {
+      var s = c.source || {};
+      var t = c.target || {};
+      return [
+        s.service || "", s.finding_type || "", s.template || "",
+        t.service || "", t.finding_type || "", t.template || "",
+        c.confidence ?? "",
+        c.co_occurrence_count ?? "",
+        c.source_total_occurrences ?? "",
+        c.median_lag_ms ?? "",
+        c.first_seen || "", c.last_seen || ""
+      ];
+    });
+    downloadCsv("correlations", buildCsv(header, rows));
+  }
+
+  // -------- deep-link hash --------
+  // Shape: `#<tab>[&k=v[&k=v...]]`. Medium-scope: tab, search term,
+  // pg_stat ranking slug, findings severity chip, findings service chip.
+  // Writes replace history entries (no back/forward pollution).
+  var RANKING_SLUGS = ["total_time", "calls", "mean_time", "io_blocks"];
+  function rankingSlugForIndex(idx) {
+    return RANKING_SLUGS[idx] || String(idx);
+  }
+  function rankingIndexForSlug(slug) {
+    if (RANKING_SLUGS.includes(slug)) return RANKING_SLUGS.indexOf(slug);
+    var n = Number.parseInt(slug, 10);
+    return Number.isFinite(n) ? n : -1;
+  }
+
+  // Keys accepted from the URL fragment. Anything outside this set is
+  // ignored so a malformed or malicious hash cannot override the tab
+  // via a later `tab=` pair, inject arbitrary properties onto `state`,
+  // or confuse `applyHash`. The tab itself is positional (first
+  // token), not a key=value pair. Stored as a Set so existence checks
+  // are O(1) regardless of how many keys land here in the future.
+  var HASH_KEYS = new Set(["search", "ranking", "severity", "service"]);
+  function readHash() {
+    var raw = (location.hash || "").replace(/^#/, "");
+    if (!raw) return null;
+    var parts = raw.split("&");
+    var state = { tab: parts.shift() || null };
+    parts.forEach(function (p) {
+      if (!p) return;
+      var eq = p.indexOf("=");
+      if (eq < 0) return;
+      var k = p.slice(0, eq);
+      if (!HASH_KEYS.has(k)) return;
+      var v = p.slice(eq + 1);
+      try {
+        v = decodeURIComponent(v);
+      } catch {
+        // Malformed percent-encoding in a shared URL, keep the raw
+        // value so downstream string compares still work.
+        return;
+      }
+      state[k] = v;
+    });
+    return state;
+  }
+
+  function currentStateForHash() {
+    var state = { tab: currentTab };
+    if (currentTab && SEARCHABLE_TABS[currentTab]) {
+      var term = searchTermFor(currentTab);
+      if (term) state.search = term;
+    }
+    if (currentTab === "findings") {
+      if (filterState.severity) state.severity = filterState.severity;
+      if (filterState.service) state.service = filterState.service;
+    }
+    if (currentTab === "pgstat") {
+      state.ranking = rankingSlugForIndex(activeRankingIndex);
+    }
+    return state;
+  }
+
+  function encodeHashFromState(state) {
+    if (!state || !state.tab) return "";
+    var parts = [state.tab];
+    ["search", "ranking", "severity", "service"].forEach(function (k) {
+      var v = state[k];
+      if (v !== null && v !== undefined && v !== "") {
+        parts.push(k + "=" + encodeURIComponent(String(v)));
+      }
+    });
+    return parts.join("&");
+  }
+
+  // Guards against applyHash / writeHash ping-pong. The hashchange
+  // listener compares this against location.hash to tell user-driven
+  // changes from our own writeHash calls.
+  var _lastWrittenHash = null;
+
+  function writeHash(state) {
+    var hashStr = encodeHashFromState(state);
+    var full = hashStr ? "#" + hashStr : "";
+    try {
+      history.replaceState(null, "", full || location.pathname + location.search);
+      _lastWrittenHash = hashStr;
+    } catch {
+      // Old browsers without history.replaceState: fall back to a
+      // direct hash assignment. Pushes one history entry per change,
+      // the lesser of two evils.
+      location.hash = hashStr;
+      _lastWrittenHash = hashStr;
+    }
+  }
+
+  // Debounce writeHash to smooth keystrokes in search inputs and bursty
+  // chip clicks; 200ms is barely perceptible and keeps history quiet.
+  var hashWriteTimer = null;
+  function scheduleHashWrite() {
+    if (hashWriteTimer) clearTimeout(hashWriteTimer);
+    hashWriteTimer = setTimeout(function () {
+      hashWriteTimer = null;
+      writeHash(currentStateForHash());
+    }, 200);
+  }
+
+  function applyHash(state) {
+    if (!state || !state.tab) return false;
+    if (!tabIsRegistered(state.tab)) return false;
+    // Apply filter state before switching so the target tab already
+    // shows the correct view. Severity / service chips modify
+    // filterState and re-render the findings list.
+    if (state.tab === "findings") {
+      filterState.severity = null;
+      filterState.service = null;
+      if (state.severity === "critical" || state.severity === "warning") {
+        filterState.severity = state.severity;
+      }
+      if (state.service) filterState.service = state.service;
+      syncFilterChips();
+      resetShownCount();
+      renderFindingsList();
+    }
+    if (state.tab === "pgstat") {
+      var idx = rankingIndexForSlug(state.ranking || "");
+      if (idx >= 0 && idx < pgStatRankings.length) {
+        // Single source of truth: selectPgStatRanking handles both the
+        // sessionStorage write and the early-return when idx already
+        // matches activeRankingIndex.
+        selectPgStatRanking(idx);
+      }
+    }
+    switchTab(state.tab);
+    // Restore the search input for the target tab after tab switch,
+    // which runs `clearAllSearchFilters`. Reapply the filter so rows
+    // match the decoded search term.
+    if (state.search && SEARCHABLE_TABS[state.tab]) {
+      var cfg = SEARCHABLE_TABS[state.tab];
+      var input = document.getElementById(cfg.inputId);
+      if (input) {
+        input.style.display = "block";
+        input.value = state.search;
+        applySearchFilter(cfg);
+      }
+    }
+    return true;
+  }
+
+  // -------- cheatsheet modal --------
+  var CHEATSHEET_ROWS = [
+    ["j", "Move finding selection down"],
+    ["k", "Move finding selection up"],
+    ["Enter", "Open selected finding in Explain"],
+    ["Esc", "Close help, close search, clear filters, back from Explain"],
+    ["/", "Open filter search for active tab"],
+    ["g f", "Go to Findings"],
+    ["g e", "Go to Explain (if available)"],
+    ["g p", "Go to pg_stat (if available)"],
+    ["g d", "Go to Diff (if available)"],
+    ["g c", "Go to Correlations (if available)"],
+    ["g r", "Go to GreenOps (if available)"],
+    ["?", "Show this cheatsheet"]
+  ];
+  function populateCheatsheet() {
+    var body = document.getElementById("cheatsheet-body");
+    if (!body) return;
+    body.textContent = "";
+    CHEATSHEET_ROWS.forEach(function (row) {
+      var tr = document.createElement("tr");
+      var tdK = document.createElement("td");
+      var kbd = el("span", "ps-kbd", row[0]);
+      tdK.appendChild(kbd);
+      tr.appendChild(tdK);
+      tr.appendChild(el("td", null, row[1]));
+      body.appendChild(tr);
+    });
+  }
+  // Native <dialog> element: the browser manages the backdrop, the
+  // focus trap, and the Esc-to-close behavior. We only layer focus
+  // restoration and backdrop-click-to-close on top.
+  function isCheatsheetOpen() {
+    var dlg = document.getElementById("cheatsheet");
+    return !!(dlg && dlg.open);
+  }
+  // Stash the element that owned focus when the cheatsheet opened so
+  // closing restores the j/k cursor position in the Findings list (or
+  // wherever the user came from). Cleared on close.
+  var cheatsheetPriorFocus = null;
+  function openCheatsheet() {
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg || dlg.open) return;
+    cheatsheetPriorFocus = document.activeElement;
+    dlg.showModal();
+    var closeBtn = document.getElementById("cheatsheet-close");
+    if (closeBtn) closeBtn.focus();
+  }
+  function closeCheatsheet() {
+    var dlg = document.getElementById("cheatsheet");
+    if (dlg && dlg.open) dlg.close();
+  }
+  function toggleCheatsheet() {
+    if (isCheatsheetOpen()) closeCheatsheet();
+    else openCheatsheet();
+  }
+
+  function anyFilterChipActive() {
+    return !!(filterState.severity || filterState.service);
+  }
+  function clearFilterChips() {
+    filterState.severity = null;
+    filterState.service = null;
+    syncFilterChips();
+    resetShownCount();
+    renderFindingsList();
+  }
+
+  // -------- keyboard --------
+  function isSearchInputFocused() {
+    var active = document.activeElement;
+    return !!(active && active.tagName === "INPUT" && active.classList.contains("ps-search"));
+  }
+  function isTextInputFocused() {
+    var a = document.activeElement;
+    if (!a) return false;
+    var tag = a.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA") return true;
+    return a.isContentEditable === true;
+  }
+  /// Escape ladder: close cheatsheet, close search, leave Explain,
+  /// clear filter chips. Each tier returns as soon as it acts.
+  function handleEscape(ev) {
+    if (isCheatsheetOpen()) {
+      closeCheatsheet();
+      ev.preventDefault();
+      return;
+    }
+    if (isSearchInputFocused()) {
+      closeSearch(document.activeElement);
+      ev.preventDefault();
+      return;
+    }
+    if (currentTab === "explain") {
+      switchTab("findings");
+      return;
+    }
+    if (currentTab === "findings" && anyFilterChipActive()) {
+      clearFilterChips();
+      scheduleHashWrite();
+      ev.preventDefault();
+    }
+  }
+  /// Slash handling: open the active tab's search input.
+  function handleSlash(ev) {
+    if (isSearchInputFocused() || !SEARCHABLE_TABS[currentTab]) return;
+    openSearchForActiveTab();
+    ev.preventDefault();
+  }
+  /// j / k / enter navigation on the Findings list.
+  function handleFindingsNav(ev) {
+    if (visibleFindings.length === 0) return;
+    if (ev.key === "j") {
+      selectedIndex = (selectedIndex + 1) % visibleFindings.length;
+      syncSelection();
+      scrollSelectedIntoView();
+    } else if (ev.key === "k") {
+      selectedIndex = (selectedIndex - 1 + visibleFindings.length) % visibleFindings.length;
+      syncSelection();
+      scrollSelectedIntoView();
+    } else if (ev.key === "Enter" && selectedIndex >= 0) {
+      openExplain(visibleFindings[selectedIndex]);
+    }
+    ev.preventDefault();
+  }
+  // g-prefixed tab shortcuts. `g` alone arms a 1000ms window; the next
+  // key consumes it regardless of whether it matches a tab. Hidden tabs
+  // are a silent no-op (no feedback, no flash).
+  var pendingGTimer = null;
+  var G_MAPPING = {
+    f: "findings", e: "explain", p: "pgstat",
+    d: "diff", c: "correlations", r: "green"
+  };
+  function clearPendingG() {
+    if (pendingGTimer) {
+      clearTimeout(pendingGTimer);
+      pendingGTimer = null;
+    }
+  }
+  function handleGPrefix(ev) {
+    // Ignore OS-level key autorepeat: holding `g` must not rearm the
+    // prefix, and holding the second letter must not fire the tab
+    // switch twice. The dispatcher continues past this handler so
+    // autorepeat on j/k/Enter still drives Findings navigation.
+    if (ev.repeat) return false;
+    if (ev.key === "g" && pendingGTimer === null) {
+      pendingGTimer = setTimeout(function () { pendingGTimer = null; }, 1000);
+      return true;
+    }
+    if (pendingGTimer !== null) {
+      clearPendingG();
+      var target = G_MAPPING[ev.key];
+      if (target && tabIsRegistered(target)) {
+        switchTab(target);
+        ev.preventDefault();
+      }
+      return true;
+    }
+    return false;
+  }
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape") { handleEscape(ev); return; }
+    // `?` opens the cheatsheet unless a text input is consuming it.
+    if (ev.key === "?" && !isTextInputFocused()) {
+      toggleCheatsheet();
+      ev.preventDefault();
+      return;
+    }
+    if (isCheatsheetOpen()) return;
+    if (ev.key === "/") { handleSlash(ev); return; }
+    if (isSearchInputFocused()) return;
+    if (isTextInputFocused()) return;
+    if (handleGPrefix(ev)) return;
+    if (currentTab !== "findings") return;
+    if (ev.key === "j" || ev.key === "k" || ev.key === "Enter") {
+      handleFindingsNav(ev);
+    }
+  });
+  function scrollSelectedIntoView() {
+    var rows = document.querySelectorAll("#findings-list .ps-row");
+    if (selectedIndex >= 0 && selectedIndex < rows.length) {
+      rows[selectedIndex].scrollIntoView({ block: "nearest" });
+    }
+  }
+
+  document.getElementById("pgstat-drill-clear").addEventListener("click", clearPgStatDrill);
+
+  // -------- boot helpers --------
+  // Each helper owns one slice of boot work so the IIFE body stays
+  // linear and cognitive complexity stays bounded. Sonar flags the
+  // IIFE itself when too many branches accumulate at this level.
+
+  function registerAllTabs() {
+    registerTab("findings", "Findings", function () { return findings.length; });
+    registerTab("explain", "Explain", null);
+    if (hasPgStat) {
+      registerTab("pgstat", "pg_stat", function () {
+        // Badge shows the currently-active ranking's entry count. Every
+        // ranking contains the same top-N entries, just reordered, so
+        // the number is identical across rankings (see rank_pg_stat).
+        return activePgStatEntries().length;
+      });
+    }
+    if (hasDiff) {
+      registerTab("diff", "Diff", function () {
+        return (
+          (diffData.new_findings || []).length + (diffData.resolved_findings || []).length
+        );
+      });
+    }
+    if (hasCorrelations) {
+      registerTab("correlations", "Correlations", function () {
+        return correlations.length;
+      });
+    }
+    if (hasGreen) registerTab("green", "GreenOps", null);
+    if (payload.daemon && payload.daemon.url) {
+      registerTab("acknowledgments", "Acks", function () {
+        return liveAcksCount();
+      });
+    }
+    renderTabs();
+  }
+
+  function restorePersistedPgStatRanking() {
+    // Restore the persisted ranking before the first render so the
+    // initial table already reflects the user's last choice. A hash
+    // with a ranking slug overrides this, inside `applyHash`.
+    if (!hasPgStat) return;
+    var storedRanking = sessionGet(STORAGE_KEYS.pgstatRanking);
+    if (!storedRanking) return;
+    var storedIdx = rankingIndexForSlug(storedRanking);
+    if (storedIdx >= 0 && storedIdx < pgStatRankings.length) {
+      activeRankingIndex = storedIdx;
+    }
+  }
+
+  function renderAllPanels() {
+    renderTrimBanner();
+    renderFindingsMetrics();
+    renderQualityGateRules();
+    renderFilterChips();
+    restorePersistedPgStatRanking();
+    renderFindingsList();
+    if (hasPgStat) renderPgStatPanel();
+    if (hasDiff) renderDiffPanel();
+    if (hasCorrelations) renderCorrelationsPanel();
+    if (hasGreen) renderGreenPanel();
+  }
+
+  function wireCheatsheetDialog() {
+    var closeBtn = document.getElementById("cheatsheet-close");
+    if (closeBtn) closeBtn.addEventListener("click", closeCheatsheet);
+    var dlg = document.getElementById("cheatsheet");
+    if (!dlg) return;
+    // Native <dialog> manages Esc-to-close and the focus trap for us.
+    // We only restore focus to wherever it was before the dialog
+    // opened, on the close event (covers both our manual close and
+    // the native Esc path).
+    dlg.addEventListener("close", restorePriorFocus);
+    // Click outside the dialog's content area closes it. With
+    // showModal(), clicks on the backdrop hit the dialog itself,
+    // clicks on any descendant hit that descendant.
+    dlg.addEventListener("click", function (ev) {
+      if (ev.target === dlg) closeCheatsheet();
+    });
+  }
+
+  function restorePriorFocus() {
+    var prior = cheatsheetPriorFocus;
+    cheatsheetPriorFocus = null;
+    if (!prior || typeof prior.focus !== "function") return;
+    try {
+      prior.focus();
+    } catch {
+      // Prior element was removed while the dialog was open (most
+      // likely a re-render). Silent fallback: the browser picks a
+      // sensible default.
+      return;
+    }
+  }
+
+  function wireShowMoreButton() {
+    var btn = document.getElementById("findings-show-more");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      shownCount += LIST_CAP;
+      renderFindingsList();
+    });
+  }
+
+  function wireExportButtons() {
+    var exportHandlers = {
+      findings: exportFindingsCsv,
+      pgstat: exportPgStatCsv,
+      diff: exportDiffCsv,
+      correlations: exportCorrelationsCsv
+    };
+    Object.keys(exportHandlers).forEach(function (tabKey) {
+      var btn = document.getElementById(tabKey + "-export");
+      if (btn) btn.addEventListener("click", exportHandlers[tabKey]);
+    });
+  }
+
+  // -------- copy-link buttons --------
+  function copyCurrentLink(btn) {
+    // Capture the label once so repeat clicks inside the flash window
+    // do not end up restoring "Copied" as the baseline.
+    if (!btn.dataset.baseLabel) btn.dataset.baseLabel = btn.textContent;
+    var baseLabel = btn.dataset.baseLabel;
+    var href = location.href;
+
+    function flashCopied() {
+      btn.textContent = "Copied";
+      if (btn._copyFlashTimer) clearTimeout(btn._copyFlashTimer);
+      btn._copyFlashTimer = setTimeout(function () {
+        btn._copyFlashTimer = null;
+        btn.textContent = baseLabel;
+      }, 1500);
+    }
+
+    // file:// origins and older browsers reject navigator.clipboard,
+    // so fall back to a throwaway textarea + execCommand.
+    function fallbackCopy() {
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = href;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "absolute";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand("copy");
+        ta.remove();
+        if (ok) {
+          flashCopied();
+        } else {
+          console.error("copyCurrentLink: execCommand('copy') returned false");
+        }
+      } catch (err) {
+        console.error("copyCurrentLink fallback failed", err);
+      }
+    }
+
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(href).then(flashCopied, function (err) {
+        console.error("navigator.clipboard.writeText rejected", err);
+        fallbackCopy();
+      });
+    } else {
+      fallbackCopy();
+    }
+  }
+
+  function wireCopyLinkButtons() {
+    ["findings", "pgstat", "diff", "correlations"].forEach(function (tabKey) {
+      var btn = document.getElementById(tabKey + "-copy-link");
+      if (!btn) return;
+      btn.addEventListener("click", function () {
+        copyCurrentLink(btn);
+      });
+    });
+  }
+
+  function applyInitialHashOrWrite() {
+    // Apply the deep-link hash last so it can override the initial
+    // ranking / filter chips / tab selection derived above. Falls
+    // through silently when the hash is missing, malformed, or points
+    // to a tab that is not registered in this report.
+    var initialHash = readHash();
+    if (applyHash(initialHash)) return;
+    // No hash: emit the current state so sharing the URL immediately
+    // after load produces a self-describing link.
+    writeHash(currentStateForHash());
+  }
+
+  function wireHashChangeListener() {
+    // Skip events triggered by our own writeHash replaceState, apply
+    // only real user-driven changes.
+    globalThis.addEventListener("hashchange", function () {
+      var raw = (location.hash || "").replace(/^#/, "");
+      if (raw === _lastWrittenHash) return;
+      applyHash(readHash());
+    });
+  }
+
+  // -------- live mode (since 0.5.23) --------
+  // The whole live-mode block stays inside the existing IIFE so it
+  // shares scope with `payload`, `findings`, `renderTabs`,
+  // `renderFindingsList` and the `el`/`setAttr` helpers. Running
+  // outside would re-parse the `<script id="report-data">` block, a
+  // pure overhead.
+  //
+  // Activation: only when the embedded payload carries
+  // `payload.daemon.url`. Static reports (the 0.5.22 default) never
+  // touch this code path.
+  //
+  // Security:
+  // - The X-API-Key sits in `liveState.apiKey` and `sessionStorage`.
+  //   It is never copied into the DOM as text, never logged, never
+  //   shipped in a `data-*` attribute.
+  // - All user-facing rendering is `textContent`, never `innerHTML`.
+  // - `connect-src` in the CSP whitelists only the daemon URL the
+  //   operator passed to `--daemon-url`, validated by the CLI.
+  var DAEMON_API_KEY_STORAGE = "perf-sentinel.daemon.api-key";
+  var DAEMON_ACKS_CAP = 1000;
+  var DAEMON_FETCH_TIMEOUT_MS = 10000;
+
+  var liveState = {
+    enabled: false,
+    daemonUrl: null,
+    apiKey: null,
+    acks: [],
+    acksBySig: Object.create(null),
+    pendingAuthRetry: null,
+    activeFindingsAbort: null
+  };
+
+  function liveAcksCount() {
+    return liveState.acks.length;
+  }
+
+  function isLiveEnabled() {
+    return liveState.enabled;
+  }
+
+  function setApiKey(value) {
+    // Guard against an empty / whitespace-only value reaching live
+    // state. `submitAuthModal` already trims and rejects empty
+    // before getting here, but keep this helper safe to call from
+    // anywhere; an accidental empty write would put liveState and
+    // sessionStorage into an asymmetric state where one side reads
+    // truthy and the other falsy.
+    if (typeof value !== "string" || value.trim() === "") {
+      clearApiKey();
+      return;
+    }
+    liveState.apiKey = value;
+    sessionSet(DAEMON_API_KEY_STORAGE, value);
+  }
+
+  function clearApiKey() {
+    liveState.apiKey = null;
+    // Use removeItem rather than `sessionSet(KEY, "")` so a debugger
+    // inspecting sessionStorage does not see a stale empty entry that
+    // could mistake for "key was set, then someone null'd it".
+    try {
+      globalThis.sessionStorage.removeItem(DAEMON_API_KEY_STORAGE);
+    } catch {
+      // sessionStorage can throw on some hardened browsers (Safari
+      // Private Browsing pre-15, embedded WebViews). Fall back to the
+      // sessionSet pattern so the in-memory state stays consistent.
+      sessionSet(DAEMON_API_KEY_STORAGE, "");
+    }
+  }
+
+  function liveDaemonBase() {
+    return liveState.daemonUrl || "";
+  }
+
+  function fetchWithAuth(path, opts) {
+    var options = opts || {};
+    var headers = {};
+    if (options.headers) {
+      Object.keys(options.headers).forEach(function (k) {
+        headers[k] = options.headers[k];
+      });
+    }
+    headers["Accept"] = "application/json";
+    if (liveState.apiKey) {
+      headers["X-API-Key"] = liveState.apiKey;
+    }
+    // Bound every request with an AbortController so a hung daemon
+    // does not leave a request pending until the browser's default
+    // network timeout (which is multi-minute in Chrome).
+    var ctrl = (typeof AbortController === "function") ? new AbortController() : null;
+    var init = {
+      method: options.method || "GET",
+      headers: headers,
+      credentials: "omit",
+      mode: "cors"
+    };
+    if (options.body !== undefined && options.body !== null) {
+      init.body = options.body;
+    }
+    if (ctrl) {
+      init.signal = ctrl.signal;
+    } else if (options.signal) {
+      init.signal = options.signal;
+    }
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, DAEMON_FETCH_TIMEOUT_MS) : null;
+    return fetch(liveDaemonBase() + path, init).finally(function () {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  function setDaemonStatus(state, label) {
+    var dot = document.getElementById("ps-daemon-dot");
+    var text = document.getElementById("ps-daemon-status-text");
+    if (dot) {
+      dot.classList.remove("connected", "disconnected", "unauthorized");
+      dot.classList.add(state);
+    }
+    if (text) text.textContent = label;
+  }
+
+  function showToast(kind, message) {
+    var existing = document.getElementById("ps-toast");
+    if (existing) existing.remove();
+    var t = el("div", "ps-toast " + (kind || ""), message);
+    setAttr(t, "id", "ps-toast");
+    setAttr(t, "role", kind === "error" ? "alert" : "status");
+    document.body.appendChild(t);
+    setTimeout(function () {
+      t.remove();
+    }, 5000);
+  }
+
+  function pingStatus() {
+    return fetchWithAuth("/api/status").then(function (r) {
+      if (r.status === 200) {
+        setDaemonStatus("connected", "Connected");
+        return true;
+      }
+      if (r.status === 401) {
+        // Stale key: a daemon-side rotation invalidated whatever we
+        // stored. Drop the cached value so the next write call opens
+        // the auth modal cleanly instead of retrying with the bad
+        // key.
+        if (liveState.apiKey) {
+          clearApiKey();
+          syncLogoutButtonVisibility();
+        }
+        setDaemonStatus("unauthorized", "Authentication required");
+        return false;
+      }
+      setDaemonStatus("disconnected", "HTTP " + r.status);
+      return false;
+    }).catch(function () {
+      setDaemonStatus("disconnected", "Unreachable");
+      return false;
+    });
+  }
+
+  function clearAcksState() {
+    liveState.acks = [];
+    liveState.acksBySig = Object.create(null);
+  }
+
+  function applyAcksPayload(data) {
+    var arr = Array.isArray(data) ? data : [];
+    liveState.acks = arr;
+    liveState.acksBySig = Object.create(null);
+    for (var a of arr) {
+      if (a && a.signature) liveState.acksBySig[a.signature] = a;
+    }
+  }
+
+  function handleAcksResponse(r) {
+    if (!r.ok) {
+      if (r.status === 401) {
+        setDaemonStatus("unauthorized", "Authentication required");
+      }
+      clearAcksState();
+      return null;
+    }
+    return r.json().then(applyAcksPayload);
+  }
+
+  function fetchAcks() {
+    return fetchWithAuth("/api/acks").then(handleAcksResponse).catch(clearAcksState);
+  }
+
+  function renderAcksPanel() {
+    var body = document.getElementById("acks-body");
+    var empty = document.getElementById("acks-empty");
+    var footer = document.getElementById("acks-footer");
+    if (!body) return;
+    body.textContent = "";
+    if (liveState.acks.length === 0) {
+      if (empty) empty.style.display = "";
+      if (footer) footer.textContent = "";
+      return;
+    }
+    if (empty) empty.style.display = "none";
+    liveState.acks.forEach(function (a) {
+      body.appendChild(buildAckRow(a));
+    });
+    if (footer) {
+      var note = liveState.acks.length + " active";
+      if (liveState.acks.length >= DAEMON_ACKS_CAP) {
+        note += " (showing up to " + DAEMON_ACKS_CAP + ", consult the daemon for the full list)";
+      }
+      note += ". TOML CI acks are not listed here, see .perf-sentinel-acknowledgments.toml.";
+      footer.textContent = note;
+    }
+  }
+
+  function buildAckRow(ack) {
+    var tr = document.createElement("tr");
+    var sig = document.createElement("td");
+    sig.textContent = ack.signature || "-";
+    tr.appendChild(sig);
+    var by = document.createElement("td");
+    by.textContent = ack.by || "-";
+    tr.appendChild(by);
+    var reason = document.createElement("td");
+    reason.textContent = ack.reason || "";
+    tr.appendChild(reason);
+    var expires = document.createElement("td");
+    expires.textContent = ack.expires_at ? ack.expires_at : "never";
+    tr.appendChild(expires);
+    var act = document.createElement("td");
+    var btn = el("button", "ps-fin-action-btn revoke", "Revoke");
+    btn.type = "button";
+    setAttr(btn, "data-sig", ack.signature || "");
+    btn.addEventListener("click", function () {
+      revokeAck(ack.signature);
+    });
+    act.appendChild(btn);
+    tr.appendChild(act);
+    return tr;
+  }
+
+  function syncFindingActionButtons() {
+    if (!isLiveEnabled()) return;
+    var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
+    rows.forEach(function (row) {
+      var sig = row.dataset.sig || "";
+      if (!sig) return;
+      var btn = row.querySelector(".ps-fin-action-btn");
+      if (!btn) return;
+      var isAcked = !!liveState.acksBySig[sig];
+      btn.textContent = isAcked ? "Revoke" : "Ack";
+      setAttr(btn, "data-action", isAcked ? "revoke" : "ack");
+      btn.classList.toggle("revoke", isAcked);
+      // Replace the listener on each render. Cheaper than a single
+      // event-delegation handler that has to walk back up to find the
+      // signature, given we only have at most a few hundred rows in
+      // the visible window.
+      btn.onclick = function (event) {
+        event.stopPropagation();
+        if (isAcked) revokeAck(sig);
+        else openAckModal(sig);
+      };
+    });
+    // Re-honor the `Show acknowledged` toggle once the action buttons
+    // (and therefore the latest `acksBySig` mapping) are settled. The
+    // boot path otherwise renders acked findings visible until the
+    // user toggles the checkbox.
+    applyAckedFilter();
+  }
+
+  function openAckModal(sig) {
+    var dlg = document.getElementById("ack-modal");
+    var sigInput = document.getElementById("ack-modal-sig");
+    var reasonInput = document.getElementById("ack-modal-reason");
+    var byInput = document.getElementById("ack-modal-by");
+    var err = document.getElementById("ack-modal-error");
+    if (!dlg || !sigInput || !reasonInput) return;
+    sigInput.value = sig;
+    reasonInput.value = "";
+    if (byInput) byInput.value = "";
+    if (err) { err.style.display = "none"; err.textContent = ""; }
+    if (typeof dlg.showModal === "function") dlg.showModal();
+  }
+
+  function closeAckModal() {
+    var dlg = document.getElementById("ack-modal");
+    if (dlg && typeof dlg.close === "function") dlg.close();
+  }
+
+  function expiresIsoFromShortcut(value) {
+    if (!value) return null;
+    var now = new Date();
+    var hours = 0;
+    if (value === "24h") hours = 24;
+    else if (value === "7d") hours = 24 * 7;
+    else if (value === "30d") hours = 24 * 30;
+    else return null;
+    var dt = new Date(now.getTime() + hours * 3600 * 1000);
+    return dt.toISOString();
+  }
+
+  function submitAckModal(event) {
+    event.preventDefault();
+    var sig = (document.getElementById("ack-modal-sig") || {}).value || "";
+    var reason = ((document.getElementById("ack-modal-reason") || {}).value || "").trim();
+    var expiresValue = (document.getElementById("ack-modal-expires") || {}).value || "";
+    var by = ((document.getElementById("ack-modal-by") || {}).value || "").trim();
+    var err = document.getElementById("ack-modal-error");
+    if (!sig) return;
+    if (!reason) {
+      if (err) { err.textContent = "Reason is required."; err.style.display = "block"; }
+      return;
+    }
+    var body = { reason: reason };
+    if (by) body.by = by;
+    var expiresIso = expiresIsoFromShortcut(expiresValue);
+    if (expiresIso) body.expires_at = expiresIso;
+    postAck(sig, body, err);
+  }
+
+  function postAck(sig, body, errEl) {
+    var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
+    fetchWithAuth(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (r.status === 201) {
+        closeAckModal();
+        showToast("success", "Acknowledged.");
+        return refreshLiveState();
+      }
+      return handleAuthRetry(r, function () { postAck(sig, body, errEl); }, errEl, "create");
+    }).catch(function () {
+      if (errEl) { errEl.textContent = "Network error reaching the daemon."; errEl.style.display = "block"; }
+    });
+  }
+
+  function revokeAck(sig) {
+    if (!sig) return;
+    if (!globalThis.confirm || !globalThis.confirm("Revoke acknowledgment for " + sig + "?")) return;
+    var path = "/api/findings/" + encodeURIComponent(sig) + "/ack";
+    fetchWithAuth(path, { method: "DELETE" }).then(function (r) {
+      if (r.status === 204) {
+        showToast("success", "Acknowledgment revoked.");
+        return refreshLiveState();
+      }
+      return handleAuthRetry(r, function () { revokeAck(sig); }, null, "revoke");
+    }).catch(function () {
+      showToast("error", "Network error reaching the daemon.");
+    });
+  }
+
+  function handleAuthRetry(response, retry, errEl, opLabel) {
+    if (response.status === 401) {
+      liveState.pendingAuthRetry = retry;
+      // Tell apart the first 401 (no key cached) from a retry-after-
+      // wrong-key 401 so the user gets feedback on the second attempt.
+      // Drop the bad key on the way so the next request goes out
+      // unauthenticated and the auth flow restarts cleanly.
+      var hadKey = liveState.apiKey !== null && liveState.apiKey !== "";
+      if (hadKey) {
+        clearApiKey();
+        syncLogoutButtonVisibility();
+      }
+      openAuthModal(hadKey ? "Invalid API key, please try again." : null);
+      return;
+    }
+    var msg = "HTTP " + response.status + " on " + opLabel;
+    if (errEl) { errEl.textContent = msg; errEl.style.display = "block"; }
+    else showToast("error", msg);
+  }
+
+  function openAuthModal(errorMessage) {
+    var dlg = document.getElementById("auth-modal");
+    var keyInput = document.getElementById("auth-modal-key");
+    var err = document.getElementById("auth-modal-error");
+    if (!dlg) return;
+    if (keyInput) keyInput.value = "";
+    if (err) {
+      if (errorMessage) {
+        err.textContent = errorMessage;
+        err.style.display = "block";
+      } else {
+        err.style.display = "none";
+        err.textContent = "";
+      }
+    }
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    if (keyInput) {
+      // Defer focus until after the dialog has actually opened.
+      setTimeout(function () { keyInput.focus(); }, 0);
+    }
+  }
+
+  function closeAuthModal() {
+    var dlg = document.getElementById("auth-modal");
+    if (dlg && typeof dlg.close === "function") dlg.close();
+  }
+
+  function submitAuthModal(event) {
+    event.preventDefault();
+    var keyInput = document.getElementById("auth-modal-key");
+    var err = document.getElementById("auth-modal-error");
+    var k = ((keyInput || {}).value || "").trim();
+    if (!k) {
+      if (err) { err.textContent = "API key is required."; err.style.display = "block"; }
+      return;
+    }
+    setApiKey(k);
+    syncLogoutButtonVisibility();
+    closeAuthModal();
+    var retry = liveState.pendingAuthRetry;
+    liveState.pendingAuthRetry = null;
+    pingStatus();
+    if (typeof retry === "function") retry();
+  }
+
+  function refreshLiveState() {
+    return Promise.all([pingStatus(), fetchAcks()]).then(function () {
+      renderAcksPanel();
+      syncFindingActionButtons();
+      syncAcksTabBadge();
+    });
+  }
+
+  function syncAcksTabBadge() {
+    // The tab badge is rendered once at boot via `renderTabs` from the
+    // `countFn` we registered for "acknowledgments". After an
+    // ack/revoke that changed `liveState.acks.length`, the badge is
+    // stale until the user switches tabs (which would re-trigger
+    // nothing since `renderTabs` is not re-run). Patch the DOM
+    // directly: the cheapest correct refresh path. Recreate the
+    // badge span when missing so a deferred-fetch boot path (badge
+    // not created because countFn returned null) still surfaces the
+    // count once acks load.
+    var btn = document.getElementById("tab-acknowledgments");
+    if (!btn) return;
+    var count = liveAcksCount();
+    if (count === null || count === undefined) return;
+    var badge = btn.querySelector(".ps-badge");
+    if (badge) {
+      badge.textContent = String(count);
+    } else {
+      btn.appendChild(document.createTextNode(" "));
+      btn.appendChild(el("span", "ps-badge", String(count)));
+    }
+  }
+
+  function wireRefreshButton() {
+    var btn = document.getElementById("ps-refresh-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      btn.disabled = true;
+      refreshLiveState().then(function () { btn.disabled = false; });
+    });
+  }
+
+  function syncLogoutButtonVisibility() {
+    var btn = document.getElementById("ps-logout-btn");
+    if (!btn) return;
+    if (liveState.apiKey) btn.hidden = false;
+    else btn.hidden = true;
+  }
+
+  function wireLogoutButton() {
+    var btn = document.getElementById("ps-logout-btn");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      clearApiKey();
+      syncLogoutButtonVisibility();
+      showToast("success", "API key cleared from this tab.");
+      pingStatus();
+    });
+  }
+
+  function applyAckedFilter() {
+    // Hide acked findings when the toggle is unchecked. Idempotent
+    // and called both from the change handler AND from
+    // `syncFindingActionButtons` so the initial state is honored at
+    // boot (otherwise the user sees acked findings until they click
+    // the toggle, even though "Show acknowledged" is unchecked).
+    var input = document.getElementById("findings-include-acked");
+    if (!input) return;
+    var hideAcked = !input.checked;
+    var rows = document.querySelectorAll("#findings-list .ps-row[data-sig]");
+    rows.forEach(function (row) {
+      var sig = row.dataset.sig || "";
+      var isAcked = !!liveState.acksBySig[sig];
+      if (hideAcked && isAcked) row.style.display = "none";
+      else row.style.display = "";
+    });
+  }
+
+  function wireIncludeAckedToggle() {
+    var input = document.getElementById("findings-include-acked");
+    if (!input) return;
+    input.addEventListener("change", applyAckedFilter);
+  }
+
+  function wireAuthModal() {
+    var form = document.getElementById("auth-modal-form");
+    var cancel = document.getElementById("auth-modal-cancel");
+    var close = document.getElementById("auth-modal-close");
+    if (form) form.addEventListener("submit", submitAuthModal);
+    if (cancel) cancel.addEventListener("click", function () {
+      closeAuthModal();
+      liveState.pendingAuthRetry = null;
+      setDaemonStatus("unauthorized", "Authentication required");
+    });
+    if (close) close.addEventListener("click", function () {
+      closeAuthModal();
+      liveState.pendingAuthRetry = null;
+    });
+  }
+
+  function wireAckModal() {
+    var form = document.getElementById("ack-modal-form");
+    var cancel = document.getElementById("ack-modal-cancel");
+    var close = document.getElementById("ack-modal-close");
+    if (form) form.addEventListener("submit", submitAckModal);
+    if (cancel) cancel.addEventListener("click", closeAckModal);
+    if (close) close.addEventListener("click", closeAckModal);
+  }
+
+  function stripTrailingSlashes(s) {
+    // Linear scan from the end. The Rust CLI already trims trailing
+    // slashes via `validate_url` before embedding the URL in the
+    // payload, so this is defense-in-depth against a corrupted
+    // artifact, not the primary normalization path. Avoids the regex
+    // engine's backtracking surface that SonarCloud flags as ReDoS-
+    // adjacent on `/\/+$/`. `codePointAt` is the Unicode-correct
+    // counterpart of `charCodeAt` (47 is U+002F SOLIDUS in both).
+    var end = s.length;
+    while (end > 0 && s.codePointAt(end - 1) === 47) end--;
+    return s.substring(0, end);
+  }
+
+  function bootLiveMode() {
+    if (!payload.daemon || !payload.daemon.url) return;
+    liveState.enabled = true;
+    liveState.daemonUrl = stripTrailingSlashes(String(payload.daemon.url));
+    var stored = sessionGet(DAEMON_API_KEY_STORAGE);
+    if (stored) liveState.apiKey = stored;
+    document.body.classList.add("ps-live");
+
+    wireRefreshButton();
+    wireLogoutButton();
+    wireIncludeAckedToggle();
+    wireAuthModal();
+    wireAckModal();
+    syncLogoutButtonVisibility();
+
+    setDaemonStatus("disconnected", "Connecting...");
+    refreshLiveState();
+  }
+
+  // -------- boot --------
+  renderTopbar();
+  registerAllTabs();
+  renderAllPanels();
+  initSearchInputs();
+  populateCheatsheet();
+  wireCheatsheetDialog();
+  wireShowMoreButton();
+  wireExportButtons();
+  wireCopyLinkButtons();
+  applyInitialHashOrWrite();
+  wireHashChangeListener();
+  bootLiveMode();
+})();
+</script>
+</body>
+</html>
