@@ -150,7 +150,7 @@
     <!-- WHY -->
     <section id="why" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
-      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyTitle }}</h2>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyT1 }}<span style="color:var(--accent)">{{ whyTName }}</span>{{ whyT2 }}</h2>
       <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px;max-width:720px">
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
@@ -431,7 +431,7 @@ class Component extends DCLogic {
         ],
         detEyebrow: '// what gets detected',
         whyEyebrow: '// the problem',
-        whyTitle: 'Why perf-sentinel?',
+        whyT1: 'Why ', whyTName: 'perf-sentinel', whyT2: '?',
         whyP1: 'I/O anti-patterns (N+1s, redundant calls, fanout) hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
         whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
@@ -539,7 +539,7 @@ class Component extends DCLogic {
         ],
         detEyebrow: '// ce qui est détecté',
         whyEyebrow: '// le problème',
-        whyTitle: 'Pourquoi perf-sentinel ?',
+        whyT1: 'Pourquoi ', whyTName: 'perf-sentinel', whyT2: ' ?',
         whyP1: 'Les anti-patterns d\u2019I/O (N+1, appels redondants, fanout) touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
         whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans rien comprendre à JPA ou EF Core.',
@@ -653,7 +653,7 @@ class Component extends DCLogic {
       stats: t.stats, patterns: t.patterns, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot,
-      whyEyebrow: t.whyEyebrow, whyTitle: t.whyTitle, whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3,
+      whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
       perfMore: t.perfMore,
