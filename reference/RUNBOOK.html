@@ -1,0 +1,550 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Runbook · perf-sentinel docs</title><meta name="description" content="Operational guide for perf-sentinel in production. Each section is self-contained: start with the symptom that matches yours, work the first checks list…"><link rel="canonical" href="RUNBOOK.html"><link rel="alternate" hreflang="en" href="RUNBOOK.html"><link rel="alternate" hreflang="fr" href="fr/RUNBOOK.html"><meta property="og:type" content="article"><meta property="og:title" content="Runbook · perf-sentinel docs"><meta property="og:description" content="Operational guide for perf-sentinel in production. Each section is self-contained: start with the symptom that matches yours, work the first checks list…"><meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="../assets/favicon.svg"><link rel="stylesheet" href="../fonts/fonts.css"><style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0}
+  [data-ps-root]{
+    --bg:#F1F6F3; --surface:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1;
+    --text:#3A4A43; --text-2:#5C6F66;
+    --accent:#0BA671; --accent-strong:#0B523A; --accent-soft:#E0F4ED; --on-accent:#FFFFFF;
+    --term-bg:#082A1E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#6FA791; --term-comment:#6FA791;
+    --coral:#D6453F;
+    --code-cmd:#8CE0B0; --code-sub:#E7C07B; --code-flag:#74B8C4; --code-num:#E58E6B;
+    font-family:'DM Sans',system-ui,sans-serif;
+    background-color:#F1F6F3; color:#3A4A43;
+    -webkit-font-smoothing:antialiased; line-height:1.6;
+    transition:background-color .35s ease,color .35s ease;
+  }
+  [data-ps-root][data-theme="dark"]{
+    --bg:#061F2C; --surface:#0B2A38; --surface-2:#0E3242; --border:#1B3F4F;
+    --text:#E0F4ED; --text-2:#8FB0A6;
+    --accent:#26CD94; --accent-strong:#26CD94; --accent-soft:#0E3A33; --on-accent:#062019;
+    --term-bg:#03161E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#5E8A78; --term-comment:#5E8A78;
+    --coral:#FF7F7C;
+    background-color:#061F2C; color:#E0F4ED;
+  }
+  ::selection{background:var(--accent-soft);color:var(--accent-strong)}
+  a{color:inherit;text-decoration:none}
+  [data-ps-root] [data-logo]{display:none}
+  [data-ps-root] [data-logo="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:13.5px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
+  .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
+  .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
+  .ps-group-btn{display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);background:none;border:none;cursor:pointer;padding:16px 12px 8px;text-align:left}
+  .ps-group-btn:hover{color:var(--text)}
+  .ps-chev{flex:none;font-size:13px;line-height:1;transition:transform .2s ease;opacity:.7}
+  .ps-group-btn[data-open="true"] .ps-chev{transform:rotate(90deg)}
+  .ps-docnav[data-open="false"]{display:none}
+  .ps-toc a{display:block;padding:4px 0 4px 12px;border-left:2px solid var(--border);font-size:12.5px;color:var(--text-2);cursor:pointer;transition:color .2s ease,border-color .2s ease}
+  .ps-toc a:hover{color:var(--text)}
+  .ps-toc a[data-active="true"]{color:var(--accent-strong);border-left-color:var(--accent);font-weight:600}
+  .ps-toc a[data-lvl="3"]{padding-left:24px;font-size:12px}
+  /* rendered markdown */
+  .ps-md{font-size:15.5px;color:var(--text);max-width:760px}
+  .ps-md .ps-h1{font-size:clamp(30px,3.6vw,40px);line-height:1.1;letter-spacing:-.02em;font-weight:700;margin:0 0 6px;scroll-margin-top:88px}
+  .ps-md .ps-h2{font-size:clamp(23px,2.5vw,28px);font-weight:700;letter-spacing:-.015em;margin:46px 0 0;padding-top:8px;scroll-margin-top:88px}
+  .ps-md .ps-h3{font-size:18.5px;font-weight:600;margin:30px 0 0;scroll-margin-top:88px}
+  .ps-md .ps-h4{font-size:15.5px;font-weight:700;margin:22px 0 0;scroll-margin-top:88px}
+  .ps-md .ps-p{margin:14px 0 0;line-height:1.65}
+  .ps-md ul,.ps-md ol{margin:12px 0 0;padding-left:22px}
+  .ps-md li{margin:5px 0;line-height:1.6}
+  .ps-md a:not(.ps-media-btn){color:var(--accent-strong);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 40%,transparent);text-underline-offset:2px}
+  .ps-md a:hover{text-decoration-color:var(--accent)}
+  .ps-md .ps-ic{font-family:'JetBrains Mono',monospace;font-size:.86em;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  .ps-md .ps-hr{border:none;border-top:1px solid var(--border);margin:30px 0}
+  .ps-md blockquote{margin:16px 0 0;padding:12px 18px;border-left:3px solid var(--accent);background:var(--surface-2);border-radius:0 8px 8px 0;color:var(--text-2)}
+  .ps-md .ps-code{margin:16px 0 0;background:var(--term-bg);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative}
+  .ps-md .ps-code-lang{position:absolute;top:8px;right:12px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--term-dim)}
+  .ps-md .ps-code pre{margin:0;padding:18px 20px;overflow-x:auto}
+  .ps-md .ps-code code{font-family:'JetBrains Mono',monospace;font-size:12.8px;line-height:1.7;color:var(--term-text);white-space:pre}
+  .ps-md .ps-tablewrap{margin:18px 0 0;overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+  .ps-md table{border-collapse:collapse;width:100%;font-size:13.5px}
+  .ps-md th{text-align:left;background:var(--surface-2);padding:10px 14px;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+  .ps-md td{padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text-2);vertical-align:top}
+  .ps-md tr:last-child td{border-bottom:none}
+  .ps-md .ps-fig{margin:20px 0 0;text-align:center}
+  .ps-md .ps-diagram{max-width:100%;border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:14px;cursor:zoom-in;transition:border-color .2s ease}
+  .ps-md .ps-diagram:hover{border-color:var(--accent)}
+  .ps-lightbox{position:fixed;inset:0;z-index:200;background:rgba(3,16,24,.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:clamp(16px,4vw,56px);cursor:zoom-out;animation:psfade .18s ease}
+  .ps-lightbox img{max-width:96vw;max-height:92vh;background:#fff;border-radius:12px;padding:22px;box-shadow:0 30px 80px -20px rgba(0,0,0,.6);cursor:zoom-in}
+  .ps-lightbox[data-zoom="true"]{align-items:flex-start;justify-content:flex-start;overflow:auto;cursor:zoom-out}
+  .ps-lightbox[data-zoom="true"] img{max-width:none;max-height:none;width:auto;margin:auto;cursor:zoom-out}
+  .ps-lightbox-close{position:absolute;top:20px;right:24px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:8px 13px;cursor:pointer}
+  @keyframes psfade{from{opacity:0}to{opacity:1}}
+  .ps-md .ps-media{margin:18px 0 0}
+  .ps-md .ps-media-btn{display:inline-flex;align-items:center;gap:9px;font-family:'DM Sans',sans-serif;font-size:13.5px;color:var(--text-2);background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;padding:13px 18px;cursor:pointer}
+  .ps-md .ps-media-btn:hover{border-color:var(--accent);color:var(--text)}
+  .ps-md .ps-media-play{color:var(--accent)}
+  .ps-md img.ps-loaded{max-width:100%;border:1px solid var(--border);border-radius:10px}
+  .ps-md details{margin:16px 0 0;border:1px solid var(--border);border-radius:10px;padding:10px 16px;background:var(--surface)}
+  .ps-md summary{cursor:pointer;font-weight:600;color:var(--text)}
+  @media (max-width:1180px){ .ps-toc-col{display:none !important} .ps-layout{grid-template-columns:248px 1fr !important} }
+  @media (max-width:880px){
+    .ps-layout{grid-template-columns:1fr !important}
+    .ps-aside{position:static !important;height:auto !important;border-right:none !important;border-bottom:1px solid var(--border)}
+  }
+  @media print{
+    .ps-chrome{display:none !important}
+    .ps-layout{display:block !important}
+    .ps-content{max-width:none !important;padding:0 !important}
+    [data-ps-root]{background:#fff !important;color:#111 !important}
+    .ps-md .ps-code{background:#f4f6f5 !important;border:1px solid #ddd !important}
+    .ps-md .ps-code code,.ps-md .ps-code code *{color:#1a2a24 !important}
+  }
+#psSearch{font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 14px;width:190px;outline:none}#psSearch:focus{border-color:var(--accent)}#psResults.psr{position:absolute;top:44px;right:0;width:380px;max-height:64vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 24px 60px -22px rgba(0,0,0,.55);z-index:60;padding:6px}#psResults a{display:block;padding:9px 11px;border-radius:7px;text-decoration:none}#psResults a:hover{background:var(--surface-2)}.psr-t{font-size:14px;font-weight:600;color:var(--accent-strong)}.psr-x{font-size:12px;color:var(--text-2);margin-top:2px;font-family:'JetBrains Mono',monospace}.psr-e{padding:10px;color:var(--text-2);font-size:13px}@media(max-width:980px){#psSearchWrap{display:none}}</style></head><body><div data-ps-root data-theme="dark"><div style="min-height:100vh;background-color:var(--bg);color:var(--text)"><header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px"><a href="../index.html" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="../assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span><nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="../index.html">Overview ↗</a><a href="../guide.html">Guide ↗</a></nav><div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px"><div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="Search…" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div><span style="color:var(--text-2)"><a href="fr/RUNBOOK.html">FR</a></span><button id="themeBtn" aria-label="Theme" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer">Theme</button><a href="https://github.com/robintra/perf-sentinel" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#fff;background:#24292F;border-radius:8px;padding:8px 15px">GitHub</a></div></div></header><div class="ps-layout" style="max-width:1320px;margin:0 auto;display:grid;grid-template-columns:248px 1fr 232px;gap:0;align-items:start"><aside class="ps-aside ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;border-right:1px solid var(--border);padding:26px 16px 40px 28px"><button type="button" class="ps-group-btn" data-open="false"><span>Overview</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="00-INDEX.html" data-active="false">Overview</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Getting started</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="ARCHITECTURE.html" data-active="false">Architecture</a><a href="INTEGRATION.html" data-active="false">Integration</a><a href="INSTRUMENTATION.html" data-active="false">Instrumentation</a><a href="CI.html" data-active="false">CI</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Reference</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="CONFIGURATION.html" data-active="false">Configuration</a><a href="CLI.html" data-active="false">CLI reference</a><a href="METRICS.html" data-active="false">Metrics</a><a href="QUERY-API.html" data-active="false">Query API</a><a href="SARIF.html" data-active="false">SARIF</a><a href="SCHEMA.html" data-active="false">Schema</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Features</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="HTML-REPORT.html" data-active="false">HTML report</a><a href="INSPECT.html" data-active="false">Inspect (TUI)</a><a href="ACKNOWLEDGMENTS.html" data-active="false">Acknowledgments</a><a href="ACK-WORKFLOW.html" data-active="false">Ack workflow</a><a href="REPORTING.html" data-active="false">Reporting</a></nav><button type="button" class="ps-group-btn" data-open="true"><span>Operations</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="true"><a href="HELM-DEPLOYMENT.html" data-active="false">Helm deployment</a><a href="RUNBOOK.html" data-active="true">Runbook</a><a href="METHODOLOGY.html" data-active="false">Methodology</a><a href="LIMITATIONS.html" data-active="false">Limitations</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Supply chain & release</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="SUPPLY-CHAIN.html" data-active="false">Supply chain</a><a href="RELEASE-PROCEDURE.html" data-active="false">Release procedure</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Design (contributors)</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="design__00-INDEX.html" data-active="false">Design index</a><a href="design__01-PIPELINE-AND-TYPES.html" data-active="false">01 · Pipeline & types</a><a href="design__02-NORMALIZATION.html" data-active="false">02 · Normalization</a><a href="design__03-CORRELATION-AND-STREAMING.html" data-active="false">03 · Correlation & streaming</a><a href="design__04-DETECTION.html" data-active="false">04 · Detection</a><a href="design__05-GREENOPS-AND-CARBON.html" data-active="false">05 · GreenOps & carbon</a><a href="design__06-INGESTION-AND-DAEMON.html" data-active="false">06 · Ingestion & daemon</a><a href="design__07-CLI-CONFIG-RELEASE.html" data-active="false">07 · CLI, config & release</a><a href="design__08-PERIODIC-DISCLOSURE.html" data-active="false">08 · Periodic disclosure</a><a href="design__09-CARBON-ATTRIBUTION.html" data-active="false">09 · Carbon attribution</a><a href="design__10-SIGSTORE-ATTESTATION.html" data-active="false">10 · Sigstore & SLSA</a></nav></aside><main class="ps-content" style="min-width:0;padding:40px 44px 96px"><div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--accent);letter-spacing:.03em;margin-bottom:18px">Documentation / Runbook</div><div class="ps-md"><h1 id="incident-runbook" class="ps-h1">Incident runbook</h1>
+<p class="ps-p">Operational guide for perf-sentinel in production. Each section is self-contained: start with the symptom that matches yours, work the <strong>first checks</strong> list, then escalate.</p>
+<p class="ps-p">If you are setting up perf-sentinel for the first time, see <a href="INTEGRATION.html">Integration</a>. For HTTP API references, see <a href="QUERY-API.html">Query API</a>. For configuration options, see <a href="CONFIGURATION.html">Configuration</a>. For the list of what the daemon does <em>not</em> guarantee, see <a href="LIMITATIONS.html">Limitations</a>.</p>
+<h2 id="contents" class="ps-h2">Contents</h2>
+<ul>
+<li><a href="RUNBOOK.html#diagnostic-cheat-sheet">Diagnostic cheat sheet</a>: commands to run first in any incident</li>
+<li><a href="RUNBOOK.html#analyzing-a-trace-older-than-the-live-window">Analyzing a trace older than the live window</a>: post-mortem workflow</li>
+<li><a href="RUNBOOK.html#daemon-running-but-not-reachable-from-clients">Daemon running but not reachable from clients</a></li>
+<li><a href="RUNBOOK.html#no-traces-ingested">No traces ingested</a></li>
+<li><a href="RUNBOOK.html#sudden-drop-in-ingestion-volume">Sudden drop in ingestion volume</a></li>
+<li><a href="RUNBOOK.html#spike-in-critical-findings">Spike in critical findings</a></li>
+<li><a href="RUNBOOK.html#sizing-reference-measured">Sizing reference (measured)</a></li>
+<li><a href="RUNBOOK.html#daemon-memory-pressure-or-oom">Daemon memory pressure or OOM</a></li>
+<li><a href="RUNBOOK.html#ci-quality-gate-failing-unexpectedly">CI quality gate failing unexpectedly</a></li>
+<li><a href="RUNBOOK.html#investigating-an-unexpected-ack">Investigating an unexpected ack</a></li>
+<li><a href="RUNBOOK.html#perf-sentinel-tempo-returns-404-or-times-out"><code class="ps-ic">perf-sentinel tempo</code> returns 404 or times out</a></li>
+<li><a href="RUNBOOK.html#exemplars-missing-in-grafana">Exemplars missing in Grafana</a></li>
+<li><a href="RUNBOOK.html#energy-scraper-stuck">Energy scraper stuck</a></li>
+<li><a href="RUNBOOK.html#apicorrelations-returns-empty"><code class="ps-ic">/api/correlations</code> returns empty</a></li>
+<li><a href="RUNBOOK.html#apiexportreport-returns-503-or-an-empty-report"><code class="ps-ic">/api/export/report</code> returns 503 or an empty report</a></li>
+<li><a href="RUNBOOK.html#daemon-crash-or-restart">Daemon crash or restart</a></li>
+<li><a href="RUNBOOK.html#applying-config-changes">Applying config changes</a></li>
+</ul>
+<hr class="ps-hr">
+<h2 id="diagnostic-cheat-sheet" class="ps-h2">Diagnostic cheat sheet</h2>
+<p class="ps-p">Run these first regardless of the symptom. They give the 10-second picture of daemon state.</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Is the daemon alive? HTTP 200 with a metrics body means yes.</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sf</span> http://perf-sentinel:4318/metrics | head <span style="color:var(--code-flag)">-n</span> <span style="color:var(--code-num)">20</span>
+
+<span style="color:var(--term-comment)"># Status summary: uptime, active traces, stored findings, version</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/status | jq .
+
+<span style="color:var(--term-comment)"># Ingestion health at a glance</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics \
+  | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'^perf_sentinel_(events|traces|active)_'</span>
+
+<span style="color:var(--term-comment)"># Recent critical findings</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-num)">'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=20'</span> \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '.[].finding | {finding_type, service, trace_id}'</code></pre></div>
+<p class="ps-p">Daemon logs with targeted verbosity (the daemon uses the standard <code class="ps-ic">RUST_LOG</code> env var):</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">RUST_LOG=sentinel_core::daemon=info</span>    <span style="color:var(--term-comment)"> # lifecycle, bind addresses, shutdown</span>
+<span style="color:var(--code-cmd);font-weight:600">RUST_LOG=sentinel_core::ingest=debug</span>   <span style="color:var(--term-comment)"> # OTLP receive path, dropped events</span>
+<span style="color:var(--code-cmd);font-weight:600">RUST_LOG=sentinel_core::detect=debug</span>   <span style="color:var(--term-comment)"> # detection pipeline</span>
+<span style="color:var(--code-cmd);font-weight:600">RUST_LOG=sentinel_core::score=debug</span>    <span style="color:var(--term-comment)"> # green scoring, energy scrapers</span></code></pre></div>
+<p class="ps-p">For Kubernetes probes, use the dedicated <code class="ps-ic">GET /health</code> endpoint (always exposed, independent of <code class="ps-ic">[daemon] api_enabled</code>), which returns <code class="ps-ic">200 OK</code> with <code class="ps-ic">{"status":"ok","version":"..."}</code>. Lighter than <code class="ps-ic">/metrics</code> and guaranteed lock-free. There is no separate <code class="ps-ic">/ready</code> endpoint: the daemon accepts ingestion from the first tick, so liveness and readiness collapse into one probe.</p>
+<hr class="ps-hr">
+<h2 id="analyzing-a-trace-older-than-the-live-window" class="ps-h2">Analyzing a trace older than the live window</h2>
+<p class="ps-p"><strong>Why you need this.</strong> The daemon keeps traces in memory for <strong>30 seconds</strong> (<code class="ps-ic">trace_ttl_ms</code>, default). Once evicted:</p>
+<ul>
+<li><code class="ps-ic">GET /api/explain/{trace_id}</code> returns <code class="ps-ic">{"error": "trace not found in daemon memory"}</code></li>
+<li><code class="ps-ic">GET /api/findings/{trace_id}</code> still returns findings (retained in the ring buffer up to <code class="ps-ic">max_retained_findings = 10000</code>), but <strong>the spans themselves are gone</strong>, so no explain tree can be rebuilt from the daemon alone.</li>
+</ul>
+<p class="ps-p">For anything older, the source of truth is your trace backend (typically Grafana Tempo).</p>
+<p class="ps-p"><strong>The four-step workflow.</strong></p>
+<div class="ps-code"><pre><code> 1. Alert fires     →  Grafana panel on perf_sentinel_findings_total spikes
+ 2. Click exemplar  →  Grafana opens the trace in Tempo via the `trace_id` label
+ 3. Copy trace_id   →  from the Tempo view or the alert payload
+ 4. Replay          →  perf-sentinel tempo --endpoint &lt;url&gt; --trace-id &lt;id&gt;</code></pre></div>
+<p class="ps-p">Step 4 feeds the historical trace through the same <code class="ps-ic">normalize → correlate → detect → score → explain</code> pipeline the daemon uses. You get the same findings and explain tree, only now on a trace from the past.</p>
+<p class="ps-p"><strong>Common invocations.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Explain a specific trace</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--trace-id</span> abc123def456
+
+<span style="color:var(--term-comment)"># Sweep a service over a window when you don't have a trace_id yet</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--service</span> order-svc <span style="color:var(--code-flag)">--lookback</span> <span style="color:var(--code-num)">2h</span>
+
+<span style="color:var(--term-comment)"># Post-mortem artifact for a ticket or PR</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">tempo</span> <span style="color:var(--code-flag)">--endpoint</span> http://tempo:3200 <span style="color:var(--code-flag)">--trace-id</span> abc123 <span style="color:var(--code-flag)">--format</span> json &gt; incident.json</code></pre></div>
+<p class="ps-p">SARIF output (<code class="ps-ic">--format sarif</code>) is supported if your incident process uses GitHub Code Scanning.</p>
+<p class="ps-p"><strong>Fallback: Tempo unavailable.</strong> If Tempo is not reachable but you have a dump from another source (Jaeger/Zipkin export, archived S3 bucket, OTLP capture), pass the file directly:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">explain</span> <span style="color:var(--code-flag)">--input</span> traces-dump.json <span style="color:var(--code-flag)">--trace-id</span> abc123def456
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--input</span> traces-dump.json</code></pre></div>
+<p class="ps-p"><strong>What will NOT work.</strong></p>
+<div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Attempt</th><th style="text-align:left">Why it fails</th></tr></thead><tbody><tr><td style="text-align:left"><code class="ps-ic">curl /api/explain/&lt;trace_id&gt;</code> on the live daemon</td><td style="text-align:left">Trace evicted after 30 s</td></tr><tr><td style="text-align:left"><code class="ps-ic">curl /api/findings</code> to reconstruct an explain tree</td><td style="text-align:left">The findings store keeps findings, not spans</td></tr><tr><td style="text-align:left">Waiting for the daemon to "resurface" the trace</td><td style="text-align:left">No persistence, no replay endpoint</td></tr><tr><td style="text-align:left">Restarting the daemon to recover state</td><td style="text-align:left">Nothing is persisted to disk</td></tr></tbody></table></div>
+<p class="ps-p"><strong>Prerequisites.</strong></p>
+<ul>
+<li><strong>Tempo retention covers the incident window.</strong> Default <code class="ps-ic">block_retention</code> is 14 days but varies by deployment.</li>
+<li><strong>Sampling.</strong> If the trace was dropped at ingestion by head- or tail-based sampling, it is gone from Tempo too. Consider 100 % sampling on error traces.</li>
+<li><strong><code class="ps-ic">trace_id</code> propagation.</strong> Alerts and logs must carry the label. OpenMetrics exemplars on <code class="ps-ic">perf_sentinel_findings_total</code> and <code class="ps-ic">perf_sentinel_io_waste_ratio</code> are the easiest source.</li>
+</ul>
+<p class="ps-p"><strong>Optional: widen the live window.</strong> If post-mortem inside the TTL is frequent, trade RAM for context:</p>
+<div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[daemon]</span>
+<span style="color:var(--code-sub)">max_active_traces     </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 50000    </span><span style="color:var(--term-comment)"># up to 1_000_000 hard cap</span>
+<span style="color:var(--code-sub)">trace_ttl_ms          </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 300000   </span><span style="color:var(--term-comment)"># 5 minutes instead of 30 seconds</span>
+<span style="color:var(--code-sub)">max_retained_findings </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 50000</span></code></pre></div>
+<hr class="ps-hr">
+<h2 id="daemon-running-but-not-reachable-from-clients" class="ps-h2">Daemon running but not reachable from clients</h2>
+<p class="ps-p"><strong>Symptom.</strong> The daemon process is alive (container up, systemd unit active, logs show <code class="ps-ic">Starting daemon: gRPC=...:4317, HTTP=...:4318</code>) but <code class="ps-ic">curl http://&lt;host&gt;:4318/health</code> from outside the process times out or connection-refuses.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># From inside the container / pod / host running the daemon (should always work):</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sf</span> http://localhost:4318/health
+
+<span style="color:var(--term-comment)"># From where you actually want to reach it (this is the one that fails):</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-v</span> http://&lt;host&gt;:4318/health
+
+<span style="color:var(--term-comment)"># The bind address is logged explicitly at startup:</span>
+<span style="color:var(--code-cmd);font-weight:600">docker</span> logs perf-sentinel <span style="color:var(--code-num)">2&gt;&amp;1</span> | grep 'Starting daemon'
+<span style="color:var(--term-comment)"># Expect gRPC=0.0.0.0:4317 for external reach. Anything with 127.0.0.1 is</span>
+<span style="color:var(--term-comment)"># loopback-only and will refuse connections from outside the process.</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Daemon bound to <code class="ps-ic">127.0.0.1</code> (the default).</strong> The listener binds to the loopback interface for security. Inside a container, loopback is reachable only from <em>within</em> that same container, so <code class="ps-ic">docker run -p 4318:4318</code> publishes a port at the host level but the in-container listener does not accept the forwarded connection. Same pattern on a VM accessed over SSH port-forward or on a Kubernetes pod behind a ClusterIP Service.</li>
+<li><strong><code class="ps-ic">--network host</code> combined with <code class="ps-ic">-p</code> flags.</strong> In host network mode, the container shares the host's network namespace; <code class="ps-ic">-p</code> flags are ignored and Docker emits <code class="ps-ic">WARNING: Published ports are discarded when using host network mode</code>. The daemon is reachable only on whatever IP its config binds to.</li>
+<li><strong>Port mapping reversed or incomplete.</strong> <code class="ps-ic">docker ps --format '{{.Ports}}'</code> shows the effective mapping. Expected pattern on a local dev run: <code class="ps-ic">0.0.0.0:4317-4318-&gt;4317-4318/tcp</code>.</li>
+<li><strong>Host firewall, NetworkPolicy, or cloud Security Group dropping the traffic.</strong> The in-container <code class="ps-ic">curl</code> succeeds but the external one times out. If the bind address is <code class="ps-ic">0.0.0.0</code> and the daemon log shows no error, the delta is environment-side.</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong></p>
+<ul>
+<li>Cause (1): launch with <code class="ps-ic">watch --listen-address 0.0.0.0</code>, or set <code class="ps-ic">[daemon] listen_address = "0.0.0.0"</code> in <code class="ps-ic">.perf-sentinel.toml</code>. The daemon will emit a non-loopback warning on startup, which is expected; gate access with a reverse proxy or NetworkPolicy in shared environments. See the Docker quickstart in <a href="README.html">README</a> and the sidecar/collector topologies in <a href="INTEGRATION.html">Integration</a>.</li>
+<li>Cause (2): drop the <code class="ps-ic">-p</code> flags when using <code class="ps-ic">--network host</code> (they are ignored) and ensure the daemon listens on <code class="ps-ic">0.0.0.0</code>. Or switch back to the default bridge network + explicit <code class="ps-ic">-p</code>.</li>
+<li>Cause (3): recreate the container with the correct <code class="ps-ic">-p HOST:CONTAINER</code> ordering.</li>
+<li>Cause (4): compare <code class="ps-ic">curl</code> from inside the network namespace (succeeds) with the external one (fails). If the delta is infrastructure, surface the blocking rule to the infra owner.</li>
+</ul>
+<hr class="ps-hr">
+<h2 id="no-traces-ingested" class="ps-h2">No traces ingested</h2>
+<p class="ps-p"><strong>Symptom.</strong> <code class="ps-ic">perf_sentinel_events_processed_total</code> and <code class="ps-ic">perf_sentinel_traces_analyzed_total</code> are flat at zero. <code class="ps-ic">/api/status</code> reports <code class="ps-ic">active_traces: 0</code>.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Is the daemon listening on the expected ports?</span>
+<span style="color:var(--code-cmd);font-weight:600">kubectl</span> logs deploy/perf-sentinel | grep <span style="color:var(--code-flag)">-i</span> "listening on"
+<span style="color:var(--term-comment)"># Expected: "OTLP gRPC listening on 0.0.0.0:4317"</span>
+<span style="color:var(--term-comment)">#           "OTLP HTTP listening on 0.0.0.0:4318"</span>
+
+<span style="color:var(--term-comment)"># From inside a service container, can you reach the daemon?</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sf</span> http://perf-sentinel:4318/metrics</code></pre></div>
+<p class="ps-p"><strong>Likely causes, in order.</strong></p>
+<ol>
+<li><strong>Bind address.</strong> The daemon defaults to <code class="ps-ic">127.0.0.1</code>, unreachable from other containers. Set <code class="ps-ic">listen_address = "0.0.0.0"</code> in <code class="ps-ic">.perf-sentinel.toml</code> and restart.</li>
+<li><strong>Protocol mismatch.</strong> The OTel Java Agent defaults to gRPC on port 4317. Confirm <code class="ps-ic">OTEL_EXPORTER_OTLP_PROTOCOL</code> matches the port your service targets: <code class="ps-ic">grpc</code> → 4317, <code class="ps-ic">http/protobuf</code> → 4318.</li>
+<li><strong>Network policy.</strong> A Kubernetes <code class="ps-ic">NetworkPolicy</code> or security group may block cross-namespace traffic. Temporarily disable it or allow the service → daemon path explicitly.</li>
+<li><strong>Service not instrumented.</strong> Verify <code class="ps-ic">OTEL_SDK_DISABLED=false</code> and that the service is producing spans (most OTel SDKs have internal counters or debug logs).</li>
+<li><strong>OTLP endpoint URL typo.</strong> <code class="ps-ic">OTEL_EXPORTER_OTLP_ENDPOINT</code> should be <code class="ps-ic">http://&lt;host&gt;:4318</code>. No <code class="ps-ic">/v1/traces</code> suffix, the SDK appends it.</li>
+<li><strong>Spans arrive but none is analyzable.</strong> <code class="ps-ic">perf_sentinel_otlp_spans_received_total</code> rising while <code class="ps-ic">events_processed_total</code> stays flat means the daemon receives spans but every one is filtered out (no <code class="ps-ic">db.statement</code>, no <code class="ps-ic">http.url</code>). Check <code class="ps-ic">perf_sentinel_otlp_spans_filtered_total</code> by <code class="ps-ic">reason</code>: a dominant <code class="ps-ic">missing_db_statement</code> points at drivers configured to omit query text (see <a href="LIMITATIONS.html#instrumentation-quality-bounds-findings">Limitations</a> and the per-language settings in <a href="INSTRUMENTATION.html#required-span-attributes">Instrumentation</a>).</li>
+</ol>
+<p class="ps-p"><strong>Sanity check.</strong> After a fix, drive one request through an instrumented service and watch:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">watch</span> <span style="color:var(--code-flag)">-n</span> <span style="color:var(--code-num)">1</span> 'curl <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics | grep events_processed_total'</code></pre></div>
+<p class="ps-p">The counter should tick up within seconds.</p>
+<hr class="ps-hr">
+<h2 id="sudden-drop-in-ingestion-volume" class="ps-h2">Sudden drop in ingestion volume</h2>
+<p class="ps-p"><strong>Symptom.</strong> <code class="ps-ic">rate(perf_sentinel_events_processed_total[5m])</code> falls off a cliff or drops to zero while the daemon stays up (uptime keeps growing).</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Confirm daemon is still alive, rules out a crash</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/status | jq '{uptime_seconds, active_traces}'</code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Upstream traffic dropped.</strong> Real traffic to your services fell; perf-sentinel is faithfully reporting reality. Cross-check with your load balancer or HTTP metrics.</li>
+<li><strong>OTel collector down.</strong> If a central collector sits between services and perf-sentinel, check the collector's own health and receive metrics first.</li>
+<li><strong>Sampling change.</strong> A config bump reduced the sampling rate. Audit recent commits in your OTel config repo.</li>
+<li><strong>Daemon backpressure.</strong> Two distinct pressure points. If ingestion outpaces the receive loop the OTLP channel fills and events are rejected: look for <code class="ps-ic">channel full</code> warnings (<code class="ps-ic">RUST_LOG=sentinel_core::ingest=debug</code>) and <code class="ps-ic">perf_sentinel_otlp_rejected_total{reason="channel_full"}</code>. If detection can't keep up, the analysis worker queue fills and whole batches are shed: watch <code class="ps-ic">perf_sentinel_analysis_queue_depth</code> and <code class="ps-ic">perf_sentinel_analysis_shed_batches_total</code>. Common triggers: a pathological trace slowing detect+score; <code class="ps-ic">max_active_traces</code> too low for current throughput.</li>
+</ol>
+<p class="ps-p">Work top-to-bottom by elimination. Cases 1 and 2 account for the vast majority.</p>
+<hr class="ps-hr">
+<h2 id="spike-in-critical-findings" class="ps-h2">Spike in critical findings</h2>
+<p class="ps-p"><strong>Symptom.</strong> Alert fires on <code class="ps-ic">perf_sentinel_findings_total{severity="critical"}</code> rate.</p>
+<p class="ps-p"><strong>Triage workflow.</strong></p>
+<ol>
+<li><strong>Group by service and type.</strong></li>
+</ol>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s 'http://perf-sentinel:4318/api/findings?severity=critical&amp;limit=200' \      | jq '[.[].finding | {finding_type, service}]           | group_by(.service, .finding_type)           | map({key: "\(.[0].service)/\(.[0].finding_type)", count: length})           | sort_by(-.count)'    </code>``</p>
+<ol>
+<li><strong>Grab an exemplar <code class="ps-ic">trace_id</code></strong> for each top pattern. In Grafana, the ◆ on the metric is clickable; from the command line:</li>
+</ol>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/metrics \      | grep -E 'findings_total|io_waste_ratio'    # Lines end with "# {trace_id=\"...\"}", copy that id    </code>``</p>
+<ol>
+<li><strong>Explain the trace</strong> while it's still in the 30-second live window:</li>
+</ol>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/explain/&lt;trace_id&gt; | jq .    </code>``</p>
+<p class="ps-p">   If evicted, pivot to <a href="RUNBOOK.html#analyzing-a-trace-older-than-the-live-window">the post-mortem workflow</a>.</p>
+<ol>
+<li><strong>Correlate across services</strong> if the incident spans multiple teams:</li>
+</ol>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://perf-sentinel:4318/api/correlations | jq 'sort_by(-.confidence)[:10]'    </code>``</p>
+<p class="ps-p"><strong>Common root causes.</strong></p>
+<ul>
+<li><strong>N+1 SQL:</strong> ORM lazy loading; a recent feature iterating a collection without <code class="ps-ic">JOIN FETCH</code> / <code class="ps-ic">selectinload</code> / <code class="ps-ic">Include</code>.</li>
+<li><strong>Pool saturation:</strong> connection pool undersized, or a downstream dependency slowed down.</li>
+<li><strong>Slow query:</strong> missing index; a data-volume threshold crossed (what ran in 50 ms at 10 k rows now runs in 2 s at 10 M).</li>
+</ul>
+<hr class="ps-hr">
+<h2 id="sizing-reference-measured" class="ps-h2">Sizing reference (measured)</h2>
+<p class="ps-p">Measured on 0.8.7 with the simulation lab's saturation ramp (<code class="ps-ic">limit-saturation-curve</code>: 64 services, realistic anti-pattern mix, ~9 spans per trace, OTLP HTTP) against the default config on a 500m CPU / 256Mi pod:</p>
+<div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Offered load</th><th style="text-align:left">Sustained throughput</th><th style="text-align:left">Max RSS</th><th style="text-align:left">Behavior</th></tr></thead><tbody><tr><td style="text-align:left">up to ~400 traces/s (~2 600 events/s)</td><td style="text-align:left">linear, no loss</td><td style="text-align:left">&lt; 100 MiB</td><td style="text-align:left">clean</td></tr><tr><td style="text-align:left">800-1600 traces/s offered</td><td style="text-align:left">plateau ~2 500 events/s</td><td style="text-align:left">&lt; 150 MiB</td><td style="text-align:left">senders backpressured via the bounded OTLP request concurrency, zero shed, zero restart</td></tr></tbody></table></div>
+<p class="ps-p">Scaling levers, in order: raise the CPU limit (the plateau is CPU-bound on protobuf decode plus detection), then <code class="ps-ic">[daemon] ingest_queue_capacity</code> / <code class="ps-ic">analysis_queue_capacity</code> for burst absorption. Under sustained saturation the whole cgroup throttles in quanta, so give the liveness probe headroom (<code class="ps-ic">timeoutSeconds: 5</code>, <code class="ps-ic">failureThreshold: 5</code>): a tight probe budget restarts a functional, backpressuring daemon. Wide service topologies (hundreds of <code class="ps-ic">service.name</code> values) are bounded by the correlator's pair admission control and the 1024-service metering cap, both observable via <code class="ps-ic">perf_sentinel_correlator_pairs_evicted_total</code> and <code class="ps-ic">perf_sentinel_service_io_ops_overflow_total</code>.</p>
+<hr class="ps-hr">
+<h2 id="daemon-memory-pressure-or-oom" class="ps-h2">Daemon memory pressure or OOM</h2>
+<p class="ps-p"><strong>Symptom.</strong> RSS grows over time; Kubernetes OOMKill; <code class="ps-ic">active_traces</code> or <code class="ps-ic">stored_findings</code> hovering near their caps.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/status | jq '{active_traces, stored_findings, uptime_seconds}'
+<span style="color:var(--term-comment)"># Compare against config's max_active_traces (default 10000) and max_retained_findings (default 10000).</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Traffic exceeds defaults.</strong> 10 000 active traces is sized for moderate load. High-throughput services fill it faster than eviction keeps up.</li>
+<li><strong>Widened TTL.</strong> If you raised <code class="ps-ic">trace_ttl_ms</code> for post-mortem convenience, every trace lives longer in memory.</li>
+<li><strong>Pathological traces.</strong> A single trace with thousands of spans eats RAM. <code class="ps-ic">max_events_per_trace</code> (default 1000) caps this; confirm it hasn't been raised. Oversized SQL text from a hostile or verbose emitter is also bounded per field at ingestion (64 KiB per target), but 1000 such events in one trace still add up: lower <code class="ps-ic">max_events_per_trace</code> or <code class="ps-ic">max_active_traces</code> if a misbehaving emitter is suspected.</li>
+<li><strong>Correlator growth.</strong> <code class="ps-ic">[daemon.correlation] max_tracked_pairs</code> (default 10 000) bounds the cross-trace graph. Raising it multiplies memory by the pair count. <code class="ps-ic">perf_sentinel_correlator_pairs_evicted_total</code> is the signal that the cap is active: a sustained rate means the topology exceeds the cap (correlations are recycled, not leaked).</li>
+<li><strong>Findings store inflated</strong> by a runaway detection loop. Rare but worth checking <code class="ps-ic">stored_findings</code> vs <code class="ps-ic">max_retained_findings</code>.</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[daemon]</span>
+<span style="color:var(--code-sub)">max_active_traces     </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 5000     </span><span style="color:var(--term-comment)"># smaller window</span>
+<span style="color:var(--code-sub)">trace_ttl_ms          </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 30000    </span><span style="color:var(--term-comment)"># back to default</span>
+<span style="color:var(--code-sub)">api_enabled           </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> false    </span><span style="color:var(--term-comment)"># disable query API if unused</span>
+<span style="color:var(--code-sub)">max_retained_findings </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 0        </span><span style="color:var(--term-comment)"># short-circuits the findings ring buffer</span>
+
+<span style="color:var(--code-cmd);font-weight:600">[daemon.correlation]</span>
+<span style="color:var(--code-sub)">enabled </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> false                  </span><span style="color:var(--term-comment)"># skip the correlator for single-service daemons</span></code></pre></div>
+<p class="ps-p">Setting <code class="ps-ic">max_retained_findings = 0</code> is the most effective RAM-reclaim lever when the query API isn't consumed. See <a href="LIMITATIONS.html">Limitations</a> § "Memory is not reclaimed by <code class="ps-ic">api_enabled = false</code> alone".</p>
+<p class="ps-p">Restart the daemon to apply. <strong>No hot reload</strong>, see <a href="RUNBOOK.html#applying-config-changes">Applying config changes</a>.</p>
+<hr class="ps-hr">
+<h2 id="ci-quality-gate-failing-unexpectedly" class="ps-h2">CI quality gate failing unexpectedly</h2>
+<p class="ps-p"><strong>Symptom.</strong> <code class="ps-ic">perf-sentinel analyze --ci</code> or <code class="ps-ic">perf-sentinel tempo --ci</code> exits with code 1. Build red.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<p class="ps-p">The JSON output contains a structured <code class="ps-ic">quality_gate</code> block:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--format</span> json \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '.quality_gate.rules[] | select(.passed == false)'</code></pre></div>
+<p class="ps-p">Example output:</p>
+<div class="ps-code"><div class="ps-code-lang">json</div><pre><code>{ "rule": "n_plus_one_sql_critical_max", "threshold": <span style="color:var(--code-num)">0</span>, "actual": <span style="color:var(--code-num)">2</span>, "passed": <span style="color:var(--code-flag)">false</span> }</code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Legitimate regression.</strong> A recent change introduced new N+1s or widened the waste ratio. Inspect <code class="ps-ic">findings[]</code> in the same JSON: <code class="ps-ic">source_endpoint</code> locates the code path; <code class="ps-ic">pattern.template</code> shows the normalized SQL/HTTP call; <code class="ps-ic">pattern.occurrences</code> tells you how bad.</li>
+<li><strong>Threshold too tight.</strong> <code class="ps-ic">.perf-sentinel.toml</code> may have zero-tolerance limits that fail on any pre-existing finding. For brownfield projects, consider a ratcheting baseline (tighten over time rather than all at once).</li>
+<li><strong>Test data grew.</strong> A larger dataset in integration tests can cross a detection threshold (a 5-occurrence N+1 only fires above a certain iteration count).</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong> Adjust either the code or the threshold, not both under pressure. If the finding is real, fix the code. If the threshold is miscalibrated, update <code class="ps-ic">.perf-sentinel.toml</code> and commit the change so it's reviewable.</p>
+<blockquote class="ps-bq"><strong>Note.</strong> There are no per-service detection thresholds today; <code class="ps-ic">[detection]</code> values apply globally across all services in the trace file.</blockquote>
+<hr class="ps-hr">
+<h2 id="investigating-an-unexpected-ack" class="ps-h2">Investigating an unexpected ack</h2>
+<p class="ps-p"><strong>Symptom.</strong> A finding you expected to see in CI is missing, or a quality gate that should have failed is passing. You suspect an entry in <code class="ps-ic">.perf-sentinel-acknowledgments.toml</code> is doing it.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># 1. Run with --no-acknowledgments to compare. If the finding shows up</span>
+<span style="color:var(--term-comment)">#    here but not in the normal run, an ack is matching it.</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--no-acknowledgments</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--format</span> json \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '.findings[] | select(.signature == "&lt;suspect signature&gt;")'
+
+<span style="color:var(--term-comment)"># 2. Run with --show-acknowledged to see which ack matched and why.</span>
+<span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--show-acknowledged</span> <span style="color:var(--code-flag)">--input</span> traces.json <span style="color:var(--code-flag)">--format</span> json \
+  | <span style="color:var(--code-cmd);font-weight:600">jq</span> '.acknowledged_findings[] | select(.finding.signature == "&lt;suspect signature&gt;")'
+
+<span style="color:var(--term-comment)"># 3. Inspect the ack file directly.</span>
+<span style="color:var(--code-cmd);font-weight:600">git</span> log <span style="color:var(--code-flag)">-p</span> .perf-sentinel-acknowledgments.toml | head <span style="color:var(--code-flag)">-80</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Ack matches as intended.</strong> The signature is in the file. Read the <code class="ps-ic">reason</code> and the PR that landed it. If the rationale no longer applies, open a PR to remove the entry.</li>
+<li><strong>Wrong template normalization.</strong> The signature in the file does not match the current template. Common after a SQL refactor (parameter ordering changes, alias renames). Re-extract the current signature with the JSON output and update the entry.</li>
+<li><strong>Stale <code class="ps-ic">expires_at</code>.</strong> An ack with <code class="ps-ic">expires_at = "2025-12-31"</code> stopped applying on 2026-01-01. The finding that re-appeared is the one that was suppressed before. Decision time: refresh the ack with a new date, make it permanent, or fix the underlying code.</li>
+<li><strong>Override path leak.</strong> A CI job is passing <code class="ps-ic">--acknowledgments /some/other/path.toml</code> that you did not expect. Grep CI workflow files for the flag.</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong> The ack file is versioned, so the fix is always a PR: edit, remove, or update the entry. Never bypass acks in CI by adding <code class="ps-ic">--no-acknowledgments</code> to a permanent job, the audit trail is the file's git log.</p>
+<p class="ps-p">For the full ack workflow, see <a href="ACKNOWLEDGMENTS.html">Acknowledgments</a>.</p>
+<hr class="ps-hr">
+<h2 id="perf-sentinel-tempo-returns-404-or-times-out" class="ps-h2"><code class="ps-ic">perf-sentinel tempo</code> returns 404 or times out</h2>
+<p class="ps-p"><strong>Symptom.</strong> Either every invocation fails with <code class="ps-ic">Tempo returned HTTP 404 for https://.../api/search?...</code>, or the search step succeeds but the per-trace fetch loop finishes with <code class="ps-ic">Tempo fetch completed with failures counts={"timeout": N}</code> and returns a partial (or empty) result.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Confirm the endpoint is actually a Tempo query-frontend, not Grafana or</span>
+<span style="color:var(--term-comment)"># an internal Tempo component. 200 = good, 404 = wrong endpoint.</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> <span style="color:var(--code-flag)">-o</span> /dev/null <span style="color:var(--code-flag)">-w</span> 'HTTP %{http_code}\n' \
+  <span style="color:var(--code-cmd);font-weight:600">'&lt;your-endpoint&gt;/api/search?limit=1'</span>
+
+<span style="color:var(--term-comment)"># On Tempo side, watch the query-frontend load</span>
+<span style="color:var(--code-cmd);font-weight:600">kubectl</span> logs <span style="color:var(--code-flag)">-n</span> observability deploy/tempo-query-frontend <span style="color:var(--code-flag)">--tail=50</span> \
+  | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'error|timeout|queue'</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Wrong component in a microservices deployment.</strong> In <code class="ps-ic">tempo-distributed</code> Helm deployments, the HTTP query API is served exclusively by <code class="ps-ic">tempo-query-frontend</code>. Pointing <code class="ps-ic">--endpoint</code> at <code class="ps-ic">tempo-querier</code> (an internal worker, no public API) or <code class="ps-ic">tempo-ingester</code> (write path only) returns 404 on every <code class="ps-ic">/api/search</code>. The 404 message emitted by perf-sentinel now includes the failing URL so the misconfiguration is visible at a glance.</li>
+<li><strong>Endpoint pointing at Grafana instead of Tempo.</strong> Grafana defaults to port 3000, Tempo HTTP API to 3200. <code class="ps-ic">http://grafana:3000/api/search</code> has no backing route, returns 404.</li>
+<li><strong>Reverse-proxy path prefix omitted.</strong> If Tempo sits behind ingress with a path prefix (e.g. <code class="ps-ic">https://observability.example.com/tempo/...</code>), <code class="ps-ic">--endpoint</code> must include the prefix.</li>
+<li><strong>Tempo degraded under fetch load.</strong> Search succeeded but per-trace fetches time out. Common triggers: long <code class="ps-ic">--lookback</code> (24 h on a large service), under-provisioned <code class="ps-ic">tempo-query-frontend</code> replicas, <code class="ps-ic">max_concurrent_queries</code> hit, ingester resource limits (OOM-killed ingesters produce cascading fetch failures).</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong></p>
+<ul>
+<li>Causes (1), (2), (3): point <code class="ps-ic">--endpoint</code> at the actual query-frontend URL, validated by the <code class="ps-ic">curl</code> above.</li>
+<li>Cause (4): on the perf-sentinel side, narrow <code class="ps-ic">--lookback</code> (start at 1 h, widen progressively) or fall back to <code class="ps-ic">--trace-id &lt;id&gt;</code> for a single-trace replay. On the Tempo side, scale <code class="ps-ic">tempo-query-frontend</code> horizontally, raise <code class="ps-ic">max_concurrent_queries</code>, and check ingester memory/CPU caps.</li>
+</ul>
+<p class="ps-p">Perf-sentinel caps in-flight fetches at 16 concurrent by default, so the client is not itself flooding Tempo. If Tempo still collapses under a 100-trace run, capacity is the bottleneck, not the client. Hitting Ctrl-C during a long run now returns a partial result with the already-completed traces (see <a href="LIMITATIONS.html">Limitations</a> § "Tempo ingestion"); the CLI surfaces <code class="ps-ic">Tempo fetch was interrupted by Ctrl-C before any trace completed</code> when zero traces had completed, distinct from the generic <code class="ps-ic">NoTracesFound</code>.</p>
+<hr class="ps-hr">
+<h2 id="exemplars-missing-in-grafana" class="ps-h2">Exemplars missing in Grafana</h2>
+<p class="ps-p"><strong>Symptom.</strong> Panels render metric values but the ◆ exemplar marker is absent, or clicking it doesn't jump to Tempo.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Raw metrics: look for "# {trace_id=\"...\"}" at line ends</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics \
+  | <span style="color:var(--code-cmd);font-weight:600">grep</span> <span style="color:var(--code-flag)">-E</span> <span style="color:var(--code-num)">'findings_total|io_waste_ratio'</span></code></pre></div>
+<p class="ps-p">If the annotations are present in the raw output but Grafana doesn't render them, it's a Grafana or Prometheus configuration issue. If absent, perf-sentinel hasn't recorded any exemplar yet.</p>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>No findings yet.</strong> Exemplars are only set on detection. A zero-findings daemon has none. Drive traffic through a path that triggers an N+1 or slow query.</li>
+<li><strong>Prometheus exemplar storage not enabled.</strong> Prometheus must be started with <code class="ps-ic">--enable-feature=exemplar-storage</code>. Verify on the Prometheus flags page.</li>
+<li><strong>Grafana datasource not linked to Tempo.</strong> In Grafana → Connections → Prometheus datasource → Exemplars, set an exemplar with <code class="ps-ic">datasourceUid</code> pointing to your Tempo datasource and <code class="ps-ic">labelName: trace_id</code>.</li>
+<li><strong><code class="ps-ic">trace_id</code> sanitized away.</strong> perf-sentinel strips exemplar values to <code class="ps-ic">[a-zA-Z0-9_-]</code> and truncates to 64 chars. Unusual trace ID formats (UUIDs with braces, custom encodings) may be mangled. See <code class="ps-ic">sanitize_exemplar_value</code> in <code class="ps-ic">report/metrics.rs</code>.</li>
+</ol>
+<hr class="ps-hr">
+<h2 id="energy-scraper-stuck" class="ps-h2">Energy scraper stuck</h2>
+<p class="ps-p"><strong>Symptom.</strong> <code class="ps-ic">perf_sentinel_scaphandre_last_scrape_age_seconds</code> or <code class="ps-ic">perf_sentinel_cloud_energy_last_scrape_age_seconds</code> grows monotonically past the configured scrape interval. Healthy scrapers reset this gauge near zero after each successful scrape.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/metrics | grep scrape_age_seconds</code></pre></div>
+<p class="ps-p">Enable scoring logs to see the actual failure:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">RUST_LOG=sentinel_core::score=debug</span>
+<span style="color:var(--term-comment)"># Look for "scaphandre scrape failed" or "cloud_energy scrape failed"</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Scaphandre container permissions.</strong> RAPL counters require <code class="ps-ic">CAP_SYS_RAWIO</code>, privileged mode, or a hostPath mount of <code class="ps-ic">/sys/class/powercap</code>. Without these, scrapes fail at the privilege layer.</li>
+<li><strong>Endpoint unreachable.</strong> Check the URL in <code class="ps-ic">[green.scaphandre] endpoint</code>. Network between perf-sentinel and the Scaphandre exporter must be open.</li>
+<li><strong>Cloud energy API down or rate-limited.</strong> If using Electricity Maps or a cloud-provider API, check its status and your API quota.</li>
+<li><strong>Service name mismatch.</strong> <code class="ps-ic">[green.cloud.services.&lt;name&gt;]</code> keys must match the <code class="ps-ic">service.name</code> attribute on incoming spans. No match, no per-service attribution.</li>
+</ol>
+<p class="ps-p"><strong>Impact.</strong> The daemon falls back to the I/O proxy energy model. CO₂ figures remain directional but lose their measured-energy precision. Not a hot incident; fix at your next maintenance window unless the accuracy matters for a specific report.</p>
+<hr class="ps-hr">
+<h2 id="apicorrelations-returns-empty" class="ps-h2"><code class="ps-ic">/api/correlations</code> returns empty</h2>
+<p class="ps-p"><strong>Symptom.</strong> Cross-trace correlation panels are empty even though multiple services are producing findings.</p>
+<p class="ps-p"><strong>First checks.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/correlations | jq <span style="color:var(--code-num)">'length'</span>
+<span style="color:var(--term-comment)"># 0 means no correlations passed the thresholds</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Correlator disabled.</strong> The default is <code class="ps-ic">[daemon.correlation] enabled = false</code>. Enable it.</li>
+<li><strong>Thresholds too strict.</strong> Defaults:</li>
+<ul>
+<li><code class="ps-ic">min_co_occurrences = 5</code>: need 5 joint incidents before a pair is considered</li>
+<li><code class="ps-ic">min_confidence = 0.7</code>: 70 % correlation confidence</li>
+<li><code class="ps-ic">lag_threshold_ms = 5000</code>: 5-second window between cause and effect</li>
+</ul>
+</ol>
+<p class="ps-p">   Short bursts of traffic rarely accumulate 5 co-occurrences. Lower for dev/staging, keep conservative in prod.</p>
+<ol>
+<li><strong>Services legitimately independent.</strong> Healthy decoupled services produce no correlations. Absence is not always a bug.</li>
+</ol>
+<p class="ps-p"><strong>Fix.</strong></p>
+<div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[daemon.correlation]</span>
+<span style="color:var(--code-sub)">enabled            </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> true</span>
+<span style="color:var(--code-sub)">min_co_occurrences </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 3</span>
+<span style="color:var(--code-sub)">min_confidence     </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 0.6</span>
+<span style="color:var(--code-sub)">lag_threshold_ms   </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 10000</span>
+<span style="color:var(--code-sub)">max_tracked_pairs  </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 20000</span></code></pre></div>
+<p class="ps-p">Restart the daemon to apply.</p>
+<hr class="ps-hr">
+<h2 id="apiexportreport-returns-503-or-an-empty-report" class="ps-h2"><code class="ps-ic">/api/export/report</code> returns 503 or an empty report</h2>
+<p class="ps-p"><strong>Symptom.</strong> Piping the daemon into the HTML dashboard fails with HTTP 503 or produces a dashboard with zero findings on a daemon that is clearly running.</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://perf-sentinel:4318/api/export/report | perf-sentinel report <span style="color:var(--code-flag)">--input</span> <span style="color:var(--code-flag)">-</span> <span style="color:var(--code-flag)">--output</span> /tmp/report.html
+<span style="color:var(--term-comment)"># HTTP 503: {"error": "daemon has not yet processed any events"}</span></code></pre></div>
+<p class="ps-p"><strong>Likely causes.</strong></p>
+<ol>
+<li><strong>Cold start.</strong> The endpoint returns 503 until <code class="ps-ic">events_processed &gt; 0</code>, on purpose: rendering a dashboard with zero counters on a daemon that has not yet seen its first OTLP batch would be misleading. Wait for the first batch to land, then retry. <code class="ps-ic">GET /api/status</code> shows the live <code class="ps-ic">events_processed</code> counter.</li>
+<li><strong><code class="ps-ic">api_enabled = false</code>.</strong> If the config disables the query API, <code class="ps-ic">/api/export/report</code> is not mounted and <code class="ps-ic">curl</code> returns a 404, not a 503. Re-enable <code class="ps-ic">[daemon] api_enabled = true</code>.</li>
+<li><strong>Empty findings store, not cold start.</strong> On a long-running daemon that has processed events but has no findings in the ring buffer (clean traffic, or <code class="ps-ic">max_retained_findings = 0</code>), the endpoint returns 200 with an empty <code class="ps-ic">findings</code> array. The resulting dashboard shows a "No findings" empty state, which is correct.</li>
+</ol>
+<p class="ps-p"><strong>Operational note.</strong> The snapshot is not atomic across <code class="ps-ic">findings</code> and <code class="ps-ic">correlations</code>: the two collections can be one batch apart (findings from generation N, correlations from N+1). For a post-mortem dashboard this is acceptable. If you need strict consistency, use <code class="ps-ic">analyze --input traces.json</code> on a captured trace file instead.</p>
+<hr class="ps-hr">
+<h2 id="daemon-crash-or-restart" class="ps-h2">Daemon crash or restart</h2>
+<p class="ps-p"><strong>Symptom.</strong> The daemon process exited unexpectedly (kernel OOM, panic, pod eviction, deploy rollout).</p>
+<p class="ps-p"><strong>What is lost.</strong></p>
+<ul>
+<li>All traces in the sliding window (up to <code class="ps-ic">max_active_traces</code>).</li>
+<li>All retained findings (up to <code class="ps-ic">max_retained_findings</code>).</li>
+<li>Cross-trace correlation state.</li>
+<li>Uptime counter resets.</li>
+</ul>
+<p class="ps-p"><strong>What survives.</strong></p>
+<ul>
+<li>Nothing from the daemon itself. There is no disk persistence.</li>
+<li>Prometheus retains the metrics it already scraped (historical counters are safe).</li>
+<li>Tempo retains the traces, assuming you also send them there.</li>
+</ul>
+<p class="ps-p"><strong>Recovery.</strong></p>
+<ol>
+<li>Start a new daemon with the same config.</li>
+<li>Wait for OTel collectors / SDKs to reconnect. OTel clients retry with exponential backoff. Expect up to ~60 seconds before ingestion resumes fully.</li>
+<li>For incidents that occurred <em>during</em> the downtime, use <a href="RUNBOOK.html#analyzing-a-trace-older-than-the-live-window">the post-mortem workflow</a> against Tempo.</li>
+</ol>
+<p class="ps-p"><strong>Prevention.</strong></p>
+<ul>
+<li>Kubernetes <code class="ps-ic">restartPolicy: Always</code> + memory limit headroom above observed peak RSS.</li>
+<li>Alert on <code class="ps-ic">perf_sentinel_active_traces</code> approaching <code class="ps-ic">max_active_traces</code>. Rising pressure often precedes OOM.</li>
+<li>For HA, run multiple replicas behind a load balancer. Each replica has independent state (no cross-replica correlation), but ingestion becomes redundant against single-instance failure.</li>
+</ul>
+<hr class="ps-hr">
+<h2 id="applying-config-changes" class="ps-h2">Applying config changes</h2>
+<p class="ps-p"><strong>The daemon does not hot-reload <code class="ps-ic">.perf-sentinel.toml</code>.</strong> Any config edit requires a restart:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Kubernetes</span>
+<span style="color:var(--code-cmd);font-weight:600">kubectl</span> rollout restart deployment/perf-sentinel
+
+<span style="color:var(--term-comment)"># systemd</span>
+<span style="color:var(--code-cmd);font-weight:600">systemctl</span> restart perf-sentinel
+
+<span style="color:var(--term-comment)"># Docker</span>
+<span style="color:var(--code-cmd);font-weight:600">docker</span> restart perf-sentinel</code></pre></div>
+<p class="ps-p">Expect a brief interruption in ingestion (seconds to a minute) driven by OTel SDK retry behavior. For non-urgent tuning, piggyback on a normal deployment window.</p>
+<p class="ps-p"><strong>Validate before rolling out.</strong> The daemon parses TOML at startup and exits with a clear error on malformed input. Smoke-test the candidate config in a throwaway daemon first:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">watch</span> <span style="color:var(--code-flag)">--config</span> /path/to/candidate-config.toml
+<span style="color:var(--term-comment)"># Exits immediately on parse error and prints the offending line.</span></code></pre></div>
+<p class="ps-p">Once it starts cleanly, roll it out to production.</p>
+<h2 id="inspecting-the-daemons-http-endpoints" class="ps-h2">Inspecting the daemon's HTTP endpoints</h2>
+<p class="ps-p">The daemon image is distroless and does not include <code class="ps-ic">curl</code>, <code class="ps-ic">wget</code>, or a shell. <code class="ps-ic">kubectl exec ... -- curl http://localhost:14318/...</code> fails with <code class="ps-ic">executable file not found</code>. Use <code class="ps-ic">kubectl port-forward</code> plus your local <code class="ps-ic">curl</code> for ad-hoc HTTP inspection:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># In one terminal: forward the daemon's HTTP port locally.</span>
+<span style="color:var(--code-cmd);font-weight:600">kubectl</span> port-forward <span style="color:var(--code-flag)">-n</span> &lt;namespace&gt; deploy/perf-sentinel-daemon <span style="color:var(--code-num)">14318:14318</span>
+
+<span style="color:var(--term-comment)"># In another terminal: inspect the endpoints from the host.</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-sH</span> "Accept: application/openmetrics-text;version=1.0.0" \
+  <span style="color:var(--code-cmd);font-weight:600">http://localhost:14318/metrics</span> | tail <span style="color:var(--code-flag)">-5</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://localhost:14318/api/status | jq
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-s</span> http://localhost:14318/api/export/report | jq '.warnings, .green_summary'</code></pre></div>
+<p class="ps-p">The kubelet liveness probe uses a TCP check on the HTTP port, not a <code class="ps-ic">curl</code> HTTP call, so the distroless image does not affect liveness or readiness.</p>
+<p class="ps-p">The <code class="ps-ic">/metrics</code> endpoint negotiates content type from the client's <code class="ps-ic">Accept</code> header. Sending <code class="ps-ic">application/openmetrics-text</code> forces OpenMetrics 1.0 with the <code class="ps-ic"># EOF</code> terminator and exemplar annotations. A missing or <code class="ps-ic">*/*</code> Accept (curl default, vmagent default) falls back to the legacy 0.5.15 behavior (OpenMetrics when exemplars are present, plain Prometheus otherwise). A strict <code class="ps-ic">Accept: text/plain</code> (no <code class="ps-ic">*/*</code>) forces plain Prometheus 0.0.4 without exemplars, defending pre-OpenMetrics scrapers.</p>
+<h2 id="diagnosing-otlp-drops" class="ps-h2">Diagnosing OTLP drops</h2>
+<p class="ps-p">Symptom: spans sent by clients are not visible in <code class="ps-ic">/api/export/report</code> or in the dashboard, and the client SDK reports no errors.</p>
+<ol>
+<li>Pull <code class="ps-ic">perf_sentinel_otlp_rejected_total</code> from <code class="ps-ic">/metrics</code> and read it by <code class="ps-ic">reason</code>:</li>
+</ol>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/metrics | grep '^perf_sentinel_otlp_rejected_total'    </code>``</p>
+<ul>
+<li>High <code class="ps-ic">channel_full</code>: the daemon is CPU-bound or backpressured. Check <code class="ps-ic">process_cpu_seconds_total</code> (rate) and <code class="ps-ic">process_resident_memory_bytes</code> against the pod limits. Increase CPU or memory limits, or scale horizontally.</li>
+<li>High <code class="ps-ic">parse_error</code>: clients send malformed OTLP. Check the client SDK version and protobuf compatibility against the OTLP spec.</li>
+<li>High <code class="ps-ic">unsupported_media_type</code>: clients use the JSON-encoded OTLP variant or a wrong <code class="ps-ic">Content-Type</code>. perf-sentinel only accepts <code class="ps-ic">application/x-protobuf</code>.</li>
+<li><code class="ps-ic">Report.warning_details</code> surfaces an <code class="ps-ic">ingestion_drops</code> entry as soon as the <code class="ps-ic">channel_full</code> counter is positive. A consumer reading <code class="ps-ic">/api/export/report</code> without scraping Prometheus still sees the signal:</li>
+</ul>
+<p class="ps-p">   ``<code class="ps-ic">bash    curl -s http://daemon:4318/api/export/report | jq '.warning_details'    </code>``</p>
+<ol>
+<li>The 413 (HTTP) and <code class="ps-ic">RESOURCE_EXHAUSTED</code> (gRPC) responses for oversized payloads are intercepted upstream by tower-http (<code class="ps-ic">RequestBodyLimitLayer</code>) and tonic (<code class="ps-ic">max_decoding_message_size</code>) respectively, before the application handler runs. They are <strong>not</strong> counted by <code class="ps-ic">perf_sentinel_otlp_rejected_total</code>. Check the proxy or gateway access logs for those.</li>
+</ol>
+<p class="ps-p">See <a href="METRICS.html">Metrics</a> for the full reason catalog and the rest of the metrics surface.</p>
+<h2 id="reading-report-warnings" class="ps-h2">Reading Report warnings</h2>
+<p class="ps-p"><code class="ps-ic">Report.warning_details</code> (since 0.5.19) is a vector of <code class="ps-ic">{kind, message}</code> entries surfaced by the daemon to the operator-facing report payload. Each entry has a stable <code class="ps-ic">kind</code> (suitable for alerting and aggregation across runs) and a human-readable <code class="ps-ic">message</code> that may include dynamic values such as counts.</p>
+<h3 id="kinds-and-their-lifecycle" class="ps-h3">Kinds and their lifecycle</h3>
+<ul>
+<li><code class="ps-ic">cold_start</code> (<strong>transient</strong>): the daemon has not yet processed any events, returned by <code class="ps-ic">GET /api/export/report</code> until the first batch lands. Pre-0.5.16 this surfaced as a 503 status, which tripped Kubernetes probes. Wait for the first eviction tick (default 15s, half of <code class="ps-ic">trace_ttl_ms</code>); if the warning persists past 60-120 seconds in a deployed environment, check that the application actually emits OTLP traces and that the listen address is reachable. The warning disappears automatically on the first batch, no operator action is required.</li>
+<li><code class="ps-ic">ingestion_drops</code> (<strong>sticky</strong>): at least one OTLP request was rejected since daemon start due to channel saturation. The message reports the count. Cross-check <code class="ps-ic">perf_sentinel_otlp_rejected_total{reason="channel_full"}</code> for the same value, then consider increasing daemon CPU allocation or <code class="ps-ic">[daemon] max_active_traces</code>. The warning persists until daemon restart even after backpressure subsides, the underlying counter is cumulative since process start.</li>
+<li><code class="ps-ic">tuning</code> (<strong>mixed</strong>, since 0.8.7): the daemon's settings advisor. Each entry names a config knob whose current value looks undersized for the observed load, with the suggested adjustment in the message (for example "raise <code class="ps-ic">[daemon] analysis_queue_capacity</code> (currently 1024) or give the daemon more CPU"). Counter-driven hints (queue sheds, ingest rejects, service-cap overflow, correlation-pair evictions, zero analyzable-span retention) are sticky like <code class="ps-ic">ingestion_drops</code>. The trace-window hint reads the live <code class="ps-ic">active_traces</code> gauge against <code class="ps-ic">[daemon] max_active_traces</code>, so it clears on its own when the load drops. The full rule table is in <a href="METRICS.html">Metrics</a> section "Warning kinds: transient vs sticky". Apply the suggestion, restart the daemon, and confirm the hint stays gone under the same load.</li>
+</ul>
+<p class="ps-p">The legacy <code class="ps-ic">Report.warnings: Vec&lt;String&gt;</code> field (0.5.16+) still ships for backward compatibility. CLI and HTML renderers prefer <code class="ps-ic">warning_details</code> when non-empty, fall back to <code class="ps-ic">warnings</code> otherwise. The HTML dashboard exposes <code class="ps-ic">warning_details</code> in the embedded JSON payload (<code class="ps-ic">payload.report.warning_details</code>), a dedicated banner in the dashboard UI is on the roadmap.</p>
+<p class="ps-p">When acknowledging findings via the daemon ack API (since 0.5.20), no warning kind is affected by acks: they reflect daemon state, not detection output.</p>
+<h2 id="acknowledging-findings-at-runtime" class="ps-h2">Acknowledging findings at runtime</h2>
+<p class="ps-p">Since 0.5.20 the daemon exposes three endpoints to mutate ack state at runtime, complementing the CI TOML workflow documented in <code class="ps-ic">ACKNOWLEDGMENTS.md</code>. Use them when an SRE on call needs to silence a finding without waiting for a PR cycle on the application repo.</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--term-comment)"># Acknowledge (deferred to next quarter)</span>
+<span style="color:var(--code-cmd);font-weight:600">SIG="n_plus_one_sql:order-svc:_api_v1_orders:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-fsS</span> <span style="color:var(--code-flag)">-X</span> POST <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/findings/${SIG}/ack"</span> \
+  <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">"Content-Type:</span> application/json" \
+  <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">"X-User-Id:</span> alice@example.com" \
+  <span style="color:var(--code-flag)">-d</span> <span style="color:var(--code-cmd);font-weight:600">'{"reason":"deferred</span> to TICKET-1234","expires_at":"2026-08-01T00:00:00Z"}'
+
+<span style="color:var(--term-comment)"># List active runtime acks</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-fsS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/acks"</span> | jq .
+
+<span style="color:var(--term-comment)"># Verify the finding is now filtered out</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-fsS</span> <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/findings"</span> | jq <span style="color:var(--code-num)">'length'</span>
+
+<span style="color:var(--term-comment)"># Revoke</span>
+<span style="color:var(--code-cmd);font-weight:600">curl</span> <span style="color:var(--code-flag)">-fsS</span> <span style="color:var(--code-flag)">-X</span> DELETE <span style="color:var(--code-num)">"http://127.0.0.1:4318/api/findings/${SIG}/ack"</span> \
+  <span style="color:var(--code-flag)">-H</span> <span style="color:var(--code-cmd);font-weight:600">"X-User-Id:</span> alice@example.com"</code></pre></div>
+<p class="ps-p">When the daemon is configured with an API key (<code class="ps-ic">[daemon.ack] api_key</code>), add <code class="ps-ic">-H "X-API-Key: &lt;secret&gt;"</code> to <code class="ps-ic">POST</code> and <code class="ps-ic">DELETE</code> calls. <code class="ps-ic">GET /api/acks</code> and <code class="ps-ic">GET /api/findings</code> stay unauthenticated by design (loopback reads).</p>
+<p class="ps-p">The runtime store is JSONL append-only at <code class="ps-ic">~/.local/share/perf-sentinel/acks.jsonl</code> by default. Tail it for a realtime audit trail (<code class="ps-ic">tail -f</code>). The file is replayed and compacted on every daemon restart, so churn does not accumulate. CI TOML acks loaded at startup (<code class="ps-ic">.perf-sentinel-acknowledgments.toml</code> by default) remain immutable from the API side, see <code class="ps-ic">QUERY-API.md</code> &gt; "TOML and JSONL interop" for the conflict resolution rules.</p>
+<hr class="ps-hr">
+<h2 id="see-also" class="ps-h2">See also</h2>
+<ul>
+<li><a href="METRICS.html">Metrics</a>: exhaustive reference for every metric exposed on <code class="ps-ic">/metrics</code>, including the new process metrics and OTLP rejection counter (since 0.5.19).</li>
+<li><a href="LIMITATIONS.html">Limitations</a>: what the daemon does <em>not</em> persist or guarantee.</li>
+<li><a href="QUERY-API.html">Query API</a>: reference for <code class="ps-ic">/api/findings</code>, <code class="ps-ic">/api/explain</code>, <code class="ps-ic">/api/correlations</code>, <code class="ps-ic">/api/status</code>.</li>
+<li><a href="INTEGRATION.html">Integration</a>: end-to-end setup, four supported topologies, Tempo and Jaeger integration. See <a href="INSTRUMENTATION.html">Instrumentation</a> for per-language OTLP wiring and <a href="CI.html">CI</a> for the CI integration recipes.</li>
+<li><a href="CONFIGURATION.html">Configuration</a>: full <code class="ps-ic">[daemon]</code>, <code class="ps-ic">[detection]</code>, <code class="ps-ic">[green]</code>, <code class="ps-ic">[daemon.correlation]</code> reference.</li>
+</ul></div></main><aside class="ps-toc-col ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;padding:40px 28px 40px 8px"><div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);padding:0 0 12px 12px">On this page</div><nav class="ps-toc"><a href="#contents" data-anchor="contents" data-lvl="2">Contents</a><a href="#diagnostic-cheat-sheet" data-anchor="diagnostic-cheat-sheet" data-lvl="2">Diagnostic cheat sheet</a><a href="#analyzing-a-trace-older-than-the-live-window" data-anchor="analyzing-a-trace-older-than-the-live-window" data-lvl="2">Analyzing a trace older than the live window</a><a href="#daemon-running-but-not-reachable-from-clients" data-anchor="daemon-running-but-not-reachable-from-clients" data-lvl="2">Daemon running but not reachable from clients</a><a href="#no-traces-ingested" data-anchor="no-traces-ingested" data-lvl="2">No traces ingested</a><a href="#sudden-drop-in-ingestion-volume" data-anchor="sudden-drop-in-ingestion-volume" data-lvl="2">Sudden drop in ingestion volume</a><a href="#spike-in-critical-findings" data-anchor="spike-in-critical-findings" data-lvl="2">Spike in critical findings</a><a href="#sizing-reference-measured" data-anchor="sizing-reference-measured" data-lvl="2">Sizing reference (measured)</a><a href="#daemon-memory-pressure-or-oom" data-anchor="daemon-memory-pressure-or-oom" data-lvl="2">Daemon memory pressure or OOM</a><a href="#ci-quality-gate-failing-unexpectedly" data-anchor="ci-quality-gate-failing-unexpectedly" data-lvl="2">CI quality gate failing unexpectedly</a><a href="#investigating-an-unexpected-ack" data-anchor="investigating-an-unexpected-ack" data-lvl="2">Investigating an unexpected ack</a><a href="#perf-sentinel-tempo-returns-404-or-times-out" data-anchor="perf-sentinel-tempo-returns-404-or-times-out" data-lvl="2">perf-sentinel tempo returns 404 or times out</a><a href="#exemplars-missing-in-grafana" data-anchor="exemplars-missing-in-grafana" data-lvl="2">Exemplars missing in Grafana</a><a href="#energy-scraper-stuck" data-anchor="energy-scraper-stuck" data-lvl="2">Energy scraper stuck</a><a href="#apicorrelations-returns-empty" data-anchor="apicorrelations-returns-empty" data-lvl="2">/api/correlations returns empty</a><a href="#apiexportreport-returns-503-or-an-empty-report" data-anchor="apiexportreport-returns-503-or-an-empty-report" data-lvl="2">/api/export/report returns 503 or an empty report</a><a href="#daemon-crash-or-restart" data-anchor="daemon-crash-or-restart" data-lvl="2">Daemon crash or restart</a><a href="#applying-config-changes" data-anchor="applying-config-changes" data-lvl="2">Applying config changes</a><a href="#inspecting-the-daemons-http-endpoints" data-anchor="inspecting-the-daemons-http-endpoints" data-lvl="2">Inspecting the daemon's HTTP endpoints</a><a href="#diagnosing-otlp-drops" data-anchor="diagnosing-otlp-drops" data-lvl="2">Diagnosing OTLP drops</a><a href="#reading-report-warnings" data-anchor="reading-report-warnings" data-lvl="2">Reading Report warnings</a><a href="#kinds-and-their-lifecycle" data-anchor="kinds-and-their-lifecycle" data-lvl="3">Kinds and their lifecycle</a><a href="#acknowledging-findings-at-runtime" data-anchor="acknowledging-findings-at-runtime" data-lvl="2">Acknowledging findings at runtime</a><a href="#see-also" data-anchor="see-also" data-lvl="2">See also</a></nav></aside></div></div></div><script>(function(){var R=document.querySelector('[data-ps-root]');function setT(t){R.setAttribute('data-theme',t);try{localStorage.setItem('ps-theme',t)}catch(e){}}var sv;try{sv=localStorage.getItem('ps-theme')}catch(e){}if(sv==='dark'||sv==='light')setT(sv);else setT(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');var tb=document.getElementById('themeBtn');if(tb)tb.onclick=function(){setT(R.getAttribute('data-theme')==='dark'?'light':'dark')};document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.ps-group-btn');if(b){var o=b.getAttribute('data-open')!=='true';b.setAttribute('data-open',o);var n=b.nextElementSibling;if(n)n.setAttribute('data-open',o);return}var d=e.target.closest&&e.target.closest('.ps-diagram,.ps-zoom');if(d){var ov=document.createElement('div');ov.className='ps-lightbox';ov.onclick=function(){ov.remove()};var im=document.createElement('img');im.src=d.getAttribute('src');ov.appendChild(im);document.body.appendChild(ov);return}});document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.querySelector('.ps-lightbox');if(o)o.remove()}});var toc=[].slice.call(document.querySelectorAll('.ps-toc a'));function spy(){var c=null;for(var i=0;i<toc.length;i++){var el=document.getElementById(toc[i].getAttribute('data-anchor'));if(el&&el.getBoundingClientRect().top-120<=0)c=toc[i]}toc.forEach(function(a){a.setAttribute('data-active',a===c?'true':'false')})}window.addEventListener('scroll',spy,{passive:true});spy();(function(){var IDX=null,sb=document.getElementById('psSearch'),sr=document.getElementById('psResults');if(!sb)return;function esc(s){return s.replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}function load(){return IDX?Promise.resolve():fetch('search.json').then(function(r){return r.json()}).then(function(j){IDX=j})}sb.addEventListener('input',function(){var q=sb.value.trim().toLowerCase();if(!q){sr.style.display='none';return}load().then(function(){var tk=q.split(/\s+/),res=[];IDX.forEach(function(d){var hay=(d.t+' '+d.x).toLowerCase();if(tk.every(function(t){return hay.indexOf(t)>=0})){res.push([(d.t.toLowerCase().indexOf(q)>=0?100:0)+(d.x.toLowerCase().split(q).length-1),d])}});res.sort(function(a,b){return b[0]-a[0]});res=res.slice(0,8);if(!res.length){sr.innerHTML='<div class="psr-e">No results</div>';sr.style.display='block';return}sr.innerHTML=res.map(function(p){var d=p[1],x=d.x,i=x.toLowerCase().indexOf(tk[0]),sn=i>=0?x.slice(Math.max(0,i-30),i+70):x.slice(0,100);return '<a href="'+d.u+'"><div class="psr-t">'+esc(d.t)+'</div><div class="psr-x">…'+esc(sn)+'…</div></a>'}).join('');sr.style.display='block'})});document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#psSearchWrap'))sr.style.display='none'});})();</script></body></html>

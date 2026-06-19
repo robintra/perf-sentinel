@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="fonts/fonts.css">
+<title>perf-sentinel: I/O anti-pattern detection, priced in carbon</title>
+<meta name="description" content="Self-hosted single binary that detects I/O anti-patterns (N+1, redundant calls, slow SQL/HTTP, fanout) in OpenTelemetry traces and prices them in energy and carbon. CI quality gate or OTLP daemon. AGPL-3.0.">
+<link rel="canonical" href="index.html">
+<meta property="og:type" content="website">
+<meta property="og:title" content="perf-sentinel: I/O anti-pattern detection, priced in carbon">
+<meta property="og:description" content="Self-hosted single binary that catches N+1s, redundant calls, slow queries and fanout in OpenTelemetry traces, then prices avoidable I/O in energy and carbon.">
+<meta property="og:image" content="assets/logo-h-light.svg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0}
+  section{scroll-margin-top:84px}
+  [data-ps-root]{
+    --bg:#F1F6F3; --surface:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1;
+    --text:#3A4A43; --text-2:#5C6F66;
+    --accent:#0BA671; --accent-strong:#0B523A; --accent-soft:#E0F4ED; --on-accent:#FFFFFF;
+    --term-bg:#082A1E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#6FA791;
+    --grid:#34D399; --rust:#CE422B; --coral:#D6453F;
+    font-family:'DM Sans',system-ui,sans-serif;
+    background-color:#F1F6F3; color:#3A4A43;
+    -webkit-font-smoothing:antialiased; line-height:1.55;
+    transition:background-color .35s ease,color .35s ease;
+  }
+  [data-ps-root][data-theme="dark"]{
+    --bg:#061F2C; --surface:#0B2A38; --surface-2:#0E3242; --border:#1B3F4F;
+    --text:#E0F4ED; --text-2:#8FB0A6;
+    --accent:#0BA671; --accent-strong:#0BA671; --accent-soft:#0E3A33; --on-accent:#FFFFFF;
+    --term-bg:#03161E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#5E8A78;
+    --grid:#0BA671; --rust:#F0875E; --coral:#FF7F7C;
+    background-color:#061F2C; color:#E0F4ED;
+  }
+  ::selection{background:var(--accent-soft);color:var(--accent-strong)}
+  a{color:inherit;text-decoration:none}
+  [data-ps-root] [data-logo]{display:none}
+  [data-ps-root] [data-logo="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  @media (max-width:980px){
+    .ps-hero-mark{display:none !important}
+  }
+  @media (max-width:1040px){
+    [data-grid="cards4"]{grid-template-columns:repeat(2,1fr) !important}
+  }
+  @media (max-width:980px){
+    [data-nav]{display:none}
+  }
+  @media (max-width:880px){
+    [data-grid="cards3"]{grid-template-columns:1fr !important}
+  }
+  @media (max-width:720px){
+    [data-grid="cards2"]{grid-template-columns:1fr !important}
+    [data-grid="ftcols"]{grid-template-columns:1fr 1fr !important}
+  }
+  @media (max-width:560px){
+    [data-grid="stats"]{grid-template-columns:repeat(2,1fr) !important}
+    [data-grid="cards4"]{grid-template-columns:1fr !important}
+    [data-grid="ftcols"]{grid-template-columns:1fr !important}
+  }
+</style>
+</helmet>
+
+<div data-ps-root="" data-theme="{{ theme }}">
+<div style="min-height:100vh;background-color:var(--bg);color:var(--text)">
+
+  <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
+    <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px">
+      <a href="#top" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
+      <nav data-nav="" style="display:flex;gap:24px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
+        <a href="#detection" style-hover="color:var(--text)">{{ navDetection }}</a>
+        <a href="#modes" style-hover="color:var(--text)">{{ navExecution }}</a>
+        <a href="#perf" style-hover="color:var(--text)">{{ navPerf }}</a>
+        <a href="#greenops" style-hover="color:var(--text)">{{ navGreenops }}</a>
+        <a href="#comparatif" style-hover="color:var(--text)">{{ navComparison }}</a>
+        <a href="#license" style-hover="color:var(--text)">{{ navLicense }}</a>
+        <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
+        <a href="guide.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navDocs }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="reference/00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+      </nav>
+      <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
+        <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
+        <button onClick="{{ toggleTheme }}" aria-label="Theme" style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.02em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">
+          <span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>{{ themeLabel }}
+        </button>
+        <a href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <a id="top"></a>
+  <main style="max-width:1120px;margin:0 auto;padding:0 28px">
+
+    <!-- HERO -->
+    <section data-screen-label="Hero" style="position:relative;padding:78px 0 64px">
+      <svg viewBox="0 0 1120 360" preserveAspectRatio="none" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;opacity:.10;pointer-events:none">
+        <g stroke="var(--grid)" stroke-width="1">
+          <path d="M0 60H1120"></path><path d="M0 120H1120"></path><path d="M0 180H1120"></path><path d="M0 240H1120"></path><path d="M0 300H1120"></path>
+          <path d="M160 0V360"></path><path d="M360 0V360"></path><path d="M560 0V360"></path><path d="M760 0V360"></path><path d="M960 0V360"></path>
+        </g>
+        <path d="M0 150H120L220 110L320 190L420 90L520 170L620 130L760 150H1120" stroke="var(--accent)" stroke-width="1.5" fill="none" opacity="0.5"></path>
+      </svg>
+      <div style="position:relative;max-width:760px">
+        <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 14px">
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></span>{{ eyebrowHero }}
+        </div>
+        <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
+        <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
+        <div style="display:flex;gap:14px;margin-top:30px;flex-wrap:wrap">
+          <a href="#modes" style="font-size:15px;font-weight:600;color:var(--on-accent);background:var(--accent);border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaHow }}</a>
+          <a href="#greenops" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaCarbon }}</a>
+        </div>
+      </div>
+
+      <img data-logo="light" src="assets/mark-light.svg" alt="" aria-hidden="true" class="ps-hero-mark" style="position:absolute;top:110px;right:0;width:clamp(170px,23vw,300px);pointer-events:none;filter:drop-shadow(0 18px 40px rgba(6,31,44,.28))">
+      <img data-logo="dark" src="assets/mark-dark.svg" alt="" aria-hidden="true" class="ps-hero-mark" style="position:absolute;top:110px;right:0;width:clamp(170px,23vw,300px);pointer-events:none;filter:drop-shadow(0 18px 50px rgba(0,0,0,.45))">
+
+      <!-- terminal -->
+      <div style="position:relative;margin-top:46px;max-width:760px;background:var(--term-bg);border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 24px 50px -28px rgba(6,31,44,.5)">
+        <div style="display:flex;align-items:center;gap:8px;padding:13px 18px;border-bottom:1px solid rgba(255,255,255,.08)">
+          <span style="width:11px;height:11px;border-radius:50%;background:#E0F4ED;opacity:.25"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#E0F4ED;opacity:.25"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#E0F4ED;opacity:.25"></span>
+          <span style="margin-left:8px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--term-dim)">~/api-gateway</span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--term-dim);border:1px solid rgba(255,255,255,.16);border-radius:5px;padding:2px 8px">{{ exampleLabel }}</span>
+        </div>
+        <div style="padding:20px 20px 22px;font-family:'JetBrains Mono',monospace;font-size:13.5px;line-height:1.85;color:var(--term-text)">
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="flex:1;min-width:0"><span style="color:var(--term-accent)">$</span> {{ installCommand }}</div>
+          </div>
+          <div style="margin-top:6px"><span style="color:var(--term-accent)">$</span> perf-sentinel analyze --input traces.json --ci</div>
+          <div style="color:var(--term-dim)">{{ termOut }}</div>
+          <div style="color:#F5A97F">{{ termFail }}</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- DETECTION -->
+    <section id="detection" data-screen-label="Détection" style="padding:64px 0 12px">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ detEyebrow }}</div>
+          <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ detT1 }}<span style="color:var(--coral)">{{ detWAnti }}</span>{{ detT2 }}</h2>
+        </div>
+        <p style="margin:0;max-width:360px;font-size:15px;color:var(--text-2)">{{ detIntro }}</p>
+      </div>
+      <div data-grid="cards2" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:34px">
+        <sc-for list="{{ patterns }}" as="p" hint-placeholder-count="10">
+          <div style="display:flex;gap:18px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px" style-hover="border-color:var(--accent)">
+            <div style="flex:none;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:7px;padding:6px 9px;min-width:34px;text-align:center">{{ p.n }}</div>
+            <div>
+              <div style="font-size:16.5px;font-weight:600;color:var(--text)">{{ p.name }}</div>
+              <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ p.trigger }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin:22px 0 0;font-size:14px;color:var(--text-2)">{{ detFoot }}</p>
+      <a href="guide.html#detect" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ detMore }} →</a>
+    </section>
+
+    <!-- MODES -->
+    <section id="modes" data-screen-label="Exécution" style="padding:64px 0 12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ modEyebrow }}</div>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ modTitle }}</h2>
+      <div data-grid="cards4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px">
+        <sc-for list="{{ modes }}" as="m" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;height:100%">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);letter-spacing:.04em">{{ m.tag }}</div>
+            <div style="margin:11px 0 0;font-size:19px;font-weight:700;color:var(--text)">{{ m.title }}</div>
+            <p style="margin:10px 0 18px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ m.desc }}</p>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- PERFORMANCE -->
+    <section id="perf" data-screen-label="Performance" style="padding:64px 0 12px">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--rust);letter-spacing:.04em">{{ perfEyebrow }}</div>
+          <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ perfT1 }}<span style="color:var(--rust)">{{ perfWRust }}</span>{{ perfT2 }}</h2>
+        </div>
+        <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--rust);background:color-mix(in srgb,var(--rust) 12%,transparent);border:1px solid color-mix(in srgb,var(--rust) 38%,transparent);border-radius:999px;padding:8px 14px">
+          <img src="https://cdn.simpleicons.org/rust/CE422B" alt="Rust" width="15" height="15" style="display:block;flex:none">{{ perfBadge }}
+        </div>
+      </div>
+      <p style="margin:18px 0 0;font-size:15px;color:var(--text-2);max-width:700px;line-height:1.6">{{ perfIntro }}</p>
+      <div data-grid="stats" style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:30px;background:var(--border);border:1px solid var(--border);border-radius:12px;overflow:hidden">
+        <sc-for list="{{ perfStats }}" as="s" hint-placeholder-count="4">
+          <div style="background:var(--surface);padding:20px 22px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:600;color:var(--rust);letter-spacing:-.01em">{{ s.value }}</div>
+            <div style="margin-top:5px;font-size:13.5px;color:var(--text-2)">{{ s.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <a href="guide.html#perf" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--rust)" style-hover="gap:11px">{{ perfMore }} →</a>
+    </section>
+
+    <!-- GREENOPS -->
+    <section id="greenops" data-screen-label="GreenOps" style="padding:64px 0 12px">
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:20px;padding:clamp(28px,4vw,48px)">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ goEyebrow }}</div>
+            <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:620px">{{ goT1 }}<span style="color:var(--coral)">{{ goWCost }}</span>{{ goT2 }}<span style="color:var(--accent)">{{ goWEnergy }}</span>{{ goT3 }}<span style="color:var(--accent)">{{ goWCarbon }}</span></h2>
+          </div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--accent-strong);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px">co2.total = (E × I) + M</div>
+        </div>
+        <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:680px;line-height:1.6">{{ goBodyA }}<code style="font-family:'JetBrains Mono',monospace;font-size:13.5px;background:var(--accent-soft);color:var(--accent-strong);padding:2px 6px;border-radius:5px">co2.total</code>{{ goBodyB }}</p>
+        <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px">
+          <sc-for list="{{ green }}" as="g" hint-placeholder-count="3">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px">
+              <div style="font-size:16px;font-weight:600;color:var(--text)">{{ g.title }}</div>
+              <div style="margin-top:7px;font-size:14px;color:var(--text-2);line-height:1.55">{{ g.body }}</div>
+            </div>
+          </sc-for>
+        </div>
+        <p style="margin:24px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:760px">{{ goNote }}</p>
+        <a href="guide.html#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ goMore }} →</a>
+      </div>
+    </section>
+
+    <!-- COMPARATIF -->
+    <section id="comparatif" data-screen-label="Comparatif" style="padding:64px 0 12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ cmpEyebrow }}</div>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ cmpT1 }}<span style="color:var(--accent)">{{ cmpWCarbon }}</span></h2>
+      <div style="margin-top:30px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:var(--surface)">
+        <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;background:var(--surface-2);border-bottom:1px solid var(--border);font-size:13px;font-weight:600;color:var(--text-2)">
+          <div style="padding:15px 22px">{{ cmpHCap }}</div>
+          <div style="padding:15px 18px">{{ cmpHApm }}</div>
+          <div style="padding:15px 18px;color:var(--accent-strong)">perf-sentinel</div>
+        </div>
+        <sc-for list="{{ compare }}" as="c" hint-placeholder-count="5">
+          <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;border-bottom:1px solid var(--border);align-items:center">
+            <div style="padding:16px 22px;font-size:15px;font-weight:500;color:var(--text)">{{ c.cap }}</div>
+            <div style="padding:16px 18px;font-size:14px;color:var(--text-2)">{{ c.apm }}</div>
+            <div style="padding:16px 18px;font-size:14px;color:var(--text);font-weight:500">{{ c.ps }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;color:var(--text-2)">{{ cmpFoot }}</p>
+      <a href="guide.html#compare" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ cmpMore }} →</a>
+    </section>
+
+    <!-- LICENSE -->
+    <section id="license" data-screen-label="License" style="padding:64px 0 12px">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
+          <h2 style="margin:12px 0 0;font-size:clamp(24px,2.7vw,31px);font-weight:700;letter-spacing:-.018em;color:var(--text);text-wrap:balance">{{ licTitle }}</h2>
+        </div>
+        <a href="https://www.gnu.org/licenses/agpl-3.0.html" style="flex:none;display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:11px 16px" style-hover="border-color:var(--accent)">
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>AGPL-3.0
+        </a>
+      </div>
+      <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:700px;line-height:1.6">{{ licIntro }}</p>
+      <div data-grid="cards2" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:30px">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px">
+          <div style="display:flex;align-items:center;gap:11px">
+            <span style="flex:none;width:24px;height:24px;border-radius:7px;background:var(--accent-soft);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700">✓</span>
+            <div style="font-size:16.5px;font-weight:600;color:var(--text)">{{ licC1Title }}</div>
+          </div>
+          <p style="margin:12px 0 0;font-size:14.5px;color:var(--text-2);line-height:1.55">{{ licC1Body }}</p>
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 24px">
+          <div style="display:flex;align-items:center;gap:11px">
+            <span style="flex:none;width:24px;height:24px;border-radius:7px;background:var(--accent-soft);color:var(--accent-strong);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700">✓</span>
+            <div style="font-size:16.5px;font-weight:600;color:var(--text)">{{ licC2Title }}</div>
+          </div>
+          <p style="margin:12px 0 0;font-size:14.5px;color:var(--text-2);line-height:1.55">{{ licC2Body }}</p>
+        </div>
+      </div>
+      <p style="margin:18px 0 0;font-size:13px;color:var(--text-2);font-style:italic;line-height:1.6;max-width:820px">{{ licDisclaimer }}</p>
+    </section>
+
+    <!-- CTA -->
+    <section data-screen-label="CTA" style="padding:64px 0 72px">
+      <div style="position:relative;overflow:hidden;border-radius:20px;border:1px solid var(--border);background:#0B523A;padding:clamp(34px,5vw,56px)">
+        <div style="position:relative;max-width:560px">
+          <h2 style="margin:0;font-size:clamp(26px,3.2vw,34px);font-weight:700;letter-spacing:-.018em;color:#E0F4ED">{{ ctaTitle }}</h2>
+          <p style="margin:14px 0 26px;font-size:16px;color:#A9D8C6;line-height:1.6">{{ ctaText }}</p>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
+            <div><span style="color:#26CD94">$</span> perf-sentinel demo <span style="color:#7FB6A2"># {{ demoCmt1 }}</span></div>
+            <div><span style="color:#26CD94">$</span> perf-sentinel demo --tui <span style="color:#7FB6A2"># {{ demoCmt2 }}</span></div>
+            <div><span style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer style="border-top:1px solid var(--border);background:var(--surface-2)">
+    <div style="max-width:1120px;margin:0 auto;padding:48px 28px 36px">
+      <div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px">
+        <div>
+          <img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto">
+          <p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">{{ ftTagline }}</p>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProduct }}</div>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">
+            <a href="#detection" style-hover="color:var(--accent)">{{ navDetection }}</a>
+            <a href="#modes" style-hover="color:var(--accent)">{{ navExecution }}</a>
+            <a href="#perf" style-hover="color:var(--accent)">{{ navPerf }}</a>
+            <a href="#greenops" style-hover="color:var(--accent)">{{ navGreenops }}</a>
+            <a href="#comparatif" style-hover="color:var(--accent)">{{ navComparison }}</a>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColDocs }}</div>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">
+            <a href="guide.html#quickstart" style-hover="color:var(--accent)">{{ ftDocQuickstart }}</a>
+            <a href="guide.html#cli" style-hover="color:var(--accent)">{{ ftDocCli }}</a>
+            <a href="guide.html#config" style-hover="color:var(--accent)">{{ ftDocConfig }}</a>
+            <a href="guide.html#metrics" style-hover="color:var(--accent)">{{ ftDocMethod }}</a>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProject }}</div>
+          <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">
+            <a href="https://github.com/robintra/perf-sentinel" style-hover="color:var(--accent)">GitHub</a>
+            <a href="https://crates.io/crates/perf-sentinel" style-hover="color:var(--accent)">crates.io</a>
+            <a href="https://docs.rs/perf-sentinel-core" style-hover="color:var(--accent)">docs.rs</a>
+            <a href="#license" style-hover="color:var(--accent)">{{ ftProjLicense }}</a>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:14px;margin-top:40px;padding-top:26px;border-top:1px solid var(--border);flex-wrap:wrap">
+        <span style="font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text-2);letter-spacing:.03em">GreenIT</span>
+        <sc-for list="{{ badges }}" as="b" hint-placeholder-count="2">
+          <div style="display:flex;align-items:center;gap:9px;border:1px dashed var(--border);border-radius:8px;padding:9px 13px;background:var(--surface)">
+            <span style="width:18px;height:18px;border-radius:5px;background:var(--accent-soft);display:flex;align-items:center;justify-content:center">
+              <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>
+            </span>
+            <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-2)">{{ b }}</span>
+          </div>
+        </sc-for>
+        <span style="font-size:11.5px;color:var(--text-2);opacity:.8">{{ ftBadgeNote }}</span>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">
+        <span>{{ ftBottomLeft }}</span>
+        <span>{{ ftBottomRight }}</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;defaultMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;clair&quot;,&quot;sombre&quot;],&quot;default&quot;:&quot;clair&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultLang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;fr&quot;],&quot;default&quot;:&quot;en&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;installCommand&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;cargo install perf-sentinel --locked&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { theme: null, lang: null, copied: false, rustVersion: null };
+
+  componentDidMount() {
+    fetch('https://raw.githubusercontent.com/robintra/perf-sentinel/main/Cargo.toml')
+      .then(r => r.ok ? r.text() : Promise.reject(r.status))
+      .then(txt => {
+        // read rust-version under [workspace.package]
+        const m = txt.match(/\[workspace\.package\][\s\S]*?rust-version\s*=\s*"([^"]+)"/)
+          || txt.match(/rust-version\s*=\s*"([^"]+)"/);
+        if (m && m[1]) this.setState({ rustVersion: m[1].trim() });
+      })
+      .catch(() => {});
+    if (location.hash && location.hash.length > 1) {
+      const id = decodeURIComponent(location.hash.slice(1));
+      const jump = () => { const el = document.getElementById(id); if (el) window.scrollTo({ top: el.getBoundingClientRect().top + (window.scrollY || 0) - 72 }); };
+      requestAnimationFrame(() => { jump(); setTimeout(jump, 280); });
+    }
+  }
+
+  // theme: saved choice → system preference → prop default
+  baseTheme() {
+    try { const v = localStorage.getItem('ps-theme'); if (v === 'dark' || v === 'light') return v; } catch (e) {}
+    try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch (e) {}
+    try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'; } catch (e) {}
+    return this.props.defaultMode === 'clair' ? 'light' : 'dark';
+  }
+  curTheme() { return this.state.theme ?? this.baseTheme(); }
+  // language: saved choice → browser language → prop default
+  baseLang() {
+    try { const v = localStorage.getItem('ps-lang'); if (v === 'fr' || v === 'en') return v; } catch (e) {}
+    try { const n = (navigator.language || navigator.userLanguage || '').toLowerCase(); if (n.indexOf('fr') === 0) return 'fr'; if (n) return 'en'; } catch (e) {}
+    return this.props.defaultLang === 'fr' ? 'fr' : 'en';
+  }
+  curLang() { return this.state.lang ?? this.baseLang(); }
+  persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
+  dict() {
+    return {
+      en: {
+        nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
+        eyebrowHero: 'Self-hosted single binary · OpenTelemetry · AGPL-3.0',
+        heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
+        heroSub: 'perf-sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
+        ctaHow: 'How it works', ctaCarbon: 'The carbon side',
+        navLicense: 'License', navDocs: 'Guide', navRef: 'Docs',
+        licEyebrow: '// license',
+        licTitle: 'AGPL-3.0, and what it means for your code',
+        licIntro: 'A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.',
+        licC1Title: 'Your services stay yours',
+        licC1Body: 'Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.',
+        licC2Title: 'Unmodified binaries, no obligation',
+        licC2Body: 'The AGPL covers perf-sentinel\u2019s own source code. Using the official binaries or container image unmodified triggers no copyleft obligation of any kind.',
+        licCondTitle: 'The one condition (article 13)',
+        licCondBody: 'If you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users.',
+        licDisclaimer: 'The one condition: if you modify perf-sentinel and offer the modified version to third parties over a network, article 13 requires you to make that modified source available to those users. This is a practical summary, not legal advice. Consult your legal team if in doubt.',
+        termOut: '  findings grouped by severity · IIS + CO₂ per endpoint',
+        termFail: '  quality gate: N+1 SQL over threshold (exit 1)',
+        exampleLabel: 'example',
+        copy: 'copy', copied: 'copied ✓',
+        stats: [
+          { value: '<20 MB', label: 'RSS at rest (daemon)' },
+          { value: '~1.2 M', label: 'events/s analyzed (M4 Pro)' },
+          { value: '10', label: 'finding types' },
+          { value: 'exit 1', label: 'deterministic CI quality gate' },
+        ],
+        detEyebrow: '// what gets detected',
+        detMore: 'What it detects, in the guide',
+        goMore: 'GreenOps metrics in the guide',
+        cmpMore: 'Full comparison in the guide',
+        detT1: 'Ten I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
+        detIntro: 'On the SQL and HTTP requests your services already emit, whatever the language or ORM.',
+        patterns: [
+          { n: '01', name: 'N+1 SQL', trigger: 'The same query template fired ≥ N times within one trace.' },
+          { n: '02', name: 'N+1 HTTP', trigger: 'The same URL template called ≥ N times within one trace.' },
+          { n: '03', name: 'Redundant SQL', trigger: 'Identical query, identical parameters, same trace.' },
+          { n: '04', name: 'Redundant HTTP', trigger: 'Identical call, identical parameters, same trace.' },
+          { n: '05', name: 'Slow SQL', trigger: 'Query duration above the configured threshold.' },
+          { n: '06', name: 'Slow HTTP', trigger: 'Request duration above the configured threshold.' },
+          { n: '07', name: 'Excessive fanout', trigger: 'A span starts ≥ N children in parallel.' },
+          { n: '08', name: 'Chatty service', trigger: 'A → B repeatedly within a single user request.' },
+          { n: '09', name: 'Pool saturation', trigger: 'Concurrent in-flight requests above the pool size.' },
+          { n: '10', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
+        ],
+        detFoot: 'Every finding carries: type, severity, normalized template, occurrences, source endpoint, suggestion, source location and GreenOps impact. In daemon mode, cross-trace correlation is added.',
+        modEyebrow: '// four ways to run it',
+        modTitle: 'One binary, four postures',
+        modes: [
+          { tag: 'local', title: 'Exploration', desc: 'Locally: keyboard drill-down across Analyze · Inspect · Explain in a TUI, or a single-file offline HTML dashboard to open and share. Built-in demo, nothing to set up.', cmd: 'perf-sentinel analyze --tui' },
+          { tag: 'CI quality gate', title: 'CI batch', desc: 'On captured traces: exit 1 past a threshold, SARIF output for code scanning, deterministic JSON. A gate that never flickers.', cmd: 'perf-sentinel analyze --input traces.json --ci' },
+          { tag: 'daemon · sidecar', title: 'Sidecar', desc: 'One daemon per service for isolated debugging, ingesting its OTLP traces right beside it.', cmd: 'perf-sentinel watch' },
+          { tag: 'daemon · central', title: 'Centralized', desc: 'A single long-running daemon an OTel Collector routes to: gRPC :4317 + HTTP :4318, Prometheus /metrics, live dashboard, query API and cross-trace correlation.', cmd: 'perf-sentinel watch --listen-address 0.0.0.0' },
+        ],
+        navPerf: 'Performance',
+        perfEyebrow: '// built in rust',
+        perfT1: 'A single ', perfWRust: 'Rust', perfT2: ' binary, measured',
+        perfIntro: 'Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.',
+        perfBadgePrefix: 'Built with Rust · version ',
+        perfMore: 'Full benchmarks in the docs',
+        perfStats: [
+          { value: '576k–1.2M', label: 'events/s, pipeline throughput (x86 to M4 Pro)' },
+          { value: '0.8–1.9 µs', label: 'per event, p50 to p99' },
+          { value: '~17 MB', label: 'daemon RSS at rest (≈190 MB under ~1M evts/s)' },
+          { value: 'Rust 2024', label: 'static musl binary, FROM scratch image' },
+        ],
+        goEyebrow: '// greenops',
+        goT1: 'Every avoidable I/O has a ', goWCost: 'cost', goT2: ', in time, ', goWEnergy: 'energy', goT3: ' and ', goWCarbon: 'carbon',
+        goBodyA: "Cutting N+1s and redundant calls improves response times and energy use alike: the two goals don't compete. ",
+        goBodyB: ' follows the Software Carbon Intensity v1.0 numerator (ISO/IEC 21031:2024): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.',
+        green: [
+          { title: 'I/O intensity score (IIS)', body: "An endpoint's total I/O operations divided by its number of invocations." },
+          { title: 'I/O waste ratio', body: 'Avoidable operations over total operations, the directly recoverable share.' },
+          { title: 'Multi-region co2.total', body: 'SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.' },
+        ],
+        goNote: 'Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It is not a standalone regulatory carbon-accounting platform.',
+        cmpEyebrow: '// how it compares',
+        cmpT1: 'Lightweight, agnostic, CI-native, ', cmpWCarbon: 'carbon-aware',
+        cmpHCap: 'Capability', cmpHApm: 'Typical commercial APM',
+        compare: [
+          { cap: 'Runtime footprint', apm: 'Agent ~100–150 MB RSS', ps: 'Standalone binary <20 MB RSS' },
+          { cap: 'Language coverage', apm: 'Per-language agents or SDK', ps: 'Any OTel-instrumented runtime' },
+          { cap: 'N+1 SQL & HTTP detection', apm: 'Yes, agent-bound', ps: 'Yes, protocol-level' },
+          { cap: 'Cross-service correlation', apm: 'Yes', ps: 'Yes, via trace ID' },
+          { cap: 'Native CI quality gate', apm: 'Alerts, no gate', ps: 'Yes, exit 1 on threshold' },
+          { cap: 'Per-span carbon attribution', apm: 'No', ps: 'Yes (SCI-aligned, directional)' },
+          { cap: 'GreenOps score (IIS, waste ratio)', apm: 'No', ps: 'Built-in' },
+          { cap: 'License & hosting', apm: 'Proprietary SaaS, usage-based', ps: 'AGPL-3.0, fully self-hostable' },
+        ],
+        cmpFoot: "'Typical commercial APM' generalizes agent-based SaaS tools such as Datadog and New Relic; exact behavior varies by product, and footprints are order-of-magnitude estimates from public deployments. perf-sentinel is not a full APM and does not replace an observability suite, it sits alongside one. The full per-tool comparison (incl. Sentry, Hypersistence, Digma, Pyroscope, OTJAE) lives in the docs.",
+        ctaTitle: 'Put the sentinel in your pipeline',
+        ctaText: 'Built-in demo with nothing to install on the app side, then a quality gate on captured traces or an OTLP daemon beside your tracing.',
+        demoCmt1: 'terminal report', demoCmt2: 'interactive TUI', demoCmt3: 'HTML dashboard',
+        ftTagline: 'Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.',
+        ftColProduct: 'Product', ftColDocs: 'Documentation', ftColProject: 'Project',
+        ftDocQuickstart: 'Quickstart', ftDocCli: 'CLI reference', ftDocConfig: 'Configuration', ftDocMethod: 'GreenOps methodology',
+        ftProjLicense: 'AGPL-3.0 license',
+        ftBadgeNote: 'badge slot, to wire up',
+        ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
+        ftBottomRight: 'Logo & banner, Gwendoline Meignen',
+        badges: ['Ecoindex', 'Green Web Foundation'],
+        themeDark: 'Light', themeLight: 'Dark', langSwitch: 'FR',
+      },
+      fr: {
+        nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
+        eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · AGPL-3.0',
+        heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
+        heroSub: 'perf-sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
+        ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
+        navLicense: 'Licence', navDocs: 'Guide', navRef: 'Docs',
+        licEyebrow: '// licence',
+        licTitle: 'AGPL-3.0, ce que ça implique pour votre code',
+        licIntro: 'Un résumé pratique et lisible par un service juridique, pour que personne n\u2019ait à fouiller le dépôt. perf-sentinel est sous licence GNU Affero General Public License v3.0.',
+        licC1Title: 'Vos services restent les vôtres',
+        licC1Body: 'Faire tourner perf-sentinel ne place pas vos propres services sous AGPL. C\u2019est un processus autonome : vos applications lui envoient seulement des traces OpenTelemetry par le réseau (OTLP), une communication à distance et non un lien de compilation, qui ne crée donc aucune œuvre dérivée et n\u2019impose aucune obligation de licence sur votre code.',
+        licC2Title: 'Binaires non modifiés, aucune obligation',
+        licC2Body: 'L\u2019AGPL couvre le code source de perf-sentinel lui-même. Utiliser les binaires ou l\u2019image officiels non modifiés n\u2019entraîne aucune obligation de copyleft, d\u2019aucune sorte.',
+        licCondTitle: 'La seule condition (article 13)',
+        licCondBody: 'Si vous modifiez perf-sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs.',
+        licDisclaimer: 'La seule condition : si vous modifiez perf-sentinel et proposez la version modifiée à des tiers via un réseau, l\u2019article 13 vous oblige à mettre cette source modifiée à disposition de ces utilisateurs. Ceci est un résumé pratique et non un avis juridique. Consultez votre service juridique en cas de doute.',
+        termOut: '  findings groupés par sévérité · IIS + CO₂ par endpoint',
+        termFail: '  quality gate : N+1 SQL au-dessus du seuil (exit 1)',
+        exampleLabel: 'exemple',
+        copy: 'copier', copied: 'copié ✓',
+        stats: [
+          { value: '<20 Mo', label: 'RSS au repos (daemon)' },
+          { value: '~1,2 M', label: 'évts/s analysés (M4 Pro)' },
+          { value: '10', label: 'types de findings' },
+          { value: 'exit 1', label: 'quality gate CI déterministe' },
+        ],
+        detEyebrow: '// ce qui est détecté',
+        detMore: 'Ce qu’il détecte, dans le guide',
+        goMore: 'Métriques GreenOps dans le guide',
+        cmpMore: 'Comparatif complet dans le guide',
+        detT1: 'Dix ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
+        detIntro: 'Sur les requêtes SQL et HTTP que vos services émettent déjà, quel que soit le langage ou l\u2019ORM.',
+        patterns: [
+          { n: '01', name: 'N+1 SQL', trigger: 'Même template de requête tiré ≥ N fois dans une trace.' },
+          { n: '02', name: 'N+1 HTTP', trigger: "Même template d'URL appelé ≥ N fois dans une trace." },
+          { n: '03', name: 'SQL redondant', trigger: 'Requête identique, paramètres identiques, même trace.' },
+          { n: '04', name: 'HTTP redondant', trigger: 'Appel identique, paramètres identiques, même trace.' },
+          { n: '05', name: 'SQL lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
+          { n: '06', name: 'HTTP lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
+          { n: '07', name: 'Fanout excessif', trigger: 'Un span démarre ≥ N enfants en parallèle.' },
+          { n: '08', name: 'Service bavard', trigger: 'A → B de manière répétée dans une seule requête utilisateur.' },
+          { n: '09', name: 'Saturation de pool', trigger: 'Requêtes concurrentes en vol au-dessus de la taille du pool.' },
+          { n: '10', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
+        ],
+        detFoot: 'Chaque finding embarque : type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source et impact GreenOps. En mode daemon, s\u2019y ajoute la corrélation cross-trace.',
+        modEyebrow: "// quatre façons de l'exécuter",
+        modTitle: 'Un binaire, quatre postures',
+        modes: [
+          { tag: 'local', title: 'Exploration', desc: 'En local : drill-down clavier Analyze · Inspect · Explain en TUI, ou un dashboard HTML offline en un seul fichier à ouvrir et partager. Démo intégrée, rien à configurer.', cmd: 'perf-sentinel analyze --tui' },
+          { tag: 'quality gate CI', title: 'Batch CI', desc: 'Sur traces capturées : exit 1 au dépassement de seuil, sortie SARIF pour le code scanning, JSON déterministe. Pas de gate qui clignote.', cmd: 'perf-sentinel analyze --input traces.json --ci' },
+          { tag: 'daemon · sidecar', title: 'Sidecar', desc: 'Un daemon par service pour du debug isolé, qui ingère les traces OTLP de ce service juste à côté.', cmd: 'perf-sentinel watch' },
+          { tag: 'daemon · central', title: 'Centralisé', desc: 'Un daemon unique long-running vers lequel un OTel Collector route : gRPC :4317 + HTTP :4318, /metrics Prometheus, dashboard live, API de query et corrélation cross-trace.', cmd: 'perf-sentinel watch --listen-address 0.0.0.0' },
+        ],
+        navPerf: 'Performance',
+        perfEyebrow: '// écrit en rust',
+        perfT1: 'Un mono-binaire ', perfWRust: 'Rust', perfT2: ', mesuré',
+        perfIntro: 'Édition 2024, lié statiquement à musl et livré dans des images FROM scratch. Les chiffres ci-dessous chronomètrent le pipeline d\u2019analyse seul (mono-thread, sur jeux de données synthétiques) : ils isolent le coût du pipeline, pas un débit de bout en bout.',
+        perfBadgePrefix: 'Écrit en Rust · version ',
+        perfMore: 'Benchmarks détaillés dans la doc',
+        perfStats: [
+          { value: '576k–1.2M', label: 'évts/s, débit pipeline (x86 à M4 Pro)' },
+          { value: '0.8–1.9 µs', label: 'par évènement, p50 à p99' },
+          { value: '~17 Mo', label: 'RSS daemon au repos (≈190 Mo sous ~1M évts/s)' },
+          { value: 'Rust 2024', label: 'binaire statique musl, image FROM scratch' },
+        ],
+        goEyebrow: '// greenops',
+        goT1: 'Chaque I/O évitable a un ', goWCost: 'coût', goT2: ', en temps, ', goWEnergy: 'énergie', goT3: ' et ', goWCarbon: 'carbone',
+        goBodyA: "Réduire les N+1 et les appels redondants améliore les temps de réponse et la consommation d'énergie : les deux objectifs ne s'opposent pas. ",
+        goBodyB: ' suit le numérateur Software Carbon Intensity v1.0 (ISO/IEC 21031:2024) : l\u2019énergie consommée (E) multipliée par l\u2019intensité carbone du réseau électrique (I), plus les émissions matérielles embarquées (M), le tout sommé sur les traces analysées.',
+        green: [
+          { title: "Score d'intensité I/O (IIS)", body: "Total des opérations I/O d'un endpoint divisé par son nombre d'invocations." },
+          { title: 'Ratio de gaspillage I/O', body: 'Opérations évitables sur opérations totales, la part directement récupérable.' },
+          { title: 'co2.total multi-régions', body: 'Numérateur SCI v1.0, scoring par région automatique quand les spans portent cloud.region.' },
+        ],
+        goNote: 'Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Ce n\u2019est pas une plateforme de comptabilité carbone réglementaire standalone.',
+        cmpEyebrow: '// comment ça se compare',
+        cmpT1: 'Léger, agnostique, CI-natif, ', cmpWCarbon: 'carbon-aware',
+        cmpHCap: 'Capacité', cmpHApm: 'APM commercial type',
+        compare: [
+          { cap: 'Empreinte runtime', apm: 'Agent ~100–150 Mo RSS', ps: 'Binaire autonome <20 Mo RSS' },
+          { cap: 'Couverture langages', apm: 'Agents par langage ou SDK', ps: 'Tout runtime instrumenté OTel' },
+          { cap: 'Détection N+1 SQL & HTTP', apm: 'Oui, liée à l\u2019agent', ps: 'Oui, au niveau protocole' },
+          { cap: 'Corrélation cross-service', apm: 'Oui', ps: 'Oui, via trace ID' },
+          { cap: 'Quality gate CI natif', apm: 'Alertes, pas de gate', ps: 'Oui, exit 1 sur seuil' },
+          { cap: 'Attribution carbone par span', apm: 'Non', ps: 'Oui (aligné SCI, directionnel)' },
+          { cap: 'Score GreenOps (IIS, gaspillage)', apm: 'Non', ps: 'Intégré' },
+          { cap: 'Licence & hébergement', apm: 'SaaS propriétaire, à l\u2019usage', ps: 'AGPL-3.0, auto-hébergeable' },
+        ],
+        cmpFoot: '« APM commercial type » généralise les outils SaaS à base d\u2019agent comme Datadog ou New Relic ; le comportement exact varie selon le produit, et les empreintes sont des ordres de grandeur issus de déploiements publics. perf-sentinel n\u2019est pas un APM complet et ne remplace pas une suite d\u2019observabilité, il s\u2019y adosse. Le comparatif détaillé par outil (Sentry, Hypersistence, Digma, Pyroscope, OTJAE) figure dans la doc.',
+        ctaTitle: 'Posez la sentinelle dans votre pipeline',
+        ctaText: 'Démo intégrée sans rien installer côté apps, puis quality gate sur traces capturées ou daemon OTLP à côté de votre tracing.',
+        demoCmt1: 'rapport terminal', demoCmt2: 'TUI interactif', demoCmt3: 'dashboard HTML',
+        ftTagline: "Détecteur d'anti-patterns d'I/O au niveau protocole, auto-hébergeable et carbon-aware.",
+        ftColProduct: 'Produit', ftColDocs: 'Documentation', ftColProject: 'Projet',
+        ftDocQuickstart: 'Démarrage rapide', ftDocCli: 'Référence CLI', ftDocConfig: 'Configuration', ftDocMethod: 'Méthodologie GreenOps',
+        ftProjLicense: 'Licence AGPL-3.0',
+        ftBadgeNote: 'emplacement badge, à brancher',
+        ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
+        ftBottomRight: 'Logo & bannière, Gwendoline Meignen',
+        badges: ['Ecoindex', 'Green Web Foundation'],
+        themeDark: 'Clair', themeLight: 'Sombre', langSwitch: 'EN',
+      },
+    };
+  }
+
+  renderVals() {
+    const theme = this.curTheme();
+    const lang = this.curLang();
+    const t = this.dict()[lang];
+    const install = this.props.installCommand || 'cargo install perf-sentinel --locked';
+    return {
+      theme,
+      themeLabel: theme === 'dark' ? t.themeDark : t.themeLight,
+      langLabel: t.langSwitch,
+      toggleTheme: () => { const next = this.curTheme() === 'dark' ? 'light' : 'dark'; this.persist('ps-theme', next); this.setState({ theme: next }); },
+      toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); this.setState({ lang: next }); },
+
+      navDetection: t.nav[0], navExecution: t.nav[1], navGreenops: t.nav[2], navComparison: t.nav[3],
+      eyebrowHero: t.eyebrowHero,
+      heroTitle: t.heroTitle,
+      heroSub: t.heroSub,
+      ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
+      navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, licEyebrow: t.licEyebrow,licTitle: t.licTitle, licIntro: t.licIntro,
+      licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
+      licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
+      installCommand: install,
+      copyLabel: this.state.copied ? t.copied : t.copy,
+      termOut: t.termOut, termFail: t.termFail,
+      exampleLabel: t.exampleLabel,
+      copyInstall: () => {
+        try { navigator.clipboard && navigator.clipboard.writeText(install); } catch (e) {}
+        this.setState({ copied: true });
+        clearTimeout(this._t); this._t = setTimeout(() => this.setState({ copied: false }), 1600);
+      },
+      stats: t.stats, patterns: t.patterns, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
+
+      detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot,
+      modEyebrow: t.modEyebrow, modTitle: t.modTitle,
+      navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
+      perfMore: t.perfMore,
+      goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB: t.goBodyB, goNote: t.goNote,
+      cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot,
+      detMore: t.detMore, goMore: t.goMore, cmpMore: t.cmpMore,
+      ctaTitle: t.ctaTitle, ctaText: t.ctaText,
+      demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
+      ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
+      ftDocQuickstart: t.ftDocQuickstart, ftDocCli: t.ftDocCli, ftDocConfig: t.ftDocConfig, ftDocMethod: t.ftDocMethod,
+      ftProjLicense: t.ftProjLicense, ftBadgeNote: t.ftBadgeNote, ftBottomLeft: t.ftBottomLeft, ftBottomRight: t.ftBottomRight,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,312 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CI · perf-sentinel docs</title><meta name="description" content="CI-side integration: run perf-sentinel in batch mode against a trace fixture produced by your integration test stage, and surface the findings on every …"><link rel="canonical" href="CI.html"><link rel="alternate" hreflang="en" href="CI.html"><link rel="alternate" hreflang="fr" href="fr/CI.html"><meta property="og:type" content="article"><meta property="og:title" content="CI · perf-sentinel docs"><meta property="og:description" content="CI-side integration: run perf-sentinel in batch mode against a trace fixture produced by your integration test stage, and surface the findings on every …"><meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="../assets/favicon.svg"><link rel="stylesheet" href="../fonts/fonts.css"><style>
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0}
+  [data-ps-root]{
+    --bg:#F1F6F3; --surface:#FFFFFF; --surface-2:#EEF4F0; --border:#DCE7E1;
+    --text:#3A4A43; --text-2:#5C6F66;
+    --accent:#0BA671; --accent-strong:#0B523A; --accent-soft:#E0F4ED; --on-accent:#FFFFFF;
+    --term-bg:#082A1E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#6FA791; --term-comment:#6FA791;
+    --coral:#D6453F;
+    --code-cmd:#8CE0B0; --code-sub:#E7C07B; --code-flag:#74B8C4; --code-num:#E58E6B;
+    font-family:'DM Sans',system-ui,sans-serif;
+    background-color:#F1F6F3; color:#3A4A43;
+    -webkit-font-smoothing:antialiased; line-height:1.6;
+    transition:background-color .35s ease,color .35s ease;
+  }
+  [data-ps-root][data-theme="dark"]{
+    --bg:#061F2C; --surface:#0B2A38; --surface-2:#0E3242; --border:#1B3F4F;
+    --text:#E0F4ED; --text-2:#8FB0A6;
+    --accent:#26CD94; --accent-strong:#26CD94; --accent-soft:#0E3A33; --on-accent:#062019;
+    --term-bg:#03161E; --term-text:#E0F4ED; --term-accent:#26CD94; --term-dim:#5E8A78; --term-comment:#5E8A78;
+    --coral:#FF7F7C;
+    background-color:#061F2C; color:#E0F4ED;
+  }
+  ::selection{background:var(--accent-soft);color:var(--accent-strong)}
+  a{color:inherit;text-decoration:none}
+  [data-ps-root] [data-logo]{display:none}
+  [data-ps-root] [data-logo="light"]{display:block}
+  [data-ps-root][data-theme="dark"] [data-logo="light"]{display:none}
+  [data-ps-root][data-theme="dark"] [data-logo="dark"]{display:block}
+  .ps-docnav a{display:block;padding:6px 12px;border-radius:8px;font-size:13.5px;color:var(--text-2);border-left:2px solid transparent;transition:color .2s ease,background-color .2s ease,border-color .2s ease;cursor:pointer}
+  .ps-docnav a:hover{color:var(--text);background:var(--surface-2)}
+  .ps-docnav a[data-active="true"]{color:var(--accent-strong);background:var(--accent-soft);border-left-color:var(--accent);font-weight:600}
+  .ps-group-btn{display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);background:none;border:none;cursor:pointer;padding:16px 12px 8px;text-align:left}
+  .ps-group-btn:hover{color:var(--text)}
+  .ps-chev{flex:none;font-size:13px;line-height:1;transition:transform .2s ease;opacity:.7}
+  .ps-group-btn[data-open="true"] .ps-chev{transform:rotate(90deg)}
+  .ps-docnav[data-open="false"]{display:none}
+  .ps-toc a{display:block;padding:4px 0 4px 12px;border-left:2px solid var(--border);font-size:12.5px;color:var(--text-2);cursor:pointer;transition:color .2s ease,border-color .2s ease}
+  .ps-toc a:hover{color:var(--text)}
+  .ps-toc a[data-active="true"]{color:var(--accent-strong);border-left-color:var(--accent);font-weight:600}
+  .ps-toc a[data-lvl="3"]{padding-left:24px;font-size:12px}
+  /* rendered markdown */
+  .ps-md{font-size:15.5px;color:var(--text);max-width:760px}
+  .ps-md .ps-h1{font-size:clamp(30px,3.6vw,40px);line-height:1.1;letter-spacing:-.02em;font-weight:700;margin:0 0 6px;scroll-margin-top:88px}
+  .ps-md .ps-h2{font-size:clamp(23px,2.5vw,28px);font-weight:700;letter-spacing:-.015em;margin:46px 0 0;padding-top:8px;scroll-margin-top:88px}
+  .ps-md .ps-h3{font-size:18.5px;font-weight:600;margin:30px 0 0;scroll-margin-top:88px}
+  .ps-md .ps-h4{font-size:15.5px;font-weight:700;margin:22px 0 0;scroll-margin-top:88px}
+  .ps-md .ps-p{margin:14px 0 0;line-height:1.65}
+  .ps-md ul,.ps-md ol{margin:12px 0 0;padding-left:22px}
+  .ps-md li{margin:5px 0;line-height:1.6}
+  .ps-md a:not(.ps-media-btn){color:var(--accent-strong);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 40%,transparent);text-underline-offset:2px}
+  .ps-md a:hover{text-decoration-color:var(--accent)}
+  .ps-md .ps-ic{font-family:'JetBrains Mono',monospace;font-size:.86em;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  .ps-md .ps-hr{border:none;border-top:1px solid var(--border);margin:30px 0}
+  .ps-md blockquote{margin:16px 0 0;padding:12px 18px;border-left:3px solid var(--accent);background:var(--surface-2);border-radius:0 8px 8px 0;color:var(--text-2)}
+  .ps-md .ps-code{margin:16px 0 0;background:var(--term-bg);border:1px solid var(--border);border-radius:12px;overflow:hidden;position:relative}
+  .ps-md .ps-code-lang{position:absolute;top:8px;right:12px;font-family:'JetBrains Mono',monospace;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--term-dim)}
+  .ps-md .ps-code pre{margin:0;padding:18px 20px;overflow-x:auto}
+  .ps-md .ps-code code{font-family:'JetBrains Mono',monospace;font-size:12.8px;line-height:1.7;color:var(--term-text);white-space:pre}
+  .ps-md .ps-tablewrap{margin:18px 0 0;overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+  .ps-md table{border-collapse:collapse;width:100%;font-size:13.5px}
+  .ps-md th{text-align:left;background:var(--surface-2);padding:10px 14px;font-weight:600;border-bottom:1px solid var(--border);white-space:nowrap}
+  .ps-md td{padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text-2);vertical-align:top}
+  .ps-md tr:last-child td{border-bottom:none}
+  .ps-md .ps-fig{margin:20px 0 0;text-align:center}
+  .ps-md .ps-diagram{max-width:100%;border:1px solid var(--border);border-radius:12px;background:var(--surface);padding:14px;cursor:zoom-in;transition:border-color .2s ease}
+  .ps-md .ps-diagram:hover{border-color:var(--accent)}
+  .ps-lightbox{position:fixed;inset:0;z-index:200;background:rgba(3,16,24,.82);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:clamp(16px,4vw,56px);cursor:zoom-out;animation:psfade .18s ease}
+  .ps-lightbox img{max-width:96vw;max-height:92vh;background:#fff;border-radius:12px;padding:22px;box-shadow:0 30px 80px -20px rgba(0,0,0,.6);cursor:zoom-in}
+  .ps-lightbox[data-zoom="true"]{align-items:flex-start;justify-content:flex-start;overflow:auto;cursor:zoom-out}
+  .ps-lightbox[data-zoom="true"] img{max-width:none;max-height:none;width:auto;margin:auto;cursor:zoom-out}
+  .ps-lightbox-close{position:absolute;top:20px;right:24px;font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:8px 13px;cursor:pointer}
+  @keyframes psfade{from{opacity:0}to{opacity:1}}
+  .ps-md .ps-media{margin:18px 0 0}
+  .ps-md .ps-media-btn{display:inline-flex;align-items:center;gap:9px;font-family:'DM Sans',sans-serif;font-size:13.5px;color:var(--text-2);background:var(--surface-2);border:1px dashed var(--border);border-radius:10px;padding:13px 18px;cursor:pointer}
+  .ps-md .ps-media-btn:hover{border-color:var(--accent);color:var(--text)}
+  .ps-md .ps-media-play{color:var(--accent)}
+  .ps-md img.ps-loaded{max-width:100%;border:1px solid var(--border);border-radius:10px}
+  .ps-md details{margin:16px 0 0;border:1px solid var(--border);border-radius:10px;padding:10px 16px;background:var(--surface)}
+  .ps-md summary{cursor:pointer;font-weight:600;color:var(--text)}
+  @media (max-width:1180px){ .ps-toc-col{display:none !important} .ps-layout{grid-template-columns:248px 1fr !important} }
+  @media (max-width:880px){
+    .ps-layout{grid-template-columns:1fr !important}
+    .ps-aside{position:static !important;height:auto !important;border-right:none !important;border-bottom:1px solid var(--border)}
+  }
+  @media print{
+    .ps-chrome{display:none !important}
+    .ps-layout{display:block !important}
+    .ps-content{max-width:none !important;padding:0 !important}
+    [data-ps-root]{background:#fff !important;color:#111 !important}
+    .ps-md .ps-code{background:#f4f6f5 !important;border:1px solid #ddd !important}
+    .ps-md .ps-code code,.ps-md .ps-code code *{color:#1a2a24 !important}
+  }
+#psSearch{font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 14px;width:190px;outline:none}#psSearch:focus{border-color:var(--accent)}#psResults.psr{position:absolute;top:44px;right:0;width:380px;max-height:64vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 24px 60px -22px rgba(0,0,0,.55);z-index:60;padding:6px}#psResults a{display:block;padding:9px 11px;border-radius:7px;text-decoration:none}#psResults a:hover{background:var(--surface-2)}.psr-t{font-size:14px;font-weight:600;color:var(--accent-strong)}.psr-x{font-size:12px;color:var(--text-2);margin-top:2px;font-family:'JetBrains Mono',monospace}.psr-e{padding:10px;color:var(--text-2);font-size:13px}@media(max-width:980px){#psSearchWrap{display:none}}</style></head><body><div data-ps-root data-theme="dark"><div style="min-height:100vh;background-color:var(--bg);color:var(--text)"><header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px"><a href="../index.html" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="../assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a><span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span><nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="../index.html">Overview ↗</a><a href="../guide.html">Guide ↗</a></nav><div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px"><div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="Search…" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div><span style="color:var(--text-2)"><a href="fr/CI.html">FR</a></span><button id="themeBtn" aria-label="Theme" style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer">Theme</button><a href="https://github.com/robintra/perf-sentinel" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#fff;background:#24292F;border-radius:8px;padding:8px 15px">GitHub</a></div></div></header><div class="ps-layout" style="max-width:1320px;margin:0 auto;display:grid;grid-template-columns:248px 1fr 232px;gap:0;align-items:start"><aside class="ps-aside ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;border-right:1px solid var(--border);padding:26px 16px 40px 28px"><button type="button" class="ps-group-btn" data-open="false"><span>Overview</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="00-INDEX.html" data-active="false">Overview</a></nav><button type="button" class="ps-group-btn" data-open="true"><span>Getting started</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="true"><a href="ARCHITECTURE.html" data-active="false">Architecture</a><a href="INTEGRATION.html" data-active="false">Integration</a><a href="INSTRUMENTATION.html" data-active="false">Instrumentation</a><a href="CI.html" data-active="true">CI</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Reference</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="CONFIGURATION.html" data-active="false">Configuration</a><a href="CLI.html" data-active="false">CLI reference</a><a href="METRICS.html" data-active="false">Metrics</a><a href="QUERY-API.html" data-active="false">Query API</a><a href="SARIF.html" data-active="false">SARIF</a><a href="SCHEMA.html" data-active="false">Schema</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Features</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="HTML-REPORT.html" data-active="false">HTML report</a><a href="INSPECT.html" data-active="false">Inspect (TUI)</a><a href="ACKNOWLEDGMENTS.html" data-active="false">Acknowledgments</a><a href="ACK-WORKFLOW.html" data-active="false">Ack workflow</a><a href="REPORTING.html" data-active="false">Reporting</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Operations</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="HELM-DEPLOYMENT.html" data-active="false">Helm deployment</a><a href="RUNBOOK.html" data-active="false">Runbook</a><a href="METHODOLOGY.html" data-active="false">Methodology</a><a href="LIMITATIONS.html" data-active="false">Limitations</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Supply chain & release</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="SUPPLY-CHAIN.html" data-active="false">Supply chain</a><a href="RELEASE-PROCEDURE.html" data-active="false">Release procedure</a></nav><button type="button" class="ps-group-btn" data-open="false"><span>Design (contributors)</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="false"><a href="design__00-INDEX.html" data-active="false">Design index</a><a href="design__01-PIPELINE-AND-TYPES.html" data-active="false">01 · Pipeline & types</a><a href="design__02-NORMALIZATION.html" data-active="false">02 · Normalization</a><a href="design__03-CORRELATION-AND-STREAMING.html" data-active="false">03 · Correlation & streaming</a><a href="design__04-DETECTION.html" data-active="false">04 · Detection</a><a href="design__05-GREENOPS-AND-CARBON.html" data-active="false">05 · GreenOps & carbon</a><a href="design__06-INGESTION-AND-DAEMON.html" data-active="false">06 · Ingestion & daemon</a><a href="design__07-CLI-CONFIG-RELEASE.html" data-active="false">07 · CLI, config & release</a><a href="design__08-PERIODIC-DISCLOSURE.html" data-active="false">08 · Periodic disclosure</a><a href="design__09-CARBON-ATTRIBUTION.html" data-active="false">09 · Carbon attribution</a><a href="design__10-SIGSTORE-ATTESTATION.html" data-active="false">10 · Sigstore & SLSA</a></nav></aside><main class="ps-content" style="min-width:0;padding:40px 44px 96px"><div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--accent);letter-spacing:.03em;margin-bottom:18px">Documentation / CI</div><div class="ps-md"><h1 id="perf-sentinel-ci-guide" class="ps-h1">perf-sentinel CI guide</h1>
+<p class="ps-p">CI-side integration: run perf-sentinel in batch mode against a trace fixture produced by your integration test stage, and surface the findings on every pull request. For topology overviews see <a href="INTEGRATION.html">Integration</a>, for application-side instrumentation see <a href="INSTRUMENTATION.html">Instrumentation</a>.</p>
+<h2 id="contents" class="ps-h2">Contents</h2>
+<ul>
+<li><a href="CI.html#ci-mode-batch-analysis">CI mode (batch analysis)</a>: the underlying CLI invocation and exit-code semantics behind every recipe below.</li>
+<li><a href="CI.html#ci-integration-recipes">CI integration recipes</a>: copy-pasteable templates for GitHub Actions, GitLab CI and Jenkins, plus the quality-gate philosophy and the interactive HTML report path for each provider.</li>
+<li><a href="CI.html#pr-regression-detection-diff-subcommand">PR regression detection (<code class="ps-ic">diff</code> subcommand)</a>: compare a PR trace set against a baseline trace set to flag regressions.</li>
+</ul>
+<h2 id="ci-mode-batch-analysis" class="ps-h2">CI mode (batch analysis)</h2>
+<p class="ps-p">For CI pipelines, use batch mode instead of daemon mode:</p>
+<div class="ps-code"><div class="ps-code-lang">bash</div><pre><code><span style="color:var(--code-cmd);font-weight:600">perf-sentinel</span> <span style="color:var(--code-sub)">analyze</span> <span style="color:var(--code-flag)">--ci</span> <span style="color:var(--code-flag)">--input</span> traces.json</code></pre></div>
+<p class="ps-p">Exit code is non-zero if the <strong>quality gate</strong> (a configurable set of pass/fail thresholds, the same idea as a SonarQube quality gate or a coverage gate) fails. Configure thresholds in <code class="ps-ic">.perf-sentinel.toml</code>:</p>
+<div class="ps-code"><div class="ps-code-lang">toml</div><pre><code><span style="color:var(--code-cmd);font-weight:600">[thresholds]</span>
+<span style="color:var(--code-sub)">n_plus_one_sql_critical_max </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 0</span>
+<span style="color:var(--code-sub)">n_plus_one_http_warning_max </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 3</span>
+<span style="color:var(--code-sub)">io_waste_ratio_max </span><span style="color:var(--term-dim)">=</span><span style="color:var(--code-num)"> 0.30</span></code></pre></div>
+<hr class="ps-hr">
+<h2 id="ci-integration-recipes" class="ps-h2">CI integration recipes</h2>
+<p class="ps-p">Ready-to-copy templates for the three major CI providers live in <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/</code></a>. Pick the one that matches your provider, drop it into your repository, adapt the three variables called out in the template's leading comment block (version pin, trace path, config path) and you are done.</p>
+<p class="ps-p">The "What it surfaces" column below references three CI-side formats: <strong>SARIF</strong> (Static Analysis Results Interchange Format, the OASIS-standard JSON schema GitHub and GitLab use for inline PR annotations, <a href="https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html" target="_blank" rel="noopener" class="ps-ext">spec</a>), <strong>GitHub Code Scanning</strong> (the surface where GitHub renders SARIF findings on PRs, formerly the "Security" tab), and <strong>Warnings Next Generation</strong> (a Jenkins plugin that aggregates static-analysis findings across plugins into a unified issue tree and a trend chart, <a href="https://plugins.jenkins.io/warnings-ng/" target="_blank" rel="noopener" class="ps-ext">project</a>).</p>
+<div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Provider</th><th style="text-align:left">Template</th><th style="text-align:left">What it surfaces</th></tr></thead><tbody><tr><td style="text-align:left">GitHub Actions</td><td style="text-align:left"><a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/github-actions.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">github-actions.yml</code></a></td><td style="text-align:left">SARIF in GitHub Code Scanning + sticky PR comment</td></tr><tr><td style="text-align:left">GitLab CI</td><td style="text-align:left"><a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/gitlab-ci.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">gitlab-ci.yml</code></a></td><td style="text-align:left">SARIF artifact + Code Quality widget on the MR</td></tr><tr><td style="text-align:left">Jenkins</td><td style="text-align:left"><a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/jenkinsfile.groovy" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">jenkinsfile.groovy</code></a></td><td style="text-align:left">Warnings Next Generation issue tree + trend chart</td></tr></tbody></table></div>
+<h3 id="quality-gate-philosophy" class="ps-h3">Quality-gate philosophy</h3>
+<p class="ps-p">All three templates run <code class="ps-ic">perf-sentinel analyze --ci</code> as the gating step. The <code class="ps-ic">--ci</code> flag exits with code <code class="ps-ic">1</code> when any threshold in <code class="ps-ic">[thresholds]</code> is breached. The templates translate that exit code differently based on the trigger:</p>
+<div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Trigger</th><th style="text-align:left">Behavior</th><th style="text-align:left">Rationale</th></tr></thead><tbody><tr><td style="text-align:left">Pull request</td><td style="text-align:left">Gate blocks (red build)</td><td style="text-align:left">Author is still in context, cost of correction is lowest</td></tr><tr><td style="text-align:left">Push to trunk</td><td style="text-align:left">Gate is informational only, SARIF still uploaded</td><td style="text-align:left">A merged commit should not be held up by perf-sentinel between merge and release</td></tr></tbody></table></div>
+<p class="ps-p">This split avoids the common failure mode where PR-gates that also enforce on trunk leave main red, the team works around it, and the tool gets disabled.</p>
+<p class="ps-p">The recommended setup runs perf-sentinel twice in the same job: once without <code class="ps-ic">--ci</code> (always produces a SARIF artifact for reviewer inspection) and once with <code class="ps-ic">--ci</code> (enforces the gate). The Jenkins and GitLab templates do this explicitly, the GitHub template uses <code class="ps-ic">continue-on-error</code> for the same effect in one invocation.</p>
+<p class="ps-p">Per-provider PR-vs-trunk wiring:</p>
+<ul>
+<li><strong>GitHub Actions</strong>: PR step runs when <code class="ps-ic">github.event_name == 'pull_request'</code> and calls <code class="ps-ic">exit 1</code> on breach, trunk step emits a <code class="ps-ic">::warning::</code> annotation without failing.</li>
+<li><strong>GitLab CI</strong>: <code class="ps-ic">allow_failure: true</code> on the <code class="ps-ic">$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH</code> rule. The job still returns exit 1 on breach, the pipeline badge stays green, the job shows a yellow warning icon.</li>
+<li><strong>Jenkins</strong>: <code class="ps-ic">when { expression { env.CHANGE_ID != null } }</code> on the <code class="ps-ic">Quality gate (PR only)</code> stage. <code class="ps-ic">CHANGE_ID</code> is populated by MultiBranch Pipeline only on PRs, so branch builds skip the stage. The Warnings NG <code class="ps-ic">qualityGates</code> follows the same guard so the post block does not reintroduce blocking on trunk.</li>
+</ul>
+<h3 id="interactive-report-via-github-pages" class="ps-h3">Interactive report via GitHub Pages</h3>
+<p class="ps-p">The sticky PR comment (markdown block with finding counts and quality gate status) gives reviewers an at-a-glance view. For a deeper inspection (span tree with highlighted N+1s, framework-specific suggested fixes, pg_stat drill-down, full Diff against trunk), the GitHub Actions template optionally publishes a <strong>full HTML dashboard</strong> to GitHub Pages on every PR, linked from the sticky comment as:</p>
+<blockquote class="ps-bq">📊 <strong>Interactive report (Diff view)</strong> → <code class="ps-ic">https://&lt;owner&gt;.github.io/&lt;repo&gt;/perf-sentinel-reports/pr-&lt;N&gt;/index.html#diff</code></blockquote>
+<p class="ps-p">Clicking the link opens the report on the Diff tab, which is the natural view for a reviewer: new findings introduced by the PR, resolved findings (regressions fixed), severity changes, and endpoint-level I/O metric deltas. The other tabs (Findings, Explain, pg_stat, Correlations, GreenOps) are one click away via the tab strip.</p>
+<p class="ps-p">The reports are self-contained single-file HTML with deep-link hash routing, so sharing a specific finding is as simple as copying the URL from the address bar.</p>
+<p class="ps-p"><strong>GitHub Pages tier requirement</strong>. On a personal GitHub Free account, Pages is only available for public repositories. Private repositories need GitHub Pro, Team, or Enterprise Cloud. See <a href="https://docs.github.com/en/get-started/learning-about-github/githubs-products" target="_blank" rel="noopener" class="ps-ext">GitHub's plans</a> for the current list. If you try to enable Pages on a private repo with a Free account, the branch push succeeds but Pages serves 404 permanently with no error in the Actions log. Either upgrade the account, make the repository public, or skip the Pages block and stay on the SARIF + markdown sticky comment mode.</p>
+<p class="ps-p"><strong>Setup</strong> (opt-in, requires GitHub Pages on the repository):</p>
+<ol>
+<li>Create an empty <code class="ps-ic">gh-pages</code> branch in the repo (one-time, standard GitHub Pages bootstrap).</li>
+<li>Enable GitHub Pages in <code class="ps-ic">Settings -&gt; Pages</code>, source = <code class="ps-ic">gh-pages</code> branch, folder = <code class="ps-ic">/ (root)</code>.</li>
+<li>Copy the companion baseline workflow from <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/github-actions-baseline.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/github-actions-baseline.yml</code></a> to <code class="ps-ic">.github/workflows/perf-sentinel-baseline.yml</code>. It runs on every push to <code class="ps-ic">main</code> and stores the baseline report under <code class="ps-ic">gh-pages/perf-sentinel-reports/baseline.json</code>.</li>
+<li>Copy the cleanup workflow from <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/github-actions-report-cleanup.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/github-actions-report-cleanup.yml</code></a> to <code class="ps-ic">.github/workflows/perf-sentinel-report-cleanup.yml</code>. It runs on PR close and removes the per-PR directory.</li>
+<li>Uncomment the <code class="ps-ic">Download baseline from gh-pages</code>, `Generate interactive HTML report<code class="ps-ic">, </code>Checkout gh-pages worktree` and <code class="ps-ic">Publish report to gh-pages</code> blocks in your main workflow (the header comment in <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/github-actions.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/github-actions.yml</code></a> locates them).</li>
+<li>In that same main workflow, raise <code class="ps-ic">contents: read</code> to <code class="ps-ic">contents: write</code> in the <code class="ps-ic">permissions:</code> block. The publish step pushes the HTML report to the <code class="ps-ic">gh-pages</code> branch, which a read-only <code class="ps-ic">GITHUB_TOKEN</code> cannot do (the push fails with a 403). The baseline and cleanup workflows already declare <code class="ps-ic">contents: write</code>, so only the main workflow needs the change.</li>
+</ol>
+<p class="ps-p">Once the three workflows are in place, every PR gets its own interactive report at a stable URL:</p>
+<div class="ps-code"><pre><code>https://&lt;owner&gt;.github.io/&lt;repo&gt;/perf-sentinel-reports/pr-&lt;N&gt;/</code></pre></div>
+<p class="ps-p">The baseline is refreshed on every push to <code class="ps-ic">main</code>, so the Diff tab always compares the PR's traces against the latest merged state.</p>
+<p class="ps-p">If GitHub Pages is not enabled, the template falls back to the markdown-only sticky comment. No behaviour change for existing adopters.</p>
+<p class="ps-p"><strong>Fork PR limitations</strong>. The <code class="ps-ic">Post PR comment</code> step is marked <code class="ps-ic">continue-on-error: true</code> because fork PRs receive a read-only <code class="ps-ic">GITHUB_TOKEN</code> regardless of the workflow's <code class="ps-ic">permissions:</code> block. Without the tolerance, every fork PR would turn the CI red at the sticky-comment step even when the rest of the pipeline succeeded. With the tolerance in place, fork PRs still upload SARIF findings to the Security tab and the Checks UI shows the quality gate result, but no sticky comment appears on the PR conversation. Same-repo PRs (internal contributors, same org) keep the full experience, sticky comment included. Projects where the sticky comment on fork PRs is a hard requirement should migrate to the <code class="ps-ic">pull_request_target</code> + <code class="ps-ic">workflow_run</code> split documented by <a href="https://securitylab.github.com/research/github-actions-preventing-pwn-requests/" target="_blank" rel="noopener" class="ps-ext">GitHub Security Lab</a>. That pattern splits the pipeline into a read-only workflow that builds and uploads artifacts and a write-enabled workflow triggered by <code class="ps-ic">workflow_run</code> that downloads those artifacts and posts the comment. It is not the default in this template because it doubles the YAML surface and needs careful artifact passing, not proportional for a getting-started template. The <code class="ps-ic">Publish report to gh-pages</code> step is guarded the same way (it runs only when <code class="ps-ic">github.event.pull_request.head.repo.full_name == github.repository</code>), so a fork PR never fails on a push the read-only token could not make.</p>
+<p class="ps-p"><strong>Concurrency trade-off</strong>. The <code class="ps-ic">concurrency.group: gh-pages-deploy</code> guard serializes runs of this workflow against the baseline and cleanup workflows, so three PRs closed in the same minute cannot race each other on gh-pages. Because the guard is declared at workflow scope, it also serializes runs that would not touch Pages (for example when the Pages blocks are commented out). Repositories with heavy PR throughput can split the Pages-related steps into a dedicated job and narrow the concurrency to that job only. Skipped here to keep the template compact.</p>
+<p class="ps-p"><strong>Dependencies</strong>. The deploy uses plain <code class="ps-ic">git</code> against the <code class="ps-ic">gh-pages</code> branch, authenticated with the built-in <code class="ps-ic">GITHUB_TOKEN</code> and a <code class="ps-ic">contents: write</code> permission. The baseline and cleanup workflows declare it out of the box; the main workflow ships with <code class="ps-ic">contents: read</code> and you raise it to <code class="ps-ic">write</code> when enabling the publish blocks (step 6 above). No third-party deploy action is required, which keeps the template free of supply-chain surface for the upload path. Only <code class="ps-ic">actions/checkout</code> (pinned) is reused across all three workflows.</p>
+<p class="ps-p"><strong>Storage footprint</strong>. A typical report is 80 to 150 KB. With retention handled by the cleanup workflow, the gh-pages branch only carries reports for open PRs plus the single <code class="ps-ic">baseline.json</code>. No unbounded growth.</p>
+<p class="ps-p"><strong>Other providers</strong>. See "Interactive report via GitLab Pages" and "Interactive report via Jenkins HTML Publisher" below.</p>
+<h3 id="interactive-report-via-gitlab-pages" class="ps-h3">Interactive report via GitLab Pages</h3>
+<p class="ps-p">Equivalent to the GitHub Pages path above, adapted to GitLab's native deployment surface. Two template blocks are provided in <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/gitlab-ci.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/gitlab-ci.yml</code></a>, pick the one matching your GitLab tier.</p>
+<p class="ps-p"><strong>Tier note</strong>. The per-MR deployment mode (<code class="ps-ic">pages.path_prefix</code>) is documented as <a href="https://docs.gitlab.com/user/project/pages/#create-multiple-deployments" target="_blank" rel="noopener" class="ps-ext">Experiment, Tier: Premium or Ultimate</a>, and is not available on gitlab.com Free. On Free, the MR deployment appears successful in the environments list but is not actually served. A Free-tier compatible fallback is provided alongside.</p>
+<div class="ps-tablewrap"><table><thead><tr><th style="text-align:left">Block</th><th style="text-align:left">Tier</th><th style="text-align:left">Behavior</th></tr></thead><tbody><tr><td style="text-align:left"><code class="ps-ic">perf-sentinel-pages-simple</code></td><td style="text-align:left">Free</td><td style="text-align:left">Single deployment on the default branch. Publishes the trunk snapshot of the report AND the baseline JSON at the project Pages root. MR reviewers see the trunk view, not their own MR's analysis.</td></tr><tr><td style="text-align:left"><code class="ps-ic">perf-sentinel-pages</code></td><td style="text-align:left">Premium or Ultimate</td><td style="text-align:left">One deployment per MR under path prefix <code class="ps-ic">mr-&lt;IID&gt;</code>, 30-day auto-expiry via <code class="ps-ic">expire_in</code>. Baseline on the default branch at the Pages root. Native "View deployment" button on the MR UI.</td></tr></tbody></table></div>
+<p class="ps-p">Pick either block, not both (they would fight over the root deployment).</p>
+<p class="ps-p"><strong>Setup</strong> (opt-in, requires GitLab Pages enabled on the project):</p>
+<ol>
+<li>Enable GitLab Pages under <code class="ps-ic">Settings -&gt; Pages</code> if not already on.</li>
+<li>Uncomment exactly one block in <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/gitlab-ci.yml" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/gitlab-ci.yml</code></a>. Both run in the <code class="ps-ic">perf-sentinel</code> stage and reuse <code class="ps-ic">PERF_SENTINEL_VERSION / PERF_SENTINEL_TRACES / PERF_SENTINEL_CONFIG</code> already declared for the main job.</li>
+<li>For <code class="ps-ic">perf-sentinel-pages</code>, confirm GitLab 17.9 or later. Not required for <code class="ps-ic">perf-sentinel-pages-simple</code>.</li>
+</ol>
+<p class="ps-p"><strong>Behavior of <code class="ps-ic">perf-sentinel-pages</code> (Premium or Ultimate)</strong>. The job differentiates two trigger paths via its <code class="ps-ic">rules:</code> block:</p>
+<ul>
+<li><strong>On merge request</strong> (<code class="ps-ic">$CI_PIPELINE_SOURCE == "merge_request_event"</code>), fetches the trunk baseline from the project Pages root (strips the MR prefix from <code class="ps-ic">CI_PAGES_URL</code> via <code class="ps-ic">${CI_PAGES_URL%/mr-[0-9]*}</code>, silent 404 fallback when absent), produces <code class="ps-ic">public/index.html</code> via <code class="ps-ic">perf-sentinel report --output public/index.html</code>, deploys with <code class="ps-ic">path_prefix: "mr-${CI_MERGE_REQUEST_IID}"</code> and <code class="ps-ic">pages.expire_in: 30 days</code>. <code class="ps-ic">environment.url</code> points to the active <code class="ps-ic">${CI_PAGES_URL}</code>, which GitLab resolves to the MR-scoped deployment URL at runtime.</li>
+<li><strong>On push to the default branch</strong>, produces <code class="ps-ic">public/perf-sentinel-reports/baseline.json</code> via <code class="ps-ic">perf-sentinel analyze --format json</code>, deploys with an empty <code class="ps-ic">path_prefix</code> so the file lands at the site root and future MR deployments can fetch it.</li>
+</ul>
+<p class="ps-p"><strong>Behavior of <code class="ps-ic">perf-sentinel-pages-simple</code> (Free)</strong>. Runs only on the default branch. Writes both <code class="ps-ic">public/index.html</code> (the interactive trunk snapshot) and <code class="ps-ic">public/perf-sentinel-reports/baseline.json</code> in one pass, then deploys a single Pages site at the project root.</p>
+<p class="ps-p"><strong>Retention</strong>. <code class="ps-ic">perf-sentinel-pages</code> delegates retention to GitLab. Parallel deployments are deleted immediately when the MR is closed or merged. The <code class="ps-ic">pages.expire_in: 30 days</code> on the template is a backstop for stale-open MRs (GitLab's default is 24 hours when unset, which we widen so a long-running MR keeps its live report). Setting <code class="ps-ic">expire_in: never</code> disables time-based expiry entirely and relies on close/merge events only. Use <code class="ps-ic">never</code> only if your team reliably closes or merges MRs, otherwise abandoned MRs accumulate until the quota cap kicks in. <code class="ps-ic">perf-sentinel-pages-simple</code> has no retention concern, it keeps a single deployment that is overwritten on every default-branch push.</p>
+<p class="ps-p"><strong>Quota</strong>. gitlab.com allows up to 100 additional parallel deployments on Premium and 500 on Ultimate, tracked per namespace on top of the main deployment. Self-managed instances expose the limit through admin configuration. <code class="ps-ic">perf-sentinel-pages-simple</code> is a single deployment, not subject to this cap. For projects running near the cap on <code class="ps-ic">perf-sentinel-pages</code>, <code class="ps-ic">expire_in</code> can be lowered or MRs should be closed/merged promptly to release slots.</p>
+<p class="ps-p"><strong>Storage footprint</strong>. A typical report is 80 to 150 KB and a baseline JSON is 10 to 50 KB. With retention active on the Premium path, only open MRs plus the current baseline consume space. The Free path stores a single deployment.</p>
+<p class="ps-p"><strong>Dependencies</strong>. No third-party GitLab CI component. The job uses <code class="ps-ic">curl</code> to install the pinned perf-sentinel release binary and the built-in <code class="ps-ic">pages:</code> keyword for deployment. No deploy token or runner token beyond the default <code class="ps-ic">CI_JOB_TOKEN</code> is required.</p>
+<h3 id="interactive-report-via-jenkins-html-publisher" class="ps-h3">Interactive report via Jenkins HTML Publisher</h3>
+<p class="ps-p">Equivalent to the GitHub and GitLab paths above, adapted to the <a href="https://plugins.jenkins.io/htmlpublisher/" target="_blank" rel="noopener" class="ps-ext">HTML Publisher plugin</a> that is pre-installed on most enterprise Jenkins. The plugin exposes the report at a stable URL <code class="ps-ic">${BUILD_URL}perf-sentinel/</code> and adds a "perf-sentinel" link in the build sidebar, next to the Warnings NG report already configured by the template.</p>
+<p class="ps-p">Opening that link drops the reviewer into the Findings tab (the default landing when no baseline is wired, see the Diff tab note below). The five other tabs (Explain, pg_stat, Correlations, GreenOps, and a greyed-out Diff tab) are one click away via the tab strip.</p>
+<p class="ps-p"><strong>Jenkins pipeline requirements</strong>:</p>
+<ul>
+<li>Use a <strong>MultiBranch Pipeline</strong> with a branch-source plugin installed (GitHub Branch Source, Bitbucket Branch Source, GitLab Branch Source, or Gitea Branch Source). The <code class="ps-ic">env.CHANGE_ID</code> check that gates the quality-gate stage on PR builds is only set by these plugins. Inside a classic single-branch Pipeline, <code class="ps-ic">CHANGE_ID</code> is always null and the quality gate never blocks.</li>
+<li>Use a <strong>Linux agent</strong> (or a controller without agents on a Linux host). The template relies on <code class="ps-ic">sh</code>, <code class="ps-ic">curl</code>, <code class="ps-ic">sha256sum</code>, <code class="ps-ic">chmod</code>, none of which are available on Windows agents by default.</li>
+</ul>
+<p class="ps-p"><strong>Setup</strong> (opt-in, requires the HTML Publisher plugin on the controller):</p>
+<ol>
+<li>Confirm the HTML Publisher plugin (&gt;= 1.10 for CSP compatibility) is installed. Manage Jenkins -&gt; Plugins -&gt; Installed plugins, search for "HTML Publisher". If missing, install and restart the controller. The Warnings Next Generation plugin used by the rest of the template needs to be at &gt;= 9.11.0 for the SARIF tool.</li>
+<li>Uncomment the <code class="ps-ic">Generate interactive HTML report</code> stage in <a href="https://github.com/robintra/perf-sentinel/blob/main/docs/ci-templates/jenkinsfile.groovy" target="_blank" rel="noopener" class="ps-ext"><code class="ps-ic">docs/ci-templates/jenkinsfile.groovy</code></a>, placed right before the <code class="ps-ic">Quality gate (PR only)</code> stage.</li>
+<li>Uncomment the <code class="ps-ic">publishHTML([...])</code> block in the <code class="ps-ic">post { always }</code> section of the same file. It is paired with the stage above so both need to be enabled together for the link to appear.</li>
+</ol>
+<p class="ps-p">Once enabled, every build (branch or pull request) produces a report available at <code class="ps-ic">${JENKINS_URL}/job/&lt;job-name&gt;/&lt;build-number&gt;/perf-sentinel/</code>. The build sidebar carries a "perf-sentinel" link that always points to the newest build's report via <code class="ps-ic">alwaysLinkToLastBuild: true</code>. The <code class="ps-ic">keepAll: true</code> option retains per-build reports so historical builds remain browsable.</p>
+<p class="ps-p">If the report renders unstyled with broken tab navigation, see <strong>Configuring Jenkins to render the interactive report</strong> below. Jenkins applies a strict default Content Security Policy that blocks inline CSS and JavaScript, which is the most common cause of an unstyled perf-sentinel sidebar page.</p>
+<p class="ps-p"><strong>Configuring Jenkins to render the interactive report</strong>.</p>
+<p class="ps-p">Jenkins applies a strict <a href="https://www.jenkins.io/doc/book/security/configuring-content-security-policy/" target="_blank" rel="noopener" class="ps-ext">Content Security Policy</a> by default to content served from build workspaces. The perf-sentinel HTML report packs CSS and JavaScript inline in a single self-contained file, which the default CSP blocks. Without relaxing the policy or using a Resource Root URL, clicking the <code class="ps-ic">${BUILD_URL}perf-sentinel/</code> sidebar link shows an unstyled HTML page with broken tab navigation and no message in the build log.</p>
+<p class="ps-p">Two options to fix, in order of preference:</p>
+<p class="ps-p"><strong>Option A: configure a Resource Root URL</strong> (Jenkins 2.200+, recommended). Serves user-generated content from a separate domain so the main instance CSP no longer applies. Set the URL in <code class="ps-ic">Manage Jenkins &gt; System &gt; Resource Root URL</code>. See the <a href="https://www.jenkins.io/doc/book/security/user-content/#resource-root-url" target="_blank" rel="noopener" class="ps-ext">inline help</a> for details. No template change required, all reports across all jobs benefit immediately.</p>
+<p class="ps-p"><strong>Option B: relax the CSP</strong> (legacy, broader scope). Set the following Java system property on the Jenkins controller startup (or run it once via the Script Console for a session-scoped experiment):</p>
+<div class="ps-code"><div class="ps-code-lang">groovy</div><pre><code>System.setProperty(
+    "hudson.model.DirectoryBrowserSupport.CSP",
+    "sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+)</code></pre></div>
+<p class="ps-p">Tradeoffs:</p>
+<ul>
+<li>Affects all HTML content served by all jobs on the instance, not just perf-sentinel reports.</li>
+<li>Adds <code class="ps-ic">'unsafe-inline'</code> for both styles and scripts. Acceptable on a Jenkins instance where you trust the jobs being run, risky on a multi-tenant instance with untrusted contributors.</li>
+<li>Reverts to default on Jenkins restart unless persisted via the startup options (<code class="ps-ic">JAVA_OPTS</code>, <code class="ps-ic">jenkins.xml</code>, or systemd unit).</li>
+</ul>
+<p class="ps-p">A future perf-sentinel release may produce a CSP-friendly report (CSS and JavaScript split into sibling files) that works on the default Jenkins CSP. No date committed.</p>
+<p class="ps-p"><strong>Diff tab absent by default</strong>. Unlike GitHub Actions and GitLab CI where a companion baseline workflow refreshes <code class="ps-ic">baseline.json</code> on every push to the default branch, this template does not wire a Jenkins baseline. The Diff tab of the report is therefore empty. Users who want the Diff tab can extend the template with the <a href="https://plugins.jenkins.io/copyartifact/" target="_blank" rel="noopener" class="ps-ext">Copy Artifact plugin</a> to pull a <code class="ps-ic">baseline.json</code> from the last successful build of the default-branch job, then pass it to <code class="ps-ic">perf-sentinel report --before baseline.json</code>. This enhancement is out of scope for this template.</p>
+<p class="ps-p"><strong>No PR comment posting</strong>. Jenkins does not have a native pull-request comment mechanism equivalent to GitHub's sticky comment or GitLab's Code Quality widget. Reviewers who follow a Jenkins build consult the build page directly, same pattern as for Warnings NG findings. Teams who want a PR comment can wire the <code class="ps-ic">gh</code> CLI or a forge-specific REST API from within the pipeline, but that requires managing a forge token in Jenkins credentials and is out of scope for this template.</p>
+<p class="ps-p"><strong>Storage footprint</strong> is per-build and retained indefinitely (<code class="ps-ic">keepAll: true</code>). A typical report is 80 to 150 KB. For long-lived Jenkins controllers with high build volume, pair <code class="ps-ic">publishHTML keepAll: true</code> with the build discarder in the job configuration (e.g. keep last N builds) to cap the footprint.</p>
+<h3 id="where-sarif-surfaces-in-each-provider" class="ps-h3">Where SARIF surfaces in each provider</h3>
+<ul>
+<li><strong>GitHub Code Scanning</strong> lists each finding under the Security tab of the repository, with inline source annotations on the PR diff when the <code class="ps-ic">code_location</code> field is present. Requires `permissions.security-events: write` on the workflow.</li>
+<li><strong>GitLab Code Quality</strong> widget shows up on the merge request page, with severity colors derived from the perf-sentinel <code class="ps-ic">severity</code> field (<code class="ps-ic">critical -&gt; critical</code>, <code class="ps-ic">warning -&gt; major</code>, <code class="ps-ic">info -&gt; info</code>).</li>
+<li><strong>Jenkins Warnings Next Generation</strong> publishes a structured issue tree with a trend chart per build. The plugin natively understands SARIF v2.1.0 and supports its own <code class="ps-ic">qualityGates</code> declaration as a defense in depth on top of the perf-sentinel <code class="ps-ic">--ci</code> exit code.</li>
+</ul>
+<hr class="ps-hr">
+<h2 id="pr-regression-detection-diff-subcommand" class="ps-h2">PR regression detection (<code class="ps-ic">diff</code> subcommand)</h2>
+<p class="ps-p">The <code class="ps-ic">diff</code> subcommand compares two trace sets and emits a delta report listing new findings, resolved findings, severity changes and per-endpoint I/O op count deltas. The natural fit is a PR check that compares the PR branch's traces against the base branch's traces.</p>
+<div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--term-comment)"># .github/workflows/perf-sentinel-diff.yml</span>
+<span style="color:var(--code-sub)">name</span>: perf-sentinel diff
+
+<span style="color:var(--code-sub)">on</span>:
+<span style="color:var(--code-sub)">  pull_request</span>:
+<span style="color:var(--code-sub)">    branches</span>: [main]
+
+<span style="color:var(--code-sub)">permissions</span>:
+<span style="color:var(--code-sub)">  contents</span>: read
+<span style="color:var(--code-sub)">  pull-requests</span>: write
+
+<span style="color:var(--code-sub)">jobs</span>:
+<span style="color:var(--code-sub)">  diff</span>:
+<span style="color:var(--code-sub)">    runs-on</span>: ubuntu-latest
+<span style="color:var(--code-sub)">    env</span>:
+<span style="color:var(--code-sub)">      PERF_SENTINEL_VERSION</span>: "0.8.13"
+<span style="color:var(--code-sub)">    steps</span>:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+<span style="color:var(--code-sub)">        with</span>:
+<span style="color:var(--code-sub)">          fetch-depth</span>: 0
+
+      - name: Install perf-sentinel
+<span style="color:var(--code-sub)">        run</span>: |
+          set -euo pipefail
+          BASE_URL="https://github.com/robintra/perf-sentinel/releases/download/v${PERF_SENTINEL_VERSION}"
+          curl -sSLf -o perf-sentinel-linux-amd64 "${BASE_URL}/perf-sentinel-linux-amd64"
+          curl -sSLf -o SHA256SUMS.txt            "${BASE_URL}/SHA256SUMS.txt"
+          grep 'perf-sentinel-linux-amd64' SHA256SUMS.txt | sha256sum -c -
+          mkdir -p "${GITHUB_WORKSPACE}/bin"
+          install -m 0755 perf-sentinel-linux-amd64 "${GITHUB_WORKSPACE}/bin/perf-sentinel"
+          echo "${GITHUB_WORKSPACE}/bin" &gt;&gt; "${GITHUB_PATH}"
+
+<span style="color:var(--term-comment)">      # Run integration tests on the PR branch and capture traces.</span>
+      - name: Collect PR-branch traces
+<span style="color:var(--code-sub)">        run</span>: ./scripts/run-integration-tests.sh
+<span style="color:var(--code-sub)">        env</span>:
+<span style="color:var(--code-sub)">          OTEL_EXPORTER_OTLP_FILE_PATH</span>: pr-traces.json
+
+<span style="color:var(--term-comment)">      # Re-run on the base branch.</span>
+      - name: Collect base-branch traces
+<span style="color:var(--code-sub)">        run</span>: |
+          git checkout ${{ github.event.pull_request.base.sha }} -- .
+          ./scripts/run-integration-tests.sh
+<span style="color:var(--code-sub)">        env</span>:
+<span style="color:var(--code-sub)">          OTEL_EXPORTER_OTLP_FILE_PATH</span>: base-traces.json
+
+      - name: Diff
+<span style="color:var(--code-sub)">        run</span>: |
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format json \
+            --output diff.json
+<span style="color:var(--term-comment)">          # SARIF for GitHub Code Scanning (only new findings).</span>
+          perf-sentinel diff \
+            --before base-traces.json \
+            --after pr-traces.json \
+            --config .perf-sentinel.toml \
+            --format sarif \
+            --output diff.sarif
+
+      - name: Upload SARIF
+<span style="color:var(--code-sub)">        if</span>: hashFiles('diff.sarif') != ''
+<span style="color:var(--code-sub)">        uses</span>: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+<span style="color:var(--code-sub)">        with</span>:
+<span style="color:var(--code-sub)">          sarif_file</span>: diff.sarif
+<span style="color:var(--code-sub)">          category</span>: perf-sentinel-diff
+
+      - name: Comment regression summary on PR
+<span style="color:var(--code-sub)">        run</span>: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          RESOLVED=$(jq '.resolved_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical" or (.after_severity == "warning" and .before_severity == "info"))] | length' diff.json)
+          {
+            echo "## perf-sentinel diff vs base"
+            echo
+            echo "- $NEW new finding(s)"
+            echo "- $RESOLVED resolved finding(s)"
+            echo "- $REGRESSIONS severity regression(s)"
+          } &gt; pr-comment.md
+
+      - uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
+<span style="color:var(--code-sub)">        with</span>:
+<span style="color:var(--code-sub)">          header</span>: perf-sentinel-diff
+<span style="color:var(--code-sub)">          path</span>: pr-comment.md
+
+      - name: Fail on regression
+<span style="color:var(--code-sub)">        run</span>: |
+          NEW=$(jq '.new_findings | length' diff.json)
+          REGRESSIONS=$(jq '[.severity_changes[] | select(.after_severity == "critical")] | length' diff.json)
+          if [ "$NEW" -gt 0 ] || [ "$REGRESSIONS" -gt 0 ]; then
+            echo "::error::diff introduces $NEW new finding(s) and $REGRESSIONS critical regression(s)"
+            exit 1
+          fi</code></pre></div>
+<p class="ps-p">Tweak the threshold logic in the final step to match your team's policy. Some teams gate on any new finding, others tolerate Info-level new findings and only fail on Warning or Critical regressions.</p>
+<hr class="ps-hr"></div></main><aside class="ps-toc-col ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;padding:40px 28px 40px 8px"><div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);padding:0 0 12px 12px">On this page</div><nav class="ps-toc"><a href="#contents" data-anchor="contents" data-lvl="2">Contents</a><a href="#ci-mode-batch-analysis" data-anchor="ci-mode-batch-analysis" data-lvl="2">CI mode (batch analysis)</a><a href="#ci-integration-recipes" data-anchor="ci-integration-recipes" data-lvl="2">CI integration recipes</a><a href="#quality-gate-philosophy" data-anchor="quality-gate-philosophy" data-lvl="3">Quality-gate philosophy</a><a href="#interactive-report-via-github-pages" data-anchor="interactive-report-via-github-pages" data-lvl="3">Interactive report via GitHub Pages</a><a href="#interactive-report-via-gitlab-pages" data-anchor="interactive-report-via-gitlab-pages" data-lvl="3">Interactive report via GitLab Pages</a><a href="#interactive-report-via-jenkins-html-publisher" data-anchor="interactive-report-via-jenkins-html-publisher" data-lvl="3">Interactive report via Jenkins HTML Publisher</a><a href="#where-sarif-surfaces-in-each-provider" data-anchor="where-sarif-surfaces-in-each-provider" data-lvl="3">Where SARIF surfaces in each provider</a><a href="#pr-regression-detection-diff-subcommand" data-anchor="pr-regression-detection-diff-subcommand" data-lvl="2">PR regression detection (diff subcommand)</a></nav></aside></div></div></div><script>(function(){var R=document.querySelector('[data-ps-root]');function setT(t){R.setAttribute('data-theme',t);try{localStorage.setItem('ps-theme',t)}catch(e){}}var sv;try{sv=localStorage.getItem('ps-theme')}catch(e){}if(sv==='dark'||sv==='light')setT(sv);else setT(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');var tb=document.getElementById('themeBtn');if(tb)tb.onclick=function(){setT(R.getAttribute('data-theme')==='dark'?'light':'dark')};document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.ps-group-btn');if(b){var o=b.getAttribute('data-open')!=='true';b.setAttribute('data-open',o);var n=b.nextElementSibling;if(n)n.setAttribute('data-open',o);return}var d=e.target.closest&&e.target.closest('.ps-diagram,.ps-zoom');if(d){var ov=document.createElement('div');ov.className='ps-lightbox';ov.onclick=function(){ov.remove()};var im=document.createElement('img');im.src=d.getAttribute('src');ov.appendChild(im);document.body.appendChild(ov);return}});document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=document.querySelector('.ps-lightbox');if(o)o.remove()}});var toc=[].slice.call(document.querySelectorAll('.ps-toc a'));function spy(){var c=null;for(var i=0;i<toc.length;i++){var el=document.getElementById(toc[i].getAttribute('data-anchor'));if(el&&el.getBoundingClientRect().top-120<=0)c=toc[i]}toc.forEach(function(a){a.setAttribute('data-active',a===c?'true':'false')})}window.addEventListener('scroll',spy,{passive:true});spy();(function(){var IDX=null,sb=document.getElementById('psSearch'),sr=document.getElementById('psResults');if(!sb)return;function esc(s){return s.replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}function load(){return IDX?Promise.resolve():fetch('search.json').then(function(r){return r.json()}).then(function(j){IDX=j})}sb.addEventListener('input',function(){var q=sb.value.trim().toLowerCase();if(!q){sr.style.display='none';return}load().then(function(){var tk=q.split(/\s+/),res=[];IDX.forEach(function(d){var hay=(d.t+' '+d.x).toLowerCase();if(tk.every(function(t){return hay.indexOf(t)>=0})){res.push([(d.t.toLowerCase().indexOf(q)>=0?100:0)+(d.x.toLowerCase().split(q).length-1),d])}});res.sort(function(a,b){return b[0]-a[0]});res=res.slice(0,8);if(!res.length){sr.innerHTML='<div class="psr-e">No results</div>';sr.style.display='block';return}sr.innerHTML=res.map(function(p){var d=p[1],x=d.x,i=x.toLowerCase().indexOf(tk[0]),sn=i>=0?x.slice(Math.max(0,i-30),i+70):x.slice(0,100);return '<a href="'+d.u+'"><div class="psr-t">'+esc(d.t)+'</div><div class="psr-x">…'+esc(sn)+'…</div></a>'}).join('');sr.style.display='block'})});document.addEventListener('click',function(e){if(!e.target.closest||!e.target.closest('#psSearchWrap'))sr.style.display='none'});})();</script></body></html>
