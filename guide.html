@@ -123,22 +123,6 @@
       <!-- WHY -->
 
       <!-- DETECT -->
-      <section id="detect" style="padding-top:54px">
-        <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ dtTitle }}</h2>
-        <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px">{{ dtIntro }}</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px">
-          <sc-for list="{{ dtPatterns }}" as="p" hint-placeholder-count="10">
-            <div class="ps-card" style="display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 17px">
-              <span style="flex:none;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:5px 8px">{{ p.n }}</span>
-              <div>
-                <div style="font-size:15px;font-weight:600;color:var(--text)">{{ p.name }}</div>
-                <div style="margin-top:3px;font-size:13px;color:var(--text-2);line-height:1.5">{{ p.trigger }}</div>
-              </div>
-            </div>
-          </sc-for>
-        </div>
-        <p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:680px">{{ dtFoot }}</p>
-      </section>
 
       <!-- QUICKSTART -->
       <section id="quickstart" style="padding-top:54px">
@@ -628,20 +612,6 @@ class Component extends DCLogic {
         mtNote: 'Directional estimate: a ~2× bracket in proxy mode, tighter with a measured source (Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower with calibration). It is not a standalone regulatory carbon-accounting platform.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
         ftRight: 'Edit on GitHub →',
-        dtTitle: 'What it detects',
-        dtIntro: 'Ten finding types, plus cross-trace correlations in daemon mode, on the SQL and HTTP requests your services already emit.',
-        dtPatterns: [
-          { n: '01', name: 'N+1 SQL', trigger: 'Same query template fired ≥ N times in a single trace.' },
-          { n: '02', name: 'N+1 HTTP', trigger: 'Same URL template called ≥ N times in a single trace.' },
-          { n: '03', name: 'Redundant SQL', trigger: 'Identical query with identical params, same trace.' },
-          { n: '04', name: 'Redundant HTTP', trigger: 'Identical call with identical params, same trace.' },
-          { n: '05', name: 'Slow SQL', trigger: 'Query duration above the configured threshold.' },
-          { n: '06', name: 'Slow HTTP', trigger: 'Request duration above the configured threshold.' },
-          { n: '07', name: 'Excessive fanout', trigger: 'One span starts ≥ N children in parallel.' },
-          { n: '08', name: 'Chatty service', trigger: 'Service A → B repeatedly within one user request.' },
-          { n: '09', name: 'Pool saturation', trigger: 'Concurrent in-flight queries exceed the pool size.' },
-          { n: '10', name: 'Serialized calls', trigger: 'Sequential I/O that could be parallelized.' },
-        ],
         dtFoot: 'Each finding carries type, severity, normalized template, occurrences, source endpoint, suggestion, source location (when spans carry code.* attributes) and GreenOps impact.',
         akTitle: 'Acknowledging known findings',
         akIntro: 'Drop a .perf-sentinel-acknowledgments.toml at your repo root to suppress findings the team has accepted: each gets a SHA-256 signature, and they are filtered from analyze / report / inspect / diff and don\u2019t count toward the quality gate. Runtime acks against a live daemon are exposed via the ack CLI, the live HTML dashboard and the TUI.',
@@ -813,20 +783,6 @@ class Component extends DCLogic {
         mtNote: 'Estimation directionnelle : encadrement ~2× en mode proxy, plus serrée avec une source mesurée (Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud avec calibration). Ce n\u2019est pas une plateforme de comptabilité carbone réglementaire standalone.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
         ftRight: 'Éditer sur GitHub →',
-        dtTitle: 'Ce qu\u2019il détecte',
-        dtIntro: 'Dix types de findings, plus les corrélations cross-trace en mode daemon, sur les requêtes SQL et HTTP que vos services émettent déjà.',
-        dtPatterns: [
-          { n: '01', name: 'N+1 SQL', trigger: 'Même template de requête tiré ≥ N fois dans une trace.' },
-          { n: '02', name: 'N+1 HTTP', trigger: 'Même template d\u2019URL appelé ≥ N fois dans une trace.' },
-          { n: '03', name: 'SQL redondant', trigger: 'Requête identique, paramètres identiques, même trace.' },
-          { n: '04', name: 'HTTP redondant', trigger: 'Appel identique, paramètres identiques, même trace.' },
-          { n: '05', name: 'SQL lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
-          { n: '06', name: 'HTTP lent', trigger: 'Durée de requête au-dessus du seuil configuré.' },
-          { n: '07', name: 'Fanout excessif', trigger: 'Un span démarre ≥ N enfants en parallèle.' },
-          { n: '08', name: 'Service bavard', trigger: 'A → B de manière répétée dans une seule requête utilisateur.' },
-          { n: '09', name: 'Saturation de pool', trigger: 'Requêtes concurrentes en vol au-dessus de la taille du pool.' },
-          { n: '10', name: 'Appels sérialisés', trigger: 'I/O séquentiels qui pourraient être parallélisés.' },
-        ],
         dtFoot: 'Chaque finding embarque type, sévérité, template normalisé, occurrences, endpoint source, suggestion, localisation source (quand les spans portent les attributs code.*) et impact GreenOps.',
         akTitle: 'Acquittement de findings connus',
         akIntro: 'Déposez un .perf-sentinel-acknowledgments.toml à la racine du dépôt pour supprimer les findings que l\u2019équipe a acceptés : chacun reçoit une signature SHA-256, et ils sont filtrés de analyze / report / inspect / diff et ne comptent pas dans le quality gate. Les acks runtime contre un daemon live sont exposés via le CLI ack, le dashboard HTML live et le TUI.',
@@ -940,8 +896,7 @@ class Component extends DCLogic {
       lightboxEl: this.state.lightbox ? React.createElement('div', { className: 'ps-lightbox', 'data-zoom': this.state.lbZoom ? 'true' : 'false', onClick: () => this.setState({ lightbox: null, lbZoom: false }) },
         React.createElement('button', { type: 'button', className: 'ps-lightbox-close', onClick: () => this.setState({ lightbox: null, lbZoom: false }) }, (this.curLang() === 'fr' ? 'Fermer' : 'Close') + ' ✕'),
         React.createElement('img', { src: this.state.lightbox, alt: '', style: (this.state.lbZoom && /global-integration/.test(this.state.lightbox || '')) ? { width: '180vw', maxWidth: 'none', maxHeight: 'none' } : null, onClick: (e) => { e.stopPropagation(); this.setState(s => ({ lbZoom: !s.lbZoom })); } })
-      ) : null,
-      dtTitle: t.dtTitle, dtIntro: t.dtIntro, dtPatterns: t.dtPatterns, dtFoot: t.dtFoot,
+      ) : null, dtFoot: t.dtFoot,
       akTitle: t.akTitle, akIntro: t.akIntro, akMore: t.akMore,
       spTitle: t.spTitle, spIntro: t.spIntro, spRelease: t.spRelease, spMore: t.spMore,
       pfTitle: t.pfTitle, pfIntro: t.pfIntro, pfHead: t.pfHead, pfRows: t.pfRows, pfNote: t.pfNote,

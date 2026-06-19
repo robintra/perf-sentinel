@@ -179,7 +179,6 @@
         </sc-for>
       </div>
       <p style="margin:22px 0 0;font-size:14px;color:var(--text-2)">{{ detFoot }}</p>
-      <a href="guide.html#detect" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ detMore }} →</a>
     </section>
 
     <!-- MODES -->
@@ -435,7 +434,6 @@ class Component extends DCLogic {
         whyP1: 'I/O anti-patterns (N+1s, redundant calls, fanout) hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
         whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
-        detMore: 'What it detects, in the guide',
         goMore: 'GreenOps metrics in the guide',
         cmpMore: 'Full comparison in the guide',
         detT1: 'Ten I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
@@ -543,7 +541,6 @@ class Component extends DCLogic {
         whyP1: 'Les anti-patterns d\u2019I/O (N+1, appels redondants, fanout) touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
         whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans rien comprendre à JPA ou EF Core.',
-        detMore: 'Ce qu’il détecte, dans le guide',
         goMore: 'Métriques GreenOps dans le guide',
         cmpMore: 'Comparatif complet dans le guide',
         detT1: 'Dix ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
@@ -659,7 +656,7 @@ class Component extends DCLogic {
       perfMore: t.perfMore,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB: t.goBodyB, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot,
-      detMore: t.detMore, goMore: t.goMore, cmpMore: t.cmpMore,
+      goMore: t.goMore, cmpMore: t.cmpMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
