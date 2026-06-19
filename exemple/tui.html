@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>perf-sentinel TUI</title>
+<link rel="stylesheet" href="../assets/vendor/asciinema-player.css">
+<style>
+  html,body{margin:0;height:100%;background:#161616;overflow:hidden}
+  body{display:flex;align-items:center}
+  #p{width:100%}
+  /* keep the player chrome flush with the terminal */
+  .ap-player{border:0 !important}
+</style>
+</head>
+<body>
+<div id="p"></div>
+<script src="../assets/vendor/asciinema-player.min.js"></script>
+<script>
+  // The TUI is a terminal app: its colors are baked into the cast (always dark).
+  AsciinemaPlayer.create('tui.cast', document.getElementById('p'), {
+    autoPlay: true, loop: true, controls: true, fit: 'width',
+    theme: 'asciinema', idleTimeLimit: 2
+  });
+</script>
+</body>
+</html>
