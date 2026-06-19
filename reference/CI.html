@@ -196,9 +196,9 @@
 <p class="ps-p">Two options to fix, in order of preference:</p>
 <p class="ps-p"><strong>Option A: configure a Resource Root URL</strong> (Jenkins 2.200+, recommended). Serves user-generated content from a separate domain so the main instance CSP no longer applies. Set the URL in <code class="ps-ic">Manage Jenkins &gt; System &gt; Resource Root URL</code>. See the <a href="https://www.jenkins.io/doc/book/security/user-content/#resource-root-url" target="_blank" rel="noopener" class="ps-ext">inline help</a> for details. No template change required, all reports across all jobs benefit immediately.</p>
 <p class="ps-p"><strong>Option B: relax the CSP</strong> (legacy, broader scope). Set the following Java system property on the Jenkins controller startup (or run it once via the Script Console for a session-scoped experiment):</p>
-<div class="ps-code"><div class="ps-code-lang">groovy</div><pre><code>System.setProperty(
-    "hudson.model.DirectoryBrowserSupport.CSP",
-    "sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+<div class="ps-code"><div class="ps-code-lang">groovy</div><pre><code><span style="color:var(--code-sub)">System</span>.setProperty(
+    <span style="color:var(--code-num)">"hudson.model.DirectoryBrowserSupport.CSP"</span>,
+    <span style="color:var(--code-num)">"sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"</span>
 )</code></pre></div>
 <p class="ps-p">Tradeoffs:</p>
 <ul>

@@ -196,9 +196,9 @@
 <p class="ps-p">Deux options pour corriger, par ordre de préférence :</p>
 <p class="ps-p"><strong>Option A : configurer une Resource Root URL</strong> (Jenkins 2.200+, recommandée). Sert le contenu utilisateur depuis un domaine séparé, ce qui fait que le CSP de l'instance principale ne s'applique plus. Définir l'URL dans <code class="ps-ic">Manage Jenkins &gt; System &gt; Resource Root URL</code>. Voir l'<a href="https://www.jenkins.io/doc/book/security/user-content/#resource-root-url" target="_blank" rel="noopener" class="ps-ext">aide intégrée</a> pour les détails. Aucun changement de template requis, tous les rapports de tous les jobs en bénéficient immédiatement.</p>
 <p class="ps-p"><strong>Option B : relâcher le CSP</strong> (legacy, portée plus large). Définir la propriété système Java suivante au démarrage du controller Jenkins (ou la lancer une fois via la Script Console pour un test à portée de session) :</p>
-<div class="ps-code"><div class="ps-code-lang">groovy</div><pre><code>System.setProperty(
-    "hudson.model.DirectoryBrowserSupport.CSP",
-    "sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"
+<div class="ps-code"><div class="ps-code-lang">groovy</div><pre><code><span style="color:var(--code-sub)">System</span>.setProperty(
+    <span style="color:var(--code-num)">"hudson.model.DirectoryBrowserSupport.CSP"</span>,
+    <span style="color:var(--code-num)">"sandbox allow-scripts; default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';"</span>
 )</code></pre></div>
 <p class="ps-p">Compromis :</p>
 <ul>

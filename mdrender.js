@@ -93,10 +93,12 @@
     out += esc(code.slice(last));
     return out;
   }
+  var GROOVY_KW = { 'abstract':1,'as':1,'assert':1,'boolean':1,'break':1,'byte':1,'case':1,'catch':1,'char':1,'class':1,'def':1,'default':1,'do':1,'double':1,'else':1,'enum':1,'extends':1,'false':1,'final':1,'finally':1,'float':1,'for':1,'if':1,'implements':1,'import':1,'in':1,'instanceof':1,'int':1,'interface':1,'long':1,'new':1,'null':1,'package':1,'private':1,'protected':1,'public':1,'return':1,'short':1,'static':1,'super':1,'switch':1,'synchronized':1,'this':1,'throw':1,'throws':1,'trait':1,'true':1,'try':1,'var':1,'void':1,'while':1 };
   function highlight(lang, code) {
     lang = (lang || '').toLowerCase();
     if (lang === 'rust' || lang === 'rs') return hlCLike(code, RUST_KW);
     if (lang === 'csharp' || lang === 'cs' || lang === 'c#') return hlCLike(code, CS_KW);
+    if (lang === 'groovy' || lang === 'gradle') return hlCLike(code, GROOVY_KW);
     if (lang === 'diff') return hlDiff(code);
     if (lang === 'dockerfile' || lang === 'docker') return hlDockerfile(code);
     if (lang === 'properties' || lang === 'ini') return hlProps(code);
