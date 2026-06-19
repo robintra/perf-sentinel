@@ -119,8 +119,8 @@
         <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
         <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
         <div style="display:flex;gap:14px;margin-top:30px;flex-wrap:wrap">
-          <a href="#modes" style="font-size:15px;font-weight:600;color:var(--on-accent);background:var(--accent);border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaHow }}</a>
-          <a href="#greenops" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaCarbon }}</a>
+          <a href="#modes" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
+          <a href="#greenops" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
         </div>
       </div>
 
@@ -159,7 +159,7 @@
       <div data-grid="cards2" style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:34px">
         <sc-for list="{{ patterns }}" as="p" hint-placeholder-count="10">
           <div style="display:flex;gap:18px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px" style-hover="border-color:var(--accent)">
-            <div style="flex:none;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent);background:var(--accent-soft);border-radius:7px;padding:6px 9px;min-width:34px;text-align:center">{{ p.n }}</div>
+            <div style="flex:none;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--coral);background:color-mix(in srgb,var(--coral) 16%,var(--surface));border-radius:7px;padding:6px 9px;min-width:34px;text-align:center">{{ p.n }}</div>
             <div>
               <div style="font-size:16.5px;font-weight:600;color:var(--text)">{{ p.name }}</div>
               <div style="margin-top:4px;font-size:14px;color:var(--text-2);line-height:1.5">{{ p.trigger }}</div>
@@ -263,7 +263,7 @@
           <h2 style="margin:12px 0 0;font-size:clamp(24px,2.7vw,31px);font-weight:700;letter-spacing:-.018em;color:var(--text);text-wrap:balance">{{ licTitle }}</h2>
         </div>
         <a href="https://www.gnu.org/licenses/agpl-3.0.html" style="flex:none;display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:11px 16px" style-hover="border-color:var(--accent)">
-          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>AGPL-3.0
+          <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>open source
         </a>
       </div>
       <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:700px;line-height:1.6">{{ licIntro }}</p>
@@ -343,7 +343,7 @@
 
       <div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">
         <span>{{ ftBottomLeft }}</span>
-        <span>{{ ftBottomRight }}</span>
+        <span>{{ ftBottomRight }}<a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">Gwendoline Meignen</a></span>
       </div>
     </div>
   </footer>
@@ -490,7 +490,7 @@ class Component extends DCLogic {
         ftProjLicense: 'AGPL-3.0 license',
         ftBadgeNote: 'badge slot, to wire up',
         ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
-        ftBottomRight: 'Logo & banner, Gwendoline Meignen',
+        ftBottomRight: 'Logo & banner, ',
         badges: ['Ecoindex', 'Green Web Foundation'],
         themeDark: 'Light', themeLight: 'Dark', langSwitch: 'FR',
       },
@@ -593,7 +593,7 @@ class Component extends DCLogic {
         ftProjLicense: 'Licence AGPL-3.0',
         ftBadgeNote: 'emplacement badge, à brancher',
         ftBottomLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
-        ftBottomRight: 'Logo & bannière, Gwendoline Meignen',
+        ftBottomRight: 'Logo & bannière, ',
         badges: ['Ecoindex', 'Green Web Foundation'],
         themeDark: 'Clair', themeLight: 'Sombre', langSwitch: 'EN',
       },
