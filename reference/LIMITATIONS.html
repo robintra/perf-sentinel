@@ -341,7 +341,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 <li><code class="ps-ic">[green] default_region</code>.</li>
 </ol>
 <p class="ps-p">I/O ops with no resolvable region land in a synthetic <code class="ps-ic">"unknown"</code> bucket and contribute zero operational CO₂ (a <code class="ps-ic">tracing::warn!</code> is emitted). Embodied carbon is still emitted because hardware emissions are region-independent.</p>
-<p class="ps-p">See <code class="ps-ic">docs/design/05-GREENOPS-AND-CARBON.md</code> for the full methodology, formula and SCI v1.0 alignment notes.</p>
+<p class="ps-p">See <code class="ps-ic"><a href="design__05-GREENOPS-AND-CARBON.html">05 · GreenOps & carbon</a> for the full methodology, formula and SCI v1.0 alignment notes.</p>
 <h3 id="hourly-carbon-profiles" class="ps-h3">Hourly carbon profiles</h3>
 <p class="ps-p">Embedded hourly UTC profiles are available for 30+ cloud regions across all major cloud providers and geographies. Four regions (FR, DE, GB, US-East) have <strong>monthly x hourly</strong> profiles (288 values each) that capture seasonal variation. The remaining regions have <strong>flat-year</strong> profiles (24 values, same shape all year).</p>
 <p class="ps-p"><strong>Monthly x hourly regions</strong> (12 months x 24 hours):</p>
@@ -362,7 +362,7 @@ high = mid × 2.0   (twice the midpoint)</code></pre></div>
 <p class="ps-p"><strong>What this does and doesn't do.</strong> The hourly path captures time-of-day variance (a 3am N+1 in France costs less than a 7pm N+1). Monthly x hourly profiles also capture seasonal variance for the 4 listed regions. It does <strong>not</strong> capture:</p>
 <ul>
 <li><strong>Weather-dependent fluctuations</strong>: the embedded values are typical averages, not real-time data. A calm windless day in the UK will produce more carbon than the profile suggests.</li>
-<li><strong>Real-time grid data</strong>: the embedded profiles are static. For live carbon intensity (reported as <code class="ps-ic">intensity_source = "real_time"</code>), enable the opt-in <code class="ps-ic">[green.electricity_maps]</code> integration in daemon mode, see <code class="ps-ic">docs/CONFIGURATION.md</code>.</li>
+<li><strong>Real-time grid data</strong>: the embedded profiles are static. For live carbon intensity (reported as <code class="ps-ic">intensity_source = "real_time"</code>), enable the opt-in <code class="ps-ic">[green.electricity_maps]</code> integration in daemon mode, see <code class="ps-ic"><a href="CONFIGURATION.html">Configuration</a>.</li>
 </ul>
 <p class="ps-p"><strong>Estimated profiles.</strong> The Asia-Pacific and Brazil profiles are estimated from fuel mix composition rather than hourly generation data. They are annotated as such in the source code. The diurnal shapes are approximations based on the known fuel mix (e.g. gas-dominated grids are nearly flat, coal-heavy grids have mild evening peaks).</p>
 <p class="ps-p"><strong>Timestamp requirements.</strong> perf-sentinel parses timestamps as UTC and requires the canonical ISO 8601 form <code class="ps-ic">YYYY-MM-DDTHH:MM:SS[.fff]Z</code> (trailing <code class="ps-ic">Z</code>) or the space-separated variant. Strings with non-UTC offsets (<code class="ps-ic">+02:00</code>, <code class="ps-ic">-05:00</code>) are rejected rather than silently shifted. The carbon table is UTC-anchored, so naive offset handling would systematically skew the estimate. Spans with unparseable timestamps fall back to the flat annual intensity.</p>

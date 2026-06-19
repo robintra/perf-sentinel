@@ -267,7 +267,7 @@
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">extraEnvFrom</span>:
   - secretRef:
 <span style="color:var(--code-sub)">      name</span>: perf-sentinel-secrets</code></pre></div>
-<p class="ps-p">perf-sentinel ne lit pas directement les variables d'environnement pour sa configuration. Le pattern est donc : le Secret entre dans l'environnement du pod, et le fichier de configuration référence les variables via <code class="ps-ic">env:VAR_NAME</code> pour les quelques champs qui supportent cette forme (par exemple <code class="ps-ic">api_key</code> pour Electricity Maps). Voir la section "Environment variables" de <code class="ps-ic">docs/FR/CONFIGURATION-FR.md</code>.</p>
+<p class="ps-p">perf-sentinel ne lit pas directement les variables d'environnement pour sa configuration. Le pattern est donc : le Secret entre dans l'environnement du pod, et le fichier de configuration référence les variables via <code class="ps-ic">env:VAR_NAME</code> pour les quelques champs qui supportent cette forme (par exemple <code class="ps-ic">api_key</code> pour Electricity Maps). Voir la section "Environment variables" de <code class="ps-ic"><a href="CONFIGURATION.html">Configuration</a>.</p>
 <h3 id="fichiers-de-calibration-et-certificats-tls" class="ps-h3">Fichiers de calibration et certificats TLS</h3>
 <p class="ps-p">Les deux passent par <code class="ps-ic">extraVolumes</code> plus <code class="ps-ic">extraVolumeMounts</code> :</p>
 <div class="ps-code"><div class="ps-code-lang">yaml</div><pre><code><span style="color:var(--code-sub)">extraVolumes</span>:
@@ -315,7 +315,7 @@
 <span style="color:var(--code-sub)">  toml</span>: |
     [daemon.ack]
     toml_path = "/etc/perf-sentinel/acks/.perf-sentinel-acknowledgments.toml"</code></pre></div>
-<p class="ps-p">Voir <code class="ps-ic">docs/FR/QUERY-API-FR.md</code> et <code class="ps-ic">docs/FR/CONFIGURATION-FR.md</code> pour la référence complète des endpoints et le catalogue des champs <code class="ps-ic">[daemon.ack]</code>.</p>
+<p class="ps-p">Voir <code class="ps-ic"><a href="QUERY-API.html">API de query</a> et <code class="ps-ic"><a href="CONFIGURATION.html">Configuration</a> pour la référence complète des endpoints et le catalogue des champs <code class="ps-ic">[daemon.ack]</code>.</p>
 <h2 id="observabilité" class="ps-h2">Observabilité</h2>
 <blockquote class="ps-bq"><strong>Voir aussi.</strong> L'<a href="METRICS.html#introduction-à-prometheus-et-openmetrics">introduction à Prometheus et OpenMetrics</a> définit le scraping, les exemplars et les types Counter/Gauge/Histogram référencés ci-dessous.</blockquote>
 <h3 id="servicemonitor-prometheus" class="ps-h3">ServiceMonitor Prometheus</h3>

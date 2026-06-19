@@ -12,13 +12,14 @@
 //   - Frame:      ./reference/00-INDEX.html  (the <style> and inline <script>
 //                 blocks are lifted verbatim, so all 6 chrome fixes ride along)
 // Outputs: reference/{flat}.html, reference/fr/{flat}.html, and the two search.json.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MAIN = '/Users/robintrassard/RustroverProjects/perf-sentinel';
 const REF = join(SITE, 'reference');
+const SITE_DOCS = join(SITE, 'docs-site');
 
 // --- doc registry + labels (mirrors Docs.dc.html registry()/groupLabel()/docLabel()) ---
 const REGISTRY = [
@@ -52,6 +53,29 @@ const docLabel = (id, lang) => (lang === 'fr' && DOC_LABEL_FR[id]) || DOC_LABEL_
 const groupLabel = (key, lang) => GROUP_LABEL[lang][key] || key;
 const flat = (id) => id.replaceAll('/', '__');
 const groupOf = (id) => (REGISTRY.find((g) => g.items.includes(id)) || REGISTRY[0]).key;
+const ALL_IDS = REGISTRY.flatMap((g) => g.items);
+const ID_SET = new Set(ALL_IDS);
+const DESIGN_BASENAME = new Map(ALL_IDS.filter((id) => id.startsWith('design/')).map((id) => [id.slice('design/'.length), id]));
+
+// Markdown source for a page: a curated site override (docs-site/) wins over the
+// repo doc, so the directory-index pages can read as website copy without
+// editing the repo (where the directory description is legitimate).
+const mdSource = (id, lang) => {
+  const override = join(SITE_DOCS, lang === 'fr' ? `${id}-FR.md` : `${id}.md`);
+  return existsSync(override) ? override : (lang === 'fr' ? join(MAIN, 'docs/FR', `${id}-FR.md`) : join(MAIN, 'docs', `${id}.md`));
+};
+
+// Map a repo doc path to a registry id, or null for non-doc paths (code dirs,
+// schemas/, .rs files, README.md, ...). Only fires on strings containing ".md".
+function pathToId(p) {
+  if (!/\.md(?:#|$)/.test(p)) return null;
+  const s = p.replace(/#.*$/, '').replace(/^(\.\.?\/)+/, '')
+    .replace(/^docs\/FR\//, '').replace(/^docs\//, '').replace(/^FR\//, '')
+    .replace(/\.md$/, '').replace(/-FR$/, '');
+  if (ID_SET.has(s)) return s;
+  if (DESIGN_BASENAME.has(s)) return `design/${s}`;
+  return null;
+}
 
 // per-language UI strings baked into the static chrome
 const UI = {
@@ -83,6 +107,25 @@ const plaintext = (html) =>
 function rewriteContentLinks(html) {
   return html.replace(/<a href="#\/([^"]*)" data-doc="[^"]*"(?: data-anchor="([^"]*)")?>/g,
     (_m, id, anchor) => `<a href="${flat(id)}.html${anchor ? '#' + anchor : ''}">`);
+}
+
+// Repo doc paths leak into the prose as visible text: a markdown link whose text
+// is the path, an inline-code path, or a bare path. Replace the visible path with
+// the doc's label (and a working link); leave non-doc paths (code dirs, schemas).
+function relabelDocPaths(html, lang) {
+  // links whose visible text is a repo doc path -> show the doc label instead
+  html = html.replace(/<a href="([^"]*)">([^<]*\.md(?:#[^<]*)?)<\/a>/g, (m, href, text) => {
+    const id = pathToId(text.trim());
+    return id ? `<a href="${href}">${docLabel(id, lang)}</a>` : m;
+  });
+  // inline-code or bare path text -> link to the doc, labelled
+  html = html.replace(/(<code>)?((?:\.{0,2}\/)?(?:docs\/)?(?:FR\/)?(?:design\/)?[A-Za-z0-9_.-]+\.md(?:#[\w.-]+)?)(<\/code>)?/g, (m, _open, p) => {
+    const id = pathToId(p);
+    if (!id) return m;
+    const anchor = (p.match(/#([\w.-]+)/) || [])[1];
+    return `<a href="${flat(id)}.html${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
+  });
+  return html;
 }
 
 // The mdrender slug() does not dedupe, so repeated headings emit duplicate ids.
@@ -141,9 +184,10 @@ const tocHtml = (toc) =>
 function buildPage(id, lang) {
   const fr = lang === 'fr';
   const up = fr ? '../../' : '../';
-  const mdPath = fr ? join(MAIN, 'docs/FR', id + '-FR.md') : join(MAIN, 'docs', id + '.md');
-  const r = PSMD.render(readFileSync(mdPath, 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
-  const { html: content, toc } = dedupeSlugs(rewriteContentLinks(r.html), r.toc);
+  const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
+  const dd = dedupeSlugs(rewriteContentLinks(r.html), r.toc);
+  const content = relabelDocPaths(dd.html, lang);
+  const toc = dd.toc;
 
   const label = docLabel(id, lang);
   const title = `${label} · perf-sentinel docs`;
@@ -193,10 +237,10 @@ function buildPage(id, lang) {
 
 function searchIndex(lang) {
   return REGISTRY.flatMap((g) => g.items).map((id) => {
-    const r = PSMD.render(readFileSync(lang === 'fr' ? join(MAIN, 'docs/FR', id + '-FR.md') : join(MAIN, 'docs', id + '.md'), 'utf8'),
-      { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
+    const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
+    const html = relabelDocPaths(rewriteContentLinks(r.html), lang);
     const t = docLabel(id, lang);
-    return { t, u: `${flat(id)}.html`, x: (t + ' ' + plaintext(r.html)).slice(0, 2600) };
+    return { t, u: `${flat(id)}.html`, x: (t + ' ' + plaintext(html)).slice(0, 2600) };
   });
 }
 
