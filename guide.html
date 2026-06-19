@@ -487,7 +487,7 @@ class Component extends DCLogic {
   }
 
   componentDidMount() {
-    const ids = ['why', 'detect', 'quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
+    const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     let ticking = false;
     this._compute = () => {
       ticking = false;
@@ -532,7 +532,7 @@ class Component extends DCLogic {
     return {
       en: {
         navHome: 'Overview', navLicense: 'License', navRef: 'Docs', onThisPage: 'On this page',
-        nav: ['Why', 'What it detects', 'Quickstart', 'Installation', 'Configuration', 'CLI reference', 'Formats', 'Metrics', 'Performance', 'Comparison', 'Acknowledgments', 'Deployment', 'Privacy', 'Supply chain', 'Docs'],
+        nav: ['Quickstart', 'Installation', 'Configuration', 'CLI reference', 'Formats', 'Metrics', 'Performance', 'Comparison', 'Acknowledgments', 'Deployment', 'Privacy', 'Supply chain', 'Docs'],
         docKicker: '// documentation',
         docTitle: 'Get perf-sentinel running',
         docLead: 'A single self-hosted binary that reads the OpenTelemetry traces your services already emit, flags wasteful I/O, and prices it in energy and carbon. From first run to CI gate.',
@@ -703,7 +703,7 @@ class Component extends DCLogic {
       },
       fr: {
         navHome: 'Vue d\u2019ensemble', navLicense: 'Licence', navRef: 'Docs', onThisPage: 'Sur cette page',
-        nav: ['Pourquoi', 'Détection', 'Démarrage rapide', 'Installation', 'Configuration', 'Référence CLI', 'Formats', 'Métriques', 'Performance', 'Comparatif', 'Acquittements', 'Déploiement', 'Confidentialité', 'Chaîne & release', 'Documentation'],
+        nav: ['Démarrage rapide', 'Installation', 'Configuration', 'Référence CLI', 'Formats', 'Métriques', 'Performance', 'Comparatif', 'Acquittements', 'Déploiement', 'Confidentialité', 'Chaîne & release', 'Documentation'],
         docKicker: '// documentation',
         docTitle: 'Mettre perf-sentinel en route',
         docLead: 'Un mono-binaire auto-hébergé qui lit les traces OpenTelemetry que vos services émettent déjà, repère les I/O gaspillées et les chiffre en énergie et carbone. Du premier run au quality gate CI.',
@@ -879,7 +879,7 @@ class Component extends DCLogic {
     const theme = this.curTheme();
     const lang = this.curLang();
     const t = this.dict()[lang];
-    const ids = ['why', 'detect', 'quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
+    const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     const navItems = ids.map((id, i) => ({ id, label: t.nav[i], active: this.state.active === id ? 'true' : 'false' }));
     return {
       theme,
