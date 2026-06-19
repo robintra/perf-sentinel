@@ -75,6 +75,12 @@
     .ps-card{break-inside:avoid}
     section{break-inside:avoid}
   }
+
+  [data-ps-root] ::-webkit-scrollbar{width:10px;height:10px}
+  [data-ps-root] ::-webkit-scrollbar-track{background:transparent}
+  [data-ps-root] ::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
+  [data-ps-root] ::-webkit-scrollbar-thumb:hover{background:var(--text-2)}
+  [data-ps-root]{scrollbar-color:var(--border) transparent;scrollbar-width:thin}
 </style>
 </helmet>
 
