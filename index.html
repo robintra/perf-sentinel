@@ -97,7 +97,7 @@
         <a href="#license" style-hover="color:var(--text)">{{ navLicense }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
         <a href="guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navDocs }}<span style="font-size:11px;opacity:.7">↗</span></a>
-        <a href="{{ refBase }}00-INDEX" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
@@ -688,7 +688,7 @@ class Component extends DCLogic {
   function apply(which){
     var f=document.getElementById('ps-embed-frame');if(!f)return false;
     active=which;
-    var u=(which==='tui'?'exemple/tui':'exemple/dashboard')+'?theme='+th();
+    var u=which==='tui'?'exemple/tui':'exemple/dashboard?theme='+th();
     if(f.getAttribute('src')!==u)f.setAttribute('src',u);
     var o=document.getElementById('ps-embed-open');if(o)o.setAttribute('href',u);
     var a=document.querySelectorAll('[data-embed-tab]');for(var i=0;i<a.length;i++)a[i].setAttribute('data-active',a[i].getAttribute('data-embed-tab')===which?'true':'false');
@@ -697,14 +697,14 @@ class Component extends DCLogic {
   document.addEventListener('click',function(e){
     var t=e.target.closest&&e.target.closest('[data-embed-tab]');
     if(t){apply(t.getAttribute('data-embed-tab'));return;}
-    if(e.target.closest&&e.target.closest('[aria-label="Theme"]')){setTimeout(function(){apply(active);},0);}
+    if(e.target.closest&&e.target.closest('[aria-label="Theme"],[aria-label="Language"]')){setTimeout(function(){apply(active);},0);}
   });
   (function ready(){
     if(!apply(active)){setTimeout(ready,120);return;}
     var n=0,iv=setInterval(function(){
       var f=document.getElementById('ps-embed-frame');
       if(f&&!f.getAttribute('src'))apply(active);
-      if(++n>12)clearInterval(iv);
+      if(++n>30)clearInterval(iv);
     },200);
   })();
 })();

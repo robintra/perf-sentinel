@@ -52,6 +52,7 @@ const DOC_LABEL_FR = {
 const docLabel = (id, lang) => (lang === 'fr' && DOC_LABEL_FR[id]) || DOC_LABEL_EN[id] || id;
 const groupLabel = (key, lang) => GROUP_LABEL[lang][key] || key;
 const flat = (id) => id.replaceAll('/', '__');
+const hrefFor = (id, lang) => id === '00-INDEX' ? (lang === 'fr' ? '/reference/fr/' : '/reference/') : flat(id);
 const groupOf = (id) => (REGISTRY.find((g) => g.items.includes(id)) || REGISTRY[0]).key;
 const ALL_IDS = REGISTRY.flatMap((g) => g.items);
 const ID_SET = new Set(ALL_IDS);
@@ -103,7 +104,8 @@ const plaintext = (html) =>
     .replace(/\s+/g, ' ').trim();
 
 // PSMD emits cross-doc links as href="#/{ID}" data-doc="{ID}" data-anchor="{A}".
-// Static pages use href="{flat}.html#{A}" (or "{flat}.html") with data-* dropped.
+// Static pages use href="{flat}#{A}" (or "{flat}", or "/reference/[fr/]" for the index)
+// with data-* dropped. Files stay X.html (GitHub Pages serves them at the extensionless path).
 function rewriteContentLinks(html) {
   return html.replace(/<a href="#\/([^"]*)" data-doc="[^"]*"(?: data-anchor="([^"]*)")?>/g,
     (_m, id, anchor) => `<a href="${flat(id)}${anchor ? '#' + anchor : ''}">`);
@@ -173,7 +175,7 @@ function sidebar(activeId, lang) {
   return REGISTRY.map((g) => {
     const open = groupOf(activeId) === g.key ? 'true' : 'false';
     const items = g.items.map((id) =>
-      `<a href="${flat(id)}" data-active="${id === activeId ? 'true' : 'false'}">${docLabel(id, lang)}</a>`).join('');
+      `<a href="${hrefFor(id, lang)}" data-active="${id === activeId ? 'true' : 'false'}">${docLabel(id, lang)}</a>`).join('');
     return `<button type="button" class="ps-group-btn" data-open="${open}"><span>${groupLabel(g.key, lang)}</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="${open}">${items}</nav>`;
   }).join('');
 }
@@ -193,16 +195,17 @@ function buildPage(id, lang) {
   const title = `${label} · perf-sentinel docs`;
   const desc = description(content);
   const f = flat(id);
-  const enHref = fr ? `../${f}` : `${f}`;
-  const frHref = fr ? `${f}` : `fr/${f}`;
-  const switchHref = fr ? `../${f}` : `fr/${f}`;
+  const isIdx = id === '00-INDEX';
+  const enHref = isIdx ? '/reference/' : (fr ? `../${f}` : `${f}`);
+  const frHref = isIdx ? '/reference/fr/' : (fr ? `${f}` : `fr/${f}`);
+  const switchHref = isIdx ? (fr ? '/reference/' : '/reference/fr/') : (fr ? `../${f}` : `fr/${f}`);
   const ui = UI[lang];
   const hasToc = toc.length > 1;
 
   const head =
     `<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<title>${title}</title><meta name="description" content="${attr(desc)}">` +
-    `<link rel="canonical" href="${f}"><link rel="alternate" hreflang="en" href="${enHref}"><link rel="alternate" hreflang="fr" href="${frHref}">` +
+    `<link rel="canonical" href="${hrefFor(id, lang)}"><link rel="alternate" hreflang="en" href="${enHref}"><link rel="alternate" hreflang="fr" href="${frHref}">` +
     `<meta property="og:type" content="article"><meta property="og:title" content="${attr(title)}"><meta property="og:description" content="${attr(desc)}">` +
     `<meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="${up}assets/favicon.svg"><link rel="stylesheet" href="${up}fonts/fonts.css">${STYLE}</head>`;
 
@@ -240,7 +243,7 @@ function searchIndex(lang) {
     const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
     const html = relabelDocPaths(rewriteContentLinks(r.html), lang);
     const t = docLabel(id, lang);
-    return { t, u: `${flat(id)}`, x: (t + ' ' + plaintext(html)).slice(0, 2600) };
+    return { t, u: hrefFor(id, lang), x: (t + ' ' + plaintext(html)).slice(0, 2600) };
   });
 }
 
@@ -250,6 +253,8 @@ for (const id of REGISTRY.flatMap((g) => g.items)) {
   writeFileSync(join(REF, `${flat(id)}.html`), buildPage(id, 'en')); n++;
   writeFileSync(join(REF, 'fr', `${flat(id)}.html`), buildPage(id, 'fr')); n++;
 }
+writeFileSync(join(REF, 'index.html'), buildPage('00-INDEX', 'en'));
+writeFileSync(join(REF, 'fr', 'index.html'), buildPage('00-INDEX', 'fr'));
 writeFileSync(join(REF, 'search.json'), JSON.stringify(searchIndex('en')));
 writeFileSync(join(REF, 'fr', 'search.json'), JSON.stringify(searchIndex('fr')));
 console.log(`wrote ${n} pages + 2 search indexes`);
