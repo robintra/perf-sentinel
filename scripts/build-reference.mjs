@@ -106,7 +106,7 @@ const plaintext = (html) =>
 // Static pages use href="{flat}.html#{A}" (or "{flat}.html") with data-* dropped.
 function rewriteContentLinks(html) {
   return html.replace(/<a href="#\/([^"]*)" data-doc="[^"]*"(?: data-anchor="([^"]*)")?>/g,
-    (_m, id, anchor) => `<a href="${flat(id)}.html${anchor ? '#' + anchor : ''}">`);
+    (_m, id, anchor) => `<a href="${flat(id)}${anchor ? '#' + anchor : ''}">`);
 }
 
 // Repo doc paths leak into the prose as visible text: a markdown link whose text
@@ -123,7 +123,7 @@ function relabelDocPaths(html, lang) {
     const id = pathToId(p);
     if (!id) return m;
     const anchor = (p.match(/#([\w.-]+)/) || [])[1];
-    return `<a href="${flat(id)}.html${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
+    return `<a href="${flat(id)}${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
   });
   return html;
 }
@@ -173,7 +173,7 @@ function sidebar(activeId, lang) {
   return REGISTRY.map((g) => {
     const open = groupOf(activeId) === g.key ? 'true' : 'false';
     const items = g.items.map((id) =>
-      `<a href="${flat(id)}.html" data-active="${id === activeId ? 'true' : 'false'}">${docLabel(id, lang)}</a>`).join('');
+      `<a href="${flat(id)}" data-active="${id === activeId ? 'true' : 'false'}">${docLabel(id, lang)}</a>`).join('');
     return `<button type="button" class="ps-group-btn" data-open="${open}"><span>${groupLabel(g.key, lang)}</span><span class="ps-chev">&#8250;</span></button><nav class="ps-docnav" data-open="${open}">${items}</nav>`;
   }).join('');
 }
@@ -193,24 +193,24 @@ function buildPage(id, lang) {
   const title = `${label} · perf-sentinel docs`;
   const desc = description(content);
   const f = flat(id);
-  const enHref = fr ? `../${f}.html` : `${f}.html`;
-  const frHref = fr ? `${f}.html` : `fr/${f}.html`;
-  const switchHref = fr ? `../${f}.html` : `fr/${f}.html`;
+  const enHref = fr ? `../${f}` : `${f}`;
+  const frHref = fr ? `${f}` : `fr/${f}`;
+  const switchHref = fr ? `../${f}` : `fr/${f}`;
   const ui = UI[lang];
   const hasToc = toc.length > 1;
 
   const head =
     `<!DOCTYPE html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">` +
     `<title>${title}</title><meta name="description" content="${attr(desc)}">` +
-    `<link rel="canonical" href="${f}.html"><link rel="alternate" hreflang="en" href="${enHref}"><link rel="alternate" hreflang="fr" href="${frHref}">` +
+    `<link rel="canonical" href="${f}"><link rel="alternate" hreflang="en" href="${enHref}"><link rel="alternate" hreflang="fr" href="${frHref}">` +
     `<meta property="og:type" content="article"><meta property="og:title" content="${attr(title)}"><meta property="og:description" content="${attr(desc)}">` +
     `<meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="${up}assets/favicon.svg"><link rel="stylesheet" href="${up}fonts/fonts.css">${STYLE}</head>`;
 
   const header =
     `<header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px">` +
-    `<a href="${up}index.html" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="${up}assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a>` +
+    `<a href="/" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="${up}assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a>` +
     `<span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>` +
-    `<nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="${up}index.html">${ui.navHome} ↗</a><a href="${up}guide.html">${ui.navGuide} ↗</a></nav>` +
+    `<nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="/">${ui.navHome} ↗</a><a href="/guide">${ui.navGuide} ↗</a></nav>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px">` +
     `<div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="${ui.search}" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div>` +
     `<span style="color:var(--text-2)"><a href="${switchHref}">${ui.switchLabel}</a></span>` +
@@ -240,7 +240,7 @@ function searchIndex(lang) {
     const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
     const html = relabelDocPaths(rewriteContentLinks(r.html), lang);
     const t = docLabel(id, lang);
-    return { t, u: `${flat(id)}.html`, x: (t + ' ' + plaintext(html)).slice(0, 2600) };
+    return { t, u: `${flat(id)}`, x: (t + ' ' + plaintext(html)).slice(0, 2600) };
   });
 }
 

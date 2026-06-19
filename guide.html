@@ -11,11 +11,11 @@
 <link rel="stylesheet" href="fonts/fonts.css">
 <title>perf-sentinel: documentation</title>
 <meta name="description" content="perf-sentinel documentation: quickstart, installation, configuration, CLI reference and GreenOps metrics reference. Self-hosted, OpenTelemetry, AGPL-3.0.">
-<link rel="canonical" href="https://perf-sentinel.dev/guide.html">
+<link rel="canonical" href="https://perf-sentinel.dev/guide">
 <meta property="og:type" content="article">
 <meta property="og:title" content="perf-sentinel: documentation">
 <meta property="og:description" content="Quickstart, installation, configuration, CLI reference, performance, comparison and GreenOps metrics for perf-sentinel. Self-hosted, OpenTelemetry, AGPL-3.0.">
-<meta property="og:image" content="https://perf-sentinel.dev/assets/logo-h-light.svg"><meta property="og:url" content="https://perf-sentinel.dev/guide.html">
+<meta property="og:image" content="https://perf-sentinel.dev/assets/logo-h-light.svg"><meta property="og:url" content="https://perf-sentinel.dev/guide">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
 <style>
@@ -89,14 +89,14 @@
 
   <header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1180px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:22px">
-      <a href="index.html" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:36px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:36px;width:auto"></a>
+      <a href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:36px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:36px;width:auto"></a>
       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>
       <nav style="display:flex;gap:22px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
-        <a href="index.html" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)">{{ navHome }}<span style="font-size:11px;opacity:.7">↗</span></a>
-        <a href="index.html#greenops" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">GreenOps<span style="font-size:11px;opacity:.7">↗</span></a>
-        <a href="index.html#license" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navLicense }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)">{{ navHome }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="/#greenops" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">GreenOps<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="/#license" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navLicense }}<span style="font-size:11px;opacity:.7">↗</span></a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
-        <a href="{{ refBase }}00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="{{ refBase }}00-INDEX" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
@@ -335,7 +335,7 @@
       <section id="ack" style="padding-top:54px">
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ akTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ akIntro }}</p>
-        <a href="{{ refBase }}ACK-WORKFLOW.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ akMore }} →</a>
+        <a href="{{ refBase }}ACK-WORKFLOW" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ akMore }} →</a>
       </section>
 
       <!-- DEPLOY -->
@@ -350,7 +350,7 @@
             </div>
           </sc-for>
         </div>
-        <a href="{{ refBase }}INTEGRATION.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ dpMore }} →</a>
+        <a href="{{ refBase }}INTEGRATION" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ dpMore }} →</a>
         <div style="display:flex;flex-direction:column;gap:12px;margin-top:24px">
           <sc-for list="{{ dpDiagrams }}" as="d" hint-placeholder-count="6">
             <details style="border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
@@ -376,7 +376,7 @@
             </div>
           </sc-for>
         </div>
-        <a href="{{ refBase }}LIMITATIONS.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ pvMore }} →</a>
+        <a href="{{ refBase }}LIMITATIONS" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ pvMore }} →</a>
       </section>
 
       <!-- SUPPLY -->
@@ -384,7 +384,7 @@
         <h2 style="margin:0;font-size:clamp(24px,2.6vw,30px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ spTitle }}</h2>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ spIntro }}</p>
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:680px;line-height:1.65">{{ spRelease }}</p>
-        <a href="{{ refBase }}SUPPLY-CHAIN.html" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ spMore }} →</a>
+        <a href="{{ refBase }}SUPPLY-CHAIN" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ spMore }} →</a>
       </section>
 
       <!-- FURTHER READING -->
@@ -912,7 +912,7 @@ class Component extends DCLogic {
       dpTitle: t.dpTitle, dpIntro: t.dpIntro, dpModes: t.dpModes, dpMore: t.dpMore, dpDiagrams: t.dpDiagrams,
       pvTitle: t.pvTitle, pvIntro: t.pvIntro, pvPoints: t.pvPoints, pvMore: t.pvMore,
       frTitle: t.frTitle, frIntro: t.frIntro,
-      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2], href: refBase + m[0].replace(/\//g, '__') + '.html' })),
+      frLinks: t.frMap.map(m => ({ id: m[0], label: m[1], desc: m[2], href: refBase + m[0].replace(/\//g, '__') })),
     };
   }
 }

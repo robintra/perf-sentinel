@@ -96,8 +96,8 @@
         <a href="#comparatif" style-hover="color:var(--text)">{{ navComparison }}</a>
         <a href="#license" style-hover="color:var(--text)">{{ navLicense }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
-        <a href="guide.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navDocs }}<span style="font-size:11px;opacity:.7">↗</span></a>
-        <a href="{{ refBase }}00-INDEX.html" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navDocs }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a href="{{ refBase }}00-INDEX" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navRef }}<span style="font-size:11px;opacity:.7">↗</span></a>
       </nav>
       <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
         <button onClick="{{ toggleLang }}" aria-label="Language" style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 12px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">{{ langLabel }}</button>
@@ -148,9 +148,9 @@
               <button type="button" data-embed-tab="html" data-active="true">HTML</button>
               <button type="button" data-embed-tab="tui" data-active="false">TUI</button>
             </div>
-            <a id="ps-embed-open" href="exemple/dashboard.html?theme={{ theme }}" target="_blank" rel="noopener" style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);text-decoration:none" style-hover="text-decoration:underline">{{ embedOpen }}</a>
+            <a id="ps-embed-open" href="exemple/dashboard" target="_blank" rel="noopener" style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);text-decoration:none" style-hover="text-decoration:underline">{{ embedOpen }}</a>
           </div>
-          <iframe id="ps-embed-frame" src="exemple/dashboard.html?theme={{ theme }}" loading="lazy" title="perf-sentinel HTML report" style="display:block;width:100%;height:545px;border:0;background:var(--embed-bg)"></iframe>
+          <iframe id="ps-embed-frame" loading="lazy" title="perf-sentinel HTML report" style="display:block;width:100%;height:545px;border:0;background:var(--embed-bg)"></iframe>
         </div>
         <div style="margin-top:12px;font-size:13px;color:var(--text-2);text-align:center">{{ embedCaption }}</div>
       </div>
@@ -225,7 +225,7 @@
           </div>
         </sc-for>
       </div>
-      <a href="guide.html#perf" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--rust)" style-hover="gap:11px">{{ perfMore }} →</a>
+      <a href="guide#perf" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--rust)" style-hover="gap:11px">{{ perfMore }} →</a>
     </section>
 
     <!-- GREENOPS -->
@@ -248,7 +248,7 @@
           </sc-for>
         </div>
         <p style="margin:24px 0 0;font-size:13.5px;color:var(--text-2);line-height:1.6;max-width:760px">{{ goNote }}</p>
-        <a href="guide.html#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ goMore }} →</a>
+        <a href="guide#metrics" style="display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ goMore }} →</a>
       </div>
     </section>
 
@@ -271,7 +271,7 @@
         </sc-for>
       </div>
       <p style="margin:16px 0 0;font-size:13px;color:var(--text-2)">{{ cmpFoot }}</p>
-      <a href="guide.html#compare" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ cmpMore }} →</a>
+      <a href="guide#compare" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px">{{ cmpMore }} →</a>
     </section>
 
     <!-- LICENSE -->
@@ -343,10 +343,10 @@
         <div>
           <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColDocs }}</div>
           <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">
-            <a href="guide.html#quickstart" style-hover="color:var(--accent)">{{ ftDocQuickstart }}</a>
-            <a href="guide.html#cli" style-hover="color:var(--accent)">{{ ftDocCli }}</a>
-            <a href="guide.html#config" style-hover="color:var(--accent)">{{ ftDocConfig }}</a>
-            <a href="guide.html#metrics" style-hover="color:var(--accent)">{{ ftDocMethod }}</a>
+            <a href="guide#quickstart" style-hover="color:var(--accent)">{{ ftDocQuickstart }}</a>
+            <a href="guide#cli" style-hover="color:var(--accent)">{{ ftDocCli }}</a>
+            <a href="guide#config" style-hover="color:var(--accent)">{{ ftDocConfig }}</a>
+            <a href="guide#metrics" style-hover="color:var(--accent)">{{ ftDocMethod }}</a>
           </div>
         </div>
         <div>
@@ -683,15 +683,30 @@ class Component extends DCLogic {
 
 <script>
 (function(){
+  var active='html';
   function th(){var r=document.querySelector('[data-ps-root]');return (r&&r.getAttribute('data-theme'))||'dark';}
-  document.addEventListener('click',function(e){
-    var t=e.target.closest&&e.target.closest('[data-embed-tab]');if(!t)return;
-    var f=document.getElementById('ps-embed-frame');if(!f)return;
-    var u=(t.getAttribute('data-embed-tab')==='tui'?'exemple/tui.html':'exemple/dashboard.html')+'?theme='+th();
+  function apply(which){
+    var f=document.getElementById('ps-embed-frame');if(!f)return false;
+    active=which;
+    var u=(which==='tui'?'exemple/tui':'exemple/dashboard')+'?theme='+th();
     if(f.getAttribute('src')!==u)f.setAttribute('src',u);
     var o=document.getElementById('ps-embed-open');if(o)o.setAttribute('href',u);
-    var a=t.parentNode.querySelectorAll('[data-embed-tab]');for(var i=0;i<a.length;i++)a[i].setAttribute('data-active',a[i]===t?'true':'false');
+    var a=document.querySelectorAll('[data-embed-tab]');for(var i=0;i<a.length;i++)a[i].setAttribute('data-active',a[i].getAttribute('data-embed-tab')===which?'true':'false');
+    return true;
+  }
+  document.addEventListener('click',function(e){
+    var t=e.target.closest&&e.target.closest('[data-embed-tab]');
+    if(t){apply(t.getAttribute('data-embed-tab'));return;}
+    if(e.target.closest&&e.target.closest('[aria-label="Theme"]')){setTimeout(function(){apply(active);},0);}
   });
+  (function ready(){
+    if(!apply(active)){setTimeout(ready,120);return;}
+    var n=0,iv=setInterval(function(){
+      var f=document.getElementById('ps-embed-frame');
+      if(f&&!f.getAttribute('src'))apply(active);
+      if(++n>12)clearInterval(iv);
+    },200);
+  })();
 })();
 </script>
 </body>
