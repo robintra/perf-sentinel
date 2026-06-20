@@ -128,10 +128,14 @@ function relabelDocPaths(html, lang) {
     const id = pathToId(text.trim());
     return id ? `<a href="${href}">${docLabel(id, lang)}</a>` : m;
   });
-  // inline-code or bare path text -> link to the doc, labelled
-  html = html.replace(/(<code>)?((?:\.{0,2}\/)?(?:docs\/)?(?:FR\/)?(?:design\/)?[A-Za-z0-9_.-]+\.md(?:#[\w.-]+)?)(<\/code>)?/g, (m, _open, p) => {
+  // inline-code or bare path text -> link to the doc, labelled. The code tags carry the
+  // .ps-ic class; matching a bare <code> left the opening in place but consumed the real
+  // </code>, leaving the span open so everything after it rendered mono. Match the real
+  // opening, and never strip just one tag of the pair.
+  html = html.replace(/(<code class="ps-ic">)?((?:\.{0,2}\/)?(?:docs\/)?(?:FR\/)?(?:design\/)?[A-Za-z0-9_.-]+\.md(?:#[\w.-]+)?)(<\/code>)?/g, (m, open, p, close) => {
     const id = pathToId(p);
     if (!id) return m;
+    if (Boolean(open) !== Boolean(close)) return m;
     const anchor = (p.match(/#([\w.-]+)/) || [])[1];
     return `<a href="${hrefFor(id, lang)}${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
   });

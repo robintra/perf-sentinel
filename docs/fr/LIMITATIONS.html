@@ -404,7 +404,7 @@ high = mid × 2,0   (double du midpoint)</code></pre></div>
 <li><code class="ps-ic">[green] default_region</code>.</li>
 </ol>
 <p class="ps-p">Les ops I/O sans région résolvable atterrissent dans un bucket synthétique <code class="ps-ic">"unknown"</code> et contribuent à zéro CO₂ opérationnel (un <code class="ps-ic">tracing::warn!</code> est émis). Le carbone embodié est tout de même émis car les émissions matérielles sont indépendantes de la région.</p>
-<p class="ps-p">Voir <code class="ps-ic"><a href="/docs/fr/design/05-GREENOPS-AND-CARBON">05 · GreenOps & carbon</a> pour la méthodologie complète, la formule et les notes d'alignement SCI v1.0.</p>
+<p class="ps-p">Voir <a href="/docs/fr/design/05-GREENOPS-AND-CARBON">05 · GreenOps & carbon</a> pour la méthodologie complète, la formule et les notes d'alignement SCI v1.0.</p>
 <h3 id="profils-carbone-horaires" class="ps-h3">Profils carbone horaires</h3>
 <p class="ps-p">Des profils d'intensité carbone horaire UTC sont embarqués pour plus de 30 régions cloud couvrant tous les principaux fournisseurs et zones géographiques. Quatre régions (FR, DE, GB, US-East) ont des profils <strong>mois x heure</strong> (288 valeurs chacun) qui capturent la variation saisonnière. Les autres régions ont des profils <strong>annuels plats</strong> (24 valeurs, même forme toute l'année).</p>
 <p class="ps-p"><strong>Régions mois x heure</strong> (12 mois x 24 heures) :</p>
@@ -425,7 +425,7 @@ high = mid × 2,0   (double du midpoint)</code></pre></div>
 <p class="ps-p"><strong>Ce que ça fait et ne fait pas.</strong> Le chemin horaire capture la variance au fil de la journée (un N+1 à 3h du matin en France coûte moins qu'un N+1 à 19h). Les profils mois x heure capturent aussi la variance saisonnière pour les 4 régions listées. Il ne capture PAS :</p>
 <ul>
 <li><strong>Les fluctuations liées à la météo</strong> : les valeurs embarquées sont des moyennes typiques, pas des données temps-réel.</li>
-<li><strong>Les données en temps réel</strong> : les profils embarqués sont statiques. Pour l'intensité carbone en temps réel (marquée <code class="ps-ic">intensity_source = "real_time"</code> dans les rapports), activer l'intégration opt-in <code class="ps-ic">[green.electricity_maps]</code> en mode daemon, voir <code class="ps-ic"><a href="/docs/fr/CONFIGURATION">Configuration</a>.</li>
+<li><strong>Les données en temps réel</strong> : les profils embarqués sont statiques. Pour l'intensité carbone en temps réel (marquée <code class="ps-ic">intensity_source = "real_time"</code> dans les rapports), activer l'intégration opt-in <code class="ps-ic">[green.electricity_maps]</code> en mode daemon, voir <a href="/docs/fr/CONFIGURATION">Configuration</a>.</li>
 </ul>
 <p class="ps-p"><strong>Profils estimés.</strong> Les profils Asie-Pacifique et Brésil sont estimés à partir de la composition du mix de combustibles plutôt que de données horaires de génération. Ils sont annotés comme tels dans le code source.</p>
 <p class="ps-p"><strong>Exigences de timestamp.</strong> perf-sentinel parse les timestamps en UTC et exige la forme canonique ISO 8601 <code class="ps-ic">YYYY-MM-DDTHH:MM:SS[.fff]Z</code> (Z final) ou la variante avec espace. Les chaînes avec offset non-UTC (<code class="ps-ic">+02:00</code>, <code class="ps-ic">-05:00</code>) sont rejetées plutôt que silencieusement décalées, car la table carbone est ancrée UTC et un traitement naïf des offsets fausserait systématiquement l'estimation. Les spans avec timestamps non-parsables retombent sur l'intensité annuelle plate.</p>
