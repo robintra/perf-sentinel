@@ -247,7 +247,7 @@ function buildPage(id, lang) {
     ftCol(L.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], ['/#license', L.license]]) +
     `</div>` +
     `<div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">` +
-    `<div style="display:flex;flex-direction:column;gap:6px"><span>${L.copyright}</span><span style="display:flex;gap:14px"><a href="/mentions-legales">${L.legal}</a><a href="/confidentialite">${L.privacy}</a></span></div>` +
+    `<div style="display:flex;flex-direction:column;gap:6px"><span>${L.copyright}</span><span style="display:flex;gap:14px"><a href="${lang === 'fr' ? '/mentions-legales' : '/legal-notice'}">${L.legal}</a><a href="${lang === 'fr' ? '/confidentialite' : '/privacy-policy'}">${L.privacy}</a></span></div>` +
     `<span>${L.credit}<a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" id="ftCredit">Gwendoline Meignen</a></span>` +
     `</div></div></footer>`;
 
