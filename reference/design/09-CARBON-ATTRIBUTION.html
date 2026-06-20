@@ -147,8 +147,8 @@ svc.operational_gco2 += op_co2;</code></pre></div>
 <h2 id="aggregator-branching" class="ps-h2">Aggregator branching</h2>
 <p class="ps-p"><code class="ps-ic">report::periodic::aggregator::Builder::process_window</code> checks two predicates:</p>
 <ol>
-<li><code class="ps-ic">report.green_summary.per_service_carbon_kgco2eq.is_empty() &amp;&amp; report.green_summary.per_service_energy_kwh.is_empty()</code> — runtime maps absent.</li>
-<li><code class="ps-ic">report.green_summary.energy_kwh &gt; 0.0</code> — runtime energy total present.</li>
+<li><code class="ps-ic">report.green_summary.per_service_carbon_kgco2eq.is_empty() &amp;&amp; report.green_summary.per_service_energy_kwh.is_empty()</code>: runtime maps absent.</li>
+<li><code class="ps-ic">report.green_summary.energy_kwh &gt; 0.0</code>: runtime energy total present.</li>
 </ol>
 <p class="ps-p">When both runtime maps are non-empty, the aggregator sums the per-service values directly. When they are empty, it falls back to the proxy path inherited from the first release (proportional I/O share for carbon, <code class="ps-ic">total_io_ops × ENERGY_PER_IO_OP_KWH</code> for energy). The two paths can coexist within the same archive directory: each window applies its own strategy.</p>
 <p class="ps-p">A single <code class="ps-ic">tracing::warn!</code> per archive file flags fallback usage so operators can spot stale archives. The counters <code class="ps-ic">runtime_windows</code> and <code class="ps-ic">fallback_windows</code> on <code class="ps-ic">AggregateInputs</code> carry the split for downstream diagnostics.</p>

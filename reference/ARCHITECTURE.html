@@ -107,16 +107,16 @@
 <h2 id="glossary" class="ps-h2">Glossary</h2>
 <p class="ps-p">A few terms recur across the docs and code; the distinctions matter:</p>
 <ul>
-<li><strong>Event</strong> — a single normalized SpanEvent. The pre-detection unit (input).</li>
-<li><strong>Finding</strong> — a detected anti-pattern (output of <code class="ps-ic">detect</code>). The product-level concept exposed in CLI output, JSON, SARIF, HTML, the daemon API and acks.</li>
-<li><strong>Pattern</strong> — the normalized SQL/HTTP template that groups events for a finding (e.g. <code class="ps-ic">SELECT * FROM users WHERE id = ?</code>).</li>
-<li><strong>Detection</strong> — the act, or the family of detectors (<code class="ps-ic">n_plus_one</code>, <code class="ps-ic">chatty</code>, ...). Not a synonym of <code class="ps-ic">finding</code>.</li>
+<li><strong>Event</strong>: a single normalized SpanEvent. The pre-detection unit (input).</li>
+<li><strong>Finding</strong>: a detected anti-pattern (output of <code class="ps-ic">detect</code>). The product-level concept exposed in CLI output, JSON, SARIF, HTML, the daemon API and acks.</li>
+<li><strong>Pattern</strong>: the normalized SQL/HTTP template that groups events for a finding (e.g. <code class="ps-ic">SELECT * FROM users WHERE id = ?</code>).</li>
+<li><strong>Detection</strong>: the act, or the family of detectors (<code class="ps-ic">n_plus_one</code>, <code class="ps-ic">chatty</code>, ...). Not a synonym of <code class="ps-ic">finding</code>.</li>
 </ul>
 <p class="ps-p">Operating modes:</p>
 <ul>
-<li><strong>Batch mode</strong> (<code class="ps-ic">perf-sentinel analyze</code>) — processes a complete trace set and produces a single Report. Used in CI integration tests, ad-hoc analysis, and <code class="ps-ic">perf-sentinel report</code> (HTML).</li>
-<li><strong>CI mode</strong> (<code class="ps-ic">perf-sentinel analyze --ci</code>) — same as batch, but the quality gate failure exits with code 1. The <code class="ps-ic">Confidence</code> field on each finding is stamped <code class="ps-ic">ci_batch</code> (lowest confidence: limited traffic shapes).</li>
-<li><strong>Daemon mode</strong> / <strong>streaming mode</strong> / <strong>watch mode</strong> (<code class="ps-ic">perf-sentinel watch</code>) — long-running process ingesting OTLP/JSON events in real time, with TTL-based eviction and per-trace detection. Findings are stamped <code class="ps-ic">daemon_staging</code> or <code class="ps-ic">daemon_production</code> based on <code class="ps-ic">[daemon] daemon_environment</code> (boosts severity in downstream consumers like perf-lint).</li>
+<li><strong>Batch mode</strong> (<code class="ps-ic">perf-sentinel analyze</code>): processes a complete trace set and produces a single Report. Used in CI integration tests, ad-hoc analysis, and <code class="ps-ic">perf-sentinel report</code> (HTML).</li>
+<li><strong>CI mode</strong> (<code class="ps-ic">perf-sentinel analyze --ci</code>): same as batch, but the quality gate failure exits with code 1. The <code class="ps-ic">Confidence</code> field on each finding is stamped <code class="ps-ic">ci_batch</code> (lowest confidence: limited traffic shapes).</li>
+<li><strong>Daemon mode</strong> / <strong>streaming mode</strong> / <strong>watch mode</strong> (<code class="ps-ic">perf-sentinel watch</code>): long-running process ingesting OTLP/JSON events in real time, with TTL-based eviction and per-trace detection. Findings are stamped <code class="ps-ic">daemon_staging</code> or <code class="ps-ic">daemon_production</code> based on <code class="ps-ic">[daemon] daemon_environment</code> (boosts severity in downstream consumers like perf-lint).</li>
 </ul>
 <p class="ps-p">The <code class="ps-ic">Confidence</code> axis (<code class="ps-ic">ci_batch</code> &lt; <code class="ps-ic">daemon_staging</code> &lt; <code class="ps-ic">daemon_production</code>) is stamped automatically by the runtime and exposed in JSON, SARIF, HTML and the daemon query API.</p>
 <h2 id="pipeline-overview" class="ps-h2">Pipeline overview</h2>

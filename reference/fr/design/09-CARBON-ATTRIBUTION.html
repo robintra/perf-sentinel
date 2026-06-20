@@ -147,8 +147,8 @@ svc.operational_gco2 += op_co2;</code></pre></div>
 <h2 id="branchement-de-laggregator" class="ps-h2">Branchement de l'aggregator</h2>
 <p class="ps-p"><code class="ps-ic">report::periodic::aggregator::Builder::process_window</code> regarde deux prédicats :</p>
 <ol>
-<li><code class="ps-ic">report.green_summary.per_service_carbon_kgco2eq.is_empty() &amp;&amp; report.green_summary.per_service_energy_kwh.is_empty()</code> — maps runtime absentes.</li>
-<li><code class="ps-ic">report.green_summary.energy_kwh &gt; 0.0</code> — total énergie runtime présent.</li>
+<li><code class="ps-ic">report.green_summary.per_service_carbon_kgco2eq.is_empty() &amp;&amp; report.green_summary.per_service_energy_kwh.is_empty()</code> : maps runtime absentes.</li>
+<li><code class="ps-ic">report.green_summary.energy_kwh &gt; 0.0</code> : total énergie runtime présent.</li>
 </ol>
 <p class="ps-p">Quand les deux maps runtime sont non vides, l'aggregator somme directement les valeurs per-service. Quand elles sont vides, il tombe sur le chemin proxy hérité de la première release (part d'I/O proportionnelle pour le carbone, <code class="ps-ic">total_io_ops × ENERGY_PER_IO_OP_KWH</code> pour l'énergie). Les deux chemins coexistent dans un même répertoire d'archive : chaque fenêtre applique sa propre stratégie.</p>
 <p class="ps-p">Un unique <code class="ps-ic">tracing::warn!</code> par fichier d'archive signale l'usage du fallback pour que les opérateurs repèrent des archives anciennes. Les compteurs <code class="ps-ic">runtime_windows</code> et <code class="ps-ic">fallback_windows</code> sur <code class="ps-ic">AggregateInputs</code> portent le split pour les diagnostics aval.</p>
