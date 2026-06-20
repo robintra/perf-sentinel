@@ -582,7 +582,7 @@ class Component extends DCLogic {
           { name: 'ack', desc: 'Manage acknowledged, known findings.' },
         ],
         fmTitle: 'Input & output formats',
-        fmIntro: 'Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams.',
+        fmIntro: 'Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams. Output is deterministic: identical input yields byte-identical JSON and SARIF, findings sorted on a stable key rather than HashMap order, so a CI quality gate never flickers.',
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
           { name: 'Trace files', desc: 'Native perf-sentinel JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
@@ -624,7 +624,7 @@ class Component extends DCLogic {
         akMore: 'Acknowledgment workflow',
         spTitle: 'Supply chain & releases',
         spIntro: 'Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Releases are signed with Sigstore and carry SLSA build provenance.',
-        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep.',
+        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA Build L3 provenance (Sigstore + Rekor) and embedded cargo-auditable data (cargo audit bin), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.',
         spMore: 'Supply chain & provenance',
         pfTitle: 'Performance', pfIntro: 'perf-sentinel bench times the analysis pipeline only (normalize → correlate → detect → score), single-threaded, on synthetic datasets: the pure pipeline cost, not end-to-end throughput nor a daemon-under-load benchmark.',
         pfHead: ['Dataset (44,043 synthetic events)', 'Platform', 'Pipeline throughput', 'p50 / p99 per event'],
@@ -658,7 +658,7 @@ class Component extends DCLogic {
           'Not a substitute for measured power — the I/O-to-energy model is an approximation; plug Scaphandre, Kepler or Redfish for precision.',
           'Not zero-config — protocol-level detection needs OTel instrumentation in your apps.',
         ],
-        dpTitle: 'Deployment', dpIntro: 'Four environments, three deployment models. Pick the lightest that fits where your traces live.',
+        dpTitle: 'Deployment', dpIntro: 'Four environments, three deployment models. Pick the lightest that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream sampling and the daemon’s own sampling_rate undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion.',
         dpModes: [
           { name: 'CI batch', desc: 'perf-sentinel analyze --ci on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' },
           { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' },
@@ -678,7 +678,7 @@ class Component extends DCLogic {
         pvPoints: [
           { name: 'On-prem processing', desc: 'Traces are analyzed in place. No silent outbound calls, no usage telemetry baked in. Raw span content lives in memory only (30s TTL, 10k-trace LRU) and is never written to disk; everything emitted carries the normalized template only, with SQL literals and URL values replaced by placeholders.' },
           { name: 'Localhost by default', desc: 'The daemon listens on 127.0.0.1. TLS, CORS and the ack API key are all opt-in.' },
-          { name: 'Locked-down surface', desc: 'Read-only GET endpoints and the OTLP ingestion listeners can be restricted; the no-auth threat model is documented.' },
+          { name: 'Locked-down surface', desc: 'Read-only GET endpoints and the OTLP ingestion listeners can be restricted; the no-auth threat model is documented. The endpoints trust their senders, so keep ingestion on a trusted network and put a reverse proxy or network policy in front before exposing anything beyond localhost.' },
         ],
         pvMore: 'Limitations & threat model',
         frTitle: 'Detailed documentation', frIntro: 'Every topic above is covered in full in the reference. Jump straight to a page:',
@@ -753,7 +753,7 @@ class Component extends DCLogic {
           { name: 'ack', desc: 'Gère les findings acquittés et connus.' },
         ],
         fmTitle: 'Formats d\u2019entrée et de sortie',
-        fmIntro: 'Les traces arrivent par fichier ou en OTLP live ; les résultats sortent en texte terminal, JSON/SARIF lisibles par machine, dashboard HTML, ou flux du daemon live.',
+        fmIntro: 'Les traces arrivent par fichier ou en OTLP live ; les résultats sortent en texte terminal, JSON/SARIF lisibles par machine, dashboard HTML, ou flux du daemon live. La sortie est déterministe : une entrée identique produit un JSON et un SARIF byte-identiques, les findings triés sur une clé stable plutôt que sur l’ordre d’une HashMap, donc un quality gate CI ne clignote jamais.',
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
           { name: 'Fichiers de traces', desc: 'JSON natif perf-sentinel, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
@@ -795,7 +795,7 @@ class Component extends DCLogic {
         akMore: 'Flux d\u2019acquittement',
         spTitle: 'Chaîne d\u2019appro. & releases',
         spIntro: 'Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l\u2019image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les releases sont signées avec Sigstore et portent une provenance SLSA.',
-        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep.',
+        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA Build L3 (Sigstore + Rekor) et des données cargo-auditable embarquées (cargo audit bin), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.',
         spMore: 'Chaîne d\u2019appro. & provenance',
         pfTitle: 'Performance', pfIntro: 'perf-sentinel bench ne chronomètre que le pipeline d\u2019analyse (normalize → correlate → detect → score), mono-thread, sur jeux de données synthétiques : le coût pur du pipeline, pas un débit de bout en bout ni un benchmark du daemon sous charge.',
         pfHead: ['Jeu de données (44 043 évènements synthétiques)', 'Plateforme', 'Débit pipeline', 'p50 / p99 par évènement'],
@@ -829,7 +829,7 @@ class Component extends DCLogic {
           'Pas un substitut à la mesure énergétique — le modèle I/O-vers-énergie est une approximation ; branchez Scaphandre, Kepler ou Redfish pour la précision.',
           'Pas zéro-config — la détection au niveau protocole exige une instrumentation OTel dans vos apps.',
         ],
-        dpTitle: 'Déploiement', dpIntro: 'Quatre environnements, trois modèles de déploiement. Choisissez le plus léger adapté à l\u2019endroit où vivent vos traces.',
+        dpTitle: 'Déploiement', dpIntro: 'Quatre environnements, trois modèles de déploiement. Choisissez le plus léger adapté à l\u2019endroit où vivent vos traces. Le collecteur central est un daemon unique avec état, donc des réplicas horizontaux exigent un load balancing par trace-id et ne partagent pas l’état de corrélation. L’échantillonnage en amont et le sampling_rate du daemon sous-comptent les détecteurs par répétition, et sous surcharge soutenue le daemon déleste des lots d’analyse entiers plutôt que de bloquer l’ingestion.',
         dpModes: [
           { name: 'Batch CI', desc: 'perf-sentinel analyze --ci sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' },
           { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' },
@@ -849,7 +849,7 @@ class Component extends DCLogic {
         pvPoints: [
           { name: 'Traitement sur place', desc: 'Les traces sont analysées localement. Aucun appel réseau sortant silencieux, aucune télémétrie d\u2019usage embarquée. Le contenu brut des spans reste en mémoire uniquement (TTL 30s, LRU de 10k traces) et n\u2019est jamais écrit sur disque ; tout ce qui est émis ne porte que le template normalisé, valeurs SQL et URL remplacées par des placeholders.' },
           { name: 'Localhost par défaut', desc: 'Le daemon écoute sur 127.0.0.1. TLS, CORS et la clé d\u2019API d\u2019acquittement sont tous opt-in.' },
-          { name: 'Surface verrouillable', desc: 'Les endpoints GET en lecture seule et les listeners d\u2019ingestion OTLP peuvent être restreints ; le modèle de menace sans auth est documenté.' },
+          { name: 'Surface verrouillable', desc: 'Les endpoints GET en lecture seule et les listeners d\u2019ingestion OTLP peuvent être restreints ; le modèle de menace sans auth est documenté. Les endpoints font confiance à leurs émetteurs, gardez donc l’ingestion sur un réseau de confiance et placez un reverse proxy ou une network policy devant avant toute exposition au-delà de localhost.' },
         ],
         pvMore: 'Limites & modèle de menace',
         frTitle: 'Documentation détaillée', frIntro: 'Chaque sujet ci-dessus est couvert en intégralité dans la référence. Accès direct à une page :',
