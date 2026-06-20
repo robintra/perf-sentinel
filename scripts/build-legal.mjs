@@ -35,7 +35,7 @@ function header(lang, otherHref) {
     `<a href="/" style="font-size:14px;color:var(--text-2);text-decoration:none">&larr; ${HOME[lang]}</a>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:10px">` +
     `<a aria-label="Language" href="${otherHref}" style="${PILL};font-weight:600;letter-spacing:.04em;text-decoration:none;display:inline-flex;align-items:center">${LANGSW[lang]}</a>` +
-    `<button id="themeBtn" aria-label="Theme" style="display:flex;align-items:center;gap:7px;${PILL};cursor:pointer"><span class="th-ico th-sun">${SUN}</span><span class="th-ico th-moon">${MOON}</span><span id="themeLbl">${lang === 'fr' ? 'Clair' : 'Light'}</span></button>` +
+    `<button id="themeBtn" aria-label="Theme" style="display:flex;align-items:center;gap:7px;${PILL};cursor:pointer"><span class="th-ico th-sun">${SUN}</span><span class="th-ico th-moon">${MOON}</span><span id="themeLbl">${lang === 'fr' ? 'Sombre' : 'Dark'}</span></button>` +
     `<a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px">${GH}GitHub</a>` +
     `</div></div></header>`;
 }
@@ -71,7 +71,7 @@ function page(lang, otherHref, title, desc, main) {
     `<title>${title} · perf-sentinel</title><meta name="description" content="${desc}"><meta name="robots" content="index,follow">` +
     `<meta property="og:type" content="website"><meta property="og:title" content="${title} · perf-sentinel"><meta property="og:description" content="${desc}"><meta property="og:image" content="https://perf-sentinel.dev/assets/og-banner.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="427"><meta property="og:image:alt" content="perf-sentinel"><meta name="theme-color" content="#0BA671"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:image" content="https://perf-sentinel.dev/assets/og-banner.png">` +
     `<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css">${STYLE}${legalCss}</head>` +
-    `<body><div data-ps-root data-theme="dark">${initScript}<div style="min-height:100vh;display:flex;flex-direction:column;background-color:var(--bg);color:var(--text)">` +
+    `<body><div data-ps-root data-theme="light">${initScript}<div style="min-height:100vh;display:flex;flex-direction:column;background-color:var(--bg);color:var(--text)">` +
     `${header(lang, otherHref)}<main class="legal-main" style="flex:1 0 auto">${main}</main>${footer(lang)}</div></div>${tailScript(lang)}</body></html>`;
 }
 

@@ -253,7 +253,7 @@ function buildPage(id, lang) {
     `</div></div></footer>`;
 
   return head +
-    `<body><div data-ps-root data-theme="dark"><div style="min-height:100vh;background-color:var(--bg);color:var(--text)">` +
+    `<body><div data-ps-root data-theme="light"><div style="min-height:100vh;background-color:var(--bg);color:var(--text)">` +
     header +
     `<div class="ps-layout" style="max-width:1320px;margin:0 auto;display:grid;grid-template-columns:248px 1fr 232px;gap:0;align-items:start">` +
     asideSidebar + main + tocCol +
