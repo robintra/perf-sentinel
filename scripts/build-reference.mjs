@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MAIN = '/Users/robintrassard/RustroverProjects/perf-sentinel';
-const REF = join(SITE, 'reference');
+const REF = join(SITE, 'docs');
 const SITE_DOCS = join(SITE, 'docs-site');
 
 // --- doc registry + labels (mirrors Docs.dc.html registry()/groupLabel()/docLabel()) ---
@@ -54,7 +54,7 @@ const docLabel = (id, lang) => (lang === 'fr' && DOC_LABEL_FR[id]) || DOC_LABEL_
 const groupLabel = (key, lang) => GROUP_LABEL[lang][key] || key;
 const flat = (id) => id;
 const hrefFor = (id, lang) => {
-  const base = '/reference/' + (lang === 'fr' ? 'fr/' : '');
+  const base = '/docs/' + (lang === 'fr' ? 'fr/' : '');
   if (id === '00-INDEX') return base;
   if (id === 'design/00-INDEX') return base + 'design/';
   return base + id;

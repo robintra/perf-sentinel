@@ -869,7 +869,7 @@ class Component extends DCLogic {
     const theme = this.curTheme();
     const lang = this.curLang();
     const t = this.dict()[lang];
-    const refBase = lang === 'fr' ? 'reference/fr/' : 'reference/';
+    const refBase = lang === 'fr' ? 'docs/fr/' : 'docs/';
     const ids = ['quickstart', 'install', 'config', 'cli', 'formats', 'metrics', 'perf', 'compare', 'ack', 'deploy', 'privacy', 'supply', 'docs'];
     const navItems = ids.map((id, i) => ({ id, label: t.nav[i], active: this.state.active === id ? 'true' : 'false' }));
     return {

@@ -780,7 +780,7 @@ class Component extends DCLogic {
     const lang = this.curLang();
     const t = this.dict()[lang];
     const install = this.props.installCommand || 'cargo install perf-sentinel --locked';
-    const refBase = lang === 'fr' ? 'reference/fr/' : 'reference/';
+    const refBase = lang === 'fr' ? 'docs/fr/' : 'docs/';
     return {
       theme,
       themeLabel: theme === 'dark' ? t.themeDark : t.themeLight,
