@@ -76,7 +76,7 @@
   [data-embed-tab]{font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;border:1px solid transparent;color:var(--text-2);padding:3px 10px;border-radius:7px;cursor:pointer}
   [data-embed-tab]:hover{color:var(--text)}
   [data-embed-tab][data-active="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
-@media(max-width:560px){header>div{flex-wrap:wrap;row-gap:8px}}@media(max-width:920px){[data-nav]{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:hover,footer a:hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}</style>
+@media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:hover,footer a:hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:3px!important;margin-left:0!important}header>div>div>button,header>div>div>a{padding-left:7px!important;padding-right:7px!important}}</style>
 </helmet>
 
 <div data-ps-root="" data-theme="{{ theme }}">
@@ -121,7 +121,7 @@
       </svg>
       <div style="position:relative;max-width:760px">
         <div style="display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:12.5px;letter-spacing:.04em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 14px">
-          <span style="width:7px;height:7px;border-radius:50%;background:var(--accent)"></span>{{ eyebrowHero }}
+          <span style="width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none"></span>{{ eyebrowHero }}<span style="color:var(--accent)">{{ eyebrowHeroGreen }}</span>
         </div>
         <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
         <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
@@ -504,7 +504,7 @@ class Component extends DCLogic {
     return {
       en: {
         nav: ['Detection', 'Execution', 'GreenOps', 'Comparison'],
-        eyebrowHero: 'Self-hosted single binary · OpenTelemetry · Open source AGPL-3.0',
+        eyebrowHero: 'Self-hosted single binary · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Spot the wasted I/O in your traces. Price it in energy and carbon.',
         heroSub: 'perf-sentinel catches N+1s, redundant calls, slow queries and fanout in your OpenTelemetry traces, as a CI quality gate or an OTLP daemon, then turns every avoidable I/O into energy and CO₂.',
         ctaHow: 'How it works', ctaCarbon: 'The carbon side',
@@ -639,7 +639,7 @@ class Component extends DCLogic {
       },
       fr: {
         nav: ['Détection', 'Exécution', 'GreenOps', 'Comparatif'],
-        eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · Open source AGPL-3.0',
+        eyebrowHero: 'Mono-binaire auto-hébergé · OpenTelemetry · ', eyebrowHeroGreen: 'Open source AGPL-3.0',
         heroTitle: 'Détectez les I/O gaspillées de vos traces. Chiffrez-les en énergie et carbone.',
         heroSub: 'perf-sentinel repère les N+1, appels redondants, requêtes lentes et fanout dans vos traces OpenTelemetry, en quality gate CI ou en daemon OTLP, puis convertit chaque I/O évitable en énergie et en CO₂.',
         ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
@@ -789,7 +789,7 @@ class Component extends DCLogic {
       toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); this.setState({ lang: next }); },
 
       navDetection: t.nav[0], navExecution: t.nav[1], navGreenops: t.nav[2], navComparison: t.nav[3],
-      eyebrowHero: t.eyebrowHero,
+      eyebrowHero: t.eyebrowHero, eyebrowHeroGreen: t.eyebrowHeroGreen,
       heroTitle: t.heroTitle,
       heroSub: t.heroSub,
       ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
