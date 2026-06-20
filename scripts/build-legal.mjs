@@ -46,6 +46,7 @@ const tailScript = `<script>(function(){var r=document.querySelector('[data-ps-r
 const legalCss = `<style>.legal-main{max-width:760px;margin:0 auto;padding:56px 28px 84px}.legal-main h1{font-size:30px;line-height:1.2;margin:0 0 6px;color:var(--text)}.legal-main h2{font-size:18px;margin:36px 0 10px;color:var(--text)}.legal-main p,.legal-main li{font-size:15px;line-height:1.66;color:var(--text-2)}.legal-main .upd{font-size:13px;opacity:.8;margin:0 0 30px}.legal-main a{color:var(--accent)}.todo{background:color-mix(in srgb,#E8B339 26%,transparent);color:var(--text);padding:1px 6px;border-radius:4px;font-weight:600}</style>`;
 
 const todo = (t) => `<span class="todo">[${t}]</span>`;
+const EMAIL = '<a href="mailto:robin.trassard@gmail.com">robin.trassard@gmail.com</a>';
 
 function page(title, desc, main) {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">` +
@@ -58,7 +59,7 @@ function page(title, desc, main) {
 const mentions = page('Mentions légales',
   'Mentions légales du site perf-sentinel : éditeur, directeur de la publication et hébergeur.',
   `<h1>Mentions légales</h1><p class="upd">Dernière mise à jour : juin 2026</p>` +
-  `<h2>Éditeur du site</h2><p>Le présent site est édité par Robin Trassard, à titre personnel (particulier non-professionnel). Contact : ${todo('ton email')}.</p>` +
+  `<h2>Éditeur du site</h2><p>Le présent site est édité par Robin Trassard, à titre personnel (particulier non-professionnel). Contact : ${EMAIL}.</p>` +
   `<h2>Directeur de la publication</h2><p>Robin Trassard.</p>` +
   `<h2>Hébergeur</h2><p>Le site est hébergé par GitHub Pages — GitHub, Inc., 88 Colin P. Kelly Jr. Street, San Francisco, CA 94107, États-Unis (<a href="https://github.com" target="_blank" rel="noopener">github.com</a>).</p>` +
   `<p>Le nom de domaine perf-sentinel.dev est enregistré auprès d'OVH SAS, 2 rue Kellermann, 59100 Roubaix, France (<a href="https://www.ovhcloud.com" target="_blank" rel="noopener">ovhcloud.com</a>).</p>` +
@@ -76,7 +77,7 @@ const confid = page('Politique de confidentialité',
   `<h2>Polices de caractères</h2><p>Les polices sont hébergées directement sur le site. Aucune requête n'est envoyée à un service tiers (pas de Google Fonts), donc aucune donnée n'est transmise de ce fait.</p>` +
   `<h2>Hébergement et journaux</h2><p>Comme tout hébergeur web, GitHub Pages peut enregistrer des données techniques de connexion (adresse IP, type de navigateur) à des fins de fonctionnement et de sécurité. Ce traitement relève de GitHub ; voir la <a href="https://docs.github.com/site-policy/privacy-policies/github-general-privacy-statement" target="_blank" rel="noopener">politique de confidentialité de GitHub</a>.</p>` +
   `<h2>Liens externes</h2><p>Le site renvoie vers des services tiers (GitHub, crates.io, docs.rs, LinkedIn) qui disposent de leurs propres politiques de confidentialité. L'éditeur n'est pas responsable de leurs pratiques.</p>` +
-  `<h2>Tes droits</h2><p>Conformément au RGPD, tu disposes d'un droit d'accès, de rectification et d'effacement de tes données. Le site ne détenant aucune donnée personnelle te concernant, ces demandes concernent surtout l'hébergeur. Pour toute question : ${todo('ton email')}. Tu peux aussi introduire une réclamation auprès de la CNIL (<a href="https://www.cnil.fr" target="_blank" rel="noopener">cnil.fr</a>).</p>`);
+  `<h2>Tes droits</h2><p>Conformément au RGPD, tu disposes d'un droit d'accès, de rectification et d'effacement de tes données. Le site ne détenant aucune donnée personnelle te concernant, ces demandes concernent surtout l'hébergeur. Pour toute question : ${EMAIL}. Tu peux aussi introduire une réclamation auprès de la CNIL (<a href="https://www.cnil.fr" target="_blank" rel="noopener">cnil.fr</a>).</p>`);
 
 writeFileSync(join(SITE, 'mentions-legales.html'), mentions);
 writeFileSync(join(SITE, 'confidentialite.html'), confid);
