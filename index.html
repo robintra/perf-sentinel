@@ -76,7 +76,7 @@
   [data-embed-tab]{font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;border:1px solid transparent;color:var(--text-2);padding:3px 10px;border-radius:7px;cursor:pointer}
   [data-embed-tab]:hover{color:var(--text)}
   [data-embed-tab][data-active="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
-@media(max-width:560px){header>div{flex-wrap:wrap;row-gap:8px}}@media(max-width:920px){[data-nav]{display:none!important}}[data-clink]{text-decoration:underline;text-underline-offset:2px}[data-clink]:hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}</style>
+@media(max-width:560px){header>div{flex-wrap:wrap;row-gap:8px}}@media(max-width:920px){[data-nav]{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}</style>
 </helmet>
 
 <div data-ps-root="" data-theme="{{ theme }}">
@@ -84,7 +84,7 @@
 
   <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px">
-      <a href="#top" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
+      <a data-plain href="#top" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
       <nav data-nav="" style="display:flex;gap:24px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
         
         
@@ -101,7 +101,7 @@
         <button onClick="{{ toggleTheme }}" aria-label="Theme" style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.02em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">
           <span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>{{ themeLabel }}
         </button>
-        <a href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
+        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>GitHub</a>
       </div>
     </div>
@@ -126,8 +126,8 @@
         <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
         <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
         <div style="display:flex;gap:14px;margin-top:30px;flex-wrap:wrap">
-          <a href="#modes" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
-          <a href="#greenops" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
+          <a data-plain href="#modes" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
+          <a data-plain href="#greenops" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
         </div>
       </div>
 
@@ -193,10 +193,10 @@
             <div style="flex:1">
               <div style="display:flex;gap:46px;justify-content:center;align-items:flex-end;height:180px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)">
                 <div style="position:relative;width:68px;height:36%;background:#5b9bd5;border-radius:5px 5px 0 0">
-                  <span style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:#5b9bd5;white-space:nowrap">{{ carbonAnnBasse }}</span>
+                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:#5b9bd5;white-space:nowrap">{{ carbonAnnBasse }}</span>
                 </div>
                 <div style="position:relative;width:68px;height:78%;display:flex;flex-direction:column">
-                  <span style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:#5b9bd5">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:400;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:#f5a623">{{ carbonAnnHauteQ }}</span>)</span></span>
+                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:#5b9bd5">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:400;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:#f5a623">{{ carbonAnnHauteQ }}</span>)</span></span>
                   <div style="height:54%;background:#f5a623;border-radius:5px 5px 0 0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#1a1a1a">?</div>
                   <div style="flex:1;background:#5b9bd5"></div>
                 </div>
@@ -373,7 +373,7 @@
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
           <h2 style="margin:12px 0 0;font-size:clamp(24px,2.7vw,31px);font-weight:700;letter-spacing:-.018em;color:var(--text);text-wrap:balance"><span style="color:#0ba671">{{ licTitleA }}</span>{{ licTitleB }}</h2>
         </div>
-        <a href="https://www.gnu.org/licenses/agpl-3.0.html" style="flex:none;display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:11px 16px" style-hover="border-color:var(--accent)">
+        <a data-plain href="https://www.gnu.org/licenses/agpl-3.0.html" style="flex:none;display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:11px 16px" style-hover="border-color:var(--accent)">
           <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>open source
         </a>
       </div>
@@ -537,7 +537,7 @@ class Component extends DCLogic {
         whyP1: 'I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
         whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
-        whyP4: 'And detection is only half of it: each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.',
+        whyP4: 'Each avoidable I/O is also priced in energy and CO₂, bottom-up and attributable to the code.',
         prereqTitle: 'Read this first',
         prereq1Label: 'Prerequisite:', prereq1Text: 'your services emit OpenTelemetry traces (SQL and HTTP spans) carrying the query text and the target URL. Setup', prereq1Link: 'by language',
         prereq2Label: 'Audit your tracing first:', prereq2Text: 'spans missing those attributes are dropped silently, so an empty report can mean no problems or no usable instrumentation. perf-sentinel inspect shows what was extracted. See', prereq2Link: 'what bounds the findings',
@@ -592,13 +592,13 @@ class Component extends DCLogic {
         perfEyebrow: '// built in rust',
         perfT1: 'A single ', perfWRust: 'Rust', perfT2: ' binary, measured',
         perfIntro: 'Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.',
-        perfBadgePrefix: 'Built with Rust · version ',
+        perfBadgePrefix: 'Version ',
         perfMore: 'Full benchmarks in the docs',
         perfStats: [
           { value: '576k–1.2M', label: 'events/s, pipeline throughput (x86 to M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'per event, p50 to p99' },
           { value: '~17 MB', label: 'daemon RSS at rest (≈190 MB under ~1M evts/s)' },
-          { value: 'Rust 2024', label: 'static musl binary, FROM scratch image' },
+          { value: 'Rust 2024 edition', label: 'static musl binary, FROM scratch image' },
         ],
         goEyebrow: '// greenops',
         goT1: 'Every avoidable I/O has a ', goWCost: 'cost', goT2: ', in time, ', goWEnergy: 'energy', goT3: ' and ', goWCarbon: 'carbon',
@@ -672,7 +672,7 @@ class Component extends DCLogic {
         whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
         whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans rien comprendre à JPA ou EF Core.',
-        whyP4: 'Et la détection n’est qu’une moitié : chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
+        whyP4: 'Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
         prereqTitle: 'À lire en premier',
         prereq1Label: 'Prérequis :', prereq1Text: 'vos services émettent des traces OpenTelemetry (spans SQL et HTTP) portant le texte de la requête et l’URL cible. Mise en place', prereq1Link: 'par langage',
         prereq2Label: 'Auditez votre tracing d’abord :', prereq2Text: 'les spans sans ces attributs sont écartés en silence, donc un rapport vide peut signifier aucun problème ou aucune instrumentation exploitable. perf-sentinel inspect montre ce qui a été extrait. Voir', prereq2Link: 'ce qui borne les findings',
@@ -727,13 +727,13 @@ class Component extends DCLogic {
         perfEyebrow: '// écrit en rust',
         perfT1: 'Un mono-binaire ', perfWRust: 'Rust', perfT2: ', mesuré',
         perfIntro: 'Édition 2024, lié statiquement à musl et livré dans des images FROM scratch. Les chiffres ci-dessous chronomètrent le pipeline d\u2019analyse seul (mono-thread, sur jeux de données synthétiques) : ils isolent le coût du pipeline, pas un débit de bout en bout.',
-        perfBadgePrefix: 'Écrit en Rust · version ',
+        perfBadgePrefix: 'Version ',
         perfMore: 'Benchmarks détaillés dans la doc',
         perfStats: [
           { value: '576k–1.2M', label: 'évts/s, débit pipeline (x86 à M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'par évènement, p50 à p99' },
           { value: '~17 Mo', label: 'RSS daemon au repos (≈190 Mo sous ~1M évts/s)' },
-          { value: 'Rust 2024', label: 'binaire statique musl, image FROM scratch' },
+          { value: 'Rust édition 2024', label: 'binaire statique musl, image FROM scratch' },
         ],
         goEyebrow: '// greenops',
         goT1: 'Chaque I/O évitable a un ', goWCost: 'coût', goT2: ', en temps, ', goWEnergy: 'énergie', goT3: ' et ', goWCarbon: 'carbone',
