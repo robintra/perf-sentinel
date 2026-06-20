@@ -252,7 +252,7 @@
             </div>
             <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
-              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--accent)">{{ carbonBuResult }}</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonBuResultA }}<span style="color:var(--accent)">{{ carbonBuResultB }}</span>{{ carbonBuResultC }}<span style="color:var(--accent)">{{ carbonBuResultD }}</span>.</div>
             </div>
           </div>
         </div>
@@ -562,7 +562,7 @@ class Component extends DCLogic {
         carbonTdResultA: 'A global figure, ', carbonTdResultB: 'not attributable', carbonTdResultC: ' and ', carbonTdResultD: 'not actionable',
         carbonBuEyebrow: 'Bottom-up approach', carbonBuTitle: 'perf-sentinel on heavy web apps',
         carbonBuPoints: [{ t: 'Observes the real application, query by query.' }, { t: 'Translates each operation into energy then carbon (recognized method).' }, { t: 'Pinpoints avoidable waste and its cost.' }],
-        carbonBuResult: 'A quantified hotspot, attributable to the code and directly actionable.',
+        carbonBuResultA: 'A quantified hotspot, ', carbonBuResultB: 'attributable to the code', carbonBuResultC: ' and ', carbonBuResultD: 'directly actionable',
         goMore: 'GreenOps metrics in the guide',
         cmpMore: 'Full comparison in the guide',
         detT1: 'Ten I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
@@ -697,7 +697,7 @@ class Component extends DCLogic {
         carbonTdResultA: 'Chiffre global, ', carbonTdResultB: 'non attribuable', carbonTdResultC: ' et ', carbonTdResultD: 'non actionnable',
         carbonBuEyebrow: 'Approche bottom-up', carbonBuTitle: 'perf-sentinel sur les apps web lourdes',
         carbonBuPoints: [{ t: 'Observe l’application réelle, requête par requête.' }, { t: 'Traduit chaque traitement en énergie puis en carbone (méthode reconnue).' }, { t: 'Pointe les gaspillages évitables et leur coût.' }],
-        carbonBuResult: 'Gisement chiffré, attribuable au code et directement actionnable.',
+        carbonBuResultA: 'Gisement chiffré, ', carbonBuResultB: 'attribuable au code', carbonBuResultC: ' et ', carbonBuResultD: 'directement actionnable',
         goMore: 'Métriques GreenOps dans le guide',
         cmpMore: 'Comparatif complet dans le guide',
         detT1: 'Dix ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
@@ -815,7 +815,7 @@ class Component extends DCLogic {
       carbonNarrTitle: t.carbonNarrTitle, carbonNarrText: t.carbonNarrText, carbonStatNum: t.carbonStatNum, carbonStatText: t.carbonStatText, carbonStatSrc: t.carbonStatSrc,
       carbonCmpTitle: t.carbonCmpTitle, carbonCmpSub: t.carbonCmpSub, carbonResultLabel: t.carbonResultLabel,
       carbonTdEyebrow: t.carbonTdEyebrow, carbonTdTitle: t.carbonTdTitle, carbonTdPoints: t.carbonTdPoints, carbonTdResultA: t.carbonTdResultA, carbonTdResultB: t.carbonTdResultB, carbonTdResultC: t.carbonTdResultC, carbonTdResultD: t.carbonTdResultD,
-      carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResult: t.carbonBuResult,
+      carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResultA: t.carbonBuResultA, carbonBuResultB: t.carbonBuResultB, carbonBuResultC: t.carbonBuResultC, carbonBuResultD: t.carbonBuResultD,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
       perfMore: t.perfMore,
