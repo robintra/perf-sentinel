@@ -350,7 +350,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
             </div>
           </sc-for>
         </div>
-        <a data-plain href="{{ refBase }}INTEGRATION" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ dpMore }}</span><span data-arrow> →</span></a>
+        
         <div style="display:flex;flex-direction:column;gap:12px;margin-top:24px">
           <sc-for list="{{ dpDiagrams }}" as="d" hint-placeholder-count="6">
             <details style="border:1px solid var(--border);border-radius:10px;background:var(--surface);padding:14px 18px">
@@ -359,7 +359,7 @@ a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([d
             </details>
           </sc-for>
         </div>
-      </section>
+      <a data-plain href="{{ refBase }}INTEGRATION" style="display:inline-flex;align-items:center;gap:7px;margin-top:18px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ dpMore }}</span><span data-arrow> →</span></a> </section>
 
       <!-- PRIVACY -->
       <section id="privacy" style="padding-top:54px">
@@ -565,15 +565,15 @@ class Component extends DCLogic {
         csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # tree view of one trace\nperf-sentinel inspect --input traces.json                          # interactive TUI\nperf-sentinel diff --before base.json --after head.json            # PR regression diff\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # PostgreSQL hotspots\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # pull from Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # shell completions\nperf-sentinel man > perf-sentinel.1                                # man page\nperf-sentinel query findings --service order-svc                   # talk to a running daemon',
         pfDetails: [
           { title: 'Bench methodology (clock scope, datasets)', body: 'File reads, JSON parsing and ingestion all happen before the clock starts, and input batches are cloned up front. The pipeline is single-threaded (no rayon), so core count does not change throughput. Both datasets are 44,043 synthetic events built by duplicating the demo fixture, one repeats the same pattern, the other uses random SQL per query. This isolates pipeline throughput but does not reflect real-production diversity.' },
-          { title: 'Same-chip allocator breakdown', body: 'The x86 musl artifact links mimalloc while the macOS arm64 artifact uses the system allocator, so cross-platform binaries differ by allocator as well as ISA. On the same M4 Pro the musl+mimalloc build (the linux/arm64 artifact in a Docker container) reaches ~1.39M / ~1.51M evt/s versus ~1.23M / ~1.33M native, about 13% faster, confirming the allocator as the main cause of higher Docker throughput. At equal build (both musl+mimalloc), the M4 Pro is ~2.4× the x86 8481C (2.41× repeated, 2.36× varied).' },
-          { title: 'Memory: bench rss_peak vs daemon footprint', body: 'bench prints rss_peak_bytes, but that is dominated by the pre-cloned input batches (10 iterations × 44,043 events), not the daemon footprint, and it is not comparable across operating systems (current RSS from /proc on Linux, peak RSS via getrusage on macOS). Profiled separately on the same M4 Pro in a Docker Desktop linux/arm64 VM, the daemon idles at ~17 MB in musl+mimalloc (~10 MB native, mimalloc trades a little RSS for allocator speed) and peaks ~190 MB under a sustained ~1.0M evt/s load, down from 237 MB on 0.6.1, under the 250 MB ceiling.' },
+          { title: 'Same-chip allocator breakdown', body: 'The x86 musl artifact links mimalloc while the macOS arm64 artifact uses the system allocator, so cross-platform binaries differ by allocator as well as ISA. On the same M4 Pro the musl+mimalloc build (the `linux/arm64` artifact in a Docker container) reaches ~1.39M / ~1.51M evt/s versus ~1.23M / ~1.33M native, about 13% faster, confirming the allocator as the main cause of higher Docker throughput. At equal build (both musl+mimalloc), the M4 Pro is ~2.4× the x86 8481C (2.41× repeated, 2.36× varied).' },
+          { title: 'Memory: bench rss_peak vs daemon footprint', body: 'bench prints `rss_peak_bytes`, but that is dominated by the pre-cloned input batches (10 iterations × 44,043 events), not the daemon footprint, and it is not comparable across operating systems (current RSS from /proc on Linux, peak RSS via `getrusage` on macOS). Profiled separately on the same M4 Pro in a Docker Desktop `linux/arm64` VM, the daemon idles at ~17 MB in musl+mimalloc (~10 MB native, mimalloc trades a little RSS for allocator speed) and peaks ~190 MB under a sustained ~1.0M evt/s load, down from 237 MB on 0.6.1, under the 250 MB ceiling.' },
         ],
         cliMoreLabel: '// more subcommands',
         cliMore: [
           { name: 'diff', desc: 'Compare two analyses to catch regressions in CI.' },
           { name: 'explain', desc: 'Drill into one trace (--trace-id), annotated span tree.' },
           { name: 'inspect', desc: 'Standalone four-panel TUI.' },
-          { name: 'pg-stat', desc: 'pg_stat_statements hotspots, ranked by total time.' },
+          { name: 'pg-stat', desc: '`pg_stat_statements` hotspots, ranked by total time.' },
           { name: 'calibrate', desc: 'Per-service energy factors from measured power.' },
           { name: 'disclose', desc: 'Verifiable periodic disclosure, signable via Sigstore.' },
           { name: 'tempo', desc: 'Fetch traces straight from a Grafana Tempo backend.' },
@@ -582,14 +582,14 @@ class Component extends DCLogic {
           { name: 'ack', desc: 'Manage acknowledged, known findings.' },
         ],
         fmTitle: 'Input & output formats',
-        fmIntro: 'Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams. Output is deterministic: identical input yields byte-identical JSON and SARIF, findings sorted on a stable key rather than HashMap order, so a CI quality gate never flickers.',
+        fmIntro: 'Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams. Output is deterministic: identical input yields byte-identical JSON and SARIF, findings sorted on a stable key rather than `HashMap` order, so a CI quality gate never flickers.',
         fmInLabel: 'Inputs', fmOutLabel: 'Outputs',
         fmInputs: [
           { name: 'Trace files', desc: 'Native perf-sentinel JSON, Jaeger JSON, Zipkin v2. Auto-detected from the first bytes, no --format flag.' },
           { name: 'Live OTLP', desc: 'gRPC :4317 and HTTP :4318, ingested by the watch daemon from your OTel Collector or SDK.' },
           { name: 'Grafana Tempo', desc: 'Pull traces directly from a Tempo backend with perf-sentinel tempo.' },
           { name: 'Jaeger query API', desc: 'Pull from a Jaeger or Victoria Traces backend with perf-sentinel jaeger-query.' },
-          { name: 'pg_stat_statements', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
+          { name: '`pg_stat_statements`', desc: 'Rank PostgreSQL hotspots from the catalog view with perf-sentinel pg-stat.' },
         ],
         fmOutputs: [
           { name: 'text (default)', desc: 'Colored terminal output, grouped by severity.' },
@@ -614,7 +614,7 @@ class Component extends DCLogic {
           { name: 'high', color: '#E08A3C' },
           { name: 'critical', color: '#D6453F' },
         ],
-        mtBandsNote: 'io_intensity_band and io_waste_ratio_band enum values are stable across versions; the underlying numeric thresholds may evolve.',
+        mtBandsNote: '`io_intensity_band` and `io_waste_ratio_band` enum values are stable across versions; the underlying numeric thresholds may evolve.',
         mtNote: 'Directional estimate: a ~2× bracket in proxy mode, tighter with a measured source (Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower with calibration). It is exploitable as activity data for carbon platforms (Watershed, Sweep, Greenly, Persefoni) or to show RGESN conformance. It is not a standalone regulatory carbon-accounting platform.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script',
         ftRight: 'Edit on GitHub →',
@@ -624,7 +624,7 @@ class Component extends DCLogic {
         akMore: 'Acknowledgment workflow',
         spTitle: 'Supply chain & releases',
         spIntro: 'Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Releases are signed with Sigstore and carry SLSA build provenance.',
-        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA Build L3 provenance (Sigstore + Rekor) and embedded cargo-auditable data (`cargo audit bin`), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.',
+        spRelease: 'Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA Build L3 provenance (Sigstore + Rekor) and embedded `cargo-auditable` data (`cargo audit bin`), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.',
         spMore: 'Supply chain & provenance',
         pfTitle: 'Performance', pfIntro: '`perf-sentinel bench` times the analysis pipeline only (normalize → correlate → detect → score), single-threaded, on synthetic datasets: the pure pipeline cost, not end-to-end throughput nor a daemon-under-load benchmark.',
         pfHead: ['Dataset (44,043 synthetic events)', 'Platform', 'Pipeline throughput', 'p50 / p99 per event'],
@@ -660,7 +660,7 @@ class Component extends DCLogic {
         ],
         dpTitle: 'Deployment', dpIntro: 'One binary, two modes, four environments, three deployment models. Pick the lightest that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream trace sampling (head-based vs tail-based) and the daemon’s own `sampling_rate` undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, every shed counted in the metrics, never a silent drop.',
         dpModes: [
-          { name: 'CI batch', desc: 'perf-sentinel analyze --ci on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' },
+          { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' },
           { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' },
           { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API.' },
           { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' },
@@ -736,15 +736,15 @@ class Component extends DCLogic {
         csCode: 'perf-sentinel explain --input traces.json --trace-id abc123        # vue arbre d\u2019une trace\nperf-sentinel inspect --input traces.json                          # TUI interactif\nperf-sentinel diff --before base.json --after head.json            # diff de régression PR\nperf-sentinel pg-stat --input pg_stat.csv --traces traces.json     # hotspots PostgreSQL\nperf-sentinel tempo --endpoint http://tempo:3200 --trace-id <id>   # récupère depuis Grafana Tempo\nperf-sentinel jaeger-query --endpoint http://jaeger:16686 --service order-svc\nperf-sentinel calibrate --traces traces.json --measured-energy rapl.csv\nperf-sentinel completions zsh > ~/.zfunc/_perf-sentinel            # complétions shell\nperf-sentinel man > perf-sentinel.1                                # page man\nperf-sentinel query findings --service order-svc                   # interroge un daemon live',
         pfDetails: [
           { title: 'Méthodologie du bench (périmètre du chrono, jeux de données)', body: 'La lecture du fichier, le parsing JSON et l\u2019ingestion ont tous lieu avant le démarrage du chrono, et les lots d\u2019entrée sont clonés en amont. Le pipeline est mono-thread (pas de rayon), le nombre de cœurs ne change donc pas le débit. Les deux jeux comptent 44 043 évènements synthétiques, construits en dupliquant la fixture de démo, l\u2019un répète le même motif, l\u2019autre du SQL aléatoire par requête. Cela isole le débit du pipeline mais ne reflète pas la diversité d\u2019une vraie production.' },
-          { title: 'Détail par allocateur sur la même puce', body: 'L\u2019artefact musl x86 est lié à mimalloc tandis que l\u2019artefact macOS arm64 utilise l\u2019allocateur système ; les binaires diffèrent donc par l\u2019allocateur autant que par l\u2019ISA. Sur le même M4 Pro, le build musl+mimalloc (l’artefact linux/arm64 en conteneur Docker) atteint ~1,39M / ~1,51M évt/s contre ~1,23M / ~1,33M en natif, ~13 % plus vite que l\u2019allocateur natif de macOS, confirmant l\u2019allocateur comme cause principale du débit plus élevé en Docker. À build équivalent, le M4 Pro fait ~2,4× le x86 8481C (2,41× répété, 2,36× varié).' },
-          { title: 'Mémoire : rss_peak du bench vs empreinte du daemon', body: 'bench affiche rss_peak_bytes, mais cette valeur est dominée par les lots d\u2019entrée pré-clonés (10 itérations × 44 043 évènements), ce n\u2019est pas l\u2019empreinte du daemon. Ce rss_peak n’est pas non plus comparable entre OS (RSS courant via /proc sous Linux, pic via getrusage sous macOS). Profilé séparément sur le même M4 Pro dans une VM Docker Desktop linux/arm64, le daemon tourne à ~17 Mo au repos en musl+mimalloc (~10 Mo en natif, mimalloc échange un peu de RSS contre de la vitesse) et culmine à ~190 Mo sous une charge soutenue de ~1,0M évt/s, contre 237 Mo sur 0.6.1, sous le plafond de 250 Mo.' },
+          { title: 'Détail par allocateur sur la même puce', body: 'L\u2019artefact musl x86 est lié à mimalloc tandis que l\u2019artefact macOS arm64 utilise l\u2019allocateur système ; les binaires diffèrent donc par l\u2019allocateur autant que par l\u2019ISA. Sur le même M4 Pro, le build musl+mimalloc (l’artefact `linux/arm64` en conteneur Docker) atteint ~1,39M / ~1,51M évt/s contre ~1,23M / ~1,33M en natif, ~13 % plus vite que l\u2019allocateur natif de macOS, confirmant l\u2019allocateur comme cause principale du débit plus élevé en Docker. À build équivalent, le M4 Pro fait ~2,4× le x86 8481C (2,41× répété, 2,36× varié).' },
+          { title: 'Mémoire : rss_peak du bench vs empreinte du daemon', body: 'bench affiche `rss_peak_bytes`, mais cette valeur est dominée par les lots d\u2019entrée pré-clonés (10 itérations × 44 043 évènements), ce n\u2019est pas l\u2019empreinte du daemon. Ce rss_peak n’est pas non plus comparable entre OS (RSS courant via /proc sous Linux, pic via `getrusage` sous macOS). Profilé séparément sur le même M4 Pro dans une VM Docker Desktop `linux/arm64`, le daemon tourne à ~17 Mo au repos en musl+mimalloc (~10 Mo en natif, mimalloc échange un peu de RSS contre de la vitesse) et culmine à ~190 Mo sous une charge soutenue de ~1,0M évt/s, contre 237 Mo sur 0.6.1, sous le plafond de 250 Mo.' },
         ],
         cliMoreLabel: '// autres sous-commandes',
         cliMore: [
           { name: 'diff', desc: 'Compare deux analyses pour détecter les régressions en CI.' },
           { name: 'explain', desc: 'Drill-down sur une trace (--trace-id), arbre de spans annoté.' },
           { name: 'inspect', desc: 'TUI autonome à quatre panneaux.' },
-          { name: 'pg-stat', desc: 'Hotspots pg_stat_statements, classés par temps total.' },
+          { name: 'pg-stat', desc: 'Hotspots `pg_stat_statements`, classés par temps total.' },
           { name: 'calibrate', desc: 'Facteurs énergie per-service depuis l\u2019énergie mesurée.' },
           { name: 'disclose', desc: 'Divulgation périodique vérifiable, signable via Sigstore.' },
           { name: 'tempo', desc: 'Récupère les traces depuis un backend Grafana Tempo.' },
@@ -753,14 +753,14 @@ class Component extends DCLogic {
           { name: 'ack', desc: 'Gère les findings acquittés et connus.' },
         ],
         fmTitle: 'Formats d\u2019entrée et de sortie',
-        fmIntro: 'Les traces arrivent par fichier ou en OTLP live ; les résultats sortent en texte terminal, JSON/SARIF lisibles par machine, dashboard HTML, ou flux du daemon live. La sortie est déterministe : une entrée identique produit un JSON et un SARIF byte-identiques, les findings triés sur une clé stable plutôt que sur l’ordre d’une HashMap, donc un quality gate CI ne clignote jamais.',
+        fmIntro: 'Les traces arrivent par fichier ou en OTLP live ; les résultats sortent en texte terminal, JSON/SARIF lisibles par machine, dashboard HTML, ou flux du daemon live. La sortie est déterministe : une entrée identique produit un JSON et un SARIF byte-identiques, les findings triés sur une clé stable plutôt que sur l’ordre d’une `HashMap`, donc un quality gate CI ne clignote jamais.',
         fmInLabel: 'Entrées', fmOutLabel: 'Sorties',
         fmInputs: [
           { name: 'Fichiers de traces', desc: 'JSON natif perf-sentinel, JSON Jaeger, Zipkin v2. Auto-détectés sur les premiers octets, sans flag --format.' },
           { name: 'OTLP live', desc: 'gRPC :4317 et HTTP :4318, ingérés par le daemon watch depuis votre OTel Collector ou SDK.' },
           { name: 'Grafana Tempo', desc: 'Récupère les traces directement depuis un backend Tempo avec perf-sentinel tempo.' },
           { name: 'API Jaeger query', desc: 'Récupère depuis un backend Jaeger ou Victoria Traces avec perf-sentinel jaeger-query.' },
-          { name: 'pg_stat_statements', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
+          { name: '`pg_stat_statements`', desc: 'Classe les hotspots PostgreSQL depuis la vue catalogue avec perf-sentinel pg-stat.' },
         ],
         fmOutputs: [
           { name: 'text (défaut)', desc: 'Sortie terminal colorée, regroupée par sévérité.' },
@@ -785,7 +785,7 @@ class Component extends DCLogic {
           { name: 'high', color: '#E08A3C' },
           { name: 'critical', color: '#D6453F' },
         ],
-        mtBandsNote: 'Les valeurs d\u2019enum io_intensity_band et io_waste_ratio_band sont stables entre versions ; les seuils numériques sous-jacents peuvent évoluer.',
+        mtBandsNote: 'Les valeurs d\u2019enum `io_intensity_band` et `io_waste_ratio_band` sont stables entre versions ; les seuils numériques sous-jacents peuvent évoluer.',
         mtNote: 'Estimation directionnelle : encadrement ~2× en mode proxy, plus serrée avec une source mesurée (Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud avec calibration). Exploitable comme activity data pour des plateformes carbone (Watershed, Sweep, Greenly, Persefoni) ou pour démontrer la conformité RGESN. Ce n\u2019est pas une plateforme de comptabilité carbone réglementaire standalone.',
         ftLeft: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking',
         ftRight: 'Éditer sur GitHub →',
@@ -795,7 +795,7 @@ class Component extends DCLogic {
         akMore: 'Flux d\u2019acquittement',
         spTitle: 'Chaîne d\u2019appro. & releases',
         spIntro: 'Chaque GitHub Action est épinglée à un SHA de commit de 40 caractères, l\u2019image de production est FROM scratch, Cargo.lock est commité et audité quotidiennement par cargo audit, et les permissions de token des workflows sont en lecture seule par défaut. Les releases sont signées avec Sigstore et portent une provenance SLSA.',
-        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA Build L3 (Sigstore + Rekor) et des données cargo-auditable embarquées (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.',
+        spRelease: 'Les publications suivent une procédure documentée, gardée par un run obligatoire du lab de simulation, le chart Helm étant versionné en lockstep. Les binaires de release portent une provenance SLSA Build L3 (Sigstore + Rekor) et des données `cargo-auditable` embarquées (`cargo audit bin`), et chaque release publie un SBOM SPDX attesté sous le prédicat SPDX. Dependabot ouvre des PR hebdomadaires groupées.',
         spMore: 'Chaîne d\u2019appro. & provenance',
         pfTitle: 'Performance', pfIntro: '`perf-sentinel bench` ne chronomètre que le pipeline d\u2019analyse (normalize → correlate → detect → score), mono-thread, sur jeux de données synthétiques : le coût pur du pipeline, pas un débit de bout en bout ni un benchmark du daemon sous charge.',
         pfHead: ['Jeu de données (44 043 évènements synthétiques)', 'Plateforme', 'Débit pipeline', 'p50 / p99 par évènement'],
@@ -831,7 +831,7 @@ class Component extends DCLogic {
         ],
         dpTitle: 'Déploiement', dpIntro: 'Un binaire, deux modes, quatre environnements, trois modèles de déploiement. Choisissez le plus léger adapté à l\u2019endroit où vivent vos traces. Le collecteur central est un daemon unique avec état, donc des réplicas horizontaux exigent un load balancing par trace-id et ne partagent pas l’état de corrélation. L’échantillonnage de traces en amont (head ou tail) et le `sampling_rate` du daemon sous-comptent les détecteurs par répétition, et sous surcharge soutenue le daemon déleste des lots d’analyse entiers plutôt que de bloquer l’ingestion, chaque délestage étant compté dans les métriques, jamais une perte silencieuse.',
         dpModes: [
-          { name: 'Batch CI', desc: 'perf-sentinel analyze --ci sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' },
+          { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' },
           { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' },
           { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query.' },
           { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' },
