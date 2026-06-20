@@ -12,7 +12,7 @@
 //   - Frame:      ./reference/00-INDEX.html  (the <style> and inline <script>
 //                 blocks are lifted verbatim, so all 6 chrome fixes ride along)
 // Outputs: reference/{flat}.html, reference/fr/{flat}.html, and the two search.json.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,6 +44,7 @@ const DOC_LABEL_EN = {
   'design/00-INDEX': 'Design index', 'design/01-PIPELINE-AND-TYPES': '01 · Pipeline & types', 'design/02-NORMALIZATION': '02 · Normalization', 'design/03-CORRELATION-AND-STREAMING': '03 · Correlation & streaming', 'design/04-DETECTION': '04 · Detection', 'design/05-GREENOPS-AND-CARBON': '05 · GreenOps & carbon', 'design/06-INGESTION-AND-DAEMON': '06 · Ingestion & daemon', 'design/07-CLI-CONFIG-RELEASE': '07 · CLI, config & release', 'design/08-PERIODIC-DISCLOSURE': '08 · Periodic disclosure', 'design/09-CARBON-ATTRIBUTION': '09 · Carbon attribution', 'design/10-SIGSTORE-ATTESTATION': '10 · Sigstore & SLSA',
 };
 const DOC_LABEL_FR = {
+  'design/09-CARBON-ATTRIBUTION': '09 · Attribution carbone',
   '00-INDEX': 'Vue d’ensemble', 'INTEGRATION': 'Intégration', 'CLI': 'Référence CLI', 'METRICS': 'Métriques', 'QUERY-API': 'API de query', 'SCHEMA': 'Schéma',
   'HTML-REPORT': 'Rapport HTML', 'ACKNOWLEDGMENTS': 'Acquittements', 'ACK-WORKFLOW': 'Flux d’acquittement', 'REPORTING': 'Divulgation',
   'HELM-DEPLOYMENT': 'Déploiement Helm', 'METHODOLOGY': 'Méthodologie', 'LIMITATIONS': 'Limites', 'SUPPLY-CHAIN': 'Chaîne d’appro.', 'RELEASE-PROCEDURE': 'Procédure de release',
@@ -51,8 +52,13 @@ const DOC_LABEL_FR = {
 };
 const docLabel = (id, lang) => (lang === 'fr' && DOC_LABEL_FR[id]) || DOC_LABEL_EN[id] || id;
 const groupLabel = (key, lang) => GROUP_LABEL[lang][key] || key;
-const flat = (id) => id.replaceAll('/', '__');
-const hrefFor = (id, lang) => id === '00-INDEX' ? (lang === 'fr' ? '/reference/fr/' : '/reference/') : flat(id);
+const flat = (id) => id;
+const hrefFor = (id, lang) => {
+  const base = '/reference/' + (lang === 'fr' ? 'fr/' : '');
+  if (id === '00-INDEX') return base;
+  if (id === 'design/00-INDEX') return base + 'design/';
+  return base + id;
+};
 const groupOf = (id) => (REGISTRY.find((g) => g.items.includes(id)) || REGISTRY[0]).key;
 const ALL_IDS = REGISTRY.flatMap((g) => g.items);
 const ID_SET = new Set(ALL_IDS);
@@ -106,9 +112,9 @@ const plaintext = (html) =>
 // PSMD emits cross-doc links as href="#/{ID}" data-doc="{ID}" data-anchor="{A}".
 // Static pages use href="{flat}#{A}" (or "{flat}", or "/reference/[fr/]" for the index)
 // with data-* dropped. Files stay X.html (GitHub Pages serves them at the extensionless path).
-function rewriteContentLinks(html) {
+function rewriteContentLinks(html, lang) {
   return html.replace(/<a href="#\/([^"]*)" data-doc="[^"]*"(?: data-anchor="([^"]*)")?>/g,
-    (_m, id, anchor) => `<a href="${flat(id)}${anchor ? '#' + anchor : ''}">`);
+    (_m, id, anchor) => `<a href="${hrefFor(id, lang)}${anchor ? '#' + anchor : ''}">`);
 }
 
 // Repo doc paths leak into the prose as visible text: a markdown link whose text
@@ -125,7 +131,7 @@ function relabelDocPaths(html, lang) {
     const id = pathToId(p);
     if (!id) return m;
     const anchor = (p.match(/#([\w.-]+)/) || [])[1];
-    return `<a href="${flat(id)}${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
+    return `<a href="${hrefFor(id, lang)}${anchor ? '#' + anchor : ''}">${docLabel(id, lang)}</a>`;
   });
   return html;
 }
@@ -185,9 +191,8 @@ const tocHtml = (toc) =>
 
 function buildPage(id, lang) {
   const fr = lang === 'fr';
-  const up = fr ? '../../' : '../';
   const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
-  const dd = dedupeSlugs(rewriteContentLinks(r.html), r.toc);
+  const dd = dedupeSlugs(rewriteContentLinks(r.html, lang), r.toc);
   const content = relabelDocPaths(dd.html, lang);
   const toc = dd.toc;
 
@@ -195,10 +200,9 @@ function buildPage(id, lang) {
   const title = `${label} · perf-sentinel docs`;
   const desc = description(content);
   const f = flat(id);
-  const isIdx = id === '00-INDEX';
-  const enHref = isIdx ? '/reference/' : (fr ? `../${f}` : `${f}`);
-  const frHref = isIdx ? '/reference/fr/' : (fr ? `${f}` : `fr/${f}`);
-  const switchHref = isIdx ? (fr ? '/reference/' : '/reference/fr/') : (fr ? `../${f}` : `fr/${f}`);
+  const enHref = hrefFor(id, 'en');
+  const frHref = hrefFor(id, 'fr');
+  const switchHref = hrefFor(id, fr ? 'en' : 'fr');
   const ui = UI[lang];
   const hasToc = toc.length > 1;
 
@@ -207,18 +211,18 @@ function buildPage(id, lang) {
     `<title>${title}</title><meta name="description" content="${attr(desc)}">` +
     `<link rel="canonical" href="${hrefFor(id, lang)}"><link rel="alternate" hreflang="en" href="${enHref}"><link rel="alternate" hreflang="fr" href="${frHref}">` +
     `<meta property="og:type" content="article"><meta property="og:title" content="${attr(title)}"><meta property="og:description" content="${attr(desc)}">` +
-    `<meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="${up}assets/favicon.svg"><link rel="stylesheet" href="${up}fonts/fonts.css">${STYLE}</head>`;
+    `<meta name="twitter:card" content="summary"><link rel="icon" type="image/svg+xml" href="/assets/favicon.svg"><link rel="stylesheet" href="/fonts/fonts.css">${STYLE}</head>`;
 
   const header =
     `<header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px">` +
-    `<a href="/" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="${up}assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a>` +
+    `<a href="/" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="/assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a>` +
     `<span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>` +
     `<nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="/">${ui.navHome} ↗</a><a href="/guide">${ui.navGuide} ↗</a></nav>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px">` +
     `<div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="${ui.search}" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div>` +
     `<span style="color:var(--text-2)"><a href="${switchHref}">${ui.switchLabel}</a></span>` +
     `<button id="themeBtn" aria-label="Theme" style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer"><span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span><span id="themeLbl">Theme</span></button>` +
-    `<a href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#fff;background:#24292F;border-radius:8px;padding:8px 15px"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>GitHub</a>` +
+    `<a href="https://github.com/robintra/perf-sentinel" aria-label="perf-sentinel on GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#fff;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px"><svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>GitHub</a>` +
     `</div></div></header>`;
 
   const main =
@@ -241,13 +245,16 @@ function buildPage(id, lang) {
 function searchIndex(lang) {
   return REGISTRY.flatMap((g) => g.items).map((id) => {
     const r = PSMD.render(readFileSync(mdSource(id, lang), 'utf8'), { id, lang, theme: 'dark', label: (x) => docLabel(x, lang) });
-    const html = relabelDocPaths(rewriteContentLinks(r.html), lang);
+    const html = relabelDocPaths(rewriteContentLinks(r.html, lang), lang);
     const t = docLabel(id, lang);
     return { t, u: hrefFor(id, lang), x: (t + ' ' + plaintext(html)).slice(0, 2600) };
   });
 }
 
 // --- run ---
+mkdirSync(join(REF, 'design'), { recursive: true });
+mkdirSync(join(REF, 'fr', 'design'), { recursive: true });
+for (const dir of [REF, join(REF, 'fr')]) for (const f of readdirSync(dir)) if (f.startsWith('design__')) rmSync(join(dir, f));
 let n = 0;
 for (const id of REGISTRY.flatMap((g) => g.items)) {
   writeFileSync(join(REF, `${flat(id)}.html`), buildPage(id, 'en')); n++;
@@ -255,6 +262,8 @@ for (const id of REGISTRY.flatMap((g) => g.items)) {
 }
 writeFileSync(join(REF, 'index.html'), buildPage('00-INDEX', 'en'));
 writeFileSync(join(REF, 'fr', 'index.html'), buildPage('00-INDEX', 'fr'));
+writeFileSync(join(REF, 'design', 'index.html'), buildPage('design/00-INDEX', 'en'));
+writeFileSync(join(REF, 'fr', 'design', 'index.html'), buildPage('design/00-INDEX', 'fr'));
 writeFileSync(join(REF, 'search.json'), JSON.stringify(searchIndex('en')));
 writeFileSync(join(REF, 'fr', 'search.json'), JSON.stringify(searchIndex('fr')));
 console.log(`wrote ${n} pages + 2 search indexes`);
