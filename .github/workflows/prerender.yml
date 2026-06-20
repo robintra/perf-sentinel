@@ -1,0 +1,52 @@
+# Keeps the SEO pre-render snapshot (#seo-prerender in index.html / guide.html) in
+# sync with the dc-runtime templates. Runs whenever those pages or the build script
+# change, regenerates the snapshot with a headless browser, and commits the refresh
+# (which the native GitHub Pages deploy then serves). A no-op when already current.
+name: Refresh SEO prerender
+
+on:
+  push:
+    branches: [gh-pages]
+    paths:
+      - index.html
+      - guide.html
+      - scripts/build-prerender.mjs
+
+permissions:
+  contents: write
+
+concurrency: prerender
+
+jobs:
+  prerender:
+    # Skip the bot's own refresh commits (belt-and-suspenders; GITHUB_TOKEN pushes
+    # don't retrigger workflows anyway).
+    if: ${{ !contains(github.event.head_commit.message, 'skip-prerender') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache Playwright browser
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.59.1
+      - name: Install Playwright
+        run: |
+          npm install playwright@1.59.1
+          npx playwright install --with-deps chromium
+      - name: Regenerate prerender
+        run: node scripts/build-prerender.mjs
+      - name: Commit refreshed snapshot
+        run: |
+          if git diff --quiet index.html guide.html; then
+            echo "Prerender already current, nothing to commit."
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add index.html guide.html
+            git commit -m 'chore(site): refresh SEO prerender [skip-prerender]'
+            git push
+          fi

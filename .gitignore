@@ -1,0 +1,4 @@
+# CI / tooling artifacts (not part of the served site)
+node_modules/
+package.json
+package-lock.json
