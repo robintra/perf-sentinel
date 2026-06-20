@@ -491,7 +491,9 @@
           return h(getReact().Fragment, { key: i }, v);
         }
         if (v === null || typeof v === "boolean") return null;
-        return h("span", { key: i, className: "sc-interp" }, String(v));
+        const sv = String(v);
+        if (sv.indexOf("`") < 0) return h("span", { key: i, className: "sc-interp" }, sv);
+        return h("span", { key: i, className: "sc-interp" }, ...sv.split("`").map((seg, k) => (k & 1) ? h("code", { key: "c" + k, className: "dc-cmd" }, seg) : seg));
       })
     );
   }
