@@ -219,7 +219,7 @@ function buildPage(id, lang) {
   const header =
     `<header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)"><div style="max-width:1320px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:20px">` +
     `<a href="/" style="display:flex;align-items:center;gap:9px;flex:none;font-weight:700;color:var(--text)"><img src="/assets/favicon.svg" width="28" height="28" alt="">perf sentinel</a>` +
-    `<span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>` +
+    `<span style="font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>` +
     `<nav style="display:flex;gap:20px;margin-left:6px;font-size:14.5px;font-weight:500;color:var(--text-2)"><a href="/">${ui.navHome} ↗</a><a href="/guide">${ui.navGuide} ↗</a></nav>` +
     `<div style="margin-left:auto;display:flex;align-items:center;gap:12px;font-family:'JetBrains Mono',monospace;font-size:12px">` +
     `<div id="psSearchWrap" style="position:relative"><input id="psSearch" type="search" placeholder="${ui.search}" autocomplete="off"><div id="psResults" class="psr" style="display:none"></div></div>` +
@@ -229,10 +229,10 @@ function buildPage(id, lang) {
     `</div></div></header>`;
 
   const main =
-    `<main class="ps-content" style="min-width:0;padding:40px 44px 96px"><div style="font-family:'JetBrains Mono',monospace;font-size:12.5px;color:var(--accent);letter-spacing:.03em;margin-bottom:18px">Documentation / ${label}</div><div class="ps-md">${content}</div></main>`;
+    `<main class="ps-content" style="min-width:0;padding:40px 44px 96px"><div style="font-size:12.5px;color:var(--accent);letter-spacing:.03em;margin-bottom:18px">Documentation / ${label}</div><div class="ps-md">${content}</div></main>`;
 
   const tocCol = hasToc
-    ? `<aside class="ps-toc-col ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;padding:40px 28px 40px 8px"><div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);padding:0 0 12px 12px">${ui.onPage}</div><nav class="ps-toc">${tocHtml(toc)}</nav></aside>`
+    ? `<aside class="ps-toc-col ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;padding:40px 28px 40px 8px"><div style="font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-2);padding:0 0 12px 12px">${ui.onPage}</div><nav class="ps-toc">${tocHtml(toc)}</nav></aside>`
     : '';
 
   const asideSidebar = `<aside class="ps-aside ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;border-right:1px solid var(--border);padding:26px 16px 40px 28px">${sidebar(id, lang)}</aside>`;
