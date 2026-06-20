@@ -181,7 +181,7 @@
     <!-- CARBON -->
     <section id="carbone" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonEyebrow }}</div>
-      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2a }}<br>{{ carbonT2b }}<span style="color:#ff7f7c">{{ carbonTW2 }}</span>{{ carbonT3 }}</h2>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2a }}<br>{{ carbonT2b }}<span style="color:var(--coral)">{{ carbonTW2 }}</span>{{ carbonT3 }}</h2>
       <p style="margin:18px 0 0;font-size:15.5px;color:var(--text-2);line-height:1.65;max-width:720px">{{ carbonIntro }}</p>
       <div data-grid="cards2" style="display:grid;grid-template-columns:1.05fr .95fr;gap:28px;margin-top:36px;align-items:start">
         <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px 26px">
@@ -196,8 +196,8 @@
                   <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-size:16px;font-weight:700;color:#5b9bd5;white-space:nowrap">{{ carbonAnnBasse }}</span>
                 </div>
                 <div style="position:relative;width:68px;height:78%;display:flex;flex-direction:column">
-                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:#5b9bd5">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:700;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:#f5a623">{{ carbonAnnHauteQ }}</span>)</span></span>
-                  <div style="height:54%;background:#f5a623;border-radius:5px 5px 0 0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#1a1a1a">?</div>
+                  <span style="position:absolute;top:-28px;left:50%;transform:translateX(-50%);font-weight:700;white-space:nowrap"><span style="font-size:16px;color:#5b9bd5">{{ carbonAnnHaute }}</span> <span style="font-size:16px;font-weight:700;color:var(--text)">{{ carbonAnnHauteSubPre }}<span style="color:var(--coral)">{{ carbonAnnHauteQ }}</span>)</span></span>
+                  <div style="height:54%;background:var(--coral);border-radius:5px 5px 0 0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#1a1a1a">?</div>
                   <div style="flex:1;background:#5b9bd5"></div>
                 </div>
               </div>
@@ -209,7 +209,7 @@
           </div>
           <div style="display:flex;flex-direction:column;gap:7px;margin-top:18px;font-size:14px;color:var(--text)">
             <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#5b9bd5;flex:none"></span>{{ carbonLegMeasured }}</div>
-            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#f5a623;flex:none"></span>{{ carbonLegUnmeasured }}</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:var(--coral);flex:none"></span>{{ carbonLegUnmeasured }}</div>
           </div>
           <div style="margin-top:12px;font-size:12px;color:var(--text-2);opacity:.75">{{ carbonChartSrc }}</div>
         </div>
@@ -218,8 +218,8 @@
             <div style="font-size:18px;font-weight:600;color:var(--text)">{{ carbonNarrTitle }}</div>
             <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);line-height:1.62">{{ carbonNarrText }}</p>
           </div>
-          <div style="background:color-mix(in srgb,#f5a623 9%,var(--surface));border:1px solid color-mix(in srgb,#f5a623 38%,var(--border));border-radius:14px;padding:22px 24px">
-            <div style="font-size:40px;font-weight:800;color:#e08a00;line-height:1">{{ carbonStatNum }}</div>
+          <div style="background:color-mix(in srgb,var(--coral) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--coral) 38%,var(--border));border-radius:14px;padding:22px 24px">
+            <div style="font-size:40px;font-weight:800;color:var(--coral);line-height:1">{{ carbonStatNum }}</div>
             <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
             <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}</div>
           </div>
@@ -239,7 +239,7 @@
             </div>
             <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
               <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
-              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResultA }}<span style="color:#ff7f7c">{{ carbonTdResultB }}</span>{{ carbonTdResultC }}<span style="color:#ff7f7c">{{ carbonTdResultD }}</span>.</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResultA }}<span style="color:var(--coral)">{{ carbonTdResultB }}</span>{{ carbonTdResultC }}<span style="color:var(--coral)">{{ carbonTdResultD }}</span>.</div>
             </div>
           </div>
           <div style="background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
@@ -294,7 +294,7 @@
             <p style="margin:10px 0 18px;font-size:14.5px;color:var(--text-2);line-height:1.55;flex:1">{{ m.desc }}</p>
           </div>
         </sc-for>
-      </div>
+      </div> <a data-plain href="guide#deploy" style="display:inline-flex;align-items:center;gap:7px;margin-top:24px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ modesMore }}</span><span data-arrow> →</span></a> 
     </section>
 
     <!-- PERFORMANCE -->
@@ -593,7 +593,7 @@ class Component extends DCLogic {
         perfT1: 'A single ', perfWRust: 'Rust', perfT2: ' binary, measured',
         perfIntro: 'Edition 2024, statically linked against musl and shipped in FROM scratch images. The figures below time the analysis pipeline alone (single-threaded, on synthetic datasets), so they isolate pipeline cost, not end-to-end throughput.',
         perfBadgePrefix: 'Version ',
-        perfMore: 'Full benchmarks in the docs',
+        perfMore: 'Full benchmarks in the docs', modesMore: 'Deployment in depth in the guide',
         perfStats: [
           { value: '576k–1.2M', label: 'events/s, pipeline throughput (GCP c3-standard-8 x86 to M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'per event, p50 to p99' },
@@ -728,7 +728,7 @@ class Component extends DCLogic {
         perfT1: 'Un mono-binaire ', perfWRust: 'Rust', perfT2: ', mesuré',
         perfIntro: 'Édition 2024, lié statiquement à musl et livré dans des images FROM scratch. Les chiffres ci-dessous chronomètrent le pipeline d\u2019analyse seul (mono-thread, sur jeux de données synthétiques) : ils isolent le coût du pipeline, pas un débit de bout en bout.',
         perfBadgePrefix: 'Version ',
-        perfMore: 'Benchmarks détaillés dans la doc',
+        perfMore: 'Benchmarks détaillés dans la doc', modesMore: 'Déploiement en détail dans le guide',
         perfStats: [
           { value: '576k–1.2M', label: 'évts/s, débit pipeline (GCP c3-standard-8 x86 à M4 Pro)' },
           { value: '0.8–1.9 µs', label: 'par évènement, p50 à p99' },
@@ -818,7 +818,7 @@ class Component extends DCLogic {
       carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResultA: t.carbonBuResultA, carbonBuResultB: t.carbonBuResultB, carbonBuResultC: t.carbonBuResultC, carbonBuResultD: t.carbonBuResultD,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
-      perfMore: t.perfMore,
+      perfMore: t.perfMore, modesMore: t.modesMore,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB: t.goBodyB, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot,
       goMore: t.goMore, cmpMore: t.cmpMore,
