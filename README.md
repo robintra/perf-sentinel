@@ -87,6 +87,8 @@ Existing tools each solve part of the problem. Hypersistence Utils covers JPA on
 
 perf-sentinel observes the traces your application already emits (SQL queries, HTTP calls) regardless of language or ORM. It doesn't need to understand JPA, EF Core or SeaORM, it sees the queries they generate.
 
+And it doesn't stop at detection. Each avoidable I/O is translated into energy then CO₂ on a recognized method (SCI-aligned), which puts a number on the waste and makes it **attributable to the code**. Where current carbon tools estimate a global footprint top-down, from the cloud bill or sector ratios, perf-sentinel **measures bottom-up**, query by query, a directly actionable hotspot.
+
 ## What it detects
 
 Ten finding types, plus cross-trace correlations in daemon mode:

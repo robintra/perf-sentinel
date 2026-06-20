@@ -87,6 +87,8 @@ Les outils existants résolvent chacun une partie du problème. Hypersistence Ut
 
 perf-sentinel observe les traces que votre application émet déjà (requêtes SQL, appels HTTP), quel que soit le langage ou l'ORM. Il n'a pas besoin de comprendre JPA, EF Core ou SeaORM : il voit les requêtes qu'ils génèrent.
 
+Et il ne s'arrête pas à la détection. Chaque I/O évitable est traduit en énergie puis en CO₂ sur une méthode reconnue (alignée SCI), ce qui chiffre le gaspillage et le rend **attribuable au code**. Là où les outils carbone actuels estiment une empreinte globale par le haut, à partir de la facture cloud ou de ratios sectoriels, perf-sentinel **mesure par le bas**, requête par requête, un gisement directement actionnable.
+
 ## Ce qui est détecté
 
 Dix types de findings, plus la corrélation cross-trace en mode daemon :
