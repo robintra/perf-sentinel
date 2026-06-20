@@ -205,7 +205,7 @@
             <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#5b9bd5;flex:none"></span>{{ carbonLegMeasured }}</div>
             <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:var(--coral);flex:none"></span>{{ carbonLegUnmeasured }}</div>
           </div>
-          <div style="margin-top:12px;font-size:12px;color:var(--text-2);opacity:.75">{{ carbonChartSrc }}</div>
+          <div style="margin-top:12px;font-size:12px;color:var(--text-2);opacity:.75">{{ carbonChartSrc }}<a href="https://www.itu.int/en/ITU-D/Environment/Pages/Publications/GDC-25.aspx" target="_blank" rel="noopener">ITU 2025</a>, <a href="https://www.iea.org/reports/energy-and-ai" target="_blank" rel="noopener">IEA 2025</a>, <a href="https://doi.org/10.1016/j.patter.2021.100340" target="_blank" rel="noopener">Freitag et al. 2021</a></div>
         </div>
         <div style="display:flex;flex-direction:column;gap:18px">
           <div>
@@ -215,7 +215,7 @@
           <div style="background:color-mix(in srgb,var(--coral) 9%,var(--surface));border:1px solid color-mix(in srgb,var(--coral) 38%,var(--border));border-radius:14px;padding:22px 24px">
             <div style="font-size:40px;font-weight:800;color:var(--coral);line-height:1">{{ carbonStatNum }}</div>
             <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
-            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}</div>
+            <div style="margin-top:12px;font-size:12px;color:var(--text-2)">{{ carbonStatSrc }}<a href="https://sustainablewebdesign.org/estimating-digital-emissions/" target="_blank" rel="noopener">Sustainable Web Design Model v4</a></div>
           </div>
         </div>
       </div>
@@ -324,7 +324,7 @@
           </div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--accent-strong);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px">co2.total = (E × I) + M</div>
         </div>
-        <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:680px;line-height:1.6">{{ goBodyA }}<code style="font-family:'JetBrains Mono',monospace;font-size:13.5px;background:var(--accent-soft);color:var(--accent-strong);padding:2px 6px;border-radius:5px">co2.total</code>{{ goBodyB }}</p>
+        <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:680px;line-height:1.6">{{ goBodyA }}<code style="font-family:'JetBrains Mono',monospace;font-size:13.5px;background:var(--accent-soft);color:var(--accent-strong);padding:2px 6px;border-radius:5px">co2.total</code>{{ goBodyB1 }}<a href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener">Software Carbon Intensity v1.0</a>{{ goBodyB2 }}<a href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener">ISO/IEC 21031:2024</a>{{ goBodyB3 }}</p>
         <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px">
           <sc-for list="{{ green }}" as="g" hint-placeholder-count="3">
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px">
@@ -544,10 +544,10 @@ class Component extends DCLogic {
         carbonAnnBasse: '1.8%', carbonAnnHaute: '3.9%', carbonAnnHauteSubPre: '(incl. ', carbonAnnHauteQ: '? %', carbonBarBasse: 'Low estimate', carbonBarHaute: 'High estimate',
         carbonLegMeasured: 'Measured: data centers, networks, devices',
         carbonLegUnmeasured: 'Unmeasured zone: heavy, poorly optimized web apps',
-        carbonChartSrc: 'Sources: ITU 2025, IEA 2025, Freitag et al. 2021',
+        carbonChartSrc: 'Sources: ',
         carbonNarrTitle: 'A hole in the data that no one fills',
         carbonNarrText: 'ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.',
-        carbonStatNum: '30 to 80%', carbonStatText: 'emissions cut reachable on a poorly optimized website', carbonStatSrc: 'Source: Sustainable Web Design Model v4',
+        carbonStatNum: '30 to 80%', carbonStatText: 'emissions cut reachable on a poorly optimized website', carbonStatSrc: 'Source: ',
         carbonCmpTitle: '// measure bottom-up, not estimate top-down',
         carbonCmpSub: 'perf-sentinel’s bottom-up approach against the top-down of current tools',
         carbonResultLabel: 'Result',
@@ -597,11 +597,11 @@ class Component extends DCLogic {
         goEyebrow: '// greenops',
         goT1: 'Every avoidable I/O has a ', goWCost: 'cost', goT2: 'in time, ', goWEnergy: 'energy', goT3: ' and ', goWCarbon: 'carbon',
         goBodyA: "Cutting N+1s and redundant calls improves response times and energy use alike: the two goals don't compete. ",
-        goBodyB: ' follows the Software Carbon Intensity v1.0 numerator (ISO/IEC 21031:2024): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.',
+        goBodyB1: ' follows the ', goBodyB2: ' numerator (', goBodyB3: '): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.',
         green: [
           { title: 'I/O intensity score (IIS)', body: "An endpoint's total I/O operations divided by its number of invocations." },
           { title: 'I/O waste ratio', body: 'Avoidable operations over total operations, the directly recoverable share.' },
-          { title: 'Multi-region co2.total', body: 'SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.' },
+          { title: 'Multi-region `co2.total`', body: 'SCI v1.0 numerator, automatic per-region scoring when spans carry cloud.region.' },
         ],
         goNote: 'Directional estimate (~2× bracket in proxy mode, tighter with a measured source: Scaphandre RAPL, Kepler eBPF, Redfish BMC or cloud SPECpower + calibration). Usable as activity data for Watershed · Sweep · Greenly · Persefoni, or to demonstrate RGESN compliance. It is not a standalone regulatory carbon-accounting platform.',
         cmpEyebrow: '// how it compares',
@@ -679,10 +679,10 @@ class Component extends DCLogic {
         carbonAnnBasse: '1,8 %', carbonAnnHaute: '3,9 %', carbonAnnHauteSubPre: '(dont ', carbonAnnHauteQ: '? %', carbonBarBasse: 'Estimation basse', carbonBarHaute: 'Estimation haute',
         carbonLegMeasured: 'Mesuré : data centers, réseaux, terminaux',
         carbonLegUnmeasured: 'Zone non mesurée : manque d’optimisation des apps webs lourdes',
-        carbonChartSrc: 'Sources : ITU 2025, IEA 2025, Freitag et al. 2021',
+        carbonChartSrc: 'Sources : ',
         carbonNarrTitle: 'Un trou dans les données que personne ne comble',
         carbonNarrText: 'ITU et IEA confirment la hausse rapide du numérique. Mais la part due au code et aux apps web lourdes reste non quantifiée à l’échelle mondiale.',
-        carbonStatNum: '30 à 80 %', carbonStatText: 'de réduction d’émissions atteignable sur un site web mal optimisé', carbonStatSrc: 'Source : Sustainable Web Design Model v4',
+        carbonStatNum: '30 à 80 %', carbonStatText: 'de réduction d’émissions atteignable sur un site web mal optimisé', carbonStatSrc: 'Source : ',
         carbonCmpTitle: '// mesurer par le bas, pas estimer par le haut',
         carbonCmpSub: 'L’approche bottom-up de perf-sentinel face au top-down des outils actuels',
         carbonResultLabel: 'Résultat',
@@ -732,11 +732,11 @@ class Component extends DCLogic {
         goEyebrow: '// greenops',
         goT1: 'Chaque I/O évitable a un ', goWCost: 'coût', goT2: 'en temps, ', goWEnergy: 'énergie', goT3: ' et ', goWCarbon: 'carbone',
         goBodyA: "Réduire les N+1 et les appels redondants améliore les temps de réponse et la consommation d'énergie : les deux objectifs ne s'opposent pas. ",
-        goBodyB: ' suit le numérateur Software Carbon Intensity v1.0 (ISO/IEC 21031:2024) : l\u2019énergie consommée (E) multipliée par l\u2019intensité carbone du réseau électrique (I), plus les émissions matérielles embarquées (M), le tout sommé sur les traces analysées.',
+        goBodyB1: ' suit le numérateur ', goBodyB2: ' (', goBodyB3: ') : l\u2019énergie consommée (E) multipliée par l\u2019intensité carbone du réseau électrique (I), plus les émissions matérielles embarquées (M), le tout sommé sur les traces analysées.',
         green: [
           { title: "Score d'intensité I/O (IIS)", body: "Total des opérations I/O d'un endpoint divisé par son nombre d'invocations." },
           { title: 'Ratio de gaspillage I/O', body: 'Opérations évitables sur opérations totales, la part directement récupérable.' },
-          { title: 'co2.total multi-régions', body: 'Numérateur SCI v1.0, scoring par région automatique quand les spans portent cloud.region.' },
+          { title: '`co2.total` multi-régions', body: 'Numérateur SCI v1.0, scoring par région automatique quand les spans portent cloud.region.' },
         ],
         goNote: 'Estimation directionnelle (encadrement ~2× en mode proxy, plus serrée avec une source mesurée : Scaphandre RAPL, Kepler eBPF, Redfish BMC ou SPECpower cloud + calibration). Exploitable comme activity data pour Watershed · Sweep · Greenly · Persefoni, ou pour démontrer la conformité RGESN. Ce n\u2019est pas une plateforme de comptabilité carbone réglementaire standalone.',
         cmpEyebrow: '// comment ça se compare',
@@ -813,7 +813,7 @@ class Component extends DCLogic {
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
       perfMore: t.perfMore, modesMore: t.modesMore,
-      goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB: t.goBodyB, goNote: t.goNote,
+      goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot,
       goMore: t.goMore, cmpMore: t.cmpMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
