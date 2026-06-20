@@ -320,7 +320,7 @@
         <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
           <div>
             <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ goEyebrow }}</div>
-            <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:620px">{{ goT1 }}<span style="color:var(--coral)">{{ goWCost }}</span>{{ goT2 }}<span style="color:var(--accent)">{{ goWEnergy }}</span>{{ goT3 }}<span style="color:var(--accent)">{{ goWCarbon }}</span></h2>
+            <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:620px">{{ goT1 }}<span style="color:var(--coral)">{{ goWCost }}</span>,<br>{{ goT2 }}<span style="color:var(--accent)">{{ goWEnergy }}</span>{{ goT3 }}<span style="color:var(--accent)">{{ goWCarbon }}</span></h2>
           </div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--accent-strong);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px">co2.total = (E × I) + M</div>
         </div>
@@ -595,7 +595,7 @@ class Component extends DCLogic {
           { value: 'Rust 2024', label: 'with a static musl binary and a FROM scratch image' },
         ],
         goEyebrow: '// greenops',
-        goT1: 'Every avoidable I/O has a ', goWCost: 'cost', goT2: ', in time, ', goWEnergy: 'energy', goT3: ' and ', goWCarbon: 'carbon',
+        goT1: 'Every avoidable I/O has a ', goWCost: 'cost', goT2: 'in time, ', goWEnergy: 'energy', goT3: ' and ', goWCarbon: 'carbon',
         goBodyA: "Cutting N+1s and redundant calls improves response times and energy use alike: the two goals don't compete. ",
         goBodyB: ' follows the Software Carbon Intensity v1.0 numerator (ISO/IEC 21031:2024): energy used (E) times the electricity grid carbon intensity (I), plus embodied hardware emissions (M), summed over the analyzed traces.',
         green: [
@@ -730,7 +730,7 @@ class Component extends DCLogic {
           { value: 'Rust 2024', label: 'avec binaire statique musl et image FROM scratch' },
         ],
         goEyebrow: '// greenops',
-        goT1: 'Chaque I/O évitable a un ', goWCost: 'coût', goT2: ', en temps, ', goWEnergy: 'énergie', goT3: ' et ', goWCarbon: 'carbone',
+        goT1: 'Chaque I/O évitable a un ', goWCost: 'coût', goT2: 'en temps, ', goWEnergy: 'énergie', goT3: ' et ', goWCarbon: 'carbone',
         goBodyA: "Réduire les N+1 et les appels redondants améliore les temps de réponse et la consommation d'énergie : les deux objectifs ne s'opposent pas. ",
         goBodyB: ' suit le numérateur Software Carbon Intensity v1.0 (ISO/IEC 21031:2024) : l\u2019énergie consommée (E) multipliée par l\u2019intensité carbone du réseau électrique (I), plus les émissions matérielles embarquées (M), le tout sommé sur les traces analysées.',
         green: [
