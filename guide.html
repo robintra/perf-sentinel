@@ -81,7 +81,7 @@
   [data-ps-root] ::-webkit-scrollbar-thumb{background:var(--border);border-radius:6px}
   [data-ps-root] ::-webkit-scrollbar-thumb:hover{background:var(--text-2)}
   [data-ps-root]{scrollbar-color:var(--border) transparent;scrollbar-width:thin}
-</style>
+a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}</style>
 </helmet>
 
 <div data-ps-root data-theme="{{ theme }}">
@@ -89,10 +89,10 @@
 
   <header class="ps-chrome" style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1180px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:22px">
-      <a href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:36px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:36px;width:auto"></a>
+      <a data-plain href="/" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:36px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:36px;width:auto"></a>
       <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-2);border:1px solid var(--border);border-radius:6px;padding:3px 9px">docs</span>
       <nav style="display:flex;gap:22px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
-        <a href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)">{{ navHome }}<span style="font-size:11px;opacity:.7">↗</span></a>
+        <a data-plain href="/" style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap" style-hover="color:var(--text)">{{ navHome }}<span style="font-size:11px;opacity:.7">↗</span></a>
         <a href="/#greenops" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">GreenOps<span style="font-size:11px;opacity:.7">↗</span></a>
         <a href="/#license" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)">{{ navLicense }}<span style="font-size:11px;opacity:.7">↗</span></a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
@@ -103,7 +103,7 @@
         <button onClick="{{ toggleTheme }}" aria-label="Theme" style="display:flex;align-items:center;gap:7px;font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.02em;color:var(--text-2);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:7px 13px;cursor:pointer" style-hover="border-color:var(--accent);color:var(--text)">
           <span style="width:9px;height:9px;border-radius:50%;background:var(--accent);display:inline-block"></span>{{ themeLabel }}
         </button>
-        <a href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
+        <a data-plain href="https://github.com/robintra/perf-sentinel" aria-label="GitHub" style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#FFFFFF;background:#24292F;border:1px solid rgba(240,246,252,.18);border-radius:8px;padding:8px 15px" style-hover="background:#30363D">
           <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"></path></svg>GitHub</a>
       </div>
     </div>
@@ -393,7 +393,7 @@
         <p style="margin:14px 0 0;font-size:15.5px;color:var(--text-2);max-width:660px">{{ frIntro }}</p>
         <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:22px">
           <sc-for list="{{ frLinks }}" as="l" hint-placeholder-count="12">
-            <a href="{{ l.href }}" style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px" style-hover="border-color:var(--accent)">
+            <a data-plain href="{{ l.href }}" style="display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 16px" style-hover="border-color:var(--accent)">
               <div style="font-size:14.5px;font-weight:600;color:var(--accent-strong)">{{ l.label }} →</div>
               <div style="margin-top:3px;font-size:13px;color:var(--text-2);line-height:1.45">{{ l.desc }}</div>
             </a>
