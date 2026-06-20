@@ -86,8 +86,10 @@ function pathToId(p) {
 
 // per-language UI strings baked into the static chrome
 const UI = {
-  en: { navHome: 'Overview', navGuide: 'Guide', search: 'Search…', onPage: 'On this page', switchLabel: 'FR' },
-  fr: { navHome: 'Vue d’ensemble', navGuide: 'Guide', search: 'Rechercher…', onPage: 'Sur cette page', switchLabel: 'EN' },
+  en: { navHome: 'Overview', navGuide: 'Guide', search: 'Search…', onPage: 'On this page', switchLabel: 'FR',
+    ft: { tagline: 'Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.', product: 'Product', docs: 'Documentation', project: 'Project', detection: 'Detection', execution: 'Execution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparison', quickstart: 'Quickstart', cli: 'CLI reference', config: 'Configuration', method: 'GreenOps methodology', license: 'AGPL-3.0 license', copyright: '© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script', legal: 'Legal notice', privacy: 'Privacy', credit: 'Logo & banner, ' } },
+  fr: { navHome: 'Vue d’ensemble', navGuide: 'Guide', search: 'Rechercher…', onPage: 'Sur cette page', switchLabel: 'EN',
+    ft: { tagline: 'Détecteur d’anti-patterns d’I/O au niveau protocole, auto-hébergeable et carbon-aware.', product: 'Produit', docs: 'Documentation', project: 'Projet', detection: 'Détection', execution: 'Exécution', perf: 'Performance', greenops: 'GreenOps', comparison: 'Comparatif', quickstart: 'Démarrage rapide', cli: 'Référence CLI', config: 'Configuration', method: 'Méthodologie GreenOps', license: 'Licence AGPL-3.0', copyright: '© 2026 perf-sentinel · AGPL-3.0 · Page éco-conçue, sans script de tracking', legal: 'Mentions légales', privacy: 'Confidentialité', credit: 'Logo & bannière, ' } },
 };
 
 // --- renderer ---
@@ -234,12 +236,27 @@ function buildPage(id, lang) {
 
   const asideSidebar = `<aside class="ps-aside ps-chrome" style="position:sticky;top:65px;align-self:start;height:calc(100vh - 65px);overflow-y:auto;border-right:1px solid var(--border);padding:26px 16px 40px 28px">${sidebar(id, lang)}</aside>`;
 
+  const L = ui.ft;
+  const ftCol = (t, links) => `<div><div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">${t}</div><div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">${links.map(([h, x]) => `<a href="${h}">${x}</a>`).join('')}</div></div>`;
+  const footer =
+    `<footer style="border-top:1px solid var(--border);background:var(--surface-2)"><div style="max-width:1320px;margin:0 auto;padding:48px 28px 36px">` +
+    `<div data-grid="ftcols" style="display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:32px">` +
+    `<div><img data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height:40px;width:auto"><img data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height:40px;width:auto"><p style="margin:16px 0 0;font-size:13.5px;color:var(--text-2);max-width:240px;line-height:1.55">${L.tagline}</p></div>` +
+    ftCol(L.product, [['/#detection', L.detection], ['/#modes', L.execution], ['/#perf', L.perf], ['/#greenops', L.greenops], ['/#comparatif', L.comparison]]) +
+    ftCol(L.docs, [['/guide#quickstart', L.quickstart], ['/guide#cli', L.cli], ['/guide#config', L.config], ['/guide#metrics', L.method]]) +
+    ftCol(L.project, [['https://github.com/robintra/perf-sentinel', 'GitHub'], ['https://crates.io/crates/perf-sentinel', 'crates.io'], ['https://docs.rs/perf-sentinel-core', 'docs.rs'], ['/#license', L.license]]) +
+    `</div>` +
+    `<div style="display:flex;justify-content:space-between;gap:18px;margin-top:26px;flex-wrap:wrap;font-size:12.5px;color:var(--text-2)">` +
+    `<div style="display:flex;flex-direction:column;gap:6px"><span>${L.copyright}</span><span style="display:flex;gap:14px"><a href="/mentions-legales">${L.legal}</a><a href="/confidentialite">${L.privacy}</a></span></div>` +
+    `<span>${L.credit}<a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" id="ftCredit">Gwendoline Meignen</a></span>` +
+    `</div></div></footer>`;
+
   return head +
     `<body><div data-ps-root data-theme="dark"><div style="min-height:100vh;background-color:var(--bg);color:var(--text)">` +
     header +
     `<div class="ps-layout" style="max-width:1320px;margin:0 auto;display:grid;grid-template-columns:248px 1fr 232px;gap:0;align-items:start">` +
     asideSidebar + main + tocCol +
-    `</div></div></div>${SCRIPT[lang]}</body></html>`;
+    `</div>` + footer + `</div></div>${SCRIPT[lang]}</body></html>`;
 }
 
 function searchIndex(lang) {
