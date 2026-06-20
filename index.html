@@ -181,6 +181,87 @@
       </div>
     </section>
 
+    <!-- CARBON -->
+    <section id="carbone" style="padding:64px 0 12px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ carbonEyebrow }}</div>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ carbonT1 }}<span style="color:var(--accent)">{{ carbonTW }}</span>{{ carbonT2 }}</h2>
+      <p style="margin:18px 0 0;font-size:15.5px;color:var(--text-2);line-height:1.65;max-width:720px">{{ carbonIntro }}</p>
+      <div data-grid="cards2" style="display:grid;grid-template-columns:1.05fr .95fr;gap:28px;margin-top:36px;align-items:start">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px 26px">
+          <div style="font-size:15px;font-weight:600;color:var(--text)">{{ carbonChartTitle }}</div>
+          <div style="display:flex;gap:10px;margin:22px 0 0">
+            <div style="display:flex;flex-direction:column;justify-content:space-between;height:180px;font-size:10.5px;color:var(--text-2);text-align:right">
+              <span>5 %</span><span>4 %</span><span>3 %</span><span>2 %</span><span>1 %</span><span>0 %</span>
+            </div>
+            <div style="flex:1">
+              <div style="display:flex;gap:46px;justify-content:center;align-items:flex-end;height:180px;border-left:1px solid var(--border);border-bottom:1px solid var(--border)">
+                <div style="position:relative;width:68px;height:36%;background:#5b9bd5;border-radius:5px 5px 0 0">
+                  <span style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:13px;font-weight:700;color:var(--text);white-space:nowrap">{{ carbonAnnBasse }}</span>
+                </div>
+                <div style="position:relative;width:68px;height:78%;display:flex;flex-direction:column">
+                  <span style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);font-size:13px;font-weight:700;color:var(--text);white-space:nowrap">{{ carbonAnnHaute }}</span>
+                  <div style="height:54%;background:#f5a623;border-radius:5px 5px 0 0;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:#1a1a1a">?</div>
+                  <div style="flex:1;background:#5b9bd5"></div>
+                </div>
+              </div>
+              <div style="display:flex;gap:46px;justify-content:center;margin-top:9px">
+                <div style="width:68px;text-align:center;font-size:11.5px;color:var(--text-2)">{{ carbonBarBasse }}</div>
+                <div style="width:68px;text-align:center;font-size:11.5px;color:var(--text-2)">{{ carbonBarHaute }}</div>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px;margin-top:18px;font-size:11.5px;color:var(--text-2)">
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#5b9bd5;flex:none"></span>{{ carbonLegMeasured }}</div>
+            <div style="display:flex;align-items:center;gap:8px"><span style="width:11px;height:11px;border-radius:3px;background:#f5a623;flex:none"></span>{{ carbonLegUnmeasured }}</div>
+          </div>
+          <div style="margin-top:12px;font-size:10px;color:var(--text-2);opacity:.75">{{ carbonChartSrc }}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:18px">
+          <div>
+            <div style="font-size:18px;font-weight:600;color:var(--text)">{{ carbonNarrTitle }}</div>
+            <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);line-height:1.62">{{ carbonNarrText }}</p>
+          </div>
+          <div style="background:color-mix(in srgb,#f5a623 9%,var(--surface));border:1px solid color-mix(in srgb,#f5a623 38%,var(--border));border-radius:14px;padding:22px 24px">
+            <div style="font-size:40px;font-weight:800;color:#e08a00;line-height:1">{{ carbonStatNum }}</div>
+            <div style="margin-top:8px;font-size:15px;color:var(--text)">{{ carbonStatText }}</div>
+            <div style="margin-top:12px;font-size:11px;color:var(--text-2)">{{ carbonStatSrc }}</div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:48px">
+        <h3 style="margin:0;font-size:clamp(22px,2.6vw,28px);font-weight:700;letter-spacing:-.015em;color:var(--text)">{{ carbonCmpTitle }}</h3>
+        <p style="margin:10px 0 0;font-size:15px;color:var(--text-2);max-width:680px">{{ carbonCmpSub }}</p>
+        <div data-grid="cards2" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:26px">
+          <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:#5b9bd5">{{ carbonTdEyebrow }}</div>
+            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonTdTitle }}</div>
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px">
+              <sc-for list="{{ carbonTdPoints }}" as="pt" hint-placeholder-count="3">
+                <div style="display:flex;gap:10px;font-size:14px;color:var(--text-2);line-height:1.5"><span style="color:var(--text-2);flex:none">•</span>{{ pt.t }}</div>
+              </sc-for>
+            </div>
+            <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--text)">{{ carbonTdResult }}</div>
+            </div>
+          </div>
+          <div style="background:var(--surface);border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:14px;padding:24px 26px">
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--accent)">{{ carbonBuEyebrow }}</div>
+            <div style="margin-top:6px;font-size:17px;font-weight:600;color:var(--text)">{{ carbonBuTitle }}</div>
+            <div style="display:flex;flex-direction:column;gap:11px;margin-top:18px">
+              <sc-for list="{{ carbonBuPoints }}" as="pt" hint-placeholder-count="3">
+                <div style="display:flex;gap:10px;font-size:14px;color:var(--text);line-height:1.5"><span style="color:var(--accent);flex:none">✓</span>{{ pt.t }}</div>
+              </sc-for>
+            </div>
+            <div style="margin-top:20px;padding-top:15px;border-top:1px solid var(--border)">
+              <div style="font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.04em;color:var(--text-2)">{{ carbonResultLabel }}</div>
+              <div style="margin-top:5px;font-size:14.5px;font-weight:600;color:var(--accent)">{{ carbonBuResult }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- DETECTION -->
     <section id="detection" data-screen-label="Détection" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
@@ -465,6 +546,26 @@ class Component extends DCLogic {
         prereq2Label: 'Audit your tracing first:', prereq2Text: 'spans missing those attributes are dropped silently, so an empty report can mean no problems or no usable instrumentation. perf-sentinel inspect shows what was extracted. See', prereq2Link: 'what bounds the findings',
         prereq3Label: 'What it is not:', prereq3Text: 'a full APM, a continuous profiler, nor (for now) a standalone regulatory carbon accounting platform. See', prereq3Link: 'the comparison',
         prereq4Label: 'Maturity:', prereq4Text: 'beta, pre-1.0. The CLI, config keys and on-disk formats may change before 1.0, with breaking changes flagged in the', prereq4Link: 'release notes',
+        carbonEyebrow: '// the blind spot',
+        carbonT1: 'The carbon weight of ', carbonTW: 'digital', carbonT2: ', and the blind spot no one measures',
+        carbonIntro: 'Digital already accounts for 1.8% to 3.9% of global greenhouse-gas emissions, on par with civil aviation and growing fast. But the share driven by bloated, poorly optimized code and web apps stays unquantified at scale.',
+        carbonChartTitle: 'Digital is 1.8% to 3.9% of global GHG',
+        carbonAnnBasse: '1.8%', carbonAnnHaute: '3.9%', carbonBarBasse: 'Low estimate', carbonBarHaute: 'High estimate',
+        carbonLegMeasured: 'Measured: data centers, networks, devices',
+        carbonLegUnmeasured: 'Unmeasured zone: heavy, poorly optimized web apps',
+        carbonChartSrc: 'Sources: ITU 2025, IEA 2025, Freitag et al. 2021',
+        carbonNarrTitle: 'A hole in the data that no one fills',
+        carbonNarrText: 'ITU and IEA confirm digital’s fast rise. But the part driven by code and bloated web apps stays unquantified worldwide.',
+        carbonStatNum: '30 to 80%', carbonStatText: 'emissions cut reachable on a poorly optimized website', carbonStatSrc: 'Source: Sustainable Web Design Model v4',
+        carbonCmpTitle: 'Measure bottom-up, not estimate top-down',
+        carbonCmpSub: 'perf-sentinel’s bottom-up approach against the top-down of current tools',
+        carbonResultLabel: 'Result',
+        carbonTdEyebrow: 'Top-down approach', carbonTdTitle: 'Current IT and carbon tools',
+        carbonTdPoints: [{ t: 'A share of averages: data-center draw, sector ratios.' }, { t: 'Estimates a global footprint from the cloud bill or headcount.' }, { t: 'Gives a yearly number, but not the detail of what weighs.' }],
+        carbonTdResult: 'A global figure, not attributable and not actionable.',
+        carbonBuEyebrow: 'Bottom-up approach', carbonBuTitle: 'perf-sentinel on heavy apps',
+        carbonBuPoints: [{ t: 'Observes the real application, query by query.' }, { t: 'Translates each operation into energy then carbon (recognized method).' }, { t: 'Pinpoints avoidable waste and its cost.' }],
+        carbonBuResult: 'A quantified hotspot, attributable to the code and directly actionable.',
         goMore: 'GreenOps metrics in the guide',
         cmpMore: 'Full comparison in the guide',
         detT1: 'Ten I/O ', detWAnti: 'anti-patterns', detT2: ', at the protocol level',
@@ -580,6 +681,26 @@ class Component extends DCLogic {
         prereq2Label: 'Auditez votre tracing d’abord :', prereq2Text: 'les spans sans ces attributs sont écartés en silence, donc un rapport vide peut signifier aucun problème ou aucune instrumentation exploitable. perf-sentinel inspect montre ce qui a été extrait. Voir', prereq2Link: 'ce qui borne les findings',
         prereq3Label: 'Ce que ce n’est pas :', prereq3Text: 'un APM complet, un profiler continu, ni (pour le moment) une plateforme de comptabilité carbone réglementaire. Voir', prereq3Link: 'le comparatif',
         prereq4Label: 'Maturité :', prereq4Text: 'bêta, pré-1.0. La CLI, les clés de configuration et les formats sur disque peuvent changer avant la 1.0, les ruptures étant signalées dans les', prereq4Link: 'notes de version',
+        carbonEyebrow: '// l’angle mort',
+        carbonT1: 'Le poids ', carbonTW: 'carbone', carbonT2: ' du numérique, et l’angle mort que personne ne mesure',
+        carbonIntro: 'Le numérique pèse déjà 1,8 % à 3,9 % des émissions mondiales de GES, à la hauteur de l’aviation civile et en croissance rapide. Mais la part due au code et aux applications web lourdes mal optimisées reste non quantifiée à l’échelle mondiale.',
+        carbonChartTitle: 'Le numérique pèse 1,8 % à 3,9 % des GES mondiaux',
+        carbonAnnBasse: '1,8 %', carbonAnnHaute: '3,9 %', carbonBarBasse: 'Estimation basse', carbonBarHaute: 'Estimation haute',
+        carbonLegMeasured: 'Mesuré : data centers, réseaux, terminaux',
+        carbonLegUnmeasured: 'Zone non mesurée : apps web lourdes mal optimisées',
+        carbonChartSrc: 'Sources : ITU 2025, IEA 2025, Freitag et al. 2021',
+        carbonNarrTitle: 'Un trou dans les données que personne ne comble',
+        carbonNarrText: 'ITU et IEA confirment la hausse rapide du numérique. Mais la part due au code et aux apps web lourdes reste non quantifiée à l’échelle mondiale.',
+        carbonStatNum: '30 à 80 %', carbonStatText: 'de réduction d’émissions atteignable sur un site web mal optimisé', carbonStatSrc: 'Source : Sustainable Web Design Model v4',
+        carbonCmpTitle: 'Mesurer par le bas, pas estimer par le haut',
+        carbonCmpSub: 'L’approche bottom-up de perf-sentinel face au top-down des outils actuels',
+        carbonResultLabel: 'Résultat',
+        carbonTdEyebrow: 'Approche top-down', carbonTdTitle: 'SI et outils carbone actuels',
+        carbonTdPoints: [{ t: 'Part de moyennes : consommation des data centers, ratios sectoriels.' }, { t: 'Estime une empreinte globale depuis la facture cloud ou les effectifs.' }, { t: 'Donne un chiffre annuel, mais pas le détail de ce qui pèse.' }],
+        carbonTdResult: 'Chiffre global, non attribuable et non actionnable.',
+        carbonBuEyebrow: 'Approche bottom-up', carbonBuTitle: 'perf-sentinel sur les apps lourdes',
+        carbonBuPoints: [{ t: 'Observe l’application réelle, requête par requête.' }, { t: 'Traduit chaque traitement en énergie puis en carbone (méthode reconnue).' }, { t: 'Pointe les gaspillages évitables et leur coût.' }],
+        carbonBuResult: 'Gisement chiffré, attribuable au code et directement actionnable.',
         goMore: 'Métriques GreenOps dans le guide',
         cmpMore: 'Comparatif complet dans le guide',
         detT1: 'Dix ', detWAnti: 'anti-patterns', detT2: " d'I/O, au niveau protocole",
@@ -691,7 +812,13 @@ class Component extends DCLogic {
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot,
       whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
-      prereq1Label: t.prereq1Label, prereq1Text: t.prereq1Text, prereq1Link: t.prereq1Link, prereq2Label: t.prereq2Label, prereq2Text: t.prereq2Text, prereq2Link: t.prereq2Link, prereq3Label: t.prereq3Label, prereq3Text: t.prereq3Text, prereq3Link: t.prereq3Link, prereq4Label: t.prereq4Label, prereq4Text: t.prereq4Text, prereq4Link: t.prereq4Link,
+      prereq1Label: t.prereq1Label, prereq1Text: t.prereq1Text, prereq1Link: t.prereq1Link, prereq2Label: t.prereq2Label, prereq2Text: t.prereq2Text, prereq2Link: t.prereq2Link, prereq3Label: t.prereq3Label, prereq3Text: t.prereq3Text, prereq3Link: t.prereq3Link, prereq4Label: t.prereq4Label, prereq4Text: t.prereq4Text, prereq4Link: t.prereq4Link, carbonEyebrow: t.carbonEyebrow, carbonT1: t.carbonT1, carbonTW: t.carbonTW, carbonT2: t.carbonT2, carbonIntro: t.carbonIntro,
+      carbonChartTitle: t.carbonChartTitle, carbonAnnBasse: t.carbonAnnBasse, carbonAnnHaute: t.carbonAnnHaute, carbonBarBasse: t.carbonBarBasse, carbonBarHaute: t.carbonBarHaute,
+      carbonLegMeasured: t.carbonLegMeasured, carbonLegUnmeasured: t.carbonLegUnmeasured, carbonChartSrc: t.carbonChartSrc,
+      carbonNarrTitle: t.carbonNarrTitle, carbonNarrText: t.carbonNarrText, carbonStatNum: t.carbonStatNum, carbonStatText: t.carbonStatText, carbonStatSrc: t.carbonStatSrc,
+      carbonCmpTitle: t.carbonCmpTitle, carbonCmpSub: t.carbonCmpSub, carbonResultLabel: t.carbonResultLabel,
+      carbonTdEyebrow: t.carbonTdEyebrow, carbonTdTitle: t.carbonTdTitle, carbonTdPoints: t.carbonTdPoints, carbonTdResult: t.carbonTdResult,
+      carbonBuEyebrow: t.carbonBuEyebrow, carbonBuTitle: t.carbonBuTitle, carbonBuPoints: t.carbonBuPoints, carbonBuResult: t.carbonBuResult,
       modEyebrow: t.modEyebrow, modTitle: t.modTitle,
       navPerf: t.navPerf, perfEyebrow: t.perfEyebrow, perfT1: t.perfT1, perfWRust: t.perfWRust, perfT2: t.perfT2, perfIntro: t.perfIntro, perfBadge: t.perfBadgePrefix + (this.state.rustVersion || '1.96.0'), perfStats: t.perfStats,
       perfMore: t.perfMore,
