@@ -659,12 +659,7 @@ class Component extends DCLogic {
           'Not zero-config, protocol-level detection needs OTel instrumentation in your apps.', 'Not an IDE plugin, with no in-editor feedback like Digma.',
         ],
         dpTitle: 'Deployment', dpIntro: 'One binary, two modes, four environments, three deployment models. Pick the lightest that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream trace sampling (head-based vs tail-based) and the daemon’s own `sampling_rate` undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, every shed counted in the metrics, never a silent drop.',
-        dpModes: [
-          { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' },
-          { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' },
-          { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API.' },
-          { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' },
-        ],
+        dpModes: [ { name: 'Standalone', desc: 'Local analysis, TUI and single-file HTML reports. Nothing deployed on the app side.' }, { name: 'CI batch', desc: '`perf-sentinel analyze --ci` on captured traces, exit 1 over a threshold. The simplest gate, nothing long-running.' }, { name: 'Sidecar daemon', desc: 'One watch daemon per service, ingesting that service\u2019s OTLP traces right beside it for isolated debugging.' }, { name: 'Central collector', desc: 'An OpenTelemetry Collector routes to a single long-running watch daemon, with Prometheus /metrics and the query API.' } ],
         dpMore: 'Full integration guide',
         dpDiagrams: [
           { label: 'Local dev', url: 'https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg' },
@@ -830,12 +825,7 @@ class Component extends DCLogic {
           'Pas zéro-config, la détection au niveau protocole exige une instrumentation OTel dans vos apps.', 'Pas un plugin IDE, sans retour dans l’éditeur comme Digma.',
         ],
         dpTitle: 'Déploiement', dpIntro: 'Un binaire, deux modes, quatre environnements, trois modèles de déploiement. Choisissez le plus léger adapté à l\u2019endroit où vivent vos traces. Le collecteur central est un daemon unique avec état, donc des réplicas horizontaux exigent un load balancing par trace-id et ne partagent pas l’état de corrélation. L’échantillonnage de traces en amont (head ou tail) et le `sampling_rate` du daemon sous-comptent les détecteurs par répétition, et sous surcharge soutenue le daemon déleste des lots d’analyse entiers plutôt que de bloquer l’ingestion, chaque délestage étant compté dans les métriques, jamais une perte silencieuse.',
-        dpModes: [
-          { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' },
-          { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' },
-          { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query.' },
-          { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' },
-        ],
+        dpModes: [ { name: 'Autonome', desc: 'Analyse locale, TUI et rapports HTML en un seul fichier. Rien à déployer côté apps.' }, { name: 'Batch CI', desc: '`perf-sentinel analyze --ci` sur traces capturées, exit 1 au dépassement de seuil. Le gate le plus simple, rien de long-running.' }, { name: 'Daemon sidecar', desc: 'Un daemon watch par service, qui ingère les traces OTLP de ce service juste à côté, pour du debug isolé.' }, { name: 'Collector central', desc: 'Un OpenTelemetry Collector route vers un daemon watch unique long-running, avec /metrics Prometheus et l\u2019API de query.' } ],
         dpMore: 'Guide d\u2019intégration complet',
         dpDiagrams: [
           { label: 'Dev local', url: 'https://raw.githubusercontent.com/robintra/perf-sentinel-simulation-lab/main/docs/diagrams/svg/perf-sentinel-local-dev.svg' },
