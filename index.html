@@ -371,7 +371,7 @@
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
-          <h2 style="margin:12px 0 0;font-size:clamp(24px,2.7vw,31px);font-weight:700;letter-spacing:-.018em;color:var(--text);text-wrap:balance">{{ licTitle }}</h2>
+          <h2 style="margin:12px 0 0;font-size:clamp(24px,2.7vw,31px);font-weight:700;letter-spacing:-.018em;color:var(--text);text-wrap:balance"><span style="color:#0ba671">{{ licTitleA }}</span>{{ licTitleB }}</h2>
         </div>
         <a href="https://www.gnu.org/licenses/agpl-3.0.html" style="flex:none;display:inline-flex;align-items:center;gap:9px;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--accent-strong);background:var(--accent-soft);border:1px solid var(--border);border-radius:10px;padding:11px 16px" style-hover="border-color:var(--accent)">
           <span style="width:8px;height:8px;border-radius:50%;background:var(--accent)"></span>open source
@@ -510,7 +510,7 @@ class Component extends DCLogic {
         ctaHow: 'How it works', ctaCarbon: 'The carbon side',
         navLicense: 'License', navDocs: 'Guide', navRef: 'Docs',
         licEyebrow: '// license',
-        licTitle: 'AGPL-3.0, and what it means for your code',
+        licTitleA: 'AGPL-3.0', licTitleB: ', and what it means for your code',
         licIntro: 'A practical, legal-team-friendly summary so nobody has to dig through the repository. perf-sentinel is licensed under the GNU Affero General Public License v3.0.',
         licC1Title: 'Your services stay yours',
         licC1Body: 'Running perf-sentinel does not place your own services under AGPL. It is a standalone process: your applications only send it OpenTelemetry traces over the network (OTLP), a remote communication and not a compile-time link, so it creates no derivative work and imposes no licensing obligation on your code.',
@@ -645,7 +645,7 @@ class Component extends DCLogic {
         ctaHow: 'Comment ça marche', ctaCarbon: 'Le volet carbone',
         navLicense: 'Licence', navDocs: 'Guide', navRef: 'Docs',
         licEyebrow: '// licence',
-        licTitle: 'AGPL-3.0, ce que ça implique pour votre code',
+        licTitleA: 'AGPL-3.0', licTitleB: ', ce que ça implique pour votre code',
         licIntro: 'Un résumé pratique et lisible par un service juridique, pour que personne n\u2019ait à fouiller le dépôt. perf-sentinel est sous licence GNU Affero General Public License v3.0.',
         licC1Title: 'Vos services restent les vôtres',
         licC1Body: 'Faire tourner perf-sentinel ne place pas vos propres services sous AGPL. C\u2019est un processus autonome : vos applications lui envoient seulement des traces OpenTelemetry par le réseau (OTLP), une communication à distance et non un lien de compilation, qui ne crée donc aucune œuvre dérivée et n\u2019impose aucune obligation de licence sur votre code.',
@@ -793,7 +793,7 @@ class Component extends DCLogic {
       heroTitle: t.heroTitle,
       heroSub: t.heroSub,
       ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
-      navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitle: t.licTitle, licIntro: t.licIntro,
+      navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitleA: t.licTitleA, licTitleB: t.licTitleB, licIntro: t.licIntro,
       licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
       licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
       installCommand: install,
