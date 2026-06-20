@@ -70,8 +70,8 @@ The invariant `sum(per_service_carbon_kgco2eq) × 1000 ≈ co2.operational_gco2`
 
 `report::periodic::aggregator::Builder::process_window` checks two predicates:
 
-1. `report.green_summary.per_service_carbon_kgco2eq.is_empty() && report.green_summary.per_service_energy_kwh.is_empty()` — runtime maps absent.
-2. `report.green_summary.energy_kwh > 0.0` — runtime energy total present.
+1. `report.green_summary.per_service_carbon_kgco2eq.is_empty() && report.green_summary.per_service_energy_kwh.is_empty()`: runtime maps absent.
+2. `report.green_summary.energy_kwh > 0.0`: runtime energy total present.
 
 When both runtime maps are non-empty, the aggregator sums the per-service values directly. When they are empty, it falls back to the proxy path inherited from the first release (proportional I/O share for carbon, `total_io_ops × ENERGY_PER_IO_OP_KWH` for energy). The two paths can coexist within the same archive directory: each window applies its own strategy.
 

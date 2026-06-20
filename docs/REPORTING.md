@@ -575,7 +575,7 @@ have signed the report. Three modes:
   values come from the auditor's prior knowledge of the publishing
   organization (the report itself declares them in
   `integrity.signature.signer_identity` / `.signer_issuer`, but
-  treating those as authoritative is autosigning — any GitHub or
+  treating those as authoritative is autosigning: any GitHub or
   Google account holder can publish a bundle claiming an identity).
 - `--no-identity-check`: cosign verifies the cryptographic integrity
   without checking the identity. Useful for an internal self-check
