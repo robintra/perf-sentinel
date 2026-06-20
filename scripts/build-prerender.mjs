@@ -68,6 +68,11 @@ for (const p of PAGES) {
   const html = await page.evaluate(() => {
     const clone = document.getElementById('dc-root').cloneNode(true);
     clone.querySelectorAll('script, iframe').forEach((e) => e.remove());
+    // Inert SEO snapshot: drop ids and app hooks so this clone (now placed
+    // BEFORE #dc-root) cannot shadow the live DOM in getElementById /
+    // querySelector('[data-ps-root]'). It only needs text + crawlable links.
+    clone.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
+    clone.querySelectorAll('[data-ps-root]').forEach((e) => e.removeAttribute('data-ps-root'));
     return clone.innerHTML;
   });
   await page.close();

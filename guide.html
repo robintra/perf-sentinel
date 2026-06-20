@@ -6,7 +6,7 @@
 <script src="./support.js?v=2"></script>
 <script type="application/ld+json">{"@context":"https://schema.org","@type":"TechArticle","headline":"perf-sentinel guide","description":"Quickstart, installation, configuration, CLI reference, performance, comparison and GreenOps metrics for perf-sentinel.","url":"https://perf-sentinel.dev/guide","image":"https://perf-sentinel.dev/assets/og-banner.png","inLanguage":"en","author":{"@type":"Person","name":"Robin Trassard"},"isPartOf":{"@type":"WebSite","url":"https://perf-sentinel.dev/","name":"perf-sentinel"},"about":{"@type":"SoftwareApplication","name":"perf-sentinel","applicationCategory":"DeveloperApplication"}}</script><style id="ps-link-extra">main a[href^="/docs/"],main a[href^="/#"]{color:var(--accent)}</style><style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style></head>
 <body>
-<!--seo-prerender-start--><div id="seo-prerender"><div class="sc-host" data-sc-name="guide"><div data-dc-tpl="18" data-ps-root="" data-theme="light"><div data-dc-tpl="19" style="min-height: 100vh; background-color: var(--bg); color: var(--text);">
+<!--seo-prerender-start--><div id="seo-prerender"><div class="sc-host" data-sc-name="guide"><div data-dc-tpl="18" data-theme="light"><div data-dc-tpl="19" style="min-height: 100vh; background-color: var(--bg); color: var(--text);">
 
   <header data-dc-tpl="20" class="ps-chrome" style="position: sticky; top: 0px; z-index: 50; background: color-mix(in srgb,var(--bg) 85%,transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);">
     <div data-dc-tpl="21" style="max-width: 1180px; margin: 0px auto; padding: 14px 28px; display: flex; align-items: center; gap: 22px;">
@@ -36,7 +36,7 @@
       <div data-dc-tpl="55" style="font-family: &quot;JetBrains Mono&quot;, monospace; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-2); padding: 0px 12px 12px;"><span class="sc-interp">On this page</span></div>
       <nav data-dc-tpl="56" class="ps-docnav" style="display: flex; flex-direction: column; gap: 3px;">
         
-          <a data-dc-tpl="58" href="#quickstart" data-active="false"><span class="sc-interp">Quickstart</span></a>
+          <a data-dc-tpl="58" href="#quickstart" data-active="true"><span class="sc-interp">Quickstart</span></a>
         
           <a data-dc-tpl="58" href="#install" data-active="false"><span class="sc-interp">Installation</span></a>
         
@@ -60,7 +60,7 @@
         
           <a data-dc-tpl="58" href="#supply" data-active="false"><span class="sc-interp">Supply chain</span></a>
         
-          <a data-dc-tpl="58" href="#docs" data-active="true"><span class="sc-interp">Docs</span></a>
+          <a data-dc-tpl="58" href="#docs" data-active="false"><span class="sc-interp">Docs</span></a>
         
       </nav>
     </aside>
@@ -76,7 +76,7 @@
       
 
       
-      <section data-dc-tpl="63" id="quickstart" style="padding-top: 54px;">
+      <section data-dc-tpl="63" style="padding-top: 54px;">
         <h2 data-dc-tpl="64" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Quickstart</span></h2>
         <p data-dc-tpl="65" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Four steps, from the built-in demo to a live daemon. Nothing to install on your application side, but your spans must already carry the query text (<code class="dc-cmd">db.statement</code>) and the target URL (<code class="dc-cmd">http.url</code>): spans without those attributes are dropped silently, so audit your own tracing first with <code class="dc-cmd">perf-sentinel inspect</code>.</span></p>
         <div data-dc-tpl="66" class="ps-code" style="margin-top: 20px; background: var(--term-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
@@ -102,7 +102,7 @@
       </section>
 
       
-      <section data-dc-tpl="74" id="install" style="padding-top: 54px;">
+      <section data-dc-tpl="74" style="padding-top: 54px;">
         <h2 data-dc-tpl="75" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Installation</span></h2>
         <p data-dc-tpl="76" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Pick crates.io, a prebuilt binary, or the container image. Linux binaries target musl, so they are static and run on any distribution, including FROM scratch images.</span></p>
         <div data-dc-tpl="77" class="ps-code" style="margin-top: 20px; background: var(--term-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
@@ -125,7 +125,7 @@
       </section>
 
       
-      <section data-dc-tpl="85" id="config" style="padding-top: 54px;">
+      <section data-dc-tpl="85" style="padding-top: 54px;">
         <h2 data-dc-tpl="86" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Configuration</span></h2>
         <p data-dc-tpl="87" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Drop a .perf-sentinel.toml at the repository root. Thresholds drive the CI gate; detection tunes how anti-patterns are flagged.</span></p>
         <div data-dc-tpl="88" class="ps-code" style="margin-top: 20px; background: var(--term-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;">
@@ -166,7 +166,7 @@
       </section>
 
       
-      <section data-dc-tpl="97" id="cli" style="padding-top: 54px;">
+      <section data-dc-tpl="97" style="padding-top: 54px;">
         <h2 data-dc-tpl="98" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">CLI reference</span></h2>
         <p data-dc-tpl="99" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">One binary, a handful of subcommands. Run perf-sentinel &lt;cmd&gt; --help for the full flag list.</span></p>
         <div data-dc-tpl="100" style="display: flex; flex-direction: column; gap: 14px; margin-top: 22px;">
@@ -274,7 +274,7 @@
       </section>
 
       
-      <section data-dc-tpl="119" id="formats" style="padding-top: 54px;">
+      <section data-dc-tpl="119" style="padding-top: 54px;">
         <h2 data-dc-tpl="120" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Input &amp; output formats</span></h2>
         <p data-dc-tpl="121" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Traces come in from files or live OTLP; results go out as terminal text, machine-readable JSON/SARIF, an HTML dashboard, or live daemon streams. Output is deterministic: identical input yields byte-identical JSON and SARIF, findings sorted on a stable key rather than <code class="dc-cmd">HashMap</code> order, so a CI quality gate never flickers.</span></p>
         <div data-dc-tpl="122" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px;">
@@ -354,7 +354,7 @@
       </section>
 
       
-      <section data-dc-tpl="137" id="metrics" style="padding-top: 54px;">
+      <section data-dc-tpl="137" style="padding-top: 54px;">
         <h2 data-dc-tpl="138" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">GreenOps metrics</span></h2>
         <p data-dc-tpl="139" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify.</span></p>
         <div data-dc-tpl="140" style="display: flex; flex-direction: column; gap: 12px; margin-top: 22px;">
@@ -403,7 +403,7 @@
       </section>
 
       
-      <section data-dc-tpl="163" id="perf" style="padding-top: 54px;">
+      <section data-dc-tpl="163" style="padding-top: 54px;">
         <h2 data-dc-tpl="164" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Performance</span></h2>
         <p data-dc-tpl="165" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px;"><span class="sc-interp"><code class="dc-cmd">perf-sentinel bench</code> times the analysis pipeline only (normalize → correlate → detect → score), single-threaded, on synthetic datasets: the pure pipeline cost, not end-to-end throughput nor a daemon-under-load benchmark.</span></p>
         <div data-dc-tpl="166" style="margin-top: 22px; overflow-x: auto; border: 1px solid var(--border); border-radius: 10px;">
@@ -472,7 +472,7 @@
       </section>
 
       
-      <section data-dc-tpl="187" id="compare" style="padding-top: 54px;">
+      <section data-dc-tpl="187" style="padding-top: 54px;">
         <h2 data-dc-tpl="188" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">How it compares</span></h2>
         <p data-dc-tpl="189" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px;"><span class="sc-interp">perf-sentinel’s niche: lightweight, protocol-agnostic, CI-native and carbon-aware, not a replacement for a full observability suite.</span></p>
         <div data-dc-tpl="190" style="margin-top: 22px; overflow-x: auto; border: 1px solid var(--border); border-radius: 10px;">
@@ -696,14 +696,14 @@
       </section>
 
       
-      <section data-dc-tpl="203" id="ack" style="padding-top: 54px;">
+      <section data-dc-tpl="203" style="padding-top: 54px;">
         <h2 data-dc-tpl="204" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Acknowledging known findings</span></h2>
         <p data-dc-tpl="205" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Drop a .perf-sentinel-acknowledgments.toml at your repo root to suppress findings the team has accepted: each gets a SHA-256 signature, and they are filtered from analyze / report / inspect / diff and don’t count toward the quality gate. Runtime acks against a live daemon are exposed via the ack CLI, the live HTML dashboard and the TUI.</span></p>
         <a data-dc-tpl="206" data-plain="" href="docs/ACK-WORKFLOW" class="scp3" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 16px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="207" data-ltext=""><span class="sc-interp">Acknowledgment workflow</span></span><span data-dc-tpl="208" data-arrow=""> →</span></a>
       </section>
 
       
-      <section data-dc-tpl="209" id="deploy" style="padding-top: 54px;">
+      <section data-dc-tpl="209" style="padding-top: 54px;">
         <h2 data-dc-tpl="210" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Deployment</span></h2>
         <p data-dc-tpl="211" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">One binary, two modes, four environments, three deployment models. Pick the lightest that fits where your traces live. The central collector is a single stateful daemon, so horizontal replicas need trace-id-aware load balancing and do not share correlation state. Upstream trace sampling (head-based vs tail-based) and the daemon’s own <code class="dc-cmd">sampling_rate</code> undercount the repetition-based detectors, and under sustained overload the daemon sheds whole analysis batches rather than blocking ingestion, every shed counted in the metrics, never a silent drop.</span></p>
         <div data-dc-tpl="212" style="display: flex; flex-direction: column; gap: 12px; margin-top: 22px;">
@@ -766,7 +766,7 @@
       <div data-dc-tpl="222" style="margin: 30px 0px 0px; max-width: 760px;"><p data-dc-tpl="223" style="margin: 0px 0px 10px; font-size: 13.5px; color: var(--text-2); line-height: 1.6;"><span class="sc-interp">Live operator monitor over a running daemon, for DevOps / SRE, four Tab-cycled tabs (Advisor hints, Energy/carbon mix, Trends charts, Scrapers health) via <code class="dc-cmd">perf-sentinel query --daemon &lt;URL&gt; monitor</code>:</span></p><figure data-dc-tpl="224" class="ps-media"><button data-dc-tpl="225" type="button" class="ps-media-btn" data-src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/img/monitor/demo.gif"><span data-dc-tpl="226" class="ps-media-play">▶</span> <span class="sc-interp">Play the demo (GIF)</span></button></figure></div> <a data-dc-tpl="227" data-plain="" href="docs/INTEGRATION" class="scp3" style="display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; font-size: 14px; font-weight: 600; color: var(--accent-strong);"><span data-dc-tpl="228" data-ltext=""><span class="sc-interp">Full integration guide</span></span><span data-dc-tpl="229" data-arrow=""> →</span></a> </section>
 
       
-      <section data-dc-tpl="230" id="privacy" style="padding-top: 54px;">
+      <section data-dc-tpl="230" style="padding-top: 54px;">
         <h2 data-dc-tpl="231" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Privacy &amp; security</span></h2>
         <p data-dc-tpl="232" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">perf-sentinel is built to sit inside your perimeter and stay quiet.</span></p>
         <div data-dc-tpl="233" style="display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 22px;">
@@ -800,7 +800,7 @@
       </section>
 
       
-      <section data-dc-tpl="243" id="supply" style="padding-top: 54px;">
+      <section data-dc-tpl="243" style="padding-top: 54px;">
         <h2 data-dc-tpl="244" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Supply chain &amp; releases</span></h2>
         <p data-dc-tpl="245" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Every GitHub Action is pinned to a 40-character commit SHA, the production image is FROM scratch, Cargo.lock is committed and audited daily by cargo audit, and workflow token permissions default to read-only. Releases are signed with Sigstore and carry SLSA build provenance.</span></p>
         <p data-dc-tpl="246" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 680px; line-height: 1.65;"><span class="sc-interp">Releases follow a documented procedure gated by a mandatory simulation-lab run, with the Helm chart versioned in lockstep. Release binaries carry SLSA Build L3 provenance (Sigstore + Rekor) and embedded <code class="dc-cmd">cargo-auditable</code> data (<code class="dc-cmd">cargo audit bin</code>), and each release ships an SPDX SBOM attested under the SPDX predicate. Dependabot opens weekly grouped PRs.</span></p>
@@ -808,7 +808,7 @@
       </section>
 
       
-      <section data-dc-tpl="250" id="docs" style="padding-top: 54px;">
+      <section data-dc-tpl="250" style="padding-top: 54px;">
         <h2 data-dc-tpl="251" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">Detailed documentation</span></h2>
         <p data-dc-tpl="252" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Every topic above is covered in full in the reference. Jump straight to a page:</span></p>
         <div data-dc-tpl="253" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 22px;">
@@ -899,7 +899,7 @@
 
     </main>
   </div>
-  <footer data-dc-tpl="258" style="border-top: 1px solid var(--border); background: var(--surface-2);"><div data-dc-tpl="259" style="max-width: 1180px; margin: 0px auto; padding: 48px 28px 36px;"><div data-dc-tpl="260" data-grid="ftcols" style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px;"><div data-dc-tpl="261"><img data-dc-tpl="262" data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height: 40px; width: auto;"><img data-dc-tpl="263" data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height: 40px; width: auto;"><p data-dc-tpl="264" style="margin: 16px 0px 0px; font-size: 13.5px; color: var(--text-2); max-width: 240px; line-height: 1.55;"><span class="sc-interp">Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.</span></p></div><div data-dc-tpl="265"><div data-dc-tpl="266" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Product</span></div><div data-dc-tpl="267" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="268" href="/#detection"><span class="sc-interp">Detection</span></a><a data-dc-tpl="269" href="/#modes"><span class="sc-interp">Execution</span></a><a data-dc-tpl="270" href="/#perf"><span class="sc-interp">Performance</span></a><a data-dc-tpl="271" href="/#greenops"><span class="sc-interp">GreenOps</span></a><a data-dc-tpl="272" href="/#comparatif"><span class="sc-interp">Comparison</span></a></div></div><div data-dc-tpl="273"><div data-dc-tpl="274" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Documentation</span></div><div data-dc-tpl="275" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="276" href="/guide#quickstart"><span class="sc-interp">Quickstart</span></a><a data-dc-tpl="277" href="/guide#cli"><span class="sc-interp">CLI reference</span></a><a data-dc-tpl="278" href="/guide#config"><span class="sc-interp">Configuration</span></a><a data-dc-tpl="279" href="/guide#metrics"><span class="sc-interp">GreenOps methodology</span></a></div></div><div data-dc-tpl="280"><div data-dc-tpl="281" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Project</span></div><div data-dc-tpl="282" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="283" href="https://github.com/robintra/perf-sentinel">GitHub</a><a data-dc-tpl="284" href="https://crates.io/crates/perf-sentinel">crates.io</a><a data-dc-tpl="285" href="https://docs.rs/perf-sentinel-core">docs.rs</a><a data-dc-tpl="286" href="/#license"><span class="sc-interp">AGPL-3.0 license</span></a></div></div></div><div data-dc-tpl="287" style="display: flex; justify-content: space-between; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2);"><div data-dc-tpl="288" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="289"><span class="sc-interp">© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="290" style="display: flex; gap: 14px;"><a data-dc-tpl="291" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="292" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div><span data-dc-tpl="293"><span class="sc-interp">Logo &amp; banner, </span><a data-dc-tpl="294" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener" id="ftCredit">Gwendoline Meignen</a></span></div></div></footer>
+  <footer data-dc-tpl="258" style="border-top: 1px solid var(--border); background: var(--surface-2);"><div data-dc-tpl="259" style="max-width: 1180px; margin: 0px auto; padding: 48px 28px 36px;"><div data-dc-tpl="260" data-grid="ftcols" style="display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 32px;"><div data-dc-tpl="261"><img data-dc-tpl="262" data-logo="light" src="/assets/logo-h-light.svg" alt="perf sentinel" style="height: 40px; width: auto;"><img data-dc-tpl="263" data-logo="dark" src="/assets/logo-h-dark.svg" alt="perf sentinel" style="height: 40px; width: auto;"><p data-dc-tpl="264" style="margin: 16px 0px 0px; font-size: 13.5px; color: var(--text-2); max-width: 240px; line-height: 1.55;"><span class="sc-interp">Protocol-level I/O anti-pattern detector, self-hostable and carbon-aware.</span></p></div><div data-dc-tpl="265"><div data-dc-tpl="266" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Product</span></div><div data-dc-tpl="267" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="268" href="/#detection"><span class="sc-interp">Detection</span></a><a data-dc-tpl="269" href="/#modes"><span class="sc-interp">Execution</span></a><a data-dc-tpl="270" href="/#perf"><span class="sc-interp">Performance</span></a><a data-dc-tpl="271" href="/#greenops"><span class="sc-interp">GreenOps</span></a><a data-dc-tpl="272" href="/#comparatif"><span class="sc-interp">Comparison</span></a></div></div><div data-dc-tpl="273"><div data-dc-tpl="274" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Documentation</span></div><div data-dc-tpl="275" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="276" href="/guide#quickstart"><span class="sc-interp">Quickstart</span></a><a data-dc-tpl="277" href="/guide#cli"><span class="sc-interp">CLI reference</span></a><a data-dc-tpl="278" href="/guide#config"><span class="sc-interp">Configuration</span></a><a data-dc-tpl="279" href="/guide#metrics"><span class="sc-interp">GreenOps methodology</span></a></div></div><div data-dc-tpl="280"><div data-dc-tpl="281" style="font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 13px;"><span class="sc-interp">Project</span></div><div data-dc-tpl="282" style="display: flex; flex-direction: column; gap: 9px; font-size: 14px; color: var(--text-2);"><a data-dc-tpl="283" href="https://github.com/robintra/perf-sentinel">GitHub</a><a data-dc-tpl="284" href="https://crates.io/crates/perf-sentinel">crates.io</a><a data-dc-tpl="285" href="https://docs.rs/perf-sentinel-core">docs.rs</a><a data-dc-tpl="286" href="/#license"><span class="sc-interp">AGPL-3.0 license</span></a></div></div></div><div data-dc-tpl="287" style="display: flex; justify-content: space-between; gap: 18px; margin-top: 26px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2);"><div data-dc-tpl="288" style="display: flex; flex-direction: column; gap: 6px;"><span data-dc-tpl="289"><span class="sc-interp">© 2026 perf-sentinel · AGPL-3.0 · Eco-designed page, no tracking script</span></span><span data-dc-tpl="290" style="display: flex; gap: 14px;"><a data-dc-tpl="291" href="/legal-notice"><span class="sc-interp">Legal notice</span></a><a data-dc-tpl="292" href="/privacy-policy"><span class="sc-interp">Privacy</span></a></span></div><span data-dc-tpl="293"><span class="sc-interp">Logo &amp; banner, </span><a data-dc-tpl="294" href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener">Gwendoline Meignen</a></span></div></div></footer>
   
 
 </div></div></div></div><!--seo-prerender-end--><x-dc>
