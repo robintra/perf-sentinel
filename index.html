@@ -79,14 +79,14 @@
   [data-embed-tab]{font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;border:1px solid transparent;color:var(--text-2);padding:3px 10px;border-radius:7px;cursor:pointer}
   [data-embed-tab]:hover{color:var(--text)}
   [data-embed-tab][data-active="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
-</style>
+@media(max-width:560px){header>div{flex-wrap:wrap;row-gap:8px}}@media(max-width:1240px){[data-nav]{display:none!important}}</style>
 </helmet>
 
 <div data-ps-root="" data-theme="{{ theme }}">
 <div style="min-height:100vh;background-color:var(--bg);color:var(--text)">
 
   <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
-    <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;gap:26px">
+    <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px">
       <a href="#top" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
       <nav data-nav="" style="display:flex;gap:24px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
         <a href="#detection" style-hover="color:var(--text)">{{ navDetection }}</a>
