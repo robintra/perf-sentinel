@@ -45,7 +45,11 @@ function startServer() {
   return new Promise((resolve) => server.listen(PORT, '127.0.0.1', () => resolve(server)));
 }
 
-const CSS = '<style id="seo-prerender-css">x-dc{display:none}#dc-root:not(:empty)~#seo-prerender{display:none}</style>';
+// #seo-prerender sits BEFORE <x-dc> so non-JS readers (LLM fetchers, naive
+// readability) hit real text first, not the {{ token }} template. :has() hides
+// it post-hydration regardless of order. ponytail: :has() => both blocks show
+// on pre-2023 browsers, acceptable for a marketing page.
+const CSS = '<style id="seo-prerender-css">x-dc{display:none}body:has(#dc-root:not(:empty)) #seo-prerender{display:none}</style>';
 const START = '<!--seo-prerender-start-->';
 const END = '<!--seo-prerender-end-->';
 
@@ -73,7 +77,9 @@ for (const p of PAGES) {
   s = s.replace(/<style id="seo-prerender-css">[\s\S]*?<\/style>/g, '');
   s = s.replace(new RegExp(START + '[\\s\\S]*?' + END, 'g'), '');
   s = s.replace('</head>', CSS + '</head>');
-  s = s.replace('</x-dc>', '</x-dc>' + START + '<div id="seo-prerender">' + html + '</div>' + END);
+  const block = START + '<div id="seo-prerender">' + html + '</div>' + END;
+  // Inject before the <x-dc> open tag (function replacer: html may contain $&).
+  s = s.replace(/<x-dc(\s|>)/, (m) => block + m);
   if (s !== before) { writeFileSync(join(SITE, p.file), s); changed++; }
   console.log(`  ${p.file}: prerender ${Math.round(html.length / 1024)} KB (${s !== before ? 'updated' : 'unchanged'})`);
 }
