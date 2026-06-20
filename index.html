@@ -55,7 +55,7 @@
     [data-grid="cards4"]{grid-template-columns:repeat(2,1fr) !important}
   }
   @media (max-width:980px){
-    [data-nav]{display:none}
+    [data-nav]{display:none!important}
   }
   @media (max-width:880px){
     [data-grid="cards3"]{grid-template-columns:1fr !important}
@@ -76,7 +76,7 @@
   [data-ps-root] ::-webkit-scrollbar-thumb:hover{background:var(--text-2)}
   [data-ps-root]{scrollbar-color:var(--border) transparent;scrollbar-width:thin}
 
-  [data-embed-tab]{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.02em;background:transparent;border:1px solid transparent;color:var(--text-2);padding:3px 10px;border-radius:7px;cursor:pointer}
+  [data-embed-tab]{font-family:'JetBrains Mono',monospace;font-size:12px;background:transparent;border:1px solid transparent;color:var(--text-2);padding:3px 10px;border-radius:7px;cursor:pointer}
   [data-embed-tab]:hover{color:var(--text)}
   [data-embed-tab][data-active="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
 </style>
@@ -86,7 +86,7 @@
 <div style="min-height:100vh;background-color:var(--bg);color:var(--text)">
 
   <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
-    <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px">
+    <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;flex-wrap:wrap;row-gap:8px;align-items:center;gap:26px">
       <a href="#top" style="display:flex;align-items:center;flex:none"><img data-logo="light" src="assets/logo-h-light.svg" alt="perf sentinel" style="height:38px;width:auto"><img data-logo="dark" src="assets/logo-h-dark.svg" alt="perf sentinel" style="height:38px;width:auto"></a>
       <nav data-nav="" style="display:flex;gap:24px;margin-left:6px;font-size:15px;font-weight:500;color:var(--text-2)">
         <a href="#detection" style-hover="color:var(--text)">{{ navDetection }}</a>
@@ -442,7 +442,7 @@ class Component extends DCLogic {
         detEyebrow: '// what gets detected',
         whyEyebrow: '// the problem',
         whyT1: 'Why ', whyTName: 'perf-sentinel', whyT2: '?',
-        whyP1: 'I/O anti-patterns (N+1s, redundant calls, fanout) hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
+        whyP1: 'I/O anti-patterns hit any app, monolith or microservices. In distributed systems a request cascades across services and nobody sees the full path.',
         whyP2: 'Existing tools each cover a slice: Hypersistence is JPA-only, Datadog and New Relic are heavy proprietary agents, Sentry is tied to its SDK. None is a protocol-level detector you can self-host and run as a CI gate or an OTLP daemon.',
         whyP3: 'perf-sentinel reads the traces your app already emits (SQL, HTTP), whatever the language or ORM: it sees the queries they generate, without needing to know JPA or EF Core.',
         goMore: 'GreenOps metrics in the guide',
@@ -551,7 +551,7 @@ class Component extends DCLogic {
         detEyebrow: '// ce qui est détecté',
         whyEyebrow: '// le problème',
         whyT1: 'Pourquoi ', whyTName: 'perf-sentinel', whyT2: ' ?',
-        whyP1: 'Les anti-patterns d\u2019I/O (N+1, appels redondants, fanout) touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
+        whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
         whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans rien comprendre à JPA ou EF Core.',
         goMore: 'Métriques GreenOps dans le guide',
