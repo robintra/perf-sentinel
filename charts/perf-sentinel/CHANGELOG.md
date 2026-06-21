@@ -6,6 +6,13 @@ Chart versions are independent from the perf-sentinel application
 versions, the chart's `appVersion` field tracks which daemon version is
 the default target.
 
+## [0.2.63]
+
+### Changed
+
+- `appVersion` bumped to `0.8.14`. The HTML dashboard dark theme darkens its secondary panel background from `#2c2c2c` to `#212121`, giving metric cards, rows and the topbar more contrast against the primary background. Cosmetic, dark theme only. No chart template change, this bump only tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.8.14` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.2.62]
 
 ### Removed
