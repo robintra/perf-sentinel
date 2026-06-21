@@ -1237,7 +1237,7 @@ class Component extends DCLogic {
         whyT1: 'Pourquoi ', whyTName: 'perf-sentinel', whyT2: ' ?',
         whyP1: 'Les anti-patterns d\u2019I/O touchent toute application, monolithe comme microservices. En distribué, une requête cascade sur plusieurs services et personne ne voit le chemin complet.',
         whyP2: 'Les outils existants n\u2019en couvrent qu\u2019une part : Hypersistence se limite à JPA, Datadog et New Relic sont des agents lourds, Sentry dépend de son SDK. Aucun détecteur au niveau protocole, auto-hébergeable, en gate CI comme en daemon.',
-        whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans rien comprendre à JPA ou EF Core.',
+        whyP3: 'perf-sentinel lit les traces que votre application émet déjà (SQL, HTTP), quel que soit le langage ou l\u2019ORM : il voit les requêtes générées, sans avoir besoin de comprendre JPA ou EF Core.',
         whyP4: 'Chaque I/O évitable est aussi chiffré en énergie et en CO₂, par le bas et attribuable au code.',
         prereqTitle: 'À lire en premier',
         prereq1Label: 'Prérequis :', prereq1Text: 'vos services émettent des traces OpenTelemetry (spans SQL et HTTP) portant le texte de la requête (`db.statement` / `db.query.text`) et l’URL cible (`http.url` / `url.full`).', prereq1Setup: 'Mise en place', prereq1Link: 'par langage (Java, C#, Rust, Go, Node.js, Python)',
