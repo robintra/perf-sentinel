@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The HTML dashboard dark theme darkens the secondary panel background from `#2c2c2c` to `#212121`, giving metric cards, rows and the topbar more contrast against the primary background. Cosmetic, dark theme only.
+
 ## [0.8.13]
 
 ### Added
