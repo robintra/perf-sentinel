@@ -356,7 +356,7 @@
       
       <section data-dc-tpl="137" style="padding-top: 54px;">
         <h2 data-dc-tpl="138" style="margin: 0px; font-size: clamp(24px, 2.6vw, 30px); font-weight: 700; letter-spacing: -0.015em; color: var(--text);"><span class="sc-interp">GreenOps metrics</span></h2>
-        <p data-dc-tpl="139" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify.</span></p>
+        <p data-dc-tpl="139" style="margin: 14px 0px 0px; font-size: 15.5px; color: var(--text-2); max-width: 660px;"><span class="sc-interp">Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify (for now).</span></p>
         <div data-dc-tpl="140" style="display: flex; flex-direction: column; gap: 12px; margin-top: 22px;">
           
             <div data-dc-tpl="142" class="ps-card" style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px 22px;">
@@ -1486,7 +1486,7 @@ class Component extends DCLogic {
           { name: 'Periodic disclosure', desc: 'Hash-verifiable perf-sentinel-report/v1.0 JSON, Sigstore-signable.' },
         ],
         mtTitle: 'GreenOps metrics',
-        mtIntro: 'Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify.',
+        mtIntro: 'Every finding carries a GreenOps reading. The figures are directional and meant to rank and trend, not to certify (for now).',
         mtItems: [
           { name: 'I/O intensity score (IIS)', formula: 'I/O ops ÷ invocations', desc: "An endpoint's total I/O operations divided by its number of invocations. The higher it is, the more I/O each call costs." },
           { name: 'I/O waste ratio', formula: 'avoidable ÷ total', desc: 'Avoidable operations over total operations: the share you can directly recover by fixing N+1s and redundant calls.' },
@@ -1653,7 +1653,7 @@ class Component extends DCLogic {
           { name: 'Divulgation périodique', desc: 'JSON perf-sentinel-report/v1.0 vérifiable par hash, signable Sigstore.' },
         ],
         mtTitle: 'Métriques GreenOps',
-        mtIntro: 'Chaque finding porte une lecture GreenOps. Les chiffres sont directionnels : ils servent à classer et suivre une tendance, pas à certifier.',
+        mtIntro: 'Chaque finding porte une lecture GreenOps. Les chiffres sont directionnels : ils servent à classer et suivre une tendance, pas à certifier (pour le moment).',
         mtItems: [
           { name: 'Score d\u2019intensité I/O (IIS)', formula: 'ops I/O ÷ invocations', desc: 'Total des opérations I/O d\u2019un endpoint divisé par son nombre d\u2019invocations. Plus il est élevé, plus chaque appel coûte en I/O.' },
           { name: 'Ratio de gaspillage I/O', formula: 'évitables ÷ totales', desc: 'Opérations évitables sur opérations totales : la part directement récupérable en corrigeant les N+1 et les appels redondants.' },
