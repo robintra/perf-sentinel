@@ -17,7 +17,7 @@ For a non-Helm alternative, see the raw manifests in
 - [Artifact Hub](#artifact-hub): listing and metadata.
 - [Software supply chain](#software-supply-chain): Cosign keyless signatures, SLSA provenance, SBOM, public-good attestation.
 - [Install from a local checkout](#install-from-a-local-checkout): for contributors and bisecting.
-- [Cutting a new chart release](#cutting-a-new-chart-release): release workflow and tag pattern.
+- [Cutting a new chart release](#cutting-a-new-chart-release): maintainer task, points to RELEASE-PROCEDURE.
 - [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
 - [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus secrets, TLS and NetworkPolicy.
 - [Observability](#observability): Prometheus ServiceMonitor, Grafana dashboard, alerts and exemplars.
@@ -95,9 +95,10 @@ helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
 ```
 
 Chart version and app version are decoupled: `version` is the chart
-release, `appVersion` is the daemon image tag that ships with it. Pin
-the app version explicitly in production via `image.tag` to avoid
-drift when a newer chart ships.
+release, `appVersion` is the daemon image tag that ships with it. Every
+release bumps the two in lockstep, so a pinned `--version` already gives
+you a known `appVersion`. Override `image.tag` only to run a specific
+daemon build against a different chart.
 
 ## Artifact Hub
 
@@ -225,29 +226,10 @@ shared clusters unless you built the chart yourself.
 
 ## Cutting a new chart release
 
-The release workflow (`.github/workflows/helm-release.yml`) triggers
-on tags matching `chart-v*`. The first gate
-(`scripts/check-helm-tag-version.sh`) asserts strict equality between
-the tag and `charts/perf-sentinel/Chart.yaml:version`, including any
-semver prerelease suffix. The flow for a release:
-
-1. On a branch, bump `charts/perf-sentinel/Chart.yaml:version` to the
-   target (e.g. `0.3.0-rc.1` for a release candidate, `0.3.0` for the
-   final). Semver prerelease suffixes are supported.
-2. Add a matching section to `charts/perf-sentinel/CHANGELOG.md`.
-3. Open a PR. The helm-ci workflow runs lint, template+kubeconform
-   across the three workload kinds, and a version-bump guard that
-   fails if the chart was edited without a matching `version:` bump.
-4. Merge the PR, then tag:
-   ```bash
-   git tag chart-v0.3.0-rc.1
-   git push origin chart-v0.3.0-rc.1
-   ```
-5. The helm-release workflow packages the chart, pushes it to OCI,
-   Cosign-signs, generates SLSA provenance, and opens a **draft**
-   GitHub Release. Prerelease tags (`-rc`, `-beta`, `-alpha`) get the
-   `prerelease: true` flag automatically.
-6. Review the draft release and the OCI artifact, then publish.
+Releasing a new chart version is a maintainer task, not a deployment step. The full
+procedure (bump the chart in lockstep, then `scripts/release-chart.sh chart-vA.B.C`,
+which gates on the daemon image being published) lives in
+[`RELEASE-PROCEDURE.md`](./RELEASE-PROCEDURE.md).
 
 ## Workload modes
 
@@ -588,11 +570,10 @@ Each alert's `description` names the `[daemon]` knob to raise. Append your own w
 
 ### PodDisruptionBudget
 
-For voluntary-disruption protection (node drains, cluster upgrades), enable the
-PDB. The default is `maxUnavailable: 1`, not `minAvailable: 1`: the daemon runs
-single-replica, so a `minAvailable: 1` PDB would block every drain and wedge node
-maintenance. Set `minAvailable` only when you run a trace-aware sharded topology
-with several replicas.
+perf-sentinel runs single-replica, so a PDB is optional. For voluntary-disruption
+protection (node drains, upgrades), enable it with `maxUnavailable: 1` (not
+`minAvailable: 1`, which would block every drain). Use `minAvailable` only with a
+sharded multi-replica topology.
 
 ```yaml
 podDisruptionBudget:

@@ -12,7 +12,7 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 - [Artifact Hub](#artifact-hub) : référencement et métadonnées.
 - [Chaîne d'approvisionnement logicielle](#chaîne-dapprovisionnement-logicielle) : signatures Cosign keyless, provenance SLSA, SBOM, attestation public-good.
 - [Installation depuis un checkout local](#installation-depuis-un-checkout-local) : pour les contributeurs et le bisect.
-- [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : workflow de release et pattern de tag.
+- [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : tâche mainteneur, renvoie vers RELEASE-PROCEDURE.
 - [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
 - [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus secrets, TLS et NetworkPolicy.
 - [Observabilité](#observabilité) : Prometheus ServiceMonitor, tableau de bord Grafana, alertes et exemplars.
@@ -73,7 +73,7 @@ helm install perf-sentinel oci://ghcr.io/robintra/charts/perf-sentinel \
   -f my-values.yaml
 ```
 
-Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. En production, pinnez explicitement le tag via `image.tag` pour éviter la dérive quand une nouvelle version du chart est publiée.
+Le `version` du chart et l'`appVersion` sont découplés : `version` désigne la release du chart, `appVersion` désigne le tag de l'image daemon livrée avec. Chaque release bumpe les deux en lockstep, donc un `--version` pinné donne déjà un `appVersion` connu. N'overridez `image.tag` que pour faire tourner un build daemon précis avec un autre chart.
 
 ## Artifact Hub
 
@@ -193,18 +193,7 @@ Gardez le path OCI pour les installs de production. Le path local contourne volo
 
 ## Couper une nouvelle release de chart
 
-Le workflow de release (`.github/workflows/helm-release.yml`) se déclenche sur les tags qui matchent `chart-v*`. Le premier gate (`scripts/check-helm-tag-version.sh`) vérifie l'égalité stricte entre le tag et `charts/perf-sentinel/Chart.yaml:version`, y compris tout suffixe semver de prerelease. Le flow pour une release :
-
-1. Sur une branche, bump `charts/perf-sentinel/Chart.yaml:version` vers la cible (par exemple `0.3.0-rc.1` pour une release candidate, `0.3.0` pour la finale). Les suffixes semver de prerelease sont supportés.
-2. Ajoutez une section correspondante à `charts/perf-sentinel/CHANGELOG.md`.
-3. Ouvrez une PR. Le workflow helm-ci lance lint, template + kubeconform sur les trois modes de workload, et un garde-fou de bump qui échoue si le chart a été modifié sans bump correspondant du `version:`.
-4. Mergez la PR, puis taggez :
-   ```bash
-   git tag chart-v0.3.0-rc.1
-   git push origin chart-v0.3.0-rc.1
-   ```
-5. Le workflow helm-release package le chart, le pousse en OCI, le signe avec Cosign, génère la provenance SLSA, et ouvre une GitHub Release en **draft**. Les tags de prerelease (`-rc`, `-beta`, `-alpha`) reçoivent automatiquement le flag `prerelease: true`.
-6. Relisez la draft release et l'artifact OCI, puis publiez.
+Publier une nouvelle version du chart est une tâche mainteneur, pas une étape de déploiement. La procédure complète (bump du chart en lockstep, puis `scripts/release-chart.sh chart-vA.B.C`, qui gate sur la publication de l'image daemon) est dans [`RELEASE-PROCEDURE-FR.md`](./RELEASE-PROCEDURE-FR.md).
 
 ## Modes de workload
 
@@ -484,12 +473,10 @@ le même groupe), sans fork.
 
 ### PodDisruptionBudget
 
-Pour la protection contre les perturbations volontaires (drains de nœud, mises
-à niveau de cluster), activez le PDB. Le défaut est `maxUnavailable: 1`, pas
-`minAvailable: 1` : le daemon tourne en réplique unique, donc un PDB
-`minAvailable: 1` bloquerait chaque drain et coincerait la maintenance des
-nœuds. Ne définissez `minAvailable` que si vous exploitez une topologie shardée
-trace-aware avec plusieurs répliques.
+perf-sentinel tourne en réplique unique, donc un PDB est optionnel. Pour la
+protection contre les perturbations volontaires (drains de nœud, mises à niveau),
+activez-le avec `maxUnavailable: 1` (pas `minAvailable: 1`, qui bloquerait chaque
+drain). N'utilisez `minAvailable` qu'avec une topologie shardée multi-répliques.
 
 ```yaml
 podDisruptionBudget:
