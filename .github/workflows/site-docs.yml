@@ -1,0 +1,53 @@
+# Rebuilds the perf-sentinel.dev reference doc pages whenever docs/ changes on
+# main, then commits the regenerated HTML to the gh-pages branch (same repo).
+# The build scripts (scripts/build-reference.mjs, mdrender.js) live on gh-pages,
+# so both branches are checked out. Only build-reference runs here: the SEO
+# prerender (build-prerender.mjs) covers the two landing pages and needs a
+# browser, so it stays a manual step.
+# ponytail: serialized via concurrency, no rebase-retry. A manual gh-pages push
+# racing a run would fail the push visibly, just rerun the workflow if so.
+name: site-docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-docs
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (docs source)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          path: main
+      - name: Checkout gh-pages (site and build scripts)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: gh-pages
+          path: site
+      - name: Rebuild reference docs
+        working-directory: site
+        env:
+          SITE_MAIN_REPO: ${{ github.workspace }}/main
+        run: node scripts/build-reference.mjs
+      - name: Commit and push if changed
+        working-directory: site
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "No reference-doc changes to publish."
+          else
+            git commit -m "docs(site): rebuild reference pages from docs change"
+            git push
+          fi
