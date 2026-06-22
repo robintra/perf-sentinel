@@ -469,6 +469,7 @@
 <li>Kubernetes <code class="ps-ic">restartPolicy: Always</code> + memory limit headroom above observed peak RSS.</li>
 <li>Alert on <code class="ps-ic">perf_sentinel_active_traces</code> approaching <code class="ps-ic">max_active_traces</code>. Rising pressure often precedes OOM.</li>
 <li>For HA, run multiple replicas behind a load balancer. Each replica has independent state (no cross-replica correlation), but ingestion becomes redundant against single-instance failure.</li>
+<li>Collection continuity matters for <code class="ps-ic">disclose</code>: every restart leaves a gap in the archived windows that feed the carbon disclosure. Run multiple replicas and persist the archive (StatefulSet mode) so downtime does not punch holes in the disclosure history.</li>
 </ul>
 <hr class="ps-hr">
 <h2 id="applying-config-changes" class="ps-h2">Applying config changes</h2>

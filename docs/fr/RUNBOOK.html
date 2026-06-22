@@ -472,6 +472,7 @@
 <li>Kubernetes <code class="ps-ic">restartPolicy: Always</code> + marge de limit mémoire au-dessus du RSS pic observé.</li>
 <li>Alertez sur <code class="ps-ic">perf_sentinel_active_traces</code> approchant <code class="ps-ic">max_active_traces</code>. La pression montante précède souvent l'OOM.</li>
 <li>Pour la HA, lancez plusieurs replicas derrière un load balancer. Chaque replica a un état indépendant (pas de corrélation cross-replica), mais l'ingestion devient redondante face à une panne single-instance.</li>
+<li>La continuité de collecte compte pour <code class="ps-ic">disclose</code> : chaque redémarrage laisse un trou dans les fenêtres archivées qui alimentent la divulgation carbone. Lancez plusieurs replicas et persistez l'archive (mode StatefulSet) pour que les indisponibilités ne percent pas de trous dans l'historique de divulgation.</li>
 </ul>
 <hr class="ps-hr">
 <h2 id="appliquer-un-changement-de-config" class="ps-h2">Appliquer un changement de config</h2>
