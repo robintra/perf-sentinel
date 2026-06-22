@@ -8,7 +8,8 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 
 | Document                                       | Description                                                                                |
 |------------------------------------------------|--------------------------------------------------------------------------------------------|
-| [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        || [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust            |
+| [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        |
+| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust            |
 | [CI-FR.md](CI-FR.md)                           | Mode CI, recettes GitHub Actions / GitLab CI / Jenkins, détection de régression sur PR     |
 
 ## Déploiement
@@ -42,7 +43,8 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 ## Exploitation
 
 | Document                                       | Description                                                                         |
-|------------------------------------------------|-------------------------------------------------------------------------------------|| [RUNBOOK-FR.md](RUNBOOK-FR.md)                 | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production |
+|------------------------------------------------|-------------------------------------------------------------------------------------|
+| [RUNBOOK-FR.md](RUNBOOK-FR.md)                 | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production |
 | [METHODOLOGY-FR.md](METHODOLOGY-FR.md)         | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
 | [LIMITATIONS-FR.md](LIMITATIONS-FR.md)         | Compromis connus, contraintes amont, limites de la détection                        |
 
