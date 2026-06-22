@@ -8,10 +8,15 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 
 | Document                                       | Description                                                                                |
 |------------------------------------------------|--------------------------------------------------------------------------------------------|
-| [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        |
-| [INTEGRATION-FR.md](INTEGRATION-FR.md)         | Quatre topologies de déploiement (batch, sidecar, gateway, autonome) et démarrages rapides |
-| [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust            |
+| [ARCHITECTURE-FR.md](ARCHITECTURE-FR.md)       | Vue d'ensemble du pipeline, responsabilités des modules, types clés                        || [INSTRUMENTATION-FR.md](INSTRUMENTATION-FR.md) | Configuration OTLP par langage : Java, Quarkus, .NET, Go, Python, Node.js, Rust            |
 | [CI-FR.md](CI-FR.md)                           | Mode CI, recettes GitHub Actions / GitLab CI / Jenkins, détection de régression sur PR     |
+
+## Déploiement
+
+| Document                                       | Description                                                                                |
+|------------------------------------------------|--------------------------------------------------------------------------------------------|
+| [INTEGRATION-FR.md](INTEGRATION-FR.md)         | Quatre topologies de déploiement (batch, sidecar, gateway, autonome) et démarrages rapides |
+| [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md) | Déploiement Kubernetes via le chart Helm, référence des values, TLS, RBAC                  |
 
 ## Référence
 
@@ -37,9 +42,7 @@ La version anglaise de chaque document se trouve dans le répertoire parent [`do
 ## Exploitation
 
 | Document                                       | Description                                                                         |
-|------------------------------------------------|-------------------------------------------------------------------------------------|
-| [HELM-DEPLOYMENT-FR.md](HELM-DEPLOYMENT-FR.md) | Déploiement Kubernetes via le chart Helm, référence des values, TLS, RBAC           |
-| [RUNBOOK-FR.md](RUNBOOK-FR.md)                 | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production |
+|------------------------------------------------|-------------------------------------------------------------------------------------|| [RUNBOOK-FR.md](RUNBOOK-FR.md)                 | Runbook d'incident : dépannage orienté symptôme pour les déploiements en production |
 | [METHODOLOGY-FR.md](METHODOLOGY-FR.md)         | Chaîne de calcul des traces vers `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
 | [LIMITATIONS-FR.md](LIMITATIONS-FR.md)         | Compromis connus, contraintes amont, limites de la détection                        |
 
