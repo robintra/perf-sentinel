@@ -551,6 +551,7 @@ curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --inp
 - Kubernetes `restartPolicy: Always` + marge de limit mémoire au-dessus du RSS pic observé.
 - Alertez sur `perf_sentinel_active_traces` approchant `max_active_traces`. La pression montante précède souvent l'OOM.
 - Pour la HA, lancez plusieurs replicas derrière un load balancer. Chaque replica a un état indépendant (pas de corrélation cross-replica), mais l'ingestion devient redondante face à une panne single-instance.
+- La continuité de collecte compte pour `disclose` : chaque redémarrage laisse un trou dans les fenêtres archivées qui alimentent la divulgation carbone. Lancez plusieurs replicas et persistez l'archive (mode StatefulSet) pour que les indisponibilités ne percent pas de trous dans l'historique de divulgation.
 
 ---
 

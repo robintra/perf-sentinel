@@ -548,6 +548,7 @@ curl -s http://perf-sentinel:4318/api/export/report | perf-sentinel report --inp
 - Kubernetes `restartPolicy: Always` + memory limit headroom above observed peak RSS.
 - Alert on `perf_sentinel_active_traces` approaching `max_active_traces`. Rising pressure often precedes OOM.
 - For HA, run multiple replicas behind a load balancer. Each replica has independent state (no cross-replica correlation), but ingestion becomes redundant against single-instance failure.
+- Collection continuity matters for `disclose`: every restart leaves a gap in the archived windows that feed the carbon disclosure. Run multiple replicas and persist the archive (StatefulSet mode) so downtime does not punch holes in the disclosure history.
 
 ---
 
