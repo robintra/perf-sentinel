@@ -186,8 +186,12 @@ curl -s http://daemon.internal:4318/api/export/report \
 ### Étape 1 : Démarrer perf-sentinel + collector
 
 ```bash
-docker compose -f examples/docker-compose-collector.yml up -d
+# Récupérer le fichier compose d'exemple (sans cloner le dépôt), puis le démarrer
+curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-sentinel/main/examples/docker-compose-collector.yml
+docker compose up -d
 ```
+
+L'URL suit `main`. Remplacez `main` par un tag de release (par exemple `v0.8.13`) pour figer une version précise.
 
 Cela démarre :
 - Un **OTel Collector** qui écoute sur les ports 4317 (gRPC) et 4318 (HTTP)
@@ -222,7 +226,7 @@ service:
 Utilisez votre application normalement. Après l'expiration du TTL des traces (30 secondes par défaut), perf-sentinel émet les findings en NDJSON sur stdout :
 
 ```bash
-docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
+docker compose logs -f perf-sentinel
 ```
 
 ### Étape 4 : Monitoring avec Prometheus + Grafana
@@ -261,7 +265,9 @@ Voir [`examples/otel-collector-config.yaml`](../../examples/otel-collector-confi
 ### Étape 1 : Démarrer le sidecar
 
 ```bash
-docker compose -f examples/docker-compose-sidecar.yml up -d
+# Récupérer le fichier compose d'exemple (sans cloner le dépôt), puis le démarrer
+curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-sentinel/main/examples/docker-compose-sidecar.yml
+docker compose up -d
 ```
 
 ### Étape 2 : Configurer votre app
@@ -276,7 +282,7 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ### Étape 3 : Voir les findings
 
 ```bash
-docker compose -f examples/docker-compose-sidecar.yml logs -f perf-sentinel
+docker compose logs -f perf-sentinel
 ```
 
 Voir [`examples/docker-compose-sidecar.yml`](../../examples/docker-compose-sidecar.yml) pour la configuration complète.

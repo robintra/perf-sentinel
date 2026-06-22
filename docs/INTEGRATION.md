@@ -123,8 +123,12 @@ Production deployment where services send traces to an OpenTelemetry Collector. 
 ### Start perf-sentinel + collector
 
 ```bash
-docker compose -f examples/docker-compose-collector.yml up -d
+# Fetch the example compose file (no checkout needed), then start it
+curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-sentinel/main/examples/docker-compose-collector.yml
+docker compose up -d
 ```
+
+The raw URL tracks `main`. Replace `main` with a release tag (e.g. `v0.8.13`) to pin a specific version.
 
 Starts an OTel Collector on 4317 (gRPC) + 4318 (HTTP) and perf-sentinel in watch mode behind it.
 
@@ -153,7 +157,7 @@ service:
 ### Generate traffic and view findings
 
 ```bash
-docker compose -f examples/docker-compose-collector.yml logs -f perf-sentinel
+docker compose logs -f perf-sentinel
 ```
 
 Findings emit as NDJSON to stdout once the trace TTL expires (default 30s).
@@ -179,7 +183,9 @@ Key metrics: `perf_sentinel_findings_total{type, severity}`, `perf_sentinel_io_w
 Debug a single service in dev/staging. perf-sentinel runs alongside the service, sharing its network namespace.
 
 ```bash
-docker compose -f examples/docker-compose-sidecar.yml up -d
+# Fetch the example compose file (no checkout needed), then start it
+curl -o docker-compose.yml https://raw.githubusercontent.com/robintra/perf-sentinel/main/examples/docker-compose-sidecar.yml
+docker compose up -d
 ```
 
 App config (no network hop, same namespace):
@@ -190,7 +196,7 @@ OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
 ```bash
-docker compose -f examples/docker-compose-sidecar.yml logs -f perf-sentinel
+docker compose logs -f perf-sentinel
 ```
 
 See [`examples/docker-compose-sidecar.yml`](../examples/docker-compose-sidecar.yml).
