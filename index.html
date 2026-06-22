@@ -958,6 +958,7 @@
       </div>
       <p style="margin:16px 0 0;font-size:13px;color:var(--text-2)">{{ cmpFoot }}</p>
       <a data-plain href="guide#compare" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ cmpMore }}</span><span data-arrow> →</span></a>
+      <sc-if value="{{ supplyMore }}"><a data-plain href="guide#supply" style="display:inline-flex;align-items:center;gap:7px;margin-top:14px;margin-left:22px;font-size:14px;font-weight:600;color:var(--accent-strong)" style-hover="gap:11px"><span data-ltext>{{ supplyMore }}</span><span data-arrow> →</span></a></sc-if>
         <div style="margin-top:30px;background:color-mix(in srgb,var(--coral) 9%,transparent);border:1px solid color-mix(in srgb,var(--coral) 38%,transparent);border-radius:14px;padding:22px 26px">
           <h3 style="margin:0;font-size:18.5px;font-weight:600;color:var(--coral)">{{ cpNotTitle }}</h3>
           <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px">
@@ -1266,6 +1267,7 @@ class Component extends DCLogic {
           ctaText: 'Une démonstration sans rien installer, et un outil officiel à auto-héberger. Le comparatif complet et la licence sont détaillés sur cette page.',
           cmpT1: 'Léger, ouvert, et ', cmpWCarbon: 'auditable',
           cmpFoot: '« Outil commercial type » désigne les solutions SaaS propriétaires à base d’agent (Datadog, New Relic, etc.). perf-sentinel est sous licence AGPL-3.0, auto-hébergeable, avec une chaîne d’approvisionnement signée et vérifiable : de quoi passer une revue de sécurité ou fournisseur sans angle mort. Le comparatif détaillé par outil figure dans la documentation.',
+          supplyMore: 'Provenance, SBOM et audits dans le guide',
         },
       },
       en: {
@@ -1324,6 +1326,7 @@ class Component extends DCLogic {
           ctaText: 'A demo with nothing to install, and an official build to self-host. The full comparison and license are detailed on this page.',
           cmpT1: 'Light, open, and ', cmpWCarbon: 'auditable',
           cmpFoot: '“Typical commercial tool” refers to proprietary agent-based SaaS solutions (Datadog, New Relic, and the like). perf-sentinel is AGPL-3.0, self-hostable, with a signed, verifiable supply chain: enough to clear a security or vendor review without a blind spot. The full per-tool comparison is in the documentation.',
+          supplyMore: 'Provenance, SBOM and audits in the guide',
         },
       },
     };
@@ -1675,7 +1678,7 @@ class Component extends DCLogic {
       perfMore: t.perfMore, modesMore: t.modesMore,
       goEyebrow: t.goEyebrow, goT1: t.goT1, goWCost: t.goWCost, goT2: t.goT2, goWEnergy: t.goWEnergy, goT3: t.goT3, goWCarbon: t.goWCarbon, goBodyA: t.goBodyA, goBodyB1: t.goBodyB1, goBodyB2: t.goBodyB2, goBodyB3: t.goBodyB3, goNote: t.goNote,
       cmpEyebrow: t.cmpEyebrow, cmpT1: t.cmpT1, cmpWCarbon: t.cmpWCarbon, cmpHCap: t.cmpHCap, cmpHApm: t.cmpHApm, cmpFoot: t.cmpFoot, cpNotTitle: t.cpNotTitle, cpNot: t.cpNot,
-      goMore: t.goMore, cmpMore: t.cmpMore,
+      goMore: t.goMore, cmpMore: t.cmpMore, supplyMore: t.supplyMore,
       ctaTitle: t.ctaTitle, ctaText: t.ctaText,
       demoCmt1: t.demoCmt1, demoCmt2: t.demoCmt2, demoCmt3: t.demoCmt3,
       ftTagline: t.ftTagline, ftColProduct: t.ftColProduct, ftColDocs: t.ftColDocs, ftColProject: t.ftColProject,
