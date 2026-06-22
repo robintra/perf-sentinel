@@ -24,16 +24,17 @@ const SITE_DOCS = join(SITE, 'docs-site');
 // --- doc registry + labels (mirrors Docs.dc.html registry()/groupLabel()/docLabel()) ---
 const REGISTRY = [
   { key: 'overview', items: ['00-INDEX'] },
-  { key: 'start', items: ['ARCHITECTURE', 'INTEGRATION', 'INSTRUMENTATION', 'CI'] },
+  { key: 'start', items: ['ARCHITECTURE', 'INSTRUMENTATION', 'CI'] },
+  { key: 'deploy', items: ['INTEGRATION', 'HELM-DEPLOYMENT'] },
   { key: 'reference', items: ['CONFIGURATION', 'CLI', 'METRICS', 'QUERY-API', 'SARIF', 'SCHEMA'] },
   { key: 'features', items: ['HTML-REPORT', 'INSPECT', 'ACKNOWLEDGMENTS', 'ACK-WORKFLOW', 'REPORTING'] },
-  { key: 'ops', items: ['HELM-DEPLOYMENT', 'RUNBOOK', 'METHODOLOGY', 'LIMITATIONS'] },
+  { key: 'ops', items: ['RUNBOOK', 'METHODOLOGY', 'LIMITATIONS'] },
   { key: 'supply', items: ['SUPPLY-CHAIN', 'RELEASE-PROCEDURE'] },
   { key: 'design', items: ['design/00-INDEX', 'design/01-PIPELINE-AND-TYPES', 'design/02-NORMALIZATION', 'design/03-CORRELATION-AND-STREAMING', 'design/04-DETECTION', 'design/05-GREENOPS-AND-CARBON', 'design/06-INGESTION-AND-DAEMON', 'design/07-CLI-CONFIG-RELEASE', 'design/08-PERIODIC-DISCLOSURE', 'design/09-CARBON-ATTRIBUTION', 'design/10-SIGSTORE-ATTESTATION'] },
 ];
 const GROUP_LABEL = {
-  en: { overview: 'Overview', start: 'Getting started', reference: 'Reference', features: 'Features', ops: 'Operations', supply: 'Supply chain & release', design: 'Design (contributors)' },
-  fr: { overview: 'Général', start: 'Prise en main', reference: 'Référence', features: 'Fonctionnalités', ops: 'Exploitation', supply: 'Chaîne & release', design: 'Design (contributeurs)' },
+  en: { overview: 'Overview', start: 'Getting started', deploy: 'Deployment', reference: 'Reference', features: 'Features', ops: 'Operations', supply: 'Supply chain & release', design: 'Design (contributors)' },
+  fr: { overview: 'Général', start: 'Prise en main', deploy: 'Déploiement', reference: 'Référence', features: 'Fonctionnalités', ops: 'Exploitation', supply: 'Chaîne & release', design: 'Design (contributeurs)' },
 };
 const DOC_LABEL_EN = {
   '00-INDEX': 'Overview', 'ARCHITECTURE': 'Architecture', 'INTEGRATION': 'Integration', 'INSTRUMENTATION': 'Instrumentation', 'CI': 'CI',
