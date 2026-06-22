@@ -19,8 +19,8 @@ For a non-Helm alternative, see the raw manifests in
 - [Install from a local checkout](#install-from-a-local-checkout): for contributors and bisecting.
 - [Cutting a new chart release](#cutting-a-new-chart-release): release workflow and tag pattern.
 - [Workload modes](#workload-modes): the three `workload.kind` values to pick from.
-- [Config surface](#config-surface): chart values that map to `.perf-sentinel.toml`.
-- [Observability](#observability): Prometheus ServiceMonitor and exemplars.
+- [Config surface](#config-surface): chart values mapping `.perf-sentinel.toml`, plus secrets, TLS and NetworkPolicy.
+- [Observability](#observability): Prometheus ServiceMonitor, Grafana dashboard, alerts and exemplars.
 - [Upgrading](#upgrading): `helm upgrade` flow.
 - [Uninstalling](#uninstalling): `helm uninstall` flow.
 - [End-to-end example](#end-to-end-example): worked example composing the chart with the upstream OpenTelemetry Collector chart.
@@ -472,6 +472,29 @@ config:
 See `docs/QUERY-API.md` and `docs/CONFIGURATION.md` for the full
 endpoint reference and the `[daemon.ack]` field catalog.
 
+### NetworkPolicy
+
+The chart can render a `NetworkPolicy` that restricts who may reach the
+daemon's ingest and metrics ports. It is off by default and fail-closed:
+enabling it with no selectors blocks every ingress, so you must allow-list
+the namespaces or pods that legitimately talk to perf-sentinel, typically
+the OTel Collector (OTLP 4317 and 4318) and Prometheus (`/metrics` on 4318).
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceSelectors:
+      - matchLabels:
+          kubernetes.io/metadata.name: observability
+    fromPodSelectors:
+      - matchLabels:
+          app.kubernetes.io/name: otel-collector
+```
+
+The two selector lists are OR-ed: an ingress source matching any entry in
+either list is allowed. Leave a list empty to skip that match dimension.
+
 ## Observability
 
 > **See also.** The [Prometheus and OpenMetrics primer](METRICS.md#background-prometheus-and-openmetrics-primer) defines scraping, exemplars and the Counter/Gauge/Histogram types referenced below.
@@ -510,6 +533,34 @@ when wiring a Prometheus or Grafana panel against the endpoint:
 `/metrics` counters (`perf_sentinel_findings_total`,
 `perf_sentinel_io_waste_ratio`) are unaffected, they record raw
 detection events without any ack filter.
+
+### Grafana dashboard
+
+A ready-made dashboard ships in the repo at
+[`examples/grafana-dashboard.json`](../examples/grafana-dashboard.json)
+(title `perf-sentinel overview`, uid `perf-sentinel-overview`, 20 panels:
+I/O ops and waste ratio, finding types by severity, slow-query p95,
+active traces, daemon health, plus the energy, carbon and runtime
+headroom gauges off the `/metrics` counters scraped above). The chart
+does not bundle it, for the same reason it does not bundle a collector:
+a dashboard pinned in the chart drifts from the Grafana you already run.
+Import it one of two ways.
+
+Manual import: in Grafana open Dashboards then Import, upload the JSON,
+and map the `DS_PROMETHEUS` input to your Prometheus datasource.
+
+Sidecar import (kube-prometheus-stack and similar): load the JSON into a
+ConfigMap labelled so the Grafana sidecar discovers it automatically.
+
+```bash
+kubectl -n observability create configmap perf-sentinel-grafana \
+  --from-file=perf-sentinel-overview.json=examples/grafana-dashboard.json
+kubectl -n observability label configmap perf-sentinel-grafana \
+  grafana_dashboard=1
+```
+
+The label key (`grafana_dashboard` here) must match your Grafana
+sidecar's configured `dashboards.sidecar.label`.
 
 ### Alerting rules (PrometheusRule)
 

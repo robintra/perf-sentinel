@@ -14,8 +14,8 @@ Pour une alternative sans Helm, voir les manifests bruts dans [`docs/FR/INSTRUME
 - [Installation depuis un checkout local](#installation-depuis-un-checkout-local) : pour les contributeurs et le bisect.
 - [Couper une nouvelle release de chart](#couper-une-nouvelle-release-de-chart) : workflow de release et pattern de tag.
 - [Modes de workload](#modes-de-workload) : trois valeurs de `workload.kind` au choix.
-- [Surface de configuration](#surface-de-configuration) : valeurs du chart qui mappent vers `.perf-sentinel.toml`.
-- [Observabilité](#observabilité) : Prometheus ServiceMonitor et exemplars.
+- [Surface de configuration](#surface-de-configuration) : valeurs du chart pour `.perf-sentinel.toml`, plus secrets, TLS et NetworkPolicy.
+- [Observabilité](#observabilité) : Prometheus ServiceMonitor, tableau de bord Grafana, alertes et exemplars.
 - [Mise à jour](#mise-à-jour) : flux `helm upgrade`.
 - [Désinstallation](#désinstallation) : flux `helm uninstall`.
 - [Exemple bout en bout](#exemple-bout-en-bout) : exemple complet composant le chart avec le chart upstream OpenTelemetry Collector.
@@ -374,6 +374,31 @@ config:
 
 Voir `docs/FR/QUERY-API-FR.md` et `docs/FR/CONFIGURATION-FR.md` pour la référence complète des endpoints et le catalogue des champs `[daemon.ack]`.
 
+### NetworkPolicy
+
+Le chart peut rendre une `NetworkPolicy` qui restreint qui peut joindre les
+ports d'ingestion et de métriques du daemon. Elle est désactivée par défaut
+et fail-closed : l'activer sans selectors bloque tout ingress, vous devez
+donc allow-lister les namespaces ou pods qui parlent légitimement à
+perf-sentinel, typiquement le collecteur OTel (OTLP 4317 et 4318) et
+Prometheus (`/metrics` sur 4318).
+
+```yaml
+networkPolicy:
+  enabled: true
+  ingress:
+    fromNamespaceSelectors:
+      - matchLabels:
+          kubernetes.io/metadata.name: observability
+    fromPodSelectors:
+      - matchLabels:
+          app.kubernetes.io/name: otel-collector
+```
+
+Les deux listes de selectors sont combinées en OU : une source d'ingress qui
+correspond à n'importe quelle entrée de l'une ou l'autre liste est autorisée.
+Laissez une liste vide pour ignorer cette dimension de correspondance.
+
 ## Observabilité
 
 > **Voir aussi.** L'[introduction à Prometheus et OpenMetrics](METRICS-FR.md#introduction-à-prometheus-et-openmetrics) définit le scraping, les exemplars et les types Counter/Gauge/Histogram référencés ci-dessous.
@@ -400,6 +425,77 @@ Depuis 0.5.20, `GET /api/findings` filtre par défaut les findings acquittés. L
 - Garder la shape par défaut filtrée et documenter l'alerte comme "findings actifs uniquement", avec un panel séparé qui liste `GET /api/acks` pour rendre l'ensemble acquitté reviewable.
 
 Les compteurs `/metrics` (`perf_sentinel_findings_total`, `perf_sentinel_io_waste_ratio`) ne sont pas affectés, ils enregistrent les événements de détection bruts sans aucun filtre d'ack.
+
+### Tableau de bord Grafana
+
+Un tableau de bord prêt à l'emploi est fourni dans le dépôt à
+[`examples/grafana-dashboard.json`](../../examples/grafana-dashboard.json)
+(titre `perf-sentinel overview`, uid `perf-sentinel-overview`, 20 panneaux :
+opérations d'E/S et ratio de gaspillage, types de findings par sévérité,
+p95 des requêtes lentes, traces actives, santé du daemon, plus les jauges
+d'énergie, de carbone et de marge runtime issues des compteurs `/metrics`
+scrapés ci-dessus). Le chart ne l'embarque pas, pour la même raison qu'il
+n'embarque pas de collecteur : un tableau de bord figé dans le chart dérive
+du Grafana que vous exploitez déjà. Importez-le de deux façons.
+
+Import manuel : dans Grafana, ouvrez Dashboards puis Import, téléversez le
+JSON, et mappez l'entrée `DS_PROMETHEUS` sur votre datasource Prometheus.
+
+Import par sidecar (kube-prometheus-stack et similaires) : chargez le JSON
+dans une ConfigMap étiquetée pour que le sidecar Grafana la découvre
+automatiquement.
+
+```bash
+kubectl -n observability create configmap perf-sentinel-grafana \
+  --from-file=perf-sentinel-overview.json=examples/grafana-dashboard.json
+kubectl -n observability label configmap perf-sentinel-grafana \
+  grafana_dashboard=1
+```
+
+La clé d'étiquette (`grafana_dashboard` ici) doit correspondre au
+`dashboards.sidecar.label` configuré pour votre sidecar Grafana.
+
+### Règles d'alerte (PrometheusRule)
+
+Le chart fournit une `PrometheusRule` pour que les alertes de perte et de
+saturation soient livrées, plutôt qu'un exercice de câblage à faire soi-même.
+Elle est conditionnée comme le ServiceMonitor et désactivée par défaut :
+
+```yaml
+prometheusRule:
+  enabled: true
+  labels:
+    # Adaptez au ruleSelector de votre ressource Prometheus.
+    release: prometheus
+  # N'ajoutez les alertes de péremption des scrapers d'énergie par backend
+  # que lorsqu'un backend énergie (Scaphandre, Kepler, Redfish, cloud_energy)
+  # est configuré.
+  energyScrapers: false
+  scraperStaleSeconds: 120
+```
+
+Le groupe par défaut `perf-sentinel.rules` couvre le daemon injoignable
+(`absent(perf_sentinel_active_traces)`), le rejet OTLP, le délestage d'analyse
+et la saturation de file, l'éviction de paires du corrélateur, et le
+débordement de cardinalité de services. La `description` de chaque alerte
+nomme le paramètre `[daemon]` à relever. Ajoutez les vôtres via
+`prometheusRule.additionalRules` (les règles sont passées telles quelles dans
+le même groupe), sans fork.
+
+### PodDisruptionBudget
+
+Pour la protection contre les perturbations volontaires (drains de nœud, mises
+à niveau de cluster), activez le PDB. Le défaut est `maxUnavailable: 1`, pas
+`minAvailable: 1` : le daemon tourne en réplique unique, donc un PDB
+`minAvailable: 1` bloquerait chaque drain et coincerait la maintenance des
+nœuds. Ne définissez `minAvailable` que si vous exploitez une topologie shardée
+trace-aware avec plusieurs répliques.
+
+```yaml
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+```
 
 ### Exemplars
 
