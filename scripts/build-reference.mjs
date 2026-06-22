@@ -17,7 +17,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SITE = join(dirname(fileURLToPath(import.meta.url)), '..');
-const MAIN = '/Users/robintrassard/RustroverProjects/perf-sentinel';
+const MAIN = process.env.SITE_MAIN_REPO || '/Users/robintrassard/RustroverProjects/perf-sentinel';
 const REF = join(SITE, 'docs');
 const SITE_DOCS = join(SITE, 'docs-site');
 
