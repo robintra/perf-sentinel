@@ -473,10 +473,11 @@ le même groupe), sans fork.
 
 ### PodDisruptionBudget
 
-perf-sentinel tourne en réplique unique, donc un PDB est optionnel. Pour la
-protection contre les perturbations volontaires (drains de nœud, mises à niveau),
-activez-le avec `maxUnavailable: 1` (pas `minAvailable: 1`, qui bloquerait chaque
-drain). N'utilisez `minAvailable` qu'avec une topologie shardée multi-répliques.
+Le défaut est mono-réplique, où un PDB a peu d'effet : `maxUnavailable: 1` autorise
+quand même l'éviction et `minAvailable: 1` bloquerait chaque drain de nœud. Quand la
+collecte sans interruption compte (par exemple des données carbone sans trou pour
+`disclose`), passez à une topologie shardée multi-répliques avec `minAvailable`, et
+utilisez le mode StatefulSet pour que les fenêtres archivées survivent aux redémarrages.
 
 ```yaml
 podDisruptionBudget:

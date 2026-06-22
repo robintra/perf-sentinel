@@ -570,10 +570,11 @@ Each alert's `description` names the `[daemon]` knob to raise. Append your own w
 
 ### PodDisruptionBudget
 
-perf-sentinel runs single-replica, so a PDB is optional. For voluntary-disruption
-protection (node drains, upgrades), enable it with `maxUnavailable: 1` (not
-`minAvailable: 1`, which would block every drain). Use `minAvailable` only with a
-sharded multi-replica topology.
+The default is single-replica, where a PDB has little effect: `maxUnavailable: 1`
+still allows the eviction and `minAvailable: 1` would block every node drain. When
+uninterrupted collection matters (for example, gap-free carbon data feeding
+`disclose`), run a sharded multi-replica topology with `minAvailable`, and use
+StatefulSet mode so the archived windows survive restarts.
 
 ```yaml
 podDisruptionBudget:
