@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>https://perf-sentinel.dev/</loc></url>
+  <url><loc>https://perf-sentinel.dev/fr</loc></url>
   <url><loc>https://perf-sentinel.dev/guide</loc></url>
+  <url><loc>https://perf-sentinel.dev/fr/guide</loc></url>
   <url><loc>https://perf-sentinel.dev/mentions-legales</loc></url>
   <url><loc>https://perf-sentinel.dev/confidentialite</loc></url>
   <url><loc>https://perf-sentinel.dev/legal-notice</loc></url>
