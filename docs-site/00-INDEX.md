@@ -7,9 +7,15 @@ perf-sentinel's user-facing documentation. For deep design rationale aimed at co
 | Document                                 | Description                                                                       |
 |------------------------------------------|-----------------------------------------------------------------------------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md)       | Pipeline overview, module responsibilities, key types                             |
-| [INTEGRATION.md](INTEGRATION.md)         | Four deployment topologies (batch, sidecar, gateway, standalone) and quick starts |
 | [INSTRUMENTATION.md](INSTRUMENTATION.md) | Per-language OTLP setup: Java, Quarkus, .NET, Go, Python, Node.js, Rust           |
 | [CI.md](CI.md)                           | CI mode, GitHub Actions / GitLab CI / Jenkins recipes, PR regression detection    |
+
+## Deployment
+
+| Document                                 | Description                                                                       |
+|------------------------------------------|-----------------------------------------------------------------------------------|
+| [INTEGRATION.md](INTEGRATION.md)         | Four deployment topologies (batch, sidecar, gateway, standalone) and quick starts |
+| [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md) | Kubernetes deployment via the Helm chart, values reference, TLS, RBAC              |
 
 ## Reference
 
@@ -36,7 +42,6 @@ perf-sentinel's user-facing documentation. For deep design rationale aimed at co
 
 | Document                                 | Description                                                                         |
 |------------------------------------------|-------------------------------------------------------------------------------------|
-| [HELM-DEPLOYMENT.md](HELM-DEPLOYMENT.md) | Kubernetes deployment via the Helm chart, values reference, TLS, RBAC               |
 | [RUNBOOK.md](RUNBOOK.md)                 | Incident runbook: symptom-driven troubleshooting for production deployments         |
 | [METHODOLOGY.md](METHODOLOGY.md)         | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
 | [LIMITATIONS.md](LIMITATIONS.md)         | Known trade-offs, upstream constraints, detection boundaries                        |
