@@ -32,7 +32,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1.2.7
         name: Audit Rust Dependencies
         with:
@@ -53,12 +53,12 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # cargo-deny is a prebuilt binary and `cargo deny check` only runs
       # `cargo metadata`, so the runner's cargo (pinned to 1.96.0 by
       # rust-toolchain.toml on first use) suffices, no toolchain step needed.
       # Pinned to match the deny.toml schema target (cargo-deny 0.19.x).
-      - uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
+      - uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
         with:
           tool: cargo-deny@0.19.8
       - name: cargo deny check
