@@ -632,10 +632,37 @@
   [data-embed-tab]:hover{color:var(--text)}
   [data-embed-tab][data-active="true"]{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
 @media(max-width:560px){header>div{flex-wrap:nowrap;justify-content:space-between}}@media(max-width:920px){[data-nav]{display:none!important}}a:not([data-plain]){text-decoration:underline;text-underline-offset:2px}a:not([data-plain]):hover{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}[data-ltext]{text-decoration:underline;text-underline-offset:2px}a:hover [data-ltext]{background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:3px}header a,header [data-ltext],footer a,footer [data-ltext]{text-decoration:none!important}header a:not([data-plain]):hover,footer a:not([data-plain]):hover,header a:hover [data-ltext],footer a:hover [data-ltext]{background:none!important}@media(max-width:560px){header>div{padding-left:8px!important;padding-right:8px!important}header>div>div{gap:10px!important;margin-left:0!important}header>div>div>button,header>div>div>a{padding-left:7px!important;padding-right:7px!important}}@media(max-width:380px){header>div{padding-left:6px!important;padding-right:6px!important}header>div>div{gap:3px!important}header>div>div>button,header>div>div>a{padding-left:6px!important;padding-right:6px!important}}code.dc-cmd{font-family:'JetBrains Mono',monospace;font-size:.88em;background:var(--accent-soft);color:var(--accent-strong);border-radius:5px;padding:1px 5px}[data-ps-root] .carbon-qmark{color:#fff}[data-ps-root][data-theme="dark"] .carbon-qmark{color:var(--bg)}.th-ico{display:none;align-items:center;line-height:0}[data-ps-root] .th-moon{display:inline-flex}[data-ps-root][data-theme="dark"] .th-moon{display:none}[data-ps-root][data-theme="dark"] .th-sun{display:inline-flex}header [aria-label="Language"],header [aria-label="Theme"]{transition:border-color .16s ease,color .16s ease}header [aria-label="perf-sentinel on GitHub"]{transition:background .16s ease}header [aria-label="Language"]:hover,header [aria-label="Theme"]:hover{border-color:var(--accent)!important;color:var(--text)!important}header [aria-label="perf-sentinel on GitHub"]:hover{background:#30363D!important}footer a#ftCredit{color:var(--accent)!important;text-decoration:underline!important;text-underline-offset:2px}footer a#ftCredit:hover{background:color-mix(in srgb,var(--accent) 16%,transparent)!important;border-radius:3px}</style>
+<style>
+[data-persona-bar] [data-ptab]{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.02em;border-radius:999px;padding:5px 13px;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;white-space:nowrap;color:var(--text-2);background:var(--surface);border:1px solid var(--border)}
+[data-persona-bar] [data-ptab]:hover{color:var(--text);border-color:var(--accent)}
+[data-persona-bar] [data-ptab][data-active="true"]{color:var(--on-accent);background:#0b523a;border-color:#0b523a}
+[data-ps-root][data-persona]:not([data-persona="tech"]) [data-tech-only]{display:none!important}
+[data-ps-root][data-persona="tech"] [data-nontech-only]{display:none!important}
+[data-ps-root][data-persona="rse"] [data-hide-rse]{display:none!important}
+[data-ps-root] [data-why-accent="coral"]{color:var(--coral)!important}
+@keyframes psBarGlow{0%,100%{background:var(--surface-2)}50%{background:color-mix(in srgb,var(--accent) 16%,var(--surface-2))}}
+[data-persona-bar][data-hint="on"]{animation:psBarGlow 2s ease-in-out .5s 3}
+@media(max-width:620px){[data-persona-hint]{display:none}}
+</style>
 </helmet>
 
-<div data-ps-root="" data-theme="{{ theme }}">
+<div data-ps-root="" data-theme="{{ theme }}" data-persona="{{ personaId }}">
 <div style="min-height:100vh;background-color:var(--bg);color:var(--text)">
+
+  <!-- PERSONA ROUTER (discreet "you are…" bar, content adapts, page stays the same) -->
+  <div data-persona-bar="" data-hint="{{ personaHintOn }}" style="border-bottom:1px solid var(--border);background:var(--surface-2)">
+    <div style="max-width:1120px;margin:0 auto;padding:8px 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.04em;color:var(--accent);flex:none">{{ personaPrompt }}</span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button data-ptab="" data-active="{{ pActiveTech }}" onClick="{{ pSetTech }}">{{ pLabelTech }}</button>
+        <button data-ptab="" data-active="{{ pActiveRse }}" onClick="{{ pSetRse }}">{{ pLabelRse }}</button>
+        <button data-ptab="" data-active="{{ pActiveExec }}" onClick="{{ pSetExec }}">{{ pLabelExec }}</button>
+        <button data-ptab="" data-active="{{ pActiveLegal }}" onClick="{{ pSetLegal }}">{{ pLabelLegal }}</button>
+        <button data-ptab="" data-active="{{ pActiveProc }}" onClick="{{ pSetProc }}">{{ pLabelProc }}</button>
+      </div>
+      <span data-persona-hint="" style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-2);opacity:.8">{{ personaHint }}</span>
+    </div>
+  </div>
 
   <header style="position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--bg) 85%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)">
     <div style="max-width:1120px;margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:26px">
@@ -646,7 +673,7 @@
         
         <a href="#greenops" style-hover="color:var(--text)">{{ navGreenops }}</a>
         <a href="#comparatif" style-hover="color:var(--text)">{{ navComparison }}</a>
-        <a href="#license" style-hover="color:var(--text)">{{ navLicense }}</a>
+        <a href="#license" data-hide-rse="" style-hover="color:var(--text)">{{ navLicense }}</a>
         <span aria-hidden="true" style="width:1px;height:15px;background:var(--border);align-self:center;margin:0 2px"></span>
         <a data-plain href="guide" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navDocs }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
         <a data-plain href="{{ refBase }}" style="display:inline-flex;align-items:center;gap:4px" style-hover="color:var(--text)"><span data-ltext>{{ navRef }}</span><span data-arrow style="font-size:11px;opacity:.7">↗</span></a>
@@ -675,16 +702,16 @@
         <h1 style="margin:24px 0 0;font-size:clamp(38px,5.4vw,60px);line-height:1.05;letter-spacing:-0.02em;font-weight:700;color:var(--text);text-wrap:balance">{{ heroTitle }}</h1>
         <p style="margin:22px 0 0;font-size:19px;line-height:1.6;color:var(--text-2);max-width:620px">{{ heroSub }}</p>
         <div style="display:flex;gap:14px;margin-top:30px;flex-wrap:wrap">
-          <a data-plain href="#modes" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
-          <a data-plain href="#greenops" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
+          <a data-plain href="{{ ctaHowHref }}" style="font-size:15px;font-weight:600;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:13px 22px" style-hover="border-color:var(--accent)">{{ ctaHow }}</a>
+          <a data-plain href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:var(--on-accent);background:#0b523a;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(1.05)">{{ ctaCarbon }}</a>
         </div>
       </div>
 
       <img data-logo="light" src="assets/mark-light.svg" alt="" aria-hidden="true" class="ps-hero-mark" style="position:absolute;top:110px;right:0;width:clamp(170px,23vw,300px);pointer-events:none;filter:drop-shadow(0 18px 40px rgba(6,31,44,.28))">
       <img data-logo="dark" src="assets/mark-dark.svg" alt="" aria-hidden="true" class="ps-hero-mark" style="position:absolute;top:110px;right:0;width:clamp(170px,23vw,300px);pointer-events:none;filter:drop-shadow(0 18px 50px rgba(0,0,0,.45))">
 
-      <!-- live report embed -->
-      <div style="position:relative;z-index:1;margin-top:46px;max-width:760px">
+      <!-- live report embed (technical: shown to dev/devops only) -->
+      <div data-tech-only="" style="position:relative;z-index:1;margin-top:46px;max-width:760px">
         <div style="background:var(--embed-bg);border-radius:14px;border:1px solid var(--border);overflow:hidden;box-shadow:0 24px 50px -28px rgba(6,31,44,.5)">
           <div style="display:flex;align-items:center;gap:8px;padding:13px 18px;border-bottom:1px solid var(--border)">
             <span style="width:11px;height:11px;border-radius:50%;background:var(--text-2);opacity:.3"></span>
@@ -703,7 +730,7 @@
     </section>
 
     <!-- READ FIRST -->
-    <section style="padding:48px 0 0">
+    <section data-tech-only="" style="padding:48px 0 0">
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px 26px;max-width:760px">
         <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em;margin-bottom:16px">{{ prereqTitle }}</div>
         <div style="display:flex;flex-direction:column;gap:12px">
@@ -718,7 +745,7 @@
     <!-- WHY -->
     <section id="why" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ whyEyebrow }}</div>
-      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyT1 }}<span style="color:var(--accent)">{{ whyTName }}</span>{{ whyT2 }}</h2>
+      <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:760px">{{ whyT1 }}<span data-why-accent="{{ whyAccent }}" style="color:var(--accent)">{{ whyTName }}</span>{{ whyT2 }}</h2>
       <div style="margin-top:26px;display:flex;flex-direction:column;gap:18px;max-width:720px">
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP1 }}</p>
         <p style="margin:0;font-size:15.5px;color:var(--text-2);line-height:1.65">{{ whyP2 }}</p>
@@ -808,7 +835,7 @@
     </section>
 
     <!-- DETECTION -->
-    <section id="detection" data-screen-label="Détection" style="padding:64px 0 12px">
+    <section id="detection" data-tech-only="" data-screen-label="Détection" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ detEyebrow }}</div>
@@ -831,7 +858,7 @@
     </section>
 
     <!-- MODES -->
-    <section id="modes" data-screen-label="Exécution" style="padding:64px 0 12px">
+    <section id="modes" data-tech-only="" data-screen-label="Exécution" style="padding:64px 0 12px">
       <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ modEyebrow }}</div>
       <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text)">{{ modTitle }}</h2>
       <div data-grid="cards4" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:34px">
@@ -846,7 +873,7 @@
     </section>
 
     <!-- PERFORMANCE -->
-    <section id="perf" data-screen-label="Performance" style="padding:64px 0 12px">
+    <section id="perf" data-tech-only="" data-screen-label="Performance" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--rust);letter-spacing:.04em">{{ perfEyebrow }}</div>
@@ -874,11 +901,11 @@
         <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
           <div>
             <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ goEyebrow }}</div>
-            <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:620px">{{ goT1 }}<span style="color:var(--coral)">{{ goWCost }}</span>,<br>{{ goT2 }}<span style="color:var(--accent)">{{ goWEnergy }}</span>{{ goT3 }}<span style="color:var(--accent)">{{ goWCarbon }}</span></h2>
+            <h2 style="margin:12px 0 0;font-size:clamp(28px,3.4vw,38px);font-weight:700;letter-spacing:-.018em;color:var(--text);max-width:820px">{{ goT1 }}<span style="color:var(--coral)">{{ goWCost }}</span>,<br>{{ goT2 }}<span style="color:var(--accent)">{{ goWEnergy }}</span>{{ goT3 }}<span style="color:var(--accent)">{{ goWCarbon }}</span></h2>
           </div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--accent-strong);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px">co2.total = (E × I) + M</div>
+          <div data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:15px;color:var(--accent-strong);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px">co2.total = (E × I) + M</div>
         </div>
-        <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:680px;line-height:1.6">{{ goBodyA }}<code style="font-family:'JetBrains Mono',monospace;font-size:13.5px;background:var(--accent-soft);color:var(--accent-strong);padding:2px 6px;border-radius:5px">co2.total</code>{{ goBodyB1 }}<a href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener">Software Carbon Intensity v1.0</a>{{ goBodyB2 }}<a href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener">ISO/IEC 21031:2024</a>{{ goBodyB3 }}</p>
+        <p style="margin:18px 0 0;font-size:16px;color:var(--text-2);max-width:680px;line-height:1.6">{{ goBodyA }}<code data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13.5px;background:var(--accent-soft);color:var(--accent-strong);padding:2px 6px;border-radius:5px">co2.total</code>{{ goBodyB1 }}<a href="https://sci-guide.greensoftware.foundation/" target="_blank" rel="noopener">Software Carbon Intensity v1.0</a>{{ goBodyB2 }}<a href="https://www.iso.org/standard/86612.html" target="_blank" rel="noopener">ISO/IEC 21031:2024</a>{{ goBodyB3 }}</p>
         <div data-grid="cards3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:30px">
           <sc-for list="{{ green }}" as="g" hint-placeholder-count="3">
             <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 22px">
@@ -923,7 +950,7 @@
     </section>
 
     <!-- LICENSE -->
-    <section id="license" data-screen-label="License" style="padding:64px 0 12px">
+    <section id="license" data-hide-rse="" data-screen-label="License" style="padding:64px 0 12px">
       <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap">
         <div>
           <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:var(--accent);letter-spacing:.04em">{{ licEyebrow }}</div>
@@ -959,10 +986,14 @@
         <div style="position:relative;max-width:560px">
           <h2 style="margin:0;font-size:clamp(26px,3.2vw,34px);font-weight:700;letter-spacing:-.018em;color:#E0F4ED">{{ ctaTitle }}</h2>
           <p style="margin:14px 0 26px;font-size:16px;color:#A9D8C6;line-height:1.6">{{ ctaText }}</p>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
+          <div data-tech-only="" style="font-family:'JetBrains Mono',monospace;font-size:13px;color:#E0F4ED;background:rgba(0,0,0,.28);border:1px solid rgba(224,244,237,.14);border-radius:10px;padding:15px 18px;line-height:2;max-width:100%;overflow-x:auto">
             <div><span style="color:#26CD94">$</span> perf-sentinel demo <span style="color:#7FB6A2"># {{ demoCmt1 }}</span></div>
             <div><span style="color:#26CD94">$</span> perf-sentinel demo --tui <span style="color:#7FB6A2"># {{ demoCmt2 }}</span></div>
             <div><span style="color:#26CD94">$</span> perf-sentinel demo --html demo.html <span style="color:#7FB6A2"># {{ demoCmt3 }}</span></div>
+          </div>
+          <div data-nontech-only="" style="display:flex;gap:12px;flex-wrap:wrap">
+            <a data-plain href="{{ ctaHowHref }}" style="font-size:15px;font-weight:600;color:#0B523A;background:#E0F4ED;border-radius:9px;padding:13px 22px" style-hover="filter:brightness(.96)">{{ ctaHow }}</a>
+            <a data-plain href="{{ ctaCarbonHref }}" style="font-size:15px;font-weight:600;color:#E0F4ED;background:transparent;border:1px solid rgba(224,244,237,.3);border-radius:9px;padding:13px 22px" style-hover="border-color:rgba(224,244,237,.6)">{{ ctaCarbon }}</a>
           </div>
         </div>
       </div>
@@ -981,9 +1012,9 @@
         <div>
           <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:13px">{{ ftColProduct }}</div>
           <div style="display:flex;flex-direction:column;gap:9px;font-size:14px;color:var(--text-2)">
-            <a href="/#detection" style-hover="color:var(--accent)">{{ navDetection }}</a>
-            <a href="/#modes" style-hover="color:var(--accent)">{{ navExecution }}</a>
-            <a href="/#perf" style-hover="color:var(--accent)">{{ navPerf }}</a>
+            <a href="/#detection" data-tech-only="" style-hover="color:var(--accent)">{{ navDetection }}</a>
+            <a href="/#modes" data-tech-only="" style-hover="color:var(--accent)">{{ navExecution }}</a>
+            <a href="/#perf" data-tech-only="" style-hover="color:var(--accent)">{{ navPerf }}</a>
             <a href="/#greenops" style-hover="color:var(--accent)">{{ navGreenops }}</a>
             <a href="/#comparatif" style-hover="color:var(--accent)">{{ navComparison }}</a>
           </div>
@@ -1020,7 +1051,7 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;defaultMode&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;clair&quot;,&quot;sombre&quot;],&quot;default&quot;:&quot;clair&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;defaultLang&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;en&quot;,&quot;fr&quot;],&quot;default&quot;:&quot;en&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;installCommand&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;cargo install perf-sentinel --locked&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
-  state = { theme: null, lang: null, copied: false, rustVersion: null };
+  state = { theme: null, lang: null, persona: null, copied: false, rustVersion: null };
 
   componentDidMount() {
     fetch('https://raw.githubusercontent.com/robintra/perf-sentinel/main/Cargo.toml')
@@ -1055,6 +1086,229 @@ class Component extends DCLogic {
   }
   curLang() { return this.state.lang ?? this.baseLang(); }
   persist(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
+  // persona: saved choice → technical default (= the original page)
+  basePersona() {
+    try { const v = localStorage.getItem('ps-persona'); if (['tech','rse','exec','legal','proc'].indexOf(v) !== -1) return v; } catch (e) {}
+    return 'tech';
+  }
+  curPersona() { return this.state.persona ?? this.basePersona(); }
+  // tech returns {} so the page is byte-for-byte the original; other personas only override
+  // the positioning surface (hero + why + final CTA). Every technical section stays identical.
+  personaPatch(lang, persona) {
+    if (persona === 'tech') return {};
+    const c = this.personaContent()[lang] || {};
+    const biz = this.bizContent()[lang] || {};
+    return Object.assign({}, biz, c[persona] || {});
+  }
+
+  // Plain-language rewrite of the kept sections (GreenOps, comparison, "what it is not"),
+  // shared by every non-tech persona. Hero/why/CTA stay persona-specific and override these.
+  bizContent() {
+    return {
+      fr: {
+        goT1: 'Chaque opération évitable a un ',
+        cmpT1: 'Léger, universel, et ', cmpWCarbon: 'attentif au carbone',
+        ftTagline: 'Détecte le gaspillage de requêtes dans vos applications et le chiffre en énergie et carbone. Auto-hébergeable et open source.',
+        goBodyA: 'Réduire les requêtes inutiles améliore les temps de réponse et la consommation d’énergie en même temps, sans arbitrage. Le total carbone ',
+        goBodyB1: ' s’appuie sur une méthode reconnue, le ',
+        goBodyB2: ' (',
+        goBodyB3: '), pour des chiffres comparables et défendables, pas une estimation maison.',
+        green: [
+          { title: 'Combien d’opérations par requête', body: 'Le nombre d’opérations (requêtes base de données, appels réseau) déclenchées par une page ou un service, rapporté au nombre d’appels.' },
+          { title: 'Part de gaspillage', body: 'La proportion d’opérations évitables sur le total, exactement ce qui peut être récupéré.' },
+          { title: 'Carbone par région', body: 'Le total CO₂ calculé automatiquement selon la région d’hébergement et son mix électrique.' },
+        ],
+        goNote: 'Estimation directionnelle, resserrée en branchant une source d’énergie mesurée. Exploitable comme données d’activité pour Watershed, Sweep, Greenly ou Persefoni, ou pour démontrer la conformité RGESN. L’outil peut aussi produire des rapports de divulgation périodiques (trimestriels ou annuels), signés et infalsifiables.',
+        cmpHApm: 'Outil commercial type',
+        compare: [
+          { cap: 'Poids sur vos serveurs', apm: 'Composant lourd sur chaque serveur', ps: 'Outil léger et autonome' },
+          { cap: 'Langages couverts', apm: 'Un agent par langage', ps: 'Tout langage, via les traces standard' },
+          { cap: 'Détection du gaspillage', apm: 'Oui, via l’agent', ps: 'Oui, sans toucher au code' },
+          { cap: 'Suivi d’une requête entre services', apm: 'Oui', ps: 'Oui' },
+          { cap: 'Blocage avant la mise en production', apm: 'Alertes seulement', ps: 'Oui, automatique' },
+          { cap: 'Carbone rattaché au code', apm: 'Non', ps: 'Oui' },
+          { cap: 'Score d’efficacité et de gaspillage', apm: 'Non', ps: 'Intégré' },
+          { cap: 'Licence et hébergement', apm: 'SaaS propriétaire, à l’usage', ps: 'Open source, auto-hébergeable' },
+        ],
+        cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.). perf-sentinel ne les remplace pas, il s’y ajoute pour la détection du gaspillage et le volet carbone. Le comparatif détaillé par outil figure dans la documentation.',
+        cpNotTitle: 'Ce que perf-sentinel n’est pas',
+        cpNot: [
+          { lead: 'Pas un outil de supervision complet.', body: 'Pas de tableaux de bord temps réel ni d’alertes. Il cible le gaspillage, en amont des mises en production ou en analyse après coup.' },
+          { lead: 'Pas (encore) une plateforme de reporting carbone réglementaire.', body: 'Un reporting CSRD officiel exige une vérification par un tiers et des périmètres hors informatique qu’il ne couvre pas. Il sert de source de données et d’outil de pilotage interne.', refText: 'voir la section GreenOps', refHref: '/#greenops' },
+          { lead: 'Pas un substitut à la mesure énergétique physique.', body: 'Le chiffrage en énergie reste une estimation, resserrée en branchant une source de mesure réelle.' },
+          { lead: 'Pas un outil sans prérequis.', body: 'Il s’appuie sur les données de fonctionnement que vos applications produisent déjà. Sans cette base technique, il n’a rien à analyser.' },
+        ],
+      },
+      en: {
+        goT1: 'Every avoidable operation has a ',
+        cmpT1: 'Lightweight, universal, and ', cmpWCarbon: 'carbon-conscious',
+        ftTagline: 'Detects wasted queries in your applications and prices them in energy and carbon. Self-hostable and open source.',
+        goBodyA: 'Cutting needless queries improves response times and energy use at once, no trade-off. The carbon total ',
+        goBodyB1: ' follows a recognized method, the ',
+        goBodyB2: ' (',
+        goBodyB3: '), for comparable, defensible figures rather than an in-house guess.',
+        green: [
+          { title: 'How many operations per request', body: 'The number of operations (database queries, network calls) triggered by a page or service, relative to how often it runs.' },
+          { title: 'Share of waste', body: 'The proportion of avoidable operations out of the total, exactly what can be recovered.' },
+          { title: 'Carbon per region', body: 'The total CO₂ computed automatically from the hosting region and its electricity mix.' },
+        ],
+        goNote: 'Directional estimate, tightened by connecting a measured-energy source. Usable as activity data for Watershed, Sweep, Greenly or Persefoni, or to demonstrate RGESN compliance. It can also produce periodic disclosure reports (quarterly or yearly), signed and tamper-evident.',
+        cmpHApm: 'Typical commercial tool',
+        compare: [
+          { cap: 'Weight on your servers', apm: 'Heavy component on every server', ps: 'Light, standalone tool' },
+          { cap: 'Languages covered', apm: 'One agent per language', ps: 'Any language, via standard traces' },
+          { cap: 'Waste detection', apm: 'Yes, via the agent', ps: 'Yes, without touching the code' },
+          { cap: 'Tracking a request across services', apm: 'Yes', ps: 'Yes' },
+          { cap: 'Blocking before production', apm: 'Alerts only', ps: 'Yes, automatic' },
+          { cap: 'Carbon tied to the code', apm: 'No', ps: 'Yes' },
+          { cap: 'Efficiency and waste score', apm: 'No', ps: 'Built-in' },
+          { cap: 'License and hosting', apm: 'Proprietary SaaS, usage-based', ps: 'Open source, self-hostable' },
+        ],
+        cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like). perf-sentinel does not replace them, it adds waste detection and the carbon angle alongside. The full per-tool comparison is in the documentation.',
+        cpNotTitle: 'What perf-sentinel is not',
+        cpNot: [
+          { lead: 'Not a full monitoring suite.', body: 'No real-time dashboards or alerts. It targets waste, ahead of releases or in after-the-fact analysis.' },
+          { lead: 'Not (yet) a regulatory carbon reporting platform.', body: 'Official CSRD reporting requires third-party verification and non-IT scopes it does not cover. It serves as a data source and an internal steering tool.', refText: 'see the GreenOps section', refHref: '/#greenops' },
+          { lead: 'Not a substitute for physical energy measurement.', body: 'The energy figure stays an estimate, tightened by connecting a real measurement source.' },
+          { lead: 'Not a tool without prerequisites.', body: 'It relies on the operational data your applications already produce. Without that technical basis, it has nothing to analyze.' },
+        ],
+      },
+    };
+  }
+  personaUI(lang, persona) {
+    const L = ({
+      fr: { prompt: '// vous êtes…', hint: 'le contenu s’adapte, la page reste la même', cue: 'choisissez votre profil', tech: 'Dev · Archi · DevOps', rse: 'RSE', exec: 'Direction', legal: 'Juridique', proc: 'Achats' },
+      en: { prompt: '// you are…', hint: 'content adapts, same page', cue: 'pick your profile', tech: 'Dev · Arch · DevOps', rse: 'Sustainability', exec: 'Leadership', legal: 'Legal', proc: 'Procurement' },
+    })[lang] || {};
+    const order = ['tech', 'rse', 'exec', 'legal', 'proc'];
+    let seen = false; try { seen = localStorage.getItem('ps-persona-hint-seen') === '1'; } catch (e) {}
+    const set = (id) => () => { this.persist('ps-persona', id); this.persist('ps-persona-hint-seen', '1'); this.setState({ persona: id }); };
+    const o = { personaPrompt: L.prompt, personaHint: L.hint, personaCue: L.cue, personaHintOn: seen ? 'off' : 'on' };
+    order.forEach(id => { const C = id.charAt(0).toUpperCase() + id.slice(1); o['pLabel' + C] = L[id]; o['pActive' + C] = (id === persona) ? 'true' : 'false'; o['pSet' + C] = set(id); });
+    return o;
+  }
+
+  personaContent() {
+    return {
+      fr: {
+        rse: {
+          eyebrowHero: 'Mesure bottom-up · SCI / ISO 21031 · ', eyebrowHeroGreen: 'Aligné RGESN',
+          heroTitle: 'Le carbone du manque d’optimisation de votre logiciel, mesuré au niveau du code, pas estimé depuis la facture.',
+          heroSub: 'perf-sentinel chiffre chaque requête évitable en énergie puis en CO₂, une par une et attribuable à une ligne de code. De quoi documenter votre démarche d’écoconception, preuve à l’appui.',
+          ctaHow: 'L’angle mort', ctaHowHref: '#carbone', ctaCarbon: 'Le volet carbone', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// pour la RSE', whyT1: 'Un bilan ', whyTName: 'attribuable', whyT2: ', pas déclaratif',
+          whyP1: 'Les outils carbone estiment votre empreinte du haut vers le bas, depuis la facture cloud ou des ratios sectoriels. Un chiffre global, utile pour communiquer, mais sur lequel personne ne peut agir.',
+          whyP2: 'perf-sentinel mesure par le bas : chaque requête redondante ou appel en trop devient un point chaud chiffré en énergie et en CO₂, rattaché au code qui l’a produit.',
+          whyP3: 'La détection des requêtes répétées, appels redondants et autres gaspillages se rattache directement aux critères du RGESN (ARCEP / Ademe / DINUM).',
+          whyP4: 'Les mesures d’opérations et estimations par région s’exportent comme données d’activité vers Watershed, Sweep, Greenly ou Persefoni, ou pilotent vos KPIs d’efficacité en interne.',
+          ctaTitle: 'Mettez un chiffre sur le gaspillage',
+          ctaText: 'Source de données d’activité et outil de pilotage interne, pas (encore) un reporting CSRD vérifié par un tiers. Incertitude ~×2, resserrée avec une source d’énergie mesurée.',
+        },
+        exec: {
+          eyebrowHero: 'Un seul outil, sans abonnement SaaS · ', eyebrowHeroGreen: 'auto-hébergé, open source',
+          heroTitle: 'Le même gaspillage gonfle votre facture cloud et votre bilan carbone.',
+          heroSub: 'perf-sentinel traque les requêtes et appels évitables dans vos applications : des réponses plus rapides, une facture allégée et moins de CO₂, d’un même geste. Léger, auto-hébergé, sans dépendance SaaS.',
+          ctaHow: 'Le comparatif', ctaHowHref: '#comparatif', ctaCarbon: 'Le volet carbone', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// pour la direction', whyT1: 'Trois budgets, un seul ', whyTName: 'gaspillage', whyT2: '', whyAccent: 'coral',
+          whyP1: 'Performance, coût cloud et RSE sont souvent traités en silos, par des équipes différentes. Pourtant ils visent le même gaspillage.',
+          whyP2: 'Supprimer les requêtes inutiles et redondantes accélère les réponses, baisse la facture d’infrastructure et réduit le carbone, en même temps. Ce ne sont pas des arbitrages concurrents.',
+          whyP3: 'Un outil léger et autonome, là où les solutions commerciales imposent un composant lourd sur chaque serveur, facturé à l’usage.',
+          whyP4: 'Open source, déployable sur votre propre infrastructure. Aucune donnée qui part chez un tiers, aucun verrou fournisseur.',
+          ctaTitle: 'Un correctif, trois budgets servis',
+          ctaText: 'Une démonstration ciblée sur votre enjeu : performance, coût d’infrastructure et empreinte carbone, chiffres à l’appui.',
+          cmpFoot: '« Outil commercial type » désigne les solutions SaaS à base d’agent (Datadog, New Relic, etc.), facturées à l’usage et installées sur chaque serveur. perf-sentinel ne les remplace pas, il s’y ajoute sans abonnement ni coût qui grandit avec le trafic. Le comparatif détaillé par outil figure dans la documentation.',
+          goNote: 'Estimation directionnelle, resserrée en branchant une source d’énergie mesurée. Au-delà du carbone, chaque requête évitable supprimée allège la facture cloud : le même chiffrage sert d’indicateur de coût d’infrastructure et de levier d’arbitrage budgétaire.',
+        },
+        legal: {
+          eyebrowHero: 'Résultats reproductibles · signés · ', eyebrowHeroGreen: 'Données en mémoire seule',
+          heroTitle: 'Des preuves d’efficacité vérifiables et signées, qui ne quittent pas votre infrastructure.',
+          heroSub: 'perf-sentinel produit des rapports reproductibles, signés et vérifiables, sans exfiltrer vos données. Le réglementaire demande des preuves traçables, pas des estimations opaques.',
+          ctaHow: 'Le volet licence', ctaHowHref: '#license', ctaCarbon: 'Confidentialité des données', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// pour le juridique', whyT1: 'Une chaîne ', whyTName: 'traçable', whyT2: ', du calcul à la signature',
+          whyP1: 'Une estimation que l’on ne peut ni reproduire ni rattacher à une source n’a pas de valeur probante en audit.',
+          whyP2: 'Une même analyse produit toujours exactement le même rapport, au caractère près : un contrôle ne fluctue pas, deux exécutions ne créent aucun écart inexpliqué.',
+          whyP3: 'Les rapports périodiques sont signés électroniquement et vérifiables de façon indépendante : de la provenance opposable, pas une déclaration sur l’honneur.',
+          whyP4: 'Le contenu sensible des requêtes (données, adresses) reste en mémoire et n’est jamais écrit : ce qui est émis ne contient que des modèles anonymisés, sans aucune valeur réelle.',
+          ctaTitle: 'Des preuves qui se défendent',
+          ctaText: 'Outil de contrôle interne et source de données d’activité, le reporting CSRD / GHG Scope 2-3 standalone requiert l’audit d’un organisme qualifié. Le détail de la licence AGPL est résumé plus haut.',
+        },
+        proc: {
+          eyebrowHero: 'Open source · auto-hébergeable · ', eyebrowHeroGreen: 'chaîne d’approvisionnement signée',
+          heroTitle: 'Auto-hébergé, open source, aucune donnée qui sort. Le comparatif en clair.',
+          heroSub: 'Pas de SaaS à l’usage, pas d’agent propriétaire dans vos chaînes de déploiement. Une brique légère, sous licence ouverte, avec une chaîne d’approvisionnement vérifiable.',
+          ctaHow: 'Le comparatif', ctaHowHref: '#comparatif', ctaCarbon: 'Le volet licence', ctaCarbonHref: '#license',
+          whyEyebrow: '// pour les achats', whyT1: 'Une brique, ', whyTName: 'pas une suite', whyT2: '',
+          whyP1: 'Les outils commerciaux facturent à l’usage et imposent un composant lourd que vous ne maîtrisez pas. Pour un simple contrôle qualité, c’est disproportionné.',
+          whyP2: 'perf-sentinel est un outil léger et autonome, déployable sur votre infrastructure, qui s’intègre à vos contrôles avant mise en production, sans serveur propriétaire.',
+          whyP3: 'AGPL-3.0 : aucune facturation à l’usage, aucune donnée envoyée à un tiers, aucun verrou propriétaire.',
+          whyP4: 'Chaîne d’approvisionnement vérifiable et signée, image minimale, dépendances auditées chaque jour : de quoi passer une revue de sécurité sans friction.',
+          ctaTitle: 'Une dépendance que vous maîtrisez',
+          ctaText: 'Une démonstration sans rien installer, et un outil officiel à auto-héberger. Le comparatif complet et la licence sont détaillés sur cette page.',
+          cmpT1: 'Léger, ouvert, et ', cmpWCarbon: 'auditable',
+          cmpFoot: '« Outil commercial type » désigne les solutions SaaS propriétaires à base d’agent (Datadog, New Relic, etc.). perf-sentinel est sous licence AGPL-3.0, auto-hébergeable, avec une chaîne d’approvisionnement signée et vérifiable : de quoi passer une revue de sécurité ou fournisseur sans angle mort. Le comparatif détaillé par outil figure dans la documentation.',
+        },
+      },
+      en: {
+        rse: {
+          eyebrowHero: 'Bottom-up measurement · SCI / ISO 21031 · ', eyebrowHeroGreen: 'RGESN-aligned',
+          heroTitle: 'The carbon of your software’s lack of optimization, measured at the code level, not estimated from the bill.',
+          heroSub: 'perf-sentinel prices every avoidable query in energy then CO₂, one by one and attributable to a line of code. Enough to document your eco-design work, with evidence.',
+          ctaHow: 'The blind spot', ctaHowHref: '#carbone', ctaCarbon: 'The carbon side', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// for sustainability', whyT1: 'An ', whyTName: 'attributable', whyT2: ' footprint, not a declarative one',
+          whyP1: 'Carbon tools estimate your footprint top-down, from the cloud bill or sector ratios. A global figure, useful to communicate, but one nobody can act on.',
+          whyP2: 'perf-sentinel measures bottom-up: every redundant query or extra call becomes a quantified hotspot in energy and CO₂, tied to the code that produced it.',
+          whyP3: 'Detecting repeated queries, redundant calls and other waste maps directly onto RGESN criteria (ARCEP / Ademe / DINUM).',
+          whyP4: 'Operation counts and per-region estimates export as activity data to Watershed, Sweep, Greenly or Persefoni, or steer your efficiency KPIs internally.',
+          ctaTitle: 'Put a number on the waste',
+          ctaText: 'An activity-data source and internal steering tool, not (yet) a third-party-verified CSRD report. ~×2 uncertainty, tightened with a measured-energy source.',
+        },
+        exec: {
+          eyebrowHero: 'One tool, no SaaS subscription · ', eyebrowHeroGreen: 'self-hosted, open source',
+          heroTitle: 'The same waste inflates your cloud bill and your carbon report.',
+          heroSub: 'perf-sentinel hunts avoidable queries and calls in your applications: faster responses, a lighter bill and less CO₂, in one move. Lightweight, self-hosted, no SaaS dependency.',
+          ctaHow: 'The comparison', ctaHowHref: '#comparatif', ctaCarbon: 'The carbon side', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// for leadership', whyT1: 'Three budgets, one single ', whyTName: 'waste', whyT2: '', whyAccent: 'coral',
+          whyP1: 'Performance, cloud cost and sustainability are often handled in silos, by different teams. Yet they target the same waste.',
+          whyP2: 'Removing needless and redundant queries speeds up responses, lowers the infrastructure bill and cuts carbon, at the same time. These aren’t competing trade-offs.',
+          whyP3: 'A light, standalone tool, where commercial solutions impose a heavy component on every server, billed by usage.',
+          whyP4: 'Open source, deployable on your own infrastructure. No data leaving for a third party, no vendor lock-in.',
+          ctaTitle: 'One fix, three budgets served',
+          ctaText: 'A demo focused on your stake: performance, infrastructure cost and carbon footprint, with the figures to back it.',
+          cmpFoot: '“Typical commercial tool” refers to agent-based SaaS solutions (Datadog, New Relic, and the like), billed by usage and installed on every server. perf-sentinel does not replace them, it sits alongside without a subscription or a cost that grows with traffic. The full per-tool comparison is in the documentation.',
+          goNote: 'Directional estimate, tightened by connecting a measured-energy source. Beyond carbon, every avoidable query removed trims the cloud bill: the same figure doubles as an infrastructure-cost indicator and a budget-arbitration lever.',
+        },
+        legal: {
+          eyebrowHero: 'Reproducible results · signed · ', eyebrowHeroGreen: 'In-memory data only',
+          heroTitle: 'Efficiency evidence that’s verifiable and signed, and never leaves your infrastructure.',
+          heroSub: 'perf-sentinel produces reproducible, signed, verifiable reports, without exfiltrating your data. Regulation wants traceable evidence, not opaque estimates.',
+          ctaHow: 'The license', ctaHowHref: '#license', ctaCarbon: 'Data confidentiality', ctaCarbonHref: '#greenops',
+          whyEyebrow: '// for legal', whyT1: 'A ', whyTName: 'traceable', whyT2: ' chain, from computation to signature',
+          whyP1: 'An estimate you can neither reproduce nor trace to a source has no evidentiary value in an audit.',
+          whyP2: 'The same analysis always yields exactly the same report, character for character: a control doesn’t flicker, two runs produce no unexplained discrepancy.',
+          whyP3: 'Periodic reports are electronically signed and independently verifiable: enforceable provenance, not a statement on good faith.',
+          whyP4: 'Sensitive query content (data, addresses) stays in memory and is never written: what’s emitted contains only anonymized patterns, with no real values.',
+          ctaTitle: 'Evidence that holds up',
+          ctaText: 'An internal control tool and activity-data source, standalone CSRD / GHG Scope 2-3 reporting requires audit by a qualified body. The AGPL license is summarized above.',
+        },
+        proc: {
+          eyebrowHero: 'Open source · self-hostable · ', eyebrowHeroGreen: 'signed supply chain',
+          heroTitle: 'Self-hosted, open-source, no data leaves. The comparison in plain terms.',
+          heroSub: 'No usage-based SaaS, no proprietary agent in your delivery pipelines. A lightweight component, openly licensed, with a verifiable supply chain.',
+          ctaHow: 'The comparison', ctaHowHref: '#comparatif', ctaCarbon: 'The license', ctaCarbonHref: '#license',
+          whyEyebrow: '// for procurement', whyT1: 'A component, ', whyTName: 'not a suite', whyT2: '',
+          whyP1: 'Commercial tools bill by usage and impose a heavy component you don’t control. For a simple quality check, that’s disproportionate.',
+          whyP2: 'perf-sentinel is a light, standalone tool, deployable on your own infrastructure, slotting into your pre-release checks, with no proprietary server.',
+          whyP3: 'AGPL-3.0: no usage-based billing, no data sent to a third party, no proprietary lock-in.',
+          whyP4: 'A verifiable, signed supply chain, a minimal image and dependencies audited daily: enough to clear a security review without friction.',
+          ctaTitle: 'A dependency you control',
+          ctaText: 'A demo with nothing to install, and an official build to self-host. The full comparison and license are detailed on this page.',
+          cmpT1: 'Light, open, and ', cmpWCarbon: 'auditable',
+          cmpFoot: '“Typical commercial tool” refers to proprietary agent-based SaaS solutions (Datadog, New Relic, and the like). perf-sentinel is AGPL-3.0, self-hostable, with a signed, verifiable supply chain: enough to clear a security or vendor review without a blind spot. The full per-tool comparison is in the documentation.',
+        },
+      },
+    };
+  }
 
   dict() {
     return {
@@ -1354,21 +1608,26 @@ class Component extends DCLogic {
   renderVals() {
     const theme = this.curTheme();
     const lang = this.curLang();
-    const t = this.dict()[lang];
+    const persona = this.curPersona();
+    const t = Object.assign({}, this.dict()[lang], this.personaPatch(lang, persona));
     const install = this.props.installCommand || 'cargo install perf-sentinel --locked';
     const refBase = lang === 'fr' ? 'docs/fr/' : 'docs/';
     return {
       theme,
+      personaId: persona,
       themeLabel: theme === 'dark' ? t.themeDark : t.themeLight,
       langLabel: t.langSwitch,
       toggleTheme: () => { const next = this.curTheme() === 'dark' ? 'light' : 'dark'; this.persist('ps-theme', next); this.setState({ theme: next }); },
       toggleLang: () => { const next = this.curLang() === 'fr' ? 'en' : 'fr'; this.persist('ps-lang', next); this.setState({ lang: next }); },
+
+      ...this.personaUI(lang, persona),
 
       navDetection: t.nav[0], navExecution: t.nav[1], navGreenops: t.nav[2], navComparison: t.nav[3],
       eyebrowHero: t.eyebrowHero, eyebrowHeroGreen: t.eyebrowHeroGreen,
       heroTitle: t.heroTitle,
       heroSub: t.heroSub,
       ctaHow: t.ctaHow, ctaCarbon: t.ctaCarbon,
+      ctaHowHref: t.ctaHowHref || '#modes', ctaCarbonHref: t.ctaCarbonHref || '#greenops',
       navLicense: t.navLicense, navDocs: t.navDocs, navRef: t.navRef, refBase, licEyebrow: t.licEyebrow,licTitleA: t.licTitleA, licTitleB: t.licTitleB, licIntro: t.licIntro,
       licC1Title: t.licC1Title, licC1Body: t.licC1Body, licC2Title: t.licC2Title, licC2Body: t.licC2Body,
       licCondTitle: t.licCondTitle, licCondBody: t.licCondBody, licDisclaimer: t.licDisclaimer,
@@ -1384,7 +1643,7 @@ class Component extends DCLogic {
       stats: t.stats, patterns: t.patterns, modes: t.modes, green: t.green, compare: t.compare, badges: t.badges,
 
       detEyebrow: t.detEyebrow, detT1: t.detT1, detWAnti: t.detWAnti, detT2: t.detT2, detIntro: t.detIntro, detFoot: t.detFoot,
-      whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
+      whyEyebrow: t.whyEyebrow, whyT1: t.whyT1, whyTName: t.whyTName, whyT2: t.whyT2, whyAccent: t.whyAccent || '', whyP1: t.whyP1, whyP2: t.whyP2, whyP3: t.whyP3, whyP4: t.whyP4, prereqTitle: t.prereqTitle,
       prereq1Label: t.prereq1Label, prereq1Text: t.prereq1Text, prereq1Setup: t.prereq1Setup, prereq1Link: t.prereq1Link, prereq2Label: t.prereq2Label, prereq2Text: t.prereq2Text, prereq2Link: t.prereq2Link, prereq3Label: t.prereq3Label, prereq3Text: t.prereq3Text, prereq3Link: t.prereq3Link, prereq4Label: t.prereq4Label, prereq4Text: t.prereq4Text, prereq4Link: t.prereq4Link, carbonEyebrow: t.carbonEyebrow, carbonT1: t.carbonT1, carbonTW: t.carbonTW, carbonT2a: t.carbonT2a, carbonT2b: t.carbonT2b, carbonTW2: t.carbonTW2, carbonT3: t.carbonT3, carbonIntro: t.carbonIntro,
       carbonChartTitle: t.carbonChartTitle, carbonAnnBasse: t.carbonAnnBasse, carbonAnnHaute: t.carbonAnnHaute, carbonAnnHauteSubPre: t.carbonAnnHauteSubPre, carbonAnnHauteQ: t.carbonAnnHauteQ, carbonBarBasse: t.carbonBarBasse, carbonBarHaute: t.carbonBarHaute,
       carbonLegMeasured: t.carbonLegMeasured, carbonLegUnmeasured: t.carbonLegUnmeasured, carbonChartSrc: t.carbonChartSrc,
