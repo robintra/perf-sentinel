@@ -42,11 +42,11 @@ A French mirror of every document lives under [`FR/`](FR/00-INDEX-FR.md).
 
 ## Operations
 
-| Document | Description |
-|------------------------------------------|-------------------------------------------------------------------------------------|
-| [RUNBOOK.md](RUNBOOK.md)                 | Incident runbook: symptom-driven troubleshooting for production deployments         |
+| Document                         | Description                                                                         |
+|----------------------------------|-------------------------------------------------------------------------------------|
+| [RUNBOOK.md](RUNBOOK.md)         | Incident runbook: symptom-driven troubleshooting for production deployments         |
 | [METHODOLOGY.md](METHODOLOGY.md) | Calculation chain from traces to `efficiency_score`, `energy_kwh`, `carbon_kgco2eq` |
-| [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries |
+| [LIMITATIONS.md](LIMITATIONS.md) | Known trade-offs, upstream constraints, detection boundaries                        |
 
 ## Supply chain and release
 
