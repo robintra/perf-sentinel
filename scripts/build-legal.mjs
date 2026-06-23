@@ -58,7 +58,7 @@ function footer(lang) {
     `</div></div></footer>`;
 }
 
-const legalCss = `<style>.legal-main{max-width:760px;margin:0 auto;padding:56px 28px 84px}.legal-main h1{font-size:30px;line-height:1.2;margin:0 0 6px;color:var(--text)}.legal-main h2{font-size:18px;margin:36px 0 10px;color:var(--text)}.legal-main p,.legal-main li{font-size:15px;line-height:1.66;color:var(--text-2)}.legal-main .upd{font-size:13px;opacity:.8;margin:0 0 30px}.legal-main a{color:var(--accent)}</style>`;
+const legalCss = `<style>.legal-main{max-width:760px;margin:0 auto;padding:56px 28px 84px}.legal-main h1{font-size:30px;line-height:1.2;margin:0 0 6px;color:var(--text)}.legal-main h2{font-size:18px;margin:36px 0 10px;color:var(--text)}.legal-main p,.legal-main li{font-size:15px;line-height:1.66;color:var(--text-2)}.legal-main .upd{font-size:13px;opacity:.8;margin:0 0 30px}.legal-main a{color:var(--accent-strong)}[data-ps-root]:not([data-theme="dark"]) [style*="color:var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color: var(--accent)"],[data-ps-root]:not([data-theme="dark"]) [style*="color:#0ba671"],[data-ps-root]:not([data-theme="dark"]) [style*="color: #0ba671"]{color:var(--accent-strong)!important}</style>`;
 
 const initScript = `<script>(function(){try{var t=localStorage.getItem('ps-theme');if(t)document.currentScript.parentElement.setAttribute('data-theme',t);}catch(e){}})();</script>`;
 const tailScript = (lang) => {
