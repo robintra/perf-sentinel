@@ -567,7 +567,7 @@ enum Commands {
     /// `perf-sentinel man > /usr/local/share/man/man1/perf-sentinel.1`.
     #[command(after_help = help_examples::MAN)]
     Man,
-    /// Produce a periodic public disclosure report (v1.2 schema).
+    /// Produce a periodic public disclosure report (v1.3 schema).
     ///
     /// Reads archived per-window `Report` NDJSON, filters to the
     /// requested period, applies the official-intent validator when
