@@ -41,6 +41,7 @@ hosts get `perf_sentinel_*` metrics only.
 | `process_max_fds`               | gauge   | Maximum allowed file descriptors. |
 | `process_start_time_seconds`    | gauge   | Unix timestamp of process start.  |
 | `process_cpu_seconds_total`     | counter | Cumulative CPU time.              |
+| `process_threads`               | gauge   | Number of OS threads.             |
 
 **Per-scrape cost.** The collector reads `/proc/self/{stat,status,limits}`
 and walks `/proc/self/fd/` on every scrape. On a daemon with thousands

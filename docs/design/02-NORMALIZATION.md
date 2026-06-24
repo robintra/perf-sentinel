@@ -21,13 +21,15 @@ The trade-off is documented in [LIMITATIONS.md](../LIMITATIONS.md): the tokenize
 
 ## SQL tokenizer: single-pass state machine
 
-`normalize_sql()` processes the query byte-by-byte through three states:
+`normalize_sql()` processes the query byte-by-byte through five states:
 
-| State        | Trigger (enter)          | Action                          | Trigger (exit)                |
-|--------------|--------------------------|---------------------------------|-------------------------------|
-| **Normal**   | Default / end of literal | Accumulate into template        | Quote `'` or standalone digit |
-| **InString** | Opening `'`              | Accumulate into `current_value` | Closing `'` (not `''`)        |
-| **InNumber** | Standalone digit         | Accumulate digits/dot           | Non-digit or second dot       |
+| State             | Trigger (enter)          | Action                                             | Trigger (exit)                              |
+|-------------------|--------------------------|----------------------------------------------------|---------------------------------------------|
+| **Normal**        | Default / end of literal | Accumulate into template                           | `'`, `"`, `$$`/`$tag$`, or standalone digit |
+| **InString**      | Opening `'`              | Accumulate into `current_value`                    | Closing `'` (not `''`)                      |
+| **InNumber**      | Standalone digit         | Accumulate digits/dot                              | Non-digit or second dot                     |
+| **InDoubleQuote** | Opening `"`              | Pass through into template (identifier preserved)  | Closing `"`                                 |
+| **InDollarQuote** | `$$` or `$tag$`          | Accumulate body into `current_value`, emit one `?` | Matching `$$` / `$tag$`                     |
 
 ### Batch `push_str` optimization
 

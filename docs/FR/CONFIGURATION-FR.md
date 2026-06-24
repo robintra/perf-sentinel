@@ -7,7 +7,7 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 ## Sommaire
 
 - [Sous-commandes](#sous-commandes) : quelles sous-commandes lisent `.perf-sentinel.toml`.
-- [Sections](#sections) : référence complète par section (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, ...).
+- [Sections](#sections) : référence complète par section (`[thresholds]`, `[detection]`, `[green]`, `[daemon]`, `[reporting]`).
 - [Configuration minimale](#configuration-minimale) : le `.perf-sentinel.toml` le plus court utile.
 - [Exemple de configuration complète](#exemple-de-configuration-complète) : chaque section peuplée avec des valeurs d'exemple.
 - [Migration depuis 0.5.x](#migration-depuis-05x) : les 8 clés top-level legacy retirées en 0.6.0 et comment migrer.
@@ -15,20 +15,21 @@ perf-sentinel se configure via un fichier `.perf-sentinel.toml`. Tous les champs
 
 ## Sous-commandes
 
-| Sous-commande | Description                                                                                                                                                                                                                     |
-|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `analyze`     | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                                                                                                             |
-| `explain`     | Vue arborescente d'une trace avec findings annotés en ligne                                                                                                                                                                     |
-| `watch`       | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                                                                                                               |
-| `query`       | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live                                                                                       |
-| `demo`        | Lance l'analyse sur un jeu de données de démo embarqué                                                                                                                                                                          |
-| `bench`       | Benchmark du débit sur un fichier de traces                                                                                                                                                                                     |
-| `pg-stat`     | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                                                                                                               |
-| `inspect`     | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                                                                                                            |
-| `diff`        | Compare deux jeux de traces et émet un rapport delta (findings nouveaux/résolus, changements de sévérité, deltas I/O par endpoint). Sortie texte/JSON/SARIF                                                                     |
-| `report`      | Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur. Accepte un fichier de traces, un Report JSON pré-calculé, ou stdin via `--input -` (auto-détecte array-d'events vs objet Report, tolérant au BOM) |
-| `tempo`       | Récupère des traces depuis une API HTTP Grafana Tempo (par ID de trace ou par recherche service puis fetch) et les pipe dans le pipeline d'analyse. Gaté derrière la feature `tempo`                                            |
-| `calibrate`   | Corrèle un fichier de traces avec des mesures d'énergie réelles (Scaphandre, CSV cloud monitoring) et émet un TOML de coefficients I/O-vers-énergie à charger via `[green] calibration_file`                                    |
+| Sous-commande  | Description                                                                                                                                                                                                                     |
+|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `analyze`      | Analyse batch de fichiers de traces. Lit depuis un fichier ou stdin                                                                                                                                                             |
+| `explain`      | Vue arborescente d'une trace avec findings annotés en ligne                                                                                                                                                                     |
+| `watch`        | Mode daemon : ingestion OTLP temps réel et détection en streaming                                                                                                                                                               |
+| `query`        | Interroge un daemon en cours d'exécution. Sortie colorée par défaut, `--format json` pour le scripting. `query inspect` ouvre un TUI live                                                                                       |
+| `demo`         | Lance l'analyse sur un jeu de données de démo embarqué                                                                                                                                                                          |
+| `bench`        | Benchmark du débit sur un fichier de traces                                                                                                                                                                                     |
+| `pg-stat`      | Analyse des exports `pg_stat_statements` (CSV/JSON ou Prometheus)                                                                                                                                                               |
+| `inspect`      | TUI interactif pour naviguer les traces, findings et arbres de spans                                                                                                                                                            |
+| `diff`         | Compare deux jeux de traces et émet un rapport delta (findings nouveaux/résolus, changements de sévérité, deltas I/O par endpoint). Sortie texte/JSON/SARIF                                                                     |
+| `report`       | Dashboard HTML single-file pour l'exploration post-mortem dans un navigateur. Accepte un fichier de traces, un Report JSON pré-calculé, ou stdin via `--input -` (auto-détecte array-d'events vs objet Report, tolérant au BOM) |
+| `tempo`        | Récupère des traces depuis une API HTTP Grafana Tempo (par ID de trace ou par recherche service puis fetch) et les pipe dans le pipeline d'analyse. Gaté derrière la feature `tempo`                                            |
+| `jaeger-query` | Récupère des traces depuis n'importe quel backend qui parle l'API de requête Jaeger (Jaeger, Victoria Traces) et les pipe dans le pipeline d'analyse. Gaté derrière la feature `jaeger-query`                                   |
+| `calibrate`    | Corrèle un fichier de traces avec des mesures d'énergie réelles (Scaphandre, CSV cloud monitoring) et émet un TOML de coefficients I/O-vers-énergie à charger via `[green] calibration_file`                                    |
 
 ## Sections
 
@@ -584,6 +585,25 @@ Depuis 0.5.27, combiner
 une clé capturée à travers le daemon, même sans cookie ni mode
 `Allow-Credentials`. Whitelistez des origines explicites pour les
 déploiements de production qui configurent la clé API.
+
+### `[reporting]`
+
+Paramètres de divulgation publique consommés par `disclose`, `hash-bake` et `verify-hash`. La section entière est optionnelle. Une section absente signifie que l'opérateur n'a jamais demandé de divulgation périodique. Guide complet dans `docs/FR/REPORTING-FR.md`, référence des champs dans `docs/FR/SCHEMA-FR.md`.
+
+| Champ                  | Type   | Défaut                          | Description                                                                                              |
+|------------------------|--------|---------------------------------|----------------------------------------------------------------------------------------------------------|
+| `intent`               | string | *(non défini)*                  | `internal`, `official` ou `audited`. `official` exige `org_config_path` au démarrage du daemon           |
+| `confidentiality_level`| string | *(non défini)*                  | `internal` ou `public`. Pilote la granularité G1 (détail par service) vs G2 (agrégé)                     |
+| `org_config_path`      | string | *(non défini)*                  | Chemin vers le TOML organisation/scope/méthodologie                                                      |
+| `disclose_output_path` | string | *(non défini)*                  | Chemin par défaut où `disclose` écrit le JSON. Indication seulement, `--output` est prioritaire          |
+| `disclose_period`      | string | *(non défini)*                  | `calendar-quarter`, `calendar-month`, `calendar-year` ou `custom`. Indication pour les runs planifiés    |
+
+La sous-section `[reporting.sigstore]` porte les endpoints Sigstore enregistrés dans le rapport pour que `verify-hash` sache quel Rekor interroger :
+
+| Champ        | Type   | Défaut                          | Description                                  |
+|--------------|--------|---------------------------------|----------------------------------------------|
+| `rekor_url`  | string | `https://rekor.sigstore.dev`    | Endpoint du journal de transparence Rekor     |
+| `fulcio_url` | string | `https://fulcio.sigstore.dev`   | Endpoint de l'autorité de certification Fulcio |
 
 ## Configuration minimale
 

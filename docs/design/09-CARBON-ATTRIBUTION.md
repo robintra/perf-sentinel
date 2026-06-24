@@ -89,13 +89,12 @@ These caps mirror the runtime-side `MAX_REGIONS` cap in `score::carbon_compute`.
 
 ## Backward compatibility
 
-All five new `GreenSummary` fields carry `#[serde(default)]`. An archive line written without runtime energy attribution deserialises with `energy_kwh = 0.0`, `energy_model = ""`, and empty maps. The aggregator detects this and falls back to the proxy.
+All seven new `GreenSummary` attribution fields carry `#[serde(default)]`: window-level `energy_kwh` and `energy_model`, plus the per-service maps `per_service_carbon_kgco2eq`, `per_service_energy_kwh`, `per_service_region`, `per_service_energy_model` and `per_service_measured_ratio`. An archive line written without runtime energy attribution deserialises with `energy_kwh = 0.0`, `energy_model = ""`, and empty maps. The aggregator detects this and falls back to the proxy.
 
-No schema version bump. `perf-sentinel-report/v1.0` stays the wire identifier. Consumers that read only the documented v1.0 baseline set keep working, consumers that opt into the new fields gain runtime-calibrated values automatically.
+This change did not bump the schema version on its own. The added fields are `#[serde(default)]` extensions, so consumers that read only the documented baseline set keep working, and consumers that opt into the new fields gain runtime-calibrated values automatically.
 
 ## What we did not do
 
-- Per-service energy model tags (`per_service_energy_model: BTreeMap<String, String>`). Possible but unused today; the window-level tag carries enough fidelity for the disclosure's audit trail.
 - Multi-region per-service splits. The wire shape stays simple at the cost of approximate attribution for services that move regions mid-window.
 - Embodied carbon attribution per service. Deliberately excluded.
-- Schema version bump. The change is strictly additive.
+- Bump the schema version for this change alone. The added fields are strictly additive (the schema later reached v1.3 through other additive revisions).

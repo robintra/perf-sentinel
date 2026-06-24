@@ -1,13 +1,13 @@
 # Rapport public périodique
 
-Notes de design pour le pipeline de transparence : schéma (actuel v1.2), aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
+Notes de design pour le pipeline de transparence : schéma (actuel v1.3), aggregator, validator, archive daemon, et la subcommand `disclose`. La doc opérateur vit dans `docs/FR/REPORTING-FR.md`, la chaîne de calcul dans `docs/FR/METHODOLOGY-FR.md`, la référence wire dans `docs/FR/SCHEMA-FR.md`. Ce document explique les décisions de design derrière chaque module.
 
 ## Disposition des modules
 
 ```
 crates/sentinel-core/src/report/periodic/
   ├── mod.rs        // re-exports
-  ├── schema.rs     // types wire v1.0
+  ├── schema.rs     // types wire v1.3
   ├── errors.rs     // ValidationError, HashError, AggregationError
   ├── hasher.rs     // JSON canonique + SHA-256 + binary_hash helper
   ├── validator.rs  // validate_official, validate_content_hash
@@ -204,12 +204,16 @@ L'archivage du daemon est **déclenché par le trafic**, pas par une minuterie. 
 
 C'est le signal in-binary le plus proche de l'échappatoire d'auto-déclaration "il suffit d'arrêter perf-sentinel une partie de la période". L'extinction partielle se voit maintenant comme un `temporal_coverage` bas et un `largest_gap_days` grand. Il n'adresse **pas** la non-participation totale (ne jamais lancer l'outil ne laisse aucun rapport) ni un dénominateur malhonnête (`total_requests_in_period` fixé bas), tous deux irréductibles sans infrastructure externe, voir Révisions futures. Deux vérifications de cohérence bon marché l'accompagnent : `days_covered` doit valoir `(to_date - from_date) + 1` (rejet dur, seul un fichier édité à la main peut échouer) et `requests_measured` ne doit pas dépasser un `total_requests_in_period` déclaré par l'opérateur (rejet dur).
 
+## Crosswalk standard et critères RGESN (v1.3)
+
+La v1.3 ajoute deux champs de correspondance interprétative, dont aucun n'est une barrière. `methodology.standard_crosswalk` est un crosswalk vers les datapoints ESRS E1 : une aide de correspondance qui pointe chaque chiffre de la disclosure vers le datapoint CSRD / ESRS E1 le plus proche, avec un disclaimer explicite indiquant qu'il ne remplace pas un inventaire audité. `applications[].anti_patterns[].rgesn_criteria` tague chaque anti-pattern détecté avec les critères RGESN 2024 (Référentiel général d'écoconception de services numériques) auxquels il se rattache, pour qu'un auditeur écoconception puisse relier un finding au référentiel. Les deux sont des extensions additives `#[serde(default)]` : les lecteurs plus anciens les ignorent, et un rapport écrit sans eux se rehashe à l'identique. La référence wire des deux vit dans `docs/FR/SCHEMA-FR.md`.
+
 ## Révisions futures
 
 - **Signature Sigstore** : `integrity.signature` est réservé. Ajouter une vraie signature est un bump mineur SemVer du schéma (champ additif passant non null dans certains fichiers).
 - **Intent `audited`** : la troisième valeur d'intent demandera une attestation d'audit externe. La forme vivra sous `integrity` ou dans une section voisine, pas encore tranché.
-- **Chaîne d'intégrité de traces** : `integrity.trace_integrity_chain` est réservé pour une racine de Merkle sur les traces sources alimentant la disclosure. Hors scope du schéma v1.0.
-- **Journal inter-périodes** : `integrity.cross_period_log` (réservé en v1.2) est le hook pour un journal externe en ajout seul ou de type Rekor chaînant les `content_hash` successifs entre périodes. C'est ce qui rend la non-participation totale (un opérateur qui arrête de publier) détectable par un tiers, le trou qu'aucune garantie d'intégrité par rapport ne peut combler. Il ne sera renseigné que sous `intent = "audited"`. Comme c'est du contenu disclosé (toujours `None` en v1.2, omis du wire), il n'est volontairement pas dans `POST_SIGN_FIELDS`, donc les hashs des rapports actuels ne changent pas.
+- **Chaîne d'intégrité de traces** : `integrity.trace_integrity_chain` est réservé pour une racine de Merkle sur les traces sources alimentant la disclosure. Hors scope du schéma actuel.
+- **Journal inter-périodes** : `integrity.cross_period_log` (réservé en v1.2) est le hook pour un journal externe en ajout seul ou de type Rekor chaînant les `content_hash` successifs entre périodes. C'est ce qui rend la non-participation totale (un opérateur qui arrête de publier) détectable par un tiers, le trou qu'aucune garantie d'intégrité par rapport ne peut combler. Il ne sera renseigné que sous `intent = "audited"`. Comme c'est du contenu disclosé (toujours `None` aujourd'hui, omis du wire), il n'est volontairement pas dans `POST_SIGN_FIELDS`, donc les hashs des rapports actuels ne changent pas.
 - **Intégration Boavizta** : `methodology.calibration_inputs` gagnera un champ `boavizta_version` quand l'intégration sera livrée. Les consommateurs de schéma doivent tolérer des champs de calibration inconnus, ce qu'ils font déjà parce que `additionalProperties` n'est pas posé.
 
 ## Mapping des fichiers source

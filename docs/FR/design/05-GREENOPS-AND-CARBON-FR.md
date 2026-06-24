@@ -304,7 +304,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
     LazyLock::new(|| CARBON_TABLE.iter().map(...).collect());
 ```
 
-**Pourquoi `LazyLock<HashMap>` au lieu d'un scan linéaire ?** L'implémentation originale parcourait les 41 entrées à chaque appel. Avec le HashMap, la recherche est O(1). Le coût d'initialisation est payé une seule fois au premier accès.
+**Pourquoi `LazyLock<HashMap>` au lieu d'un scan linéaire ?** L'implémentation originale parcourait les 55 entrées à chaque appel. Avec le HashMap, la recherche est O(1). Le coût d'initialisation est payé une seule fois au premier accès.
 
 **Recherche insensible à la casse :** la fonction publique `lookup_region()` convertit l'entrée en minuscules via `to_ascii_lowercase()` avant la recherche. Toutes les clés de la table sont stockées en minuscules. L'étape de scoring multi-région utilise un `BTreeMap<String, usize>` (pas `HashMap`) pour répartir les ops I/O par région résolue. Cela garantit un ordre d'itération déterministe et des sommes flottantes stables entre exécutions.
 
@@ -321,13 +321,13 @@ Le PUE (Power Usage Effectiveness) mesure le ratio entre l'énergie totale du da
 
 ### Données d'intensité carbone
 
-Les intensités carbone régionales du réseau électrique (gCO2eq/kWh) proviennent des moyennes annuelles [Electricity Maps](https://www.electricitymaps.com/) (2023-2024) et du projet [Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/). La table couvre 15 régions AWS, 8 régions GCP, 6 régions Azure et 14 codes pays ISO.
+Les intensités carbone régionales du réseau électrique (gCO2eq/kWh) proviennent des moyennes annuelles [Electricity Maps](https://www.electricitymaps.com/) (2023-2024) et du projet [Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/). La table couvre 17 régions AWS, 12 régions GCP, 6 régions Azure et 20 codes pays ISO.
 
 Quand la région configurée n'est pas trouvée dans la table, les champs CO2 sont omis du rapport (aucune valeur par défaut n'est inventée).
 
 ## Profils horaires d'intensité carbone
 
-La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque un profil UTC 24 valeurs par région pour quatre régions avec des formes diurnes bien documentées :
+La valeur annuelle plate par région écarte la variance diurne qui peut être importante dans les réseaux avec une forte part de renouvelables variables ou de forts pics de demande. Pour capturer cette variance, perf-sentinel embarque des profils UTC horaires pour 22 régions. Quatre régions phares aux formes diurnes bien documentées portent un profil mensuel x horaire complet. Les 18 autres portent chacune leur propre profil représentatif 24 heures unique (voir plus bas) :
 
 - **France (`eu-west-3`)** : baseload nucléaire, forme plate-avec-pic-soir.
 - **Allemagne (`eu-central-1`)** : charbon + gaz + renouvelables variables, pics matin/soir prononcés.

@@ -21,13 +21,15 @@ Le compromis est documenté dans [LIMITATIONS-FR.md](../LIMITATIONS-FR.md) : le 
 
 ## Tokenizer SQL : machine à états en une seule passe
 
-`normalize_sql()` traite la requête octet par octet à travers trois états :
+`normalize_sql()` traite la requête octet par octet à travers cinq états :
 
-| État           | Déclencheur (entrée)          | Action                               | Déclencheur (sortie)                     |
-|----------------|-------------------------------|--------------------------------------|------------------------------------------|
-| **Normal**     | Défaut / fin de littéral      | Accumule dans le template            | Guillemet `'` ou chiffre isolé           |
-| **InString**   | Guillemet ouvrant `'`         | Accumule dans `current_value`        | Guillemet fermant `'` (pas `''`)         |
-| **InNumber**   | Chiffre isolé                 | Accumule chiffres/point              | Non-chiffre ou deuxième point            |
+| État              | Déclencheur (entrée)         | Action                                                | Déclencheur (sortie)                     |
+|-------------------|------------------------------|-------------------------------------------------------|------------------------------------------|
+| **Normal**        | Défaut / fin de littéral     | Accumule dans le template                             | `'`, `"`, `$$`/`$tag$`, ou chiffre isolé |
+| **InString**      | Guillemet ouvrant `'`        | Accumule dans `current_value`                         | Guillemet fermant `'` (pas `''`)         |
+| **InNumber**      | Chiffre isolé                | Accumule chiffres/point                               | Non-chiffre ou deuxième point            |
+| **InDoubleQuote** | Guillemet double ouvrant `"` | Laisse passer dans le template (identifiant préservé) | Guillemet double fermant `"`             |
+| **InDollarQuote** | `$$` ou `$tag$`              | Accumule le corps dans `current_value`, émet un `?`   | `$$` / `$tag$` correspondant             |
 
 ### Optimisation batch `push_str`
 

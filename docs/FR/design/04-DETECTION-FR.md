@@ -478,19 +478,21 @@ Le match namespace est segment-boundary-aware des **deux côtés** : le hint doi
 
 L'ordre compte au sein d'un langage : le premier framework qui matche gagne. Les hints JPA passent intentionnellement après ceux de Quarkus reactive parce que `org.hibernate.reactive` contient `org.hibernate`.
 
+Chaque hint est de l'un de deux types. **`Substring`** matche un segment de package délimité par des frontières (toutes les règles ci-dessous sauf mention contraire). **`LastSegmentEndsWith`** matche uniquement le suffixe du dernier segment du namespace, pour les conventions de code utilisateur comme les repositories Spring Data où le package du framework n'apparaît jamais dans `code.namespace` (par exemple `com.example.OrderRepository`).
+
 **Java (`JAVA_RULES`) :**
 
-| Framework                | Hints namespace                                                                                                                       |
-|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `JavaHelidonMp`          | `io.helidon.microprofile`                                                                                                             |
-| `JavaHelidonSe`          | `io.helidon`                                                                                                                          |
-| `JavaQuarkusReactive`    | `io.quarkus.hibernate.reactive`, `io.quarkus.panache.reactive`, `io.quarkus.reactive`, `org.hibernate.reactive`, `io.smallrye.mutiny` |
-| `JavaQuarkus`            | `io.quarkus.hibernate.orm`, `io.quarkus.panache.common`, `io.quarkus`                                                                 |
-| `JavaWebFlux`            | `org.springframework.web.reactive`, `reactor.core`                                                                                    |
-| `JavaJpa`                | `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa`                                           |
-| `JavaGeneric` (fallback) | (tout fichier `.java` sans les hints ci-dessus)                                                                                       |
+| Framework                | Hints namespace                                                                                                                                                  |
+|--------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `JavaHelidonMp`          | `io.helidon.microprofile`                                                                                                                                        |
+| `JavaHelidonSe`          | `io.helidon`                                                                                                                                                     |
+| `JavaQuarkusReactive`    | `io.quarkus.hibernate.reactive`, `io.quarkus.panache.reactive`, `io.quarkus.reactive`, `org.hibernate.reactive`, `io.smallrye.mutiny`                            |
+| `JavaQuarkus`            | `io.quarkus.hibernate.orm`, `io.quarkus.panache.common`, `io.quarkus`                                                                                            |
+| `JavaWebFlux`            | `org.springframework.web.reactive`, `reactor.core`                                                                                                               |
+| `JavaJpa`                | `jakarta.persistence`, `javax.persistence`, `org.hibernate`, `org.springframework.data.jpa`, plus les suffixes de dernier segment `*Repository`, `*Repo`, `*Dao` |
+| `JavaGeneric` (fallback) | (tout fichier `.java` sans les hints ci-dessus)                                                                                                                  |
 
-`JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit matcher l'un des hints réactifs plus spécifiques en premier. Helidon ne chevauche aucun autre framework.
+`JavaQuarkusReactive` énumère explicitement ses sous-packages réactifs. Le catch-all `io.quarkus` appartient à `JavaQuarkus` (non-réactif), donc tout namespace Quarkus réactif doit matcher l'un des hints réactifs plus spécifiques en premier. Helidon MP doit passer avant Helidon SE parce que `io.helidon.microprofile` est un sous-package de `io.helidon`.
 
 **C# (`CSHARP_RULES`) :**
 
@@ -507,9 +509,33 @@ L'ordre compte au sein d'un langage : le premier framework qui matche gagne. Les
 | `RustSeaOrm`             | `sea_orm::`                                   |
 | `RustGeneric` (fallback) | (tout fichier `.rs` sans les hints ci-dessus) |
 
+**Python (`PYTHON_RULES`) :**
+
+| Framework                  | Hints namespace                               |
+|----------------------------|-----------------------------------------------|
+| `PythonDjango`             | `django`                                      |
+| `PythonSqlAlchemy`         | `sqlalchemy`                                  |
+| `PythonGeneric` (fallback) | (tout fichier `.py` sans les hints ci-dessus) |
+
+**Go (`GO_RULES`) :**
+
+| Framework              | Hints namespace                               |
+|------------------------|-----------------------------------------------|
+| `GoGorm`               | `gorm`                                        |
+| `GoGeneric` (fallback) | (tout fichier `.go` sans les hints ci-dessus) |
+
+**Node.js (`JS_RULES`) :**
+
+| Framework                | Hints namespace                                                                               |
+|--------------------------|-----------------------------------------------------------------------------------------------|
+| `NodePrisma`             | `prisma`                                                                                      |
+| `NodeGeneric` (fallback) | (tout fichier `.js`/`.ts`/`.jsx`/`.tsx`/`.mjs`/`.mts`/`.cjs`/`.cts` sans les hints ci-dessus) |
+
+Les frameworks Go et Node sont atteints via les hints namespace ci-dessus et le fallback langage-depuis-préfixe-de-scope, jamais via `SCOPE_RULES` : leurs instrumentations émettent des noms de scope natifs de l'écosystème (`gorm.io/plugin/opentelemetry`, `@prisma/instrumentation`) que les préfixes de la convention ne matchent pas. Voir la section détecteur de framework ci-dessus.
+
 ### Table de mapping
 
-Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. Entrées actuelles :
+Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les lookups absents de la table laissent `suggested_fix` à `None`. L'ensemble complet vit dans la static `FIXES` de `suggestions.rs` : un fallback générique par langage plus des entrées framework-specific. La couverture n'est volontairement pas une matrice complète langage x pattern. En particulier, `n_plus_one_sql` et `redundant_sql` passent surtout par des entrées framework-specific (un fallback générique N+1 SQL n'existe que pour Go et Node), donc un lookup générique pour ces patterns retourne `None` pour plusieurs langages. Ancres représentatives :
 
 | Type de finding | Framework             | Ancre de la recommandation                                                                                     |
 |-----------------|-----------------------|----------------------------------------------------------------------------------------------------------------|
@@ -535,6 +561,16 @@ Un static `LazyLock<HashMap<(FindingType, Framework), SuggestedFix>>`. Les looku
 | `RedundantSql`  | `RustDiesel`          | Cache `moka` ou `OnceCell` request-local                                                                       |
 | `RedundantSql`  | `RustSeaOrm`          | Cache `moka` ou `OnceCell` request-local                                                                       |
 | `NPlusOneHttp`  | `RustGeneric`         | `tokio::join!` / `futures::future::join_all` pour le parallélisme ou endpoint batch                            |
+| `NPlusOneSql`   | `PythonDjango`        | Eager loading `select_related()` / `prefetch_related()`                                                        |
+| `NPlusOneSql`   | `PythonSqlAlchemy`    | `joinedload()` / `subqueryload()` ou un `join()` explicite                                                     |
+| `RedundantSql`  | `PythonDjango`        | Framework de cache Django (`@cache_page` / `cache.get/set`) ou déduplication request-local                     |
+| `NPlusOneHttp`  | `PythonGeneric`       | `asyncio.gather()` / `ThreadPoolExecutor` pour le parallélisme ou endpoint batch                               |
+| `NPlusOneSql`   | `GoGorm`              | Eager loading `Preload()` / `Joins()`                                                                          |
+| `NPlusOneSql`   | `GoGeneric`           | `JOIN` unique / `WHERE id IN (...)`, pgx `ANY($1::int[])`                                                      |
+| `NPlusOneHttp`  | `GoGeneric`           | `errgroup.Go` pour les appels parallèles ou endpoint batch                                                     |
+| `NPlusOneSql`   | `NodePrisma`          | Eager loading `include:{}` ou `findMany()` avec un filtre `WHERE id IN`                                        |
+| `NPlusOneSql`   | `NodeGeneric`         | `JOIN` unique / `WHERE id IN (...)`, pg `ANY($1::int[])`                                                       |
+| `RedundantSql`  | `NodeGeneric`         | `node-cache` ou une `Map` request-scoped, `p-memoize` pour les doublons concurrents                            |
 
 ### Chemin d'extension pour les contributeurs
 

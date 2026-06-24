@@ -364,6 +364,10 @@ La drain loop est conduite par un `tokio::select!` avec ordre `biased` : `tokio:
 
 Les failures par trace loguent au niveau `debug`, pas `error`. Une seule ligne de summary classifiée (`emit_fetch_summary`) est émise à la fin de la boucle, bucketée par type d'erreur (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`) pour que l'outillage downstream (Loki, CloudWatch) puisse alerter sur le bon signal sans parser 50 lignes `ERROR` individuelles sur un Tempo dégradé. La sévérité du summary suit la pire classe observée : `warn` si uniquement des skips `TraceNotFound` ont eu lieu (condition occasionnelle attendue, ex. une trace sortie de rétention entre le search et le fetch), `error` sinon. Un test unitaire (`classify_fetch_error_buckets_every_hard_failure_variant`) sert de garde-fou contre la dérive : si une nouvelle variante est ajoutée à `TempoError` plus tard, elle ne tombe pas silencieusement dans `"other"`.
 
+## Ingestion Jaeger Query API
+
+`ingest/jaeger_query.rs` est l'autre source de replay en mode pull, gardée derrière la feature cargo `jaeger-query`. Elle interroge n'importe quel backend qui parle l'API HTTP de requête Jaeger (Jaeger upstream et Victoria Traces, qui implémente la même surface). Contrairement au search-puis-fetch en deux étapes de Tempo, le `/api/traces` de Jaeger retourne les traces complètes dans la réponse de search, donc un seul aller-retour HTTP couvre toute l'ingestion. Le payload décodé réutilise le parser `jaeger` du mode fichier (`convert_jaeger_export`), donc une trace Jaeger-Query et un fichier JSON Jaeger passent par une normalisation identique. Elle partage l'unique `http_client.rs` et le helper `auth_header.rs` avec le chemin Tempo. Le validateur d'endpoint accepte toute URL `http(s)` et ne bloque pas les cibles RFC 1918 ou link-local, donc la sous-commande ne doit être invoquée qu'avec des valeurs d'endpoint de confiance (voir `docs/FR/LIMITATIONS-FR.md`).
+
 ## API de requête du daemon
 
 <picture>
@@ -371,7 +375,7 @@ Les failures par trace loguent au niveau `debug`, pas `error`. Une seule ligne d
   <img alt="Architecture de l'API de requête du daemon" src="https://raw.githubusercontent.com/robintra/perf-sentinel/main/docs/diagrams/svg/query-api.svg">
 </picture>
 
-En mode `watch`, le daemon expose une API HTTP de consultation aux côtés des endpoints existants `/v1/traces` et `/metrics`. Cela permet d'interroger l'état interne du daemon sans accéder directement à stdout.
+En mode `watch`, le daemon expose une API HTTP de consultation aux côtés des endpoints existants `/v1/traces`, `/metrics` et `/health`. Cela permet d'interroger l'état interne du daemon sans accéder directement à stdout.
 
 ### FindingsStore
 
@@ -396,16 +400,20 @@ Le `RwLock` tokio permet plusieurs lecteurs simultanés (scrapes de l'API) sans 
 
 ### Endpoints HTTP
 
-`daemon/query_api.rs` définit six routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP et `/metrics`.
+`daemon/query_api.rs` définit dix routes axum montées dans le routeur existant du daemon. Le router n'est mergé dans le stack HTTP que si `[daemon] api_enabled = true` (défaut true). Mettre `api_enabled = false` désactive toutes les routes `/api/*` tout en conservant l'ingestion OTLP, `/metrics` et `/health`.
 
-| Endpoint                   | Méthode | Plafond                                                                     | Description                                                                        |
-|----------------------------|---------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
-| `/api/findings`            | GET     | `?limit=` plafonné à `MAX_FINDINGS_LIMIT = 1000`                            | Findings récents, avec filtres `?service=`, `?type=`, `?severity=`, `?limit=`      |
-| `/api/findings/{trace_id}` | GET     | aucun                                                                       | Findings pour un trace_id spécifique                                               |
-| `/api/explain/{trace_id}`  | GET     | aucun                                                                       | Arbre de trace avec findings en ligne (depuis la mémoire du daemon)                |
-| `/api/correlations`        | GET     | tronqué à `MAX_CORRELATIONS_LIMIT = 1000` (trié par confiance décroissante) | Corrélations cross-trace actives. Vide quand `correlator` est `None`               |
-| `/api/status`              | GET     | aucun                                                                       | Santé du daemon : version, uptime, traces actives, findings stockés                |
-| `/api/export/report`       | GET     | hérite des plafonds `/api/findings` et `/api/correlations`                  | Snapshot `Report` JSON complet, prêt à piper dans `perf-sentinel report --input -` |
+| Endpoint                        | Méthode     | Plafond                                                                     | Description                                                                        |
+|---------------------------------|-------------|-----------------------------------------------------------------------------|------------------------------------------------------------------------------------|
+| `/api/findings`                 | GET         | `?limit=` plafonné à `MAX_FINDINGS_LIMIT = 1000`                            | Findings récents, avec filtres `?service=`, `?type=`, `?severity=`, `?limit=`      |
+| `/api/findings/{trace_id}`      | GET         | aucun                                                                       | Findings pour un trace_id spécifique                                               |
+| `/api/explain/{trace_id}`       | GET         | aucun                                                                       | Arbre de trace avec findings en ligne (depuis la mémoire du daemon)                |
+| `/api/correlations`             | GET         | tronqué à `MAX_CORRELATIONS_LIMIT = 1000` (trié par confiance décroissante) | Corrélations cross-trace actives. Vide quand `correlator` est `None`               |
+| `/api/status`                   | GET         | aucun                                                                       | Santé du daemon : version, uptime, traces actives, findings stockés                |
+| `/api/config`                   | GET         | aucun                                                                       | Configuration `[daemon]` effective, lecture seule, secrets résumés (depuis 0.8.8)  |
+| `/api/energy`                   | GET         | aucun                                                                       | Santé live des backends énergie/intensité (depuis 0.8.8)                           |
+| `/api/export/report`            | GET         | hérite des plafonds `/api/findings` et `/api/correlations`                  | Snapshot `Report` JSON complet, prêt à piper dans `perf-sentinel report --input -` |
+| `/api/findings/{signature}/ack` | POST/DELETE | aucun                                                                       | Acquitte (POST) ou révoque (DELETE) un finding au runtime (depuis 0.5.20)          |
+| `/api/acks`                     | GET         | aucun                                                                       | Liste les acks runtime actifs                                                      |
 
 ### Sémantique du snapshot `/api/export/report`
 

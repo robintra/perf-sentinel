@@ -2,7 +2,7 @@
 
 ## Conception du CLI
 
-Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Dix sous-commandes sont disponibles : `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query`, `diff` et `report`.
+Le CLI (`sentinel-cli`) est intentionnellement léger. Il parse les arguments avec [clap](https://docs.rs/clap/) et délègue aux fonctions de `sentinel-core`. Dix-neuf sous-commandes sont disponibles. Treize sont toujours présentes : `analyze`, `explain`, `demo`, `bench`, `pg-stat`, `calibrate`, `report`, `diff`, `disclose`, `hash-bake`, `verify-hash`, `completions` et `man`. Les six autres sont conditionnées par feature : `watch`, `query` et `ack` (`daemon`), `inspect` (`tui`), `tempo` (`tempo`) et `jaeger-query` (`jaeger-query`).
 
 ### Analyze : rapport coloré par défaut, JSON avec `--ci`
 
@@ -152,11 +152,15 @@ Un bloc `const _: () = { ... while ... assert!(...) }` à la compilation vérifi
 
 Le workspace utilise des feature flags Cargo pour garder les dépendances daemon optionnelles :
 
-| Feature  | Crate           | Ce qu'il active                                                                                                                                          |
-|----------|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Active l'arbre de modules `daemon/`, scraper/state Scaphandre, scraper/state cloud energy. |
-| `daemon` | `sentinel-cli`  | Transmet à `sentinel-core/daemon`. Active la sous-commande `watch`.                                                                                      |
-| `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Active la sous-commande `inspect`.                                                                                               |
+| Feature        | Crate           | Ce qu'il active                                                                                                                                                                                                                                                                     |
+|----------------|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `daemon`       | `sentinel-core` | Le stack HTTP hyper + rustls (`hyper`, `hyper-util`, `http-body-util`, `bytes`, `hyper-rustls`, `tokio-rustls`, `tokio-stream`, `tower-http`) plus `arc-swap`, `dirs`, `subtle`, `libc`. Active l'arbre de modules `daemon/`, scraper/state Scaphandre, scraper/state cloud energy. |
+| `tempo`        | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `hyper-rustls`. Active l'ingestion via l'API HTTP Tempo.                                                                                                                                                                          |
+| `jaeger-query` | `sentinel-core` | Même jeu de dépendances HTTP que `tempo`. Active l'ingestion via l'API de requête Jaeger (Jaeger, Victoria Traces).                                                                                                                                                                 |
+| `daemon`       | `sentinel-cli`  | Transmet à `sentinel-core/daemon`, plus `hyper`, `bytes`, `humantime`, `rpassword`. Active les sous-commandes `watch`, `query` et `ack`.                                                                                                                                            |
+| `tui`          | `sentinel-cli`  | `ratatui`, `crossterm`. Active la sous-commande `inspect` et le flag `--tui` sur `analyze`/`explain`/`demo`.                                                                                                                                                                        |
+| `tempo`        | `sentinel-cli`  | Transmet à `sentinel-core/tempo`. Active la sous-commande `tempo`.                                                                                                                                                                                                                  |
+| `jaeger-query` | `sentinel-cli`  | Transmet à `sentinel-core/jaeger-query`. Active la sous-commande `jaeger-query`.                                                                                                                                                                                                    |
 
 ### Localisation du code source dans les findings
 
@@ -220,10 +224,10 @@ La sous-commande est protégée par le feature flag `daemon`. Elle utilise le cl
 
 Le flag `--daemon` spécifie l'URL de base du daemon (défaut `http://localhost:4318`). C'est le même port que l'endpoint OTLP HTTP, les routes `/api/*` sont servies par le même serveur axum.
 
-Les deux features sont dans le `default` du CLI. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
+Le `default` du CLI est `["tui", "daemon", "tempo", "jaeger-query"]`. Les utilisateurs de `sentinel-core` en tant que dépendance de bibliothèque peuvent l'utiliser sans `daemon` pour éviter le stack hyper :
 
 ```toml
-perf-sentinel-core = { version = "0.3", default-features = false }
+perf-sentinel-core = { version = "0.8", default-features = false }
 ```
 
 Cela compile le pipeline batch complet (normalize, correlate, detect, score, report) sans code client HTTP. Les types de config (`ScaphandreConfig`, `CloudEnergyConfig`) sont toujours disponibles pour que le parseur TOML fonctionne ; seuls les scrapers runtime et les types state sont conditionnels.
@@ -263,20 +267,27 @@ table de migration complète est dans `docs/CONFIGURATION-FR.md`.
 
 Chaque champ numérique a des bornes explicites dans `validate()` :
 
-| Champ                        | Min   | Max                  | Raison                                                                                              |
-|------------------------------|-------|----------------------|-----------------------------------------------------------------------------------------------------|
-| `max_payload_size`           | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection                                                          |
-| `max_active_traces`          | 1     | 1 000 000            | Empêcher la mémoire non bornée                                                                      |
-| `max_events_per_trace`       | 1     | 100 000              | Empêcher l'OOM par trace                                                                            |
-| `max_retained_findings`      | 0     | 10 000 000           | Empêcher l'OOM sur le store de findings. `0` est documenté comme "désactiver complètement le store" |
-| `n_plus_one_threshold`       | 1     | *(aucun)*            | Au moins 1 occurrence pour détecter                                                                 |
-| `window_duration_ms`         | 1     | *(aucun)*            | Fenêtre non nulle                                                                                   |
-| `slow_query_threshold_ms`    | 1     | *(aucun)*            | Seuil non nul                                                                                       |
-| `slow_query_min_occurrences` | 1     | *(aucun)*            | Au moins 1 occurrence                                                                               |
-| `max_fanout`                 | 1     | 100 000              | Empêcher la désactivation de la détection                                                           |
-| `trace_ttl_ms`               | 100   | 3 600 000 (1 h)      | Intervalle d'éviction minimum                                                                       |
-| `sampling_rate`              | 0.0   | 1.0                  | Probabilité valide                                                                                  |
-| `io_waste_ratio_max`         | 0.0   | 1.0                  | Ratio valide                                                                                        |
+| Champ                                  | Min   | Max                  | Raison                                                                                              |
+|----------------------------------------|-------|----------------------|-----------------------------------------------------------------------------------------------------|
+| `max_payload_size`                     | 1 024 | 104 857 600 (100 Mo) | Empêcher la désactivation de la protection                                                          |
+| `max_active_traces`                    | 1     | 1 000 000            | Empêcher la mémoire non bornée                                                                      |
+| `max_events_per_trace`                 | 1     | 100 000              | Empêcher l'OOM par trace                                                                            |
+| `max_retained_findings`                | 0     | 10 000 000           | Empêcher l'OOM sur le store de findings. `0` est documenté comme "désactiver complètement le store" |
+| `n_plus_one_threshold`                 | 1     | *(aucun)*            | Au moins 1 occurrence pour détecter                                                                 |
+| `window_duration_ms`                   | 1     | *(aucun)*            | Fenêtre non nulle                                                                                   |
+| `slow_query_threshold_ms`              | 1     | *(aucun)*            | Seuil non nul                                                                                       |
+| `slow_query_min_occurrences`           | 1     | *(aucun)*            | Au moins 1 occurrence                                                                               |
+| `max_fanout`                           | 1     | 100 000              | Empêcher la désactivation de la détection                                                           |
+| `trace_ttl_ms`                         | 100   | 3 600 000 (1 h)      | Intervalle d'éviction minimum                                                                       |
+| `sampling_rate`                        | 0.0   | 1.0                  | Probabilité valide                                                                                  |
+| `io_waste_ratio_max`                   | 0.0   | 1.0                  | Ratio valide                                                                                        |
+| `ingest_queue_capacity`                | 1     | 1 048 576            | Plafond de backpressure de la file bornée                                                           |
+| `analysis_queue_capacity`              | 1     | 1 048 576            | Plafond de backpressure de la file bornée                                                           |
+| `listen_port_http`                     | 1     | 65 535               | Port TCP valide                                                                                     |
+| `listen_port_grpc`                     | 1     | 65 535               | Port TCP valide                                                                                     |
+| `chatty_service_min_calls`             | 1     | *(aucun)*            | Au moins 1 appel pour détecter                                                                      |
+| `pool_saturation_concurrent_threshold` | 2     | *(aucun)*            | Au moins 2 requêtes concurrentes pour saturer                                                       |
+| `serialized_min_sequential`            | 2     | *(aucun)*            | Au moins 2 appels pour former une séquence                                                          |
 
 La vérification de `listen_addr` non-loopback émet un avertissement mais ne rejette pas :
 

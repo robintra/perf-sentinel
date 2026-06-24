@@ -308,7 +308,7 @@ static REGION_MAP: LazyLock<HashMap<&'static str, (f64, Provider)>> =
     LazyLock::new(|| CARBON_TABLE.iter().map(...).collect());
 ```
 
-**Why `LazyLock<HashMap>` instead of a linear scan?** The original implementation scanned all 41 entries on every call. With the HashMap, lookup is O(1). The initialization cost is paid once on first access.
+**Why `LazyLock<HashMap>` instead of a linear scan?** The original implementation scanned all 55 entries on every call. With the HashMap, lookup is O(1). The initialization cost is paid once on first access.
 
 **Case-insensitive lookup:** the public `lookup_region()` lowercases the input via `to_ascii_lowercase()` before lookup. All table keys are stored in lowercase. The multi-region scoring stage uses a `BTreeMap<String, usize>` (not `HashMap`) to bucket I/O ops per resolved region. This guarantees deterministic iteration order and stable floating-point sums across runs.
 
@@ -325,13 +325,13 @@ PUE (Power Usage Effectiveness) measures the ratio of total datacenter energy to
 
 ### Carbon intensity data
 
-Regional grid carbon intensities (gCO2eq/kWh) are sourced from [Electricity Maps](https://www.electricitymaps.com/) annual averages (2023-2024) and the [Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/) project. The table covers 15 AWS regions, 8 GCP regions, 6 Azure regions and 14 ISO country codes.
+Regional grid carbon intensities (gCO2eq/kWh) are sourced from [Electricity Maps](https://www.electricitymaps.com/) annual averages (2023-2024) and the [Cloud Carbon Footprint](https://www.cloudcarbonfootprint.org/) project. The table covers 17 AWS regions, 12 GCP regions, 6 Azure regions and 20 ISO country codes.
 
 When the configured region is not found in the table, CO2 fields are omitted from the report (no default value is invented).
 
 ## Hourly carbon intensity profiles
 
-The flat annual value per region discards the diurnal variance that can be large in grids with a high share of variable renewables or strong demand peaks. To capture that variance, perf-sentinel embeds a 24-value UTC profile per region for four regions with well-documented diurnal shapes:
+The flat annual value per region discards the diurnal variance that can be large in grids with a high share of variable renewables or strong demand peaks. To capture that variance, perf-sentinel embeds hourly UTC grid profiles for 22 regions. Four flagship regions with well-documented diurnal shapes carry a full monthly x hourly profile. The other 18 each carry their own single representative 24-hour profile (see below):
 
 - **France (`eu-west-3`)**: nuclear baseload, flat-with-evening-peak shape.
 - **Germany (`eu-central-1`)**: coal + gas + variable renewables, strong morning/evening peaks.

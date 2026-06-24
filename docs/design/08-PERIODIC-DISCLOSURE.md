@@ -1,13 +1,13 @@
 # Periodic disclosure report
 
-Design notes for the periodic public disclosure pipeline: schema (current v1.2), aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`, the calculation chain lives in `docs/METHODOLOGY.md`, the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
+Design notes for the periodic public disclosure pipeline: schema (current v1.3), aggregator, validator, daemon archive, and the `disclose` subcommand. Operator-facing usage lives in `docs/REPORTING.md`, the calculation chain lives in `docs/METHODOLOGY.md`, the wire reference lives in `docs/SCHEMA.md`. This document explains the design decisions behind each module.
 
 ## Module layout
 
 ```
 crates/sentinel-core/src/report/periodic/
   ├── mod.rs        // re-exports
-  ├── schema.rs     // v1.0 wire types
+  ├── schema.rs     // v1.3 wire types
   ├── errors.rs     // ValidationError, HashError, AggregationError
   ├── hasher.rs     // canonical JSON + SHA-256 + binary_hash helper
   ├── validator.rs  // validate_official, validate_content_hash
@@ -206,12 +206,16 @@ Daemon archiving is **traffic-gated**, not timer-based. `process_traces` returns
 
 This is the in-binary signal closest to the self-disclosure escape hatch "just stop running perf-sentinel for part of the period". Partial shutdown now shows up as a low `temporal_coverage` and a large `largest_gap_days`. It does **not** address total non-participation (never running the tool leaves no report) nor a dishonest denominator (`total_requests_in_period` set low), both of which are irreducible without external infrastructure, see Future revisions. Two cheap consistency checks ship alongside: `days_covered` must equal `(to_date - from_date) + 1` (hard reject, only a hand-edited file can fail it) and `requests_measured` must not exceed an operator-declared `total_requests_in_period` (hard reject).
 
+## Standard crosswalk and RGESN criteria (v1.3)
+
+v1.3 adds two interpretive mapping fields, neither of which is a gate. `methodology.standard_crosswalk` is an ESRS E1 datapoint crosswalk: a mapping aid that points each disclosure figure at the closest CSRD / ESRS E1 datapoint, carrying an explicit disclaimer that it is not a substitute for an audited inventory. `applications[].anti_patterns[].rgesn_criteria` tags each detected anti-pattern with the RGESN 2024 (Référentiel général d'écoconception de services numériques) criteria it relates to, so an eco-design auditor can map a finding back to the reference framework. Both are `#[serde(default)]` additive extensions: older readers ignore them, and a report written without them re-hashes identically. The wire reference for both lives in `docs/SCHEMA.md`.
+
 ## Future revisions
 
 - **Sigstore signature**: `integrity.signature` is reserved. Adding a real signature is a SemVer-minor schema bump (additive field becoming non-null in some files).
 - **`audited` intent**: the third intent value will require an external audit attestation. The shape will live under `integrity` or in a sibling section; not decided yet.
-- **Trace integrity chain**: `integrity.trace_integrity_chain` is reserved for a Merkle root over the source traces that fed the disclosure. Out of scope for the v1.0 schema.
-- **Cross-period log**: `integrity.cross_period_log` (reserved in v1.2) is the hook for an external append-only or Rekor-style log chaining successive `content_hash` values across periods. It is what makes total non-participation (an operator who stops publishing) detectable by a third party, the gap no single-report integrity guarantee can close. It will be populated only under `intent = "audited"`. Because it is disclosed content (always `None` in v1.2, omitted from the wire), it is deliberately not in `POST_SIGN_FIELDS`, so current report hashes are unaffected.
+- **Trace integrity chain**: `integrity.trace_integrity_chain` is reserved for a Merkle root over the source traces that fed the disclosure. Out of scope for the current schema.
+- **Cross-period log**: `integrity.cross_period_log` (reserved in v1.2) is the hook for an external append-only or Rekor-style log chaining successive `content_hash` values across periods. It is what makes total non-participation (an operator who stops publishing) detectable by a third party, the gap no single-report integrity guarantee can close. It will be populated only under `intent = "audited"`. Because it is disclosed content (always `None` today, omitted from the wire), it is deliberately not in `POST_SIGN_FIELDS`, so current report hashes are unaffected.
 - **Boavizta integration**: `methodology.calibration_inputs` will gain a `boavizta_version` field when the integration ships. Schema consumers must tolerate unknown calibration fields, which they already do because `additionalProperties` is unset.
 
 ## Source file mapping

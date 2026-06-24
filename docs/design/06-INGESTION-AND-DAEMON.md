@@ -389,6 +389,10 @@ The drain loop is driven by `tokio::select!` with `biased` branch ordering: `tok
 
 Per-trace failures log at `debug`, not `error`. A single classified summary line (`emit_fetch_summary`) is emitted at the end of the loop, bucketed by error kind (`timeout`, `transport`, `http_status`, `protobuf_decode`, `body_read`, `json_parse`, `task_panic`) so downstream tooling (Loki, CloudWatch) can alert on the right signal without parsing 50 individual `ERROR` lines on a degraded Tempo. Summary severity tracks the worst class seen: `warn` if only `TraceNotFound` skips occurred (expected occasional condition, e.g. a trace rolled out of retention between search and fetch), `error` otherwise. A unit test (`classify_fetch_error_buckets_every_hard_failure_variant`) acts as a drift guard so a future variant added to `TempoError` does not silently fall through to `"other"`.
 
+## Jaeger Query API ingestion
+
+`ingest/jaeger_query.rs` is the other pull-based replay source, gated behind the `jaeger-query` cargo feature. It queries any backend that speaks the Jaeger query HTTP API (Jaeger upstream and Victoria Traces, which implements the same surface). Unlike Tempo's two-step search-then-fetch, Jaeger's `/api/traces` returns full traces in the search response, so a single HTTP round-trip covers the whole ingestion. The decoded payload reuses the file-mode `jaeger` parser (`convert_jaeger_export`), so a Jaeger-Query trace and a Jaeger JSON file flow through identical normalization. It shares the single `http_client.rs` and the `auth_header.rs` helper with the Tempo path. The endpoint validator accepts any `http(s)` URL and does not block RFC 1918 or link-local targets, so the subcommand must only be invoked with trusted endpoint values (see `docs/LIMITATIONS.md`).
+
 ## Daemon query API
 
 <picture>
@@ -427,16 +431,20 @@ This struct is wrapped in `Arc` and passed as axum `State` to all route handlers
 
 ### API endpoints
 
-Six endpoints are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion, `/metrics` and `/health` active.
+Ten routes are mounted via `query_api_router()`. The router is only merged into the HTTP stack when `[daemon] api_enabled = true` (default true). Setting `api_enabled = false` disables all `/api/*` routes while keeping OTLP ingestion, `/metrics` and `/health` active.
 
-| Endpoint                   | Method | Cap                                                                      | Description                                                                                |
-|----------------------------|--------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
-| `/api/findings`            | GET    | `?limit=` clamped to `MAX_FINDINGS_LIMIT = 1000`                         | Query recent findings with optional `?service=`, `?type=`, `?severity=`, `?limit=` filters |
-| `/api/findings/{trace_id}` | GET    | none                                                                     | All findings for a specific trace                                                          |
-| `/api/explain/{trace_id}`  | GET    | none                                                                     | Trace tree with findings inline, built from daemon memory                                  |
-| `/api/correlations`        | GET    | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None`     |
-| `/api/status`              | GET    | none                                                                     | Daemon health: version, uptime, active traces, stored findings count                       |
-| `/api/export/report`       | GET    | inherits `/api/findings` + `/api/correlations` caps                      | Full `Report` snapshot as JSON, ready to pipe into `perf-sentinel report --input -`        |
+| Endpoint                        | Method      | Cap                                                                      | Description                                                                                |
+|---------------------------------|-------------|--------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| `/api/findings`                 | GET         | `?limit=` clamped to `MAX_FINDINGS_LIMIT = 1000`                         | Query recent findings with optional `?service=`, `?type=`, `?severity=`, `?limit=` filters |
+| `/api/findings/{trace_id}`      | GET         | none                                                                     | All findings for a specific trace                                                          |
+| `/api/explain/{trace_id}`       | GET         | none                                                                     | Trace tree with findings inline, built from daemon memory                                  |
+| `/api/correlations`             | GET         | truncated at `MAX_CORRELATIONS_LIMIT = 1000` (sorted by confidence desc) | Active cross-trace correlations from the correlator. Empty when `correlator` is `None`     |
+| `/api/status`                   | GET         | none                                                                     | Daemon health: version, uptime, active traces, stored findings count                       |
+| `/api/config`                   | GET         | none                                                                     | Effective `[daemon]` configuration, read-only, secrets summarized (since 0.8.8)            |
+| `/api/energy`                   | GET         | none                                                                     | Live health of the energy/intensity backends (since 0.8.8)                                 |
+| `/api/export/report`            | GET         | inherits `/api/findings` + `/api/correlations` caps                      | Full `Report` snapshot as JSON, ready to pipe into `perf-sentinel report --input -`        |
+| `/api/findings/{signature}/ack` | POST/DELETE | none                                                                     | Acknowledge (POST) or revoke (DELETE) a finding at runtime (since 0.5.20)                  |
+| `/api/acks`                     | GET         | none                                                                     | List active runtime acks                                                                   |
 
 ### `/api/export/report` snapshot semantics
 

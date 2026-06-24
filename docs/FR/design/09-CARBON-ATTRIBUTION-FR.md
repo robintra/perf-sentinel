@@ -89,13 +89,12 @@ Ces caps reflètent le cap `MAX_REGIONS` côté runtime dans `score::carbon_comp
 
 ## Compatibilité ascendante
 
-Les cinq nouveaux champs `GreenSummary` portent tous `#[serde(default)]`. Une ligne d'archive écrite avant la livraison de cette fonctionnalité désérialise avec `energy_kwh = 0.0`, `energy_model = ""` et des maps vides. L'aggregator détecte ce cas et tombe sur le proxy.
+Les sept nouveaux champs d'attribution `GreenSummary` portent tous `#[serde(default)]` : `energy_kwh` et `energy_model` au niveau fenêtre, plus les maps par service `per_service_carbon_kgco2eq`, `per_service_energy_kwh`, `per_service_region`, `per_service_energy_model` et `per_service_measured_ratio`. Une ligne d'archive écrite avant la livraison de cette fonctionnalité désérialise avec `energy_kwh = 0.0`, `energy_model = ""` et des maps vides. L'aggregator détecte ce cas et tombe sur le proxy.
 
-Pas de bump de version de schéma. `perf-sentinel-report/v1.0` reste l'identifiant wire. Les consommateurs qui lisent uniquement l'ensemble v1.0 documenté continuent à fonctionner, ceux qui opt-in dans les nouveaux champs gagnent automatiquement les valeurs runtime-calibrated.
+Ce changement ne bumpe pas à lui seul la version de schéma. Les champs ajoutés sont des extensions `#[serde(default)]`, donc les consommateurs qui lisent uniquement l'ensemble documenté de base continuent à fonctionner, et ceux qui opt-in dans les nouveaux champs gagnent automatiquement les valeurs runtime-calibrated.
 
 ## Ce qu'on n'a pas fait
 
-- Tag de modèle énergétique par service (`per_service_energy_model: BTreeMap<String, String>`). Possible mais inutile aujourd'hui : le tag par fenêtre porte assez de fidélité pour l'audit trail.
 - Splits multi-régions par service. La forme wire reste simple au prix d'une attribution approximative pour les services qui changent de région en cours de fenêtre.
 - Attribution de l'embarqué par service. Exclu volontairement.
-- Bump de version de schéma. Le changement est strictement additif.
+- Bumper la version de schéma pour ce seul changement. Les champs ajoutés sont strictement additifs (le schéma a atteint la v1.3 plus tard via d'autres révisions additives).

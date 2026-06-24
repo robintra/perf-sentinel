@@ -2,7 +2,7 @@
 
 ## CLI design
 
-The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Ten subcommands are available: `analyze`, `explain`, `watch`, `demo`, `bench`, `pg-stat`, `inspect`, `query`, `diff` and `report`.
+The CLI (`sentinel-cli`) is intentionally thin. It parses arguments with [clap](https://docs.rs/clap/) and delegates to `sentinel-core` functions. Nineteen subcommands are available. Thirteen ship unconditionally: `analyze`, `explain`, `demo`, `bench`, `pg-stat`, `calibrate`, `report`, `diff`, `disclose`, `hash-bake`, `verify-hash`, `completions` and `man`. The other six are feature-gated: `watch`, `query` and `ack` (`daemon`), `inspect` (`tui`), `tempo` (`tempo`) and `jaeger-query` (`jaeger-query`).
 
 ### Analyze: colored report by default, JSON with `--ci`
 
@@ -156,16 +156,20 @@ A `const _: () = { ... while ... assert!(...) }` block at compile time checks th
 
 The workspace uses Cargo feature flags to keep daemon-only dependencies optional:
 
-| Feature  | Crate           | What it gates                                                                                                                                          |
-|----------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `daemon` | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `arc-swap`. Enables the `daemon/` module tree, Scaphandre scraper/state, cloud energy scraper/state. |
-| `daemon` | `sentinel-cli`  | Forwards to `sentinel-core/daemon`. Enables the `watch` subcommand.                                                                                    |
-| `tui`    | `sentinel-cli`  | `ratatui`, `crossterm`. Enables the `inspect` subcommand.                                                                                              |
+| Feature        | Crate           | What it gates                                                                                                                                                                                                                                                                      |
+|----------------|-----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `daemon`       | `sentinel-core` | The hyper + rustls HTTP stack (`hyper`, `hyper-util`, `http-body-util`, `bytes`, `hyper-rustls`, `tokio-rustls`, `tokio-stream`, `tower-http`) plus `arc-swap`, `dirs`, `subtle`, `libc`. Enables the `daemon/` module tree, Scaphandre scraper/state, cloud energy scraper/state. |
+| `tempo`        | `sentinel-core` | `hyper`, `hyper-util`, `http-body-util`, `bytes`, `hyper-rustls`. Enables Tempo HTTP API ingestion.                                                                                                                                                                                |
+| `jaeger-query` | `sentinel-core` | Same HTTP dependency set as `tempo`. Enables Jaeger query API ingestion (Jaeger, Victoria Traces).                                                                                                                                                                                 |
+| `daemon`       | `sentinel-cli`  | Forwards to `sentinel-core/daemon`, plus `hyper`, `bytes`, `humantime`, `rpassword`. Enables the `watch`, `query` and `ack` subcommands.                                                                                                                                           |
+| `tui`          | `sentinel-cli`  | `ratatui`, `crossterm`. Enables the `inspect` subcommand and the `--tui` flag on `analyze`/`explain`/`demo`.                                                                                                                                                                       |
+| `tempo`        | `sentinel-cli`  | Forwards to `sentinel-core/tempo`. Enables the `tempo` subcommand.                                                                                                                                                                                                                 |
+| `jaeger-query` | `sentinel-cli`  | Forwards to `sentinel-core/jaeger-query`. Enables the `jaeger-query` subcommand.                                                                                                                                                                                                   |
 
-Both `daemon` and `tui` are in the `default` feature set for the CLI. Users of `sentinel-core` as a library dependency can depend on it without `daemon` to avoid pulling in the hyper stack:
+The CLI `default` set is `["tui", "daemon", "tempo", "jaeger-query"]`. Users of `sentinel-core` as a library dependency can depend on it without `daemon` to avoid pulling in the hyper stack:
 
 ```toml
-perf-sentinel-core = { version = "0.3", default-features = false }
+perf-sentinel-core = { version = "0.8", default-features = false }
 ```
 
 This compiles the full batch pipeline (normalize, correlate, detect, score, report) without any HTTP client code. Config types (`ScaphandreConfig`, `CloudEnergyConfig`) are always available so the TOML parser works regardless of features; only the runtime scrapers and state types are gated.
@@ -294,20 +298,27 @@ edit. The full migration table is in `docs/CONFIGURATION.md`.
 
 Every numeric field has explicit bounds in `validate()`:
 
-| Field                        | Min   | Max                  | Rationale                                                                            |
-|------------------------------|-------|----------------------|--------------------------------------------------------------------------------------|
-| `max_payload_size`           | 1,024 | 104,857,600 (100 MB) | Prevent disabling input protection                                                   |
-| `max_active_traces`          | 1     | 1,000,000            | Prevent unbounded memory                                                             |
-| `max_events_per_trace`       | 1     | 100,000              | Prevent per-trace OOM                                                                |
-| `max_retained_findings`      | 0     | 10,000,000           | Prevent OOM on the findings store. `0` is documented as "disable the store entirely" |
-| `n_plus_one_threshold`       | 1     | *(none)*             | At least 1 occurrence to detect                                                      |
-| `window_duration_ms`         | 1     | *(none)*             | Non-zero window                                                                      |
-| `slow_query_threshold_ms`    | 1     | *(none)*             | Non-zero threshold                                                                   |
-| `slow_query_min_occurrences` | 1     | *(none)*             | At least 1 occurrence                                                                |
-| `max_fanout`                 | 1     | 100,000              | Prevent disabling detection                                                          |
-| `trace_ttl_ms`               | 100   | 3,600,000 (1 h)      | Minimum eviction interval                                                            |
-| `sampling_rate`              | 0.0   | 1.0                  | Valid probability                                                                    |
-| `io_waste_ratio_max`         | 0.0   | 1.0                  | Valid ratio                                                                          |
+| Field                                  | Min   | Max                  | Rationale                                                                            |
+|----------------------------------------|-------|----------------------|--------------------------------------------------------------------------------------|
+| `max_payload_size`                     | 1,024 | 104,857,600 (100 MB) | Prevent disabling input protection                                                   |
+| `max_active_traces`                    | 1     | 1,000,000            | Prevent unbounded memory                                                             |
+| `max_events_per_trace`                 | 1     | 100,000              | Prevent per-trace OOM                                                                |
+| `max_retained_findings`                | 0     | 10,000,000           | Prevent OOM on the findings store. `0` is documented as "disable the store entirely" |
+| `n_plus_one_threshold`                 | 1     | *(none)*             | At least 1 occurrence to detect                                                      |
+| `window_duration_ms`                   | 1     | *(none)*             | Non-zero window                                                                      |
+| `slow_query_threshold_ms`              | 1     | *(none)*             | Non-zero threshold                                                                   |
+| `slow_query_min_occurrences`           | 1     | *(none)*             | At least 1 occurrence                                                                |
+| `max_fanout`                           | 1     | 100,000              | Prevent disabling detection                                                          |
+| `trace_ttl_ms`                         | 100   | 3,600,000 (1 h)      | Minimum eviction interval                                                            |
+| `sampling_rate`                        | 0.0   | 1.0                  | Valid probability                                                                    |
+| `ingest_queue_capacity`                | 1     | 1,048,576            | Bounded-queue backpressure cap                                                       |
+| `analysis_queue_capacity`              | 1     | 1,048,576            | Bounded-queue backpressure cap                                                       |
+| `listen_port_http`                     | 1     | 65,535               | Valid TCP port                                                                       |
+| `listen_port_grpc`                     | 1     | 65,535               | Valid TCP port                                                                       |
+| `chatty_service_min_calls`             | 1     | *(none)*             | At least 1 call to detect                                                            |
+| `pool_saturation_concurrent_threshold` | 2     | *(none)*             | At least 2 concurrent statements to saturate                                         |
+| `serialized_min_sequential`            | 2     | *(none)*             | At least 2 calls to form a sequence                                                  |
+| `io_waste_ratio_max`                   | 0.0   | 1.0                  | Valid ratio                                                                          |
 
 The non-loopback `listen_addr` check emits a warning but does not reject:
 

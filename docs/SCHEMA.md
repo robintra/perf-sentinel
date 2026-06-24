@@ -25,7 +25,7 @@ The schema does not set `additionalProperties: false`; new fields can be added i
 
 A disclosure document carries three orthogonal axes that consumers should read before parsing any data: `intent` says *who the report is for* (a private draft, an external publication, or a third-party-audited publication), `confidentiality_level` says *how much per-service detail is exposed* (full G1 anti-pattern breakdown vs aggregated G2 counts), and `integrity_level` says *which cryptographic primitives back the document* (none, content hash only, Sigstore-signed, signed with SLSA build attestation). Together they let an auditor or a journalist filter the corpus before trusting any number inside.
 
-`intent` is one of `internal | official | audited`. `audited` is reserved for a future release: the JSON schema accepts the value for forward compatibility, but the CLI refuses it today with exit code 2. `confidentiality_level` is one of `internal | public`. `integrity_level` is one of `none | hash-only | signed | audited`. The v1.0 schema produces `hash-only`. `generated_at` is an RFC 3339 UTC timestamp. `generated_by` is one of `daemon | cli-batch | ci`. `perf_sentinel_version` is the SemVer string of the binary that wrote the file. `report_uuid` is a v4 UUID stamped per run.
+`intent` is one of `internal | official | audited`. `audited` is reserved for a future release: the JSON schema accepts the value for forward compatibility, but the CLI refuses it today with exit code 2. `confidentiality_level` is one of `internal | public`. `integrity_level` is one of `none | hash-only | signed | signed-with-attestation | audited`. By default the CLI produces `hash-only`. `generated_at` is an RFC 3339 UTC timestamp. `generated_by` is one of `daemon | cli-batch | ci`. `perf_sentinel_version` is the SemVer string of the binary that wrote the file. `report_uuid` is a v4 UUID stamped per run.
 
 ## Organisation
 
@@ -101,7 +101,7 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 > **See also.** The [Sigstore primer](SUPPLY-CHAIN.md#background-sigstore-primer) in the supply-chain doc defines Cosign, Fulcio, Rekor, in-toto, OIDC and SLSA used throughout this section.
 
-`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the perf-sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` is reserved for a future schema revision and is `null` in v1.0.
+`content_hash` is `"sha256:<64-hex>"` over the canonical JSON form of the document with the `content_hash` field blanked to an empty string. The schema also accepts an empty string for the field so example files can ship without a baked-in hash. `binary_hash` is `"sha256:<64-hex>"` of the perf-sentinel binary that produced the file. `binary_verification_url` points at the release artefact where consumers can fetch the same binary. `trace_integrity_chain` is reserved for a future schema revision and is `null` today.
 
 `signature` (0.7.0+) is either `null` (hash-only report) or a typed object with `format` (`"sigstore-cosign-intoto-v1"`), `bundle_url`, `signer_identity`, `signer_issuer`, `rekor_url`, `rekor_log_index`, and `signed_at`. The fields collectively let a verifier locate the cosign bundle and the Rekor inclusion proof.
 
@@ -113,11 +113,11 @@ The two granularities are encoded in the JSON Schema with mutually exclusive `no
 
 ## Notes
 
-`disclaimers` carries seven default statements: the two standard uncertainty disclaimers (directional estimate, ~2x multiplicative bracket; the SCI specification itself defines no uncertainty provisions), the embodied-carbon scope clarification (excluded from optimization potential), the embodied-per-service note (operational only at the service level, full at the aggregate), the runtime-attribution caveat (runtime-calibrated archives carry per-service data, older archives fall back to I/O share), and two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
+`disclaimers` carries eight default statements: the two standard uncertainty disclaimers (directional estimate, ~2x multiplicative bracket; the SCI specification itself defines no uncertainty provisions), the embodied-carbon scope clarification (excluded from optimization potential), the embodied-per-service note (operational only at the service level, full at the aggregate), the runtime-attribution caveat (runtime-calibrated archives carry per-service data, older archives fall back to I/O share), two regulatory-fitness lines (not for CSRD / GHG Scope 3, methodology reference), and the ESRS E1 crosswalk note (the `standard_crosswalk` mapping is an aid, not a substitute for an audited CSRD inventory). Operators can override the list in their org-config TOML. `reference_urls` is an open object mapping short keys (`methodology`, `schema`, `project`) to URLs. Operators can add custom keys.
 
 ## Boavizta and other omitted fields
 
-`boavizta_version` was considered for `calibration_inputs` but is not part of v1.0 because perf-sentinel does not currently consume Boavizta data. The field will be re-introduced when the integration ships. Schema consumers MUST tolerate unknown fields gracefully because perf-sentinel will add them in minor revisions.
+`boavizta_version` was considered for `calibration_inputs` but is not part of the schema today because perf-sentinel does not currently consume Boavizta data. The field will be re-introduced when the integration ships. Schema consumers MUST tolerate unknown fields gracefully because perf-sentinel will add them in minor revisions.
 
 ## Versioning
 
