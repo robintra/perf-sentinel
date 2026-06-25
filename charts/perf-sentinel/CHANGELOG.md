@@ -2,9 +2,17 @@
 
 All notable changes to the perf-sentinel Helm chart are documented in
 this file. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Chart versions are independent from the perf-sentinel application
-versions, the chart's `appVersion` field tracks which daemon version is
-the default target.
+From version 0.9.0 the chart `version` tracks the perf-sentinel
+application version. Both the chart `version` and `appVersion` move in
+lockstep, replacing the earlier independent `0.2.x` chart line.
+
+## [0.9.0]
+
+### Changed
+
+- Chart version realigned to track the perf-sentinel application version. From this release the chart `version` and `appVersion` move in lockstep (both `0.9.0`), replacing the previously independent `0.2.x` chart line.
+- `appVersion` bumped to `0.9.0`. The self-contained HTML dashboard is rebuilt as an application shell (sidebar navigation, Overview landing page, Findings master/detail with the Explain trace tree inline, severity-tinted KPI cards, syntax highlighting, embedded Geist fonts). No chart template change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.9.0` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
 
 ## [0.2.63]
 

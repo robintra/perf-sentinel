@@ -38,6 +38,8 @@ annotations:
       url: https://github.com/robintra/perf-sentinel/blob/main/docs/HELM-DEPLOYMENT.md
   artifacthub.io/changes: |
     - kind: changed
+      description: "appVersion 0.9.0: the self-contained HTML dashboard is rebuilt as an application shell (sidebar navigation, Overview landing page, Findings master/detail with the Explain trace tree inline, severity-tinted KPI cards, syntax highlighting, embedded Geist fonts). The chart version is realigned to track appVersion (both 0.9.0), replacing the independent 0.2.x line. No chart template change."
+    - kind: changed
       description: "appVersion 0.8.14: the HTML dashboard dark theme darkens its secondary panel background from #2c2c2c to #212121, giving metric cards, rows and the topbar more contrast against the primary background. Cosmetic, dark theme only. No chart template change, this bump only tracks the new appVersion."
     - kind: added
       description: "appVersion 0.7.4: two opt-in measured-energy sources extend the carbon attribution stack on ARM64 and bare-metal hosts. Kepler (kepler_ebpf) reads eBPF per-container or per-process joule counters. Redfish BMC (redfish_bmc) reads chassis wall-plug watts via the baseboard management controller and attributes them per service proportionally to ops-deltas. The carbon precedence chain becomes electricity_maps_api > scaphandre_rapl > kepler_ebpf > redfish_bmc > cloud_specpower > io_proxy_v3 > io_proxy_v2 > io_proxy_v1. Two new Prometheus gauges are exposed: perf_sentinel_kepler_last_scrape_age_seconds and perf_sentinel_redfish_last_scrape_age_seconds."
