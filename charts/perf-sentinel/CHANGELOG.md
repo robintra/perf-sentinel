@@ -6,6 +6,13 @@ From version 0.9.0 the chart `version` tracks the perf-sentinel
 application version. Both the chart `version` and `appVersion` move in
 lockstep, replacing the earlier independent `0.2.x` chart line.
 
+## [0.9.1]
+
+### Changed
+
+- `appVersion` bumped to `0.9.1`. The daemon binary updates `opentelemetry_sdk` to 0.32.1, resolving CVE-2026-48504 (unbounded memory allocation in W3C Baggage propagation). No chart template change, this bump tracks the new appVersion.
+- `artifacthub.io/images` annotation bumped to `ghcr.io/robintra/perf-sentinel:0.9.1` to keep the Artifact Hub display metadata in lockstep with `appVersion`.
+
 ## [0.9.0]
 
 ### Changed
