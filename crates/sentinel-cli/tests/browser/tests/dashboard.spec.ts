@@ -19,17 +19,21 @@ test("2. keyboard switches tabs via g-prefix shortcut", async ({ page }) => {
   await expect(page.locator("#tab-pgstat")).toHaveAttribute("aria-selected", "true");
 });
 
-test("3. clicking a finding row opens Explain", async ({ page }) => {
-  await loadDashboard(page);
+test("3. clicking a finding row opens the inline detail pane", async ({ page }) => {
+  // The app-shell redesign folds Explain into the Findings master/detail
+  // pane: clicking a row updates the detail in place, the Findings tab
+  // stays active (there is no separate Explain tab).
+  await loadDashboard(page, "#findings");
   const firstRow = page.locator("#findings-list .ps-row").first();
   await firstRow.click();
-  await expect(page.locator("#tab-explain")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#tab-findings")).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator("#explain-content")).toBeVisible();
   const breadcrumb = page.locator("#explain-breadcrumb");
   await expect(breadcrumb).toContainText("trace_id");
 });
 
-test("4. clicking a SQL span from Explain deep-links into pg_stat", async ({ page }) => {
-  await loadDashboard(page);
+test("4. clicking a SQL span from the detail tree deep-links into pg_stat", async ({ page }) => {
+  await loadDashboard(page, "#findings");
   await page.locator("#findings-list .ps-row").first().click();
   const sqlLink = page.locator(".ps-span-pgstat-link").first();
   if (await sqlLink.count() === 0) {
@@ -53,7 +57,7 @@ test("5. search filter narrows pg_stat rows", async ({ page }) => {
 });
 
 test("6. Export CSV blob carries RFC 4180-escaped content", async ({ page }) => {
-  await loadDashboard(page);
+  await loadDashboard(page, "#findings");
   // Hook createObjectURL so the export click captures the blob text.
   await page.evaluate(() => {
     const g = globalThis as unknown as { __capturedCsv?: string };
@@ -155,6 +159,22 @@ test("9. Copy link button writes location.href to the clipboard", async ({ page,
   await page.waitForTimeout(50);
   const clip = await page.evaluate(() => navigator.clipboard.readText());
   expect(clip).toMatch(/#findings$/);
+});
+
+test("11. j key moves selection and the detail pane follows it", async ({ page }) => {
+  // Master/detail: in the app-shell redesign the detail pane is always
+  // visible beside the list, so j/k must re-render the detail, not just
+  // move the highlight.
+  await loadDashboard(page, "#findings");
+  await page.waitForSelector("#findings-list .ps-row");
+  const rowCount = await page.locator("#findings-list .ps-row").count();
+  test.skip(rowCount < 2, "fixture needs at least two findings");
+  await page.keyboard.press("j");
+  const selectedType = await page
+    .locator("#findings-list .ps-row.selected .ps-fin-type")
+    .textContent();
+  const detailType = await page.locator("#explain-detail-head .ps-detail-h2").textContent();
+  expect(detailType?.trim()).toBe(selectedType?.trim());
 });
 
 test("10. tablist carries ARIA roles and selection state", async ({ page }) => {

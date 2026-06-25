@@ -97,7 +97,7 @@ async function clipScreenshot(
 
 test("01 findings with severity + service filters", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
-  await openDashboard(page, theme);
+  await openDashboard(page, theme, "#findings");
   await page.locator('#findings-filters .ps-chip[data-key="sev:warning"]').click();
   await page.locator('#findings-filters .ps-chip[data-key="svc:order-svc"]').click();
   await page.waitForTimeout(150);
@@ -108,7 +108,7 @@ test("01 findings with severity + service filters", async ({ page }, info) => {
 
 test("02 explain trace tree", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
-  await openDashboard(page, theme);
+  await openDashboard(page, theme, "#findings");
   await page.locator("#findings-list .ps-row").first().click();
   await page.waitForTimeout(150);
   const path = outPath("explain", theme);
@@ -186,7 +186,7 @@ async function waitForLiveAcks(
 
 test("08 ack modal open", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
-  await openDashboard(page, theme);
+  await openDashboard(page, theme, "#findings");
   await waitForLiveAcks(page, 3);
   // Three of the five visible findings are pre-acked by the mock, so
   // those rows render with "Revoke" and clicking them would prompt
@@ -217,7 +217,7 @@ test("09 acknowledgments panel", async ({ page }, info) => {
 
 test("10 show acknowledged toggle", async ({ page }, info) => {
   const theme = themeFor(info.project.name);
-  await openDashboard(page, theme);
+  await openDashboard(page, theme, "#findings");
   await waitForLiveAcks(page, 3);
   await page.locator("#findings-include-acked").check();
   await page.waitForTimeout(150);

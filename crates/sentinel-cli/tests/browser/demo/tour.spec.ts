@@ -26,7 +26,10 @@ test("dashboard tour", async ({ page }, testInfo) => {
 
   await page.goto("/dashboard-demo.html");
   await page.waitForSelector("[role=tablist]");
-  await pause(page, 1500);
+  // Land on the new Overview, then move into Findings for the tour.
+  await pause(page, 1800);
+  await page.locator("#tab-findings").click();
+  await pause(page, 1200);
 
   // --- Findings exploration ---
   // Severity filter: Warning chip narrows the list to 3 warnings.
@@ -39,7 +42,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await page.locator('#findings-filters .ps-chip[data-key="all"]').click();
   await pause(page, 900);
 
-  // Click first finding row -> Explain opens with the trace tree.
+  // Click first finding row -> the detail pane updates with the trace tree.
   await page.locator("#findings-list .ps-row").first().click();
   await pause(page, 2400);
 
@@ -118,7 +121,7 @@ test("dashboard tour", async ({ page }, testInfo) => {
   await cycleTo(primary);
   await pause(page, 500);
 
-  // g r: jump to GreenOps, back in the primary theme.
+  // g r: jump to Carbon (GreenOps), back in the primary theme.
   await page.keyboard.press("g");
   await pause(page, 200);
   await page.keyboard.press("r");
