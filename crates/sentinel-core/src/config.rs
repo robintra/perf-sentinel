@@ -421,8 +421,9 @@ impl Config {
     /// Map the daemon environment to a [`Confidence`] value.
     ///
     /// Used by `daemon::run` to stamp findings after detection. `analyze`
-    /// batch mode does not call this; it hardcodes [`Confidence::CiBatch`]
-    /// in `pipeline::analyze_with_traces` instead.
+    /// batch mode does not call this; it picks `CiBatch` or `LocalBatch`
+    /// from the host CI environment in `pipeline::analyze_with_traces`
+    /// instead (see `pipeline::ci_environment_detected`).
     #[must_use]
     pub const fn confidence(&self) -> Confidence {
         match self.daemon.environment {

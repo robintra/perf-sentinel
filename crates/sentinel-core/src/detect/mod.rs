@@ -168,12 +168,15 @@ pub enum Severity {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Confidence {
-    /// Batch `analyze` run on traces collected in CI (integration tests).
-    /// Lowest confidence: limited traffic shapes, controlled environment.
+    /// Batch `analyze` run on a developer machine, no CI environment
+    /// detected. Lowest confidence: ad-hoc local traces, uncontrolled run.
+    LocalBatch,
+    /// Batch `analyze` run in CI (integration tests). Low confidence:
+    /// limited traffic shapes, controlled environment.
     ///
     /// Marked `#[default]` so detectors that emit `Confidence::default()`
-    /// get the safest fallback (lowest confidence), a forgotten stamp
-    /// never inflates perf-lint's severity.
+    /// get a safe batch fallback, a forgotten stamp never inflates
+    /// perf-lint's severity to a daemon level.
     #[default]
     CiBatch,
     /// Daemon `watch` run on staging traffic. Medium confidence: real
@@ -189,9 +192,29 @@ impl Confidence {
     #[must_use]
     pub const fn as_str(&self) -> &'static str {
         match self {
+            Self::LocalBatch => "local_batch",
             Self::CiBatch => "ci_batch",
             Self::DaemonStaging => "daemon_staging",
             Self::DaemonProduction => "daemon_production",
+        }
+    }
+
+    /// `true` for the two batch contexts (local / CI). The terminal report
+    /// stays quiet about confidence for batch runs and only surfaces it for
+    /// the stronger daemon signals.
+    #[must_use]
+    pub const fn is_batch(&self) -> bool {
+        matches!(self, Self::LocalBatch | Self::CiBatch)
+    }
+
+    /// Pick the batch confidence from whether a CI environment was detected.
+    /// Pure so the env detection (impure) stays at the call site.
+    #[must_use]
+    pub const fn batch_for_ci(is_ci: bool) -> Self {
+        if is_ci {
+            Self::CiBatch
+        } else {
+            Self::LocalBatch
         }
     }
 
@@ -204,6 +227,7 @@ impl Confidence {
     #[must_use]
     pub const fn sarif_rank(&self) -> u32 {
         match self {
+            Self::LocalBatch => 15,
             Self::CiBatch => 30,
             Self::DaemonStaging => 60,
             Self::DaemonProduction => 90,
@@ -698,6 +722,10 @@ mod tests {
     #[test]
     fn confidence_serializes_to_snake_case() {
         assert_eq!(
+            serde_json::to_string(&Confidence::LocalBatch).unwrap(),
+            r#""local_batch""#
+        );
+        assert_eq!(
             serde_json::to_string(&Confidence::CiBatch).unwrap(),
             r#""ci_batch""#
         );
@@ -713,6 +741,8 @@ mod tests {
 
     #[test]
     fn confidence_deserializes_from_snake_case() {
+        let c: Confidence = serde_json::from_str(r#""local_batch""#).unwrap();
+        assert_eq!(c, Confidence::LocalBatch);
         let c: Confidence = serde_json::from_str(r#""ci_batch""#).unwrap();
         assert_eq!(c, Confidence::CiBatch);
         let c: Confidence = serde_json::from_str(r#""daemon_staging""#).unwrap();
@@ -723,6 +753,7 @@ mod tests {
 
     #[test]
     fn confidence_as_str_matches_serialization() {
+        assert_eq!(Confidence::LocalBatch.as_str(), "local_batch");
         assert_eq!(Confidence::CiBatch.as_str(), "ci_batch");
         assert_eq!(Confidence::DaemonStaging.as_str(), "daemon_staging");
         assert_eq!(Confidence::DaemonProduction.as_str(), "daemon_production");
@@ -731,12 +762,24 @@ mod tests {
     #[test]
     fn confidence_sarif_rank_increases_with_confidence() {
         // Ordering must be strictly ascending so SARIF consumers that sort
-        // by rank produce the expected "production > staging > CI" order.
+        // by rank produce the expected "production > staging > CI > local" order.
+        assert!(Confidence::LocalBatch.sarif_rank() < Confidence::CiBatch.sarif_rank());
         assert!(Confidence::CiBatch.sarif_rank() < Confidence::DaemonStaging.sarif_rank());
         assert!(Confidence::DaemonStaging.sarif_rank() < Confidence::DaemonProduction.sarif_rank());
+        assert_eq!(Confidence::LocalBatch.sarif_rank(), 15);
         assert_eq!(Confidence::CiBatch.sarif_rank(), 30);
         assert_eq!(Confidence::DaemonStaging.sarif_rank(), 60);
         assert_eq!(Confidence::DaemonProduction.sarif_rank(), 90);
+    }
+
+    #[test]
+    fn batch_for_ci_maps_and_is_batch_classifies() {
+        assert_eq!(Confidence::batch_for_ci(true), Confidence::CiBatch);
+        assert_eq!(Confidence::batch_for_ci(false), Confidence::LocalBatch);
+        assert!(Confidence::LocalBatch.is_batch());
+        assert!(Confidence::CiBatch.is_batch());
+        assert!(!Confidence::DaemonStaging.is_batch());
+        assert!(!Confidence::DaemonProduction.is_batch());
     }
 
     #[test]

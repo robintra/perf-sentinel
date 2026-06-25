@@ -54,13 +54,17 @@ pub fn analyze_with_traces(
     // Sort findings for deterministic output (HashMap iteration order is random)
     detect::sort_findings(&mut findings);
 
-    // Stamp confidence on every finding. `analyze` is the batch path,
-    // always CiBatch regardless of the daemon environment config. The
-    // real daemon path (daemon::process_traces) stamps Staging or
-    // Production from Config::confidence(). Detectors themselves never
-    // reason about confidence; they emit Confidence::default() and the
-    // pipeline caller overrides it here via the shared helper.
-    detect::apply_confidence(&mut findings, Confidence::CiBatch);
+    // Stamp confidence on every finding. `analyze` is the batch path: it
+    // stamps CiBatch when a CI environment is detected, otherwise LocalBatch
+    // (a developer-machine run). The real daemon path
+    // (daemon::process_traces) stamps Staging or Production from
+    // Config::confidence() instead. Detectors themselves never reason about
+    // confidence; they emit Confidence::default() and the pipeline overrides
+    // it here. Env detection is the one impure step, kept to a helper.
+    detect::apply_confidence(
+        &mut findings,
+        Confidence::batch_for_ci(ci_environment_detected()),
+    );
 
     // Stamp the canonical signature so JSON consumers can copy-paste it
     // into `.perf-sentinel-acknowledgments.toml` without having to recompute.
@@ -92,6 +96,16 @@ pub fn analyze_with_traces(
     };
 
     (report, traces)
+}
+
+/// Detect a CI environment via the de-facto `CI` env var, set to a truthy
+/// value by GitHub Actions, GitLab, Travis, and most CI runners. `CI=false`
+/// and `CI=0` count as "not CI" so an operator can force a local context.
+/// The single source of truth: the batch [`Confidence`] here and the
+/// disclosure `generated_by` attribution both call it.
+#[must_use]
+pub fn ci_environment_detected() -> bool {
+    matches!(std::env::var("CI"), Ok(v) if !v.is_empty() && v != "false" && v != "0")
 }
 
 #[cfg(test)]
@@ -311,16 +325,18 @@ mod tests {
         assert!(report.green_summary.co2.is_none());
     }
 
-    // --- batch mode always stamps CiBatch ---
+    // --- batch mode stamps a batch confidence (local or CI) ---
 
     #[test]
-    fn batch_analyze_stamps_ci_batch_confidence() {
+    fn batch_analyze_stamps_a_batch_confidence() {
         use crate::test_helpers::make_n_plus_one_events;
         let events = make_n_plus_one_events();
-        // Even with a production environment in config, batch analyze
-        // must stamp CiBatch, confidence is mode-driven, not config-driven,
-        // for `analyze` (the config `daemon.environment` only affects
-        // `watch` daemon mode).
+        // Even with a production environment in config, batch analyze must
+        // stamp a batch confidence (CiBatch in CI, LocalBatch otherwise),
+        // never a daemon level: confidence is mode-driven for `analyze`, the
+        // config `daemon.environment` only affects `watch` daemon mode. The
+        // exact batch variant depends on the host env (CI var), so assert
+        // the family, not a specific value (see batch_for_ci for the map).
         let config = Config {
             daemon: crate::config::DaemonConfig {
                 environment: crate::config::DaemonEnvironment::Production,
@@ -331,7 +347,7 @@ mod tests {
         let report = analyze(events, &config);
         assert!(!report.findings.is_empty());
         for f in &report.findings {
-            assert_eq!(f.confidence, Confidence::CiBatch);
+            assert!(f.confidence.is_batch(), "got {:?}", f.confidence);
         }
     }
 

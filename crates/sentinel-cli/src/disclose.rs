@@ -1183,7 +1183,7 @@ pub fn cmd_disclose(
 
     let intent_schema: ReportIntent = intent.into();
     let confidentiality_schema: Confidentiality = confidentiality.into();
-    let generated_by = if std::env::var("CI").is_ok_and(|v| !v.is_empty()) {
+    let generated_by = if sentinel_core::pipeline::ci_environment_detected() {
         "ci".to_string()
     } else {
         "cli-batch".to_string()
