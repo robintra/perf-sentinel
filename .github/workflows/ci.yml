@@ -287,6 +287,15 @@ jobs:
 
       - name: Run Gitleaks on full history
         run: |
+          # Pinned by digest for supply-chain reproducibility. Retry the pull
+          # so a transient Docker Hub timeout or rate-limit does not fail the
+          # gate (the failure mode is exit 125, not a leak).
+          IMAGE="zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+          for attempt in 1 2 3; do
+            docker pull "$IMAGE" && break
+            echo "gitleaks image pull attempt ${attempt} failed, retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
           docker run --rm -v "${GITHUB_WORKSPACE}:/repo" \
-            zricethezav/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            "$IMAGE" \
             detect --source=/repo --redact --no-banner --verbose
