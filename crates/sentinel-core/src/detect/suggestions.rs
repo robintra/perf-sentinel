@@ -874,7 +874,7 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (PoolSaturation, CsharpGeneric),
-            "Profile the `slow_sql` findings on the same service; pool saturation \
+            "Profile the `slow_sql` findings on the same service: pool saturation \
              follows from connections being held during slow work. Raise the \
              pool size only after the slow path is corrected.",
             Some(
