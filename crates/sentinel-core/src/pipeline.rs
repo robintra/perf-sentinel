@@ -98,14 +98,20 @@ pub fn analyze_with_traces(
     (report, traces)
 }
 
-/// Detect a CI environment via the de-facto `CI` env var, set to a truthy
-/// value by GitHub Actions, GitLab, Travis, and most CI runners. `CI=false`
-/// and `CI=0` count as "not CI" so an operator can force a local context.
-/// The single source of truth: the batch [`Confidence`] here and the
-/// disclosure `generated_by` attribution both call it.
+/// Detect a CI environment. GitHub Actions, GitLab, Travis and most runners
+/// export a truthy `CI` env var. `CI=false` and `CI=0` count as "not CI" so
+/// an operator can force a local context. Jenkins does not set `CI` (it
+/// exports `JENKINS_URL`), so a present `JENKINS_URL` also counts as CI
+/// unless `CI` is explicitly false. The single source of truth: the batch
+/// [`Confidence`] here and the disclosure `generated_by` attribution both
+/// call it.
 #[must_use]
 pub fn ci_environment_detected() -> bool {
-    matches!(std::env::var("CI"), Ok(v) if !v.is_empty() && v != "false" && v != "0")
+    match std::env::var("CI") {
+        Ok(v) if v == "false" || v == "0" => false,
+        Ok(v) if !v.is_empty() => true,
+        _ => std::env::var_os("JENKINS_URL").is_some(),
+    }
 }
 
 #[cfg(test)]
