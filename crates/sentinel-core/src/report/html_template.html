@@ -710,10 +710,10 @@
     var base = { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none",
       stroke: "currentColor", "stroke-width": "2.2", "stroke-linecap": "round",
       "stroke-linejoin": "round", "class": accent ? "ps-th-svg accent" : "ps-th-svg" };
-    Object.keys(base).forEach(function (k) { svg.setAttribute(k, base[k]); });
+    setAttrs(svg, base);
     children.forEach(function (c) {
       var node = document.createElementNS(NS, c.tag);
-      Object.keys(c.attrs).forEach(function (k) { node.setAttribute(k, c.attrs[k]); });
+      setAttrs(node, c.attrs);
       svg.appendChild(node);
     });
     return svg;
@@ -795,6 +795,7 @@
     return n;
   }
   function setAttr(node, name, value) { node.setAttribute(name, String(value)); }
+  function setAttrs(node, attrs) { Object.keys(attrs).forEach(function (k) { node.setAttribute(k, String(attrs[k])); }); }
   function safeHttpsHref(url) {
     if (typeof url !== "string") return null;
     if (!url.startsWith("https://")) return null;
@@ -879,7 +880,7 @@
     "public","private","protected","final","abstract","sealed","record","super","synchronized",
     "readonly","internal","base","volatile","transient","namespace","using","override","virtual",
     "out","params","foreach",
-    "GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS"
+    "GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS","TRACE","CONNECT"
   ]);
   function makeTokenSpan(text, color, bold) {
     var span = el("span", null, text);
@@ -896,7 +897,7 @@
     var attrs = { width: String(size), height: String(size), viewBox: "0 0 24 24",
       fill: "none", stroke: "currentColor", "stroke-width": "3",
       "stroke-linecap": "round", "stroke-linejoin": "round", display: "block" };
-    Object.keys(attrs).forEach(function (k) { svg.setAttribute(k, attrs[k]); });
+    setAttrs(svg, attrs);
     var path = document.createElementNS(NS, "path");
     path.setAttribute("d", d);
     svg.appendChild(path);
@@ -975,6 +976,8 @@
   // URL path is not code, so a segment that happens to match a code keyword
   // ("export", "class", ...) must NOT be highlighted as one.
   var HTTP_METHODS = { GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1, HEAD: 1, OPTIONS: 1, TRACE: 1, CONNECT: 1 };
+  // Derived from HTTP_METHODS so the dispatch gate cannot drift from the set.
+  var HTTP_DISPATCH_RE = new RegExp("^\\s*(" + Object.keys(HTTP_METHODS).join("|") + ")\\s+/", "i");
   function endpointHlFragment(frag, src) {
     var re = /(\s+)|(\{[^}]*\})|(\d+)|([A-Za-z][A-Za-z0-9_-]*)|(\S)/g;
     var m;
@@ -1001,7 +1004,7 @@
     try {
       // Endpoint ("METHOD /path") first, so "DELETE /x" is not mistaken for
       // a SQL DELETE statement.
-      if (/^\s*(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//i.test(src)) {
+      if (HTTP_DISPATCH_RE.test(src)) {
         endpointHlFragment(frag, src);
       } else if (/^\s*(SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER)\b/i.test(src)) {
         sqlHlFragment(frag, src);
@@ -1447,7 +1450,7 @@
       top.appendChild(el("span", "ps-fin-type", occ ? typeText + " · ×" + occ : typeText));
       left.appendChild(top);
       var ovSub = el("span", "ps-fin-service ps-fin-sub");
-      highlightEndpoint(ovSub, (f.service || "-") + " — " + (f.source_endpoint || "-"));
+      highlightEndpoint(ovSub, (f.service || "-") + " · " + (f.source_endpoint || "-"));
       left.appendChild(ovSub);
       row.appendChild(left);
       // Right column: per-finding green impact (IIS + avoidable-I/O share).
@@ -1634,6 +1637,7 @@
     syncFilterChips();
     resetShownCount();
     renderFindingsList();
+    reapplyFindingsSearch();
     scheduleHashWrite();
   }
   function syncFilterChips() {
@@ -1674,6 +1678,10 @@
   // master list and the always-visible detail stay in sync.
   function selectFinding(idx) {
     if (idx < 0 || idx >= visibleFindings.length) return;
+    // Re-selecting the same finding (same index AND same object) would
+    // rebuild an already-correct detail pane. The object check keeps it
+    // correct when a re-render shifts which finding sits at this index.
+    if (idx === selectedIndex && visibleFindings[idx] === selectedFinding) return;
     selectedIndex = idx;
     selectedFinding = visibleFindings[idx];
     syncSelection();
@@ -1770,7 +1778,7 @@
     row.appendChild(topLine);
 
     var finSub = el("span", "ps-fin-service ps-fin-sub");
-    highlightEndpoint(finSub, (f.service || "-") + " — " + (f.source_endpoint || "-"));
+    highlightEndpoint(finSub, (f.service || "-") + " · " + (f.source_endpoint || "-"));
     row.appendChild(finSub);
 
     // The normalized template is not shown in the compact row but stays
@@ -1967,7 +1975,7 @@
   }
 
   function clockTime(iso) {
-    return typeof iso === "string" && iso.length >= 19 ? iso.slice(11, 19) : (iso || "");
+    return typeof iso === "string" && iso.length >= 19 ? iso.slice(11, 19) + " UTC" : (iso || "");
   }
 
   /// Build the parent -> children adjacency for a span list plus the
@@ -2568,7 +2576,28 @@
     });
   }
 
+  // First ranking whose top-N entries contain the template, or -1.
+  function rankingIndexWithTemplate(template) {
+    for (var i = 0; i < pgStatRankings.length; i++) {
+      var entries = pgStatRankings[i].entries || [];
+      var hit = entries.some(function (e) {
+        return e.normalized_template === template;
+      });
+      if (hit) return i;
+    }
+    return -1;
+  }
   function showPgStatDrill(template) {
+    // The clicked template may sit in another ranking's top-N, not the
+    // active one. Switch to a ranking that lists it so the row exists and
+    // can be highlighted (else the drill banner shows the SQL but no row).
+    var inActive = activePgStatEntries().some(function (e) {
+      return e.normalized_template === template;
+    });
+    if (!inActive) {
+      var idx = rankingIndexWithTemplate(template);
+      if (idx >= 0) selectPgStatRanking(idx);
+    }
     var drill = document.getElementById("pgstat-drill");
     var txt = document.getElementById("pgstat-drill-text");
     drill.style.display = "";
@@ -2841,6 +2870,13 @@
       row.style.display = !q || matchRowByText(row, q) ? "" : "none";
     });
   }
+  // Re-apply the active findings text search after the list re-renders
+  // (filter chips and Show more rebuild the rows with default display).
+  function reapplyFindingsSearch() {
+    if (SEARCHABLE_TABS && SEARCHABLE_TABS.findings) {
+      applySearchFilter(SEARCHABLE_TABS.findings);
+    }
+  }
   function openSearchForActiveTab() {
     var cfg = SEARCHABLE_TABS[currentTab];
     if (!cfg) return;
@@ -2923,8 +2959,10 @@
     // original text: spreadsheets display the cell as-is and drop the
     // leading apostrophe, consumers that parse the CSV literally keep
     // it. Strict first-byte check: do not strip leading whitespace
-    // (a leading tab is itself a formula trigger on some clients).
-    if (s.length > 0 && "=+-@\t".includes(s.charAt(0))) {
+    // (a leading tab is itself a formula trigger on some clients). A plain
+    // signed number (e.g. a negative delta "-12") is exempt: it is not a
+    // formula, and prefixing it would corrupt numeric columns.
+    if (s.length > 0 && "=+-@\t".includes(s.charAt(0)) && !/^[+-]?\d*\.?\d+$/.test(s)) {
       s = "'" + s;
     }
     if (s.includes(",") || s.includes("\"") ||
@@ -3161,8 +3199,8 @@
   }
   function rankingIndexForSlug(slug) {
     if (RANKING_SLUGS.includes(slug)) return RANKING_SLUGS.indexOf(slug);
-    var n = Number.parseInt(slug, 10);
-    return Number.isFinite(n) ? n : -1;
+    // Pure-digit slug only: parseInt would silently accept "2abc" as 2.
+    return /^\d+$/.test(slug) ? Number(slug) : -1;
   }
 
   // Keys accepted from the URL fragment. Anything outside this set is
@@ -3381,8 +3419,8 @@
     if (tag === "INPUT" || tag === "TEXTAREA") return true;
     return a.isContentEditable === true;
   }
-  /// Escape ladder: close cheatsheet, close search, leave Explain,
-  /// clear filter chips. Each tier returns as soon as it acts.
+  /// Escape ladder: close cheatsheet, close search, clear filter chips.
+  /// Each tier returns as soon as it acts.
   function handleEscape(ev) {
     if (isCheatsheetOpen()) {
       closeCheatsheet();
@@ -3596,6 +3634,7 @@
     btn.addEventListener("click", function () {
       shownCount += LIST_CAP;
       renderFindingsList();
+      reapplyFindingsSearch();
     });
   }
 
