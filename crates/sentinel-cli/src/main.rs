@@ -2320,6 +2320,11 @@ fn cmd_demo(
     // Correlations tab (HTML) and panel (TUI) without a running daemon.
     report.correlations = demo_correlations();
 
+    // The offline io_proxy model leaves per-region measured/estimated
+    // provenance unset. Tag the demo regions the way Electricity Maps would:
+    // the larger regions are measured live, the smallest only has an estimate.
+    seed_demo_region_provenance(&mut report.green_summary.regions);
+
     if let Some(path) = html {
         let options = sentinel_core::report::html::RenderOptions {
             input_label: "demo dataset".to_string(),
@@ -2348,6 +2353,36 @@ fn cmd_demo(
     }
 
     print_colored_report(&report, "demo");
+}
+
+/// Surface a mix of provenance states on the demo regions (the offline
+/// `io_proxy` path leaves these fields unset). To showcase all three states,
+/// the largest region is measured live (`RealTime`), the smallest is estimated,
+/// and any region in between keeps the unset/unknown state (rendered as "-").
+fn seed_demo_region_provenance(regions: &mut [sentinel_core::score::carbon::RegionBreakdown]) {
+    use sentinel_core::score::carbon::IntensitySource;
+    let min_idx = regions
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, r)| r.io_ops)
+        .map(|(i, _)| i);
+    let max_idx = regions
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, r)| r.io_ops)
+        .map(|(i, _)| i);
+    for (i, r) in regions.iter_mut().enumerate() {
+        if Some(i) == min_idx {
+            // Estimated only ever comes from a live Electricity Maps query.
+            r.intensity_source = IntensitySource::RealTime;
+            r.intensity_estimated = Some(true);
+            r.intensity_estimation_method = Some("time_slicer_average".to_string());
+        } else if Some(i) == max_idx {
+            r.intensity_source = IntensitySource::RealTime;
+            r.intensity_estimated = Some(false);
+        }
+        // Regions in between keep intensity_estimated = None ("-").
+    }
 }
 
 /// Rank the embedded demo `pg_stat_statements` snapshot for the dashboard's
