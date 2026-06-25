@@ -406,8 +406,8 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── Java ───────────────────────────────────────────────────
         (
             (NPlusOneSql, JavaJpa),
-            "Use JOIN FETCH on the relationship or annotate the repository \
-             method with @EntityGraph to load associations in a single query.",
+            "Use `JOIN FETCH` on the relationship or annotate the repository \
+             method with `@EntityGraph` to load associations in a single query.",
             Some(
                 "https://docs.jboss.org/hibernate/orm/current/userguide/html_single/\
                  Hibernate_User_Guide.html#fetching-strategies-dynamic-fetching",
@@ -415,92 +415,92 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (RedundantSql, JavaJpa),
-            "Add Spring's @Cacheable on the repository or service method, \
-             or share the EntityManager within the request via @Transactional \
-             so Hibernate's first-level cache deduplicates the read.",
+            "Add `Spring`'s `@Cacheable` on the repository or service method, \
+             or share the `EntityManager` within the request via `@Transactional` \
+             so `Hibernate`'s first-level cache deduplicates the read.",
             Some("https://docs.spring.io/spring-framework/reference/integration/cache.html"),
         ),
         (
             (NPlusOneSql, JavaQuarkusReactive),
-            "Use Mutiny's Hibernate Reactive Session.fetch() with @NamedEntityGraph, \
-             or join the relation in a Panache reactive query, to load associations \
+            "Use `Mutiny`'s Hibernate Reactive `Session.fetch()` with `@NamedEntityGraph`, \
+             or join the relation in a `Panache` reactive query, to load associations \
              in a single round-trip.",
             Some("https://quarkus.io/guides/hibernate-reactive"),
         ),
         (
             (NPlusOneHttp, JavaWebFlux),
-            "Replace the sequential .flatMap() chain with Flux.merge() or Flux.zip() \
+            "Replace the sequential `.flatMap()` chain with `Flux.merge()` or `Flux.zip()` \
              for parallel execution, or call a batch endpoint that returns the \
              aggregated result in one round-trip.",
             Some("https://docs.spring.io/spring-framework/reference/web/webflux-functional.html"),
         ),
         (
             (NPlusOneHttp, JavaQuarkusReactive),
-            "Replace chained Uni.chain() / Multi.onItem().transformToUni() calls with \
-             Uni.combine().all().unis(...) for parallel execution, or call a batch \
+            "Replace chained `Uni.chain()` / `Multi.onItem().transformToUni()` calls with \
+             `Uni.combine().all().unis(...)` for parallel execution, or call a batch \
              endpoint.",
             Some("https://smallrye.io/smallrye-mutiny/latest/guides/combining-items/"),
         ),
         (
             (NPlusOneHttp, JavaGeneric),
             "Coalesce the calls into a batch endpoint, or cache the per-request \
-             results with Spring's @Cacheable using a request-scoped cache.",
+             results with `Spring`'s `@Cacheable` using a request-scoped cache.",
             Some("https://docs.spring.io/spring-framework/reference/integration/cache.html"),
         ),
         (
             (RedundantSql, JavaQuarkusReactive),
-            "Use Quarkus' @CacheResult on the reactive method, or memoize the Uni \
-             with Mutiny's .memoize().indefinitely() to deduplicate within a request.",
+            "Use `Quarkus`' `@CacheResult` on the reactive method, or memoize the `Uni` \
+             with `Mutiny`'s `.memoize().indefinitely()` to deduplicate within a request.",
             Some("https://quarkus.io/guides/cache"),
         ),
         (
             (NPlusOneSql, JavaQuarkus),
-            "In Quarkus with Hibernate ORM, use a JOIN FETCH in your JPQL or Panache \
-             query, annotate the repository method with @EntityGraph, or call \
-             entityManager.unwrap(Session.class).fetchProfile(...) for a named fetch \
+            "In Quarkus with Hibernate ORM, use a `JOIN FETCH` in your JPQL or `Panache` \
+             query, annotate the repository method with `@EntityGraph`, or call \
+             `entityManager.unwrap(Session.class).fetchProfile(...)` for a named fetch \
              plan.",
             Some("https://quarkus.io/guides/hibernate-orm-panache#fetching-and-loading"),
         ),
         (
             (NPlusOneHttp, JavaQuarkus),
-            "Use CompletableFuture.allOf(...) on the Quarkus ManagedExecutor for \
+            "Use `CompletableFuture.allOf(...)` on the Quarkus `ManagedExecutor` for \
              parallel calls, or invoke a batch endpoint via the Quarkus REST Client. \
-             For repeated reads, add @CacheResult on the client method.",
+             For repeated reads, add `@CacheResult` on the client method.",
             Some("https://quarkus.io/guides/rest-client-reactive"),
         ),
         (
             (RedundantSql, JavaQuarkus),
-            "Add @CacheResult on the @ApplicationScoped service method (Quarkus \
-             cache extension), or scope a HashMap on a @RequestScoped bean to \
+            "Add `@CacheResult` on the `@ApplicationScoped` service method (Quarkus \
+             cache extension), or scope a `HashMap` on a `@RequestScoped` bean to \
              deduplicate the query within the request.",
             Some("https://quarkus.io/guides/cache"),
         ),
         (
             (NPlusOneSql, JavaHelidonSe),
-            "Replace the per-id loop with a single named Helidon DbClient query \
-             that performs JOIN, or pass a list of ids via the :ids JDBC parameter \
+            "Replace the per-id loop with a single named Helidon `DbClient` query \
+             that performs `JOIN`, or pass a list of ids via the `:ids` JDBC parameter \
              binding. Helidon SE has no JPA layer: the fix happens at the \
-             DbClient query level.",
+             `DbClient` query level.",
             Some("https://helidon.io/docs/latest/se/dbclient"),
         ),
         (
             (NPlusOneHttp, JavaHelidonSe),
-            "Fan out concurrent requests with Helidon WebClient using \
-             Single.zip(...) or Multi.merge(...). Or call a batch endpoint that \
+            "Fan out concurrent requests with Helidon `WebClient` using \
+             `Single.zip(...)` or `Multi.merge(...)`. Or call a batch endpoint that \
              returns the aggregated result in one round-trip.",
             Some("https://helidon.io/docs/latest/se/webclient"),
         ),
         (
             (NPlusOneSql, JavaHelidonMp),
             "Helidon MP entities are JPA-managed under Hibernate. Use \
-             @EntityGraph on the repository method or JPQL JOIN FETCH on the \
+             `@EntityGraph` on the repository method or JPQL `JOIN FETCH` on the \
              relationship to load associations in a single query.",
             Some("https://helidon.io/docs/latest/mp/persistence"),
         ),
         (
             (NPlusOneHttp, JavaHelidonMp),
-            "Use the MicroProfile Rest Client with CompletableFuture.allOf(...) \
-             on the @ManagedExecutorConfig executor for parallel calls. Or call \
+            "Use the MicroProfile Rest Client with `CompletableFuture.allOf(...)` \
+             on the `@ManagedExecutorConfig` executor for parallel calls. Or call \
              a batch endpoint that returns the aggregated result in one \
              round-trip.",
             Some(
@@ -509,31 +509,31 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (RedundantSql, JavaGeneric),
-            "Add a service-level cache (Caffeine, Spring Cache) or deduplicate the \
+            "Add a service-level cache (`Caffeine`, `Spring Cache`) or deduplicate the \
              query within the request scope.",
             Some("https://docs.spring.io/spring-framework/reference/integration/cache.html"),
         ),
         // ── C# (.NET 8 to 10) ──────────────────────────────────────
         (
             (NPlusOneSql, CsharpEfCore),
-            "Use .Include() (and .ThenInclude() for nested relations) to eager-load. \
-             Add .AsSplitQuery() when Include causes Cartesian explosion. Consider \
-             .AsNoTracking() for read-only queries.",
+            "Use `.Include()` (and `.ThenInclude()` for nested relations) to eager-load. \
+             Add `.AsSplitQuery()` when `Include` causes Cartesian explosion. Consider \
+             `.AsNoTracking()` for read-only queries.",
             Some("https://learn.microsoft.com/en-us/ef/core/querying/related-data/eager"),
         ),
         (
             (RedundantSql, CsharpEfCore),
-            "Use IMemoryCache from Microsoft.Extensions.Caching.Memory, or add EF \
+            "Use `IMemoryCache` from `Microsoft.Extensions.Caching.Memory`, or add EF \
              Core's second-level cache via a community extension. Within a request, \
-             scope the DbContext so identical reads short-circuit through the change \
+             scope the `DbContext` so identical reads short-circuit through the change \
              tracker.",
             Some("https://learn.microsoft.com/en-us/aspnet/core/performance/caching/memory"),
         ),
         (
             (NPlusOneHttp, CsharpGeneric),
-            "Use Task.WhenAll for parallel independent calls, or call a batch \
+            "Use `Task.WhenAll` for parallel independent calls, or call a batch \
              endpoint. For repeated identical calls, configure response caching on \
-             HttpClient via DelegatingHandler.",
+             `HttpClient` via `DelegatingHandler`.",
             Some(
                 "https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.whenall",
             ),
@@ -541,33 +541,33 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── Rust ───────────────────────────────────────────────────
         (
             (NPlusOneSql, RustDiesel),
-            "Load associations with Diesel's belonging_to + grouped_by pattern \
-             (two queries instead of N+1), or use .inner_join() / .left_join() to \
+            "Load associations with Diesel's `belonging_to` + `grouped_by` pattern \
+             (two queries instead of N+1), or use `.inner_join()` / `.left_join()` to \
              fetch parent + children in a single query.",
             Some("https://docs.diesel.rs/master/diesel/associations/index.html"),
         ),
         (
             (NPlusOneSql, RustSeaOrm),
-            "Use Entity::find().find_with_related(...) or .find_also_related(...) to \
+            "Use `Entity::find().find_with_related(...)` or `.find_also_related(...)` to \
              fetch related entities in a single query, or load with a JOIN via \
-             QuerySelect::join().",
+             `QuerySelect::join()`.",
             Some("https://www.sea-ql.org/SeaORM/docs/relation/select-related/"),
         ),
         (
             (RedundantSql, RustDiesel),
-            "Cache the result with the moka crate, or scope-deduplicate via a \
-             request-local OnceCell stored in axum/actix-web extensions.",
+            "Cache the result with the `moka` crate, or scope-deduplicate via a \
+             request-local `OnceCell` stored in `axum`/`actix-web` extensions.",
             Some("https://docs.rs/moka"),
         ),
         (
             (RedundantSql, RustSeaOrm),
-            "Cache the result with the moka crate, or memoize per-request via a \
-             OnceCell stored in your handler state.",
+            "Cache the result with the `moka` crate, or memoize per-request via a \
+             `OnceCell` stored in your handler state.",
             Some("https://docs.rs/moka"),
         ),
         (
             (NPlusOneHttp, RustGeneric),
-            "Use tokio::join! or futures::future::join_all for parallel independent \
+            "Use `tokio::join!` or `futures::future::join_all` for parallel independent \
              calls. Switch to a batch endpoint when the calls fan out from the same \
              upstream input.",
             Some("https://docs.rs/tokio/latest/tokio/macro.join.html"),
@@ -575,29 +575,29 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── Python ────────────────────────────────────────────────
         (
             (NPlusOneSql, PythonDjango),
-            "Use select_related() for foreign-key joins or prefetch_related() for \
+            "Use `select_related()` for foreign-key joins or `prefetch_related()` for \
              reverse/M2M relations to eager-load associations in one or two queries \
              instead of N+1.",
             Some("https://docs.djangoproject.com/en/5.2/ref/models/querysets/#select-related"),
         ),
         (
             (NPlusOneSql, PythonSqlAlchemy),
-            "Add joinedload() or subqueryload() in the query options to eager-load \
-             the relationship, or rewrite with an explicit join().",
+            "Add `joinedload()` or `subqueryload()` in the query options to eager-load \
+             the relationship, or rewrite with an explicit `join()`.",
             Some(
                 "https://docs.sqlalchemy.org/en/21/orm/queryguide/relationships.html#joined-eager-loading",
             ),
         ),
         (
             (RedundantSql, PythonDjango),
-            "Cache the queryset result with Django's cache framework (@cache_page \
-             for views, cache.get/set for manual memoization), or share the result \
+            "Cache the queryset result with Django's cache framework (`@cache_page` \
+             for views, `cache.get`/`set` for manual memoization), or share the result \
              via a request-local variable to deduplicate within the request.",
             Some("https://docs.djangoproject.com/en/5.2/topics/cache/"),
         ),
         (
             (RedundantSql, PythonSqlAlchemy),
-            "Use dogpile.cache or a scoped-session memoization pattern to \
+            "Use `dogpile.cache` or a scoped-session memoization pattern to \
              deduplicate identical queries within the request. Share the result \
              via the session's identity map when the same row is loaded twice.",
             Some(
@@ -606,7 +606,7 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (NPlusOneHttp, PythonGeneric),
-            "Use asyncio.gather() or concurrent.futures.ThreadPoolExecutor for \
+            "Use `asyncio.gather()` or `concurrent.futures.ThreadPoolExecutor` for \
              parallel independent calls. Switch to a batch endpoint when the calls \
              fan out from the same upstream input.",
             Some("https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"),
@@ -614,138 +614,138 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── redundant_http ─────────────────────────────────────────
         (
             (RedundantHttp, JavaGeneric),
-            "Wrap the HTTP client in a request-scoped memoization layer (Caffeine, \
-             a HashMap on a request-scoped bean, or Spring's @Cacheable with a \
+            "Wrap the HTTP client in a request-scoped memoization layer (`Caffeine`, \
+             a `HashMap` on a request-scoped bean, or `Spring`'s `@Cacheable` with a \
              request-scoped key) so identical calls return the cached response \
              within the request.",
             Some("https://github.com/ben-manes/caffeine"),
         ),
         (
             (RedundantHttp, CsharpEfCore),
-            "Insert a DelegatingHandler on HttpClient that memoizes responses by \
-             request key (URL + headers) inside IMemoryCache for the request's \
+            "Insert a `DelegatingHandler` on `HttpClient` that memoizes responses by \
+             request key (URL + headers) inside `IMemoryCache` for the request's \
              lifetime. Be explicit about the cache key to avoid serving stale \
              data across users.",
             Some("https://learn.microsoft.com/en-us/aspnet/core/performance/caching/memory"),
         ),
         (
             (RedundantHttp, CsharpGeneric),
-            "Add a DelegatingHandler on HttpClient that memoizes by request URI \
-             inside IMemoryCache for the request scope, or share the response via \
-             AsyncLazy<T> when the duplication is concurrent.",
+            "Add a `DelegatingHandler` on `HttpClient` that memoizes by request URI \
+             inside `IMemoryCache` for the request scope, or share the response via \
+             `AsyncLazy<T>` when the duplication is concurrent.",
             Some("https://learn.microsoft.com/en-us/aspnet/core/performance/caching/memory"),
         ),
         (
             (RedundantHttp, RustGeneric),
-            "Memoize per-request with the moka crate or a request-local OnceCell \
+            "Memoize per-request with the `moka` crate or a request-local `OnceCell` \
              stored in your handler state. For concurrent duplicates within one \
-             handler, share the in-flight future via futures::future::Shared.",
+             handler, share the in-flight future via `futures::future::Shared`.",
             Some("https://docs.rs/moka"),
         ),
         (
             (RedundantHttp, PythonGeneric),
-            "Memoize per-request with functools.lru_cache (sync) or an async \
-             memoization decorator. For Django, wrap the view with @cache_page or \
+            "Memoize per-request with `functools.lru_cache` (sync) or an async \
+             memoization decorator. For Django, wrap the view with `@cache_page` or \
              share the response via a request-local dict.",
             Some("https://docs.python.org/3/library/functools.html#functools.lru_cache"),
         ),
         // ── slow_sql ───────────────────────────────────────────────
         (
             (SlowSql, JavaJpa),
-            "Profile the rendered SQL with EXPLAIN ANALYZE. Common JPA fixes: add \
-             a composite index matching the WHERE + ORDER BY columns, switch to \
-             a DTO projection via @Query(\"select new ...\") to avoid hydrating \
-             the full entity graph, or paginate with Slice/keyset pagination when \
-             OFFSET grows linearly.",
+            "Profile the rendered SQL with `EXPLAIN ANALYZE`. Common JPA fixes: add \
+             a composite index matching the `WHERE` + `ORDER BY` columns, switch to \
+             a DTO projection via `@Query(\"select new ...\")` to avoid hydrating \
+             the full entity graph, or paginate with `Slice`/keyset pagination when \
+             `OFFSET` grows linearly.",
             Some("https://docs.spring.io/spring-data/jpa/reference/jpa/query-methods.html"),
         ),
         (
             (SlowSql, JavaQuarkus),
-            "Enable hibernate.generate_statistics + the slow query log to confirm \
-             the offender. Add a composite index, project to a DTO via Panache's \
-             .project(Class) or a native query, or paginate with .range(...) on \
+            "Enable `hibernate.generate_statistics` + the slow query log to confirm \
+             the offender. Add a composite index, project to a DTO via `Panache`'s \
+             `.project(Class)` or a native query, or paginate with `.range(...)` on \
              a keyset-friendly column.",
             Some("https://quarkus.io/guides/hibernate-orm-panache"),
         ),
         (
             (SlowSql, JavaGeneric),
-            "Profile with EXPLAIN ANALYZE. Add an index on the columns used in \
-             WHERE + ORDER BY when selectivity justifies it. If the plan is \
+            "Profile with `EXPLAIN ANALYZE`. Add an index on the columns used in \
+             `WHERE` + `ORDER BY` when selectivity justifies it. If the plan is \
              dominated by a nested loop on a large outer, rewrite to push the \
              selective predicate first.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         (
             (SlowSql, CsharpEfCore),
-            "Inspect the generated SQL via .ToQueryString() and EXPLAIN ANALYZE \
-             it. Add an index via Fluent API (HasIndex). For Include explosion, \
-             switch to .AsSplitQuery(). For read-only paths add .AsNoTracking() \
+            "Inspect the generated SQL via `.ToQueryString()` and `EXPLAIN ANALYZE` \
+             it. Add an index via Fluent API (`HasIndex`). For `Include` explosion, \
+             switch to `.AsSplitQuery()`. For read-only paths add `.AsNoTracking()` \
              to remove change-tracker overhead.",
             Some("https://learn.microsoft.com/en-us/ef/core/performance/efficient-querying"),
         ),
         (
             (SlowSql, CsharpGeneric),
-            "Run EXPLAIN ANALYZE against the rendered query and add an index when \
+            "Run `EXPLAIN ANALYZE` against the rendered query and add an index when \
              the plan shows a sequential scan over a large table. Prefer parameterized \
              queries so the plan cache stays hot.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         (
             (SlowSql, RustDiesel),
-            "Print the rendered SQL with diesel::debug_query, EXPLAIN ANALYZE it, \
-             and add the missing index. For wide rows, use a .select((col_a, col_b)) \
+            "Print the rendered SQL with `diesel::debug_query`, `EXPLAIN ANALYZE` it, \
+             and add the missing index. For wide rows, use a `.select((col_a, col_b))` \
              projection so postgres can use an index-only scan.",
             Some("https://docs.diesel.rs/master/diesel/fn.debug_query.html"),
         ),
         (
             (SlowSql, RustSeaOrm),
-            "Capture the query via the SQL logger feature, EXPLAIN ANALYZE the \
+            "Capture the query via the SQL logger feature, `EXPLAIN ANALYZE` the \
              output, and add an index when the plan does a sequential scan. \
-             Project to a partial model with .select_only().column(...) when \
+             Project to a partial model with `.select_only().column(...)` when \
              only a few columns are read.",
             Some("https://www.sea-ql.org/SeaORM/docs/index/"),
         ),
         (
             (SlowSql, RustGeneric),
-            "Run EXPLAIN ANALYZE on the slow query. Add a composite index \
-             matching the WHERE + ORDER BY columns, or rewrite to push the \
+            "Run `EXPLAIN ANALYZE` on the slow query. Add a composite index \
+             matching the `WHERE` + `ORDER BY` columns, or rewrite to push the \
              selective predicate before any join.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         (
             (SlowSql, PythonDjango),
-            "Run EXPLAIN ANALYZE on the rendered query (django-debug-toolbar or \
-             connection.queries). Add a db_index=True on the model field, or use \
-             .only()/.defer() to limit fetched columns.",
+            "Run `EXPLAIN ANALYZE` on the rendered query (`django-debug-toolbar` or \
+             `connection.queries`). Add a `db_index=True` on the model field, or use \
+             `.only()`/`.defer()` to limit fetched columns.",
             Some("https://docs.djangoproject.com/en/5.2/ref/models/options/#indexes"),
         ),
         (
             (SlowSql, PythonSqlAlchemy),
-            "Capture the rendered SQL via echo=True and EXPLAIN ANALYZE it. Add \
-             an index via Index() in the table metadata, or project with \
-             .with_only_columns() to reduce transferred data.",
+            "Capture the rendered SQL via `echo=True` and `EXPLAIN ANALYZE` it. Add \
+             an index via `Index()` in the table metadata, or project with \
+             `.with_only_columns()` to reduce transferred data.",
             Some("https://docs.sqlalchemy.org/en/21/core/metadata.html#sqlalchemy.schema.Index"),
         ),
         (
             (SlowSql, PythonGeneric),
-            "Run EXPLAIN ANALYZE on the slow query. Add an index on the WHERE + \
-             ORDER BY columns, or rewrite to push the selective predicate first.",
+            "Run `EXPLAIN ANALYZE` on the slow query. Add an index on the `WHERE` + \
+             `ORDER BY` columns, or rewrite to push the selective predicate first.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         // ── slow_http ──────────────────────────────────────────────
         (
             (SlowHttp, JavaGeneric),
-            "Profile the upstream's own slow_sql / slow_http findings first \
+            "Profile the upstream's own `slow_sql` / `slow_http` findings first \
              (the latency is usually upstream-side). On the client, wrap the \
-             call in a Resilience4j circuit breaker with a tight timeout, and \
+             call in a `Resilience4j` circuit breaker with a tight timeout, and \
              cache the response when staleness tolerance allows.",
             Some("https://resilience4j.readme.io/docs/circuitbreaker"),
         ),
         (
             (SlowHttp, CsharpGeneric),
-            "Set a tight HttpClient.Timeout and wrap calls in a Polly retry + \
+            "Set a tight `HttpClient.Timeout` and wrap calls in a `Polly` retry + \
              circuit breaker. If the latency is structural (slow upstream), \
-             cache the response with IMemoryCache or move the call off the \
+             cache the response with `IMemoryCache` or move the call off the \
              request hot path via background hosted services.",
             Some(
                 "https://learn.microsoft.com/en-us/dotnet/architecture/microservices/implement-resilient-applications/",
@@ -753,55 +753,55 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (SlowHttp, RustGeneric),
-            "Set a per-request timeout on reqwest / hyper / surf, wrap with the \
-             tower circuit-breaker layer, and cache the response with moka when \
+            "Set a per-request timeout on `reqwest` / `hyper` / `surf`, wrap with the \
+             `tower` circuit-breaker layer, and cache the response with `moka` when \
              staleness is acceptable.",
             Some("https://docs.rs/tower"),
         ),
         (
             (SlowHttp, PythonGeneric),
-            "Set a per-request timeout on httpx / aiohttp, add a tenacity retry \
+            "Set a per-request timeout on `httpx` / `aiohttp`, add a `tenacity` retry \
              with exponential backoff, and cache the response with Django cache \
-             or dogpile.cache when staleness is acceptable.",
+             or `dogpile.cache` when staleness is acceptable.",
             Some("https://docs.python.org/3/library/asyncio-task.html#asyncio.wait_for"),
         ),
         // ── excessive_fanout ───────────────────────────────────────
         (
             (ExcessiveFanout, JavaWebFlux),
-            "Bound the fan-out width with Flux.flatMap(concurrency = N) (default \
-             concurrency is unbounded). Add a Resilience4j bulkhead so a slow \
+            "Bound the fan-out width with `Flux.flatMap(concurrency = N)` (default \
+             concurrency is unbounded). Add a `Resilience4j` bulkhead so a slow \
              upstream cannot saturate the reactor scheduler.",
             Some("https://projectreactor.io/docs/core/release/reference/#which-operator"),
         ),
         (
             (ExcessiveFanout, JavaQuarkusReactive),
-            "Bound the fan-out with Multi.onItem().transformToUniAndConcatenate() \
-             when ordering matters, or .transformToUniAndMerge(concurrency = N) \
-             when independent. Add a Resilience4j bulkhead on the downstream \
+            "Bound the fan-out with `Multi.onItem().transformToUniAndConcatenate()` \
+             when ordering matters, or `.transformToUniAndMerge(concurrency = N)` \
+             when independent. Add a `Resilience4j` bulkhead on the downstream \
              client.",
             Some("https://smallrye.io/smallrye-mutiny/latest/guides/combining-items/"),
         ),
         (
             (ExcessiveFanout, JavaGeneric),
             "Replace the fan-out with a single bulk endpoint when the downstream \
-             supports it. Otherwise apply the bulkhead pattern (Resilience4j or a \
+             supports it. Otherwise apply the bulkhead pattern (`Resilience4j` or a \
              dedicated thread pool) to bound the blast radius of a slow \
              dependency.",
             Some("https://resilience4j.readme.io/docs/bulkhead"),
         ),
         (
             (ExcessiveFanout, CsharpGeneric),
-            "Cap parallelism with Parallel.ForEachAsync(MaxDegreeOfParallelism = N) \
-             or a SemaphoreSlim, and prefer a batch endpoint when the upstream \
-             offers one. Layer Polly's RateLimiter strategy on the HttpClient \
-             to enforce a hard ceiling (Polly v8 subsumes the v7 Bulkhead).",
+            "Cap parallelism with `Parallel.ForEachAsync(MaxDegreeOfParallelism = N)` \
+             or a `SemaphoreSlim`, and prefer a batch endpoint when the upstream \
+             offers one. Layer `Polly`'s `RateLimiter` strategy on the `HttpClient` \
+             to enforce a hard ceiling (`Polly` v8 subsumes the v7 `Bulkhead`).",
             Some("https://www.pollydocs.org/strategies/rate-limiter.html"),
         ),
         (
             (ExcessiveFanout, RustGeneric),
-            "Use futures::stream::iter(...).buffer_unordered(N) to cap concurrent \
+            "Use `futures::stream::iter(...).buffer_unordered(N)` to cap concurrent \
              requests, or replace the fan-out with a batch endpoint. Layer a \
-             tower::ConcurrencyLimit on the downstream client to enforce a hard \
+             `tower::ConcurrencyLimit` on the downstream client to enforce a hard \
              ceiling.",
             Some(
                 "https://docs.rs/futures/latest/futures/stream/trait.StreamExt.html#method.buffer_unordered",
@@ -809,8 +809,8 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (ExcessiveFanout, PythonGeneric),
-            "Cap parallelism with asyncio.Semaphore or \
-             concurrent.futures.ThreadPoolExecutor(max_workers=N), and prefer a \
+            "Cap parallelism with `asyncio.Semaphore` or \
+             `concurrent.futures.ThreadPoolExecutor(max_workers=N)`, and prefer a \
              batch endpoint when the upstream offers one.",
             Some("https://docs.python.org/3/library/asyncio-sync.html#asyncio.Semaphore"),
         ),
@@ -828,53 +828,53 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
             (ChattyService, CsharpGeneric),
             "Combine the calls into a single bulk endpoint, or introduce a \
              gRPC streaming RPC that returns the aggregated payload in one \
-             round-trip. As a stopgap, fan-in with Task.WhenAll and an \
-             AsyncLazy<T> per-key cache.",
+             round-trip. As a stopgap, fan-in with `Task.WhenAll` and an \
+             `AsyncLazy<T>` per-key cache.",
             Some("https://learn.microsoft.com/en-us/aspnet/core/grpc/protobuf"),
         ),
         (
             (ChattyService, RustGeneric),
             "Coalesce the calls behind a single bulk endpoint, or expose a \
-             tonic streaming RPC that returns the aggregated payload. As an \
-             intermediate, batch with futures::future::join_all and a moka \
+             `tonic` streaming RPC that returns the aggregated payload. As an \
+             intermediate, batch with `futures::future::join_all` and a `moka` \
              per-key cache.",
             Some("https://docs.rs/tonic"),
         ),
         (
             (ChattyService, PythonGeneric),
             "Coalesce the chatty interactions into a single bulk endpoint, or \
-             fan-in with asyncio.gather and a per-key cache (Django cache or \
-             dogpile.cache). Reduce round-trips by moving orchestration upstream.",
+             fan-in with `asyncio.gather` and a per-key cache (Django cache or \
+             `dogpile.cache`). Reduce round-trips by moving orchestration upstream.",
             Some("https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"),
         ),
         // ── pool_saturation ────────────────────────────────────────
         (
             (PoolSaturation, JavaQuarkus),
-            "Raise quarkus.datasource.jdbc.max-size only after confirming the \
+            "Raise `quarkus.datasource.jdbc.max-size` only after confirming the \
              root cause: usually slow queries hold connections too long. Profile \
-             slow_sql findings on the same service first, then size the pool to \
+             `slow_sql` findings on the same service first, then size the pool to \
              handle the corrected workload.",
             Some("https://quarkus.io/guides/datasource#jdbc-configuration-reference"),
         ),
         (
             (PoolSaturation, JavaGeneric),
-            "Inspect slow_sql findings on the same service: pool saturation is \
+            "Inspect `slow_sql` findings on the same service: pool saturation is \
              usually a symptom, not the disease. After speeding up the slow \
-             queries, raise the HikariCP maximumPoolSize only if the corrected \
+             queries, raise the `HikariCP` `maximumPoolSize` only if the corrected \
              workload still saturates.",
             Some("https://github.com/brettwooldridge/HikariCP/wiki/About-Pool-Sizing"),
         ),
         (
             (PoolSaturation, CsharpEfCore),
-            "Check Npgsql Max Pool Size in the connection string and the \
-             DbContext lifetime (a per-request DbContext should release \
-             connections to the pool on Dispose). Slow queries on the same \
+            "Check `Npgsql` `Max Pool Size` in the connection string and the \
+             `DbContext` lifetime (a per-request `DbContext` should release \
+             connections to the pool on `Dispose`). Slow queries on the same \
              service usually drive the saturation, fix those first.",
             Some("https://www.npgsql.org/doc/connection-string-parameters.html"),
         ),
         (
             (PoolSaturation, CsharpGeneric),
-            "Profile the slow_sql findings on the same service; pool saturation \
+            "Profile the `slow_sql` findings on the same service; pool saturation \
              follows from connections being held during slow work. Raise the \
              pool size only after the slow path is corrected.",
             Some(
@@ -883,17 +883,17 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (PoolSaturation, RustGeneric),
-            "Inspect slow_sql findings first: sqlx and deadpool pools usually \
+            "Inspect `slow_sql` findings first: `sqlx` and `deadpool` pools usually \
              saturate because connections are held during slow work. Tune \
-             max_connections on PoolOptions only after the slow queries are \
+             `max_connections` on `PoolOptions` only after the slow queries are \
              addressed.",
             Some("https://docs.rs/sqlx/latest/sqlx/pool/struct.PoolOptions.html"),
         ),
         (
             (PoolSaturation, PythonGeneric),
-            "Inspect slow_sql findings on the same service: pool saturation usually \
-             follows from connections held during slow work. Tune pool_size on \
-             SQLAlchemy's create_engine or Django's CONN_MAX_AGE only after the \
+            "Inspect `slow_sql` findings on the same service: pool saturation usually \
+             follows from connections held during slow work. Tune `pool_size` on \
+             SQLAlchemy's `create_engine` or Django's `CONN_MAX_AGE` only after the \
              slow path is corrected.",
             Some(
                 "https://docs.sqlalchemy.org/en/21/core/engines.html#sqlalchemy.create_engine.params.pool_size",
@@ -902,23 +902,23 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── serialized_calls ───────────────────────────────────────
         (
             (SerializedCalls, JavaWebFlux),
-            "Replace the sequential Mono.flatMap chain with Mono.zip(m1, m2, ...) \
-             or Flux.merge(...) when the calls are independent. Keep the \
+            "Replace the sequential `Mono.flatMap` chain with `Mono.zip(m1, m2, ...)` \
+             or `Flux.merge(...)` when the calls are independent. Keep the \
              sequential chain only when one call's output feeds the next.",
             Some("https://projectreactor.io/docs/core/release/reference/#which.combining"),
         ),
         (
             (SerializedCalls, JavaQuarkusReactive),
-            "Switch the sequential Uni.chain() to \
-             Uni.combine().all().unis(u1, u2, ...).asTuple() when the calls do \
+            "Switch the sequential `Uni.chain()` to \
+             `Uni.combine().all().unis(u1, u2, ...).asTuple()` when the calls do \
              not depend on each other. Drop back to chain only when the \
              next call needs the previous result.",
             Some("https://smallrye.io/smallrye-mutiny/latest/guides/combining-items/"),
         ),
         (
             (SerializedCalls, JavaGeneric),
-            "Parallelize independent calls with CompletableFuture.allOf(...) on \
-             the ManagedExecutor (Quarkus) or @Async (Spring). Keep the calls \
+            "Parallelize independent calls with `CompletableFuture.allOf(...)` on \
+             the `ManagedExecutor` (Quarkus) or `@Async` (Spring). Keep the calls \
              serial only when one's output feeds the next.",
             Some(
                 "https://docs.oracle.com/en/java/javase/21/docs/api/java.base/java/util/concurrent/CompletableFuture.html",
@@ -926,25 +926,25 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (SerializedCalls, CsharpGeneric),
-            "Replace the sequential await chain with Task.WhenAll(t1, t2, ...) \
-             when the calls do not depend on each other. Use ValueTask for \
-             completed-synchronously paths to avoid allocating Task wrappers.",
+            "Replace the sequential await chain with `Task.WhenAll(t1, t2, ...)` \
+             when the calls do not depend on each other. Use `ValueTask` for \
+             completed-synchronously paths to avoid allocating `Task` wrappers.",
             Some(
                 "https://learn.microsoft.com/en-us/dotnet/api/system.threading.tasks.task.whenall",
             ),
         ),
         (
             (SerializedCalls, RustGeneric),
-            "Replace sequential .await chains with tokio::join!(f1, f2, ...) or \
-             futures::future::join_all(iter) when the calls are independent. \
-             Use try_join! when any failure should short-circuit the rest.",
+            "Replace sequential `.await` chains with `tokio::join!(f1, f2, ...)` or \
+             `futures::future::join_all(iter)` when the calls are independent. \
+             Use `try_join!` when any failure should short-circuit the rest.",
             Some("https://docs.rs/tokio/latest/tokio/macro.join.html"),
         ),
         (
             (SerializedCalls, PythonGeneric),
-            "Replace sequential awaits with asyncio.gather(t1, t2, ...) when the \
+            "Replace sequential awaits with `asyncio.gather(t1, t2, ...)` when the \
              calls are independent. For sync code, use \
-             concurrent.futures.ThreadPoolExecutor to run independent calls in \
+             `concurrent.futures.ThreadPoolExecutor` to run independent calls in \
              parallel. Keep the sequential form only when one call's output feeds \
              the next.",
             Some("https://docs.python.org/3/library/asyncio-task.html#asyncio.gather"),
@@ -952,123 +952,123 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         // ── Go ────────────────────────────────────────────────────
         (
             (NPlusOneSql, GoGorm),
-            "Use Preload() or Joins() to eager-load the association in a \
+            "Use `Preload()` or `Joins()` to eager-load the association in a \
              single query instead of N+1 lazy loads.",
             Some("https://gorm.io/docs/preload.html"),
         ),
         (
             (NPlusOneSql, GoGeneric),
-            "Rewrite the per-id loop as a single query with a JOIN or WHERE id \
-             IN ($1, $2, ...). With pgx, use pgx.NamedArgs for named parameters \
-             or pass an array via ANY($1::int[]) for bulk lookups.",
+            "Rewrite the per-id loop as a single query with a `JOIN` or `WHERE id \
+             IN ($1, $2, ...)`. With `pgx`, use `pgx.NamedArgs` for named parameters \
+             or pass an array via `ANY($1::int[])` for bulk lookups.",
             Some("https://pkg.go.dev/github.com/jackc/pgx/v5"),
         ),
         (
             (RedundantSql, GoGorm),
-            "Cache the result with go-cache, sync.Map, or a request-scoped map \
-             stored in the context via context.WithValue. GORM does not deduplicate \
+            "Cache the result with `go-cache`, `sync.Map`, or a request-scoped map \
+             stored in the context via `context.WithValue`. GORM does not deduplicate \
              reads automatically, the caching layer must be explicit.",
             Some("https://pkg.go.dev/github.com/patrickmn/go-cache"),
         ),
         (
             (RedundantSql, GoGeneric),
-            "Cache the result with go-cache or a sync.Map, or pass a \
-             request-scoped map via context.WithValue to deduplicate within \
+            "Cache the result with `go-cache` or a `sync.Map`, or pass a \
+             request-scoped map via `context.WithValue` to deduplicate within \
              the request.",
             Some("https://pkg.go.dev/github.com/patrickmn/go-cache"),
         ),
         (
             (NPlusOneHttp, GoGeneric),
-            "Use errgroup.Go for parallel independent calls, or call a batch \
+            "Use `errgroup.Go` for parallel independent calls, or call a batch \
              endpoint that returns the aggregated result in one round-trip.",
             Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
         ),
         (
             (RedundantHttp, GoGeneric),
-            "Memoize per-request with singleflight.Do (for concurrent identical \
-             calls) or a sync.Map keyed by request URL stored in the context.",
+            "Memoize per-request with `singleflight.Do` (for concurrent identical \
+             calls) or a `sync.Map` keyed by request URL stored in the context.",
             Some("https://pkg.go.dev/golang.org/x/sync/singleflight"),
         ),
         (
             (SlowSql, GoGorm),
-            "Enable GORM's Logger in Info mode, capture the rendered SQL, and \
-             EXPLAIN ANALYZE it. Add an index via AutoMigrate or a raw migration. \
-             Use .Select() to limit fetched columns.",
+            "Enable GORM's `Logger` in Info mode, capture the rendered SQL, and \
+             `EXPLAIN ANALYZE` it. Add an index via `AutoMigrate` or a raw migration. \
+             Use `.Select()` to limit fetched columns.",
             Some("https://gorm.io/docs/performance.html"),
         ),
         (
             (SlowSql, GoGeneric),
-            "Run EXPLAIN ANALYZE on the slow query. Add a composite index \
-             matching the WHERE + ORDER BY columns. With pgx, use \
-             .QueryRow().Scan() with only the needed columns.",
+            "Run `EXPLAIN ANALYZE` on the slow query. Add a composite index \
+             matching the `WHERE` + `ORDER BY` columns. With `pgx`, use \
+             `.QueryRow().Scan()` with only the needed columns.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         (
             (SlowHttp, GoGeneric),
-            "Set a per-request timeout via http.Client.Timeout or \
-             context.WithTimeout. Add a circuit breaker (sony/gobreaker) and \
-             cache the response with go-cache when staleness is acceptable.",
+            "Set a per-request timeout via `http.Client.Timeout` or \
+             `context.WithTimeout`. Add a circuit breaker (`sony/gobreaker`) and \
+             cache the response with `go-cache` when staleness is acceptable.",
             Some("https://pkg.go.dev/github.com/sony/gobreaker"),
         ),
         (
             (ExcessiveFanout, GoGeneric),
-            "Bound goroutine count with a semaphore channel (make(chan struct{}, N)) \
-             or errgroup with SetLimit(N). Prefer a batch endpoint when the \
+            "Bound goroutine count with a semaphore channel (`make(chan struct{}, N)`) \
+             or `errgroup` with `SetLimit(N)`. Prefer a batch endpoint when the \
              downstream supports it.",
             Some("https://pkg.go.dev/golang.org/x/sync/errgroup#Group.SetLimit"),
         ),
         (
             (ChattyService, GoGeneric),
             "Coalesce the chatty interactions into a single bulk endpoint, or \
-             fan-in with errgroup and a per-key go-cache. Reduce round-trips by \
+             fan-in with `errgroup` and a per-key `go-cache`. Reduce round-trips by \
              moving orchestration upstream.",
             Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
         ),
         (
             (PoolSaturation, GoGeneric),
-            "Inspect slow_sql findings first: pgxpool usually saturates because \
-             connections are held during slow work. Tune MaxConns on \
-             pgxpool.Config only after the slow queries are addressed.",
+            "Inspect `slow_sql` findings first: `pgxpool` usually saturates because \
+             connections are held during slow work. Tune `MaxConns` on \
+             `pgxpool.Config` only after the slow queries are addressed.",
             Some("https://pkg.go.dev/github.com/jackc/pgx/v5/pgxpool#Config"),
         ),
         (
             (SerializedCalls, GoGeneric),
-            "Replace sequential calls with errgroup.Go for parallel execution. \
+            "Replace sequential calls with `errgroup.Go` for parallel execution. \
              Keep the sequential form only when one call's output feeds the next.",
             Some("https://pkg.go.dev/golang.org/x/sync/errgroup"),
         ),
         // ── Node.js / TypeScript ──────────────────────────────────
         (
             (NPlusOneSql, NodePrisma),
-            "Use include:{} for eager loading, or rewrite with a findMany() \
-             that uses a WHERE id IN filter instead of N separate findUnique() \
+            "Use `include:{}` for eager loading, or rewrite with a `findMany()` \
+             that uses a `WHERE id IN` filter instead of N separate `findUnique()` \
              calls.",
             Some("https://www.prisma.io/docs/orm/prisma-client/queries/relation-queries"),
         ),
         (
             (NPlusOneSql, NodeGeneric),
-            "Rewrite the per-id loop as a single query with a JOIN or WHERE id \
-             IN ($1, $2, ...). With the pg client, use a parameterized query \
-             with ANY($1::int[]).",
+            "Rewrite the per-id loop as a single query with a `JOIN` or `WHERE id \
+             IN ($1, $2, ...)`. With the `pg` client, use a parameterized query \
+             with `ANY($1::int[])`.",
             Some("https://node-postgres.com/features/queries"),
         ),
         (
             (RedundantSql, NodePrisma),
-            "Wrap queries in a request-scoped Map to deduplicate identical reads \
-             within the request, or use a Prisma client extension that memoizes \
+            "Wrap queries in a request-scoped `Map` to deduplicate identical reads \
+             within the request, or use a `Prisma` client extension that memoizes \
              by query key.",
             Some("https://www.prisma.io/docs/orm/prisma-client/client-extensions"),
         ),
         (
             (RedundantSql, NodeGeneric),
-            "Cache the result with node-cache or a request-scoped Map stored \
-             in Express/Fastify request locals. For concurrent identical \
-             queries, use p-memoize.",
+            "Cache the result with `node-cache` or a request-scoped `Map` stored \
+             in `Express`/`Fastify` request locals. For concurrent identical \
+             queries, use `p-memoize`.",
             Some("https://www.npmjs.com/package/node-cache"),
         ),
         (
             (NPlusOneHttp, NodeGeneric),
-            "Use Promise.all for parallel independent calls, or call a batch \
+            "Use `Promise.all` for parallel independent calls, or call a batch \
              endpoint that returns the aggregated result in one round-trip.",
             Some(
                 "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise/all",
@@ -1076,55 +1076,55 @@ static FIXES: LazyLock<HashMap<(FindingType, Framework), SuggestedFix>> = LazyLo
         ),
         (
             (RedundantHttp, NodeGeneric),
-            "Memoize per-request with p-memoize or a Map stored in request \
+            "Memoize per-request with `p-memoize` or a `Map` stored in request \
              locals. For concurrent identical calls, share the in-flight \
-             Promise.",
+             `Promise`.",
             Some("https://www.npmjs.com/package/p-memoize"),
         ),
         (
             (SlowSql, NodePrisma),
             "Enable Prisma's query logging, capture the rendered SQL, and \
-             EXPLAIN ANALYZE it. Add an @@index in the schema.prisma model. \
-             Use .select() to limit fetched columns.",
+             `EXPLAIN ANALYZE` it. Add an `@@index` in the `schema.prisma` model. \
+             Use `.select()` to limit fetched columns.",
             Some("https://www.prisma.io/docs/orm/prisma-schema/data-model/indexes"),
         ),
         (
             (SlowSql, NodeGeneric),
-            "Run EXPLAIN ANALYZE on the slow query. Add a composite index \
-             matching the WHERE + ORDER BY columns.",
+            "Run `EXPLAIN ANALYZE` on the slow query. Add a composite index \
+             matching the `WHERE` + `ORDER BY` columns.",
             Some("https://www.postgresql.org/docs/current/using-explain.html"),
         ),
         (
             (SlowHttp, NodeGeneric),
-            "Set a per-request timeout via AbortController + setTimeout. Add a \
-             circuit breaker (opossum) and cache the response with node-cache \
+            "Set a per-request timeout via `AbortController` + `setTimeout`. Add a \
+             circuit breaker (`opossum`) and cache the response with `node-cache` \
              when staleness is acceptable.",
             Some("https://www.npmjs.com/package/opossum"),
         ),
         (
             (ExcessiveFanout, NodeGeneric),
-            "Use p-limit to cap concurrency (const limit = pLimit(N); \
-             await Promise.all(urls.map(u => limit(() => fetch(u))))). Prefer \
+            "Use `p-limit` to cap concurrency (`const limit = pLimit(N); \
+             await Promise.all(urls.map(u => limit(() => fetch(u))))`). Prefer \
              a batch endpoint when the downstream supports it.",
             Some("https://www.npmjs.com/package/p-limit"),
         ),
         (
             (ChattyService, NodeGeneric),
             "Coalesce the chatty interactions into a single bulk endpoint, or \
-             fan-in with Promise.all and a per-key Map cache. For GraphQL, use \
-             DataLoader to batch and deduplicate.",
+             fan-in with `Promise.all` and a per-key `Map` cache. For GraphQL, use \
+             `DataLoader` to batch and deduplicate.",
             Some("https://www.npmjs.com/package/dataloader"),
         ),
         (
             (PoolSaturation, NodeGeneric),
-            "Inspect slow_sql findings first: the pg Pool usually saturates \
-             because connections are held during slow work. Tune max on \
-             new Pool({ max: N }) only after the slow queries are addressed.",
+            "Inspect `slow_sql` findings first: the `pg` `Pool` usually saturates \
+             because connections are held during slow work. Tune `max` on \
+             `new Pool({ max: N })` only after the slow queries are addressed.",
             Some("https://node-postgres.com/apis/pool"),
         ),
         (
             (SerializedCalls, NodeGeneric),
-            "Replace sequential awaits with Promise.all([p1, p2, ...]) when \
+            "Replace sequential awaits with `Promise.all([p1, p2, ...])` when \
              the calls are independent. Keep the sequential form only when one \
              call's output feeds the next.",
             Some(
