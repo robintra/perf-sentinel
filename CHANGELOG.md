@@ -2,6 +2,17 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.0]
+
+### Changed
+
+- The self-contained HTML dashboard is rebuilt as an application shell. A sidebar navigates the sections, a new Overview landing page gathers the gate verdict, KPI cards, top findings and the diff and carbon rails, and the Findings view becomes a master/detail pane with the Explain trace tree folded inline. KPI cards are tinted by their severity band, SQL, code and endpoints are syntax-highlighted, and the Geist font family is embedded. The report stays a single offline file under the same strict CSP.
+- Remediation suggestions wrap code tokens in backticks so the dashboard renders them as inline code.
+
+### Added
+
+- A `local_batch` confidence tag separates a local `analyze` run from a CI one, driven by the `CI` environment variable and reported in the `confidence` field next to the existing batch and daemon tags.
+
 ## [0.8.14]
 
 ### Changed
