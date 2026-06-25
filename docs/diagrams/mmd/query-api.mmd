@@ -34,6 +34,8 @@ flowchart TD
             ep_explain["GET /api/explain/{trace_id}"]
             ep_correlations["GET /api/correlations"]
             ep_status["GET /api/status"]
+            ep_config["GET /api/config<br/><i>effective [daemon] config</i>"]
+            ep_energy["GET /api/energy<br/><i>energy backends: configured + live health</i>"]
             ep_export_report["GET /api/export/report<br/><i>Report JSON snapshot<br/>cold-start: HTTP 503</i>"]
             ep_ack["POST/DELETE /api/findings/{sig}/ack<br/><i>auth: [daemon.ack] api_key<br/>env / --api-key-file / TTY prompt</i>"]
             ep_acks_list["GET /api/acks"]
