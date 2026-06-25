@@ -70,7 +70,11 @@
 
   /* -------- app shell -------- */
   .ps-shell { display: grid; grid-template-columns: 252px 1fr; min-height: 100vh; background-image: var(--glow); }
-  .ps-sidebar { border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+  .ps-sidebar { border-right: 1px solid var(--border); background: var(--surface); }
+  /* Inner wrapper carries the sticky 100vh column so the sidebar element
+     itself stretches to the full grid-cell height (no empty gap below the
+     nav on tabs taller than the viewport). */
+  .ps-sidebar-sticky { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
   .ps-brand-block { padding: 20px 18px 14px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
   .ps-brand { display: block; text-decoration: none; }
   .ps-logo { display: none; }
@@ -103,7 +107,7 @@
 
   .ps-main { display: flex; flex-direction: column; min-width: 0; }
   .ps-topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; row-gap: 10px; flex-wrap: wrap; padding: 14px 28px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(8px); }
-  .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
   .ps-topbar-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); }
   .ps-topbar-h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
   .ps-gate-pass, .ps-gate-fail { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 20px; font-size: 11px; font-family: var(--font-mono); font-weight: 600; }
@@ -125,7 +129,7 @@
   /* Per-panel filter input: hidden until the user presses "/" (toggled via inline style by the search wiring). */
   .ps-search { display: none; width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: var(--font-ui); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); outline: none; }
   .ps-search:focus { border-color: var(--brand); }
-  .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); padding: 0 11px; height: 34px; flex: 1 1 320px; min-width: 240px; max-width: 480px; }
+  .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); padding: 0 11px; height: 34px; flex: 0 0 390px; min-width: 0; }
   .ps-search-box .ps-search-glyph { color: var(--text-3); font-size: 13px; }
   .ps-search-box .ps-search { display: flex; width: auto; flex: 1; min-width: 0; border: 0; background: transparent; padding: 0; }
   .ps-search-box .ps-search-kbd { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
@@ -402,6 +406,7 @@
 <body>
 <div class="ps-shell" id="ps-shell">
   <aside class="ps-sidebar">
+    <div class="ps-sidebar-sticky">
     <div class="ps-brand-block">
       <a class="ps-brand" href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel, perf-sentinel.dev">{{BRAND_LOGO}}</a>
       <span class="ps-brand-eyebrow">HTML REPORT</span>
@@ -416,6 +421,7 @@
       </div>
       <div class="ps-sidebar-foot-version" id="ps-sidebar-version"></div>
     </div>
+    </div>
   </aside>
 
   <main class="ps-main">
@@ -424,7 +430,7 @@
         <span class="ps-topbar-eyebrow" id="topbar-eyebrow"></span>
         <h1 class="ps-topbar-h1" id="topbar-h1"></h1>
       </div>
-      <div class="ps-topbar-actions" style="margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+      <div class="ps-topbar-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
         <div class="ps-search-box" id="topbar-search-box">
           <span class="ps-search-glyph">⌕</span>
           <input type="search" class="ps-search" id="topbar-search" placeholder="Search findings, templates, endpoints…" aria-label="Search findings, templates, endpoints" />
