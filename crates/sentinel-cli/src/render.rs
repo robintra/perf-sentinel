@@ -5,7 +5,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 
-use sentinel_core::detect::{Confidence, Severity};
+use sentinel_core::detect::Severity;
 use sentinel_core::report::json::JsonReportSink;
 use sentinel_core::report::{Report, ReportSink};
 use sentinel_core::score::carbon::IntensitySource;
@@ -471,7 +471,7 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         "    {cyan}Suggestion:{reset} {}",
         sanitize_for_terminal(&finding.suggestion)
     );
-    if finding.confidence != Confidence::CiBatch {
+    if !finding.confidence.is_batch() {
         println!(
             "    {dim}Confidence:{reset} {}",
             finding.confidence.as_str()
@@ -940,7 +940,7 @@ fn write_finding_block(
             )?;
         }
     }
-    if f.confidence != Confidence::CiBatch {
+    if !f.confidence.is_batch() {
         writeln!(
             writer,
             "      {dim}{:<12}{reset} {}",
@@ -1057,6 +1057,7 @@ fn write_endpoint_deltas_section(
 mod tests {
     use super::*;
     use core::assert_matches;
+    use sentinel_core::detect::Confidence;
     use sentinel_core::detect::suggestions::SuggestedFix;
     use sentinel_core::detect::{Finding, FindingType, GreenImpact, Pattern};
     use sentinel_core::diff::DiffReport;
@@ -1245,6 +1246,19 @@ mod tests {
         assert!(
             !out.contains("Confidence:"),
             "ci_batch confidence must not be printed, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn local_batch_confidence_is_omitted() {
+        // Both batch contexts (local + CI) stay quiet in the terminal; only
+        // the stronger daemon signals print a Confidence line.
+        let mut f = sample_finding();
+        f.confidence = Confidence::LocalBatch;
+        let out = render_text(&diff_with_new(vec![f]));
+        assert!(
+            !out.contains("Confidence:"),
+            "local_batch confidence must not be printed, got:\n{out}"
         );
     }
 
