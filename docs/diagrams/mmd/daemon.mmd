@@ -64,6 +64,8 @@ flowchart TB
         api_explain["GET /api/explain/{trace_id}"]
         api_correlations["GET /api/correlations"]
         api_status["GET /api/status"]
+        api_config["GET /api/config<br/><i>effective [daemon] config</i>"]
+        api_energy["GET /api/energy<br/><i>energy backends: configured + live health</i>"]
         api_export_report["GET /api/export/report<br/><i>Report snapshot, 503 cold-start</i>"]
         api_ack["POST/DELETE /api/findings/{sig}/ack<br/><i>auth: [daemon.ack] api_key</i>"]
         api_acks_list["GET /api/acks"]
