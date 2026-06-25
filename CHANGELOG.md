@@ -2,6 +2,12 @@
 
 All notable changes to perf-sentinel are documented in this file. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version numbers follow [Semantic Versioning](https://semver.org/).
 
+## [0.9.1]
+
+### Security
+
+- Updated `opentelemetry_sdk` to 0.32.1, resolving CVE-2026-48504 (unbounded memory allocation in W3C Baggage propagation). This is a transitive dependency bump with no behavior or API change.
+
 ## [0.9.0]
 
 ### Changed
