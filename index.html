@@ -1730,14 +1730,27 @@ class Component extends DCLogic {
   var active='html';
   function liveRoot(){return document.querySelector('[data-ps-root]');}
   function th(){var r=liveRoot();return (r&&r.getAttribute('data-theme'))||'dark';}
+  // Absolute path so the embed and open link resolve from /fr/ as well as /.
+  function dashUrl(){return '/exemple/dashboard?theme='+th();}
   function apply(which){
     var f=document.getElementById('ps-embed-frame');if(!f)return false;
     active=which;
-    var u=which==='tui'?'exemple/tui':'exemple/dashboard?theme='+th();
+    var u=which==='tui'?'/exemple/tui':dashUrl();
     if(f.getAttribute('src')!==u)f.setAttribute('src',u);
     var o=document.getElementById('ps-embed-open');if(o)o.setAttribute('href',u);
     var a=document.querySelectorAll('[data-embed-tab]');for(var i=0;i<a.length;i++)a[i].setAttribute('data-active',a[i].getAttribute('data-embed-tab')===which?'true':'false');
     return true;
+  }
+  // Post the live theme to the dashboard, same-origin only. The dashboard
+  // applies it instantly, so a toggle does not reload the iframe.
+  function pushTheme(){
+    var f=document.getElementById('ps-embed-frame');
+    if(f&&f.contentWindow){try{f.contentWindow.postMessage({psTheme:th()},location.origin);}catch(e){}}
+  }
+  function syncTheme(){
+    if(active==='tui')return;
+    var o=document.getElementById('ps-embed-open');if(o)o.setAttribute('href',dashUrl());
+    pushTheme();
   }
   document.addEventListener('click',function(e){
     var t=e.target.closest&&e.target.closest('[data-embed-tab]');
@@ -1748,11 +1761,14 @@ class Component extends DCLogic {
   var observed=null;
   function watchTheme(){
     var r=liveRoot();
-    if(r&&r!==observed){observed=r;new MutationObserver(function(){apply(active);}).observe(r,{attributes:true,attributeFilter:['data-theme']});apply(active);}
+    if(r&&r!==observed){observed=r;new MutationObserver(function(){syncTheme();}).observe(r,{attributes:true,attributeFilter:['data-theme']});apply(active);}
   }
   (function ready(){
     if(!apply(active)){setTimeout(ready,120);return;}
     watchTheme();
+    // Re-assert the theme once the lazy iframe loads, so a toggle made before
+    // its message listener existed is not lost.
+    var f0=document.getElementById('ps-embed-frame');if(f0&&!f0._psHook){f0._psHook=1;f0.addEventListener('load',function(){if(active!=='tui')pushTheme();});}
     var n=0,iv=setInterval(function(){
       watchTheme();
       var f=document.getElementById('ps-embed-frame');
