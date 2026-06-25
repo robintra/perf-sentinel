@@ -9,7 +9,7 @@ use sentinel_core::detect::Severity;
 use sentinel_core::report::json::JsonReportSink;
 use sentinel_core::report::{Report, ReportSink};
 use sentinel_core::score::carbon::IntensitySource;
-use sentinel_core::text_safety::{safe_url, sanitize_for_terminal};
+use sentinel_core::text_safety::{safe_url, sanitize_for_terminal, strip_code_ticks};
 
 use crate::OutputFormat;
 
@@ -478,7 +478,8 @@ fn print_finding_entry(index: usize, finding: &sentinel_core::detect::Finding, c
         );
     }
     if let Some(ref fix) = finding.suggested_fix {
-        let recommendation = sanitize_for_terminal(&fix.recommendation);
+        let plain = strip_code_ticks(&fix.recommendation);
+        let recommendation = sanitize_for_terminal(&plain);
         match fix.reference_url.as_deref().and_then(safe_url) {
             Some(url) => println!("    {cyan}Suggested fix:{reset} {recommendation} (see: {url})"),
             None => println!("    {cyan}Suggested fix:{reset} {recommendation}"),
@@ -904,7 +905,8 @@ fn write_finding_block(
     )?;
     if let Some(ref fix) = f.suggested_fix {
         let label = format!("Fix [{}]:", sanitize_for_terminal(&fix.framework));
-        let recommendation = sanitize_for_terminal(&fix.recommendation);
+        let plain = strip_code_ticks(&fix.recommendation);
+        let recommendation = sanitize_for_terminal(&plain);
         match fix.reference_url.as_deref().and_then(safe_url) {
             Some(url) => writeln!(
                 writer,

@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::detect::{Finding, FindingType, Severity};
 use crate::report::Report;
-use crate::text_safety::{is_bidi_or_invisible, strip_bidi_and_invisible};
+use crate::text_safety::{is_bidi_or_invisible, strip_bidi_and_invisible, strip_code_ticks};
 
 // ── SARIF v2.1.0 structs ───────────────────────────────────────────
 
@@ -74,7 +74,7 @@ pub struct SarifResult {
     /// SARIF v2.1.0 `rank` field (0-100). populates this from
     /// the finding's [`Confidence`] so SARIF consumers that don't read
     /// the custom `properties` bag still get a useful ordering signal.
-    /// Mapping: `ci_batch = 30`, `daemon_staging = 60`,
+    /// Mapping: `local_batch = 15`, `ci_batch = 30`, `daemon_staging = 60`,
     /// `daemon_production = 90`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rank: Option<u32>,
@@ -123,8 +123,8 @@ pub struct SarifLocation {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SarifProperties {
-    /// Source context of the finding: `"ci_batch"`, `"daemon_staging"`, or
-    /// `"daemon_production"`. See [`Confidence`] for semantics.
+    /// Source context of the finding: `"local_batch"`, `"ci_batch"`,
+    /// `"daemon_staging"`, or `"daemon_production"`. See [`Confidence`] for semantics.
     pub confidence: &'static str,
     /// `true` when the result was emitted from an acknowledged finding
     /// (the operator suppressed it via `.perf-sentinel-acknowledgments.toml`
@@ -312,9 +312,10 @@ fn finding_to_result(finding: &Finding) -> SarifResult {
             .suggested_fix
             .as_ref()
             .map(|fix| {
+                let rec = strip_code_ticks(&fix.recommendation);
                 let text = match fix.reference_url.as_ref() {
-                    Some(url) => format!("{} (see: {url})", fix.recommendation),
-                    None => fix.recommendation.clone(),
+                    Some(url) => format!("{rec} (see: {url})"),
+                    None => rec.into_owned(),
                 };
                 vec![SarifFix {
                     description: SarifMessage { text },

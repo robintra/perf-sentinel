@@ -64,6 +64,19 @@ pub fn sanitize_for_terminal(input: &str) -> Cow<'_, str> {
     Cow::Owned(cleaned)
 }
 
+/// Strip markdown inline-code backticks from a recommendation string for
+/// plain-text sinks (terminal, SARIF). The HTML report keeps the backticks
+/// and renders the delimited tokens as code chips, everywhere else they are
+/// noise. Returns the input untouched when it carries no backticks.
+#[must_use]
+pub fn strip_code_ticks(input: &str) -> Cow<'_, str> {
+    if input.contains('`') {
+        Cow::Owned(input.replace('`', ""))
+    } else {
+        Cow::Borrowed(input)
+    }
+}
+
 /// Return the URL only when it is HTTPS and free of control chars.
 /// Defends against schema spoofing and OSC 8 hyperlink injection from
 /// `suggested_fix.reference_url` values planted in a deserialized report.
