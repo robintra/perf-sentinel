@@ -6,253 +6,452 @@
 <meta http-equiv="Content-Security-Policy" content="{{CONTENT_SECURITY_POLICY}}" />
 <title>{{PAGE_TITLE}}</title>
 <style>
+{{FONT_FACES}}
+  /* ============================================================
+     perf-sentinel HTML report, app-shell redesign (release/0.9.0)
+     Design tokens ported verbatim from the hi-fi handoff prototype.
+     @font-face blocks for embedded Geist / Geist Mono are injected
+     in the font-embedding step; the stacks below fall back to
+     system fonts until then.
+     ============================================================ */
+  :root {
+    --font-ui: 'Geist', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'Geist Mono', 'JetBrains Mono', 'SF Mono', ui-monospace, Consolas, monospace;
+    /* Legacy aliases kept so any un-migrated rule still resolves. */
+    --font-sans: var(--font-ui);
+    --r: 11px; --r-sm: 7px;
+  }
   :root[data-theme="dark"] {
-    --color-background-primary: #1a1a1a;
-    --color-background-secondary: #212121;
-    --color-background-tertiary: #383838;
-    --color-background-info: #18324d;
-    --color-background-danger: #3d1f1f;
-    --color-background-warning: #3d2f1f;
-    --color-background-success: #1f3d2f;
-    --color-text-primary: #e8e8e8;
-    --color-text-secondary: #b4b4b4;
-    --color-text-tertiary: #8c8c8c;
-    --color-text-info: #6babff;
-    --color-text-danger: #ff7a7a;
-    --color-text-warning: #f0b05f;
-    --color-text-success: #5fd495;
-    --color-border-tertiary: rgba(255,255,255,0.18);
-    --color-border-secondary: rgba(255,255,255,0.3);
-    --color-border-info: #378add;
-    --color-border-success: #3d7d5c;
-    --page-bg: #121212;
+    --bg: #0c100e; --surface: #141a17; --surface-2: #1a221d; --surface-3: #212b25;
+    --border: rgba(255,255,255,.35); --border-2: rgba(255,255,255,.5);
+    --text: #e8ede9; --text-2: #aabbb3; --text-3: #8a988f;
+    --brand: #2fd49a; --brand-2: #0ba671; --brand-text: #2fd49a; --accent-bg: rgba(47,212,154,.10);
+    --crit-fg: #ff8d8d; --crit-bg: rgba(255,99,99,.12); --crit-bd: rgba(255,99,99,.26);
+    --warn-fg: #f2b65f; --warn-bg: rgba(242,170,80,.12); --warn-bd: rgba(242,170,80,.24);
+    --info-fg: #74b8ff; --info-bg: rgba(96,166,255,.12); --info-bd: rgba(96,166,255,.24);
+    --ok-fg: #46d6a0; --ok-bg: rgba(47,212,154,.13); --ok-bd: rgba(47,212,154,.28);
+    --glow: radial-gradient(120% 140% at 0% 0%, rgba(47,212,154,.10), transparent 55%);
   }
   :root[data-theme="light"] {
-    --color-background-primary: #ffffff;
-    --color-background-secondary: #f5f5f5;
-    --color-background-tertiary: #ececec;
-    --color-background-info: #e6f1fb;
-    --color-background-danger: #fcebeb;
-    --color-background-warning: #faeeda;
-    --color-background-success: #eaf3de;
-    --color-text-primary: #1a1a1a;
-    --color-text-secondary: #555555;
-    --color-text-tertiary: #888888;
-    --color-text-info: #0c447c;
-    --color-text-danger: #791f1f;
-    --color-text-warning: #633806;
-    --color-text-success: #27500a;
-    --color-border-tertiary: rgba(0,0,0,0.1);
-    --color-border-secondary: rgba(0,0,0,0.2);
-    --color-border-info: #378add;
-    --color-border-success: #7ab85a;
-    --page-bg: #fafafa;
+    --bg: #f3f6f4; --surface: #ffffff; --surface-2: #f6f9f7; --surface-3: #eef2f0;
+    --border: rgba(11,40,30,.55); --border-2: rgba(11,40,30,.66);
+    --text: #0f1f18; --text-2: #4d5d56; --text-3: #5f6d65;
+    --brand: #0ba671; --brand-2: #0b523a; --brand-text: #0a7850; --accent-bg: rgba(11,166,113,.09);
+    --crit-fg: #bf2a22; --crit-bg: #fbeceb; --crit-bd: #f0cdca;
+    --warn-fg: #8a5a14; --warn-bg: #f7efdc; --warn-bd: #e8d4ab;
+    --info-fg: #1f5e9e; --info-bg: #e9f0f8; --info-bd: #c8dbef;
+    --ok-fg: #0a7a52; --ok-bg: #e7f4ee; --ok-bd: #a6d4be;
+    --glow: radial-gradient(120% 140% at 0% 0%, rgba(11,166,113,.07), transparent 55%);
   }
-  :root {
-    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, Monaco, monospace;
-    --border-radius-md: 8px;
-    --border-radius-lg: 12px;
-  }
+
+  /* -------- base -------- */
   * { box-sizing: border-box; }
-  body { margin: 0; padding: 24px; background: var(--page-bg); color: var(--color-text-primary); font-family: var(--font-sans); font-size: 13px; line-height: 1.5; }
-  .ps-container { max-width: 1100px; margin: 0 auto; }
-  .ps-header-ctrl { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 10px; font-size: 11px; color: var(--color-text-tertiary); }
-  .ps-theme-toggle { background: transparent; border: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); padding: 4px 10px; border-radius: var(--border-radius-md); cursor: pointer; font-size: 11px; font-family: inherit; }
-  .ps-theme-toggle:hover { border-color: var(--color-border-secondary); }
-  .ps-topbar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); background: var(--color-background-secondary); margin-bottom: 12px; flex-wrap: wrap; }
-  .ps-brand { display: inline-flex; align-items: center; text-decoration: none; }
-  .ps-logo { display: inline-flex; }
-  .ps-logo svg { height: 65px; width: auto; display: block; }
-  /* Theme-swapped wordmark: light variant by default (and when light),
-     light-colored variant on dark. data-theme is always resolved to a
-     concrete light/dark by applyTheme. */
-  .ps-logo-dark { display: none; }
-  :root[data-theme="dark"] .ps-logo-light { display: none; }
-  :root[data-theme="dark"] .ps-logo-dark { display: inline-flex; }
-  .ps-meta { color: var(--color-text-secondary); font-size: 12px; font-family: var(--font-mono); }
-  .ps-gate-pass { margin-left: auto; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
-  .ps-gate-fail { margin-left: auto; background: var(--color-background-danger); color: var(--color-text-danger); padding: 3px 10px; border-radius: var(--border-radius-md); font-size: 11px; font-weight: 500; }
-  .ps-tabs { display: flex; gap: 2px; border-bottom: 0.5px solid var(--color-border-tertiary); margin-bottom: 14px; }
-  .ps-tab { padding: 8px 14px; font-size: 13px; cursor: pointer; border: none; background: transparent; color: var(--color-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -0.5px; font-family: inherit; }
-  .ps-tab:hover { color: var(--color-text-primary); }
-  .ps-tab.active { color: var(--color-text-primary); border-bottom-color: var(--color-text-primary); font-weight: 500; }
-  .ps-tab .ps-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 10px; font-size: 10px; background: var(--color-background-tertiary); color: var(--color-text-secondary); }
-  .ps-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 13px; line-height: 1.5; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--border-2); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  input { font-family: inherit; }
+  a { color: var(--brand-text); }
+
+  /* -------- severity + tone (attribute-driven, drives every pill/tag) -------- */
+  [data-sev] { font-family: var(--font-mono); font-weight: 600; letter-spacing: .4px; }
+  [data-sev="crit"] { color: var(--crit-fg); background: var(--crit-bg); border: 1px solid var(--crit-bd); }
+  [data-sev="warn"] { color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-bd); }
+  [data-sev="info"] { color: var(--info-fg); background: var(--info-bg); border: 1px solid var(--info-bd); }
+  [data-sev="ok"] { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-bd); }
+  [data-tone="crit"] { color: var(--crit-fg); }
+  [data-tone="ok"] { color: var(--ok-fg); }
+  [data-tone="warn"] { color: var(--warn-fg); }
+  [data-tone="neutral"] { color: var(--text); }
+  [data-tone="brand"] { color: var(--brand); }
+  [data-d="0"] { margin-left: 0; } [data-d="1"] { margin-left: 22px; }
+  [data-d="2"] { margin-left: 44px; } [data-d="3"] { margin-left: 66px; }
+
+  /* -------- app shell -------- */
+  .ps-shell { display: grid; grid-template-columns: 252px 1fr; min-height: 100vh; background-image: var(--glow); }
+  .ps-sidebar { border-right: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; }
+  .ps-brand-block { padding: 20px 18px 14px; display: flex; flex-direction: column; gap: 7px; align-items: flex-start; }
+  .ps-brand { display: block; text-decoration: none; }
+  .ps-logo { display: none; }
+  .ps-logo svg, .ps-logo img { height: 34px; width: auto; display: block; }
+  /* Theme-swapped wordmark. data-theme is always resolved to a concrete
+     light/dark by applyTheme, so exactly one variant shows. */
+  :root[data-theme="dark"] .ps-logo-dark { display: block; }
+  :root[data-theme="light"] .ps-logo-light { display: block; }
+  .ps-brand-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; color: var(--text-3); padding-left: 2px; }
+  .ps-nav { display: flex; flex-direction: column; gap: 0; padding: 8px 10px; flex: 1; overflow: auto; }
+  .ps-nav-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); padding: 10px 9px 6px; }
+  [data-nav] { appearance: none; font-family: inherit; width: 100%; text-align: left; display: flex; align-items: center; gap: 10px; padding: 8px 9px; border-radius: var(--r-sm); font-size: 13px; font-weight: 500; color: var(--text-2); background: transparent; border: 0; cursor: pointer; transition: background .13s, color .13s, transform .13s; }
+  [data-nav]:hover { color: var(--text); background: var(--surface-2); transform: translateX(3px); }
+  [data-nav]:hover > .ps-nav-dot { background: var(--brand); opacity: 1; }
+  [data-nav] + [data-nav] { border-top: 1px solid var(--border); }
+  [data-nav][aria-selected="true"] { color: var(--text); background: var(--accent-bg); box-shadow: inset 2px 0 0 var(--brand); }
+  .ps-nav-dot { width: 6px; height: 6px; border-radius: 2px; background: currentColor; opacity: .85; flex: none; }
+  .ps-nav-label { flex: 1; }
+  .ps-nav-badge { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  /* The run-context line (batch/CI, daemon staging/prod) and the version
+     line show in every mode. The dot only pulses in live/daemon mode. */
+  .ps-sidebar-foot { display: flex; height: 62px; padding: 0 16px; border-top: 1px solid var(--border); flex-direction: column; justify-content: center; gap: 6px; }
+  .ps-sidebar-foot-status { display: flex; align-items: center; gap: 8px; }
+  .ps-sidebar-foot-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex: none; }
+  .ps-sidebar-foot-dot[data-ctx="ok"] { background: var(--ok-fg); }
+  .ps-sidebar-foot-dot[data-ctx="warn"] { background: var(--warn-fg); }
+  body.ps-live .ps-sidebar-foot-dot { animation: ps-pulse 2.4s ease-in-out infinite; }
+  .ps-sidebar-foot-text { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); }
+  .ps-sidebar-foot-version { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+  .ps-main { display: flex; flex-direction: column; min-width: 0; }
+  .ps-topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; row-gap: 10px; flex-wrap: wrap; padding: 14px 28px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(8px); }
+  .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .ps-topbar-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); }
+  .ps-topbar-h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
+  .ps-gate-pass, .ps-gate-fail { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 20px; font-size: 11px; font-family: var(--font-mono); font-weight: 600; }
+  .ps-gate-pass { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-bd); }
+  .ps-gate-fail { color: var(--crit-fg); background: var(--crit-bg); border: 1px solid var(--crit-bd); }
+  .ps-gate-pass::before, .ps-gate-fail::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .ps-content { padding: 24px 28px 0; overflow: auto; flex: 1; display: flex; flex-direction: column; }
+  .ps-panel { display: flex; flex-direction: column; gap: 14px; }
+  .ps-panel-narrow { max-width: 1100px; }
+  .ps-panel-wide { max-width: 1240px; }
+
+  /* -------- generic controls -------- */
+  [data-ghost] { cursor: pointer; transition: border-color .12s, color .12s; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 11px; font-size: 12px; color: var(--text-2); background: transparent; font-family: inherit; }
+  [data-ghost]:hover { border-color: var(--border-2); color: var(--text); }
+  .ps-theme-toggle { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 7px 11px; font-size: 12px; color: var(--text-2); background: transparent; cursor: pointer; font-family: inherit; }
+  .ps-theme-toggle:hover { border-color: var(--border-2); color: var(--text); }
+  .ps-theme-toggle .ps-th-svg { flex: none; }
+  .ps-theme-toggle .ps-th-svg.accent { color: var(--brand-text); }
+  /* Per-panel filter input: hidden until the user presses "/" (toggled via inline style by the search wiring). */
+  .ps-search { display: none; width: 100%; padding: 8px 11px; font-size: 12.5px; font-family: var(--font-ui); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); outline: none; }
+  .ps-search:focus { border-color: var(--brand); }
+  .ps-search-box { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); border-radius: var(--r-sm); padding: 0 11px; height: 34px; flex: 1 1 320px; min-width: 240px; max-width: 480px; }
+  .ps-search-box .ps-search-glyph { color: var(--text-3); font-size: 13px; }
+  .ps-search-box .ps-search { display: flex; width: auto; flex: 1; min-width: 0; border: 0; background: transparent; padding: 0; }
+  .ps-search-box .ps-search-kbd { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+
+  /* -------- cards / metrics -------- */
+  /* overflow:hidden clips edge-to-edge rows (and the selected row's inset
+     brand bar) to the card's rounded corners, so the green selection bar
+     never spills past the corner and the border stays unbroken. */
+  .ps-card { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); overflow: hidden; }
+  .ps-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .ps-metrics-3 { grid-template-columns: repeat(3, 1fr); }
-  .ps-metric { background: var(--color-background-secondary); border-radius: var(--border-radius-md); padding: 10px 12px; }
-  .ps-metric-label { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 4px; }
-  .ps-metric-value { font-size: 20px; font-weight: 500; font-family: var(--font-mono); word-break: break-word; }
-  .ps-metric-value-sm { font-size: 14px; line-height: 1.4; }
-  .ps-metric-sub { font-size: 11px; color: var(--color-text-tertiary); font-family: var(--font-mono); }
-  .ps-filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+  .ps-metric { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); padding: 15px 16px; display: flex; flex-direction: column; gap: 9px; }
+  /* Severity-tinted gradient (top -> transparent), matching the gate hero. */
+  .ps-metric[data-grad="crit"] { background-image: linear-gradient(180deg, var(--crit-bg), transparent); }
+  .ps-metric[data-grad="warn"] { background-image: linear-gradient(180deg, var(--warn-bg), transparent); }
+  .ps-metric[data-grad="ok"] { background-image: linear-gradient(180deg, var(--ok-bg), transparent); }
+  .ps-metric[data-grad="brand"] { background-image: linear-gradient(180deg, var(--accent-bg), transparent); }
+  .ps-metric-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .9px; text-transform: uppercase; color: var(--text-3); }
+  .ps-metric-value { font-size: 27px; font-weight: 600; letter-spacing: -.6px; word-break: break-word; }
+  .ps-metric-value-sm { font-size: 16px; line-height: 1.4; }
+  .ps-metric-sub { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+
+  /* -------- overview landing -------- */
+  .ps-hero { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+  .ps-hero-left { padding: 24px 26px; border-right: 1px solid var(--border); background: linear-gradient(180deg, var(--accent-bg), transparent); }
+  /* Gate FAIL: same gradient as PASS but red at the top, fading to transparent. */
+  .ps-hero-left[data-tone="crit"] { background: linear-gradient(180deg, var(--crit-bg), transparent); }
+  .ps-hero-verdict { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .ps-hero-dot { width: 13px; height: 13px; border-radius: 50%; background: currentColor; flex: none; }
+  .ps-hero-big { font-size: 44px; font-weight: 700; letter-spacing: -1px; line-height: 1; }
+  .ps-hero-line { margin: 14px 0 0; font-size: 13px; color: var(--text-2); max-width: 230px; }
+  .ps-hero-right { padding: 20px 24px; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+  .ps-hero-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 22px; }
+  .ps-hero-rule { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .ps-hero-rule-chip { width: 16px; height: 16px; border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 11px; flex: none; margin-top: 1px; }
+  .ps-hero-rule-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ps-hero-rule-name { font-size: 12.5px; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-hero-rule-detail { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  .ps-hero-meta { display: flex; flex-wrap: wrap; gap: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  /* correlations cards */
+  #correlations-list { display: flex; flex-direction: column; gap: 10px; }
+  .ps-corr-card { display: flex; align-items: center; gap: 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); padding: 15px 18px; }
+  .ps-corr-tag { padding: 3px 8px; border-radius: 5px; font-size: 11px; }
+  .ps-corr-path { font-family: var(--font-mono); font-size: 12.5px; color: var(--text); }
+  .ps-corr-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+  /* carbon formula banner (class name mirrors the existing .ps-scoring-bandeau) */
+  .ps-formula-bandeau { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--r); background: linear-gradient(180deg, var(--accent-bg), transparent); padding: 18px 22px; }
+  .ps-formula-code { font-family: var(--font-mono); font-size: 17px; color: var(--text); font-weight: 500; background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 8px 14px; }
+  .ps-formula-text { font-size: 12.5px; color: var(--text-2); max-width: 560px; }
+  /* diff two-column cards + horizontal rows */
+  .ps-diff-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  .ps-row.ps-diff-row { flex-direction: row; align-items: center; gap: 10px; padding: 12px 18px; }
+  .ps-diff-type { font-size: 12.5px; color: var(--text); }
+  .ps-diff-endpoint { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ps-card .ps-table th:first-child, .ps-card .ps-table td:first-child { padding-left: 18px; }
+  .ps-card .ps-table th:last-child, .ps-card .ps-table td:last-child { padding-right: 18px; }
+  .ps-overview-cols { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: start; }
+  .ps-overview-card-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--border); }
+  .ps-overview-card-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .ps-overview-link { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: transparent; border: 0; cursor: pointer; }
+  .ps-overview-link:hover { color: var(--text); }
+  .ps-overview-rail { display: flex; flex-direction: column; gap: 14px; }
+  .ps-row.ps-overview-finding { flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
+  .ps-of-left { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+  .ps-of-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+  .ps-of-primary { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+  .ps-of-secondary { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  .ps-mini-card { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); padding: 16px 18px; display: flex; flex-direction: column; gap: 13px; }
+  .ps-mini-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .ps-mini-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .ps-mini-total { font-family: var(--font-mono); font-size: 12px; color: var(--brand-text); }
+  .ps-mini-pills { display: flex; gap: 9px; flex-wrap: wrap; }
+  .ps-mini-pill { padding: 4px 10px; border-radius: 20px; font-size: 11px; }
+  .ps-mini-link { font-family: var(--font-mono); font-size: 11px; color: var(--text-2); background: transparent; border: 0; cursor: pointer; align-self: flex-start; }
+  .ps-mini-link:hover { color: var(--text); }
+  /* Underline the link label but not the trailing arrow. */
+  .ps-link-txt { text-decoration: underline; }
+  .ps-mini-row { display: flex; flex-direction: column; gap: 5px; }
+  .ps-mini-row-head { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 11px; }
+  .ps-bar-track { height: 6px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
+  .ps-bar-fill { height: 100%; border-radius: 4px; background: var(--brand); }
+
+  /* -------- chips / filters -------- */
+  .ps-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .ps-chip-group { display: contents; }
-  .ps-chip { padding: 4px 10px; font-size: 11px; border-radius: 12px; border: 0.5px solid var(--color-border-tertiary); background: transparent; cursor: pointer; color: var(--color-text-secondary); font-family: inherit; }
-  .ps-chip:hover { background: var(--color-background-secondary); }
-  .ps-chip.active { background: var(--color-text-primary); color: var(--color-background-primary); border-color: var(--color-text-primary); }
-  .ps-list { display: flex; flex-direction: column; gap: 6px; }
-  .ps-row { display: grid; grid-template-columns: 60px 1fr auto; align-items: center; gap: 10px; padding: 10px 12px; border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); cursor: pointer; background: var(--color-background-primary); }
-  .ps-row:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
-  .ps-row.selected { border: 2px solid var(--color-border-info); padding: 9px 11px; }
-  .ps-sev-crit { background: var(--color-background-danger); color: var(--color-text-danger); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
-  .ps-sev-warn { background: var(--color-background-warning); color: var(--color-text-warning); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
-  .ps-sev-info { background: var(--color-background-info); color: var(--color-text-info); font-size: 10px; font-weight: 500; padding: 3px 8px; border-radius: var(--border-radius-md); text-align: center; }
-  .ps-badge-estimated { display: inline-block; background: var(--color-background-warning); color: var(--color-text-warning); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
-  .ps-badge-measured { display: inline-block; background: var(--color-background-success); color: var(--color-text-success); padding: 3px 8px; border-radius: var(--border-radius-md); font-size: 10px; font-weight: 500; }
-  .ps-scoring-bandeau { display: flex; align-items: center; gap: 8px; margin-top: 14px; margin-bottom: 8px; font-size: 12px; flex-wrap: wrap; }
-  .ps-scoring-label { color: var(--color-text-secondary); font-weight: 500; }
-  .ps-scoring-chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 500; white-space: nowrap; }
-  .ps-scoring-chip-neutral { background: var(--color-background-secondary); color: var(--color-text-secondary); }
-  .ps-scoring-chip-warning { background: var(--color-background-warning); color: var(--color-text-warning); }
-  .ps-scoring-chip-accent { background: var(--color-background-secondary); color: var(--color-text-info); }
+  .ps-chip { padding: 4px 11px; font-size: 11px; border-radius: 20px; border: 1px solid var(--border); background: transparent; cursor: pointer; color: var(--text-2); font-family: var(--font-mono); }
+  .ps-chip:hover { background: var(--surface-2); }
+  .ps-chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .ps-chip[data-sev] { font-weight: 600; }
+  .ps-chip[data-sev="crit"] { color: var(--crit-fg); background: var(--crit-bg); border-color: var(--crit-bd); }
+  .ps-chip[data-sev="warn"] { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-bd); }
+  .ps-chip[data-sev="info"] { color: var(--info-fg); background: var(--info-bg); border-color: var(--info-bd); }
+  .ps-chip[data-sev].active { box-shadow: inset 0 0 0 1px currentColor; }
+  .ps-findings-count { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: 6px; }
+
+  /* -------- lists / rows -------- */
+  .ps-list { display: flex; flex-direction: column; }
+  .ps-row { display: flex; flex-direction: column; gap: 7px; padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; transition: background .12s; }
+  .ps-row:hover { background: var(--surface-2); }
+  .ps-row.selected { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--brand); }
+  .ps-row:last-child { border-bottom-color: transparent; }
+  .ps-sev { padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+  .ps-badge-estimated, .ps-badge-measured { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 11px; font-family: var(--font-mono); font-weight: 600; }
+  .ps-badge-estimated { color: var(--warn-fg); background: var(--warn-bg); border: 1px solid var(--warn-bd); }
+  .ps-badge-measured { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-bd); }
+  .ps-scoring-bandeau { display: flex; align-items: center; gap: 8px; font-size: 12px; flex-wrap: wrap; }
+  .ps-scoring-label { color: var(--text-2); font-weight: 500; }
+  .ps-scoring-chip { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; white-space: nowrap; font-family: var(--font-mono); }
+  .ps-scoring-chip-neutral { background: var(--surface-2); color: var(--text-2); }
+  .ps-scoring-chip-warning { background: var(--warn-bg); color: var(--warn-fg); }
+  .ps-scoring-chip-accent { background: var(--accent-bg); color: var(--brand-text); }
   .ps-fin-main { min-width: 0; }
-  .ps-fin-type { font-weight: 500; font-size: 13px; margin-bottom: 2px; }
-  .ps-fin-service { color: var(--color-text-tertiary); font-weight: 400; font-size: 11px; }
-  .ps-fin-detail { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ps-fin-right { font-size: 11px; color: var(--color-text-secondary); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
-  .ps-fin-right-sub { color: var(--color-text-tertiary); }
-  .ps-tree-header { font-size: 11px; color: var(--color-text-secondary); margin-bottom: 12px; padding: 8px 12px; background: var(--color-background-tertiary); border-radius: var(--border-radius-md); font-family: var(--font-mono); word-break: break-all; }
-  .ps-tree { font-family: var(--font-mono); font-size: 12px; padding: 10px 12px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); line-height: 1.9; }
-  .ps-span { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 2px 4px; border-radius: 4px; }
-  .ps-span.dim { color: var(--color-text-tertiary); }
-  .ps-span.hilite { background: var(--color-background-danger); }
-  .ps-span-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ps-span-dur { color: var(--color-text-tertiary); white-space: nowrap; }
-  .ps-span-find { color: var(--color-text-danger); font-weight: 500; }
-  .ps-drill { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 10px 12px; margin-top: 10px; margin-bottom: 12px; font-size: 12px; color: var(--color-text-info); }
-  .ps-drill-label { font-size: 10px; color: var(--color-text-info); margin-bottom: 4px; opacity: 0.8; }
-  .ps-drill-link { color: var(--color-text-info); }
-  .ps-banner { background: var(--color-background-info); border: 0.5px solid var(--color-border-info); border-radius: var(--border-radius-md); padding: 8px 12px; margin-bottom: 10px; font-size: 11px; color: var(--color-text-info); }
-  .ps-empty { padding: 30px; text-align: center; color: var(--color-text-secondary); font-size: 13px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); }
-  .ps-table { width: 100%; font-size: 11px; font-family: var(--font-mono); border-collapse: collapse; }
-  .ps-table th { text-align: left; font-weight: 500; padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); color: var(--color-text-secondary); font-size: 10px; font-family: var(--font-sans); }
-  .ps-table td { padding: 6px 8px; border-bottom: 0.5px solid var(--color-border-tertiary); vertical-align: top; }
-  /* Highlight row on Explain -> pg_stat cross-nav. Scoped to the
-     pg_stat table so other .ps-table instances (diff, green regions)
-     stay unaffected if they ever adopt a .hilite class for another
-     purpose. */
-  #pgstat-body tr.hilite { background: var(--color-background-danger); }
-  #pgstat-body tr.hilite td:first-child { color: var(--color-text-danger); font-weight: 500; }
-  .ps-footer { margin-top: 14px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
-  .ps-credit { margin-top: 8px; font-size: 11px; color: var(--color-text-tertiary); text-align: center; }
-  .ps-credit a { color: var(--color-text-success); text-decoration: underline; }
-  .ps-credit a:hover { color: var(--color-text-primary); }
-  .ps-kbd { font-family: var(--font-mono); font-size: 10px; background: var(--color-background-tertiary); padding: 1px 5px; border-radius: 3px; color: var(--color-text-secondary); }
-  .ps-search { display: none; width: 100%; padding: 6px 10px; margin-bottom: 10px; font-size: 12px; font-family: var(--font-sans); background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
-  .ps-search:focus { outline: none; border-color: var(--color-border-info); }
+  .ps-fin-type { font-weight: 600; font-size: 12.5px; color: var(--text); }
+  .ps-fin-service { color: var(--text-3); font-weight: 400; font-size: 11px; font-family: var(--font-mono); }
+  .ps-fin-detail { font-size: 11px; color: var(--text-2); font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-fin-right { font-size: 11px; color: var(--text-2); font-family: var(--font-mono); text-align: right; white-space: nowrap; }
+  .ps-fin-right-sub { color: var(--text-3); }
+  .ps-fin-topline { display: flex; align-items: center; gap: 8px; }
+  .ps-fin-metric { margin-left: auto; }
+  .ps-fin-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ps-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .ps-detail-titlewrap { flex: 1; min-width: 0; }
+
+  /* -------- findings master / detail -------- */
+  .ps-triage { display: grid; grid-template-columns: 340px 1fr; gap: 14px; align-items: start; }
+  .ps-detail { border: 1px solid var(--border); border-radius: var(--r); background: var(--surface); padding: 20px 22px; display: flex; flex-direction: column; gap: 17px; }
+  /* Space the detail sections evenly (title -> meta -> template, breadcrumb -> tree -> pg_stat -> fix). */
+  #explain-detail-head, #explain-content { display: flex; flex-direction: column; gap: 18px; }
+  .ps-detail-empty { color: var(--text-3); font-size: 13px; }
+  .ps-detail-head { display: flex; align-items: flex-start; gap: 12px; }
+  .ps-detail-h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
+  .ps-detail-sub { margin: 4px 0 0; font-size: 12.5px; color: var(--text-2); }
+  .ps-meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .ps-meta-cell { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); padding: 11px 12px; }
+  .ps-meta-cell-label { font-family: var(--font-mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--text-3); }
+  .ps-meta-cell-value { font-size: 12.5px; font-weight: 500; color: var(--text); margin-top: 5px; }
+  .ps-meta-cell-value.mono { font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ps-meta-cell-value.brand { color: var(--brand-text); }
+  .ps-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-3); }
+  .ps-eyebrow.brand { color: var(--brand-text); }
+  .ps-codeblock { display: block; font-family: var(--font-mono); font-size: 12px; color: var(--text); background: var(--surface-3); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 12px 14px; overflow: auto; white-space: pre; }
+  .ps-section { display: flex; flex-direction: column; gap: 8px; }
+
+  /* -------- explain tree -------- */
+  .ps-tree-header { font-size: 11px; color: var(--text-2); padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--font-mono); word-break: break-all; }
+  .ps-tree { border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .ps-span { display: flex; align-items: center; gap: 9px; padding: 1px 0; border-radius: 4px; }
+  .ps-span.dim { color: var(--text-3); }
+  .ps-span.hilite { background: var(--crit-bg); }
+  .ps-span-text { font-family: var(--font-mono); font-size: 11.5px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ps-span-flag { padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+  .ps-span-dur { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+  .ps-span-count { flex: none; font-family: var(--font-mono); font-size: 10.5px; padding: 0 6px; border-radius: 5px; background: var(--surface-2); color: var(--text-2); }
+  .ps-span-find { color: var(--crit-fg); font-weight: 600; }
   .ps-span.ps-span-pgstat-link { cursor: pointer; }
   .ps-span.ps-span-pgstat-link:hover .ps-span-text { text-decoration: underline; }
-  .ps-drill-clear { color: var(--color-text-info); text-decoration: underline; cursor: pointer; margin-left: 8px; }
-  .ps-diff-section { margin-bottom: 18px; }
-  .ps-diff-section-header { font-size: 12px; font-weight: 500; margin-bottom: 8px; color: var(--color-text-primary); }
-  .ps-diff-section-header.red { color: var(--color-text-danger); }
-  .ps-diff-section-header.green { color: var(--color-text-success); }
-  .ps-quality-gate { margin: 12px 0 18px 0; }
-  .ps-section-title { font-size: 12px; font-weight: 500; margin: 0 0 8px 0; color: var(--color-text-primary); }
-  .ps-panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-  .ps-export-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; }
-  .ps-export-btn:hover { background: var(--color-background-info); }
-  .ps-copy-link-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; cursor: pointer; color: var(--color-text-info); font-family: inherit; margin-left: 6px; }
-  .ps-copy-link-btn:hover { background: var(--color-background-info); }
+
+  /* -------- suggested fix (green callout) -------- */
+  .ps-fix { border: 1px solid var(--ok-bd); border-radius: var(--r-sm); background: var(--ok-bg); padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+  /* pg_stat cross-ref (left) + suggested fix (right), side by side like the model; collapses to one column when only one is present. */
+  .ps-detail-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  .ps-detail-cols.single { grid-template-columns: 1fr; }
+  .ps-detail-foot { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); border-top: 1px solid var(--border); padding-top: 13px; }
+  .ps-pgstat-xref { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 12px; }
+  .ps-pgstat-xref-stat { color: var(--text-3); white-space: nowrap; }
+  .ps-fix-prose { font-size: 12.5px; color: var(--text); line-height: 1.55; }
+  .ps-fix-code { font-family: var(--font-mono); font-size: 11.5px; color: var(--text); background: var(--surface); border: 1px solid var(--ok-bd); border-radius: 6px; padding: 9px 11px; overflow: auto; white-space: pre; }
+  .ps-fix-alt { display: block; font-size: 12px; color: var(--text); line-height: 1.55; padding-top: 9px; border-top: 1px solid var(--ok-bd); }
+  .ps-fix-link { align-self: flex-start; font-family: var(--font-mono); font-size: 11px; color: var(--brand-text); text-decoration: none; border-bottom: 1px solid var(--brand-text); }
+  .ps-source-link { color: var(--brand-text); text-decoration: underline; }
+
+  /* prose inline-code chip emitted by proseHl */
+  .ps-code-inline { font-family: var(--font-mono); font-size: .9em; background: var(--surface-3); border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; color: var(--text); }
+  /* syntax-highlight token weight (color set inline by the highlighter via data-hl) */
+  .ps-hl-kw { font-weight: 600; }
+
+  /* -------- banner / empty / drill -------- */
+  .ps-banner { background: var(--info-bg); border: 1px solid var(--info-bd); border-radius: var(--r-sm); padding: 8px 12px; font-size: 11px; color: var(--info-fg); }
+  .ps-empty { padding: 30px; text-align: center; color: var(--text-2); font-size: 13px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+  .ps-drill { background: var(--info-bg); border: 1px solid var(--info-bd); border-radius: var(--r-sm); padding: 10px 12px; font-size: 12px; color: var(--info-fg); }
+  .ps-drill-label { font-size: 10px; color: var(--info-fg); margin-bottom: 4px; opacity: .8; }
+  .ps-drill-link { color: var(--info-fg); }
+  .ps-drill-clear { color: var(--info-fg); text-decoration: underline; cursor: pointer; margin-left: 8px; }
+
+  /* -------- tables -------- */
+  .ps-table { width: 100%; font-size: 11.5px; font-family: var(--font-mono); border-collapse: collapse; }
+  .ps-table th { text-align: left; font-weight: 600; padding: 11px 12px; border-bottom: 1px solid var(--border); color: var(--text-3); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; font-family: var(--font-mono); }
+  .ps-table td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-2); }
+  /* Diff delta tone (override the base td color) + emphasized "after" value. */
+  .ps-table td[data-tone="crit"] { color: var(--crit-fg); }
+  .ps-table td[data-tone="ok"] { color: var(--ok-fg); }
+  .ps-table td.ps-diff-after { color: var(--text); font-weight: 600; }
+  .ps-table tr:last-child td { border-bottom-color: transparent; }
+  #pgstat-body tr.hilite { background: var(--crit-bg); }
+  #pgstat-body tr.hilite td:first-child { color: var(--crit-fg); font-weight: 600; }
+  /* pg_stat controls row: "rank by" label + ranking chips + filter box */
+  .ps-pgstat-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .ps-rankby-label { font-family: var(--font-mono); font-size: 11px; color: var(--text-3); margin-right: 2px; }
+  .ps-pgstat-filter { margin-left: auto; height: 32px; flex: 0 1 260px; max-width: 260px; min-width: 180px; }
+
+  /* -------- footer -------- */
+  .ps-footer { margin-top: auto; min-height: 62px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-family: var(--font-mono); font-size: 11px; color: var(--text-3); }
+  .ps-credit { margin-left: auto; }
+  .ps-credit a, .ps-footer a { color: var(--brand-text); text-decoration: none; border-bottom: 1px solid var(--brand-text); }
+  .ps-credit a:hover, .ps-footer a:hover { color: var(--text); }
+  .ps-kbd { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--text-3); }
+
+  /* -------- diff / section headers -------- */
+  .ps-diff-section { display: flex; flex-direction: column; }
+  .ps-diff-section-header { font-size: 13px; font-weight: 600; padding: 13px 18px; border-bottom: 1px solid var(--border); color: var(--text); }
+  .ps-diff-section-header.red { color: var(--crit-fg); }
+  .ps-diff-section-header.green { color: var(--ok-fg); }
+  .ps-quality-gate { display: flex; flex-direction: column; gap: 0; }
+  .ps-section-title { font-size: 13px; font-weight: 600; margin: 0; color: var(--text); }
+  .ps-panel-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+  .ps-export-btn, .ps-copy-link-btn { padding: 6px 12px; font-size: 11.5px; border-radius: var(--r-sm); border: 1px solid var(--border); background: transparent; cursor: pointer; color: var(--text-2); font-family: inherit; }
+  .ps-export-btn:hover, .ps-copy-link-btn:hover { border-color: var(--border-2); color: var(--text); }
   .ps-correlation-clickable { cursor: pointer; }
-  .ps-correlation-clickable:hover { background: var(--color-background-tertiary); }
-  .ps-show-more { margin-top: 10px; padding: 6px 12px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; width: 100%; }
-  .ps-show-more:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); }
-  /* Centered via the modern `inset: 0 + margin: auto` pattern. The
-     previous `top/left + transform: translate(-50%, -50%)` recipe
-     interacted badly with the user-agent's `dialog:modal` defaults
-     (`inset: 0` stays on the unset edges, fighting the explicit
-     top/left), drifting the box right of center on wider viewports. */
-  /* `max-height` + `overflow-y: auto` keep the Cancel/Submit row in
-     view when an operator pastes a tall reason into the ack textarea
-     (which is `resize: vertical`). Without the cap, the dialog would
-     extend past the viewport and the bottom buttons would land
-     off-screen with no internal scroll. */
-  dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 520px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--color-background-secondary); color: var(--color-text-primary); border-radius: var(--border-radius-lg); border: 0.5px solid var(--color-border-tertiary); padding: 18px 22px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
-  dialog.ps-modal::backdrop { background: rgba(0,0,0,0.6); }
-  dialog.ps-modal h2 { margin: 0 0 12px 0; font-size: 14px; font-weight: 500; }
-  .ps-modal-close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; color: var(--color-text-secondary); font-family: inherit; font-size: 16px; cursor: pointer; line-height: 1; padding: 4px 8px; }
-  .ps-modal-close:hover { color: var(--color-text-primary); }
+  .ps-correlation-clickable:hover { background: var(--surface-2); }
+  .ps-show-more { padding: 12px 14px; font-size: 11px; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--brand-text); cursor: pointer; font-family: var(--font-mono); width: 100%; text-align: center; }
+  .ps-show-more:hover { background: var(--surface-2); }
+
+  @keyframes ps-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+
+  /* -------- modals (native <dialog>) -------- */
+  dialog.ps-modal { position: fixed; inset: 0; margin: auto; max-width: 460px; width: calc(100% - 40px); height: fit-content; max-height: calc(100vh - 40px); overflow-y: auto; background: var(--surface); color: var(--text); border-radius: var(--r); border: 1px solid var(--border-2); padding: 22px 24px; box-shadow: 0 24px 70px rgba(0,0,0,.45); }
+  dialog.ps-modal::backdrop { background: rgba(0,0,0,.55); }
+  dialog.ps-modal h2 { margin: 0 0 16px 0; font-size: 15px; font-weight: 600; }
+  .ps-modal-close { position: absolute; top: 14px; right: 16px; background: transparent; border: none; color: var(--text-2); font-family: var(--font-mono); font-size: 12px; cursor: pointer; line-height: 1; padding: 4px 8px; }
+  .ps-modal-close:hover { color: var(--text); }
   dialog.ps-modal table { width: 100%; border-collapse: collapse; }
-  dialog.ps-modal th { text-align: left; padding: 4px 6px; font-size: 10px; font-weight: 500; color: var(--color-text-secondary); border-bottom: 0.5px solid var(--color-border-tertiary); font-family: var(--font-sans); }
-  dialog.ps-modal th:first-child { width: 90px; }
-  dialog.ps-modal td { padding: 5px 6px; font-size: 12px; vertical-align: top; }
-  dialog.ps-modal td:first-child { width: 90px; white-space: nowrap; }
+  dialog.ps-modal th { text-align: left; padding: 4px 6px; font-size: 11px; font-weight: 600; color: var(--text-3); border-bottom: 1px solid var(--border); font-family: var(--font-mono); }
+  dialog.ps-modal th:first-child { width: 110px; }
+  dialog.ps-modal td { padding: 6px 6px; font-size: 12.5px; vertical-align: top; color: var(--text-2); }
+  dialog.ps-modal td:first-child { width: 110px; white-space: nowrap; font-family: var(--font-mono); color: var(--text); }
+  dialog.ps-modal label { display: block; font-size: 11px; color: var(--text-3); margin: 12px 0 4px 0; font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .6px; }
+  dialog.ps-modal input[type="password"], dialog.ps-modal input[type="text"], dialog.ps-modal textarea, dialog.ps-modal select { width: 100%; box-sizing: border-box; padding: 8px 11px; font-size: 12.5px; font-family: inherit; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); color: var(--text); }
+  dialog.ps-modal textarea { min-height: 70px; resize: vertical; }
+  dialog.ps-modal .ps-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+  dialog.ps-modal .ps-modal-btn { padding: 8px 15px; font-size: 12.5px; border-radius: var(--r-sm); border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; font-family: inherit; }
+  dialog.ps-modal .ps-modal-btn:hover { border-color: var(--border-2); color: var(--text); }
+  dialog.ps-modal .ps-modal-btn.primary { background: var(--ok-bg); color: var(--ok-fg); border: 1px solid var(--ok-bd); font-weight: 600; }
+  dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--crit-bg); color: var(--crit-fg); border-radius: var(--r-sm); }
 
   /* -------- live mode (since 0.5.23) -------- */
-  /* Header status badge: hidden by default, revealed in live mode. */
-  .ps-daemon-status { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-right: 12px; }
+  .ps-daemon-status { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--text-2); }
   body.ps-live .ps-daemon-status { display: inline-flex; }
-  .ps-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-text-tertiary); display: inline-block; }
+  .ps-daemon-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); display: inline-block; }
   .ps-daemon-dot.connected { background: #2ea043; }
   .ps-daemon-dot.disconnected { background: #cf222e; }
   .ps-daemon-dot.unauthorized { background: #d4a72c; }
-  /* Header refresh button: hidden by default, revealed in live mode.
-     `[hidden]` adds attribute specificity over the live-mode class
-     reveal, so the HTML `hidden` attribute set by
-     `syncLogoutButtonVisibility` for the Forget-key button wins
-     regardless of source order. */
-  .ps-refresh-btn { display: none; padding: 4px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; margin-right: 8px; }
+  .ps-refresh-btn { display: none; padding: 7px 11px; font-size: 12px; border-radius: var(--r-sm); border: 1px solid var(--border); background: transparent; color: var(--text-2); cursor: pointer; font-family: inherit; }
   body.ps-live .ps-refresh-btn { display: inline-block; }
   body.ps-live .ps-refresh-btn[hidden] { display: none; }
-  .ps-refresh-btn:hover { background: var(--color-background-secondary); border-color: var(--color-border-secondary); color: var(--color-text-primary); }
+  .ps-refresh-btn:hover { border-color: var(--border-2); color: var(--text); }
   .ps-refresh-btn:disabled { cursor: not-allowed; opacity: 0.6; }
-  /* Per-row Ack/Revoke action button: hidden by default. */
   .ps-fin-actions { display: none; margin-left: 8px; }
   body.ps-live .ps-fin-actions { display: inline-flex; gap: 6px; }
-  .ps-fin-action-btn { padding: 3px 10px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-info); background: transparent; color: var(--color-text-info); cursor: pointer; font-family: inherit; }
-  .ps-fin-action-btn:hover { background: var(--color-background-info); }
-  .ps-fin-action-btn.revoke { border-color: var(--color-border-tertiary); color: var(--color-text-secondary); }
-  .ps-fin-action-btn.revoke:hover { background: var(--color-background-secondary); }
+  .ps-fin-action-btn { padding: 5px 11px; font-size: 11px; border-radius: var(--r-sm); border: 1px solid var(--ok-bd); background: transparent; color: var(--ok-fg); cursor: pointer; font-family: inherit; }
+  .ps-fin-action-btn:hover { background: var(--ok-bg); }
+  .ps-fin-action-btn.revoke { border-color: var(--border); color: var(--text-2); }
+  .ps-fin-action-btn.revoke:hover { background: var(--surface-2); }
   .ps-fin-action-btn:disabled { cursor: not-allowed; opacity: 0.5; }
-  /* Findings filter toggle: hidden by default. The toolbar uses
-     `justify-content: flex-end`, so push the toggle further from the
-     adjacent Export CSV button via `margin-right` (the toggle sits to
-     the LEFT of Export CSV in document order, so the right margin is
-     what creates breathing room between them). `cursor: pointer` on
-     the wrapping `<label>` extends the click affordance to the text
-     gap between the checkbox and its label, not just the input itself. */
-  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11px; color: var(--color-text-secondary); margin-left: 8px; margin-right: 14px; cursor: pointer; }
+  .ps-include-acked-wrap { display: none; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-2); margin-left: auto; cursor: pointer; }
   body.ps-live .ps-include-acked-wrap { display: inline-flex; }
-  /* Acknowledgments panel toolbar (table layout reused from .ps-table). */
-  .ps-acks-footer { margin-top: 10px; font-size: 11px; color: var(--color-text-tertiary); }
-  /* Modal form layout (auth + ack). */
-  dialog.ps-modal label { display: block; font-size: 11px; color: var(--color-text-secondary); margin: 10px 0 4px 0; }
-  dialog.ps-modal input[type="password"], dialog.ps-modal input[type="text"], dialog.ps-modal textarea, dialog.ps-modal select { width: 100%; box-sizing: border-box; padding: 6px 8px; font-size: 12px; font-family: inherit; background: var(--color-background-tertiary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); color: var(--color-text-primary); }
-  dialog.ps-modal textarea { min-height: 60px; resize: vertical; }
-  dialog.ps-modal .ps-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-  dialog.ps-modal .ps-modal-btn { padding: 5px 14px; font-size: 11px; border-radius: var(--border-radius-md); border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; font-family: inherit; }
-  dialog.ps-modal .ps-modal-btn:hover { background: var(--color-background-tertiary); color: var(--color-text-primary); }
-  dialog.ps-modal .ps-modal-btn.primary { border-color: var(--color-border-info); color: var(--color-text-info); }
-  dialog.ps-modal .ps-modal-btn.primary:hover { background: var(--color-background-info); }
-  dialog.ps-modal .ps-modal-error { display: none; margin-top: 10px; padding: 8px 10px; font-size: 11px; background: var(--color-background-danger); color: var(--color-text-danger); border-radius: var(--border-radius-md); }
-  /* Toast bar for transient feedback. */
-  .ps-toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; font-size: 12px; background: var(--color-background-secondary); color: var(--color-text-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 9999; max-width: 380px; }
-  .ps-toast.error { border-color: var(--color-border-tertiary); background: var(--color-background-danger); color: var(--color-text-danger); }
-  .ps-toast.success { border-color: var(--color-border-tertiary); background: var(--color-background-tertiary); color: var(--color-text-primary); }
+  .ps-acks-footer { margin-top: 10px; font-size: 11px; color: var(--text-3); }
+
+  /* -------- toast -------- */
+  .ps-toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 9999; max-width: 380px; }
+  .ps-toast.error { border-color: var(--crit-bd); background: var(--crit-bg); color: var(--crit-fg); }
+  .ps-toast.success { border-color: var(--ok-bd); background: var(--ok-bg); color: var(--ok-fg); }
 </style>
 </head>
 <body>
-<div class="ps-container">
-  <div class="ps-header-ctrl">
-    <output class="ps-daemon-status" id="ps-daemon-status" aria-live="polite">
-      <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
-      <span id="ps-daemon-status-text">Connecting...</span>
-    </output>
-    <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
-    <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
-    <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
+<div class="ps-shell" id="ps-shell">
+  <aside class="ps-sidebar">
+    <div class="ps-brand-block">
+      <a class="ps-brand" href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel, perf-sentinel.dev">{{BRAND_LOGO}}</a>
+      <span class="ps-brand-eyebrow">HTML REPORT</span>
+    </div>
+    <nav class="ps-nav" id="tabs" role="tablist" aria-label="Dashboard sections" aria-orientation="vertical">
+      <div class="ps-nav-eyebrow">// sections</div>
+    </nav>
+    <div class="ps-sidebar-foot">
+      <div class="ps-sidebar-foot-status">
+        <span class="ps-sidebar-foot-dot" id="ps-sidebar-dot"></span>
+        <span class="ps-sidebar-foot-text" id="ps-sidebar-context"></span>
+      </div>
+      <div class="ps-sidebar-foot-version" id="ps-sidebar-version"></div>
+    </div>
+  </aside>
+
+  <main class="ps-main">
+    <header class="ps-topbar">
+      <div class="ps-topbar-title">
+        <span class="ps-topbar-eyebrow" id="topbar-eyebrow"></span>
+        <h1 class="ps-topbar-h1" id="topbar-h1"></h1>
+      </div>
+      <div class="ps-topbar-actions" style="margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <div class="ps-search-box" id="topbar-search-box">
+          <span class="ps-search-glyph">⌕</span>
+          <input type="search" class="ps-search" id="topbar-search" placeholder="Search findings, templates, endpoints…" aria-label="Search findings, templates, endpoints" />
+          <span class="ps-search-kbd">⌘K</span>
+        </div>
+        <span id="topbar-gate"></span>
+        <output class="ps-daemon-status" id="ps-daemon-status" aria-live="polite">
+          <span class="ps-daemon-dot" id="ps-daemon-dot"></span>
+          <span id="ps-daemon-status-text">Connecting...</span>
+        </output>
+        <button class="ps-refresh-btn" id="ps-refresh-btn" type="button" aria-label="Refresh daemon data">Refresh</button>
+        <button class="ps-refresh-btn" id="ps-logout-btn" type="button" aria-label="Forget key for this tab (clears the daemon API key from session storage)" hidden>Forget key</button>
+        <button class="ps-theme-toggle" id="theme-toggle" type="button">Toggle theme</button>
+      </div>
+    </header>
+
+    <div class="ps-content">
+
+  <div id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" class="ps-panel ps-panel-wide" style="display: none;">
+    <div id="overview-hero"></div>
+    <div class="ps-metrics" id="findings-metrics"></div>
+    <div id="overview-body"></div>
   </div>
 
-  <div class="ps-topbar" id="topbar"><a class="ps-brand" href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer" aria-label="perf-sentinel">{{BRAND_LOGO}}</a></div>
-
-  <div class="ps-tabs" id="tabs" role="tablist" aria-label="Dashboard sections"></div>
-
-  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings">
+  <div id="panel-findings" role="tabpanel" aria-labelledby="tab-findings" class="ps-panel">
     <div class="ps-banner" id="trim-banner" style="display: none;"></div>
     <input type="search" class="ps-search" id="findings-search" placeholder="Filter findings by type, service, endpoint or template..." aria-label="Filter findings" />
-    <div class="ps-metrics" id="findings-metrics"></div>
-    <div class="ps-quality-gate" id="quality-gate-rules" style="display: none;"></div>
     <div class="ps-filters" id="findings-filters"></div>
     <div class="ps-panel-toolbar">
       <label class="ps-include-acked-wrap" id="findings-include-acked-wrap">
@@ -262,71 +461,90 @@
       <button type="button" class="ps-export-btn" id="findings-export" data-export-tab="findings">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="findings-copy-link" data-copy-link-tab="findings">Copy link</button>
     </div>
-    <div class="ps-list" id="findings-list"></div>
-    <button type="button" class="ps-show-more" id="findings-show-more" style="display: none;"></button>
-    <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
-  </div>
-
-  <div id="panel-explain" role="tabpanel" aria-labelledby="tab-explain" style="display: none;">
-    <div class="ps-empty" id="explain-empty">Click a finding to view its trace tree here.</div>
-    <div id="explain-content" style="display: none;">
-      <div class="ps-tree-header" id="explain-breadcrumb"></div>
-      <div class="ps-tree" id="explain-tree"></div>
-      <div class="ps-drill" id="explain-fix" style="display: none;"></div>
+    <div class="ps-triage">
+      <div class="ps-card">
+        <div class="ps-list" id="findings-list"></div>
+        <button type="button" class="ps-show-more" id="findings-show-more" style="display: none;"></button>
+        <div class="ps-empty" id="findings-empty" style="display: none;">No findings in this trace set.</div>
+      </div>
+      <div class="ps-detail" id="findings-detail">
+        <div class="ps-detail-empty" id="explain-empty">Select a finding to view its trace tree and suggested fix.</div>
+        <div id="explain-detail-head"></div>
+        <div id="explain-content" style="display: none;">
+          <div class="ps-tree-header" id="explain-breadcrumb"></div>
+          <div class="ps-section">
+            <span class="ps-eyebrow">// explain &middot; trace tree</span>
+            <div class="ps-tree" id="explain-tree"></div>
+          </div>
+          <div class="ps-detail-cols" id="explain-cols">
+            <div class="ps-section" id="explain-pgstat" style="display: none;"></div>
+            <div class="ps-fix" id="explain-fix" style="display: none;"></div>
+          </div>
+          <div class="ps-detail-foot" id="explain-foot" style="display: none;"></div>
+        </div>
+        <div class="ps-detail-empty" id="explain-not-embedded" style="display: none;"></div>
+      </div>
     </div>
-    <div class="ps-empty" id="explain-not-embedded" style="display: none;"></div>
   </div>
 
-  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" style="display: none;">
+  <div id="panel-pgstat" role="tabpanel" aria-labelledby="tab-pgstat" class="ps-panel ps-panel-narrow" style="display: none;">
     <div class="ps-drill" id="pgstat-drill" style="display: none;">
       <div class="ps-drill-label">Filtered from Explain</div>
       <span id="pgstat-drill-text"></span>
       <span class="ps-drill-clear" id="pgstat-drill-clear">clear</span>
     </div>
-    <div class="ps-filters" id="pgstat-rankings"></div>
-    <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template..." aria-label="Filter pg_stat rows" />
-    <div class="ps-panel-toolbar">
+    <div class="ps-pgstat-controls">
+      <span class="ps-rankby-label">rank by</span>
+      <div class="ps-filters" id="pgstat-rankings"></div>
+      <div class="ps-search-box ps-pgstat-filter">
+        <span class="ps-search-glyph">⌕</span>
+        <input type="search" class="ps-search" id="pgstat-search" placeholder="Filter by SQL template…" aria-label="Filter pg_stat rows" />
+      </div>
       <button type="button" class="ps-export-btn" id="pgstat-export" data-export-tab="pgstat">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="pgstat-copy-link" data-copy-link-tab="pgstat">Copy link</button>
     </div>
-    <table class="ps-table" id="pgstat-table">
-      <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
-      <tbody id="pgstat-body"></tbody>
-    </table>
+    <div class="ps-card">
+      <table class="ps-table" id="pgstat-table">
+        <thead><tr><th>Template</th><th style="width: 80px;">Calls</th><th style="width: 100px;">Total ms</th><th style="width: 90px;">Mean ms</th></tr></thead>
+        <tbody id="pgstat-body"></tbody>
+      </table>
+    </div>
     <div class="ps-empty" id="pgstat-empty" style="display: none;">No pg_stat entries.</div>
   </div>
 
-  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" style="display: none;">
+  <div id="panel-diff" role="tabpanel" aria-labelledby="tab-diff" class="ps-panel ps-panel-narrow" style="display: none;">
     <input type="search" class="ps-search" id="diff-search" placeholder="Filter diff findings by type, service, endpoint or template..." aria-label="Filter diff findings" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="diff-export" data-export-tab="diff">Export CSV</button>
       <button type="button" class="ps-copy-link-btn" id="diff-copy-link" data-copy-link-tab="diff">Copy link</button>
     </div>
-    <div class="ps-diff-section">
-      <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
-      <div class="ps-list" id="diff-new-list"></div>
+    <div class="ps-diff-cols">
+      <div class="ps-card ps-diff-section">
+        <div class="ps-diff-section-header red" id="diff-new-header">New findings (0)</div>
+        <div class="ps-list" id="diff-new-list"></div>
+      </div>
+      <div class="ps-card ps-diff-section">
+        <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
+        <div class="ps-list" id="diff-resolved-list"></div>
+      </div>
     </div>
-    <div class="ps-diff-section">
-      <div class="ps-diff-section-header green" id="diff-resolved-header">Resolved findings (0)</div>
-      <div class="ps-list" id="diff-resolved-list"></div>
-    </div>
-    <div class="ps-diff-section">
+    <div class="ps-card ps-diff-section">
       <div class="ps-diff-section-header" id="diff-sev-header">Severity changes (0)</div>
       <table class="ps-table" id="diff-sev-table" style="display: none;">
-        <thead><tr><th>Type</th><th>Service</th><th>Endpoint</th><th>Before</th><th>After</th></tr></thead>
+        <thead><tr><th>Type</th><th>Endpoint</th><th>Before</th><th>After</th></tr></thead>
         <tbody id="diff-sev-body"></tbody>
       </table>
     </div>
-    <div class="ps-diff-section">
+    <div class="ps-card ps-diff-section">
       <div class="ps-diff-section-header" id="diff-endp-header">Endpoint metric deltas (0)</div>
       <table class="ps-table" id="diff-endp-table" style="display: none;">
-        <thead><tr><th>Service</th><th>Endpoint</th><th>Before I/O</th><th>After I/O</th><th>Delta</th></tr></thead>
+        <thead><tr><th>Service</th><th>Endpoint</th><th>Before</th><th>After</th><th>Δ</th></tr></thead>
         <tbody id="diff-endp-body"></tbody>
       </table>
     </div>
   </div>
 
-  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" style="display: none;">
+  <div id="panel-correlations" role="tabpanel" aria-labelledby="tab-correlations" class="ps-panel ps-panel-narrow" style="display: none;">
     <input type="search" class="ps-search" id="correlations-search" placeholder="Filter correlations by service or type..." aria-label="Filter correlations" />
     <div class="ps-panel-toolbar">
       <button type="button" class="ps-export-btn" id="correlations-export" data-export-tab="correlations">Export CSV</button>
@@ -335,32 +553,43 @@
     <div class="ps-list" id="correlations-list"></div>
   </div>
 
-  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" style="display: none;">
+  <div id="panel-green" role="tabpanel" aria-labelledby="tab-green" class="ps-panel ps-panel-narrow" style="display: none;">
     <div class="ps-metrics ps-metrics-3" id="green-metrics"></div>
+    <div id="green-formula" class="ps-formula-bandeau" style="display: none;"></div>
     <div id="green-scoring-config" class="ps-scoring-bandeau" style="display: none;" aria-label="Carbon scoring configuration"></div>
-    <div class="ps-tree-header" id="green-regions-header" style="margin-top: 14px;"></div>
-    <table class="ps-table" id="green-regions-table" style="display: none;">
-      <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th><th>Estimated</th></tr></thead>
-      <tbody id="green-regions-body"></tbody>
-    </table>
+    <div class="ps-tree-header" id="green-regions-header"></div>
+    <div class="ps-card" id="green-regions-card" style="display: none;">
+      <table class="ps-table" id="green-regions-table">
+        <thead><tr><th>Region</th><th>Intensity (gCO2/kWh)</th><th>I/O ops</th><th>CO2</th><th>Source</th><th>Estimated</th></tr></thead>
+        <tbody id="green-regions-body"></tbody>
+      </table>
+    </div>
     <div class="ps-empty" id="green-regions-empty" style="display: none;">No region breakdown available.</div>
   </div>
 
-  <div id="panel-acknowledgments" role="tabpanel" aria-labelledby="tab-acknowledgments" style="display: none;">
-    <table class="ps-table" id="acks-table">
-      <thead><tr><th>Signature</th><th style="width: 140px;">By</th><th>Reason</th><th style="width: 120px;">Expires</th><th style="width: 90px;"></th></tr></thead>
-      <tbody id="acks-body"></tbody>
-    </table>
+  <div id="panel-acknowledgments" role="tabpanel" aria-labelledby="tab-acknowledgments" class="ps-panel ps-panel-narrow" style="display: none;">
+    <div class="ps-card" id="acks-card" style="display: none;">
+      <table class="ps-table" id="acks-table">
+        <thead><tr><th>Signature</th><th style="width: 140px;">By</th><th>Reason</th><th style="width: 120px;">Expires</th><th style="width: 90px;"></th></tr></thead>
+        <tbody id="acks-body"></tbody>
+      </table>
+    </div>
     <div class="ps-empty" id="acks-empty" style="display: none;">No daemon acknowledgments active.</div>
     <div class="ps-acks-footer" id="acks-footer"></div>
   </div>
 
-  <div class="ps-footer">
-    <span class="ps-kbd">j</span>/<span class="ps-kbd">k</span> navigate . <span class="ps-kbd">enter</span> open . <span class="ps-kbd">/</span> search . <span class="ps-kbd">esc</span> back . <span class="ps-kbd">?</span> shortcuts
-  </div>
-  <div class="ps-credit">
-    Powered by <a href="https://github.com/robintra/perf-sentinel" target="_blank" rel="noopener noreferrer">perf-sentinel</a>
-  </div>
+      <div style="height: 28px; flex: none;"></div>
+      <footer class="ps-footer">
+        <span class="ps-kbd">j/k</span> navigate
+        <span class="ps-kbd">enter</span> open
+        <span class="ps-kbd">/</span> search
+        <span class="ps-kbd">esc</span> back
+        <button type="button" class="ps-kbd" id="footer-shortcuts" style="cursor: pointer; background: transparent;">?</button> shortcuts
+        <span class="ps-credit">Powered by <a href="https://perf-sentinel.dev/" target="_blank" rel="noopener noreferrer">perf-sentinel</a> &middot; eco-designed report &middot; logo by <a href="https://www.linkedin.com/in/gwendoline-meignen-b0224873/" target="_blank" rel="noopener noreferrer">Gwendoline Meignen</a></span>
+      </footer>
+
+    </div>
+  </main>
 </div>
 
 <dialog id="cheatsheet" class="ps-modal" aria-labelledby="cheatsheet-title">
@@ -467,10 +696,48 @@
     if (mode === "dark" || mode === "light") return mode;
     return prefersDarkMQ && prefersDarkMQ.matches ? "dark" : "light";
   }
+  // Build an inline SVG (CSP-safe, no innerHTML) from a list of child
+  // {tag, attrs}. Stroke follows `currentColor` so CSS colors the icon.
+  function themeSvg(children, accent) {
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    var base = { width: "13", height: "13", viewBox: "0 0 24 24", fill: "none",
+      stroke: "currentColor", "stroke-width": "2.2", "stroke-linecap": "round",
+      "stroke-linejoin": "round", "class": accent ? "ps-th-svg accent" : "ps-th-svg" };
+    Object.keys(base).forEach(function (k) { svg.setAttribute(k, base[k]); });
+    children.forEach(function (c) {
+      var node = document.createElementNS(NS, c.tag);
+      Object.keys(c.attrs).forEach(function (k) { node.setAttribute(k, c.attrs[k]); });
+      svg.appendChild(node);
+    });
+    return svg;
+  }
+  // Sun (light) and moon (dark) match the website; auto is a half-filled
+  // circle (◐) drawn as SVG so all three align the same way (the ◐ text
+  // glyph falls back to a different font and sits off-center).
+  function themeIcon(mode) {
+    if (mode === "light") {
+      return themeSvg([
+        { tag: "circle", attrs: { cx: "12", cy: "12", r: "4.2" } },
+        { tag: "path", attrs: { d: "M12 2.6v2.1M12 19.3v2.1M4.5 4.5l1.5 1.5M18 18l1.5 1.5M2.6 12h2.1M19.3 12h2.1M4.5 19.5l1.5-1.5M18 6l1.5-1.5" } }
+      ], true);
+    }
+    if (mode === "dark") {
+      return themeSvg([{ tag: "path", attrs: { d: "M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8z" } }], true);
+    }
+    return themeSvg([
+      { tag: "circle", attrs: { cx: "12", cy: "12", r: "9" } },
+      { tag: "path", attrs: { d: "M12 3 A9 9 0 0 0 12 21 Z", fill: "currentColor", stroke: "none" } }
+    ], false);
+  }
   function applyTheme(mode) {
     document.documentElement.dataset.theme = resolveThemeColor(mode);
     var btn = document.getElementById("theme-toggle");
-    if (btn) btn.textContent = "Theme: " + mode;
+    if (btn) {
+      btn.textContent = "";
+      btn.appendChild(themeIcon(mode));
+      btn.appendChild(el("span", null, mode.charAt(0).toUpperCase() + mode.slice(1)));
+    }
   }
   applyTheme(currentThemeMode());
   if (prefersDarkMQ && typeof prefersDarkMQ.addEventListener === "function") {
@@ -551,6 +818,13 @@
     if (abs === 0) return "0 g";
     return grams.toExponential(2) + " g";
   }
+  // Thousands separators (comma, en-US) on the integer part, decimals kept:
+  // 55500 -> "55,500", 1240.5 -> "1,240.5", 320 -> "320".
+  function fmtNum(value) {
+    var parts = String(value).split(".");
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.join(".");
+  }
   function formatDurationUs(us) {
     if (!Number.isFinite(us)) return "-";
     var ms = us / 1000;
@@ -568,9 +842,213 @@
     return Math.round((num * 100) / denom) + "%";
   }
 
+  // -------- syntax highlighting (textContent-only span builders) --------
+  // Ported from the design prototype's sqlHl/proseHl. Builds colored
+  // <span> nodes via el() (textContent each), never innerHTML, so the
+  // CSP + no_forbidden_apis_in_template invariants hold. Token colors map
+  // to the severity/info/ok/brand CSS variables. The tokenizers are pure
+  // regex scans (first-match-wins) and cannot throw on odd input; the
+  // outer guard falls back to a plain text node just in case.
+  function buildKwSet(words) {
+    var set = Object.create(null);
+    words.forEach(function (w) { set[w] = true; });
+    return set;
+  }
+  var SQL_KW = buildKwSet([
+    "SELECT","FROM","WHERE","INSERT","INTO","VALUES","UPDATE","SET","DELETE","AND","OR","ON",
+    "JOIN","LEFT","RIGHT","INNER","OUTER","GROUP","BY","ORDER","HAVING","LIMIT","OFFSET","LIKE",
+    "ILIKE","ANY","ALL","AS","NULL","NOT","IN","IS","DISTINCT","EXISTS","BETWEEN","ASC","DESC",
+    "RETURNING","CREATE","INDEX","USING","TABLE","ALTER","ADD","CONSTRAINT"
+  ]);
+  var GENERIC_KW = buildKwSet([
+    "fn","let","mut","pub","use","impl","struct","enum","trait","match","if","else","for","while",
+    "loop","return","async","await","move","self","Self","as","where","const","static","ref","dyn",
+    "in","break","continue","unsafe","crate","mod","type",
+    "func","package","import","var","interface","map","chan","go","defer","range","select","case",
+    "default","switch","nil",
+    "function","new","class","extends","implements","export","from","of","typeof","instanceof",
+    "yield","try","catch","finally","throw","throws","this","null","true","false","void","undefined",
+    "def","elif","with","except","raise","lambda","not","and","or","is","None","True","False","pass",
+    "global","del","assert","print",
+    "public","private","protected","final","abstract","sealed","record","super","synchronized",
+    "readonly","internal","base","volatile","transient","namespace","using","override","virtual",
+    "out","params","foreach",
+    "GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS"
+  ]);
+  function makeTokenSpan(text, color, bold) {
+    var span = el("span", null, text);
+    if (color) span.style.color = color;
+    if (bold) span.style.fontWeight = "600";
+    return span;
+  }
+  // Small inline-SVG icon (stroke = currentColor, so the parent's color
+  // applies). Used for the gate-rule check/cross so they center exactly,
+  // rather than relying on text-glyph metrics.
+  function iconSvg(size, d) {
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    var attrs = { width: String(size), height: String(size), viewBox: "0 0 24 24",
+      fill: "none", stroke: "currentColor", "stroke-width": "3",
+      "stroke-linecap": "round", "stroke-linejoin": "round", display: "block" };
+    Object.keys(attrs).forEach(function (k) { svg.setAttribute(k, attrs[k]); });
+    var path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+    return svg;
+  }
+  function sqlHlFragment(frag, sql) {
+    var re = /(\s+)|('(?:[^']|'')*')|(\$\d+)|(\b\d+\b)|([A-Za-z_][A-Za-z0-9_]*)|([(),.*=<>!|+\/-]+)|(\S)/g;
+    var toks = [], m;
+    while ((m = re.exec(sql))) {
+      if (m[1]) toks.push({ t: "ws", v: m[1] });
+      else if (m[2]) toks.push({ t: "str", v: m[2] });
+      else if (m[3]) toks.push({ t: "param", v: m[3] });
+      else if (m[4]) toks.push({ t: "num", v: m[4] });
+      else if (m[5]) toks.push({ t: "ident", v: m[5] });
+      else if (m[6]) toks.push({ t: "op", v: m[6] });
+      else toks.push({ t: "other", v: m[0] });
+    }
+    toks.forEach(function (tk, i) {
+      var color = null, bold = false;
+      if (tk.t === "ident") {
+        if (SQL_KW[tk.v.toUpperCase()]) { color = "var(--info-fg)"; bold = true; }
+        else {
+          var j = i + 1;
+          while (toks[j] && toks[j].t === "ws") j++;
+          if (toks[j] && toks[j].t === "op" && toks[j].v[0] === "(") color = "var(--warn-fg)";
+        }
+      } else if (tk.t === "str") color = "var(--ok-fg)";
+      else if (tk.t === "param") color = "var(--warn-fg)";
+      else if (tk.t === "num") color = "var(--ok-fg)";
+      else if (tk.t === "op") color = "var(--text-3)";
+      if (color) frag.appendChild(makeTokenSpan(tk.v, color, bold));
+      else frag.appendChild(document.createTextNode(tk.v));
+    });
+  }
+  function genericHlFragment(frag, src) {
+    var gre = /(\s+)|(\/\/[^\n]*|#[^\n]*)|(\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(@[A-Za-z_][A-Za-z0-9_.]*)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_][A-Za-z0-9_]*!?)|(::|->|=>|[(){}\[\].,:;=<>!&|+\-*\/%?@]+)|(\S)/g;
+    var gtk = [], gm;
+    while ((gm = gre.exec(src))) {
+      if (gm[1]) gtk.push({ t: "ws", v: gm[1] });
+      else if (gm[2] || gm[3]) gtk.push({ t: "cmt", v: gm[2] || gm[3] });
+      else if (gm[4]) gtk.push({ t: "str", v: gm[4] });
+      else if (gm[5]) gtk.push({ t: "ann", v: gm[5] });
+      else if (gm[6]) gtk.push({ t: "num", v: gm[6] });
+      else if (gm[7]) gtk.push({ t: "id", v: gm[7] });
+      else if (gm[8]) gtk.push({ t: "op", v: gm[8] });
+      else gtk.push({ t: "o", v: gm[0] });
+    }
+    gtk.forEach(function (x, i) {
+      var color = null, bold = false;
+      if (x.t === "cmt") color = "var(--text-3)";
+      else if (x.t === "ann") color = "var(--warn-fg)";
+      else if (x.t === "str") color = "var(--ok-fg)";
+      else if (x.t === "num") color = "var(--ok-fg)";
+      else if (x.t === "id") {
+        if (GENERIC_KW[x.v]) { color = "var(--info-fg)"; bold = true; } // keyword
+        else {
+          var j = i + 1;
+          while (gtk[j] && gtk[j].t === "ws") j++;
+          var nx = gtk[j] && gtk[j].t === "op" ? gtk[j].v : "";
+          // IDE-style: functions, macros and snake_case method/property names
+          // are amber; PascalCase types are teal; plain identifiers and module
+          // path segments keep the default text color.
+          if (x.v.slice(-1) === "!" || nx[0] === "(" || /_/.test(x.v)) color = "var(--warn-fg)";
+          else if (/^[A-Z].*[a-z]/.test(x.v)) color = "var(--brand-text)";
+        }
+      } else if (x.t === "op") color = "var(--text-3)";
+      if (color) frag.appendChild(makeTokenSpan(x.v, color, bold));
+      else frag.appendChild(document.createTextNode(x.v));
+    });
+  }
+  // Highlight `text` (SQL or generic code / HTTP) into `target`. SQL is
+  // detected by a leading statement keyword; everything else goes through
+  // the generic multi-language branch.
+  // Endpoint / metadata highlighter: colors only the HTTP method, {path
+  // params} and numbers, leaving service names and path segments plain. A
+  // URL path is not code, so a segment that happens to match a code keyword
+  // ("export", "class", ...) must NOT be highlighted as one.
+  var HTTP_METHODS = { GET: 1, POST: 1, PUT: 1, PATCH: 1, DELETE: 1, HEAD: 1, OPTIONS: 1, TRACE: 1, CONNECT: 1 };
+  function endpointHlFragment(frag, src) {
+    var re = /(\s+)|(\{[^}]*\})|(\d+)|([A-Za-z][A-Za-z0-9_-]*)|(\S)/g;
+    var m;
+    while ((m = re.exec(src))) {
+      var color = null, bold = false, v = m[0];
+      if (m[1]) { frag.appendChild(document.createTextNode(v)); continue; }
+      if (m[2]) color = "var(--warn-fg)";
+      else if (m[3]) color = "var(--ok-fg)";
+      else if (m[4] && HTTP_METHODS[m[4].toUpperCase()]) { color = "var(--info-fg)"; bold = true; }
+      if (color) frag.appendChild(makeTokenSpan(v, color, bold));
+      else frag.appendChild(document.createTextNode(v));
+    }
+  }
+  function highlightEndpoint(target, text) {
+    if (text == null) return;
+    var frag = document.createDocumentFragment();
+    endpointHlFragment(frag, String(text));
+    target.appendChild(frag);
+  }
+  function highlightInto(target, text) {
+    if (text == null) return;
+    var src = String(text);
+    var frag = document.createDocumentFragment();
+    try {
+      // Endpoint ("METHOD /path") first, so "DELETE /x" is not mistaken for
+      // a SQL DELETE statement.
+      if (/^\s*(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//i.test(src)) {
+        endpointHlFragment(frag, src);
+      } else if (/^\s*(SELECT|INSERT|UPDATE|DELETE|WITH|CREATE|ALTER)\b/i.test(src)) {
+        sqlHlFragment(frag, src);
+      } else {
+        genericHlFragment(frag, src);
+      }
+    } catch (e) {
+      target.appendChild(document.createTextNode(src));
+      return;
+    }
+    target.appendChild(frag);
+  }
+  // Inline-code in prose: `token` segments become monospace chips, the
+  // rest is plain text. Each chip is syntax-highlighted through the same
+  // language-agnostic highlighter as the code blocks, so method calls,
+  // macros, annotations, keywords and operators get colored.
+  function proseInto(target, text) {
+    if (text == null) return;
+    var parts = String(text).split(/`([^`]+)`/);
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 1) {
+        var code = el("code", "ps-code-inline");
+        highlightInto(code, parts[i]);
+        target.appendChild(code);
+      } else if (parts[i]) {
+        target.appendChild(document.createTextNode(parts[i]));
+      }
+    }
+  }
+
   // severity + finding-type display maps
-  var SEV_CLASS = { critical: "ps-sev-crit", warning: "ps-sev-warn", info: "ps-sev-info" };
   var SEV_LABEL = { critical: "CRIT", warning: "WARN", info: "INFO" };
+  // Maps a finding severity to the [data-sev] attribute value driving the
+  // severity-pill colors in the redesigned stylesheet.
+  var SEV_DATA = { critical: "crit", warning: "warn", info: "info" };
+  // Builds a label/value cell for the finding detail meta grid.
+  function metaCell(label, value, mono, brand, code) {
+    var cell = el("div", "ps-meta-cell");
+    cell.appendChild(el("div", "ps-meta-cell-label", label));
+    var v = el("div", "ps-meta-cell-value");
+    if (code) highlightInto(v, value);
+    else v.textContent = value;
+    if (mono) v.classList.add("mono");
+    if (brand) v.classList.add("brand");
+    cell.appendChild(v);
+    return cell;
+  }
+  // Builds a severity pill carrying the [data-sev] attribute.
+  function sevPill(severity, cls) {
+    var pill = el("span", cls || "ps-sev", SEV_LABEL[severity] || "INFO");
+    setAttr(pill, "data-sev", SEV_DATA[severity] || "info");
+    return pill;
+  }
   var TYPE_LABEL = {
     n_plus_one_sql: "N+1 SQL",
     n_plus_one_http: "N+1 HTTP",
@@ -585,29 +1063,72 @@
   };
   function typeLabel(t) { return TYPE_LABEL[t] || String(t); }
 
-  // -------- top bar --------
-  // The brand wordmark is static markup in #topbar (inline SVG, theme-swapped
-  // by CSS); renderTopbar only appends the dynamic meta/badge after it.
+  // -------- top bar / sidebar chrome --------
+  // The brand wordmark is static markup in the sidebar (inline SVG,
+  // theme-swapped by CSS). renderTopbar fills the sidebar version line
+  // and the top-bar quality-gate pill; the per-route eyebrow + title
+  // are set by switchTab via updateTopbarTitle.
+  // Run-context line in the sidebar foot, derived from the Finding
+  // `confidence` the producing instance stamps (mode-driven, uniform per
+  // run). Batch runs stamp local_batch (developer machine) or ci_batch
+  // (CI env detected); daemon runs stamp staging/production from the
+  // [daemon] environment. See detect/mod.rs::Confidence and pipeline.rs.
+  var CONFIDENCE_CONTEXT = {
+    local_batch: { label: "batch · local", tone: "neutral" },
+    ci_batch: { label: "batch · CI", tone: "neutral" },
+    daemon_staging: { label: "daemon · live · staging", tone: "warn" },
+    daemon_production: { label: "daemon · live · prod", tone: "ok" }
+  };
+  function renderSidebarContext() {
+    var ctx = document.getElementById("ps-sidebar-context");
+    var dot = document.getElementById("ps-sidebar-dot");
+    if (!ctx) return;
+    var conf = findings.length ? findings[0].confidence : null;
+    var meta = CONFIDENCE_CONTEXT[conf];
+    if (!meta) {
+      // No findings to read confidence from: fall back to mode only.
+      meta = payload.daemon && payload.daemon.url
+        ? { label: "daemon · live", tone: "ok" }
+        : { label: "batch", tone: "neutral" };
+    }
+    ctx.textContent = meta.label;
+    if (dot) setAttr(dot, "data-ctx", meta.tone);
+  }
+
   function renderTopbar() {
-    var bar = document.getElementById("topbar");
-    var version = el("span", "ps-meta", "v" + (payload.version || ""));
-    var analysis = report.analysis || { events_processed: 0, traces_analyzed: 0 };
-    var meta = el(
-      "span",
-      "ps-meta",
-      (payload.input_label || "-") +
-        " . " + analysis.traces_analyzed + " traces" +
-        " . " + analysis.events_processed + " spans"
-    );
+    var verEl = document.getElementById("ps-sidebar-version");
+    if (verEl) verEl.textContent = "v" + (payload.version || "") + " · AGPL-3.0";
+    renderSidebarContext();
     var gate = report.quality_gate || { passed: true };
-    var badge = el(
-      "span",
-      gate.passed ? "ps-gate-pass" : "ps-gate-fail",
-      gate.passed ? "Quality gate passed" : "Quality gate failed"
-    );
-    bar.appendChild(version);
-    bar.appendChild(meta);
-    bar.appendChild(badge);
+    var slot = document.getElementById("topbar-gate");
+    if (slot) {
+      slot.textContent = "";
+      slot.appendChild(
+        el(
+          "span",
+          gate.passed ? "ps-gate-pass" : "ps-gate-fail",
+          gate.passed ? "GATE PASS" : "GATE FAIL"
+        )
+      );
+    }
+  }
+
+  // Per-route top-bar eyebrow + title. Keys match the registered tab keys.
+  var ROUTE_META = {
+    overview: { title: "Overview", eyebrow: "summary" },
+    findings: { title: "Findings", eyebrow: "findings · triage" },
+    pgstat: { title: "pg_stat", eyebrow: "postgres statements" },
+    diff: { title: "Diff", eyebrow: "diff vs baseline" },
+    correlations: { title: "Correlations", eyebrow: "cross-trace" },
+    green: { title: "Carbon", eyebrow: "greenops" },
+    acknowledgments: { title: "Acknowledgments", eyebrow: "acks" }
+  };
+  function updateTopbarTitle(key) {
+    var meta = ROUTE_META[key] || { title: key, eyebrow: "" };
+    var eb = document.getElementById("topbar-eyebrow");
+    var h1 = document.getElementById("topbar-h1");
+    if (eb) eb.textContent = "// " + meta.eyebrow;
+    if (h1) h1.textContent = meta.title;
   }
 
   // -------- tabs (generic) --------
@@ -623,24 +1144,24 @@
   function renderTabs() {
     var bar = document.getElementById("tabs");
     tabs.forEach(function (t) {
-      var btn = el("button", "ps-tab", t.label);
+      // Sidebar nav item. `data-nav` drives the hover/active styling;
+      // the `ps-tab` class + role="tab" preserve the existing ARIA
+      // tablist semantics and let switchTab find every nav item.
+      var btn = el("button", "ps-tab");
       btn.type = "button";
-      // ARIA tab pattern: each button is a `role="tab"` that controls
-      // its tabpanel. tabindex rotates between 0 (active) and -1
-      // (inactive) so keyboard users traverse the tablist exactly once
-      // when tabbing through the page, then use arrow keys inside.
+      setAttr(btn, "data-nav", "");
       setAttr(btn, "role", "tab");
       setAttr(btn, "data-tab", t.key);
       setAttr(btn, "id", "tab-" + t.key);
       setAttr(btn, "aria-controls", "panel-" + t.key);
       setAttr(btn, "aria-selected", "false");
       setAttr(btn, "tabindex", "-1");
+      btn.appendChild(el("span", "ps-nav-dot"));
+      btn.appendChild(el("span", "ps-nav-label", t.label));
       if (t.countFn) {
         var c = t.countFn();
         if (c !== null && c !== undefined) {
-          var badge = el("span", "ps-badge", String(c));
-          btn.appendChild(document.createTextNode(" "));
-          btn.appendChild(badge);
+          btn.appendChild(el("span", "ps-nav-badge", String(c)));
         }
       }
       btn.addEventListener("click", function () { switchTab(t.key); });
@@ -713,6 +1234,14 @@
       var panel = document.getElementById("panel-" + t.key);
       if (panel) panel.style.display = t.key === key ? "" : "none";
     });
+    updateTopbarTitle(key);
+    // Lazily render the detail pane the first time the Findings panel is
+    // shown (renderFindingsList skips it while another route is active, so
+    // landing on Overview pays nothing for the trace tree + highlighter).
+    if (key === "findings" && selectedFinding) {
+      var emptyState = document.getElementById("explain-empty");
+      if (emptyState && emptyState.style.display !== "none") openExplain(selectedFinding);
+    }
     // Move focus only for keyboard activation. Clicks and hash
     // restoration must not steal focus.
     if (fromKeyboard) {
@@ -730,93 +1259,307 @@
     findings.forEach(function (f) { if (c[f.severity] !== undefined) c[f.severity] += 1; });
     return c;
   }
+  // Overview KPI row: Findings / Critical / Δ baseline / co2.total, with
+  // tone-colored values. Adapted to the real payload (Δ baseline reads the
+  // diff when present; co2.total reads green_summary).
+  function tonedValue(card, tone) {
+    var v = card.querySelector(".ps-metric-value");
+    if (v) setAttr(v, "data-tone", tone);
+    setAttr(card, "data-grad", tone);
+    return card;
+  }
   function renderFindingsMetrics() {
     var root = document.getElementById("findings-metrics");
+    root.textContent = "";
     var sev = countBySeverity();
     var total = findings.length;
+    var traces = (report.analysis && report.analysis.traces_analyzed) || 0;
 
-    root.appendChild(metricCard(
-      "Findings",
-      String(total),
-      sev.critical + " crit . " + sev.warning + " warn . " + sev.info + " info"
+    root.appendChild(metricCard("Findings", fmtNum(total), "across " + fmtNum(traces) + " traces"));
+    root.appendChild(tonedValue(
+      metricCard("Critical", fmtNum(sev.critical), fmtNum(sev.warning) + " warn · " + fmtNum(sev.info) + " info"),
+      "crit"
     ));
 
-    var avoidable = greenSummary ? (greenSummary.avoidable_io_ops || 0) : 0;
-    var ratio = greenSummary ? Math.round((greenSummary.io_waste_ratio || 0) * 100) : 0;
-    root.appendChild(metricCard(
-      "Avoidable I/O",
-      String(avoidable),
-      ratio + "% waste ratio"
-    ));
+    if (hasDiff) {
+      var nNew = (diffData.new_findings || []).length;
+      var nRes = (diffData.resolved_findings || []).length;
+      // +N new findings is a regression (red), −N resolved an improvement
+      // (green), matching the Diff page tones.
+      var dCard = metricCard("Δ baseline", "", "new / resolved");
+      var dv = dCard.querySelector(".ps-metric-value");
+      dv.appendChild(makeTokenSpan("+" + nNew, "var(--crit-fg)", false));
+      dv.appendChild(document.createTextNode(" / "));
+      dv.appendChild(makeTokenSpan("−" + nRes, "var(--ok-fg)", false));
+      root.appendChild(dCard);
+    } else {
+      root.appendChild(metricCard("Δ baseline", "-", "no baseline"));
+    }
 
     if (hasGreen) {
       var co2 = greenSummary.co2;
-      root.appendChild(metricCard(
-        "CO2 estimate",
-        formatGco2(co2.total.mid),
-        String(co2.total.model || "")
+      root.appendChild(tonedValue(
+        metricCard("Total CO2", formatGco2(co2.total.mid),
+          "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high)),
+        "brand"
       ));
-    }
-
-    var offender = greenSummary && greenSummary.top_offenders && greenSummary.top_offenders[0];
-    if (offender) {
-      root.appendChild(metricCard(
-        "Top offender",
-        truncate(offender.service, 24),
-        "IIS " + (offender.io_intensity_score || 0).toFixed(1),
-        true
-      ));
+    } else {
+      root.appendChild(metricCard("Total CO2", "-", "green disabled"));
     }
   }
 
-  // -------- quality gate rules --------
+  // -------- quality gate --------
+  // Gate rules render inside the Overview hero (renderOverviewHero); this
+  // shared formatter is used there for the actual / threshold numbers.
   function formatRuleNumber(n) {
     if (!Number.isFinite(n)) return "-";
     if (Number.isInteger(n)) return String(n);
     return n.toFixed(3);
   }
 
-  function renderQualityGateRules() {
-    var host = document.getElementById("quality-gate-rules");
+  // Friendly labels for the quality-gate rule keys (see quality_gate.rs).
+  // Unknown / forward-rolled keys fall through to a generic humanizer so a
+  // future rule still reads sensibly instead of showing a raw snake_case key.
+  var GATE_RULE_LABELS = {
+    n_plus_one_sql_critical_max: "Max critical N+1 SQL",
+    n_plus_one_http_warning_max: "Max N+1 HTTP (warning+)",
+    io_waste_ratio_max: "Max I/O waste ratio"
+  };
+  function humanizeGateRule(key) {
+    if (GATE_RULE_LABELS[key]) return GATE_RULE_LABELS[key];
+    var s = String(key || "");
+    var prefix = "";
+    if (s.endsWith("_max")) { prefix = "Max "; s = s.slice(0, -4); }
+    else if (s.endsWith("_min")) { prefix = "Min "; s = s.slice(0, -4); }
+    s = s.replace(/_/g, " ")
+      .replace(/\bn plus one\b/g, "N+1")
+      .replace(/\bsql\b/gi, "SQL")
+      .replace(/\bhttp\b/gi, "HTTP")
+      .replace(/\bio\b/gi, "I/O");
+    if (!prefix && s) s = s.charAt(0).toUpperCase() + s.slice(1);
+    return prefix + s;
+  }
+
+  // -------- overview landing --------
+  // Composed entirely from data already present in the payload: the
+  // quality-gate hero (which renders the gate rules), the KPI cards
+  // (#findings-metrics), the top findings by impact, and a right rail with
+  // diff + carbon mini summaries.
+  function renderOverviewPanel() {
+    renderOverviewHero();
+    renderOverviewBody();
+  }
+
+  function renderOverviewHero() {
+    var host = document.getElementById("overview-hero");
     if (!host) return;
-    // Clear before any early return so a re-render that drops to zero
-    // rules removes stale rows instead of leaving them visible.
-    host.replaceChildren();
-    var rules = (report.quality_gate && report.quality_gate.rules) || [];
-    if (rules.length === 0) {
-      host.style.display = "none";
-      return;
+    host.textContent = "";
+    var gate = report.quality_gate || { passed: true, rules: [] };
+    var rules = gate.rules || [];
+
+    var card = el("section", "ps-card ps-hero");
+    var left = el("div", "ps-hero-left");
+    setAttr(left, "data-tone", gate.passed ? "ok" : "crit");
+    left.appendChild(el("div", "ps-eyebrow", "// quality gate"));
+    var verdict = el("div", "ps-hero-verdict");
+    setAttr(verdict, "data-tone", gate.passed ? "ok" : "crit");
+    verdict.appendChild(el("span", "ps-hero-dot"));
+    verdict.appendChild(el("span", "ps-hero-big", gate.passed ? "PASS" : "FAIL"));
+    left.appendChild(verdict);
+    var failed = rules.filter(function (r) { return !r.passed; }).length;
+    left.appendChild(el(
+      "p",
+      "ps-hero-line",
+      gate.passed
+        ? "All " + rules.length + " gate rules satisfied."
+        : failed + " of " + rules.length + " gate rules failed."
+    ));
+    card.appendChild(left);
+
+    var right = el("div", "ps-hero-right");
+    if (rules.length > 0) {
+      var grid = el("div", "ps-hero-rules");
+      rules.forEach(function (r) {
+        var item = el("div", "ps-hero-rule");
+        var chip = el("span", "ps-hero-rule-chip");
+        setAttr(chip, "data-sev", r.passed ? "ok" : "crit");
+        chip.appendChild(iconSvg(10, r.passed ? "M5 12l4.5 4.5L19 6" : "M6 6l12 12M18 6L6 18"));
+        item.appendChild(chip);
+        var txt = el("div", "ps-hero-rule-text");
+        txt.appendChild(el("span", "ps-hero-rule-name", humanizeGateRule(r.rule)));
+        txt.appendChild(
+          el("span", "ps-hero-rule-detail",
+            formatRuleNumber(r.actual) + " / " + formatRuleNumber(r.threshold))
+        );
+        item.appendChild(txt);
+        grid.appendChild(item);
+      });
+      right.appendChild(grid);
     }
-    host.style.display = "";
+    var analysis = report.analysis || {};
+    var meta = el("div", "ps-hero-meta");
+    [
+      payload.input_label || "-",
+      fmtNum(analysis.traces_analyzed || 0) + " traces",
+      fmtNum(analysis.events_processed || 0) + " spans",
+      "v" + (payload.version || "")
+    ].forEach(function (m) { meta.appendChild(el("span", null, m)); });
+    right.appendChild(meta);
+    card.appendChild(right);
+    host.appendChild(card);
+  }
 
-    host.appendChild(el("h3", "ps-section-title", "Quality gate rules"));
+  function renderOverviewBody() {
+    var host = document.getElementById("overview-body");
+    if (!host) return;
+    host.textContent = "";
+    if (findings.length === 0) return;
 
-    var table = el("table", "ps-table");
-    var thead = el("thead");
-    var headRow = el("tr");
-    ["Rule", "Threshold", "Actual", "Status"].forEach(function (label) {
-      headRow.appendChild(el("th", null, label));
+    var grid = el("div", "ps-overview-cols");
+
+    var leftCard = el("div", "ps-card");
+    var head = el("div", "ps-overview-card-head");
+    head.appendChild(el("span", "ps-overview-card-title", "Top findings by impact"));
+    var viewAll = el("button", "ps-overview-link");
+    viewAll.appendChild(el("span", "ps-link-txt", "view all"));
+    viewAll.appendChild(document.createTextNode(" →"));
+    viewAll.type = "button";
+    viewAll.addEventListener("click", function () { switchTab("findings"); });
+    head.appendChild(viewAll);
+    leftCard.appendChild(head);
+
+    var totalIo = (greenSummary && greenSummary.total_io_ops) || 0;
+    var list = el("div", "ps-list");
+    findings.slice(0, 5).forEach(function (f) {
+      var row = el("div", "ps-row ps-overview-finding");
+      // Left column: severity + "type · ×N" then the service / endpoint.
+      var left = el("div", "ps-of-left");
+      var top = el("div", "ps-fin-topline");
+      top.appendChild(sevPill(f.severity));
+      var occ = (f.pattern && f.pattern.occurrences) || 0;
+      var typeText = typeLabel(f.type || f.finding_type);
+      top.appendChild(el("span", "ps-fin-type", occ ? typeText + " · ×" + occ : typeText));
+      left.appendChild(top);
+      var ovSub = el("span", "ps-fin-service ps-fin-sub");
+      highlightEndpoint(ovSub, (f.service || "-") + " — " + (f.source_endpoint || "-"));
+      left.appendChild(ovSub);
+      row.appendChild(left);
+      // Right column: per-finding green impact (IIS + avoidable-I/O share).
+      // The prototype showed a co2-per-finding figure, which the pipeline
+      // does not compute; green_impact is the real equivalent.
+      var gi = f.green_impact || {};
+      var right = el("div", "ps-of-right");
+      if (Number.isFinite(gi.io_intensity_score)) {
+        right.appendChild(el("span", "ps-of-primary", "IIS " + gi.io_intensity_score.toFixed(1)));
+      }
+      if (totalIo > 0 && Number.isFinite(gi.estimated_extra_io_ops)) {
+        right.appendChild(el(
+          "span",
+          "ps-of-secondary",
+          Math.round((gi.estimated_extra_io_ops / totalIo) * 100) + "% of I/O"
+        ));
+      }
+      row.appendChild(right);
+      row.addEventListener("click", function () { gotoFinding(f); });
+      list.appendChild(row);
     });
-    thead.appendChild(headRow);
-    table.appendChild(thead);
+    leftCard.appendChild(list);
+    grid.appendChild(leftCard);
 
-    var tbody = el("tbody");
-    rules.forEach(function (r) {
-      var tr = el("tr");
-      tr.appendChild(el("td", null, r.rule));
-      tr.appendChild(el("td", null, formatRuleNumber(r.threshold)));
-      tr.appendChild(el("td", null, formatRuleNumber(r.actual)));
-      var statusTd = el("td");
-      statusTd.appendChild(el(
-        "span",
-        r.passed ? "ps-gate-pass" : "ps-gate-fail",
-        r.passed ? "PASS" : "FAIL"
-      ));
-      tr.appendChild(statusTd);
-      tbody.appendChild(tr);
+    var rail = el("div", "ps-overview-rail");
+    if (hasDiff) rail.appendChild(buildDiffMini());
+    if (hasGreen) rail.appendChild(buildCarbonMini());
+    if (rail.childNodes.length > 0) grid.appendChild(rail);
+
+    host.appendChild(grid);
+  }
+
+  // Switches to the Findings panel and selects a specific finding,
+  // clearing any active filter that would hide it.
+  function gotoFinding(f) {
+    switchTab("findings");
+    var idx = visibleFindings.indexOf(f);
+    if (idx < 0) {
+      filterState.severity = null;
+      filterState.service = null;
+      syncFilterChips();
+      resetShownCount();
+      renderFindingsList();
+      idx = visibleFindings.indexOf(f);
+    }
+    if (idx >= 0) selectFinding(idx);
+  }
+
+  // Opens the detail pane for a finding that is NOT in the master list
+  // (a diff "new" finding or a synthetic correlation finding). Switches to
+  // Findings and clears the master selection so no list row is misleadingly
+  // highlighted while the detail shows an off-list finding.
+  function openExternalFindingDetail(f) {
+    switchTab("findings");
+    selectedIndex = -1;
+    selectedFinding = null;
+    syncSelection();
+    openExplain(f);
+  }
+
+  function buildDiffMini() {
+    var card = el("div", "ps-mini-card");
+    card.appendChild(el("span", "ps-mini-title", "Diff vs baseline"));
+    var pills = el("div", "ps-mini-pills");
+    var nNew = (diffData.new_findings || []).length;
+    var nResolved = (diffData.resolved_findings || []).length;
+    var nChanged = (diffData.severity_changes || []).length;
+    var pNew = el("span", "ps-mini-pill", "+" + nNew + " new");
+    setAttr(pNew, "data-sev", "crit");
+    var pRes = el("span", "ps-mini-pill", "−" + nResolved + " resolved");
+    setAttr(pRes, "data-sev", "ok");
+    var pChg = el("span", "ps-mini-pill", nChanged + " changed");
+    setAttr(pChg, "data-sev", "warn");
+    pills.appendChild(pNew);
+    pills.appendChild(pRes);
+    pills.appendChild(pChg);
+    card.appendChild(pills);
+    var link = el("button", "ps-mini-link");
+    link.appendChild(el("span", "ps-link-txt", "open diff"));
+    link.appendChild(document.createTextNode(" →"));
+    link.type = "button";
+    link.addEventListener("click", function () { switchTab("diff"); });
+    card.appendChild(link);
+    return card;
+  }
+
+  function buildCarbonMini() {
+    var card = el("div", "ps-mini-card");
+    var head = el("div", "ps-mini-head");
+    head.appendChild(el("span", "ps-mini-title", "Carbon by region"));
+    // Header = operational CO2 only (the sum of the per-region bars). Embodied
+    // carbon (in co2.total) is hardware manufacturing, not region-attributable,
+    // so co2.total here would make the bars never sum to the header.
+    var co2 = greenSummary.co2 || {};
+    var total = typeof co2.operational_gco2 === "number"
+      ? co2.operational_gco2
+      : (greenSummary.regions || []).reduce(function (s, r) { return s + (r.co2_gco2 || 0); }, 0);
+    head.appendChild(el("span", "ps-mini-total", formatGco2(total)));
+    card.appendChild(head);
+
+    var regions = (greenSummary.regions || []).slice();
+    regions.sort(function (a, b) { return (b.co2_gco2 || 0) - (a.co2_gco2 || 0); });
+    var top = regions.slice(0, 3);
+    top.forEach(function (r) {
+      var row = el("div", "ps-mini-row");
+      var rh = el("div", "ps-mini-row-head");
+      rh.appendChild(el("span", null, r.region || "-"));
+      rh.appendChild(el("span", null, formatGco2(r.co2_gco2 || 0)));
+      row.appendChild(rh);
+      var track = el("div", "ps-bar-track");
+      var fill = el("div", "ps-bar-fill");
+      // Bar = share of the operational total, so the bars decompose the header.
+      fill.style.width = percent(r.co2_gco2 || 0, total);
+      track.appendChild(fill);
+      row.appendChild(track);
+      card.appendChild(row);
     });
-    table.appendChild(tbody);
-    host.appendChild(table);
+    return card;
   }
 
   // -------- filters --------
@@ -835,26 +1578,33 @@
     setAttr(severityGroup, "aria-label", "Finding severity");
     root.appendChild(severityGroup);
 
-    var serviceGroup = el("span", "ps-chip-group", null);
-    setAttr(serviceGroup, "role", "group");
-    setAttr(serviceGroup, "aria-label", "Finding service");
-    root.appendChild(serviceGroup);
-
-    function appendChip(parent, label, key, chipRole, stateAttr) {
+    function appendChip(parent, label, key, chipRole, stateAttr, sev) {
       var btn = el("button", "ps-chip", label);
       btn.type = "button";
       setAttr(btn, "role", chipRole);
       setAttr(btn, "data-key", key);
       setAttr(btn, stateAttr, "false");
+      if (sev) setAttr(btn, "data-sev", sev);
       btn.addEventListener("click", function () { onFilterClick(key); });
       parent.appendChild(btn);
     }
 
+    // Severity filters double as colored count pills (critical N / warnings
+    // N / info N). "All" is the implicit reset chip.
+    var counts = countBySeverity();
     appendChip(severityGroup, "All", "all", "radio", "aria-checked");
-    var hasCrit = findings.some(function (f) { return f.severity === "critical"; });
-    var hasWarn = findings.some(function (f) { return f.severity === "warning"; });
-    if (hasCrit) appendChip(severityGroup, "Critical", "sev:critical", "radio", "aria-checked");
-    if (hasWarn) appendChip(severityGroup, "Warning", "sev:warning", "radio", "aria-checked");
+    if (counts.critical > 0) appendChip(severityGroup, "critical " + counts.critical, "sev:critical", "radio", "aria-checked", "crit");
+    if (counts.warning > 0) appendChip(severityGroup, "warnings " + counts.warning, "sev:warning", "radio", "aria-checked", "warn");
+    if (counts.info > 0) appendChip(severityGroup, "info " + counts.info, "sev:info", "radio", "aria-checked", "info");
+
+    var counter = el("span", "ps-findings-count");
+    setAttr(counter, "id", "findings-count");
+    root.appendChild(counter);
+
+    var serviceGroup = el("span", "ps-chip-group", null);
+    setAttr(serviceGroup, "role", "group");
+    setAttr(serviceGroup, "aria-label", "Finding service");
+    root.appendChild(serviceGroup);
 
     var services = Object.create(null);
     findings.forEach(function (f) { services[f.service] = true; });
@@ -903,10 +1653,26 @@
   // `findings-show-more` button, tracked by `shownCount`. Every filter,
   // search or hash apply resets `shownCount` to LIST_CAP so the user
   // never ends up paginated into rows that no longer match.
-  var LIST_CAP = 500;
+  // Initial page size and "Show more" increment. Kept small so a long
+  // findings list stays scannable; the rest reveals via #findings-show-more.
+  var LIST_CAP = 8;
   var visibleFindings = [];
   var selectedIndex = -1;
+  // The selected finding object (not just its index) so the selection and
+  // its detail pane survive a list re-render (filter change, "Show more").
+  var selectedFinding = null;
   var shownCount = LIST_CAP;
+
+  // Select a finding by its index in visibleFindings: highlight the row and
+  // render its detail pane. The single entry point for click + j/k so the
+  // master list and the always-visible detail stay in sync.
+  function selectFinding(idx) {
+    if (idx < 0 || idx >= visibleFindings.length) return;
+    selectedIndex = idx;
+    selectedFinding = visibleFindings[idx];
+    syncSelection();
+    openExplain(selectedFinding);
+  }
 
   function applyFilters() {
     return findings.filter(function (f) {
@@ -922,10 +1688,12 @@
     root.textContent = "";
     var filtered = applyFilters();
     visibleFindings = filtered.slice(0, shownCount);
-    selectedIndex = visibleFindings.length > 0 ? 0 : -1;
 
     if (visibleFindings.length === 0) {
+      selectedFinding = null;
+      selectedIndex = -1;
       empty.style.display = "";
+      resetDetailPane();
       syncShowMore(filtered.length);
       return;
     }
@@ -934,11 +1702,38 @@
     visibleFindings.forEach(function (f, idx) {
       root.appendChild(buildFindingRow(f, idx));
     });
+    // Preserve the prior selection across "Show more" / re-renders; fall
+    // back to the first row when it is gone (e.g. a filter narrowed it out).
+    selectedIndex = selectedFinding ? visibleFindings.indexOf(selectedFinding) : -1;
+    if (selectedIndex < 0) {
+      selectedIndex = 0;
+      selectedFinding = visibleFindings[0];
+    }
     syncSelection();
+    // Render the detail only when the Findings panel is the active route, so
+    // landing on Overview does not pay for the trace tree + highlighter of a
+    // finding the user has not opened. switchTab() opens it on first visit.
+    if (currentTab === "findings") openExplain(selectedFinding);
     syncShowMore(filtered.length);
   }
 
+  // Resets the detail pane to its empty state (no finding selected).
+  function resetDetailPane() {
+    var emptyState = document.getElementById("explain-empty");
+    if (emptyState) emptyState.style.display = "";
+    var head = document.getElementById("explain-detail-head");
+    if (head) head.textContent = "";
+    var content = document.getElementById("explain-content");
+    if (content) content.style.display = "none";
+    var ne = document.getElementById("explain-not-embedded");
+    if (ne) { ne.style.display = "none"; ne.textContent = ""; }
+  }
+
   function syncShowMore(totalMatching) {
+    var counter = document.getElementById("findings-count");
+    if (counter) {
+      counter.textContent = totalMatching + " findings · " + visibleFindings.length + " shown";
+    }
     var btn = document.getElementById("findings-show-more");
     if (!btn) return;
     if (visibleFindings.length >= totalMatching) {
@@ -961,26 +1756,22 @@
     // attribute is harmless in static mode (the buttons stay hidden).
     if (f.signature) setAttr(row, "data-sig", f.signature);
 
-    var sev = el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO");
-    row.appendChild(sev);
-
-    var main = el("div", "ps-fin-main");
-    var typeRow = el("div", "ps-fin-type");
-    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
-    var svc = el("span", "ps-fin-service", " in " + (f.service || "-"));
-    typeRow.appendChild(svc);
-    main.appendChild(typeRow);
-
-    var tpl = (f.pattern && f.pattern.template) || "";
-    main.appendChild(el("div", "ps-fin-detail", tpl));
-    row.appendChild(main);
-
-    var right = el("div", "ps-fin-right");
+    var topLine = el("div", "ps-fin-topline");
+    topLine.appendChild(sevPill(f.severity));
+    topLine.appendChild(el("span", "ps-fin-type", typeLabel(f.type || f.finding_type)));
     var occ = (f.pattern && f.pattern.occurrences) || 0;
-    right.appendChild(document.createTextNode(occ + " occ"));
-    right.appendChild(document.createElement("br"));
-    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
-    row.appendChild(right);
+    if (occ) topLine.appendChild(el("span", "ps-fin-right ps-fin-metric", "×" + occ));
+    row.appendChild(topLine);
+
+    var finSub = el("span", "ps-fin-service ps-fin-sub");
+    highlightEndpoint(finSub, (f.service || "-") + " — " + (f.source_endpoint || "-"));
+    row.appendChild(finSub);
+
+    // The normalized template is not shown in the compact row but stays
+    // searchable: the text search matches on row.textContent, and the
+    // search placeholders advertise template search.
+    var tpl = (f.pattern && f.pattern.template) || "";
+    if (tpl) row.appendChild(el("span", "ps-sr-only", tpl));
 
     // Live-mode action container. Always rendered, hidden by CSS in
     // static mode (`.ps-fin-actions { display: none }`). The
@@ -996,13 +1787,11 @@
     row.addEventListener("click", function (event) {
       var t = event.target;
       // Bail when the click landed on the live-mode action button so
-      // its own handler runs without ALSO opening the Explain tab.
+      // its own handler runs without ALSO opening the detail pane.
       if (t && (t.classList.contains("ps-fin-action-btn") || t.closest && t.closest(".ps-fin-actions"))) {
         return;
       }
-      selectedIndex = idx;
-      syncSelection();
-      openExplain(f);
+      selectFinding(idx);
     });
     return row;
   }
@@ -1014,16 +1803,72 @@
   }
 
   // -------- explain tree --------
-  // Shared empty state for cap-reached, resolved-diff, and
-  // Correlations clickthroughs whose trace is not in embedded_traces.
-  function renderExplainEmpty(message) {
-    document.getElementById("explain-empty").style.display = "none";
-    var content = document.getElementById("explain-content");
-    var notEmbedded = document.getElementById("explain-not-embedded");
-    content.style.display = "none";
-    notEmbedded.style.display = "";
-    notEmbedded.textContent = message;
-    switchTab("explain");
+  // Finding header for the detail pane: severity pill, type, a one-line
+  // description, the service/endpoint/occurrences/trace meta grid, and the
+  // normalized template code block. Always rendered when a finding is
+  // selected, independently of whether its trace survived the embed cap.
+  // One-line plain-language summary for the detail title. Prefers a
+  // server-provided message, else derives a sentence from type + count.
+  function findingSummary(f) {
+    if (f.message) return f.message;
+    if (f.description) return f.description;
+    var n = (f.pattern && f.pattern.occurrences) || 0;
+    switch (f.type || f.finding_type) {
+      case "n_plus_one_sql": return n + " near-identical queries fired within a single trace.";
+      case "n_plus_one_http": return n + " near-identical HTTP calls fired within a single trace.";
+      case "redundant_sql": return n + " duplicate queries with identical parameters.";
+      case "redundant_http": return n + " duplicate HTTP calls with identical parameters.";
+      case "slow_sql": return "A query exceeding the latency budget.";
+      case "slow_http": return "An HTTP call exceeding the latency budget.";
+      case "excessive_fanout": return n + " child calls fanned out from one parent span.";
+      case "chatty_service": return n + " calls to the same downstream within a single trace.";
+      case "pool_saturation": return "Connection pool saturated during the trace.";
+      case "serialized_calls": return n + " calls run serially that could overlap.";
+      default: return "";
+    }
+  }
+
+  // "% of report I/O" from a finding's green_impact, IIS as a fallback.
+  function ioImpactText(f) {
+    var gi = f.green_impact;
+    if (!gi) return "-";
+    var totalIo = (greenSummary && greenSummary.total_io_ops) || 0;
+    if (totalIo > 0 && Number.isFinite(gi.estimated_extra_io_ops)) {
+      return Math.round((gi.estimated_extra_io_ops / totalIo) * 100) + "% of I/O";
+    }
+    return Number.isFinite(gi.io_intensity_score) ? "IIS " + gi.io_intensity_score.toFixed(1) : "-";
+  }
+
+  function renderDetailHead(f) {
+    var head = document.getElementById("explain-detail-head");
+    head.textContent = "";
+
+    var headRow = el("div", "ps-detail-head");
+    headRow.appendChild(sevPill(f.severity));
+    var titleWrap = el("div", "ps-detail-titlewrap");
+    titleWrap.appendChild(el("h2", "ps-detail-h2", typeLabel(f.type || f.finding_type)));
+    var sub = findingSummary(f);
+    if (sub) titleWrap.appendChild(el("p", "ps-detail-sub", sub));
+    headRow.appendChild(titleWrap);
+    head.appendChild(headRow);
+
+    var grid = el("div", "ps-meta-grid");
+    grid.appendChild(metaCell("service", f.service || "-"));
+    grid.appendChild(metaCell("endpoint", f.source_endpoint || "-", true, false, true));
+    grid.appendChild(metaCell("i/o impact", ioImpactText(f)));
+    var occ = (f.pattern && f.pattern.occurrences) || 0;
+    grid.appendChild(metaCell("occurrences", occ ? ("×" + occ) : "-"));
+    head.appendChild(grid);
+
+    var tpl = (f.pattern && f.pattern.template) || "";
+    if (tpl) {
+      var sec = el("div", "ps-section");
+      sec.appendChild(el("span", "ps-eyebrow", "// normalized template"));
+      var code = el("code", "ps-codeblock");
+      highlightInto(code, tpl);
+      sec.appendChild(code);
+      head.appendChild(sec);
+    }
   }
 
   function openExplain(f) {
@@ -1033,20 +1878,28 @@
     notEmbedded.style.display = "none";
     notEmbedded.textContent = "";
 
+    // The finding header renders inline regardless of whether the trace
+    // itself survived the embed cap.
+    renderDetailHead(f);
+
     var trace = tracesById[f.trace_id];
     if (!trace) {
-      // Happens when the finding's trace was dropped by the size cap.
-      renderExplainEmpty(
-        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it."
-      );
+      // Trace dropped by the size cap: keep the header, hide the tree.
+      content.style.display = "none";
+      notEmbedded.style.display = "";
+      notEmbedded.textContent =
+        "Trace not embedded (cap reached). Rerun with --max-traces-embedded <higher> to include it.";
       return;
     }
 
     content.style.display = "";
     var breadcrumb = document.getElementById("explain-breadcrumb");
     var shortTraceId = (f.trace_id || "").slice(0, 12);
-    breadcrumb.textContent =
-      "trace_id = " + shortTraceId + " . " + (f.service || "-") + " . " + (f.source_endpoint || "-");
+    breadcrumb.textContent = "";
+    highlightEndpoint(
+      breadcrumb,
+      "trace_id = " + shortTraceId + " · " + (f.service || "-") + " · " + (f.source_endpoint || "-")
+    );
 
     var treeRoot = document.getElementById("explain-tree");
     treeRoot.textContent = "";
@@ -1054,14 +1907,61 @@
 
     var fix = document.getElementById("explain-fix");
     fix.textContent = "";
-    if (f.suggested_fix) {
+    var hasFix = !!f.suggested_fix;
+    if (hasFix) {
       fix.style.display = "";
       renderSuggestedFix(fix, f.suggested_fix);
     } else {
       fix.style.display = "none";
     }
 
-    switchTab("explain");
+    var hasPgstat = renderPgStatXref(document.getElementById("explain-pgstat"), f);
+    // Two columns when both pg_stat and fix render, one when only one, hidden when neither.
+    var cols = document.getElementById("explain-cols");
+    cols.style.display = hasFix || hasPgstat ? "" : "none";
+    cols.classList.toggle("single", hasFix !== hasPgstat);
+
+    renderDetailFoot(document.getElementById("explain-foot"), f);
+  }
+
+  // Cross-reference the finding's query against pg_stat. Returns true when a
+  // matching entry was rendered.
+  function renderPgStatXref(host, f) {
+    host.textContent = "";
+    var tpl = f.pattern && f.pattern.template;
+    var entry = tpl ? pgStatByTemplate[tpl] : null;
+    if (!entry) { host.style.display = "none"; return false; }
+    host.style.display = "";
+    host.appendChild(el("span", "ps-eyebrow", "// pg_stat"));
+    var row = el("div", "ps-pgstat-xref");
+    var code = el("code", null);
+    highlightInto(code, entry.normalized_template || tpl);
+    row.appendChild(code);
+    var occ = (f.pattern && f.pattern.occurrences) || 1;
+    var mean = Number.isFinite(entry.mean_exec_time_ms) ? fmtNum(entry.mean_exec_time_ms.toFixed(1)) + "ms" : "";
+    row.appendChild(el("span", "ps-pgstat-xref-stat", "×" + occ + "  " + mean));
+    host.appendChild(row);
+    return true;
+  }
+
+  // Footer: source location (when code.* attributes were captured) plus the
+  // first/last timestamps the pattern was seen at.
+  function renderDetailFoot(host, f) {
+    host.textContent = "";
+    var parts = [];
+    var cl = f.code_location;
+    if (cl && cl.filepath) {
+      parts.push("source " + cl.filepath + (Number.isFinite(cl.lineno) ? ":" + cl.lineno : ""));
+    }
+    if (f.first_timestamp) parts.push("seen first " + clockTime(f.first_timestamp));
+    if (f.last_timestamp) parts.push("last " + clockTime(f.last_timestamp));
+    if (parts.length === 0) { host.style.display = "none"; return; }
+    host.style.display = "";
+    host.textContent = parts.join(" · ");
+  }
+
+  function clockTime(iso) {
+    return typeof iso === "string" && iso.length >= 19 ? iso.slice(11, 19) : (iso || "");
   }
 
   /// Build the parent -> children adjacency for a span list plus the
@@ -1090,24 +1990,77 @@
   /// Iterative DFS walker that appends one row per span. Depth is
   /// capped at 64 to cut cycles if any, the total row count is capped
   /// at 2000 to bound worst-case DOM size.
+  // Collapse key: spans with the same event type and normalized template
+  // (e.g. the N near-identical N+1 queries) fold into one row.
+  function collapseKey(span) {
+    return (span.event_type || "") + "|" + (span.template || span.target || "");
+  }
+  function isLeafIdx(idx, spans, tree) {
+    var kids = tree.childrenByParent[spans[idx].span_id];
+    return !(kids && kids.length);
+  }
+  // Fold a sibling list into groups: runs of consecutive same-key leaf
+  // siblings become one multi-member group; everything else stays singleton.
+  function groupSiblings(indices, spans, tree) {
+    var groups = [];
+    var i = 0;
+    while (i < indices.length) {
+      var idx = indices[i];
+      if (isLeafIdx(idx, spans, tree)) {
+        var key = collapseKey(spans[idx]);
+        var members = [idx];
+        var j = i + 1;
+        while (j < indices.length && isLeafIdx(indices[j], spans, tree)
+          && collapseKey(spans[indices[j]]) === key) {
+          members.push(indices[j]);
+          j += 1;
+        }
+        groups.push(members);
+        i = j;
+      } else {
+        groups.push([idx]);
+        i += 1;
+      }
+    }
+    return groups;
+  }
+  // A collapsed leaf row: the first span's content plus a ×N badge and an
+  // "N × avg" duration, mirroring the model's folded N+1 rows.
+  function buildCollapsedRow(members, spans, depth, targetTpl) {
+    var row = buildSpanRow(spans[members[0]], depth, targetTpl);
+    var durEl = row.querySelector(".ps-span-dur");
+    // Badge sits between the query text and the (right-aligned) duration.
+    row.insertBefore(el("span", "ps-span-count", "×" + members.length), durEl);
+    var totalUs = members.reduce(function (s, i) { return s + (spans[i].duration_us || 0); }, 0);
+    if (durEl) durEl.textContent = members.length + " × " + formatDurationUs(totalUs / members.length);
+    return row;
+  }
+
   function emitSpanTreeRows(root, spans, tree, targetTpl) {
     var stack = [];
-    for (var r = tree.roots.length - 1; r >= 0; r--) {
-      stack.push({ idx: tree.roots[r], depth: 0 });
+    function pushGroups(indices, depth) {
+      var groups = groupSiblings(indices, spans, tree);
+      for (var g = groups.length - 1; g >= 0; g--) {
+        stack.push({ group: groups[g], depth: depth });
+      }
     }
+    pushGroups(tree.roots, 0);
     var emitted = 0;
     var HARD_SPAN_CAP = 2000;
     var MAX_DEPTH = 64;
     while (stack.length > 0 && emitted < HARD_SPAN_CAP) {
       var frame = stack.pop();
       if (frame.depth > MAX_DEPTH) continue;
-      var span = spans[frame.idx];
+      if (frame.group.length > 1) {
+        root.appendChild(buildCollapsedRow(frame.group, spans, frame.depth, targetTpl));
+        emitted += 1;
+        continue;
+      }
+      var span = spans[frame.group[0]];
       root.appendChild(buildSpanRow(span, frame.depth, targetTpl));
       emitted += 1;
       var kids = tree.childrenByParent[span.span_id] || [];
-      for (var k = kids.length - 1; k >= 0; k--) {
-        stack.push({ idx: kids[k], depth: frame.depth + 1 });
-      }
+      if (kids.length) pushGroups(kids, frame.depth + 1);
     }
   }
 
@@ -1147,7 +2100,7 @@
 
     var text = el("span", "ps-span-text");
     if (isFinding) text.classList.add("ps-span-find");
-    text.textContent = describeSpan(span);
+    highlightInto(text, describeSpan(span));
     row.appendChild(text);
 
     row.appendChild(el("span", "ps-span-dur", formatDurationUs(span.duration_us)));
@@ -1159,20 +2112,33 @@
       return span.template || span.target || span.operation || "(sql)";
     }
     if (span.event_type === "http_out") {
-      var op = (span.operation || "GET").toUpperCase();
-      return op + " " + (span.template || span.target || "");
+      // span.template is already the canonical "METHOD /path" form (see
+      // normalize/http.rs), so don't prepend the method again. Only the
+      // raw-URL fallback (no template) needs the method prefixed.
+      if (span.template) return span.template;
+      return (span.operation || "GET").toUpperCase() + " " + (span.target || "");
     }
     return span.operation || span.target || "(span)";
   }
 
+  // Display label for a framework id: drop the "_generic" suffix (so
+  // "rust_generic" reads "rust") and turn the remaining underscores into
+  // spaces ("java_jpa" -> "java jpa"). The eyebrow style upcases it.
+  function frameworkLabel(fw) {
+    if (!fw) return "-";
+    var s = fw.replace(/_generic$/, "").replace(/_/g, " ");
+    // Real product names where the framework id differs from the display.
+    return s.replace(/^node\b/, "node.js").replace(/^csharp\b/, "c#");
+  }
+
   function renderSuggestedFix(root, fix) {
-    var label = el("div", "ps-drill-label", "Suggested fix . " + (fix.framework || "-"));
-    root.appendChild(label);
-    root.appendChild(document.createTextNode(fix.recommendation || ""));
+    root.appendChild(el("span", "ps-eyebrow brand", "// suggested fix · " + frameworkLabel(fix.framework)));
+    var prose = el("span", "ps-fix-prose");
+    proseInto(prose, fix.recommendation || "");
+    root.appendChild(prose);
     var href = safeHttpsHref(fix.reference_url);
     if (href) {
-      root.appendChild(document.createTextNode(" "));
-      var a = el("a", "ps-drill-link", "See documentation");
+      var a = el("a", "ps-fix-link", "See documentation ↗");
       setAttr(a, "href", href);
       setAttr(a, "target", "_blank");
       setAttr(a, "rel", "noopener noreferrer");
@@ -1181,29 +2147,84 @@
   }
 
   // -------- green panel --------
+  // Builds a metric card with a brand-toned value (Carbon panel uses
+  // green numbers throughout).
+  function greenCard(label, value, sub, tone) {
+    var card = metricCard(label, value, sub);
+    var v = card.querySelector(".ps-metric-value");
+    if (v) setAttr(v, "data-tone", tone || "brand");
+    setAttr(card, "data-grad", tone || "brand");
+    return card;
+  }
+
+  // Map an interpret.rs severity band to a value tone. The bands are computed
+  // Rust-side from the documented thresholds (IIS 2/5/10, waste ratio
+  // 0.10/0.30/0.50), so the colors track the same levels as the CLI.
+  function bandTone(band) {
+    if (band === "critical") return "crit";
+    if (band === "high") return "warn";
+    if (band === "moderate") return "neutral";
+    if (band === "healthy") return "ok";
+    return "brand";
+  }
+  // SCI formula banner shown above the regions table.
+  function renderCarbonFormula() {
+    var host = document.getElementById("green-formula");
+    if (!host) return;
+    host.textContent = "";
+    host.appendChild(el("code", "ps-formula-code", "co2.total = (E × I) + M"));
+    var text = el("span", "ps-formula-text");
+    // "SCI v1.0" links to the Green Software Foundation (authors of the spec).
+    var href = safeHttpsHref("https://greensoftware.foundation/");
+    if (href) {
+      var a = el("a", "ps-source-link", "SCI v1.0");
+      setAttr(a, "href", href);
+      setAttr(a, "target", "_blank");
+      setAttr(a, "rel", "noopener noreferrer");
+      text.appendChild(a);
+    } else {
+      text.appendChild(document.createTextNode("SCI v1.0"));
+    }
+    proseInto(
+      text,
+      " numerator (ISO/IEC 21031:2024): energy used (E) × grid carbon intensity (I), plus embodied hardware (M), summed over analyzed traces. Per-region scoring when spans carry `cloud.region`."
+    );
+    host.appendChild(text);
+    host.style.display = "";
+  }
   function renderGreenPanel() {
     if (!hasGreen) return;
     var co2 = greenSummary.co2;
 
     var metrics = document.getElementById("green-metrics");
-    metrics.appendChild(metricCard(
-      "Operational CO2",
-      formatGco2(co2.operational_gco2),
-      "low " + formatGco2(co2.total.low) + " . high " + formatGco2(co2.total.high)
+    metrics.appendChild(greenCard(
+      "Total CO2",
+      formatGco2(co2.total.mid),
+      "low " + formatGco2(co2.total.low) + " · high " + formatGco2(co2.total.high)
     ));
-    metrics.appendChild(metricCard(
-      "Embodied CO2",
-      formatGco2(co2.embodied_gco2),
-      "SCI v1.0 M term"
-    ));
+    metrics.appendChild(greenCard("Operational CO2", formatGco2(co2.operational_gco2), "E × I"));
+    metrics.appendChild(greenCard("Embodied CO2", formatGco2(co2.embodied_gco2), "SCI v1.0 · M term"));
     var avoidMid = co2.avoidable.mid;
-    var ratio = percent(avoidMid, co2.operational_gco2);
-    metrics.appendChild(metricCard(
+    metrics.appendChild(greenCard(
       "Avoidable",
       formatGco2(avoidMid),
-      ratio + " of operational"
+      percent(avoidMid, co2.operational_gco2) + " of operational"
+    ));
+    metrics.appendChild(greenCard(
+      "I/O waste ratio",
+      Math.round((greenSummary.io_waste_ratio || 0) * 100) + "%",
+      "avoidable / total ops",
+      bandTone(greenSummary.io_waste_ratio_band)
+    ));
+    var topOff = greenSummary.top_offenders && greenSummary.top_offenders[0];
+    metrics.appendChild(greenCard(
+      "IIS score",
+      topOff && Number.isFinite(topOff.io_intensity_score) ? topOff.io_intensity_score.toFixed(1) : "-",
+      "I/O intensity per call",
+      bandTone(topOff && topOff.io_intensity_band)
     ));
 
+    renderCarbonFormula();
     renderScoringConfigBandeau(greenSummary.scoring_config);
 
     var regions = greenSummary.regions || [];
@@ -1213,15 +2234,15 @@
       document.getElementById("green-regions-empty").style.display = "";
       return;
     }
-    document.getElementById("green-regions-table").style.display = "";
+    document.getElementById("green-regions-card").style.display = "";
     var tbody = document.getElementById("green-regions-body");
     regions.forEach(function (r) {
       var tr = document.createElement("tr");
-      tr.appendChild(el("td", null, r.region || "-"));
-      tr.appendChild(el("td", null, (r.grid_intensity_gco2_kwh || 0).toFixed(0)));
-      tr.appendChild(el("td", null, String(r.io_ops || 0)));
+      tr.appendChild(el("td", null, regionLabel(r.region)));
+      tr.appendChild(el("td", null, fmtNum((r.grid_intensity_gco2_kwh || 0).toFixed(0))));
+      tr.appendChild(el("td", null, fmtNum(r.io_ops || 0)));
       tr.appendChild(el("td", null, formatGco2(r.co2_gco2 || 0)));
-      tr.appendChild(el("td", null, r.intensity_source || "-"));
+      tr.appendChild(buildSourceCell(r));
       tr.appendChild(buildEstimatedCell(r));
       tbody.appendChild(tr);
     });
@@ -1332,6 +2353,47 @@
       "neutral",
       "Unrecognized temporal granularity, displayed verbatim."
     );
+  }
+
+  // Grid location each region's carbon profile models, taken from the
+  // comments in score/carbon_profiles.rs (the country/zone of the grid, not
+  // the datacenter city: eu-central-1 models the German grid, etc.).
+  var REGION_LOCATIONS = {
+    "ap-northeast-1": "Japan", "ap-south-1": "India", "ap-southeast-1": "Singapore",
+    "ap-southeast-2": "Australia", "ca-central-1": "Canada", "eu-central-1": "Germany",
+    "eu-north-1": "Sweden", "eu-south-1": "Italy", "eu-west-1": "Ireland",
+    "eu-west-2": "United Kingdom", "eu-west-3": "France", "eu-west-4": "Netherlands",
+    "sa-east-1": "Brazil", "us-east-1": "Virginia", "us-east-2": "Ohio",
+    "us-west-1": "California", "us-west-2": "Oregon"
+  };
+  function regionLabel(code) {
+    var loc = code && Object.prototype.hasOwnProperty.call(REGION_LOCATIONS, code)
+      ? REGION_LOCATIONS[code] : null;
+    return loc ? code + " (" + loc + ")" : (code || "-");
+  }
+
+  // Source cell: real_time rows link "Electricity Maps" to its live map;
+  // other (embedded proxy) sources render as plain text.
+  function buildSourceCell(r) {
+    var td = document.createElement("td");
+    if (r.intensity_source === "real_time") {
+      td.appendChild(document.createTextNode("real time ("));
+      var href = safeHttpsHref("https://app.electricitymaps.com/map/live/fifteen_minutes");
+      if (href) {
+        var a = el("a", "ps-source-link", "Electricity Maps");
+        setAttr(a, "href", href);
+        setAttr(a, "target", "_blank");
+        setAttr(a, "rel", "noopener noreferrer");
+        td.appendChild(a);
+      } else {
+        td.appendChild(document.createTextNode("Electricity Maps"));
+      }
+      td.appendChild(document.createTextNode(")"));
+    } else {
+      // Embedded-proxy granularity: render "monthly_hourly" as "monthly hourly".
+      td.textContent = r.intensity_source ? r.intensity_source.replace(/_/g, " ") : "-";
+    }
+    return td;
   }
 
   function buildEstimatedCell(r) {
@@ -1490,10 +2552,12 @@
     activePgStatEntries().forEach(function (entry) {
       var tr = document.createElement("tr");
       setAttr(tr, "data-template", entry.normalized_template);
-      tr.appendChild(el("td", null, entry.normalized_template));
-      tr.appendChild(el("td", null, String(entry.calls || 0)));
-      tr.appendChild(el("td", null, (entry.total_exec_time_ms || 0).toFixed(1)));
-      tr.appendChild(el("td", null, (entry.mean_exec_time_ms || 0).toFixed(2)));
+      var tplTd = el("td", "ps-pg-template");
+      highlightInto(tplTd, entry.normalized_template);
+      tr.appendChild(tplTd);
+      tr.appendChild(el("td", null, fmtNum(entry.calls || 0)));
+      tr.appendChild(el("td", null, fmtNum((entry.total_exec_time_ms || 0).toFixed(1))));
+      tr.appendChild(el("td", null, fmtNum((entry.mean_exec_time_ms || 0).toFixed(2))));
       body.appendChild(tr);
     });
   }
@@ -1556,35 +2620,37 @@
     });
   }
   function buildDiffFindingRow(f, kind) {
-    var row = el("div", "ps-row");
-    row.appendChild(
-      el("div", SEV_CLASS[f.severity] || "ps-sev-info", SEV_LABEL[f.severity] || "INFO")
-    );
-    var main = el("div", "ps-fin-main");
-    var typeRow = el("div", "ps-fin-type");
-    typeRow.appendChild(document.createTextNode(typeLabel(f.type || f.finding_type)));
-    typeRow.appendChild(el("span", "ps-fin-service", " in " + (f.service || "-")));
-    main.appendChild(typeRow);
-    main.appendChild(el("div", "ps-fin-detail", (f.pattern && f.pattern.template) || ""));
-    row.appendChild(main);
-    var right = el("div", "ps-fin-right");
-    right.appendChild(document.createTextNode(((f.pattern && f.pattern.occurrences) || 0) + " occ"));
-    right.appendChild(document.createElement("br"));
-    right.appendChild(el("span", "ps-fin-right-sub", truncate(f.source_endpoint || "-", 48)));
-    row.appendChild(right);
+    var row = el("div", "ps-row ps-diff-row");
     if (kind === "resolved") {
-      // Resolved findings have no trace in the current run. Route the
-      // click through the shared empty-state helper so the user ends
-      // up on Explain with a clear explanation rather than on an
-      // empty panel.
+      var fixed = el("span", "ps-sev", "FIXED");
+      setAttr(fixed, "data-sev", "ok");
+      row.appendChild(fixed);
+    } else {
+      row.appendChild(sevPill(f.severity));
+    }
+    row.appendChild(el("span", "ps-diff-type", typeLabel(f.type || f.finding_type)));
+    var diffEp = el("span", "ps-diff-endpoint");
+    highlightEndpoint(diffEp, f.source_endpoint || "-");
+    row.appendChild(diffEp);
+    // Keep service + normalized template searchable (the diff search filters
+    // on row.textContent and advertises both), without showing them.
+    var diffExtra = (f.service || "") + " " + ((f.pattern && f.pattern.template) || "");
+    if (diffExtra.trim()) row.appendChild(el("span", "ps-sr-only", diffExtra));
+    if (kind === "resolved") {
+      // Resolved findings have no trace in the current run, so there is
+      // nothing to open. A toast explains why without navigating away from
+      // the Diff tab (which would clear the user's active diff filter).
       row.addEventListener("click", function () {
-        renderExplainEmpty(
+        showToast(
+          "",
           "This finding was resolved. Its trace lives in the baseline report, not in the current run. Open the baseline report separately to explore its traces."
         );
       });
     } else if (kind === true || kind === "new") {
       row.addEventListener("click", function () {
-        openExplain(f);
+        // Off-list finding: switch to Findings, clear the master selection,
+        // and render the detail (the detail pane lives in that panel).
+        openExternalFindingDetail(f);
       });
     } else {
       row.style.cursor = "default";
@@ -1606,10 +2672,15 @@
       var f = c.finding || {};
       var tr = document.createElement("tr");
       tr.appendChild(el("td", null, typeLabel(f.type || f.finding_type)));
-      tr.appendChild(el("td", null, f.service || "-"));
-      tr.appendChild(el("td", null, f.source_endpoint || "-"));
-      tr.appendChild(el("td", null, SEV_LABEL[c.before_severity] || String(c.before_severity)));
-      tr.appendChild(el("td", null, SEV_LABEL[c.after_severity] || String(c.after_severity)));
+      var epTd = el("td");
+      highlightEndpoint(epTd, (f.service || "-") + " · " + (f.source_endpoint || "-"));
+      tr.appendChild(epTd);
+      var beforeTd = el("td");
+      beforeTd.appendChild(sevPill(c.before_severity));
+      tr.appendChild(beforeTd);
+      var afterTd = el("td");
+      afterTd.appendChild(sevPill(c.after_severity));
+      tr.appendChild(afterTd);
       body.appendChild(tr);
     });
   }
@@ -1627,11 +2698,18 @@
     items.forEach(function (d) {
       var tr = document.createElement("tr");
       tr.appendChild(el("td", null, d.service || "-"));
-      tr.appendChild(el("td", null, d.endpoint || "-"));
-      tr.appendChild(el("td", null, String(d.before_io_ops || 0)));
-      tr.appendChild(el("td", null, String(d.after_io_ops || 0)));
+      var epTd = el("td");
+      highlightEndpoint(epTd, d.endpoint || "-");
+      tr.appendChild(epTd);
+      tr.appendChild(el("td", null, fmtNum(d.before_io_ops || 0)));
+      tr.appendChild(el("td", "ps-diff-after", fmtNum(d.after_io_ops || 0)));
       var delta = d.delta || 0;
-      tr.appendChild(el("td", null, (delta > 0 ? "+" : "") + String(delta)));
+      var deltaTd = el("td", null, (delta > 0 ? "+" : "") + fmtNum(delta));
+      // Tone by sign: more I/O is a regression (crit), fewer is an
+      // improvement (ok), unchanged stays neutral.
+      if (delta > 0) setAttr(deltaTd, "data-tone", "crit");
+      else if (delta < 0) setAttr(deltaTd, "data-tone", "ok");
+      tr.appendChild(deltaTd);
       body.appendChild(tr);
     });
   }
@@ -1648,39 +2726,34 @@
     correlations.forEach(function (c) {
       var src = c.source || {};
       var tgt = c.target || {};
-      var row = el("div", "ps-row ps-correlation-row");
-      var leftLabel =
-        (src.service || "?") + ":" + typeLabel(src.finding_type || "?");
-      var rightLabel =
-        (tgt.service || "?") + ":" + typeLabel(tgt.finding_type || "?");
-      var main = el("div", "ps-fin-main");
-      main.appendChild(el("div", "ps-fin-type", leftLabel + " -> " + rightLabel));
+      // One bordered card per correlation: a warn tag, the mono
+      // service path, and a right-aligned conf/lag/traces summary.
+      var card = el("div", "ps-corr-card ps-correlation-row");
+      var tag = el("span", "ps-corr-tag", typeLabel(src.finding_type || "cross-trace").toUpperCase());
+      setAttr(tag, "data-sev", "warn");
+      card.appendChild(tag);
+      card.appendChild(
+        el("span", "ps-corr-path", (src.service || "?") + " → " + (tgt.service || "?"))
+      );
       var conf = Math.round((c.confidence || 0) * 100);
       var lag = (c.median_lag_ms || 0).toFixed(0);
-      main.appendChild(
-        el(
-          "div",
-          "ps-fin-detail",
-          "confidence " + conf + "% . median lag " + lag + " ms"
-        )
-      );
-      row.appendChild(el("div", "ps-sev-info", "CORR"));
-      row.appendChild(main);
-      row.appendChild(
-        el("div", "ps-fin-right", String(c.co_occurrence_count || 0) + "x")
+      var n = c.co_occurrence_count || 0;
+      card.appendChild(
+        el("span", "ps-corr-meta", "conf " + conf + "% · lag " + lag + " ms · " + n + " traces")
       );
       // Daemon-produced correlations carry sample_trace_id. When set,
-      // clicking jumps to Explain. openExplain falls back to the
-      // shared empty state when the trace is not embedded.
+      // clicking jumps to the finding detail. openExplain falls back to
+      // the shared empty state when the trace is not embedded.
       if (c.sample_trace_id) {
-        row.classList.add("ps-correlation-clickable");
-        row.addEventListener("click", function () {
-          openExplain(syntheticFindingFromCorrelation(c));
+        card.classList.add("ps-correlation-clickable");
+        card.addEventListener("click", function () {
+          // Off-list synthetic finding: open in the Findings detail pane.
+          openExternalFindingDetail(syntheticFindingFromCorrelation(c));
         });
       } else {
-        row.style.cursor = "default";
+        card.style.cursor = "default";
       }
-      list.appendChild(row);
+      list.appendChild(card);
     });
   }
 
@@ -1720,7 +2793,7 @@
     },
     correlations: {
       inputId: "correlations-search",
-      rowsSelector: "#correlations-list .ps-row"
+      rowsSelector: "#correlations-list .ps-corr-card"
     }
   };
   function initSearchInputs() {
@@ -1730,8 +2803,29 @@
       if (!input) return;
       input.addEventListener("input", function () {
         applySearchFilter(cfg);
+        // Mirror back into the always-visible top-bar box so the two search
+        // controls stay in sync (the pg_stat filter box is the only
+        // per-panel input the user can actually see and type into).
+        var ts = document.getElementById("topbar-search");
+        if (ts) ts.value = input.value;
         scheduleHashWrite();
       });
+    });
+    wireTopbarSearch();
+  }
+  // The always-visible top-bar search box mirrors into the current
+  // panel's per-panel input (the filter source of truth) and runs its
+  // filter. Panels with no searchable config ignore the keystrokes.
+  function wireTopbarSearch() {
+    var ts = document.getElementById("topbar-search");
+    if (!ts) return;
+    ts.addEventListener("input", function () {
+      var cfg = SEARCHABLE_TABS[currentTab];
+      if (!cfg) return;
+      var panelInput = document.getElementById(cfg.inputId);
+      if (panelInput) panelInput.value = ts.value;
+      applySearchFilter(cfg);
+      scheduleHashWrite();
     });
   }
   function applySearchFilter(cfg) {
@@ -1744,29 +2838,38 @@
   function openSearchForActiveTab() {
     var cfg = SEARCHABLE_TABS[currentTab];
     if (!cfg) return;
-    var input = document.getElementById(cfg.inputId);
-    if (!input) return;
-    input.style.display = "block";
-    input.focus();
-    input.select();
+    // "/" focuses the always-visible top-bar search, synced from the
+    // active panel's current filter value.
+    var ts = document.getElementById("topbar-search");
+    if (!ts) return;
+    var panelInput = document.getElementById(cfg.inputId);
+    ts.value = panelInput ? panelInput.value : "";
+    ts.focus();
+    ts.select();
   }
   function closeSearch(input) {
-    input.value = "";
-    applySearchFilter(SEARCHABLE_TABS[currentTab]);
-    input.style.display = "none";
-    input.blur();
+    var cfg = SEARCHABLE_TABS[currentTab];
+    var ts = document.getElementById("topbar-search");
+    var panelInput = cfg ? document.getElementById(cfg.inputId) : null;
+    if (ts) ts.value = "";
+    if (panelInput) panelInput.value = "";
+    if (cfg) applySearchFilter(cfg);
+    // Visibility is CSS-governed (see clearAllSearchFilters); just blur.
+    if (input) input.blur();
   }
   function clearAllSearchFilters() {
     Object.keys(SEARCHABLE_TABS).forEach(function (tabKey) {
       var cfg = SEARCHABLE_TABS[tabKey];
       var input = document.getElementById(cfg.inputId);
-      if (!input) return;
-      if (input.value) {
-        input.value = "";
-        applySearchFilter(cfg);
-      }
-      input.style.display = "none";
+      if (!input || !input.value) return;
+      // Clear the value only. Visibility is governed by CSS: bare
+      // per-panel inputs stay hidden (.ps-search), the pg_stat filter
+      // stays shown because it sits inside a .ps-search-box.
+      input.value = "";
+      applySearchFilter(cfg);
     });
+    var ts = document.getElementById("topbar-search");
+    if (ts) ts.value = "";
   }
 
   // -------- trim banner --------
@@ -2155,7 +3258,7 @@
     if (state.tab === "findings") {
       filterState.severity = null;
       filterState.service = null;
-      if (state.severity === "critical" || state.severity === "warning") {
+      if (state.severity === "critical" || state.severity === "warning" || state.severity === "info") {
         filterState.severity = state.severity;
       }
       if (state.service) filterState.service = state.service;
@@ -2180,10 +3283,13 @@
       var cfg = SEARCHABLE_TABS[state.tab];
       var input = document.getElementById(cfg.inputId);
       if (input) {
-        input.style.display = "block";
+        // The per-panel input is the filter source of truth but stays
+        // hidden; the always-visible top-bar box is the one the user sees.
         input.value = state.search;
         applySearchFilter(cfg);
       }
+      var ts = document.getElementById("topbar-search");
+      if (ts) ts.value = state.search;
     }
     return true;
   }
@@ -2192,15 +3298,16 @@
   var CHEATSHEET_ROWS = [
     ["j", "Move finding selection down"],
     ["k", "Move finding selection up"],
-    ["Enter", "Open selected finding in Explain"],
-    ["Esc", "Close help, close search, clear filters, back from Explain"],
-    ["/", "Open filter search for active tab"],
+    ["Enter", "Open the selected finding"],
+    ["Esc", "Close help, close search, clear filters"],
+    ["/", "Open search for the active tab"],
+    ["g o", "Go to Overview"],
     ["g f", "Go to Findings"],
-    ["g e", "Go to Explain (if available)"],
     ["g p", "Go to pg_stat (if available)"],
     ["g d", "Go to Diff (if available)"],
     ["g c", "Go to Correlations (if available)"],
-    ["g r", "Go to GreenOps (if available)"],
+    ["g r", "Go to Carbon (if available)"],
+    ["g a", "Go to Acknowledgments (live mode)"],
     ["?", "Show this cheatsheet"]
   ];
   function populateCheatsheet() {
@@ -2281,10 +3388,6 @@
       ev.preventDefault();
       return;
     }
-    if (currentTab === "explain") {
-      switchTab("findings");
-      return;
-    }
     if (currentTab === "findings" && anyFilterChipActive()) {
       clearFilterChips();
       scheduleHashWrite();
@@ -2300,16 +3403,16 @@
   /// j / k / enter navigation on the Findings list.
   function handleFindingsNav(ev) {
     if (visibleFindings.length === 0) return;
+    // In the master/detail layout the detail pane follows selection, so j/k
+    // re-open the now-selected finding (not just move the highlight).
     if (ev.key === "j") {
-      selectedIndex = (selectedIndex + 1) % visibleFindings.length;
-      syncSelection();
+      selectFinding((selectedIndex + 1) % visibleFindings.length);
       scrollSelectedIntoView();
     } else if (ev.key === "k") {
-      selectedIndex = (selectedIndex - 1 + visibleFindings.length) % visibleFindings.length;
-      syncSelection();
+      selectFinding((selectedIndex - 1 + visibleFindings.length) % visibleFindings.length);
       scrollSelectedIntoView();
     } else if (ev.key === "Enter" && selectedIndex >= 0) {
-      openExplain(visibleFindings[selectedIndex]);
+      selectFinding(selectedIndex);
     }
     ev.preventDefault();
   }
@@ -2318,8 +3421,8 @@
   // are a silent no-op (no feedback, no flash).
   var pendingGTimer = null;
   var G_MAPPING = {
-    f: "findings", e: "explain", p: "pgstat",
-    d: "diff", c: "correlations", r: "green"
+    o: "overview", f: "findings", p: "pgstat",
+    d: "diff", c: "correlations", r: "green", a: "acknowledgments"
   };
   function clearPendingG() {
     if (pendingGTimer) {
@@ -2350,6 +3453,13 @@
   }
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape") { handleEscape(ev); return; }
+    // Cmd/Ctrl+K focuses the always-visible top-bar search (the ⌘K hint).
+    // The modifier keeps it distinct from the bare `k` finding-nav key.
+    if ((ev.metaKey || ev.ctrlKey) && (ev.key === "k" || ev.key === "K")) {
+      var topbarSearch = document.getElementById("topbar-search");
+      if (topbarSearch) { topbarSearch.focus(); topbarSearch.select(); ev.preventDefault(); }
+      return;
+    }
     // `?` opens the cheatsheet unless a text input is consuming it.
     if (ev.key === "?" && !isTextInputFocused()) {
       toggleCheatsheet();
@@ -2381,8 +3491,8 @@
   // IIFE itself when too many branches accumulate at this level.
 
   function registerAllTabs() {
+    registerTab("overview", "Overview", null);
     registerTab("findings", "Findings", function () { return findings.length; });
-    registerTab("explain", "Explain", null);
     if (hasPgStat) {
       registerTab("pgstat", "pg_stat", function () {
         // Badge shows the currently-active ranking's entry count. Every
@@ -2403,9 +3513,9 @@
         return correlations.length;
       });
     }
-    if (hasGreen) registerTab("green", "GreenOps", null);
+    if (hasGreen) registerTab("green", "Carbon", null);
     if (payload.daemon && payload.daemon.url) {
-      registerTab("acknowledgments", "Acks", function () {
+      registerTab("acknowledgments", "Acknowledgments", function () {
         return liveAcksCount();
       });
     }
@@ -2428,7 +3538,9 @@
   function renderAllPanels() {
     renderTrimBanner();
     renderFindingsMetrics();
-    renderQualityGateRules();
+    // Gate rules render inside the Overview hero (renderOverviewHero); there
+    // is no longer a standalone gate-rules table.
+    renderOverviewPanel();
     renderFilterChips();
     restorePersistedPgStatRanking();
     renderFindingsList();
@@ -2454,6 +3566,8 @@
     dlg.addEventListener("click", function (ev) {
       if (ev.target === dlg) closeCheatsheet();
     });
+    var footerBtn = document.getElementById("footer-shortcuts");
+    if (footerBtn) footerBtn.addEventListener("click", openCheatsheet);
   }
 
   function restorePriorFocus() {
@@ -2765,14 +3879,17 @@
     var body = document.getElementById("acks-body");
     var empty = document.getElementById("acks-empty");
     var footer = document.getElementById("acks-footer");
+    var card = document.getElementById("acks-card");
     if (!body) return;
     body.textContent = "";
     if (liveState.acks.length === 0) {
       if (empty) empty.style.display = "";
+      if (card) card.style.display = "none";
       if (footer) footer.textContent = "";
       return;
     }
     if (empty) empty.style.display = "none";
+    if (card) card.style.display = "";
     liveState.acks.forEach(function (a) {
       body.appendChild(buildAckRow(a));
     });

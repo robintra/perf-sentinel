@@ -49,22 +49,30 @@ const JSON_PLACEHOLDER: &str = "{{REPORT_JSON}}";
 const TITLE_PLACEHOLDER: &str = "{{PAGE_TITLE}}";
 const CSP_PLACEHOLDER: &str = "{{CONTENT_SECURITY_POLICY}}";
 const BRAND_LOGO_PLACEHOLDER: &str = "{{BRAND_LOGO}}";
+const FONT_FACES_PLACEHOLDER: &str = "{{FONT_FACES}}";
 const DEFAULT_TITLE: &str = "perf-sentinel report";
-// Brand wordmark, embedded so the self-contained report needs no network
-// fetch. Light variant for light backgrounds, light-colored variant for
-// dark. The template swaps them by `data-theme` in pure CSS. Kept inside this
-// crate (not referenced from the repo-root `logo/`) so `cargo publish`
-// packages them; an out-of-package `include_str!` would break the published
-// crate's compile.
-const BRAND_LOGO_LIGHT_SVG: &str = include_str!("Logo-backgroundless.svg");
-const BRAND_LOGO_DARK_SVG: &str = include_str!("Logo-light-backgroundless.svg");
+// Geist + Geist Mono (OFL-1.1) Latin subset, embedded as base64 woff2 so the
+// self-contained report renders the brand typeface offline, with no network
+// fetch. Generated from the @fontsource woff2 subsets; the license text lives
+// in `fonts-LICENSE.txt` beside it. Base64 alphabet contains no `{` so the
+// double-brace guard below holds.
+const FONT_FACES: &str = include_str!("fonts.css");
+// Brand wordmark (horizontal lockup), embedded so the self-contained report
+// needs no network fetch. `logo-horiz-light.svg` is the dark wordmark for
+// light backgrounds; `logo-horiz-dark.svg` is the light wordmark for dark
+// backgrounds. The template swaps them by `data-theme` in pure CSS. Kept
+// inside this crate (not referenced from the repo-root `logo/`) so
+// `cargo publish` packages them; an out-of-package `include_str!` would break
+// the published crate's compile.
+const BRAND_LOGO_LIGHT_SVG: &str = include_str!("logo-horiz-light.svg");
+const BRAND_LOGO_DARK_SVG: &str = include_str!("logo-horiz-dark.svg");
 const DEFAULT_SIZE_TARGET_BYTES: usize = 5 * 1024 * 1024;
 /// Static-mode Content-Security-Policy. See `docs/design/07-CLI-CONFIG-RELEASE.md`
 /// § "`STATIC_CSP` compile-time invariant" for the substitution-shadowing
 /// guarantee enforced by the const block below.
 const STATIC_CSP: &str = "default-src 'none'; script-src 'unsafe-inline'; \
                           style-src 'unsafe-inline'; img-src data:; \
-                          base-uri 'none'; form-action 'none'";
+                          font-src data:; base-uri 'none'; form-action 'none'";
 
 /// Compile-time guard: a value substituted into the document before the JSON
 /// marker (the CSP, the brand SVGs) must not contain `{{`, which would shadow
@@ -84,6 +92,10 @@ const _: () = {
     assert_no_double_brace(STATIC_CSP);
     assert_no_double_brace(BRAND_LOGO_LIGHT_SVG);
     assert_no_double_brace(BRAND_LOGO_DARK_SVG);
+    // FONT_FACES is substituted first in `inject`, ahead of the JSON/CSP/
+    // TITLE markers, so a stray `{{` in the embedded font CSS would shadow a
+    // real placeholder. base64 has no `{`, but guard it like the siblings.
+    assert_no_double_brace(FONT_FACES);
 };
 /// Embedded in every payload as the `version` field. Extracted from the
 /// environment at compile time via `env!`, kept as a single constant so
@@ -341,6 +353,10 @@ fn inject(json: &str, title: &str, csp: &str) -> String {
          <span class=\"ps-logo ps-logo-dark\">{BRAND_LOGO_DARK_SVG}</span>"
     );
     TEMPLATE
+        // Font faces first: trusted base64 in the <head> <style>, substituted
+        // before the report JSON so a hostile `{{FONT_FACES}}` inside report
+        // content cannot shadow it. The base64 alphabet has no `{`.
+        .replacen(FONT_FACES_PLACEHOLDER, FONT_FACES, 1)
         .replacen(BRAND_LOGO_PLACEHOLDER, &brand_logo, 1)
         .replacen(JSON_PLACEHOLDER, &safe, 1)
         .replacen(CSP_PLACEHOLDER, csp, 1)
@@ -913,14 +929,13 @@ mod tests {
         let report = minimal_report(vec![]);
         let (html, _) = render(&report, &[], &opts("traces.json", None));
 
+        // The app-shell redesign renders the gate rules inside the Overview
+        // hero (renderOverviewHero) instead of a standalone table host.
         assert!(
-            html.contains(r#"id="quality-gate-rules""#),
-            "Findings tab must carry the quality gate rules host"
+            html.contains("function renderOverviewHero"),
+            "Overview hero renderer (carries the gate rules) missing"
         );
-        assert!(
-            html.contains("renderQualityGateRules"),
-            "renderAllPanels must call renderQualityGateRules"
-        );
+        assert!(html.contains("ps-hero-rule"), "hero gate-rule rows missing");
         // Anchor on the preceding CSV column to distinguish the header
         // array from any other `confidence` mention in the payload.
         assert!(
@@ -1502,16 +1517,15 @@ mod tests {
     const CHEATSHEET_DESCRIPTION_FRAGMENTS: &[&str] = &[
         "Move finding selection down",
         "Move finding selection up",
-        "Open selected finding in Explain",
+        "Open the selected finding",
         "close search",
-        "back from Explain",
-        "Open filter search for active tab",
+        "Open search for the active tab",
+        "Go to Overview",
         "Go to Findings",
-        "Go to Explain",
         "Go to pg_stat",
         "Go to Diff",
         "Go to Correlations",
-        "Go to GreenOps",
+        "Go to Carbon",
         "Show this cheatsheet",
     ];
 
@@ -1902,31 +1916,23 @@ mod tests {
     }
 
     #[test]
-    fn explain_empty_helper_is_shared_across_call_sites() {
-        // The helper must be defined once and consumed by both the
-        // cap-reached path inside openExplain and the resolved-diff
-        // click handler. Assertion on the function signature plus
-        // substring checks on the two user-visible messages is enough
-        // to catch a silent drop.
-        assert!(
-            TEMPLATE.contains("function renderExplainEmpty("),
-            "renderExplainEmpty helper missing"
-        );
+    fn detail_pane_no_trace_states_present() {
+        // Two "no trace to show" states survive the master/detail redesign:
+        // the cap-reached message rendered inline in openExplain (the finding
+        // header stays, only the tree is hidden), and the resolved-diff
+        // message surfaced as a toast so clicking it does not navigate away
+        // from the Diff tab and wipe the user's active diff filter.
         assert!(
             TEMPLATE.contains("Trace not embedded (cap reached)"),
             "cap-reached message missing"
         );
         assert!(
             TEMPLATE.contains("This finding was resolved."),
-            "resolved-diff empty-state message missing"
+            "resolved-diff message missing"
         );
-        // Every inline empty-state message must route through the
-        // helper. Floor of 3 = definition + openExplain + resolved-
-        // diff, leaving room for future listable tabs to plug in.
-        let use_count = TEMPLATE.matches("renderExplainEmpty(").count();
         assert!(
-            use_count >= 3,
-            "expected at least 3 renderExplainEmpty uses, found {use_count}"
+            TEMPLATE.contains("function showToast("),
+            "showToast helper (carries the resolved-diff notice) missing"
         );
     }
 
@@ -1944,8 +1950,8 @@ mod tests {
             "tablist role missing from template"
         );
         for panel in [
+            "panel-overview",
             "panel-findings",
-            "panel-explain",
             "panel-pgstat",
             "panel-diff",
             "panel-correlations",
@@ -1956,17 +1962,18 @@ mod tests {
             assert!(TEMPLATE.contains(&needle), "{panel} id missing");
         }
         // Each tabpanel carries `role="tabpanel"` and
-        // `aria-labelledby="tab-<name>"` with its matching tab id.
-        // The acknowledgments panel was added in 0.5.23 (live mode),
-        // bumping the count from 6 to 7.
+        // `aria-labelledby="tab-<name>"` with its matching tab id. The
+        // app-shell redesign (0.9.0) folded the Explain tab into the
+        // Findings master/detail pane and added the Overview landing
+        // panel, keeping the count at 7.
         let tabpanel_count = TEMPLATE.matches("role=\"tabpanel\"").count();
         assert_eq!(
             tabpanel_count, 7,
             "expected 7 tabpanels, found {tabpanel_count}"
         );
         for tab in [
+            "overview",
             "findings",
-            "explain",
             "pgstat",
             "diff",
             "correlations",
@@ -2080,9 +2087,46 @@ mod tests {
         assert!(csp_value.contains("default-src 'none'"));
         assert!(csp_value.contains("base-uri 'none'"));
         assert!(csp_value.contains("form-action 'none'"));
+        // The redesign embeds Geist/Geist Mono as base64 data: woff2, so
+        // the CSP must allow `font-src data:` (and nothing wider).
+        assert!(
+            csp_value.contains("font-src data:"),
+            "embedded fonts require font-src data: in the CSP, got: {csp_value}"
+        );
         assert!(
             !csp_value.contains("connect-src"),
             "static mode must not advertise connect-src in the CSP, got: {csp_value}"
+        );
+    }
+
+    #[test]
+    fn embeds_brand_fonts_as_base64_woff2() {
+        // The self-contained report ships Geist + Geist Mono inline so it
+        // renders the brand typeface offline. The base64 data: URIs must
+        // reach the output, and the source must stay placeholder-safe.
+        assert!(
+            !FONT_FACES.contains("{{"),
+            "embedded font CSS must not contain `{{{{` placeholder bytes"
+        );
+        let face_count = FONT_FACES.matches("@font-face").count();
+        assert_eq!(
+            face_count, 6,
+            "expected 6 @font-face rules, found {face_count}"
+        );
+        assert!(FONT_FACES.contains("font-family:'Geist'"));
+        assert!(FONT_FACES.contains("font-family:'Geist Mono'"));
+        assert!(FONT_FACES.contains("src:url(data:font/woff2;base64,"));
+
+        let f = finding("t1", "svc", "/ep", "SELECT 1");
+        let report = minimal_report(vec![f]);
+        let (html, _) = render(&report, &[], &opts("normal.json", None));
+        assert!(
+            html.contains("@font-face") && html.contains("data:font/woff2;base64,"),
+            "rendered HTML must embed the base64 woff2 font faces"
+        );
+        assert!(
+            !html.contains(FONT_FACES_PLACEHOLDER),
+            "the FONT_FACES placeholder must be substituted in the output"
         );
     }
 
