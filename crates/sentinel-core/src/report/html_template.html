@@ -110,7 +110,7 @@
   .ps-topbar-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
   .ps-topbar-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-3); }
   .ps-topbar-h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.3px; color: var(--text); }
-  .ps-gate-pass, .ps-gate-fail { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 20px; font-size: 11px; font-family: var(--font-mono); font-weight: 600; }
+  .ps-gate-pass, .ps-gate-fail { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 20px; font-size: 11px; font-family: var(--font-mono); font-weight: 600; white-space: nowrap; }
   .ps-gate-pass { color: var(--ok-fg); background: var(--ok-bg); border: 1px solid var(--ok-bd); }
   .ps-gate-fail { color: var(--crit-fg); background: var(--crit-bg); border: 1px solid var(--crit-bd); }
   .ps-gate-pass::before, .ps-gate-fail::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
@@ -401,6 +401,19 @@
   .ps-toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: 0 4px 16px rgba(0,0,0,0.3); z-index: 9999; max-width: 380px; }
   .ps-toast.error { border-color: var(--crit-bd); background: var(--crit-bg); color: var(--crit-fg); }
   .ps-toast.success { border-color: var(--ok-bd); background: var(--ok-bg); color: var(--ok-fg); }
+  /* Narrow viewports (small windows, embedded iframes): give the content room
+     by narrowing the sidebar, stacking the two-column blocks, and letting the
+     search box shrink. */
+  @media (max-width: 920px) {
+    .ps-shell { grid-template-columns: 200px 1fr; }
+    .ps-hero { grid-template-columns: 1fr; }
+    .ps-hero-left { border-right: 0; border-bottom: 1px solid var(--border); }
+    .ps-hero-rules { grid-template-columns: 1fr; }
+    .ps-metrics { grid-template-columns: repeat(2, 1fr); }
+    .ps-overview-cols, .ps-diff-cols, .ps-triage { grid-template-columns: 1fr; }
+    .ps-meta-grid { grid-template-columns: repeat(2, 1fr); }
+    .ps-search-box { flex: 1 1 auto; min-width: 0; }
+  }
 </style>
 </head>
 <body>
